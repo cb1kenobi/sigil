@@ -15282,6 +15282,599 @@ how the two come to disagree." It is decided, and the answer is no.
   "everything the exclusions left" -- so a `DEBUG` naming nothing at all turned
   every logger in the process on. Covered by `test/debug/debug.test.ts`.
 
+### An `afterRun` hook: `finally`, `postrun`, and the telemetry seam in one
+
+oclif gives a command `init()`, `catch()` and `finally()`, plus a `postrun`
+hook. Three of those four we have or deliberately refuse; the fourth was
+missing. `main()` ended at `return (await cmd.run(state)) ?? state;` with
+**nothing after it**, so there was no way to write the thing every app wants: a
+handle to close, a lock to release, a duration to report. `src/run-hooks.ts`
+fires it, `src/hook-sources.ts` is the walk it shares with `beforeError`, and
+the one call site is inside `main()`.
+
+- **`init` is the module being imported, and `catch`-as-recovery is refused.**
+  The first is where a command's own setup belongs and there is nothing to add.
+  The second is the scope item worth writing down rather than leaving as a gap
+  somebody fills in later: oclif's `catch` is a **recovery** hook, and
+  `beforeError` is already refused that -- "suppression would have to mean
+  something different at every throw site -- what `parse()` returns, whether the
+  command still runs -- and a rule that cannot hold everywhere is worse than no
+  rule". A hook that could turn a failed run into a successful one has to answer
+  what `main()` returns, what the exit code is, and whether the error was ever an
+  error, which is that argument one step along. So `AfterRunHook` returns `void`,
+  whatever it hands back is ignored, and the outcome it is handed is frozen --
+  the refusal twice over, in the type and at run time.
+
+  The type half is not decoration, and the suite is what said so: the first draft
+  of the two tests that assert the runtime ignores a return value **failed
+  `pnpm check`**, because `() => 'recovered'` is not assignable to a hook
+  returning `void`. So they cast past it, and the cast is the point rather than a
+  nuisance -- what is being asserted is the half for the untyped JavaScript
+  caller the type cannot reach.
+
+- **`finally` and `postrun` are one hook, because they are one moment.** A
+  cleanup, a duration and an exit report all want the same thing: to run after
+  `run()` has finished, whichever way it finished. Two hooks would be two
+  orderings to keep in agreement and two places to ask whether the command
+  failed.
+
+- **It is handed an outcome rather than a value, and `ok` is the tag.**
+  `{ ok: true, value }` or `{ ok: false, error }`, which is what makes it a
+  `finally` rather than a success callback: a throw is an **outcome** rather than
+  an exit, so there is one path out of the call site whichever way `run()` went.
+  Tagged rather than a value with an optional error beside it because **anything
+  at all can be thrown, `undefined` included** -- a shape reading
+  `error !== undefined` would report `throw undefined` as a success, and that is
+  a test rather than a worry.
+
+- **`outcome.value` is what `run()` returned, before `main()`'s `?? state`.**
+  `main()` answers with the parse state for a command that returned nothing, and
+  reporting that as the command's value would be a lie about what the command
+  did. It is also what keeps one notion of a command's result, so that a format
+  registry reading the same value later reads the same thing -- there is no such
+  reader yet, and that half is a shape to keep rather than a fact about the code,
+  which a review round was right to make it say. `null` is the second input where
+  the two differ, since `??` reads it as nothing too, and it is the one somebody
+  writes by accident.
+
+- **Innermost command first, the schema last, through the one walk `beforeError`
+  already used.** That ordering is `beforeError`'s own and is right for the same
+  two reasons read forwards: a command's own cleanup runs before its parent's,
+  and the schema is the only source that sees every command _that ran_, which is
+  where telemetry belongs. What makes it one mechanism rather than two is that
+  `collectHooks()` moved out of `error-hooks.ts` into `hook-sources.ts`
+  parameterized by hook name -- the two firing sites differ in what a return
+  value means and in what a throw does, and in nothing at all about whose hook
+  fires when. Two copies of that walk is how the command side and the schema side
+  come to disagree about ordering.
+
+  Two levels cannot tell `[...contexts, schema]` from `[contexts[0], schema]`,
+  which is why the test is three deep: the middle command's own hook is the only
+  discriminator there is.
+
+- **A schema hook fires once, and the dedupe is on the hook rather than on its
+  source.** The root context is `initCommand()` over a **copy** of the schema, so
+  one function is reachable as `contexts.at(-1).hooks.afterRun` and as
+  `state.schema.hooks.afterRun`; a `Set` of the hooks is what makes that one
+  firing. The other side of the same set is that one function declared on both a
+  command and the schema fires once, which is what an app that put one cleanup in
+  two places asked for.
+
+- **It fires before `beforeError`, and that is the whole of what makes it a
+  `finally`**: a hook flushes its log and the error still reports. `main()` turns
+  the throw back into a throw _after_ the hooks, so it reaches `handleError()`
+  unchanged -- before the rendering, before a custom `settings.errorHandler`, and
+  before the `errorHandler: false` rethrow, each of which is a test rather than a
+  sentence.
+
+  "Before `beforeError`" is about **this** `main()` call, which a review round
+  was right to ask be qualified: a command running another with a nested `main()`
+  has already let that call render its own error by the time it returns, so a
+  composition sees the inner call's `afterRun` and `beforeError`, then the
+  outer's. That is each call's own error path rather than something this ordering
+  could reach.
+
+- **A hook that throws is reported and the next one still runs.** The owner
+  tree's rule -- every cleanup runs even when one throws, and what it threw is
+  reported rather than replacing the outcome in flight -- and it is the only one
+  that keeps a failed cleanup from costing the user the error they actually
+  needed. The sharper half is the **success** path, where there is no error for a
+  broken hook to hide behind: a `fireAfterRun()` that let one escape would reach
+  `main()`'s own catch and render a cleanup as the command's result. Both
+  directions are pinned, as is a rejection, since a hook typed `Promise<void>` is
+  one an `async` function satisfies and a `try` cannot catch a rejection it did
+  not await.
+
+- **And it does not throw by construction rather than by being careful**: every
+  hook is called inside its own `try`, so the loop cannot be left part way
+  through, and there is no statement after the loop that can fail. Which is a
+  property rather than a claim only since a review round falsified the first
+  version of it -- see below.
+
+- **It fires for a command that _ran_, which is all it claims.** A run answered
+  by `--help` or by `--version` returns before `cmd.run` is reached; a command
+  with no `run`, or with `run: null`, dispatches nothing; a parse that failed
+  never got to a command. None of those has an outcome to hand over, and
+  inventing one would mean answering `ok` for a run that did not happen. Each is
+  a test, and the parse-failure pair is two tests rather than one: a **validation**
+  failure and a **coercion** failure are two different throw sites -- one happens
+  while argv is being judged and the other while it is being read -- so a test
+  that used only the first would pin one of two. Both assert that `beforeError`
+  _did_ fire, which is what stops them passing because nothing happened at all.
+
+- **The framework's own `completion` command fires it, and that is the honest
+  answer rather than a surprise.** `help` and `--version` return before
+  `cmd.run`, and `completion` is an ordinary command with an ordinary `run` --
+  which this file already records in as many words, "it is an ordinary command,
+  so a required option is still required". So a telemetry hook sees it, and it is
+  written down because a reviewer would otherwise report it as a defect.
+
+- **A nested `main()` fires it once per command rather than twice for one, and
+  that is why it does not have `beforeError`'s recorded bug.** That one is **one
+  error reported twice**, because `main()` records `hooksFired` only for its own
+  `parse()`; this is **two commands each reported once**, which is what `afterRun`
+  means -- the inner step finished and so did the command that ran it, and a
+  telemetry hook wants both. Measured: a schema hook over a `build` that nests a
+  `clean` sees `clean:ok` then `build:ok`. Where the inner call rethrows, the
+  outer command's outcome is `{ ok: false }` carrying the **same error object**,
+  because that is what the outer command threw -- one outcome per command rather
+  than one error reported twice, which the test asserts by identity.
+
+- **What it costs is nothing measurable, and the in-process number is the one
+  that says so.** Six interleaved rounds of 2,000 full `main()` dispatches of a
+  command that declares no hook: **0.0266 ms against 0.0259 ms** per dispatch on
+  the median, which is the branch _faster_, and main's own six samples span
+  0.0239 to 0.0272 -- wider than the apparent delta. Run again against the
+  shipped build it is **0.0244 against 0.0231**, the branch faster again and
+  every number lower, which is the check this repository insists on: the
+  baseline moved more between two runs of one binary than the two binaries
+  differ from each other. Spawned, 40 interleaved and
+  order-alternated pairs, three runs: `--version` is 30.10 / 29.38 / 29.72 ms
+  against 30.21 / 29.19 / 29.76, which is indistinguishable and has to be, since
+  `--version` returns before `cmd.run` and none of this is on that path. The
+  absolutes are high because three other agents were building; the delta is the
+  claim, and the check is that the baseline agrees with the baseline -- main's own
+  dispatch median moved 0.9 ms across the three spawned runs, which is more than
+  the branch delta.
+
+  Statically it is **+459 bytes on the root entry, 7,518 B to 7,977 B over the
+  same six modules** -- no new chunk, because `hook-sources.ts` and
+  `run-hooks.ts` are small source modules rolldown folds into the chunk
+  `index.mjs` already reached. Against the 20 kB ceiling in `dist.test.ts` that
+  is 39%, so the headroom that entry is about did not move. Re-measured after
+  every change that moved it, which a review round had to ask for: the figure
+  read 7,947 B before round 1's own fixes and 8,014 B before the two guards they
+  made redundant were deleted, so a number carried rather than re-run is the
+  stale snapshot this file keeps warning about. `dist.test.ts`'s two comments
+  about the same entry were stale with it, and the 5.06x ratio the config graph
+  quotes is 4.78x now.
+
+- **The timing line is the first consumer of the outcome, which is why it is
+  written off the outcome rather than off two locals**: it reads the two things a
+  hook is handed, so a shape that could not say whether the command failed, or
+  how long it took, is a shape it could not have been written over.
+
+  ```
+  [2026-01-01T00:00:00.000Z] sigil Executing command "build"
+  [2026-01-01T00:00:00.000Z] sigil Command "build" returned after 41.028ms
+  ```
+
+  It shares `Executing command`'s namespace rather than taking one of its own,
+  because the pair is the point -- one `DEBUG=sigil` gives both halves, and
+  splitting them would mean `2>/dev/null` losing one. A hook's **own** failure
+  goes to `sigil:run`, which is that module's namespace exactly as
+  `error-hooks.ts` owns `sigil:error`.
+
+  Both are `log` and therefore **stdout**, matching `Executing command` and
+  `error-hooks.ts`'s own confession for a `beforeError` hook that threw: two
+  reports about a user hook that threw, on two streams, would be the
+  inconsistency. That a `DEBUG=sigil` line goes to stdout at all is a question
+  about every such line there already is rather than about these two, and is left
+  alone.
+
+- **`performance.now()` rather than `Date.now()`, and a sabotage is what made
+  that a test.** Monotonic, so a system clock that moved mid-command cannot make
+  a duration negative, and sub-millisecond, where `Date.now()` reads `0` for
+  anything quick -- which is most commands, and a timing line that says `0ms` for
+  all of them is one nobody reads twice. Reading the _second_ clock off
+  `Date.now()` and the first off `performance.now()` makes `ms` an epoch
+  timestamp, about 1.76e12, which satisfies every lower bound there is -- so the
+  duration tests carry an **upper** bound of a minute as well. Not the flaky kind
+  of upper bound: it is not calibrated against the sleep, it is calibrated against
+  the gap between a duration and a timestamp, and a minute sits twenty-nine
+  million times under one.
+
+- **A non-function is refused where it is _declared_, and ignored where it is
+  assigned later.** `'afterRun'` joined `initCommand()`'s list, which is what
+  covers a command -- without it an `afterRun: 'nope'` would parse and then do
+  nothing at all, which is the property that parses and silently lies.
+  `parse()`'s own check covers the **schema** and needed no telling, because it
+  walks `Object.entries(schema.hooks)` and was therefore generic over `afterRun`
+  before it existed; it runs first, so its message is the one the schema side
+  gives. Two checks rather than one, which is pre-existing and is why the two
+  tests assert two different messages.
+
+  A value assigned **later** -- by a `parse` hook, by a `run()`, by another hook
+  -- is past every check this framework has, so `collectHooks()` skips it rather
+  than confessing. One rule for every hook there is, rather than a fourth
+  confession in the one walk that could not have prevented it anyway. A review
+  round was right that the three behaviours wanted one written rule; this is it.
+
+- **`runCommand()` needed no wrap, and "by construction" is exactly the kind of
+  claim this repository checks rather than states.** `@ttylabs/sigil/testing`
+  wraps `afterParse` and `beforeError` on a **copy** of the schema and spreads
+  the rest, so a caller's `afterRun` is passed straight through -- and the
+  deduping is on **function identity**, so a copy that produced a different
+  function would have stopped it firing. It does not: a spread copies the
+  reference. Pinned on both paths, a run that returned and a run that threw.
+  Nothing was added to `RanCommand`: a test that wants the outcome declares an
+  `afterRun`, and a field there would be surface with no caller.
+
+#### What the sabotage pass found, and the two declared survivors
+
+Thirty-seven distinct mutations against the shipped code **in one run**, one at
+a time with the six affected test files run after each: **thirty-five caught,
+two declared, and no harness verdict**. A green control first, and the four
+verdict guards this repository has learned to need -- a pattern that matched
+nothing, one that matched more than once, a replacement equal to its original,
+and a run that found fewer test files than the control, each its own verdict
+rather than a pass. The tree is restored on `SIGINT` and `SIGTERM` as well as on
+an exception, because a killed pass that left a mutation behind poisons the next
+control.
+
+One run rather than a sum, which took two review rounds to get right. Round 2
+asked for the log to be kept, because a tally nobody can re-derive is the same
+stale snapshot a byte figure is; round 3 read the log that was kept and found the
+prose beside it **still** quoting a different arithmetic -- so what is recorded
+now is one invocation over one case file, both on disk, and the figure above is
+what that run printed. Nine of the thirty-seven are the fixes review rounds 1
+and 2 produced, which is the gap every round leaves: code written in answer to a
+review is code no review has seen.
+
+Round 3 also found a real defect **in the harness**: the "edit landed" check was
+`count(old) == 0` after the replacement, which is wrong for an _append_ -- whose
+replacement contains its own original -- so it reported "edit did not land" for a
+mutation that had landed exactly as written. It asks whether the file changed and
+holds the replacement now. Which is the fourth distinct way a sabotage harness
+has been found to be the thing that was wrong here, after a stale pattern, an
+apostrophe spelled as an escape and a `vitest run` whose paths missed.
+
+Both survivors are **equivalent mutations** rather than unguarded code, and the
+sharp version of each is caught -- which is the distinction worth keeping,
+because reasoning forwards from "no test failed" to "the guard is dead" has
+produced a wrong write-up here more than once.
+
+- `typeof hook === 'function'` weakened to `hook !== undefined` survives,
+  because the two differ only for a value that is neither, which nothing reaches
+  without assigning garbage at run time -- and the per-hook `try` catches the
+  `TypeError` either way, so no answer changes. The sharp version, adding every
+  source's value including `undefined`, **is** caught: it makes
+  `DEBUG=sigil:run` confess a `TypeError` on every command of every app that
+  declared nothing, which `should say nothing at all where the app declared no
+  hook` is the input for. That test is the claim in its own right as well -- a
+  namespace that confesses on every run is noise.
+- Taking `fireAfterRun()`'s return value as a replacement outcome survives,
+  because that function returns `Promise<void>`: `undefined ?? outcome` is
+  `outcome`, so the mutation is self-defeating. Dropping both freezes **and**
+  assigning a hook's return onto the outcome is caught by three tests.
+
+Two guards were **deleted** for failing a sabotage, both in the list
+construction and both redundant with the per-source `try`: an
+`Array.isArray()` on the chain and a `filter(Boolean)` over it. A `contexts` of
+`42` throws out of the spread into one `catch`, and a `contexts` holding a `null`
+throws out of `source.hooks` into the other, so each guard was a second answer to
+a question that already had one.
+
+#### What review round 1 found, and the two it got wrong
+
+Twelve findings over `git diff main...HEAD`, given the ticket's constraints and
+**not** the author's rationale. **One severe defect, one rule worth writing down,
+and ten corrections to prose** -- which is the distribution this file keeps
+recording for a round aimed at a diff: a deletion-based pass asks whether the code
+that is there is load bearing, and a reviewer asks whether a sentence beside it is
+true.
+
+- **`collectHooks()` could throw, and then `main()` rejected rather than
+  handling.** The severe one, and the module's own doc claimed the opposite ("it
+  does not throw -- and not by being careful"). Two reads were outside the guard
+  and both are reachable from a command's own `run()`, which is handed the state:
+  spreading `state.contexts` after `state.contexts = 42`, and reading
+  `state.schema` after somebody redefined it as a throwing getter. Measured
+  before anything was changed -- `main()` rejected with
+  `TypeError: ((intermediate value) ?? []) is not iterable` and
+  `Error: hostile schema`, with **nothing rendered at all**, which is the one
+  thing `main()` is documented not to do.
+
+  **And it reproduces on `main` through `beforeError` alone**, which is the
+  blast-radius check: the same two inputs, the same rejection, since
+  `collectHooks()` was written -- `handleError()` calls it from inside `main()`'s
+  own `catch`, so a throw there reaches no handler. Sharing one walk is what makes
+  one fix answer for both, and both sides are asserted. Two `try` blocks rather
+  than one, because a wrecked `contexts` must not cost the schema its hook; what
+  the guard gives up is the **chain**, so a command's own hook is lost and the
+  schema's still fires, which is pinned so it is a decision rather than an
+  accident.
+
+- **A hook assigned after init has three behaviours and none was written down.**
+  The entry above is the rule that answers it.
+
+- **Three "ways round the refusal", all three reproducing and none of them a way
+  round it** -- and establishing that took measuring the sibling channel rather
+  than arguing. A hook can mutate `outcome.error` and set its `exitCode`; it can
+  mutate the object `outcome.value` holds; and it can install a `beforeError` that
+  then replaces the error. What says none is a hole is that each is a channel the
+  app already had: a `beforeError` hook writing `err.message` and `err.exitCode`
+  has **exactly** the effect, measured side by side; a command can keep a
+  reference to the object it returned and mutate it after returning, measured the
+  same way; and `beforeError` may replace an error and may never suppress it, so
+  what an `afterRun` reaches by installing one is precisely what declaring one
+  reaches. All three are now **differentials** rather than assertions about either
+  answer, so deep-freezing the value or the error, or snapshotting the
+  `beforeError` set, fails them.
+
+  Deep-freezing was the reviewer's own suggested fix and is refused: it would
+  freeze somebody else's object on the way past, take away `beforeError`'s
+  documented right to mutate an error, and seal a `Date` or a class instance a
+  command handed back. Snapshotting the `beforeError` set before `afterRun` fires
+  is refused for its own reason -- a hook installed by a `parse` hook or by a
+  `run()` fires, so making `afterRun` the one place where installing one does not
+  work would be a special case nobody asked for.
+
+  What was genuinely wrong is the **prose**: the first version of the freeze
+  comment said "what is a fact about what happened is the outcome and the
+  duration, and those are the two that cannot be edited after the fact", which is
+  false of nested contents. It says what is frozen -- which case the outcome is
+  in, which value or error it holds, and `ms` -- and what is not, with the
+  measurements beside it.
+
+- **The freeze _refuses_ a write either way and _confesses_ one only from
+  strict-mode code.** An ES module is always strict, so a hook in one is told; a
+  hook out of `new Function` or a sloppy `.cjs` body has the write dropped in
+  silence and finds out nothing. Which is the host's rule rather than this
+  module's, and is the honest limit of "a hook that tried to rewrite what happened
+  finds out". Both halves are tests now.
+
+- **And five more sentences were false about the code beside them**: the hook-order
+  diagram read as the sequence of every run, where both of its ends are conditional;
+  the `beforeError` header said "after `afterRun`" of every throw site, where a
+  parse failure reaches it with no `afterRun` at all; "the same value a serializer
+  would be handed" asserted a consumer that does not exist; the schema hook's own
+  doc said "the only one that sees every command" where it sees every command that
+  **ran**; and the README pointed at an `AGENTS.md` entry that had not been written
+  yet, which is this section.
+
+Its coverage list named the tests, the README, `init-command.ts` and
+`error-handler.ts` as examined, and `testing/command.ts`, the demos, the
+`@ttylabs/cli` package and the `dist.test.ts` ceilings as skipped -- which is round
+2's worklist rather than a formality.
+
+#### What review round 2 found, and the one it got wrong about the input
+
+Pointed at the files round 1's own coverage list named as **skipped** -- the
+whole of `init-command.ts` and `parse.ts`, `load-command.ts`, the `completion`
+and `help` commands' own source, `docs/parser.md`, `packages/cli`, the
+`dist.test.ts` ceilings -- and at the code round 1's fixes produced, which no
+review had seen. Eight findings, **seven confirmed**, and the distribution is
+the one this file keeps recording: a round aimed where nobody looked finds
+**two mechanism-level surprises nobody had written down, a stale measurement,
+and five sentences**, and no new runtime defect in the five files round 1 read.
+
+- **A schema hook fires twice where something replaced it after init**, which
+  narrows the "fires once" claim above rather than contradicting the dedupe.
+  The root context's `hooks` is a **copy** of the schema's -- which is what
+  stops a hook reaching back into the caller's declaration -- so the two objects
+  hold the same function until somebody writes to one, and the identity `Set`
+  then sees two. One assignment in a `run()` is enough: measured,
+  `state.schema.hooks.afterRun = …` gives `['declared', 'replacement']`, and
+  the mirror through the root context gives the two the other way round.
+
+  **It reproduces identically on `main` through `beforeError`**, which is the
+  blast-radius check and is what makes it the mechanism rather than anything new.
+  Not fixed: both sources are needed -- the copy is what a `run()` or a hook
+  writes to reach the current run, and the original is what something installing
+  a hook before the parse writes to -- so dropping either loses a real case, and
+  identity cannot tell a divergence from two different hooks. What a replacement
+  wants is to write both, or to wrap rather than replace, which is what the
+  README already says. Pinned, so whoever meets it finds a measurement.
+
+- **A lazily loaded command loses its placeholder's hook where the module
+  declared _any_ hooks at all.** `loadCommand()` fills a key from the
+  placeholder only where the module left it `undefined`, and `hooks` is one key
+  -- so a module mentioning an _unrelated_ hook discards the placeholder's
+  `afterRun` rather than overriding it. Measured, and measured on `main` for
+  `beforeError` too. Every other merged property really is one value; `hooks` is
+  a bag of six, and the merge treats it as one where `initCommand()`'s check and
+  `collectHooks()` both treat it as six.
+
+  Not fixed, for the reason the entry above gives in a second shape: a per-key
+  merge changes what every hook's declaration means on every lazily loaded
+  command, which is not a thing to take inside a ticket about one hook. What the
+  round also established is the good news -- a module's **own** `afterRun` is
+  collected, a bad one is refused by `initCommand()` over the merge with the
+  same message an inline declaration gets, and a **default** command's fires
+  although argv never named it. All four are tests now, the control included,
+  because without it the limitation reads as "a lazily loaded command never
+  reaches the walk".
+
+- **The byte figure was stale, and it is the figure this file warns about.**
+  It read 7,518 B to 7,947 B and +429; the round measured 8,014 B against the
+  dist on disk, and after the two redundant guards came out it is **7,977 B and
+  +459**. Which is the number moving three times in one branch -- before round
+  1's fixes, after them, and after the deletions they prompted -- so what is
+  recorded is the instruction to re-run it. `dist.test.ts`'s own two comments
+  about the same entry were stale with it, in the file whose comment says the
+  measured figure lives "here and in AGENTS.md and nowhere else" and must agree;
+  the config graph's 38,064 B was 37 bytes out on `main` already, and is 38,101 B.
+
+- **`docs/parser.md` never learned the hook exists.** Three tables there -- the
+  command-property row, the schema hook table and the command hook table -- and
+  none of them had it, so the parser reference and the README disagreed about the
+  hook surface. That document is the one `README.md` points a reader at for the
+  parser's own semantics, so a reader of it could not have discovered `afterRun`,
+  its ordering or its refusal. All three say it now, with a paragraph for the one
+  thing that is not like its neighbours: it is the only hook in those tables that
+  fires outside `parse()`.
+
+- **"Nothing has set one yet" was false about the exit code, and the framework's
+  own `completion` command is the counterexample.** Asked for a script with no
+  shell named it writes the reason to stderr, sets `process.exitCode = 1` and
+  **returns normally** -- so a hook sees `ok: true` beside an exit code of 1.
+  Measured, after the first attempt at reproducing it used `completion bash`,
+  which is the form that sets none: the finding needed the bare form, which is
+  the reviewer's input rather than the obvious one. The true claim is narrower
+  and is in the same paragraph -- no code has been **derived from this outcome**
+  yet, because `errorHandler()` runs after every one of these -- and
+  `process.exitCode` is there for a hook that wants what has been set.
+
+- **`initCommand()`'s list is five hooks and `Command.hooks` has six**, so the
+  comment this change rewrote -- "one list covers both sides of every hook there
+  is" -- was an overclaim of exactly the kind this file treats as a first-class
+  defect. `subcommandLoaded` is checked nowhere for a command: measured, a
+  `hooks: { subcommandLoaded: 'nope' }` parses, runs fine while nothing loads,
+  and fails with a bare `hook is not a function` naming neither the hook nor the
+  command the first time a subcommand does. Pre-existing and left alone, because
+  adding it changes when a different hook's declaration is refused; the comment
+  says which one it does not cover and what that costs.
+
+- **Both sloppy-mode tests could not tell a refused write from a hook that never
+  ran.** A `new Function` body closes over nothing, so neither had a side channel
+  -- and the second test is _defined_ by the absence of a confession, which makes
+  "refused in silence" and "never invoked" the same two assertions. They write
+  `d.state.argv.sloppyRan` now, which is an allowed write because `state` is
+  mutable, and is the execution witness the strict-mode pair gets for free from
+  the confession it provokes.
+
+- **And the trade a wrecked `contexts` makes is wider than the prose said.**
+  `push(...iterable)` evaluates the spread whole before it pushes, so an iterable
+  that yields two good sources and then throws contributes **neither**, exactly
+  as a `42` does -- where the comment described the cost as "a `contexts` that is
+  not an array contributes nothing". Not a regression, since the old code spread
+  the same way, and the error is never lost either way because the schema is
+  collected in a `try` of its own.
+
+**What it got wrong** is worth as much as what it found, and it is one thing: it
+reported the `--version` and in-process timing figures as unverifiable under its
+own no-benchmark constraint, which is correct, and then listed the sabotage
+counts as unverifiable because **no result log survived on disk**. Fair, and
+fixed by keeping the run's output beside the case files rather than by arguing:
+a tally nobody can re-derive is the same stale snapshot the byte figure was.
+
+It also confirmed, by reading rather than by assuming, the four things most worth
+doubting: `fireAfterRun()`'s statements can none of them throw after round 1's
+fix; the two `try` blocks leave no read outside a guard; the three differentials
+can each fail for the reason their names give; and `packages/cli` declares no
+`hooks` the new name collides with and emits none that would drop an `afterRun`
+from a built app.
+
+#### And the full suite found a test of mine passing for the wrong reason
+
+Not a reviewer and not the sabotage pass: the one full run at the end printed a
+stray `Error: Invalid run function in "noop" command` to stderr, out of a test
+named `should fire nothing for a run: null` which captured **stdout**. `run` is
+typed `| null`, so `null` reads as the spelling for "this command dispatches
+nothing" -- and `initCommand()` refuses it outright, so the parse failed and
+`afterRun` was silent for the reason every parse failure is rather than for the
+reason the name gave. Which is the defect this file is written against, in a
+file written against it, invisible to both the sabotage pass and three review
+rounds because the assertion held throughout.
+
+It asserts what `run: null` really does now, with `beforeError` beside it to say
+the run failed, and a sibling covers the shape it reads as -- a command with no
+`run` at all, which dispatches nothing, prints its help and exits zero. The
+lesson is narrower than "read the output": a test that captures one stream and
+asserts an absence on the other is one whose premise nothing checks.
+
+#### What review round 3 found: no error-path defect, and four figures
+
+Pointed at **the error paths exhaustively** -- which is where an ordering defect
+hides -- at round 2's own skipped list, and at the code round 2's fixes
+produced. It walked about thirty-five ways a value can be thrown between
+`main()` being called and `main()` returning, measuring each against the built
+`dist/` with the hooks counted and both streams captured, and found **no
+behaviour defect at all**. The findings are four figures and a harness bug, and
+the error-path audit's value is the table rather than a fix.
+
+What it established, and the structural reason each holds:
+
+- **Twenty-one throw sites inside `parse()`, and not one reaches `afterRun`.**
+  Every one of them -- a missing required option, a bad `choice`, a coercion
+  failure, an unknown option, an unexpected argument, a missing argument, a
+  module that will not load, a caller's `transform`, `beforeParse`, `afterParse`,
+  `init` or `parse` hook, a `desc` thunk, a `version` function, a missing value,
+  an option handed a second value, three shapes of invalid schema, a variadic
+  hint and a malformed format -- fires `beforeError` once, `afterRun` zero times,
+  resolves `main()`, renders, and exits 1. And **none can reach `run()` first**,
+  because `run()` is only invoked after `parse()` _returns_ and every one of
+  those leaves through `parse()`'s single catch. The load-failure row is the
+  subtle one and is also right: a matched command whose module will not load is
+  already in `state.contexts`, so its own `beforeError` sees it, and `run` was
+  never called.
+- **A deleted working directory** goes through the ordinary path, because
+  `assertCwd()` sits inside `main()`'s own `try`: `beforeError` once, `afterRun`
+  none. A **catalog loader that rejects** is the one pre-parse failure that
+  produces no error at all -- it is logged under `sigil:i18n` and English stays
+  in effect, which is the documented rule that a broken translation must not fail
+  a parse -- so the command runs and `afterRun` fires `ok: true`.
+- **Printing help can fail, and then `beforeError` fires with no `afterRun`.** A
+  `help` hook that throws, a `help` renderer that throws, and a `stdout.write`
+  that throws mid-help each resolve, render and exit 1. Which is the one "a run
+  that never happened" shape where something did fail, and it was pinned nowhere.
+- **A thenable is a promise to this code.** `await cmd.run(state)` assimilates
+  any `{ then }`, including one whose `then` throws and one whose `then` _getter_
+  throws; all three fire `afterRun` exactly once. And `Promise.reject(undefined)`
+  carries the tagged union all the way out -- `throw outcome.error` throws
+  `undefined` and the handler renders `Unknown error`.
+- **A `run()` that never settles has no outcome and no answer**, which is worth
+  stating because "fires after `run()` returned or threw" quietly assumes a third
+  case: `main()`'s promise never settles, `afterRun` never fires, and with no live
+  handle the process simply exits 0 with the pending call abandoned. A `finally`
+  for a call that never returns is unreachable by construction. The same is true
+  of an awaited **hook** that never settles, and of `beforeError`.
+- **A hook can throw something nothing can inspect and the walk survives it**,
+  which is `safeLog()`'s whole job: `Console.log` formats its argument before
+  writing, so a thrown object whose `message` and `name` getters throw throws
+  _inside_ the logging of it. Measured safe, as is a hostile
+  `inspect.custom`. And a `DEBUG=sigil:run` line written to a stdout that throws
+  loses the line rather than the run, because `debug()` writes through an
+  intermediate `Writable` whose machinery absorbs it -- which covers the timing
+  line too, and it uses the raw `log` rather than `safeLog`.
+- **A custom `errorHandler` that throws rejects `main()`, and `afterRun` had
+  already fired once.** The rejection is documented -- "that is a bug in the
+  handler" -- and the composition was not: a telemetry hook must not lose the run
+  because the app's handler is broken.
+- **And an `afterRun` that calls `main()` recursively** fires each call's own
+  hook once with the right `cmd`, with no interference. There is no reentrancy
+  guard, so an _unconditional_ recursion dies of stack -- which is an app
+  recursing through a public function, exactly as a `run()` that does it is, and
+  that one is a supported shape with a test.
+
+Five of its coverage gaps are closed rather than noted, chosen because each pins
+a claim the structural argument was carrying alone: the thenable, the rejection
+with `undefined`, the help-printing failure, the uninspectable thrown value, and
+the throwing custom handler. The rest are left to the structural argument, which
+is strong and is written down: there is one exit from `parse()`.
+
+The four figures, each confirmed by re-measuring:
+
+- **The sabotage tally could not be re-derived from the log round 2 asked be
+  kept**, which is that round's own fix being incomplete -- the log was preserved
+  and the prose beside it was not reconciled with it. One run over one case file
+  now, both on disk.
+- **The harness's "edit landed" check was wrong for an append**, which is the
+  entry above.
+- **`dist.test.ts` held two contradictory figures for the components graph**,
+  130 lines apart: 234,912 B over 23 against the 239,929 B over 26 the comment
+  round 2 corrected quotes, which is the two-comments-disagreeing defect that
+  very comment is written about, surviving in the same file. And the testing
+  subpath's comment quoted the root entry at 7,532 B in the present tense, which
+  `afterRun` moved -- so that sentence now says it is a measurement of **that**
+  change rather than of the tree.
+- **`src/completion/index.ts`'s header was a third copy of the root-entry
+  figure**, at 7,553 B, in a source header describing the current tree. It states
+  the claim -- the entry is exactly what it was without that feature -- and points
+  at the two places the number lives, which is the rule `dist.test.ts` states and
+  which a header cannot keep by carrying a number nothing re-measures.
+
 ### Help
 
 - **`--version` is the framework's, for the reason `--help` is, and the reason

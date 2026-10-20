@@ -85,20 +85,20 @@ declaring both throws.
 
 ### Command properties
 
-| Property    | Type                     | Notes                                              |
-| ----------- | ------------------------ | -------------------------------------------------- |
-| `alias`     | `string \| string[]`     | Additional names                                   |
-| `args`      | `(string \| Argument)[]` | Positional arguments                               |
-| `commands`  | `object \| string`       | Subcommands, or a path to load them from           |
-| `default`   | `boolean`                | Runs when argv named no command — see below        |
-| `desc`      | `string`                 | Description for help                               |
-| `hidden`    | `boolean`                | Omit from help; a `!` name prefix sets it too      |
-| `hooks`     | `object`                 | `init`, `parse`, `help`, `beforeError` — see below |
-| `load`      | `() => Promise<unknown>` | The module as a function, for a bundled app        |
-| `options`   | `object`                 | Options scoped to this command and its children    |
-| `path`      | `string`                 | A module to load the command from                  |
-| `routeInfo` | `object`                 | Descriptions a build lifted out of a command tree  |
-| `run`       | `(state) => unknown`     | Handler invoked by `main()` when this command wins |
+| Property    | Type                     | Notes                                                          |
+| ----------- | ------------------------ | -------------------------------------------------------------- |
+| `alias`     | `string \| string[]`     | Additional names                                               |
+| `args`      | `(string \| Argument)[]` | Positional arguments                                           |
+| `commands`  | `object \| string`       | Subcommands, or a path to load them from                       |
+| `default`   | `boolean`                | Runs when argv named no command — see below                    |
+| `desc`      | `string`                 | Description for help                                           |
+| `hidden`    | `boolean`                | Omit from help; a `!` name prefix sets it too                  |
+| `hooks`     | `object`                 | `init`, `parse`, `help`, `afterRun`, `beforeError` — see below |
+| `load`      | `() => Promise<unknown>` | The module as a function, for a bundled app                    |
+| `options`   | `object`                 | Options scoped to this command and its children                |
+| `path`      | `string`                 | A module to load the command from                              |
+| `routeInfo` | `object`                 | Descriptions a build lifted out of a command tree              |
+| `run`       | `(state) => unknown`     | Handler invoked by `main()` when this command wins             |
 
 A command is hidden if its name carries a `!` prefix **or** it declares
 `hidden: true`. The two are additive: either one alone is enough, and an
@@ -1435,11 +1435,12 @@ The reasoning for each is in the deliberate-decisions list in `AGENTS.md`.
 
 Schema-level hooks are functions on `schema.hooks` -- one each, not a list:
 
-| Hook          | When                                                 |
-| ------------- | ---------------------------------------------------- |
-| `beforeParse` | Before argv is walked                                |
-| `afterParse`  | After the values exist, before any of them is judged |
-| `beforeError` | On the way out of any error — see [Errors](#errors)  |
+| Hook          | When                                                              |
+| ------------- | ----------------------------------------------------------------- |
+| `beforeParse` | Before argv is walked                                             |
+| `afterParse`  | After the values exist, before any of them is judged              |
+| `afterRun`    | After the matched command's `run()` returned or threw — see below |
+| `beforeError` | On the way out of any error — see [Errors](#errors)               |
 
 Command-level hooks live on `command.hooks`:
 
@@ -1448,12 +1449,28 @@ Command-level hooks live on `command.hooks`:
 | `init`             | When the command is initialized                                           |
 | `parse`            | When the command is matched during parsing                                |
 | `help`             | Before its help is rendered — see [sections](#contributing-help-sections) |
+| `afterRun`         | After its own `run()` returned or threw, before the schema's — see below  |
 | `beforeError`      | On the way out of any error, before the schema's own hooks                |
 | `subcommandLoaded` | After one of its own subcommands has loaded — see below                   |
 
 A command hook is called with `{ cmd, ...cmd[Internal] }`, so it is handed the
 initialized command along with the registries the parser reads — see below for
 what it may change.
+
+`afterRun` is the one that fires outside `parse()`: `main()` fires it once the
+matched command's `run()` has returned **or thrown**, innermost command first
+and the schema last, before the `beforeError` hooks of that same `main()` call.
+It is handed `{ cmd, outcome, ms, state }`, where `outcome` is
+`{ ok: true, value }` or `{ ok: false, error }` and `value` is what `run()`
+returned rather than what `main()` answers with. It fires only for a command
+that **ran**: a run answered by `--help` or `--version`, a command with no
+`run`, and a parse that failed reach no `afterRun`.
+
+It returns nothing and the outcome it is handed is frozen, so it cannot turn a
+failed run into a successful one — there is deliberately no `catch`-as-recovery
+hook, for the reason `beforeError` may not suppress an error. A hook that throws
+is reported under `DEBUG=sigil:run` and the next one still runs. See
+`packages/sigil/README.md` for the worked example.
 
 Two things that both want to happen at one hook go in one function, or wrap the
 one that is already there:

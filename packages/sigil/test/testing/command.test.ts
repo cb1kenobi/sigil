@@ -476,6 +476,58 @@ describe('runCommand() and the app the caller handed it', () => {
     expect(ran.err).toContain('Unknown error');
   });
 
+  it('should leave an afterRun hook of theirs alone', async () => {
+    // the wrap replaces `afterParse` and `beforeError` and spreads the rest, so
+    // this holds by construction -- and "by construction" is exactly the kind of
+    // claim this file exists to check rather than to state, because the wrap is
+    // a copy and a hook deduped by **function identity** would stop firing if
+    // the copy produced a different function. It does not: a spread copies the
+    // reference
+    const seen: string[] = [];
+    const ran = await runCommand({
+      argv: ['x'],
+      schema: app(
+        {},
+        {
+          hooks: {
+            afterRun: (data: { cmd: { name: string }; outcome: { ok: boolean } }) =>
+              void seen.push(`${data.cmd.name}:${data.outcome.ok ? 'ok' : 'threw'}`),
+          },
+        }
+      ),
+    });
+
+    expect(seen).toEqual(['greet:ok']);
+    expect(ran.out).toBe('hello x\n');
+  });
+
+  it('should leave an afterRun hook alone on a run that failed', async () => {
+    // the half that would break if the wrap ever grew an `afterRun` of its own
+    // and got the ordering wrong: theirs still fires, and the error this reports
+    // is still the error
+    const seen: string[] = [];
+    const ran = await runCommand({
+      argv: ['x'],
+      schema: app(
+        {
+          run: () => {
+            throw new Error('command failed');
+          },
+        },
+        {
+          hooks: {
+            afterRun: (data: { outcome: { ok: boolean } }) =>
+              void seen.push(data.outcome.ok ? 'ok' : 'threw'),
+          },
+        }
+      ),
+    });
+
+    expect(seen).toEqual(['threw']);
+    expect((ran.error as Error).message).toBe('command failed');
+    expect(ran.code).toBe(1);
+  });
+
   it('should not write the wrap onto the schema it was handed', async () => {
     // a schema is an ordinary object an app exports once, so a helper that
     // mutated it would leave the wrap behind for every later run in the process

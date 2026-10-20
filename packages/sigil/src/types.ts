@@ -234,6 +234,11 @@ export interface Command<
    */
   load?: CommandLoader;
   hooks?: {
+    /**
+     * Fires after this command's `run()` has returned or thrown, before the
+     * error path has rendered anything. See `AfterRunHook`.
+     */
+    afterRun?: AfterRunHook;
     beforeError?: BeforeErrorHook;
     /**
      * Fires when this command's help is about to be rendered, to contribute
@@ -704,6 +709,15 @@ export interface Schema {
     beforeParse?: SchemaHook;
     afterParse?: SchemaHook;
     /**
+     * Fires after the matched command's `run()` has returned or thrown.
+     * Commands in the context chain declare their own, and those run first --
+     * this is the only one that sees every command *that ran*, which is where
+     * telemetry belongs. A run answered by `--help` or `--version`, and a parse
+     * that failed before anything ran, reach no `afterRun` at all; the second
+     * of those is what `beforeError` is for. See `AfterRunHook`.
+     */
+    afterRun?: AfterRunHook;
+    /**
      * Fires on the way out of any error. Commands in the context chain
      * declare their own, and those run first; see `BeforeErrorHook`.
      */
@@ -817,6 +831,99 @@ export type BeforeErrorHook = (
   err: unknown,
   state: ParseState | undefined
 ) => unknown | Promise<unknown>;
+
+/**
+ * What a command's `run()` came to.
+ *
+ * A discriminated union rather than a value and an optional error beside it,
+ * because the two are never both there and a hook reading `error` off a run
+ * that returned is a hook asking a question with no answer. `ok` is what
+ * narrows it, so `outcome.error` is unreachable until the hook has said which
+ * case it is in.
+ *
+ * `value` is what `run()` returned, **before** `main()`'s `?? state`
+ * substitution: a command that returned nothing makes `main()` answer with the
+ * parse state, and reporting that as the command's value would be a lie about
+ * what the command did. Which is also what keeps it one notion of a command's
+ * result, so that a format registry reading the same value later reads the same
+ * thing -- there is no such reader yet, and that half is the shape to keep
+ * rather than a fact about the code today.
+ */
+export type RunOutcome =
+  | { readonly ok: true; readonly value: unknown }
+  | { readonly ok: false; readonly error: unknown };
+
+/**
+ * Fires after the matched command's `run()` has returned or thrown.
+ *
+ * This is `finally` and `postrun` in one hook, because they are one moment: a
+ * handle to close, a lock to release, a duration to report. It fires on a throw
+ * as well as on a return -- which is what makes it a `finally` rather than a
+ * success callback -- and it fires **before** the `beforeError` hooks, so a
+ * hook can flush a log and the error still reports.
+ *
+ * It returns nothing, and that is the `catch`-as-recovery refusal written into
+ * the type. oclif's `catch` is a recovery hook; this is a reporting one, and
+ * what it reports cannot be swapped out. The argument is `beforeError`'s own,
+ * one step along: suppression "would have to mean something different at every
+ * throw site", and a hook that could turn a failed run into a successful one
+ * would have to answer what `main()` returns, what the exit code is, and
+ * whether the error was ever an error. Whatever a hook hands back is ignored,
+ * and the `outcome` it is handed is frozen.
+ *
+ * What that refuses is exactly what the framework is the author of: which case
+ * the outcome is in, which value or error it holds, and the duration. It does
+ * **not** seal the insides of objects the app owns -- the value is the
+ * command's own, and the error is one `beforeError` is already entitled to
+ * mutate -- so a hook can still reach what is rendered the way a `beforeError`
+ * hook can. See `run-hooks.ts`, where that line is drawn with the measurements
+ * behind it.
+ *
+ * A hook that throws is logged under `DEBUG=sigil:run` and the next one still
+ * runs: every cleanup runs even when one throws, and what it threw is reported
+ * rather than replacing the outcome in flight. That is the owner tree's rule,
+ * and it is the only one that keeps a failed cleanup from costing the user the
+ * error they actually needed.
+ *
+ * It fires for a command that **ran**, which is the whole of what it claims: a
+ * run answered by `--help` or `--version`, or one whose command has no `run`,
+ * has no outcome to hand over and fires nothing. And "before `beforeError`" is
+ * about **this** `main()` call: a nested one has already rendered its own error
+ * by the time the outer command returns, which is that call's error path rather
+ * than something this ordering could reach.
+ *
+ * @param data - The command, what its `run()` came to, and how long it took.
+ */
+export type AfterRunHook = (data: AfterRunHookData) => Promise<void> | void;
+
+export interface AfterRunHookData {
+  /**
+   * The command whose `run()` this is about, which for a nested `main()` is
+   * the command *that* call matched rather than the one above it.
+   */
+  readonly cmd: InternalCommand;
+  /**
+   * How long `run()` took, in milliseconds, off `performance.now()` -- so it is
+   * monotonic and sub-millisecond, where `Date.now()` reads zero for anything
+   * quick and moves if the system clock does.
+   *
+   * There is deliberately no exit code beside it, and the reason is narrower
+   * than "nothing has set one yet" -- which a review round measured false. A
+   * `run()` may set `process.exitCode` itself, and the framework's own
+   * `completion` command does: asked for a script with no shell named it
+   * writes the reason to stderr, sets `1` and returns, so a hook sees
+   * `ok: true` beside an exit code of `1`. What is true is that no code has
+   * been **derived from this outcome** yet: `errorHandler()` runs after every
+   * one of these, and what it will set is `errorExitCode()`'s to read off the
+   * error. A code here would be this guessing at a decision not yet taken,
+   * where `process.exitCode` is there for a hook that wants what has been.
+   */
+  readonly ms: number;
+  /** What it came to. See {@link RunOutcome}. */
+  readonly outcome: RunOutcome;
+  /** The parse state the command was handed. */
+  readonly state: ParseState;
+}
 
 export type SchemaHook =
   | (() => Promise<void> | void)
