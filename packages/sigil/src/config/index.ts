@@ -118,15 +118,20 @@ export { overlay } from './merge.js';
 export { object } from './stores/object.js';
 export { json } from './stores/file.js';
 export type {
+  ConfigChange,
+  ConfigChangeHandler,
   ConfigDocument,
   ConfigLayer,
   ConfigLayerInfo,
   ConfigMerge,
   ConfigOptions,
+  ConfigPathHandler,
   ConfigSchema,
   ConfigSetting,
   ConfigStore,
   Loss,
+  WatchOptions,
+  WatchSource,
   WritableConfigStore,
   WriteOptions,
 } from './types.js';

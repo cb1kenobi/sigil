@@ -1466,6 +1466,138 @@ layers: the stack _is_ the merge.
 
 It works on a read-only layer, because re-reading one is not writing it.
 
+### Watching a config file
+
+A long-running CLI — a dev server, a TUI, a watch mode — wants to know when its
+config changed. `config.watch()` is that, in two forms:
+
+```js
+// one setting, which is almost always what "reload when config changes" means
+const stop = config.watch('server.port', ({ previous, value }) => restart(value));
+
+// or everything that moved
+const stopAll = config.watch((changes) => {
+  for (const { path, previous, value } of changes) {
+    log(`${path}: ${previous} -> ${value}`);
+  }
+});
+```
+
+Each returns a disposer, safe to call more than once. The file watchers start
+when the **first** handler registers and stop when the last one goes, so a
+config nobody watches opens no file descriptor — and under `fs.watch` it is one
+watcher per directory, so two layers in one directory share it. Under `poll` it
+is one `watchFile` per file, because that is the whole of what polling has to do.
+
+What a handler is handed is a **diff rather than the fact of a change**, which is
+the half that makes this worth having over `fs.watch` plus a re-read of your own.
+`config.get(change.path)` always equals `change.value`. And because the merge is
+layered, a change in a lower-precedence layer that a higher one **shadows
+publishes nothing** — which is the one thing a per-file watcher can never tell
+you:
+
+```js
+// a system file and a user file, and the user's wins
+config.watch('theme', ({ value }) => repaint(value));
+// somebody edits the system file's `theme`: nothing fires, because nothing
+// an app can see has changed
+```
+
+Every layer whose store reports a `source` the watcher can read as a file path
+is watched. An **object layer** has no file, so it is not watched — and `apply()`
+is how it participates in the diff, which makes `config.watch()` worth calling on
+a config of nothing but object layers. A layer whose source is a **URL** is not
+watched either, and says so through `onError`.
+
+A **symlinked** config is watched through the link, because that is where the
+writer writes: the directory watched is the real file's rather than the link's,
+which is what makes a `stow`-style layout work. What that gives up is the link
+itself being re-pointed while the app is running.
+
+#### It survives an atomic write, which is the whole point
+
+`fs.watch(file)` is the obvious implementation and it is a feature that works
+until the first save and then stops, silently, for the life of the process. A
+rename swaps the inode, so a watch registered on the path is watching a file
+nothing will ever write to again — which is why an editor that saves atomically
+is the known case that breaks `fs.watch`, and `save()` is one. Measured on
+macOS over a real temp-plus-rename:
+
+| what was watched             | first rename | second rename |
+| ---------------------------- | ------------ | ------------- |
+| the **file**                 | one event    | **nothing**   |
+| the **directory** holding it | three events | three events  |
+
+So the directory is watched and the event itself is never read — not
+`eventType`, not `filename`, both of which differ by platform. Any event means
+re-read and compare, which is what makes those differences stop mattering.
+
+Four more things fall out of that, and each is a way a naive watcher fails:
+
+- **A file that does not exist yet** is the ordinary case on a fresh install, and
+  `fs.watch` on a missing path throws. So the watcher climbs to the deepest
+  existing ancestor and re-targets downward as the directories appear.
+- **One logical save is two to five events** — vim writes a backup, truncates and
+  renames — so a reload per event reads a truncated file and clobbers a good
+  config with nothing. Reloads are debounced (50ms), and more importantly
+  **compared**: a reload that produces the value already held publishes nothing.
+- **A read that fails mid-write is expected**, so it retries and only a failure
+  that persists past another window is reported — with the last good value kept.
+- **Your own `save()` fires the watcher**, and the compare handles it: the value
+  read back is the one just written, so nothing is published. Which is better
+  than suppressing events for a window after a write, because that also swallows
+  somebody else's write that landed in the same window.
+
+#### A reload overwrites an unsaved `set()`
+
+**A reload is a reload.** An unsaved `delete()` is restored by one, so an unsaved
+`set()` is overwritten by one — two rules there would mean a reloaded layer is
+neither what the file says nor what you set. An app that wants its writes to
+survive a reload calls `save()` first. The compare means the ordinary case never
+arises, and when it does arise the change is dispatched, so an app holding
+unsaved values is told.
+
+#### Where a failure goes, and polling
+
+```js
+const config = await createConfig({
+  layers: [...],
+  watch: {
+    debounce: 50, // how long to wait for a write to settle
+    interval: 1000, // how often to stat, under `poll` and during a climb
+    onError: (e) => myLog.error(e), // a handler that threw, or a read that kept failing
+    poll: false, // stat instead of using filesystem events
+  },
+});
+```
+
+There is no default for `onError` that can be right — `console.error` from a
+library corrupts a full-screen app's screen, and throwing from a timer callback
+is an uncaught exception — so the floor is the `sigil:config` debug log, which is
+silent unless somebody asked. **An app that watches config should pass
+`onError`**, because a config file the user broke is exactly the thing they need
+telling about.
+
+`poll: true` is the answer for a **network filesystem or a container bind
+mount**, where inotify does not propagate and `fs.watch` silently never fires —
+works in dev, dead in Docker, nothing to point at. It is opt-in rather than
+guessed at, because nothing in a process can tell a filesystem that will deliver
+events from one that will not.
+
+Two limits worth knowing, both named rather than guarded. A change that lands
+between the config's own read and your `watch()` call is not delivered **on its
+own**, because nothing was watching yet — it is not lost, though: the next event
+diffs against the value the config is still holding, so that earlier change
+arrives merged into the next publish. And a filesystem event can be **dropped** —
+measured at about 3% for a watcher written to immediately after it is created,
+under heavy parallel load — which in the steady state costs latency and recovers
+on the next write. During a climb it would be permanent, so while the watcher is
+not on the directory it wants it re-checks every `interval`. (`interval` has two
+jobs: that re-check under `fs.watch`, and how often the file is stat'd under
+`poll`. A debounce `setTimeout` runs on every event, and under `poll` a
+`watchFile` runs for as long as you are watching; all of them are unref'd, so
+none holds the process open.)
+
 ### The schema
 
 Config's own schema, declared by dotted path, in the parser's own type
@@ -2992,8 +3124,9 @@ The whole surface, since an exported type is API an app can write into its own
 signatures: `createConfig`, `createConfigSync`, `Config`, `isWritableStore`,
 `object`, `json`, and the types `ConfigOptions`, `ConfigLayer`,
 `ConfigLayerInfo`, `ConfigSchema`, `ConfigSetting`, `ConfigMerge`,
-`ConfigDocument`, `ConfigStore`, `WritableConfigStore`, `WriteOptions` and
-`Loss`.
+`ConfigDocument`, `ConfigStore`, `WritableConfigStore`, `WriteOptions`,
+`WatchOptions`, `WatchSource`, `ConfigChange`, `ConfigChangeHandler`,
+`ConfigPathHandler` and `Loss`.
 
 Plus the **store kit** — `writeAtomic`, `writeAtomicSync`, `isMissing`,
 `overlay`, `segments` and `isPlainObject` — which is what a store somebody else
@@ -3014,7 +3147,7 @@ import { createConfigSync, json, object } from '@ttylabs/sigil/config';
 ```
 
 It imports no parser module at all, which makes it usable from an app that does
-not use sigil's parser. The subpath is about 31 kB over seven modules — `paths`,
+not use sigil's parser. The subpath is about 37 kB over seven modules — `paths`,
 the type coercion, i18n, the debug logger, the environment-variable rule the
 parser shares, the directory creation the update cache shares, and the module
 itself — which is a module rather than anything like `sigil/components`.

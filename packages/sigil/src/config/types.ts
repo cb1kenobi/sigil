@@ -118,6 +118,14 @@ export interface ConfigStore {
    * `delete()` has to print names two paths -- the one to write instead and the
    * one to edit by hand -- and a layer name is what the app chose to call it,
    * which is not a file a user can open.
+   *
+   * `Config.watch()` reads it as a **file path**, which is the one place the
+   * three answers are not interchangeable: a store with no source is not
+   * watched and `apply()` is how it participates in the diff, and one whose
+   * source opens with a **scheme** is not watched either and says so through
+   * `WatchOptions.onError` -- because read as a path a URL would climb to the
+   * working directory and watch that, which is a watcher that is dead and says
+   * nothing.
    */
   readonly source?: string;
 }
@@ -343,4 +351,136 @@ export interface ConfigOptions {
   layers?: readonly ConfigLayer[];
   /** The settings, by dotted path. */
   schema?: ConfigSchema;
+  /**
+   * How to watch, for a config something calls `watch()` on.
+   *
+   * Here rather than on `watch()` itself because the debounce, the source and
+   * where a failure goes are properties of **the watching** rather than of one
+   * handler: several `watch()` calls share one set of file watchers, so they
+   * share one answer to each. A config nothing watches reads none of this and
+   * costs nothing for it.
+   */
+  watch?: WatchOptions;
+}
+
+/**
+ * One dotted path whose merged value moved.
+ *
+ * The same shape for both forms of `watch()`, which is what makes it the one
+ * type: the path form is handed one of these and the whole-view form is handed
+ * a list, rather than two payloads to learn.
+ *
+ * **`config.get(change.path)` equals `change.value`**, always -- which is the
+ * invariant the inexpressible-key rule under `diffMerged()` exists for, and is
+ * what makes `change.path` a path an app can hand straight back.
+ */
+export interface ConfigChange {
+  /** The dotted path. `''` is the whole merged view. */
+  path: string;
+  /** What `get(path)` answered before. */
+  previous: unknown;
+  /** What it answers now. */
+  value: unknown;
+}
+
+/** What `watch(handler)` is handed: every path that moved, in walk order. */
+export type ConfigChangeHandler = (changes: readonly ConfigChange[]) => void;
+
+/** What `watch(path, handler)` is handed: that path's own change. */
+export type ConfigPathHandler = (change: ConfigChange) => void;
+
+/**
+ * Where a change comes from: something told us a file may have moved.
+ *
+ * A function rather than an interface, because that is the whole of what a
+ * source is -- and it is **a file path** rather than a directory, which is the
+ * one decision that lets the two built-in sources be different shapes. The
+ * climb, the directory and the re-target are all `fs.watch`'s problem;
+ * `fs.watchFile` polls the path and is immune to every one of them, measured.
+ * Hiding both behind "watch this file" is what keeps the caller from having to
+ * know which.
+ *
+ * Injectable for the reason `now` and `frameMs` are: the debounce, the compare,
+ * the retry, the diff and the dispatch are then all testable against something
+ * that fires on demand, with no sleeps and no filesystem. A filesystem watcher
+ * is the easiest thing in the world to test flakily, and this repository has an
+ * entry about a fourteen-second test being a flaky test one busy machine later.
+ *
+ * @param path - The file to watch.
+ * @param onEvent - Called when it may have changed. Any call means re-read.
+ * @returns A disposer, which must be safe to call more than once.
+ */
+export type WatchSource = (path: string, onEvent: () => void) => () => void;
+
+/** How to watch. */
+export interface WatchOptions {
+  /**
+   * How long to wait for a write to settle, in milliseconds. 50 by default.
+   *
+   * The precedent for picking one is explicit: `ESCAPE_TIMEOUT` is 50ms
+   * because bytes from a terminal arrive at machine speed, and
+   * `SEQUENCE_TIMEOUT` is 500ms because a finger does not. A filesystem write
+   * settling is a machine-speed event, so 50ms -- and the content compare is
+   * what makes a too-short value safe rather than the number being right,
+   * which is the right way round: a timer whose correctness rests on the
+   * number is a timer that is wrong on a slow machine.
+   *
+   * A network filesystem is what `poll` is for rather than what a longer
+   * debounce is for.
+   */
+  debounce?: number;
+  /**
+   * How often to ask the filesystem directly, in milliseconds. 1000 by default.
+   *
+   * Node's own `watchFile` default is 5007ms, which is too slow to notice a
+   * config change during a run, and chokidar's polling default is 100ms, which
+   * is ten stats a second forever -- on the network filesystem polling exists
+   * for, that is real traffic. A second is the cost of the feature working at
+   * all where events do not arrive, and this is how a caller who has measured
+   * their own filesystem picks another.
+   *
+   * Read in **two** places, which is one number because it is one idea. Under
+   * `poll` it is how often the file is stat'd. Under `fs.watch` it is how often
+   * the climb re-checks **while it is watching an ancestor rather than the
+   * directory it wants** -- because an event can be dropped, measured, and the
+   * one that would ever move the watch down is the one most likely to go. It
+   * costs nothing in the ordinary case, where there is no ancestor to climb
+   * from and no timer at all.
+   */
+  interval?: number;
+  /**
+   * Where a failure goes.
+   *
+   * Two kinds through one channel, because an app's answer to both is the same
+   * -- write it down somewhere a human will see it -- and two options would be
+   * two things to pass. A **handler** that threw, which is the app's own bug
+   * and carries its own stack; and a **read** that kept failing past the
+   * window, which is the store's own error, already translated and already
+   * naming the file.
+   *
+   * There is no default that can be right. `console.error` from a library
+   * corrupts a full-screen app's screen, and throwing from a timer callback is
+   * an uncaught exception. So the floor is the `sigil:config` debug log, which
+   * is silent unless somebody asked -- and an app that watches config should
+   * pass this, because a config file the user broke is exactly the thing they
+   * need telling about.
+   */
+  onError?: (error: unknown) => void;
+  /**
+   * Whether to poll with `fs.watchFile` instead of using `fs.watch`.
+   *
+   * The answer for a network filesystem or a container bind mount, where
+   * inotify does not propagate and **`fs.watch` silently never fires** -- which
+   * is the worst failure mode there is: works in dev, dead in Docker, nothing
+   * to point at. Opt-in rather than guessed at, because nothing in a process
+   * can tell a filesystem that will deliver events from one that will not.
+   */
+  poll?: boolean;
+  /**
+   * The event source, in place of the built-in ones.
+   *
+   * For a test, and for an app that already has a file watcher it would rather
+   * not have a second of.
+   */
+  source?: WatchSource;
 }

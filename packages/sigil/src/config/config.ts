@@ -3,15 +3,30 @@ import { deletePath, isPlainObject, readPath, segments, writePath } from './dott
 import { copyDocument, copyValue, deepFreeze, mergeLayers, overlay } from './merge.js';
 import { coerceLayer, concatPaths, defaultsOf, envOf, readSchema, type Setting } from './schema.js';
 import type {
+  ConfigChangeHandler,
   ConfigDocument,
   ConfigLayer,
   ConfigLayerInfo,
   ConfigOptions,
+  ConfigPathHandler,
   ConfigStore,
   Loss,
+  WatchOptions,
   WritableConfigStore,
   WriteOptions,
 } from './types.js';
+import {
+  allWatcher,
+  createSource,
+  DEFAULT_DEBOUNCE,
+  delay,
+  diffMerged,
+  dispatch,
+  pathWatcher,
+  reporter,
+  sameValue,
+  type Watcher,
+} from './watch.js';
 
 /**
  * What the schema's defaults and the environment are called in a message.
@@ -22,6 +37,53 @@ import type {
  */
 const DEFAULTS = '<schema defaults>';
 const ENVIRONMENT = '<environment>';
+
+/**
+ * A store source the watcher cannot read as a file path.
+ *
+ * A **scheme of two or more** and a colon, which is RFC 3986's own production
+ * minus the one-character case -- because that is exactly a Windows drive
+ * letter. `C:\\x`, `c:/x` and `C:foo` are one character before the colon and
+ * every scheme worth reporting is longer, so one rule separates them with
+ * nothing about slashes in it.
+ *
+ * The slashes are what the first version matched on, and they cannot be: a
+ * source reaches here through `expand()`, which ends in `normalize()`, so
+ * `json('https://host/cfg.json')` reports `https:/host/cfg.json` -- **one
+ * slash** -- and the guard never fired for any source this repository's own
+ * store factories produce. Measured, the watcher was then handed that path,
+ * climbed to the working directory and watched it, with nothing reported: the
+ * precise failure the guard exists to prevent, for every real store. A scheme
+ * with no slashes at all -- `s3:bucket/key`, which the interface's doc invites
+ * as readily -- was the same hole by the other road. Found by review, and the
+ * test that pinned the guard used a stub store whose `source` bypassed
+ * `expand()`, which is why it passed throughout.
+ *
+ * And the **leading `.\\`** is the other half of that same `normalize()`, which
+ * only Windows produces and which an anchored test misses entirely: there
+ * `normalize('https://host/cfg.json')` is `.\\https:\\host\\cfg.json`, because
+ * win32 reads the `//` as a separator and makes the result explicitly relative.
+ * So the scheme is no longer at the start of the string and the guard was dead
+ * for the two-slash form -- which is the common one -- on Windows alone, while
+ * `s3:bucket/key` kept firing because it has no slash to trigger the prefix.
+ * The dead watcher the guard exists to prevent, live on the one platform the
+ * suite could not see. Caught by CI on all three Windows jobs and nowhere else,
+ * which is the sixth instance of that class this repository records.
+ *
+ * Optional rather than a second pattern, because it is the same rule: a source
+ * is a URL when a scheme opens it, and `.\\` is `normalize()`'s own noise in
+ * front of one. POSIX is byte for byte unaffected -- measured over thirteen
+ * shapes on both platforms, the two answers differ for exactly the two URL
+ * forms Windows prefixes, and all four drive spellings, an absolute path, a
+ * relative one, a UNC path and a bare filename stay watched on both.
+ *
+ * What it costs is a **relative** path whose first segment is two or more
+ * characters and a colon -- a directory literally named `data:` -- which is
+ * refused and reported rather than watched. An absolute path can never match,
+ * since `/` and `\\` are not `[a-z]`. Loud and rare beats silent and common,
+ * which is this repository's own standing preference.
+ */
+const URL_SOURCE = /^(?:\.[\\/])?[a-z][a-z\d+.-]+:/i;
 
 /**
  * Whether a store will write.
@@ -56,7 +118,17 @@ interface Layer {
   readonly touched: Set<string>;
   /** The layer's own value, which `set()` mutates and the merge reads. */
   value: Record<string, unknown>;
-  readonly wouldLose?: readonly Loss[];
+  /**
+   * What the store said a write of this document would lose.
+   *
+   * Not `readonly`, because a reload re-reads the file and the answer is a fact
+   * about what the file now holds. Left at its construction value it is a
+   * **lying diagnostic**: watch a layer whose file had no trivia, let an editor
+   * add a comment the store cannot carry, and an app consulting the field
+   * before saving is told the write is lossless when it is not -- which is the
+   * one thing the field is documented for. Found by review.
+   */
+  wouldLose?: readonly Loss[];
 }
 
 /**
@@ -94,6 +166,61 @@ export class Config {
   readonly #concat: (path: string) => boolean;
   /** The settings, in declaration order. */
   readonly #settings: readonly Setting[];
+  /** How long a reload waits for a write to settle. */
+  readonly #debounce: number;
+  /** Where a handler's throw and a read that kept failing go. */
+  readonly #onError: (error: unknown) => void;
+  /** How to watch, read when the first handler registers. */
+  readonly #watchOpts: WatchOptions;
+  /**
+   * Whoever is watching, in registration order.
+   *
+   * One set for both forms of `watch()`, because each becomes one closure at
+   * registration: the dispatch then has no branches and the two forms cannot
+   * come to disagree about order.
+   */
+  readonly #watchers = new Set<Watcher>();
+  /** The pending debounce, per layer. */
+  readonly #timers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** The layers a reload is running for, which is the re-entrancy latch. */
+  readonly #reloading = new Set<string>();
+  /**
+   * The layers an `await save()` is in flight for.
+   *
+   * A second latch rather than a wider `#reloading`, because the two refusals
+   * mean opposite things about the file. A reload refused by `#reloading` is
+   * one whose bytes are already being read, so a second read would read the
+   * same ones and dropping it is right. A reload refused by *this* is one whose
+   * file is about to be **written by us**, so the only way to be right about
+   * what the file says is to read it again afterwards -- which is why that
+   * refusal re-schedules and the other does not.
+   *
+   * A **depth** rather than a flag, because `save()` is public and `async`, so
+   * two of them for one layer overlap on an app that does not await the first
+   * -- and a `Set` records that a save is running rather than how many, so the
+   * first one's `finally` released the latch while the second was still
+   * awaiting its own read. Measured: the reload then got through mid-save,
+   * cleared `touched` and reassigned `value`, and a `set()` made in that window
+   * was discarded from the file **and** from memory with `save()` reporting
+   * success -- which is the round-2 failure this latch exists for, reached
+   * through two saves rather than one. Found by review.
+   *
+   * And `save()` takes it for **every** layer it is going to write before its
+   * first `await`, rather than as the loop reaches each one: `#targets()`
+   * decides the whole list up front, so a later target was unprotected for as
+   * long as the earlier ones took and lost its changes to a reload of its own.
+   * The same silent loss again, reached through a second layer. Also found by
+   * review, which is the third round in a row to find a defect in this latch:
+   * once that it was needed at all, once about when to let go, and once about
+   * how many to hold.
+   *
+   * `#reloading` needs no depth: a reload is synchronous from end to end, so it
+   * cannot overlap itself, and what it guards is re-entrancy from inside its
+   * own dispatch rather than a second caller.
+   */
+  readonly #saving = new Map<string, number>();
+  /** What to call to stop watching, one per watched layer. */
+  #stops: (() => void)[] = [];
 
   /**
    * Builds a config from declarations and the documents their stores read.
@@ -120,12 +247,16 @@ export class Config {
     const settings = readSchema(opts.schema);
     assertLayers(declared);
     assertEnv(opts.env);
+    assertWatch(opts.watch);
 
     this.#layers = declared.map((layer, i) => layerOf(layer, docs[i], settings));
     this.#settings = settings;
     this.#concat = concatPaths(settings);
     this.#defaults = defaultsOf(settings);
     this.#env = envOf(settings, opts.env ?? process.env);
+    this.#watchOpts = opts.watch ?? {};
+    this.#debounce = delay(this.#watchOpts.debounce, DEFAULT_DEBOUNCE);
+    this.#onError = reporter(this.#watchOpts);
     this.#merged = undefined;
     this.#recompute();
   }
@@ -178,6 +309,7 @@ export class Config {
     // guard that cannot fire is one this repository deletes
     const next = copyValue(value, name) as Record<string, unknown>;
     coerceLayer(next, this.#settings, name);
+    const before = this.#merged;
     layer.value = next;
     // the whole layer, which is what `save()` writes wholesale -- `apply()`'s own
     // replace-not-merge rule read from the write side. A reload is the same
@@ -190,6 +322,16 @@ export class Config {
     // so applying any path of it over itself is a copy of an equal subtree
     layer.touched.add('');
     this.#recompute();
+    // **`apply()` publishes and `set()` does not**, which is the one asymmetry
+    // in this class worth stating rather than smoothing over. `apply()` is a
+    // *reload*: it replaces a layer with what some source now says, which is
+    // what `watch()` is about -- and for a layer with no watchable source, an
+    // object layer built from the app's own `import()`, it is the **only** way
+    // into the diff at all. `set()` is the app composing a value it will later
+    // save, so publishing it would be telling the app what it just said; it
+    // would also make a handler that sets loop, with nothing but the value
+    // compare to stop it
+    this.#publish(before);
   }
 
   /**
@@ -392,15 +534,51 @@ export class Config {
     const [which, how] = saveArgs(name, opts);
     const written: string[] = [];
 
-    for (const layer of this.#targets(which)) {
-      const doc = await layer.declared.store.read();
-      const next = this.#staged(layer, doc, how);
-      await (layer.declared.store as WritableConfigStore).write(next.write, {
-        ...how,
-        paths: next.paths,
-      });
-      this.#saved(layer, next.hold);
-      written.push(layer.name);
+    const targets = this.#targets(which);
+
+    // the save latch, taken for **every** target before the first `await` and
+    // released in one `finally` after the last. Without it a debounce that
+    // fires between a layer's read and its write reloads that layer, clears
+    // `touched`, and reassigns `value` -- so `#staged()` below claims no paths,
+    // writes the document it read, and this returns the layer as written having
+    // silently discarded the `set()` it was called to persist. Measured on a
+    // store whose `read()` yields across a macrotask, which is what
+    // `fs.promises.readFile` is.
+    //
+    // Up front rather than as the loop reaches each layer, because `#targets()`
+    // decides the whole list before anything is written: a later target was
+    // unprotected for as long as the earlier ones took, so one `save()` over
+    // two dirty layers lost the second one's changes to a reload of its own.
+    // Measured -- `save()` answered `['user', 'local']` with `local`'s `set()`
+    // gone from the file *and* from memory. The same silent loss two overlapping
+    // saves of one layer had, reached through a second layer instead. Found by
+    // review
+    for (const layer of targets) {
+      this.#saving.set(layer.name, (this.#saving.get(layer.name) ?? 0) + 1);
+    }
+
+    try {
+      for (const layer of targets) {
+        const doc = await layer.declared.store.read();
+        const next = this.#staged(layer, doc, how);
+        await (layer.declared.store as WritableConfigStore).write(next.write, {
+          ...how,
+          paths: next.paths,
+        });
+        this.#saved(layer, next.hold);
+        written.push(layer.name);
+      }
+    } finally {
+      // the entry goes only at the last one out, or an overlapping save of
+      // this layer releases a latch it is still inside
+      for (const layer of targets) {
+        const depth = (this.#saving.get(layer.name) ?? 1) - 1;
+        if (depth > 0) {
+          this.#saving.set(layer.name, depth);
+        } else {
+          this.#saving.delete(layer.name);
+        }
+      }
     }
 
     return written;
@@ -501,6 +679,336 @@ export class Config {
   }
 
   /** Refuses a value the layer's store says its format cannot hold. */
+  /**
+   * Tells you when the merged value at a path moves, or when any of it does.
+   *
+   * ```js
+   * const stop = config.watch('server.port', ({ value }) => restart(value));
+   * const stopAll = config.watch((changes) => log(changes));
+   * ```
+   *
+   * What a handler is handed is **a diff rather than the fact of a change**,
+   * which is the signals layer's own shape one subsystem along and is the half
+   * that makes this worth having over `fs.watch` plus a re-read. The one thing
+   * it can say that a per-file watcher never can: a change in a
+   * lower-precedence layer that a higher one **shadows publishes nothing**,
+   * because what is compared is the merged view rather than the file.
+   *
+   * ## What is watched, and what is not
+   *
+   * Every layer whose store reports a `source` **the watcher can read as a file
+   * path**. A layer with no source -- an object layer -- is not watched, and
+   * `apply()` is how it participates in the diff: so a config of nothing but
+   * object layers is a legitimate thing to call this on, and it fires on
+   * `apply()` and on nothing else. One whose source is a URL is not watched
+   * either and says so through `onError`, which is the debug floor unless the
+   * app named somewhere.
+   *
+   * A **symlinked** config is watched through the link, because that is where
+   * the writer writes: `realPathOf()` is what says which file a path names, so
+   * the directory watched is the real file's. What that gives up is the link
+   * itself being re-pointed while the app runs.
+   *
+   * The file watchers start when the **first** handler registers and stop when
+   * the last one goes, so a config nobody watches opens no file descriptor.
+   * Under `fs.watch` it is one watcher **per directory**, so two layers in one
+   * directory share it; under `poll` it is one `watchFile` per **file**, which
+   * is the whole of what that mode has to do -- the directory, the climb and
+   * the refcount are `fs.watch`'s problems and polling has none of them. Two
+   * `Config` instances share nothing either way.
+   *
+   * ## What a reload does to an unsaved `set()`
+   *
+   * Overwrites it, and the argument is a symmetry rather than a trade: **a
+   * reload is a reload.** An unsaved `delete()` is restored by one, so an
+   * unsaved `set()` is overwritten by one -- two rules there would mean a
+   * reloaded layer is neither what the file says nor what you set, which is a
+   * third state nobody can reason about and the one a bug report cannot
+   * describe. The same rule for a watcher reload as for `apply()`, because "a
+   * watcher reload keeps your writes and an explicit one does not" is one
+   * operation with two behaviours chosen by how it was reached.
+   *
+   * Two things make that affordable. The content compare means a reload that
+   * would discard nothing publishes nothing, so the ordinary case never arises.
+   * And when it does arise the app is **told**, because the change set is
+   * dispatched -- so an app holding unsaved values learns the file moved under
+   * it rather than finding out later. What it costs is named rather than
+   * guarded: an app that wants its writes to survive a reload calls `save()`
+   * first, which is a decision the app can take and the framework cannot.
+   *
+   * @param a - The dotted path, or the handler for every change.
+   * @param b - The handler, with a path.
+   * @returns A disposer, safe to call more than once.
+   * @throws If there is no handler, or the path cannot mean anything.
+   */
+  watch(handler: ConfigChangeHandler): () => void;
+  watch(path: string, handler: ConfigPathHandler): () => void;
+  watch(a: string | ConfigChangeHandler, b?: ConfigPathHandler): () => void {
+    let entry: Watcher;
+
+    if (typeof a === 'string') {
+      // `segments()` rather than a split, for the one reason it exists: it
+      // carries the prototype-pollution guard, and a watch is the third door a
+      // caller-supplied path arrives through
+      const parts = segments(a);
+      if (parts.length === 0) {
+        // not translated: calling this with no path is the app's mistake. The
+        // whole-view form exists and is spelled differently, so answering with
+        // the whole view here would be two spellings of one thing
+        throw new Error('Cannot watch without a path; use watch(handler) for the whole view.');
+      }
+      if (typeof b !== 'function') {
+        throw new TypeError('A config watch needs a handler');
+      }
+      entry = pathWatcher(a, parts, b);
+    } else {
+      if (typeof a !== 'function') {
+        throw new TypeError('A config watch needs a handler');
+      }
+      entry = allWatcher(a);
+    }
+
+    this.#watchers.add(entry);
+    if (this.#watchers.size === 1) {
+      this.#start();
+    }
+
+    return () => {
+      // `delete` answers whether it was there, which is what makes this
+      // idempotent without a flag beside it
+      if (this.#watchers.delete(entry) && this.#watchers.size === 0) {
+        this.#stop();
+      }
+    };
+  }
+
+  /**
+   * Starts watching every layer that has a path to watch.
+   *
+   * @throws Nothing: a source that refuses to watch one layer is reported and
+   * the others still start, which is the dispatch's own rule about an observer.
+   */
+  #start(): void {
+    const source = createSource(this.#watchOpts);
+
+    for (const layer of this.#layers) {
+      const at = layer.declared.store.source;
+      // a store with no source is an object layer, which `apply()` is the way
+      // into the diff for
+      if (typeof at !== 'string' || !at) {
+        continue;
+      }
+
+      // and a source that is **not a file path** is skipped and said out loud.
+      // `ConfigStore.source` is documented as "a path, a URL, or nothing", so
+      // the interface invites one -- and read as a path a URL climbs from
+      // `<cwd>/https:/host` to the working directory and watches that, which is
+      // a watcher that is dead and says nothing. Reported rather than silently
+      // skipped, because a layer with a source looks watchable where one with
+      // none does not. Found by review.
+      //
+      // Matched on a **scheme of two or more** and a colon, with nothing about
+      // slashes in it: a source reaches here through `expand()`, which
+      // normalizes, so `https://host/x` arrives as `https:/host/x` and a `://`
+      // test never fired for any real store. `URL_SOURCE` has the measurement
+      if (URL_SOURCE.test(at)) {
+        // not translated: a store's own source is the app's
+        this.#onError(
+          new Error(`Config layer "${layer.name}" has a source that is not a file path: ${at}`)
+        );
+        continue;
+      }
+
+      try {
+        this.#stops.push(
+          source(at, () => {
+            this.#schedule(layer, false);
+          })
+        );
+      } catch (e: unknown) {
+        this.#onError(e);
+      }
+    }
+  }
+
+  /** Stops watching, and forgets anything still waiting to be read. */
+  #stop(): void {
+    for (const stop of this.#stops) {
+      try {
+        stop();
+      } catch (e: unknown) {
+        // put back what was attached, and keep going: a source whose disposer
+        // throws must not strand the others
+        this.#onError(e);
+      }
+    }
+    this.#stops = [];
+
+    for (const timer of this.#timers.values()) {
+      clearTimeout(timer);
+    }
+    this.#timers.clear();
+  }
+
+  /**
+   * Waits for the write to settle, then reloads once.
+   *
+   * One logical save is two to five events -- vim writes a backup, truncates
+   * and renames; our own `save()` writes a temp file and renames it; a shell
+   * redirect truncates and then writes -- so a reload per event means at least
+   * one reload reads a **truncated or absent file**, which parses as `{}` and
+   * clobbers a good config with nothing. The debounce coalesces them, and the
+   * content compare is what makes its exact value not matter much.
+   *
+   * `unref()`'d, which is the rule the spinner's timer, the frame timer and the
+   * update check already follow: an app that watches config is long-running for
+   * its own reasons, and the watcher must not be what holds the loop open or a
+   * CLI that reads config and exits does not exit.
+   *
+   * A new event **resets the retry**, because it reschedules from scratch --
+   * which is the behaviour the retry wants and costs nothing to get.
+   *
+   * @param layer - The layer to reload.
+   * @param retried - Whether this is the one retry a failed read gets.
+   */
+  #schedule(layer: Layer, retried: boolean): void {
+    const pending = this.#timers.get(layer.name);
+    if (pending) {
+      clearTimeout(pending);
+    }
+
+    const timer = setTimeout(() => {
+      this.#timers.delete(layer.name);
+      this.#reload(layer, retried);
+    }, this.#debounce);
+    timer.unref?.();
+    this.#timers.set(layer.name, timer);
+  }
+
+  /**
+   * Re-reads one layer and publishes what moved.
+   *
+   * ## A read that fails is retried rather than reported
+   *
+   * A read that lands mid-write is **expected**, so a failure retries once and
+   * only a failure that persists past another window is reported -- with the
+   * last good value kept. Replacing a working config with a parse error because
+   * the editor had not finished writing is the worst available outcome, and it
+   * is what a naive watcher does on every save under vim.
+   *
+   * One retry rather than a count, because the number that matters is the
+   * debounce and not this: the window has already waited for the write to
+   * settle, so a read that fails twice with no event in between is a file that
+   * is actually broken. A third attempt would be a second number to justify.
+   *
+   * ## Synchronously, which is what makes it atomic
+   *
+   * `readSync()` rather than `await read()`: the whole reload then happens in
+   * one timer callback, so a second event's reload cannot start inside it and
+   * there is no race for a latch to fix and no older read that can win. Every
+   * store in this repository and both siblings implement both halves. A store
+   * that genuinely cannot read synchronously -- a remote one -- throws from
+   * `readSync()`, which arrives here as the retry path above and is reported:
+   * such a store has no file path to watch either, and `apply()` from the app's
+   * own `await read()` is its way into the diff.
+   *
+   * @param layer - The layer.
+   * @param retried - Whether a failed read has already had its one retry.
+   */
+  #reload(layer: Layer, retried: boolean): void {
+    // the re-entrancy latch, per layer, released in a `finally` -- which is
+    // `scrollTo()`'s own rule: a reload reached from inside this layer's own
+    // reload marks without dispatching again, because a layer left deaf for the
+    // life of the process is worse than the throw. What can reach it is the
+    // caller's own code running inside the reload: a store's `readSync()`, or a
+    // handler under a source that fires synchronously
+    if (this.#reloading.has(layer.name)) {
+      return;
+    }
+    // and the save latch, which re-schedules rather than dropping: the file is
+    // about to hold what we are writing, so a read taken now would be read
+    // against a document that is already stale. Re-scheduling terminates by
+    // construction -- the reload that follows reads back what the save wrote,
+    // compares equal to what `#saved()` held, and publishes nothing -- and it is
+    // what keeps somebody *else's* write that landed in the same window from
+    // being the one event this drops
+    if (this.#saving.has(layer.name)) {
+      this.#schedule(layer, retried);
+      return;
+    }
+    this.#reloading.add(layer.name);
+
+    try {
+      let next: Record<string, unknown>;
+      let doc: ConfigDocument;
+      try {
+        doc = layer.declared.store.readSync();
+        next = valueOf(layer.declared, doc, this.#settings);
+      } catch (e: unknown) {
+        if (!retried) {
+          this.#schedule(layer, true);
+          return;
+        }
+        // the store's own error, passed through rather than wrapped: it is
+        // already translated and already names the file, where a sentence of
+        // ours would be a second one about one failure and would name the layer
+        // instead, which is what the app called it rather than what the user
+        // can open
+        this.#onError(e);
+        return;
+      }
+
+      const changed = !sameValue(next, layer.value);
+
+      // cleared whether or not anything is published, because a successful read
+      // means this layer **is** what the file says -- which is exactly what
+      // `dirty` reports, and is the reload-overwrites-an-unsaved-set rule said
+      // where it takes effect. The compare below decides whether to *publish*,
+      // which is a different question
+      layer.touched.clear();
+
+      // and so is what a write of this document would lose, for the same
+      // reason: it is a fact about the file as last read rather than about
+      // whether the value moved. A file whose value is unchanged and whose
+      // comments are not has a different answer
+      layer.wouldLose = doc.wouldLose;
+
+      if (!changed) {
+        return;
+      }
+
+      const before = this.#merged;
+      layer.value = next;
+      this.#recompute();
+      this.#publish(before);
+    } finally {
+      this.#reloading.delete(layer.name);
+    }
+  }
+
+  /**
+   * Tells everyone watching what moved, or nobody where nothing did.
+   *
+   * The compare is the whole of point 6 -- **our own write fires the watcher**
+   * -- handled structurally rather than by suppressing events for a window
+   * after a `save()`: the value a reload reads back is the one we just wrote, so
+   * the diff is empty and nothing is published. Which is better than a
+   * timer-based suppression, because that also swallows somebody *else's* write
+   * that landed in the same window.
+   *
+   * @param before - The merged view as it was.
+   */
+  #publish(before: unknown): void {
+    if (this.#watchers.size === 0) {
+      return;
+    }
+
+    const changes = diffMerged(before, this.#merged);
+    if (changes.length > 0) {
+      dispatch(this.#watchers, changes, before, this.#merged, this.#onError);
+    }
+  }
+
   #assertRepresentable(layer: Layer, path: string, value: unknown): void {
     const { store } = layer.declared;
     const answer = store.canRepresent?.(value, path);
@@ -1066,6 +1574,37 @@ function layerOf(
   doc: ConfigDocument | undefined,
   settings: readonly Setting[]
 ): Layer {
+  return {
+    declared: layer,
+    name: layer.name,
+    readOnly: layer.readOnly === true || !isWritableStore(layer.store),
+    touched: new Set<string>(),
+    value: valueOf(layer, doc, settings),
+    wouldLose: doc?.wouldLose,
+  };
+}
+
+/**
+ * What a layer holds, from what its store read.
+ *
+ * Shared by construction and by a watcher reload, which is what makes a
+ * reloaded layer the same kind of thing a constructed one is: the same
+ * not-an-object refusal, the same copy, and the same coercion, so a document
+ * the schema cannot hold is refused the same way whichever read it arrived
+ * through. Two copies of this would be two answers to "what is a layer".
+ *
+ * @param layer - The declared layer, for the messages.
+ * @param doc - What its store read.
+ * @param settings - The schema.
+ * @returns The value.
+ * @throws If the document is not something a layer can hold, or a setting in it
+ * is not one the schema can hold.
+ */
+function valueOf(
+  layer: ConfigLayer,
+  doc: ConfigDocument | undefined,
+  settings: readonly Setting[]
+): Record<string, unknown> {
   // `null` is the other way a format says nothing, which is the same reading a
   // `null` at a setting's own path gets
   const read = doc?.value ?? {};
@@ -1078,15 +1617,7 @@ function layerOf(
 
   const value = copyValue(read, layer.name) as Record<string, unknown>;
   coerceLayer(value, settings, layer.name);
-
-  return {
-    declared: layer,
-    name: layer.name,
-    readOnly: layer.readOnly === true || !isWritableStore(layer.store),
-    touched: new Set<string>(),
-    value,
-    wouldLose: doc?.wouldLose,
-  };
+  return value;
 }
 
 /**
@@ -1110,6 +1641,48 @@ function assertEnv(env: ConfigOptions['env']): void {
   // quietly. `Object.create(null)` is a fine environment and is accepted
   if (typeof env !== 'object' || env === null || Array.isArray(env)) {
     throw new Error('A config environment must be an object');
+  }
+}
+
+/**
+ * Refuses watch options that cannot mean anything.
+ *
+ * `assertEnv()`'s reason: a non-object quietly meant "every default", so an app
+ * that asked for `poll` and mistyped the key got events it had already decided
+ * would never arrive -- a wrong answer rather than an error, on the one option
+ * whose whole purpose is the filesystem where the other choice does not work.
+ * Not translated: these are the app's own.
+ *
+ * The three fields with no coercion are refused here too, and the asymmetry with
+ * `debounce` and `interval` has a reason rather than being an oversight. A
+ * **delay** that is not a finite number at or above zero falls back, which is
+ * the rule every timer option in this library keeps. A **function** has nothing
+ * to fall back to that is not a different answer: a `source` that is not one
+ * would silently get the built-in watcher, so an app that handed over its own
+ * file watcher would be watching with ours and never know, and an `onError`
+ * that is not one would send every report to a debug log nobody reads. And
+ * `poll` is neither -- a truthy non-boolean read as `true` or a non-`true`
+ * value read as `false` is the "works in dev, dead in Docker" failure the
+ * option exists to prevent, chosen by a typo.
+ *
+ * @param watch - What the caller passed.
+ * @throws If it is there and is not an object, or a field cannot mean anything.
+ */
+function assertWatch(watch: ConfigOptions['watch']): void {
+  if (watch === undefined) {
+    return;
+  }
+  if (typeof watch !== 'object' || watch === null || Array.isArray(watch)) {
+    throw new Error('Config watch options must be an object');
+  }
+  for (const field of ['onError', 'source'] as const) {
+    const it = watch[field];
+    if (it !== undefined && typeof it !== 'function') {
+      throw new Error(`Config watch ${field} must be a function`);
+    }
+  }
+  if (watch.poll !== undefined && typeof watch.poll !== 'boolean') {
+    throw new Error('Config watch poll must be a boolean');
   }
 }
 
@@ -1167,6 +1740,7 @@ function assertLayers(declared: readonly ConfigLayer[]): void {
 export async function createConfig(opts: ConfigOptions = {}): Promise<Config> {
   const declared = opts.layers ?? [];
   assertEnv(opts.env);
+  assertWatch(opts.watch);
 
   // refused before any store is read, which for a remote one is a network call.
   // The constructor asks again, because it has to be right when called directly
@@ -1203,6 +1777,7 @@ export async function createConfig(opts: ConfigOptions = {}): Promise<Config> {
 export function createConfigSync(opts: ConfigOptions = {}): Config {
   const declared = opts.layers ?? [];
   assertEnv(opts.env);
+  assertWatch(opts.watch);
 
   readSchema(opts.schema);
   assertLayers(declared);
