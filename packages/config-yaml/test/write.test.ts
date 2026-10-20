@@ -137,7 +137,7 @@ flow: {x: 1, y: 2}
     });
   });
 
-  describe('the three kinds of path a write refuses', () => {
+  describe('the paths a write refuses', () => {
     it('should refuse a write through an alias, which setIn throws an internal error about', () => {
       // measured: `setIn(['c','p'], 9)` over `c: *b` raises
       // `Expected YAML collection at c. Remaining path: p`, which names neither
@@ -228,10 +228,20 @@ flow: {x: 1, y: 2}
       // was never consulted and `yaml` threw its own `Unresolved alias`, with
       // neither the file nor the path in it, which is exactly the message
       // these refusals exist to replace
+      //
+      // The last four are a **kind** change, which is the shape a review round
+      // measured going straight through: `editsFor()` descends only where the
+      // two sides are the same kind, so a map becoming an array or a `Date` --
+      // or an array becoming a map -- arrives as one replacement at the parent
+      // carrying a collection, which the guard used to exempt
       for (const [body, target] of [
         ['grp:\n  host: &k example.com\nother: *k\n', { other: 'example.com' }],
         ['grp:\n  host: &k example.com\nother: *k\n', { grp: 5, other: 'example.com' }],
         ['grp:\n  &k host: example.com\nother: *k\n', { other: 'host' }],
+        ['grp:\n  host: &k example.com\nother: *k\n', { grp: ['x'], other: 'example.com' }],
+        ['grp:\n  host: &k example.com\nother: *k\n', { grp: new Date(0), other: 'example.com' }],
+        ['grp:\n  &k host: example.com\nother: *k\n', { grp: ['x'], other: 'host' }],
+        ['grp:\n  - &k example.com\nother: *k\n', { grp: { a: 1 }, other: 'example.com' }],
       ] as const) {
         const path = file(body);
         const before = read(path);
@@ -249,6 +259,23 @@ flow: {x: 1, y: 2}
       yaml(path).writeSync({ grp: { host: 'example.com', port: 2 }, other: 'example.com' });
       expect(read(path)).toContain('port: 2');
       expect(read(path)).toContain('&k');
+    });
+
+    it('should add a new key whose value is a collection, which has no fence under it', () => {
+      // the third side, and what says the guard asking about **every** edit is
+      // not simply total: the two edits that carry a collection are a kind
+      // change and a **new** key, and a path the document has nothing at can
+      // have no fence under it, because every fence is read off the document
+      const path = file('grp:\n  host: &k example.com\nother: *k\n');
+      yaml(path).writeSync({
+        grp: { host: 'example.com' },
+        other: 'example.com',
+        added: { a: 1 },
+      });
+
+      expect(read(path)).toContain('added:');
+      expect(read(path)).toContain('&k');
+      expect(read(path)).toContain('*k');
     });
 
     it('should allow a write to an anchor nothing aliases, which shares nothing', () => {
