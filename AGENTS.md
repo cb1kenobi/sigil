@@ -21354,6 +21354,48 @@ which is the half worth reading first.
   Sabotaged by making the `finally` delete unconditionally, which fails it with
   `still dirty mid-save: expected false to be true`.
 
+- **And then it only took the latch for the layer the loop had reached, so a
+  second dirty layer in the same save lost its changes -- which is the same
+  defect a third time, and the latch has now been wrong once about _when_ to let
+  go and once about _how many_ to hold.** `#targets()` decides every layer a
+  `save()` will write before the loop starts, and the increment sat **inside**
+  the loop -- so a later target was unprotected for exactly as long as the
+  earlier ones took to read and write. One event in that window is enough, and
+  an app with both files in one directory does not even need a second process
+  for it: a directory watcher fires for both, so `user`'s own temp-file write is
+  itself an event for `local`.
+
+  Measured before anything was changed, on two dirty layers with only the first
+  one's read held: `save()` answered `['user', 'local']` while `local`'s file
+  came back `{b: 1, external: 9}` -- the `set('b', 2)` **gone from the file and
+  from memory**, `get('b')` back to `1`, and nothing reported. The same silent
+  loss with a success return, for the third time, by the third route: inside one
+  save of one layer, across two overlapping saves of one layer, and now across
+  two layers of one save.
+
+  The fix is to take the latch for **every** target before the first `await` and
+  release them all in one `finally` after the last, keeping the depth. Which is
+  the honest shape rather than the minimal one, because a release keyed on the
+  layers that **completed** leaks the latch for the one that threw and for every
+  target after it -- and a leaked save latch is not untidy: `#reload()`
+  re-schedules rather than dropping, so the layer is deaf for the life of the
+  process _and_ re-arms a timer every window for ever. Measured on a save whose
+  first write rejects: nothing published, `get()` never saw the other process's
+  key, and two timers were still pending ten windows later.
+
+  That third shape **survived** the pass before the test for it was written,
+  which is the one worth recording: the two obvious sabotages -- the per-layer
+  acquisition and dropping the depth -- are each caught by exactly the test named
+  for them, and "release only what was written" was caught by nothing at all. So
+  there are three tests and three mutations now, one per axis of the latch:
+  `should hold the save latch for every layer one save will write, not one at a
+  time`, `should hold the save latch until the last overlapping save of a layer
+  is out`, and `should release every latch a failed save took, not only the
+  layers it wrote`.
+
+  `saveSync()` needs none of it, for the third time and the same reason: no
+  `await`, so no timer fires inside one.
+
 - **The `fs` source watched the directory of the **link**, so a symlinked config
   was never watched where it is written.** `writeAtomic()` resolves through a
   link on purpose -- `realPathOf()` is 80 lines about doing it correctly, and

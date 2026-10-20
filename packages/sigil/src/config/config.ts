@@ -205,6 +205,15 @@ export class Config {
    * success -- which is the round-2 failure this latch exists for, reached
    * through two saves rather than one. Found by review.
    *
+   * And `save()` takes it for **every** layer it is going to write before its
+   * first `await`, rather than as the loop reaches each one: `#targets()`
+   * decides the whole list up front, so a later target was unprotected for as
+   * long as the earlier ones took and lost its changes to a reload of its own.
+   * The same silent loss again, reached through a second layer. Also found by
+   * review, which is the third round in a row to find a defect in this latch:
+   * once that it was needed at all, once about when to let go, and once about
+   * how many to hold.
+   *
    * `#reloading` needs no depth: a reload is synchronous from end to end, so it
    * cannot overlap itself, and what it guards is re-entrancy from inside its
    * own dispatch rather than a second caller.
@@ -525,16 +534,31 @@ export class Config {
     const [which, how] = saveArgs(name, opts);
     const written: string[] = [];
 
-    for (const layer of this.#targets(which)) {
-      // the save latch, held across every `await` this layer's save makes and
-      // released in a `finally`. Without it a debounce that fires between the
-      // read and the write reloads the layer, clears `touched`, and reassigns
-      // `value` -- so `#staged()` below claims no paths, writes the document it
-      // read, and this returns the layer as written having silently discarded
-      // the `set()` it was called to persist. Measured on a store whose `read()`
-      // yields across a macrotask, which is what `fs.promises.readFile` is
+    const targets = this.#targets(which);
+
+    // the save latch, taken for **every** target before the first `await` and
+    // released in one `finally` after the last. Without it a debounce that
+    // fires between a layer's read and its write reloads that layer, clears
+    // `touched`, and reassigns `value` -- so `#staged()` below claims no paths,
+    // writes the document it read, and this returns the layer as written having
+    // silently discarded the `set()` it was called to persist. Measured on a
+    // store whose `read()` yields across a macrotask, which is what
+    // `fs.promises.readFile` is.
+    //
+    // Up front rather than as the loop reaches each layer, because `#targets()`
+    // decides the whole list before anything is written: a later target was
+    // unprotected for as long as the earlier ones took, so one `save()` over
+    // two dirty layers lost the second one's changes to a reload of its own.
+    // Measured -- `save()` answered `['user', 'local']` with `local`'s `set()`
+    // gone from the file *and* from memory. The same silent loss two overlapping
+    // saves of one layer had, reached through a second layer instead. Found by
+    // review
+    for (const layer of targets) {
       this.#saving.set(layer.name, (this.#saving.get(layer.name) ?? 0) + 1);
-      try {
+    }
+
+    try {
+      for (const layer of targets) {
         const doc = await layer.declared.store.read();
         const next = this.#staged(layer, doc, how);
         await (layer.declared.store as WritableConfigStore).write(next.write, {
@@ -542,9 +566,12 @@ export class Config {
           paths: next.paths,
         });
         this.#saved(layer, next.hold);
-      } finally {
-        // the entry goes only at the last one out, or an overlapping save of
-        // this layer releases a latch it is still inside
+        written.push(layer.name);
+      }
+    } finally {
+      // the entry goes only at the last one out, or an overlapping save of
+      // this layer releases a latch it is still inside
+      for (const layer of targets) {
         const depth = (this.#saving.get(layer.name) ?? 1) - 1;
         if (depth > 0) {
           this.#saving.set(layer.name, depth);
@@ -552,7 +579,6 @@ export class Config {
           this.#saving.delete(layer.name);
         }
       }
-      written.push(layer.name);
     }
 
     return written;

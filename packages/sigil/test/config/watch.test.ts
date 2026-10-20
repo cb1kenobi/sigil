@@ -857,6 +857,118 @@ describe('watch()', () => {
     expect(store.value()).to.deep.equal({ a: 2, b: 3, c: 4, external: 1 });
   });
 
+  it('should hold the save latch for every layer one save will write, not one at a time', async () => {
+    // `#targets()` decides the whole list before anything is written, and the
+    // latch used to be taken as the loop *reached* each layer -- so a later
+    // target was unprotected for as long as the earlier ones took. One event in
+    // that window reloads it, clears `touched` and reassigns `value`, after
+    // which `#staged()` claims no paths and writes back the document it read.
+    //
+    // Measured on the sequence below: `save()` answered `['user', 'local']`
+    // while `local`'s file came back `{b: 1, external: 9}` and `get('b')`
+    // reverted to 1 -- the `set()` gone from the file **and** from memory with
+    // a success return. The same silent loss two overlapping saves of one layer
+    // had, reached through a second layer instead. Found by review.
+    //
+    // Two layers under one source, which is what an app with both files in one
+    // directory has: a directory watcher fires for both, so `user`'s own
+    // temp-file write is itself an event for `local`
+    const low = stubStore({ a: 1 });
+    const high = stubStore({ b: 1 });
+    const source = fakeSource();
+    const config = createConfigSync({
+      layers: [
+        { name: 'user', store: low },
+        { name: 'local', store: high },
+      ],
+      watch: { source },
+    });
+    config.watch(() => {});
+
+    // only the **first** layer's read is held, which is what puts the second
+    // layer's window inside the first layer's save rather than inside its own
+    let release: () => void = () => {};
+    low.hold(
+      () =>
+        new Promise<void>((r) => {
+          release = r;
+        })
+    );
+
+    config.set('a', 2, 'user');
+    config.set('b', 2, 'local');
+
+    const saving = config.save();
+
+    // somebody else wrote `local` while `user`'s read is in flight, so the
+    // reload has a change to publish as well as a `touched` to clear
+    high.set({ b: 1, external: 9 });
+    source.fire();
+    vi.advanceTimersByTime(50);
+
+    release();
+    const written = await saving;
+
+    expect(written).to.deep.equal(['user', 'local']);
+    expect(low.value(), 'the first layer').to.deep.equal({ a: 2 });
+    // the `set()` this save was called to persist, beside the key the other
+    // process wrote -- which is the claimed paths doing their own job on top
+    expect(high.value(), 'the second layer').to.deep.equal({ b: 2, external: 9 });
+    expect(config.get('b'), 'what the config holds').toBe(2);
+
+    // and the refused reload is re-scheduled rather than dropped, so the other
+    // process's key is read once the save is out of the way
+    vi.advanceTimersByTime(50);
+    expect(config.get('external')).toBe(9);
+  });
+
+  it('should release every latch a failed save took, not only the layers it wrote', async () => {
+    // the one `finally` over the whole loop rather than one per layer, which
+    // is what makes a throw mid-save recoverable. A release keyed on the layers
+    // that **completed** leaks the latch for the one that threw and for every
+    // target after it -- and a leaked save latch is not untidy: `#reload()`
+    // re-schedules rather than dropping, so the layer is deaf for the life of
+    // the process *and* re-arms a timer every window for ever.
+    //
+    // Measured on the sequence below with the release keyed on `written`:
+    // nothing published, `get('changed')` was `undefined`, and two timers were
+    // still pending after ten windows
+    const low = stubStore({ a: 1 });
+    const high = stubStore({ b: 1 });
+    const source = fakeSource();
+    const errors: unknown[] = [];
+    const config = createConfigSync({
+      layers: [
+        // the first layer's write fails, so the loop throws before it reaches
+        // the second -- which is where a release over `written` releases neither
+        { name: 'user', store: { ...low, write: () => Promise.reject(new Error('disk full')) } },
+        { name: 'local', store: high },
+      ],
+      watch: { onError: (e) => errors.push(e), source },
+    });
+    let fired = 0;
+    config.watch(() => fired++);
+
+    config.set('a', 2, 'user');
+    config.set('b', 2, 'local');
+
+    await expect(config.save()).rejects.toThrow('disk full');
+
+    // somebody writes the second layer, and the watcher has to still be able
+    // to see it
+    high.set({ b: 2, changed: 1 });
+    source.fire();
+    vi.advanceTimersByTime(50);
+
+    expect(fired, 'published after the failed save').toBeGreaterThan(0);
+    expect(config.get('changed')).toBe(1);
+    // and nothing is left re-scheduling itself, which is the other half of what
+    // a held latch costs
+    vi.advanceTimersByTime(500);
+    expect(vi.getTimerCount(), 'timers still pending').toBe(0);
+    expect(errors).to.deep.equal([]);
+  });
+
   it('should still read a write that landed while the save was in flight', async () => {
     // which is what makes the refusal a *re-schedule* rather than a drop: the
     // event said the file moved, and the save is the one thing that cannot
