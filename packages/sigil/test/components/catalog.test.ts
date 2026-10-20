@@ -461,7 +461,7 @@ describe('slotsFor()', () => {
   });
 
   it('should not ask for the flags the parser adds', async () => {
-    // `--help` and `--version` are the two, and the `required` test above
+    // `--help`, `--version` and `--quiet` are the three, and the `required` test above
     // already answers for both -- a flag is never required. Asserted anyway
     // because they are the options every schema gets whether or not it asked,
     // so a reader meets them here first; what this does *not* pin is the

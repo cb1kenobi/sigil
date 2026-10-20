@@ -39,6 +39,8 @@ get cwd(): string {
 export async function main(opts: AppOptions = {}): Promise<ParseState | unknown> {
   let state: ParseState | undefined;
   let hooksFired = false;
+  /** What the process-wide quiet request was before this run, if it moved. */
+  let restoreQuiet: (() => void) | undefined;
 
   try {
     if (opts?.settings?.assertCwd !== false) {
@@ -72,6 +74,40 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
       // on whatever it throws -- firing them again here would double up
       hooksFired = true;
       throw err;
+    }
+
+    // recorded before anything is printed, and here rather than in `parse()`:
+    // a parser owes its caller no process-wide side effect, where `main()`
+    // already owns `process.exitCode` and the error handler, so one more fact
+    // about the process is in character.
+    //
+    // Set only when argv asked, so a programmatic `requestQuiet(true)` is not
+    // cleared by a parse that did not name the flag -- and **put back** on the
+    // way out, which is the rule every other thing this attaches follows. One
+    // `main()` per process is the ordinary case and neither half shows there;
+    // what shows is a host that calls it twice, which the command palette's own
+    // documented `await main({ argv: chosen.argv, schema })` is, and where a
+    // `--quiet` on the first run silenced every run after it with nothing in
+    // argv to explain why
+    if (state.quiet) {
+      const { quietGeneration, quietRequested, requestQuiet } = await import('./style/output.js');
+      const before = quietRequested();
+      requestQuiet(true);
+      const mine = quietGeneration();
+      restoreQuiet = (): void => {
+        // only where nobody has written since, which is `captureConsole()`'s
+        // rule -- "a method whose current value is no longer ours is left
+        // alone" -- asked the one way a boolean admits. A command that said
+        // `requestQuiet()` through the documented door had that reversed by the
+        // teardown of a run already over, and a *value* test closed only half of
+        // it: comparing `true` to `true` cannot tell "nobody wrote" from "the
+        // command asked for the same thing", so a dispatcher asking for quiet
+        // for what follows still lost it. A generation can tell them apart,
+        // which is `unanchor()`'s own answer to a reply about a stale anchor
+        if (quietGeneration() === mine) {
+          requestQuiet(before);
+        }
+      };
     }
 
     if (state.help) {
@@ -123,6 +159,8 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
     // a parse error never got to return a state, but it carries the one it
     // died with, which is where the matched command comes from
     return await handleError(err, state ?? stateFromError(err), opts, hooksFired);
+  } finally {
+    restoreQuiet?.();
   }
 }
 

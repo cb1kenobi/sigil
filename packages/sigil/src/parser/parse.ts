@@ -21,6 +21,7 @@ import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
 import { registerCompletion } from './completion.js';
 import { detectHelp, registerHelp } from './help.js';
+import { detectQuiet, registerQuiet } from './quiet.js';
 import { unexpectedArgument, unknownOption } from './suggest.js';
 import { detectVersion, registerVersion } from './version.js';
 
@@ -108,6 +109,7 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
 
     const handles = await registerHelp(state.contexts[0], schema);
     const versionHandles = await registerVersion(state.contexts[0], schema.version);
+    const quietHandles = await registerQuiet(state.contexts[0], schema.quiet);
     // nothing is *detected* for it, because a command needs no detecting:
     // `--help` and `--version` are flags, and something has to decide that a
     // flag meant argv was asking a question rather than for work. What
@@ -123,6 +125,14 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
     // before anything is validated: help wins over a missing required option,
     // which is a parser-ordering concern and not a rendering one
     state.help = await detectHelp(state, handles);
+
+    // whatever else argv asked for, and set only when it was asked: quiet
+    // modulates rather than short-circuiting -- `--quiet --help` still prints
+    // help, because help is the answer to the question and quiet is about what
+    // is said *while working*. `main()` is what records it process-wide
+    if (detectQuiet(state, quietHandles)) {
+      state.quiet = true;
+    }
 
     // after help and only when help was not asked for, because being asked
     // what a program does and answering with a version string is not an answer
