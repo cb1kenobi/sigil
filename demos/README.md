@@ -276,6 +276,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it            |
 | [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself            |
 | [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells             |
+| [`components/11-quiet.js`](components/11-quiet.js)                 | `live`, `reduce` and `quiet`, which is one axis         |
 
 ### Try them without a terminal
 
@@ -290,7 +291,16 @@ node demos/components/01-spinner.js | cat
 node demos/components/02-progress.js | cat
 node demos/components/07-typewriter.js | cat
 node demos/components/09-decrypt.js | cat
+node demos/components/11-quiet.js | cat
 ```
+
+`11-quiet.js` is the one of the five a pipe cannot show on its own, because its
+point is the state a pipe does **not** produce: piped, its first two blocks still
+write a line per change, which is `reduce`, and its third writes nothing at all,
+which is `quiet`. Reduced motion means an animation that has already finished and
+quiet means nothing was drawn, so they are two answers rather than two strengths
+of one -- and nothing in that demo passes the answer to a component, because
+`resolveOutput()` is the one fold and every built-in reads it.
 
 That is what a CI log gets, and no component had to know about it. The decrypt is
 the sharpest case: six texts, written once each, which is eight lines because one

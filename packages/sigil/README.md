@@ -784,8 +784,8 @@ lists -- a palette shows one row per command, and a completion menu is a list of
 tokens, so every token the parser takes is in it.
 
 A `hidden` command is not offered, and neither is anything under it; nor is a
-`hidden` option. `--help` and `--version` are, because they are things a user
-types.
+`hidden` option. `--help`, `--version` and `--quiet` are, because they are
+things a user types.
 
 Anything with no declared values falls back to your shell's own file
 completion, which is what `--out <dir>` wants.
@@ -2881,6 +2881,62 @@ SIGIL_REDUCED_MOTION=1 mycli    # or just: mycli | cat
 
 `Renderer.animating` says whether anything is in flight. There is no `onfinish`
 yet.
+
+#### `--quiet`: nothing is drawn at all
+
+That axis has a third state. Reduced motion means an animation that has
+**already finished** — the spinner draws its final frame, the bar prints its
+percentage, the typewriter prints the whole string — which is what a CI log
+wants. `--quiet` means **nothing at all**, so the three are ordered by how much
+reaches the screen: `live`, `reduce`, `quiet`.
+
+Every app gets `-q, --quiet` on its root for free, the way it gets `--help` and
+`--version`, and nothing is added over a declaration: an app whose `-q` means
+something else keeps it and gets the long form alone, and one that declares
+`--quiet` itself owns what quiet means. `schema.quiet: false` turns it off.
+
+```sh
+mycli build --quiet > out.json     # the data, and no progress beside it
+```
+
+**A result is not a progress report**, and that is the line the flag is drawn
+along. What a command _says_ survives: diagnostics, an error, `--help`, a
+`table()`, and a prompt — a dialogue is not progress, and silencing one would
+hang the program waiting for an answer to a question nobody was shown. What it
+says _while working_ does not: a spinner, a bar, a typewriter, a decrypt, and the
+notes and summaries the toolchain writes.
+
+Nothing is wired by hand. The flag reaches one fold, `resolveOutput()`, and every
+built-in reads its answer — so a spinner an app never told anything about goes
+quiet too. There is deliberately **no environment variable**: the other two are
+the user's override of a _detection_, and quiet is a request, which argv already
+has a spelling for.
+
+```js
+import { requestQuiet, resolveOutput } from '@ttylabs/sigil/style';
+
+requestQuiet(true); // the programmatic door, which is what `main()` uses
+resolveOutput({ live: process.stdout.isTTY === true }); // 'quiet'
+```
+
+A component that is the answer rather than the progress says so where it mounts,
+with `quiet: false` on its `MountOptions` — which is what `text()` and the other
+prompts do.
+
+It is `mountLive()`'s rule and never `render()`'s, which is the line on the
+drawing side: a full-screen app **is** the program, so quiet does not blank one.
+So a `ScrollBox` reads nothing — it is a view of content, on `table()`'s side —
+and `table()`, `largeText()` and `qrcode()` are results by their own shape, since
+each hands a string back and the caller does the writing. An app that wants a
+quiet view of its own gives `render()` a `createSinkCanvas()` backend, which is
+the spelling that exists.
+
+`sigil` itself is the acceptance test: `sigil check --quiet` prints its
+diagnostics and nothing else, and `sigil build --quiet` prints neither its
+summary nor the two tables of what it produced. `sigil new --quiet` deliberately
+does nothing beyond reaching its prompts — the install it runs writes through
+`stdio: 'inherit'`, so suppressing our one progress line while the package
+manager's own fourteen remained would be worse than leaving both.
 
 ### `sigil/themes`
 
