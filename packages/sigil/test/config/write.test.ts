@@ -1806,6 +1806,18 @@ describe('writing a store directly', () => {
       expect(readFileSync(path, 'utf8')).toBe('{"a":1,"b":2,"keep":3}');
     });
 
+    it('should refuse a boxed String, which is an object and iterates the same way', () => {
+      // `typeof new String('ab')` is `'object'`, so the narrower `typeof` test
+      // this guard first used let one straight through -- measured over all
+      // three stores, it claimed `a` and `b` and deleted both, which is byte
+      // for byte the pre-guard behaviour the test above is named for
+      const path = file('boxed.json', '{"a":1,"b":2,"keep":3}');
+      expect(() => json(path).writeSync({ keep: 3 }, { paths: new String('ab') as never })).toThrow(
+        /must be a list of paths/
+      );
+      expect(readFileSync(path, 'utf8')).toBe('{"a":1,"b":2,"keep":3}');
+    });
+
     it('should still take a list and a set, which is what core itself hands over', () => {
       const path = file('ok.json', '{"a":1,"keep":3}');
       json(path).writeSync({ a: 9, keep: 3 }, { paths: ['a'] });

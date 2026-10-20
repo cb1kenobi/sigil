@@ -270,4 +270,51 @@ describe('what YAML can hold', () => {
     list.extra = 3;
     expect(yamlCanHold(list, 'x')).toMatch(/would be dropped/);
   });
+
+  it('should refuse a canonical-numeric property that is not an array index', () => {
+    // the guard tested `String(Number(key)) === key`, which is "a canonical
+    // number" rather than "an index" -- so each of these satisfied it, none
+    // extends `length` or makes a hole for the hole check to catch, and every
+    // one was an own enumerable property silently dropped on write
+    for (const key of ['-1', '1.5', 'Infinity', 'NaN', '4294967295', '9007199254740991']) {
+      const list = [1, 2] as number[] & Record<string, unknown>;
+      list[key] = 9;
+      expect(yamlCanHold(list, 'x'), key).toMatch(new RegExp(`"${key}" would be dropped`));
+    }
+  });
+
+  it('should still take an ordinary sequence, index keys and all', () => {
+    // the other side of it, or the guard above would refuse every array there
+    // is. `4294967294` is the last index a JS array has, so it is an index and
+    // `4294967295` one above is not
+    expect(yamlCanHold([1, 2, 3], 'x')).toBe(true);
+    expect(yamlCanHold([], 'x')).toBe(true);
+    const sparse: unknown[] = [1, 2];
+    sparse[5] = 6;
+    expect(yamlCanHold(sparse, 'x')).toMatch(/hole/);
+  });
+
+  it('should name the form yaml really writes, measured rather than assumed', () => {
+    // three cells of this table were wrong. A boxed `String` is **iterable**,
+    // so the sequence test claimed it where `createNode()` writes the scalar
+    // `ab`; a boxed `BigInt` was in no branch and fell through to the mapping
+    // default where it writes `10`; and a `DataView` is an `ArrayBuffer.isView`
+    // with no iterator and no indexed members, so it writes `{}`
+    expect(yamlCanHold(new DataView(new ArrayBuffer(2)), 'x')).toMatch(/as a plain mapping/);
+    expect(yamlCanHold(Object(10n), 'x')).toMatch(/as a plain scalar/);
+    expect(yamlCanHold(new String('ab'), 'x')).toMatch(/as a plain scalar/);
+    // and the ones that were already right, so the reordering kept them
+    expect(yamlCanHold(new Set([1]), 'x')).toMatch(/as a sequence of its own members/);
+    expect(yamlCanHold(new Uint8Array([1]), 'x')).toMatch(/as a sequence of its own members/);
+    expect(yamlCanHold(new Map([['a', 1]]), 'x')).toMatch(/as a plain mapping/);
+  });
+
+  it('should name a generator something rather than nothing', () => {
+    // a generator's `constructor.name` is the **empty string**, which `??`
+    // passes through, so the sentence read "YAML writes a  of this kind as"
+    const gen = (function* () {
+      yield 1;
+    })();
+    expect(yamlCanHold(gen, 'x')).toMatch(/YAML writes a value of this kind/);
+  });
 });

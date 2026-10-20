@@ -221,6 +221,36 @@ flow: {x: 1, y: 2}
       expect(() => config.saveSync()).toThrow(/"base" carries an anchor another node aliases/);
     });
 
+    it('should refuse dropping an ancestor that holds an aliased anchor', () => {
+      // the fences check **prefixes** of the edit path and the exact path, and
+      // `editsFor()` emits a drop or a kind-changing replacement of a whole
+      // subtree as one edit at the ancestor -- so the anchor buried inside it
+      // was never consulted and `yaml` threw its own `Unresolved alias`, with
+      // neither the file nor the path in it, which is exactly the message
+      // these refusals exist to replace
+      for (const [body, target] of [
+        ['grp:\n  host: &k example.com\nother: *k\n', { other: 'example.com' }],
+        ['grp:\n  host: &k example.com\nother: *k\n', { grp: 5, other: 'example.com' }],
+        ['grp:\n  &k host: example.com\nother: *k\n', { other: 'host' }],
+      ] as const) {
+        const path = file(body);
+        const before = read(path);
+        expect(() => yaml(path).writeSync(target), body).toThrow(
+          /Cannot write "grp".*which carries an anchor another node aliases/s
+        );
+        expect(read(path), body).toBe(before);
+      }
+    });
+
+    it('should still descend into a collection, which meets the fence at its own path', () => {
+      // the other side of it, or the guard above would refuse every write to a
+      // map that happens to hold an anchor somewhere under it
+      const path = file('grp:\n  host: &k example.com\n  port: 1\nother: *k\n');
+      yaml(path).writeSync({ grp: { host: 'example.com', port: 2 }, other: 'example.com' });
+      expect(read(path)).toContain('port: 2');
+      expect(read(path)).toContain('&k');
+    });
+
     it('should allow a write to an anchor nothing aliases, which shares nothing', () => {
       // the narrowing rather than caution: an anchor nobody refers to is a
       // label, so editing what it names moves nothing else -- and the write
@@ -412,6 +442,50 @@ flow: {x: 1, y: 2}
         yaml(path).writeSync(target);
         expect(yaml(path).readSync().value, body).toStrictEqual(target);
       }
+    });
+
+    it('should refuse a same-type value the tag cannot spell back', () => {
+      // the `typeof` proxy this guard first used let these through: the type
+      // matches and the tag still cannot write the value as itself, so the
+      // file stopped parsing. `!!float` is the sharp one -- JS has no spelling
+      // of `2.0`, so an integer-valued number onto it is an unreadable file
+      for (const [body, target] of [
+        ['a: !!int 5\n', { a: 1.5 }],
+        ['a: !!int 5\n', { a: 1e21 }],
+        ['a: !!int 5\n', { a: Infinity }],
+        ['a: !!float 1.5\n', { a: 2 }],
+      ] as const) {
+        const path = file(body);
+        const before = read(path);
+        expect(() => yaml(path).writeSync(target), body).toThrow(
+          /would not write .* back as itself/
+        );
+        expect(read(path), body).toBe(before);
+      }
+    });
+
+    it('should refuse null onto a tag, which typeof object let straight through', () => {
+      // `typeof null` is `'object'`, which the old guard exempted as a kind
+      // change -- so `!!bool true` set to `null` wrote `a: !!bool false` and
+      // read back **false**, and `!!str 5` read back the string `"null"`.
+      // Silent wrong data with no throw anywhere
+      for (const body of ['a: !!bool true\n', 'a: !!str 5\n', 'a: !!int 5\n']) {
+        const path = file(body);
+        expect(() => yaml(path).writeSync({ a: null }), body).toThrow(
+          /would not write null back as itself/
+        );
+      }
+      // and the tag that does take it
+      const path = file('a: !!null ~\n');
+      yaml(path).writeSync({ a: null });
+      expect(yaml(path).readSync().value).toStrictEqual({ a: null });
+    });
+
+    it('should still take a collection, which replaces the node and its tag', () => {
+      // the one case the old `'object'` test was right about
+      const path = file('a: !!int 5\n');
+      yaml(path).writeSync({ a: { b: 1 } });
+      expect(yaml(path).readSync().value).toStrictEqual({ a: { b: 1 } });
     });
 
     it('should leave an untagged scalar alone', () => {

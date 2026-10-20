@@ -17,7 +17,7 @@ import {
  *
  * Almost all of this is the parser's: `yaml` resolves scalars, aliases and merge
  * keys, and `toJS()` hands back the plain value a layer merges. What is here is
- * the four shapes it resolves to something **wrong** rather than refusing, each
+ * the shapes it resolves to something **wrong** rather than refusing, each
  * measured against `yaml` 2.9.1:
  *
  * - a tag outside the core schema, which resolves to a JS value no other layer
@@ -29,7 +29,12 @@ import {
  *   so does `toString()`, which is what makes refusing it here load bearing
  *   rather than tidy: the fidelity round trip in `store.ts` renders the
  *   unmodified document, so a forward alias threw out of *that* with neither
- *   the path nor a line in it, before the read was reached at all.
+ *   the path nor a line in it, before the read was reached at all;
+ * - an integer whose digits the double does not hold, which reads back as a
+ *   different integer with nothing said;
+ * - a null key, a `NaN` key, and a numeric key whose source denotes a
+ *   different number than the path it lands on -- three ways for a key to
+ *   name a path that is not the one the file wrote.
  *
  * Everything else `yaml` already reports, and reports better than a second walk
  * would: a multi-document stream is `MULTIPLE_DOCS`, two keys that name one path
@@ -46,6 +51,46 @@ import {
  * be integral -- `1e21`, `1.5e20` -- is not mistaken for one.
  */
 const INTEGER_SOURCE = /^(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$/;
+
+/**
+ * The canonical decimal a numeric literal denotes, or `undefined` where the
+ * source is not a finite decimal one.
+ *
+ * `digits` with the leading and trailing zeros gone, times ten to the `exp`, so
+ * that one real number has exactly one spelling: `2.50` and `2.5` both come
+ * back `25e-1`, and `1e21` and `1000000000000000000000` both come back `1e21`.
+ * That is what makes it safe to compare a key's **source** against the path it
+ * lands on -- the question is whether the two denote the same number, never
+ * whether they are spelled the same way.
+ *
+ * `undefined` for a hex or octal source, which `INTEGER_SOURCE` already
+ * answers for, and for `.inf` and `.nan`, which are not decimals at all.
+ */
+function decimalOf(source: string): string | undefined {
+  const parts = /^([-+]?)([0-9]*)(?:\.([0-9]*))?(?:[eE]([-+]?[0-9]+))?$/.exec(source);
+
+  if (parts === null) {
+    return undefined;
+  }
+
+  const int = parts[2] ?? '';
+  const frac = parts[3] ?? '';
+
+  if (int === '' && frac === '') {
+    return undefined;
+  }
+
+  const digits = `${int}${frac}`.replace(/^0+/, '');
+
+  if (digits === '') {
+    return '0';
+  }
+
+  const trimmed = digits.replace(/0+$/, '');
+  const exp = Number(parts[4] ?? '0') - frac.length + (digits.length - trimmed.length);
+
+  return `${parts[1] === '-' ? '-' : ''}${trimmed}e${exp}`;
+}
 
 /**
  * The seven tags YAML 1.2's core schema has, plus the non-specific one.
@@ -96,7 +141,7 @@ function lineAt(node: Node, read: ReadShape): number {
  *
  * @param doc - The parsed document.
  * @param read - The line counter and the path.
- * @throws If the document holds one of the four shapes.
+ * @throws If the document holds one of the shapes the module header lists.
  */
 export function assertReadable(doc: Document, read: ReadShape): void {
   // the first thing the parser had to say, which already carries a line and
@@ -265,6 +310,42 @@ export function assertReadable(doc: Document, read: ReadShape): void {
         if (key && isScalar(key) && key.value === null) {
           fault = __`${read.what}:${lineAt(key, read)}: a null mapping key names no config path`;
           return;
+        }
+
+        // a **`NaN`** key names a path no write can ever reach, which is a
+        // different thing from the null key above and is why it is refused
+        // here rather than guarded in the writer. `yaml` matches a pair by its
+        // key's own value and `NaN !== NaN`, so `setIn([NaN], v)` appends a
+        // *second* pair -- measured, editing `.nan: a` produced
+        // `.nan: a\n? .nan\n: B\n`, which this store's own reader then
+        // refuses as a duplicate -- and `deleteIn([NaN])` answers `false`, so
+        // a delete is a silent no-op with the key still there. Neither half
+        // can be fixed in the writer: there is no spelling of the segment that
+        // reaches the pair. `.inf` is **not** refused with it, because
+        // `Infinity === Infinity` and a write addresses one perfectly well
+        if (key && isScalar(key) && typeof key.value === 'number' && Number.isNaN(key.value)) {
+          fault = __`${read.what}:${lineAt(key, read)}: a NaN mapping key names a config path no write can address`;
+          return;
+        }
+
+        // and a numeric key whose **source denotes a different number than the
+        // path does** is a path silently renamed. The integer guard below
+        // catches the integer spellings; a float-spelled one escapes it,
+        // because a float value rounding is ordinary float semantics and is
+        // deliberately allowed. For a *key* it is not ordinary: the key is a
+        // path segment, so `9007199254740993.0: a` read back as the path
+        // `9007199254740992` is a setting that is simply not where the file
+        // put it. Measured, and the same digits in integer form are refused,
+        // so the two spellings disagreed. Compared as canonical decimals
+        // rather than as text, or every ordinary float spelling -- `2.50`
+        // against the path `2.5` -- would be refused with it
+        if (key && isScalar(key) && typeof key.value === 'number' && key.source !== undefined) {
+          const wrote = decimalOf(key.source);
+
+          if (wrote !== undefined && wrote !== decimalOf(String(key.value))) {
+            fault = __`${read.what}:${lineAt(key, read)}: the mapping key ${key.source} names the config path ${String(key.value)}, which is a different number`;
+            return;
+          }
         }
       }
     },

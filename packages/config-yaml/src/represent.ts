@@ -133,9 +133,29 @@ function inexactInteger(value: number): string | undefined {
   return undefined;
 }
 
+/**
+ * Whether a key is an **array index** rather than merely a canonical number.
+ *
+ * `String(Number(key)) === key` alone is the second of those, which is what
+ * this first tested: `-1`, `1.5`, `Infinity`, `NaN`, `4294967295` (one past
+ * the last index there is) and `9007199254740991` all satisfy it, none of them
+ * extends `length` or makes a hole for the hole check to catch, and `yaml`
+ * writes a sequence as its items alone -- so each was an own enumerable
+ * property silently dropped by a guard written to refuse exactly that.
+ */
+function isIndex(key: string): boolean {
+  const n = Number(key);
+
+  return String(n) === key && Number.isInteger(n) && n >= 0 && n < 2 ** 32 - 1;
+}
+
 /** What YAML writes an object of no kind it knows as, which is its own keys. */
 function asPlain(value: object): string {
-  const name = value.constructor?.name ?? 'value';
+  // `|| 'value'` rather than `??`, because a **generator**'s constructor name
+  // is the empty string -- measured -- which `??` passes through and the
+  // sentence then reads "YAML writes a  of this kind as ..."
+  const named = value.constructor?.name;
+  const name = named === undefined || named === '' ? 'value' : named;
 
   // not every refused object is written as a **mapping**, and saying so of all
   // of them contradicted the table this module's own doc carries: measured
@@ -158,7 +178,28 @@ function asPlain(value: object): string {
  * own enumerable keys.
  */
 function writtenAs(value: object): string {
+  // a boxed primitive **first**, because a boxed `String` is iterable and the
+  // sequence test below claimed it -- measured, `createNode(new String('ab'))`
+  // writes the scalar `ab`. A boxed `BigInt` is a scalar too, which the
+  // `instanceof` list did not name, so it fell through to the mapping default
+  if (
+    value instanceof Number ||
+    value instanceof String ||
+    value instanceof Boolean ||
+    value instanceof BigInt
+  ) {
+    return 'a plain scalar';
+  }
+
   if (value instanceof Map) {
+    return 'a plain mapping';
+  }
+
+  // a `DataView` **is** an `ArrayBuffer.isView`, and it has no iterator and no
+  // indexed members, so `createNode()` writes it as the empty mapping rather
+  // than as a sequence of its bytes -- which is the distinction the single
+  // `isView` test missed
+  if (value instanceof DataView) {
     return 'a plain mapping';
   }
 
@@ -168,10 +209,6 @@ function writtenAs(value: object): string {
     typeof (value as { [Symbol.iterator]?: unknown })[Symbol.iterator] === 'function'
   ) {
     return 'a sequence of its own members';
-  }
-
-  if (value instanceof Number || value instanceof String || value instanceof Boolean) {
-    return 'a plain scalar';
   }
 
   return 'a plain mapping';
@@ -285,7 +322,7 @@ function look(
   }
 
   if (list) {
-    const extra = Object.keys(value).find((key) => String(Number(key)) !== key);
+    const extra = Object.keys(value).find((key) => !isIndex(key));
     if (extra !== undefined) {
       return at(`YAML writes a sequence as its items; the property "${extra}" would be dropped`);
     }

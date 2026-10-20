@@ -233,7 +233,72 @@ describe('what a write would lose', () => {
     });
   });
 
+  it('should not merge two differences across an unchanged line between them', () => {
+    // `align()` emitted nothing for a line it matched, so a gone run and the
+    // added run after it looked adjacent and `coalesce()` zipped them -- which
+    // merged two differences into one pair and dropped a whole kind from the
+    // report. Each half alone was reported correctly, which is what made it
+    // invisible
+    const both = (losses('a: 1\n\n\nb: 2\n# tail\n') ?? []).map((l) => l.detail);
+
+    expect(both).toContain('a run of blank lines is collapsed to one');
+    expect(both).toContain('a blank line is added before a comment at the end of the document');
+  });
+
+  it('should name the source line an added line sits in front of, not the rendered one', () => {
+    // the index for a line only the rendering has was the **rendered** one
+    // used as a source index, which agrees only while nothing above has
+    // net-inserted or net-deleted. With a blank run collapsed above it, the
+    // trailing-comment row looked at `b: 2` and did not fire
+    const found = (losses('a: 1\n\n\nb: 2\n# tail\n') ?? []).find((l) =>
+      (l.detail ?? '').startsWith('a blank line is added')
+    );
+
+    expect(found?.line).toBe(5);
+  });
+
   describe('a recognizer naming the right cause', () => {
+    it('should not read a bare bracket as a flow collection', () => {
+      // the row asked only about the **source** line, so any differing line
+      // ending in `[` or `{` was a flow collection -- including literal block
+      // content whose indent moved, and a comment. There is no flow collection
+      // in either file
+      for (const body of [
+        'a:\n    b: |\n          [\n          text\n',
+        'plugins:\n  # the list [\n- a\n',
+      ]) {
+        const said = (losses(body) ?? []).map((l) => l.detail);
+        expect(said, body).not.toContain(
+          'a flow collection written across lines is rendered on one'
+        );
+        expect(said.length, body).toBeGreaterThan(0);
+      }
+    });
+
+    it('should name a flow collection on CRLF as well as on LF', () => {
+      // `lossesOf()` keeps the carriage return on each line, so a row whose
+      // end-of-line test is `$` never fires on a CRLF file -- the class the
+      // blank rows were fixed for, in a row that fix did not reach
+      for (const body of ['a: [\n  1,\n  2,\n]\n', 'a: [\r\n  1,\r\n  2,\r\n]\r\n']) {
+        expect(
+          (losses(body) ?? []).map((l) => l.detail),
+          JSON.stringify(body)
+        ).toContain('a flow collection written across lines is rendered on one');
+      }
+    });
+
+    it('should name an inline comment whose scalar holds a hash of its own', () => {
+      // the normalizer rewrote the **first** whitespace-hash run, which is
+      // inside the scalar here, so the commonest residual there is fell
+      // through to the bare sentence
+      for (const body of ['a: "x  # y"   # c\n', "a: 'x  # y'   # c\n", 'a: 1   # c\n']) {
+        expect(
+          (losses(body) ?? []).map((l) => l.detail),
+          body
+        ).toContain('the whitespace before an inline comment is normalized to one space');
+      }
+    });
+
     const details = (body: string): readonly (string | undefined)[] =>
       (yaml(file(body)).readSync().wouldLose ?? []).map((it) => it.detail);
 

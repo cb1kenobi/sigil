@@ -20,11 +20,12 @@ import { isAlias, isMap, isScalar, isSeq, type Document, type Node } from 'yaml'
  * `unshift` rewrites every element -- which is the same trade the XML store
  * records, and it is what keeps a comment on an untouched element.
  *
- * ## Three kinds of path a write refuses, each measured
+ * ## The paths a write refuses, each measured
  *
  * An anchor, an alias and a merge key are the three things YAML has that no
  * other config format does, and a write that touched one would be wrong in a
- * different way each time. Against `yaml` 2.9.1:
+ * different way each time; a tag is the fourth, and it rewrites a value rather
+ * than moving it. Against `yaml` 2.9.1:
  *
  * 1. **Through an alias**: `c: *b` and a write to `c.p` throws
  *    `Expected YAML collection at c. Remaining path: p` out of `setIn()` --
@@ -37,6 +38,16 @@ import { isAlias, isMap, isScalar, isSeq, type Document, type Node } from 'yaml'
  *    so the document no longer holds the value it was handed. And *deleting*
  *    one leaves the document **unserializable**: `toString()` throws
  *    `Unresolved alias`, so the file cannot be written at all.
+ * 4. **A tagged scalar the tag cannot spell back**: `a: !!int 5` set to `1.5`
+ *    wrote `a: !!int 1.5`, which the next read refuses with `Unresolved tag`,
+ *    and `!!bool true` set to `null` wrote `a: !!bool false` and read back
+ *    **false**. Asked of the tag rather than of the value's `typeof`, which
+ *    was the proxy that let both of those through.
+ * 5. **A removal of a key carrying an aliased anchor**, and of any **ancestor**
+ *    that holds one: `editsFor()` emits a drop or a kind-changing replacement
+ *    of a whole subtree as one edit at the ancestor, so the anchor buried
+ *    inside it met no fence and `yaml` threw its own `Unresolved alias` with
+ *    neither the file nor the path in it.
  *
  * Which is why the refusal is sharper than "both answers are defensible". Each
  * names the path and the line, and nothing else in the file is affected: an
@@ -311,6 +322,42 @@ export function editsFor(current: unknown, target: unknown, at: readonly string[
  * `c.p` and `c.p.q` alike, with one entry recorded rather than one per
  * descendant.
  */
+/**
+ * Whether a tag writes this value back as itself.
+ *
+ * Measured against `Document` + `toString()` + a re-parse over a matrix of the
+ * five core tags and nine values, rather than reasoned from the grammar. The
+ * integer forms are the subtle pair: `!!int` takes a number only where its
+ * **decimal printing** is all digits, so `1e21` is refused although
+ * `Number.isInteger(1e21)` is true, and `!!float` takes a number only where it
+ * is **not**, because JS cannot spell `2.0` and `!!float 2` does not resolve.
+ * Conservative where the measurement was odd -- a string onto `!!float`
+ * round-tripped and is refused anyway, because nothing should rely on it.
+ */
+function tagTakes(tag: string, value: unknown): boolean {
+  const integral = typeof value === 'number' && /^[-+]?[0-9]+$/.test(String(value));
+
+  switch (tag) {
+    case 'tag:yaml.org,2002:str':
+      return typeof value === 'string';
+    case 'tag:yaml.org,2002:bool':
+      return typeof value === 'boolean';
+    case 'tag:yaml.org,2002:int':
+      return integral;
+    case 'tag:yaml.org,2002:float':
+      return typeof value === 'number' && !integral;
+    case 'tag:yaml.org,2002:null':
+      return value === null;
+    default:
+      return false;
+  }
+}
+
+/** Whether a value is one `editsFor()` descends into rather than replacing whole. */
+function isCollection(value: unknown): boolean {
+  return typeof value === 'object' && value !== null;
+}
+
 function assertEditable(edit: Edit, fences: Fences, read: ReadShape): void {
   for (let i = 0; i <= edit.at.length; i++) {
     const prefix = dotted(edit.at.slice(0, i));
@@ -324,6 +371,31 @@ function assertEditable(edit: Edit, fences: Fences, read: ReadShape): void {
         ? __`Cannot write "${dotted(edit.at)}" in ${read.what}: ${where} is an alias, on line ${fence.line}`
         : __`Cannot write "${dotted(edit.at)}" in ${read.what}: ${where} carries an anchor another node aliases, on line ${fence.line}`
     );
+  }
+
+  // and an edit that takes a whole subtree away has to answer for the fences
+  // **under** it, which the prefix walk above cannot see: `editsFor()` emits a
+  // drop, or a replacement whose value is not a collection, as a single edit at
+  // the ancestor, so a fenced descendant inside it was never consulted.
+  // Measured, dropping `grp` from `grp:\n  host: &k example.com\nother: *k\n`
+  // threw `yaml`'s own `Unresolved alias ... k` -- no file, no path, nothing
+  // actionable -- where dropping the anchored key itself names both. A
+  // collection value is left alone because `editsFor()` descends into one, so
+  // the removal of an anchored descendant arrives as its own edit and meets
+  // the exact-path fences instead
+  if (edit.drop || !isCollection(edit.value)) {
+    const under = `${dotted(edit.at)}.`;
+    const buried = [...fences.blocked, ...fences.keyAnchored].find(
+      ([at]) => at !== '' && at.startsWith(under)
+    );
+
+    if (buried) {
+      const [at, fence] = buried;
+
+      throw new Error(
+        __`Cannot write "${dotted(edit.at)}" in ${read.what}: it holds "${at}", which carries an anchor another node aliases, on line ${fence.line}`
+      );
+    }
   }
 
   // a key a map takes from a **merge key** is not one of its own pairs, and
@@ -382,18 +454,27 @@ function assertEditable(edit: Edit, fences: Fences, read: ReadShape): void {
   // identical** and read back boolean `true`, and `a: !!int 5` set to `'nope'`
   // wrote `!!int .nan`, which the next read refuses with `Unresolved tag`.
   //
-  // Refused only where the **type** differs, which is where the tag can change
-  // the value: a string onto `!!str`, a number onto `!!int`, a boolean onto
-  // `!!bool` all re-stringify as themselves and round-trip, so those are left
-  // alone. A kind change -- a scalar becoming a map -- replaces the node and
-  // its tag with it, which is the node genuinely going rather than its value
-  // being rewritten
+  // Refused unless the tag writes this value back **as itself**, which is a
+  // question about the tag rather than about the value's `typeof`. That proxy
+  // was the defect a review round measured: it compared `typeof edit.value`
+  // against the type the scalar currently holds, so a *same-type* write that
+  // the tag cannot spell went straight through -- `a: !!int 5` set to `1.5`
+  // wrote `a: !!int 1.5`, which the next read refuses with `Unresolved tag`,
+  // and `!!float 1.5` set to `2` wrote `a: !!float 2`, unreadable for the same
+  // reason, because JS has no spelling of `2.0`. And `null` bypassed the guard
+  // **entirely**, since `typeof null` is `'object'`: `!!bool true` set to
+  // `null` wrote `a: !!bool false` and read back `false`, and `!!str 5` set to
+  // `null` read back the string `"null"` -- silent wrong data, no throw.
+  //
+  // A **collection** is still exempt, and that is the one case the old
+  // `'object'` test was right about: a scalar becoming a map or a sequence
+  // replaces the node and its tag with it, which is the node genuinely going
+  // rather than its value being rewritten
   const tag = fences.tagged.get(dotted(edit.at));
-  const kind = typeof edit.value;
 
-  if (tag && kind !== 'object' && kind !== tag.type) {
+  if (tag && !isCollection(edit.value) && !tagTakes(tag.tag, edit.value)) {
     throw new Error(
-      __`Cannot write "${dotted(edit.at)}" in ${read.what}: it carries the tag ${tag.tag} on line ${tag.line}, which would rewrite a ${kind} as a ${tag.type}`
+      __`Cannot write "${dotted(edit.at)}" in ${read.what}: it carries the tag ${tag.tag} on line ${tag.line}, which would not write ${String(edit.value)} back as itself`
     );
   }
 }

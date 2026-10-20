@@ -330,7 +330,7 @@ yaml(path, { format: 'yml' });
 
 `.yml` and `.yaml` are **one store**, which is what that option exists to make
 visible rather than to work around: two registrations would be two stores to keep
-in agreement about a schema version, a residual table and three write refusals,
+in agreement about a schema version, a residual table and the write refusals,
 for two spellings of one format. So the extension is not read at all and the
 store is the same either way.
 

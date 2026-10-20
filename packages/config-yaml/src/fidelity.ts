@@ -36,7 +36,7 @@ import type { Loss } from '@ttylabs/sigil/config';
  * row is narrow on purpose and each has a test of its own.
  *
  * There is no cap on how many entries this reports, and there was one: the
- * table has nine possible answers -- the rows below plus the per-line fallback
+ * table has ten possible answers -- the nine rows below plus the per-line fallback
  * -- and `seen` is keyed by the sentence, so a cap of ten could never bind.
  * Deleted rather than commented, which is what this repository does with a
  * guard that cannot fire, and `test/fidelity.test.ts` asserts the bound that
@@ -205,7 +205,14 @@ const RECOGNIZERS: readonly Recognizer[] = [
       now !== undefined &&
       /[ \t]{2,}#|\t#/.test(was) &&
       / #/.test(now) &&
-      was.replace(/[ \t]+#/, ' #') === now,
+      // the **last** whitespace-`#` run rather than the first: the first one is
+      // inside the scalar whenever the scalar contains one, so
+      // `a: "x  # y"   # c` never matched and the commonest residual there is
+      // fell through to the bare sentence. `\S` before the run is what makes
+      // the greed land in the right place -- a bare `(.*)` eats the whitespace
+      // too and leaves `[ \t]+` matching one space, which is a no-op that
+      // broke the plain case as well
+      was.replace(/^(.*\S)[ \t]+#/, '$1 #') === now,
     say: 'the whitespace before an inline comment is normalized to one space',
   },
   {
@@ -273,8 +280,18 @@ const RECOGNIZERS: readonly Recognizer[] = [
     // a flow collection written across lines, which `yaml` renders on one --
     // reported as the per-line fallback before this row existed, which named
     // the line and not the cause
+    // the **rendered** line is asked about as well, which is the rule the
+    // explicit-key row above already keeps: asking only about `was`, any
+    // differing line ending in `[` or `{` was reported as a flow collection --
+    // measured, a `[` that is *literal block content* whose indent moved, and
+    // a comment ending in `[`, each named a flow collection that is not in the
+    // file. A real collapse puts the closing bracket on the rendered line.
+    // `\r?` because `lossesOf()` keeps the carriage return on each line, so
+    // without it the row never fired on a CRLF file at all -- the end-of-line
+    // class the blank rows were fixed for, in a row that fix did not reach
     kind: 'formatting',
-    saw: ({ was }) => was !== undefined && /[[{][ \t]*$/.test(was),
+    saw: ({ now, was }) =>
+      was !== undefined && now !== undefined && /[[{][ \t]*\r?$/.test(was) && /[\]}]/.test(now),
     say: 'a flow collection written across lines is rendered on one',
   },
   {
@@ -316,6 +333,17 @@ const RECOGNIZERS: readonly Recognizer[] = [
  */
 /** A source line paired with the rendered line it became, where there is one. */
 interface Aligned {
+  /**
+   * For a line only the rendering has, the source index it sits **in front
+   * of** -- the position of the source cursor when the walk emitted it.
+   *
+   * Carried rather than derived, because the obvious derivation is the
+   * rendered index and the two part the moment anything above net-inserted or
+   * net-deleted: measured, a document with a blank run collapsed above a
+   * trailing comment named the source line `b: 2`, one past the comment the
+   * blank was really added in front of, and the recognizer for it did not fire.
+   */
+  at?: number;
   /** The rendered line index, or nothing for a source line that is gone. */
   now?: number;
   /** The source line index, or nothing for a line only the rendering has. */
@@ -373,7 +401,7 @@ function align(was: readonly string[], now: readonly string[]): readonly Aligned
   if (a.length * b.length > LCS_CELLS) {
     for (let i = 0; i < Math.max(a.length, b.length); i++) {
       out.push({
-        ...(i < b.length ? { now: head + i } : {}),
+        ...(i < b.length ? { at: head + Math.min(i, a.length), now: head + i } : {}),
         ...(i < a.length ? { was: head + i } : {}),
       });
     }
@@ -404,6 +432,14 @@ function align(was: readonly string[], now: readonly string[]): readonly Aligned
 
   while (i < a.length && j < b.length) {
     if (a[i] === b[j]) {
+      // emitted rather than skipped, so that `coalesce()` can **see** the
+      // match: with nothing between them a gone run and the added run after it
+      // look adjacent, and it zipped them across the unchanged line between --
+      // measured, `a: 1\n\n\nb: 2\n# tail\n` reported the collapsed blank run
+      // and silently dropped the blank added before the trailing comment,
+      // because the two were merged into one pair. `coalesce()` drops these
+      // again once it has used them as boundaries
+      out.push({ now: head + j, was: head + i });
       i++;
       j++;
       continue;
@@ -415,7 +451,7 @@ function align(was: readonly string[], now: readonly string[]): readonly Aligned
       i++;
       continue;
     }
-    out.push({ now: head + j });
+    out.push({ at: head + i, now: head + j });
     j++;
   }
 
@@ -423,7 +459,7 @@ function align(was: readonly string[], now: readonly string[]): readonly Aligned
     out.push({ was: head + i });
   }
   for (; j < b.length; j++) {
-    out.push({ now: head + j });
+    out.push({ at: head + i, now: head + j });
   }
 
   return coalesce(out);
@@ -444,7 +480,11 @@ function align(was: readonly string[], now: readonly string[]): readonly Aligned
  * paired off index-wise, which is what a diff calls a replace. The overlap pairs
  * up and whatever is left over on either side stays a line gone or a line added,
  * so nothing is invented: the pairing is only ever within one changed region,
- * never across an unchanged line.
+ * never across an unchanged line. That last clause is true because `align()`
+ * **emits** the lines it matched and this drops them again: without them the
+ * runs either side of an unchanged line looked adjacent and were zipped, which
+ * merged two differences into one pair and lost a whole loss kind from the
+ * report.
  *
  * @param pairs - The pairs as the walk produced them.
  * @returns The same pairs with each replace run zipped.
@@ -466,15 +506,20 @@ function coalesce(pairs: readonly Aligned[]): readonly Aligned[] {
     const left = pairs.slice(at, gone);
     const right = pairs.slice(gone, added);
 
+    // a pair with **both** halves set is a line the walk matched, which is here
+    // only to stop the runs either side of it being zipped together. It is not
+    // a difference, so it is dropped rather than emitted -- and the scans above
+    // have already stopped on it, which is the whole of what it was for
     if (left.length === 0 && right.length === 0) {
-      out.push(pairs[at] as Aligned);
       at++;
       continue;
     }
 
     for (let k = 0; k < Math.max(left.length, right.length); k++) {
       out.push({
-        ...(k < right.length ? { now: (right[k] as Aligned).now } : {}),
+        ...(k < right.length
+          ? { at: (right[k] as Aligned).at, now: (right[k] as Aligned).now }
+          : {}),
         ...(k < left.length ? { was: (left[k] as Aligned).was } : {}),
       });
     }
@@ -502,7 +547,7 @@ export function lossesOf(source: string, rendered: string): readonly Loss[] | un
     // a line only the rendering has is reported against the source line it
     // sits in front of, because that is the line a reader has to look at --
     // clamped to the file, so an addition at the end names its last line
-    const i = pair.was ?? Math.min(pair.now ?? 0, was.length - 1);
+    const i = pair.was ?? Math.min(pair.at ?? pair.now ?? 0, was.length - 1);
     const at: At = {
       i,
       now: pair.now === undefined ? undefined : now[pair.now],

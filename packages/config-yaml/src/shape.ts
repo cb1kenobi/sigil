@@ -146,8 +146,12 @@ export function reshape(rendered: string, shape: Shape): string {
  *
  * The smallest positive indent any line carries, which is one level by
  * construction: every deeper line is a multiple of it, so the minimum is the
- * step. A block scalar's own content is indented by the same step, so it
- * agrees rather than needing to be skipped.
+ * step -- **of the lines that are structure**. A block scalar's own content is
+ * the author's text rather than the document's shape and is skipped, which the
+ * loop below does and this paragraph used to deny: measured,
+ * `a: |\n  hello\nb:\n      c: 1\n` detected 2 from `hello` and the write
+ * then reindented `c` from six spaces to two. A comment is skipped with it,
+ * for its own reason below.
  *
  * `0` where nothing is nested, which the caller reads as "no evidence" and
  * answers with the default -- a flat document renders identically at any
@@ -206,8 +210,12 @@ function indentOf(lines: readonly string[]): number {
     }
 
     // `|`, `>` and their chomping and indentation indicators, with an inline
-    // comment allowed after
-    if (/[|>][-+]?\d*[ \t]*(#.*)?$/.test(line)) {
+    // comment allowed after. **Either order**, because YAML allows both and
+    // `yaml` 2.9.1 accepts all four spellings -- measured. Written
+    // chomping-then-digits only, `a: |2-` never set `block`, so the scalar's
+    // own content was read as structural indentation and a write reindented
+    // the whole mapping around it
+    if (/[|>](?:[-+]\d*|\d+[-+]?)?[ \t]*(#.*)?$/.test(line)) {
       block = own;
     }
   }
@@ -294,7 +302,12 @@ export function candidates(body: string): readonly ToStringOptions[] {
   // the other three combinations at the detected indent, then the default at
   // two and four spaces: a bounded sweep for a document whose layout the
   // detection read wrong, rather than the exhaustive one. Ordered so that the
-  // likeliest correction comes first, and deduplicated against the guess
+  // likeliest correction comes first, and deduplicated against **everything
+  // already emitted** rather than against the guess alone -- where the
+  // detected indent is 2 the appended default is identical to one of the
+  // flips, so the bounded six was five distinct layouts for the commonest
+  // shape there is and `store.ts` paid a redundant render and line diff for
+  // the repeat on every read
   for (const also of [
     { flowCollectionPadding, indent, indentSeq: !indentSeq },
     { flowCollectionPadding: !flowCollectionPadding, indent, indentSeq },
@@ -302,14 +315,17 @@ export function candidates(body: string): readonly ToStringOptions[] {
     { flowCollectionPadding: true, indent: 2, indentSeq: true },
     { flowCollectionPadding: true, indent: 4, indentSeq: true },
   ]) {
-    const first = out[0] as ToStringOptions;
-    if (
-      also.indent === first.indent &&
-      also.indentSeq === first.indentSeq &&
-      also.flowCollectionPadding === first.flowCollectionPadding
-    ) {
+    const already = out.some(
+      (had) =>
+        also.indent === had.indent &&
+        also.indentSeq === had.indentSeq &&
+        also.flowCollectionPadding === had.flowCollectionPadding
+    );
+
+    if (already) {
       continue;
     }
+
     out.push({ ...also, lineWidth: 0 });
   }
 

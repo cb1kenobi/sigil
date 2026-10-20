@@ -22977,6 +22977,136 @@ so it is taken, and it reads back as **negative** zero rather than zero --
 measured, since `toStrictEqual` tells the two apart and a guess would have
 written that assertion the other way round.
 
+#### What a second, cross-model round found, and all seven severe ones reproduced
+
+Four `muse-wonder-1.0-medium` reviewers through `cursor-agent`, one per module
+pair, pointed at the three commits the first round's own fixes produced --
+which is the rule this file records three times over and had not yet applied
+here: code written in response to a review is code no review has seen.
+**Seventeen confirmed findings**, and every one of the seven severe was
+reproduced before it was believed. A different model family from the grok round
+and the overlap was small, which is the argument for running both rather than
+picking one.
+
+- **A boxed `String` as `paths` evaded the core guard, and the reviewer
+  under-measured it.** `overlay()` refused only `typeof paths === 'string'`, and
+  `new String('ab')` is an object that iterates as characters -- which is the
+  precise mechanism that guard's own comment exists to stop. Reported against
+  the YAML store; measured here on **all three**, each silently deleting `a` and
+  `b`, byte for byte the pre-guard behaviour. Asked with
+  `Object.prototype.toString` now, which covers both spellings and is
+  cross-realm where `instanceof String` is not. Fixed in **core** for the reason
+  SIG-149's own path/item ambiguity was: all three share it, and a guard in one
+  leaves the other two holding it.
+- **A tagged scalar used `typeof` as a proxy for "the tag re-stringifies
+  this".** Two silent-wrong-data shapes and two unreadable files, all measured:
+  `!!bool true` set to `null` wrote `a: !!bool false` and read back **`false`**,
+  `!!str 5` set to `null` read back the **string** `"null"` -- `typeof null` is
+  `'object'`, which the guard exempted as a kind change -- and `!!int 5` set to
+  `1.5`, or `!!float 1.5` set to `2`, each wrote a file the store's own reader
+  refuses. `tagTakes()` asks the **tag**, from a matrix of five tags against
+  nine values measured through `createNode()` and a re-parse rather than reasoned
+  from the grammar. The integer pair is the subtle one: `!!int` takes a number
+  only where its decimal _printing_ is all digits, so `1e21` is refused although
+  `Number.isInteger(1e21)` is true, and `!!float` only where it is **not**,
+  because JS cannot spell `2.0`.
+- **A `.nan` key is refused at read, which is where that defect's fix belongs.**
+  `yaml` matches a pair by its key's own value and `NaN !== NaN`, so
+  `setIn([NaN], v)` appends a second pair -- measured, an edit produced a
+  duplicate key the reader then refuses -- and `deleteIn([NaN])` answers `false`,
+  so a delete is a silent no-op. Neither half is fixable in the writer, because
+  no spelling of the segment reaches the pair; a key no write can address is a
+  key that names no usable path. `.inf` is **not** refused with it, because
+  `Infinity === Infinity` and a write addresses one perfectly well.
+- **A float-spelled key past 2^53 was a path silently renamed.** The integer
+  guard fires on `INTEGER_SOURCE`, so `9007199254740993.0: a` escaped it and
+  read back as the path `9007199254740992` -- while the **same digits** in
+  integer form were refused, so the two spellings disagreed. A float _value_
+  rounding is ordinary float semantics and stays allowed; a key is a path
+  segment. Compared as **canonical decimals** rather than as text, or every
+  ordinary float spelling would go with it: `2.50` against the path `2.5`, `1e21`
+  against `1e+21`, `007` against `7` and `-0` against `0` are each the same
+  number written twice, and each is pinned.
+- **An ancestor holding an aliased anchor evaded both fences.** They check
+  prefixes of the edit path and the exact path, and `editsFor()` emits a drop or
+  a kind-changing replacement of a whole subtree as **one edit at the
+  ancestor** -- so the anchor buried inside it was never consulted and `yaml`
+  threw its own `Unresolved alias`, with neither the file nor the path in it,
+  which is exactly the message both refusals were written to replace. The file
+  survived, so this is the crash class rather than data loss. A collection value
+  is deliberately still allowed through, because `editsFor()` descends into one
+  and the removal arrives as its own edit -- pinned from both sides, or the
+  guard would refuse every write to a map that happens to hold an anchor.
+- **The array guard tested "a canonical number" where it meant "an array
+  index".** `String(Number(key)) !== key` passes `-1`, `1.5`, `Infinity`, `NaN`,
+  `4294967295` -- one past the last index a JS array has -- and
+  `9007199254740991`; none extends `length` or makes a hole for the hole check
+  to catch, so each was an own enumerable property **silently dropped** by a
+  guard written to refuse exactly that. `foo` was caught all along, which is why
+  it read as working.
+- **`coalesce()` zipped a gone run against an added run across an unchanged
+  line, dropping a whole loss kind.** `align()` emitted nothing for a line it
+  matched, so the two runs looked adjacent -- measured,
+  `a: 1\n\n\nb: 2\n# tail\n` reported the collapsed blank run and silently
+  lost the blank added before the trailing comment, where each half alone
+  reported correctly. The fix is to **emit** the matched lines so the run scans
+  stop on them and drop them again once they have served as boundaries, which
+  is the claim that paragraph already made -- "never across an unchanged line" --
+  made true rather than restated.
+
+  It also closed the round's own **Unsure** item, which was right: the index for
+  a line only the rendering has was the _rendered_ one used as a source index,
+  and the two part the moment anything above net-inserted or net-deleted. With a
+  blank run collapsed above it the trailing-comment row looked at `b: 2` and did
+  not fire. `Aligned.at` carries the source cursor the walk emitted the line at,
+  which is exact where the derivation was a coincidence.
+
+- **Three recognizers named the wrong cause or none.** The flow-collection row
+  asked only about the **source** line, so any differing line ending in `[` or
+  `{` was reported as a flow collection -- including literal block content whose
+  indent moved, and a comment, in neither of which is there a flow collection;
+  it asks about the rendered line too now, which is the rule the explicit-key
+  row already kept. The same row's `$` could not see a CRLF file's carriage
+  return, so it never fired there at all -- the end-of-line class the blank rows
+  were fixed for, in the one row that fix did not reach. And the inline-comment
+  row normalized the **first** whitespace-hash run, which is inside the scalar
+  whenever the scalar holds one, so the commonest residual there is fell through
+  to the bare sentence. `\S` before the run is what puts the greed in the right
+  place, and the first attempt at it -- a bare `(.*)` -- broke the plain case as
+  well, because the capture eats the whitespace and leaves `[ \t]+` matching one
+  space, which is a no-op.
+- **A block-scalar header with its indicators in the other order was read as
+  structure.** YAML allows `|2-` as well as `|-2` and `yaml` accepts all four
+  spellings; written chomping-then-digits only, the scalar's own content line
+  set the step, and a write reindented the whole mapping around it from six
+  spaces to three. The block scalar itself moves either way -- an explicit
+  indicator pins its content, so the document is lossy whatever candidate is
+  chosen -- so what the missed detection cost was the **rest of the file**.
+- **`candidates()` repeated one.** The sweep deduplicated each entry against
+  `out[0]` alone, so wherever the detected indent is 2 the appended default
+  collided with one of the flips and the bounded six was five distinct layouts
+  for the commonest shape there is -- a redundant render and line diff on every
+  read. The uniqueness assertion beside it exercised a four-space document,
+  where no collision occurs, so it read as a general guarantee the code did not
+  keep.
+- **And `writtenAs()` was wrong about three cells rather than the two
+  reported.** Measured against `createNode()`: a `DataView` is an
+  `ArrayBuffer.isView` with no iterator and no indexed members, so it writes
+  `{}` rather than a sequence; a boxed `BigInt` was in no branch and fell
+  through to the mapping default where it writes `10`; and a boxed **`String`**
+  is iterable, so the sequence test claimed it where it writes the scalar `ab`.
+  The boxed primitives are asked first now. A generator's `constructor.name` is
+  the empty string besides, which `??` passes through, so its refusal read
+  "YAML writes a of this kind as".
+
+Four were prose contradicting the code beside them -- the module header's "four
+shapes" where the walk now refuses more, `indentOf()`'s summary still claiming a
+block scalar needs no skipping over the loop that skips it, the module's "three
+kinds of path a write refuses" where there are five, and a cap paragraph
+counting nine answers where there are ten. That class is a third of the round,
+which is what this file already records about a heavily commented codebase: the
+written rule is what stops the next reader checking the call site.
+
 #### The i18n gap is the sibling's, unchanged
 
 Everything a user's **file** can provoke is translated and everything only the

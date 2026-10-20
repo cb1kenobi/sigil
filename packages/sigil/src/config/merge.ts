@@ -362,8 +362,15 @@ export function overlay(
   // over a `Set` -- so what is refused is the one iterable of strings that is
   // never a list of paths. English, because only an app's or a store's own code
   // can reach it
-  if (typeof paths === 'string') {
-    throw new TypeError(`Config paths must be a list of paths, not the string "${paths}"`);
+  // asked with `Object.prototype.toString` rather than `typeof`, because a
+  // **boxed** `String` is an object and evades the narrower test while
+  // iterating as characters exactly as a primitive one does -- measured over
+  // all three stores, `new String('ab')` claimed `a` and `b` and deleted both,
+  // which is byte for byte the behaviour above that this guard was written to
+  // stop. One test covers both spellings and is cross-realm, where
+  // `instanceof String` is not
+  if (Object.prototype.toString.call(paths) === '[object String]') {
+    throw new TypeError(`Config paths must be a list of paths, not the string "${String(paths)}"`);
   }
 
   for (const path of paths) {

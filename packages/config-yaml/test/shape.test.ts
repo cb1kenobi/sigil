@@ -121,6 +121,31 @@ describe('the shape and the layout', () => {
     expect(new Set(style.map((it) => JSON.stringify(it))).size).toBe(style.length);
   });
 
+  it('should not repeat a candidate where the detected indent is the default', () => {
+    // the dedup compared each sweep entry against `out[0]` alone, so at indent
+    // 2 the appended default collided with one of the flips and the bounded
+    // six was five distinct layouts -- a redundant render and line diff on
+    // every read of the commonest shape there is. The four-space document the
+    // test above uses cannot collide, so it read as a general guarantee the
+    // code did not keep
+    for (const body of ['a: {b: 1}\nplugins:\n- x\n', 'a: 1\nb:\n  c: 2\n']) {
+      const style = candidates(body);
+      expect(new Set(style.map((it) => JSON.stringify(it))).size, body).toBe(style.length);
+    }
+  });
+
+  it('should read a block-scalar header with the indicators in either order', () => {
+    // YAML allows `|2-` as well as `|-2` and `yaml` accepts all four
+    // spellings. Written chomping-then-digits only, `|2-` never marked the
+    // block, so its content was read as structural indentation -- measured,
+    // the mapping below was reindented from six spaces to three
+    for (const header of ['|2-', '|-2', '|2+', '>2-']) {
+      expect(candidates(`a: ${header}\n   hello\nb:\n      c: 1\n`)[0], header).toMatchObject({
+        indent: 6,
+      });
+    }
+  });
+
   describe('the sweep, which is load bearing rather than belt and braces', () => {
     // the detection is a regex over the whole document, so a bracket **inside a
     // string or a comment** is evidence it should not have: the padding

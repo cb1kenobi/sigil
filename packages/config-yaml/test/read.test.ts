@@ -113,6 +113,50 @@ describe('reading a document', () => {
       });
     });
 
+    it('should refuse a NaN key, which names a path no write can address', () => {
+      // not the null key's rule: `yaml` matches a pair by its key's own value
+      // and `NaN !== NaN`, so a write cannot reach the pair at all. Measured,
+      // editing one appended a second pair and the file stopped parsing, and
+      // deleting one was a silent no-op with the key still in place
+      expect(() => yaml(file('.nan: 1\n')).readSync()).toThrow(
+        /NaN mapping key names a config path no write can address/
+      );
+      // `.inf` is **not** refused with it, because `Infinity === Infinity` and
+      // a write addresses one perfectly well
+      expect(yaml(file('.inf: a\n')).readSync().value).toStrictEqual({ Infinity: 'a' });
+    });
+
+    it('should refuse a numeric key whose source names a different number', () => {
+      // a float-spelled key past 2^53 escapes the integer guard, because a
+      // float value rounding is ordinary float semantics and is deliberately
+      // allowed -- but a key is a **path segment**, so the setting is simply
+      // not where the file put it. The same digits in integer form were
+      // already refused, so the two spellings disagreed
+      expect(() => yaml(file('9007199254740993.0: a\n')).readSync()).toThrow(
+        /names the config path 9007199254740992, which is a different number/
+      );
+      expect(() => yaml(file('9007199254740993.5: a\n')).readSync()).toThrow(
+        /names the config path 9007199254740994/
+      );
+      // and a key the double cannot hold at all
+      expect(() => yaml(file('1e400: a\n')).readSync()).toThrow(/is a different number/);
+    });
+
+    it('should take every ordinary float spelling as a key, compared as a number', () => {
+      // the other side of it: compared as **text** rather than as a canonical
+      // decimal, every one of these is a rename and would be refused
+      expect(yaml(file('2.50: a\n')).readSync().value).toStrictEqual({ '2.5': 'a' });
+      expect(yaml(file('1e21: a\n')).readSync().value).toStrictEqual({ '1e+21': 'a' });
+      expect(yaml(file('007: a\n')).readSync().value).toStrictEqual({ '7': 'a' });
+      expect(yaml(file('0.10: a\n')).readSync().value).toStrictEqual({ '0.1': 'a' });
+      expect(yaml(file('-0: a\n')).readSync().value).toStrictEqual({ '0': 'a' });
+      // and the hex and octal spellings, which the integer guard answers for
+      expect(yaml(file('0x1F: a\n0o17: b\n')).readSync().value).toStrictEqual({
+        '15': 'b',
+        '31': 'a',
+      });
+    });
+
     it('should refuse a null key, which names no path either', () => {
       // this used to read as `''`, which no dotted path can address, and the
       // JSON analogy the rule above rests on says `'null'`:
