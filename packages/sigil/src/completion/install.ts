@@ -1,13 +1,29 @@
 /**
  * Where a completion script goes, and how a user puts it there.
  *
- * This is one module because the knowledge has two readers and they must not
- * come apart: each emitter prints it into its script's own header, and the
- * `completion` command prints it as instructions when argv named no shell. A
+ * This is one module because the knowledge has three readers and they must not
+ * come apart: each emitter prints it into its script's own header, the
+ * `completion` command prints it as instructions when there is nobody to ask,
+ * and the installer in `./installer.ts` *resolves* it and writes the file. A
  * second copy of "a zsh completion is a file called `_app` on `$fpath`" is a
  * copy that goes stale, and the one that goes stale is whichever a reader is
  * not looking at -- which is the rule `readRoutes()` already keeps for the two
  * route walks and `SEVERITY_ROLE` for the toolchain's severities.
+ *
+ * The third reader is the one with teeth: an installer that wrote somewhere the
+ * printed instructions do not name would be two answers to one question, with
+ * the user's home directory as the place they disagree. So `routesFor()` below
+ * is the table, every route carries an `id`, and `installTargets()` resolves by
+ * that id -- and `should name the path it writes in the route it came from` is
+ * the differential, because no type can say that a string holds a path.
+ *
+ * ## It touches no file system, which is what keeps it on both sides
+ *
+ * The *shown* form of a route has to be machine-independent, because it goes
+ * into a script's own header and a script is redirected to a file, checked in,
+ * and generated on a build machine. The *resolved* form has to be this
+ * machine's. So the shown form lives here, written as a shell spells it, and
+ * the resolving lives in `./installer.ts`, which is the half that stats things.
  *
  * It imports the names and nothing else, so it stays on the deferred side: the
  * `choices` list is needed while the schema is built and none of this is, which
@@ -17,26 +33,179 @@
 import type { ShellName } from './shells.js';
 
 /**
+ * Which route, so that a renderer and a resolver cannot drift apart.
+ *
+ * - `user` is a directory of our own with a line to add to a startup file. It
+ *   is the one that works on every machine, which is why it is what the
+ *   installer falls back to.
+ * - `bash-completion` is `bash-completion`'s own user directory, which it loads
+ *   with nothing added to a startup file -- so where it applies there is
+ *   nothing left for the reader to do.
+ * - `fpath` is `"${fpath[1]}"`, which only a shell can resolve and which is
+ *   usually root-owned.
+ * - `system` is `/etc/bash_completion.d`, which needs root.
+ * - `eval` sources the command's own output and writes no file at all.
+ *
+ * The last three resolve to nothing, which is why `installTargets()` answers
+ * with a list rather than one target per route: what this process can write
+ * unprivileged is a subset of what a human in a shell can do, and those are two
+ * questions rather than one answer given twice.
+ */
+export type RouteId = 'bash-completion' | 'eval' | 'fpath' | 'system' | 'user';
+
+/**
  * One way to install a completion script, as the commands to run.
  *
- * A list rather than a single answer because both shells have two, and which
- * one applies is a fact about the machine rather than about the shell: whether
- * `bash-completion` is installed, whether `${fpath[1]}` is writable. Printing
- * both and letting the reader pick is what the headers already did.
+ * A list rather than a single answer because both shells have several, and
+ * which one applies is a fact about the machine rather than about the shell:
+ * whether `bash-completion` is installed, whether `${fpath[1]}` is writable.
+ * Printing them all and letting the reader pick is what the headers already
+ * did, and choosing among them is what the installer does.
  */
 export interface InstallRoute {
-  /** What distinguishes this route from the other, if anything does. */
-  readonly label?: string;
+  /** Which route this is, which is what `installTargets()` resolves. */
+  readonly id: RouteId;
+  /** What distinguishes this route from the others. */
+  readonly label: string;
   /** The commands, in order, verbatim. */
   readonly commands: readonly string[];
 }
 
 /** Every way to install a completion script for one shell. */
 export interface InstallHint {
-  /** The routes, most conventional first. */
+  /** The routes, the ones the installer can take first. */
   readonly routes: readonly InstallRoute[];
   /** What the reader has to do afterwards for any of it to take effect. */
   readonly after: string;
+}
+
+/**
+ * The base every directory of ours hangs off, as a shell spells it.
+ *
+ * `${XDG_DATA_HOME:-$HOME/.local/share}` on every platform, which is
+ * deliberately **not** `paths.data()`: that one answers "where does this app
+ * keep its data" and is `~/Library/Application Support` on macOS and
+ * `%APPDATA%` on Windows. These are paths a **shell** reads, and the one shell
+ * program that hard-codes a base hard-codes this one -- `bash-completion`'s own
+ * user directory is `${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion`, on
+ * every platform. So a completion written to
+ * `~/Library/Application Support/bash-completion/completions/app` is a file
+ * `bash-completion` never looks in, and using one base for bash and another for
+ * zsh would be two answers to "where does a completion script live".
+ *
+ * Written `~/.local/share` here rather than with the variable in it, because
+ * this is a line a reader has to be able to follow and paste; `installTargets()`
+ * is where `XDG_DATA_HOME` is read, and `baseDir()`'s rule is what reads it.
+ */
+const SHOWN_BASE = '~/.local/share';
+
+/** The directory of ours that holds every sigil app's completions. */
+const SHOWN_USER_DIR = `${SHOWN_BASE}/completions`;
+
+/** `bash-completion`'s own user directory, by its own rule. */
+const SHOWN_BC_DIR = `${SHOWN_BASE}/bash-completion/completions`;
+
+/**
+ * The marker a generated script carries, which is how the installer tells one
+ * of ours from a file somebody wrote.
+ *
+ * Both emitters interpolate this into their own header, so there is one string
+ * rather than a grep for a sentence that could be reworded in one emitter and
+ * not the other -- which is the rule this module's own opening is about. What it
+ * buys the installer is a distinction `sigil add` has to make with `--force`
+ * alone: a file of ours is generated output and may be replaced freely, where a
+ * file that is not is somebody's work and is refused.
+ *
+ * The shell is in it as well as the program, so a zsh script sitting at the
+ * bash path is a foreign file by our own reckoning -- which is the right answer,
+ * because replacing it would be replacing a file whose content we did not
+ * predict.
+ *
+ * @param shell - The shell the script is for.
+ * @param program - The program's name.
+ * @returns The sentence, with no `#` and no newline.
+ */
+export function generatedBy(shell: ShellName, program: string): string {
+  return `${shell} completion for \`${program}\`, generated by sigil.`;
+}
+
+/**
+ * A string as one shell word, single-quoted.
+ *
+ * POSIX single-quoting, which is one rule rather than bash's and zsh's: a path
+ * this interpolates into a startup file comes out of `homedir()` and may hold a
+ * space -- `~/Library/Application Support` is the obvious one -- or a quote, and
+ * an unquoted line is a shell injection into a file that runs on every login.
+ * `bashQuote()` is this function, so the two cannot come to disagree about what
+ * a quoted word is.
+ *
+ * @param text - What to quote.
+ * @returns It, as one word.
+ */
+export function shQuote(text: string): string {
+  return `'${text.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * The routes for one shell, in the order the installer prefers them.
+ *
+ * The automatic ones first, which is the order the installer reads and is also
+ * the useful order to print: `bash-completion`'s user directory needs nothing
+ * added to a startup file, so where it applies there is nothing left to do.
+ *
+ * @param shell - The shell.
+ * @param program - The program's name, as the user types it.
+ * @returns The routes.
+ */
+function routesFor(shell: ShellName, program: string): readonly InstallRoute[] {
+  if (shell === 'zsh') {
+    return [
+      {
+        commands: [
+          `mkdir -p ${SHOWN_USER_DIR}`,
+          `${program} completion zsh > ${SHOWN_USER_DIR}/_${program}`,
+          `echo 'fpath=(${SHOWN_USER_DIR} $fpath)' >> ~/.zshrc  # above compinit`,
+        ],
+        id: 'user',
+        label: 'in a directory of your own on $fpath, which compinit autoloads',
+      },
+      {
+        commands: [`${program} completion zsh > "\${fpath[1]}/_${program}"`],
+        id: 'fpath',
+        label: 'or straight onto your $fpath, where its first entry is writable',
+      },
+      {
+        commands: [`echo 'source <(${program} completion zsh)' >> ~/.zshrc  # below compinit`],
+        id: 'eval',
+        label: 'or sourced from .zshrc with no file at all',
+      },
+    ];
+  }
+
+  return [
+    {
+      commands: [
+        `mkdir -p ${SHOWN_BC_DIR}`,
+        `${program} completion bash > ${SHOWN_BC_DIR}/${program}`,
+      ],
+      id: 'bash-completion',
+      label: 'with bash-completion 2.8 or newer, which loads it with nothing added',
+    },
+    {
+      commands: [
+        `mkdir -p ${SHOWN_USER_DIR}`,
+        `${program} completion bash > ${SHOWN_USER_DIR}/${program}.bash`,
+        `echo 'source ${SHOWN_USER_DIR}/${program}.bash' >> ~/.bashrc`,
+      ],
+      id: 'user',
+      label: 'or from your own .bashrc, on any bash',
+    },
+    {
+      commands: [`${program} completion bash > /etc/bash_completion.d/${program}`],
+      id: 'system',
+      label: 'or system wide, which needs root',
+    },
+  ];
 }
 
 /**
@@ -47,45 +216,15 @@ export interface InstallHint {
  * @returns The routes and what follows them.
  */
 export function installHint(shell: ShellName, program: string): InstallHint {
-  if (shell === 'zsh') {
-    return {
-      after: 'Then restart your shell.',
-      routes: [
-        {
-          commands: [`${program} completion zsh > "\${fpath[1]}/_${program}"`],
-          label: 'as a file on your $fpath, which compinit autoloads',
-        },
-        {
-          commands: [`echo 'source <(${program} completion zsh)' >> ~/.zshrc`],
-          label: 'or sourced from .zshrc, after compinit',
-        },
-      ],
-    };
-  }
-
-  return {
-    after: 'Then restart your shell.',
-    routes: [
-      {
-        commands: [`${program} completion bash > /etc/bash_completion.d/${program}`],
-        label: 'with bash-completion installed, system wide',
-      },
-      {
-        commands: [
-          `${program} completion bash > ~/.${program}-completion.bash`,
-          `echo 'source ~/.${program}-completion.bash' >> ~/.bashrc`,
-        ],
-        label: 'or from your own .bashrc, anywhere',
-      },
-    ],
-  };
+  return { after: 'Then restart your shell.', routes: routesFor(shell, program) };
 }
 
 /**
  * The hint as the comment block a generated script opens with.
  *
- * Rendered rather than written out, so that the script and the instructions the
- * command prints cannot disagree about where a completion goes.
+ * Rendered rather than written out, so that the script, the instructions the
+ * command prints and the paths the installer writes cannot disagree about where
+ * a completion goes.
  *
  * @param shell - The shell.
  * @param program - The program's name.
@@ -96,10 +235,7 @@ export function installComment(shell: ShellName, program: string): string {
   const out: string[] = [];
 
   for (const route of hint.routes) {
-    out.push('#');
-    if (route.label) {
-      out.push(`#   # ${route.label}`);
-    }
+    out.push('#', `#   # ${route.label}`);
     for (const command of route.commands) {
       out.push(`#   ${command}`);
     }
@@ -140,8 +276,8 @@ export function detectShell(env: Record<string, string | undefined>): ShellName 
 }
 
 /**
- * The hint as the block the `completion` command prints when argv named no
- * shell.
+ * The hint as the block the `completion` command prints when there is nobody to
+ * ask.
  *
  * The same routes the script's own header carries, rendered for a terminal
  * rather than as shell comments -- which is the whole reason `installHint()`
@@ -156,9 +292,7 @@ export function instructions(shell: ShellName, program: string): string {
   const out: string[] = [];
 
   for (const route of hint.routes) {
-    if (route.label) {
-      out.push(`  ${route.label}`);
-    }
+    out.push(`  ${route.label}`);
     for (const command of route.commands) {
       out.push(`    ${command}`);
     }
