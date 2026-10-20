@@ -168,6 +168,11 @@ describe('sameValue', () => {
     // two invalid Dates are the same invalid Date rather than a change on
     // every reload, which is `NaN`'s own rule read through `getTime()`
     expect(sameValue(new Date(Number.NaN), new Date(Number.NaN))).toBe(true);
+    // and **both** sides are asked, which the `getTime` guard alone does not
+    // give: a plain object that happens to have a matching `getTime` is not a
+    // date, and with only `a` tested it compared equal to one
+    expect(sameValue(new Date(5), { getTime: () => 5 })).toBe(false);
+    expect(sameValue({ getTime: () => 5 }, new Date(5))).toBe(false);
   });
 
   it('should compare anything the merge carries by reference by identity', () => {
@@ -520,6 +525,26 @@ describe('watch()', () => {
     expect(after).toBe(1);
     expect(errors).toHaveLength(1);
     expect((errors[0] as Error).message).toBe('async handler');
+  });
+
+  it('should report an async path handler that rejected', async () => {
+    // the **path** form as well as the whole-view one, because each has its own
+    // wrapper and each has to hand the promise back rather than swallow it --
+    // the all form's test passed with the path form's return still discarded
+    const { config, errors, source, store } = watched({ a: 1 });
+    config.watch('a', async () => {
+      await Promise.resolve();
+      throw new Error('async path');
+    });
+
+    store.set({ a: 2 });
+    source.fire();
+    vi.advanceTimersByTime(50);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(errors).toHaveLength(1);
+    expect((errors[0] as Error).message).toBe('async path');
   });
 
   it('should report a handler that threw and still run the rest', () => {
