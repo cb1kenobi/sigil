@@ -17961,16 +17961,16 @@ without destroying it is SIG-154's.
 
 - **It imports no parser module at all, and that is a test rather than a
   coincidence.** Measured as transitive static import byte weight off `dist/`:
-  **37,978 B over seven modules**, of which **9,880 B over six** is what it starts
+  **38,064 B over seven modules**, of which **9,880 B over six** is what it starts
   from -- `paths.mjs`, `i18n.mjs`, the `transform` and `debug` chunks, the
   66-byte `env-value` chunk the parser shares, and the 525-byte
   `mkdir-owner-sync` one the update cache shares. So the module itself is
-  28,098 B, and the graph is **5.05x** the root entry's 7,518 B and a **sixth**
+  28,184 B, and the graph is **5.06x** the root entry's 7,518 B and a **sixth**
   of `components.mjs`'s 239,929 B over 26 -- all three measured the
   same way, which is the only comparison that means anything. It was
   **20,649 B over six** before SIG-154, which is the write half costing about
   11.5 kB, **32,523 B** before SIG-149's store kit, and **32,625 B** before
-  SIG-153's watcher, which is 5,353 B and no new module. Re-derived after every
+  SIG-153's watcher, which is 5,439 B and no new module. Re-derived after every
   change that moved it: a figure only a re-run can confirm is the stale snapshot
   this file warns about -- and a running tally of how many times is a second
   such figure, which is why there is no longer one. The two copies of that tally
@@ -21066,8 +21066,8 @@ sources; the state -- the handler set, the debounce, the reload -- is on
   rather than fallen back to the default, because somebody who wrote `0` meant
   "as fast as you can".
 
-- **What it costs is 5,353 B on the config entry's graph and nothing anywhere
-  else.** 37,978 B over seven modules against 32,625 B over the same seven -- no
+- **What it costs is 5,439 B on the config entry's graph and nothing anywhere
+  else.** 38,064 B over seven modules against 32,625 B over the same seven -- no
   new module, because the entry already reached `debug` through `i18n` and
   `atomic.ts`, which the watcher imports for `realPathOf()`, was already there
   for the write half. The root entry is **7,518 B, unchanged**, and
@@ -21082,7 +21082,7 @@ sources; the state -- the handler set, the debounce, the reload -- is on
   sleeps.** The debounce, the compare, the retry, the diff, the dispatch, the
   latch, the handler sets and every refusal run against a function that fires on
   demand, with vitest's fake timers for the debounce -- which is the repository's
-  own idiom rather than a new seam. 63 tests in tens of milliseconds.
+  own idiom rather than a new seam. 64 tests in tens of milliseconds.
 - **The fs source's climb, refcount and re-target run against a wrapped
   `node:fs`**, which is `atomic-temp.test.ts`'s and `shake-walk.test.ts`'s own
   technique and for their reason: which directory the source ended up watching is
@@ -21093,7 +21093,7 @@ sources; the state -- the handler set, the debounce, the reload -- is on
   by waiting a fixed time and hoping -- so "our own `save()` published nothing" is
   established by an external write afterwards whose own publish arrives, by which
   time the save's event has certainly been handled. About 800ms for those seven,
-  against tens of milliseconds for the 105 above them, which is what says
+  against tens of milliseconds for the 106 above them, which is what says
   the injectable source is worth having.
 - **And the first change in each of them is re-applied until it lands**, which is
   not a sleep dressed up: every one writes microseconds after `watch()`, so every
@@ -21312,6 +21312,47 @@ which is the half worth reading first.
   window. `saveSync()` needs none of it and provably cannot: it is `readSync`,
   `#staged`, `writeSync`, `#saved` with no `await` in it, so no timer can fire
   inside it.
+
+- **And the save latch was a `Set`, so two overlapping saves of one layer
+  released it early -- which is the round-2 finding again, reached through two
+  saves rather than one.** `save()` is public and `async`, so two of them for
+  one layer overlap on any app that does not await the first, and a `Set`
+  records that a save is running rather than **how many**. The first one's
+  `finally` therefore deleted the only record while the second was still
+  awaiting its own read, and the reload the latch exists to refuse got straight
+  through.
+
+  Measured before anything was changed, on the shortest sequence that reaches
+  it: `set('a', 2)`, `save()`, then `set('b', 3)` and a second `save()` while
+  the first is still awaiting its read -- `#targets()` sees the layer as dirty
+  and includes it in both. Release the first, and in the window before the
+  second's read resolves a `set('c', 4)` is **discarded from the file and from
+  memory** with `save()` reporting success: `dirty` went `false` mid-save,
+  `get('c')` answered `undefined`, and the file came back `{a, b, external}`
+  with no `c` in it. Which is the same class as the round-2 defect and the same
+  reason -- a reload cleared `touched` and reassigned `value` inside a save --
+  so the latch was right about what to guard and wrong about when to let go.
+
+  A **depth** per layer is the fix: increment before the `try`, decrement in the
+  `finally`, and delete the entry only at the last one out. `#reload()` keeps its
+  own `has()`, which a `Map` answers unchanged, so nothing on the refusal side
+  moved. `#reloading` needs no depth and that asymmetry is worth stating rather
+  than copying: a reload is synchronous from end to end, so it cannot overlap
+  itself, and what it guards is re-entrancy from inside its own dispatch rather
+  than a second caller.
+
+  `saveSync()` needs none of it either, for the reason already recorded: it is
+  `readSync`, `#staged`, `writeSync`, `#saved` with no `await` in it, so no
+  timer can fire inside one.
+
+  Found by a review round pointed at the branch after CI went green, which is
+  the pattern this file keeps recording -- the previous round's own fix is where
+  the next defect is. `should hold the save latch until the last overlapping
+  save of a layer is out` is the pin, and what it observes is the **latch**
+  rather than the loss: `dirty` mid-save plus the value surviving, because the
+  downstream loss needs an interleaving a test should not be built around.
+  Sabotaged by making the `finally` delete unconditionally, which fails it with
+  `still dirty mid-save: expected false to be true`.
 
 - **The `fs` source watched the directory of the **link**, so a symlinked config
   was never watched where it is written.** `writeAtomic()` resolves through a

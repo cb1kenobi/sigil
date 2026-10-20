@@ -194,8 +194,22 @@ export class Config {
    * file is about to be **written by us**, so the only way to be right about
    * what the file says is to read it again afterwards -- which is why that
    * refusal re-schedules and the other does not.
+   *
+   * A **depth** rather than a flag, because `save()` is public and `async`, so
+   * two of them for one layer overlap on an app that does not await the first
+   * -- and a `Set` records that a save is running rather than how many, so the
+   * first one's `finally` released the latch while the second was still
+   * awaiting its own read. Measured: the reload then got through mid-save,
+   * cleared `touched` and reassigned `value`, and a `set()` made in that window
+   * was discarded from the file **and** from memory with `save()` reporting
+   * success -- which is the round-2 failure this latch exists for, reached
+   * through two saves rather than one. Found by review.
+   *
+   * `#reloading` needs no depth: a reload is synchronous from end to end, so it
+   * cannot overlap itself, and what it guards is re-entrancy from inside its
+   * own dispatch rather than a second caller.
    */
-  readonly #saving = new Set<string>();
+  readonly #saving = new Map<string, number>();
   /** What to call to stop watching, one per watched layer. */
   #stops: (() => void)[] = [];
 
@@ -519,7 +533,7 @@ export class Config {
       // read, and this returns the layer as written having silently discarded
       // the `set()` it was called to persist. Measured on a store whose `read()`
       // yields across a macrotask, which is what `fs.promises.readFile` is
-      this.#saving.add(layer.name);
+      this.#saving.set(layer.name, (this.#saving.get(layer.name) ?? 0) + 1);
       try {
         const doc = await layer.declared.store.read();
         const next = this.#staged(layer, doc, how);
@@ -529,7 +543,14 @@ export class Config {
         });
         this.#saved(layer, next.hold);
       } finally {
-        this.#saving.delete(layer.name);
+        // the entry goes only at the last one out, or an overlapping save of
+        // this layer releases a latch it is still inside
+        const depth = (this.#saving.get(layer.name) ?? 1) - 1;
+        if (depth > 0) {
+          this.#saving.set(layer.name, depth);
+        } else {
+          this.#saving.delete(layer.name);
+        }
       }
       written.push(layer.name);
     }

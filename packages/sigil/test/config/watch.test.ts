@@ -802,6 +802,61 @@ describe('watch()', () => {
     expect(written).to.deep.equal(['user']);
   });
 
+  it('should hold the save latch until the last overlapping save of a layer is out', async () => {
+    // `save()` is public and `async`, so two of them for one layer overlap on
+    // any app that does not await the first -- and the latch was a `Set`, which
+    // records that a save is running rather than how many. So the first one's
+    // `finally` released it while the second was still awaiting its own read,
+    // and the reload the latch exists to refuse got straight through.
+    //
+    // Measured on the sequence below: `dirty` went **false** mid-save, and the
+    // `set()` made in that window was discarded from the file *and* from
+    // memory with `save()` reporting success. The round-2 failure this latch is
+    // for, reached through two saves rather than one. Found by review
+    const { config, source, store } = watched({ a: 1 });
+    config.watch(() => {});
+
+    // a resolver per read rather than one gate, because two reads are in
+    // flight and releasing them in order is the whole of the interleaving --
+    // the single-slot `hold()` the test above it uses would overwrite the
+    // first one's resolver with the second's
+    const gates: (() => void)[] = [];
+    store.hold(() => new Promise<void>((r) => gates.push(r)));
+
+    config.set('a', 2);
+    const first = config.save();
+    // while the first is awaiting its read, which is where `#targets()` still
+    // sees the layer as dirty and so includes it in the second save too
+    config.set('b', 3);
+    const second = config.save();
+
+    gates[0]?.();
+    // three turns: the read resolves, the write resolves, and the `finally`
+    // runs -- which is where the `Set` released a latch the second save was
+    // still inside
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // something unsaved for a reload to discard, and a file that moved under
+    // us so that the reload has a change to publish
+    config.set('c', 4);
+    store.set({ a: 2, b: 3, external: 1 });
+    source.fire();
+    vi.advanceTimersByTime(50);
+
+    expect(config.layers[0]?.dirty, 'still dirty mid-save').toBe(true);
+    expect(config.get('c'), 'the set() made in the window').toBe(4);
+
+    gates[1]?.();
+    await first;
+    await second;
+
+    // and it reaches the file, beside the key the other process wrote, which
+    // is the claimed paths doing their own job on top
+    expect(store.value()).to.deep.equal({ a: 2, b: 3, c: 4, external: 1 });
+  });
+
   it('should still read a write that landed while the save was in flight', async () => {
     // which is what makes the refusal a *re-schedule* rather than a drop: the
     // event said the file moved, and the save is the one thing that cannot
