@@ -22,13 +22,19 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  * time. So the preload is that helper's and the stdin writing is this file's,
  * which is the one thing it says it does not do.
  *
- * It needs a built `dist/`, like everything else in this package.
+ * It needs a built `dist/`, like everything else in this package -- and the
+ * sharper form of that: it spawns the **built binary**, so an edit to `src/`
+ * that has not been rebuilt is asserted against the previous one. A missing
+ * `dist/` is loud and a stale one is silent, which is the hazard
+ * `output-forms.test.ts` already records. `pnpm test` builds first; a bare
+ * `pnpm vitest run` on this file alone does not.
  */
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
-/** Written as a code rather than a byte, because source carries no raw control. */
+/** Written as codes rather than bytes, because source carries no raw control. */
 const CR = String.fromCharCode(0x0d);
+const CTRL_C = String.fromCharCode(0x03);
 
 /**
  * A preload making the child's three streams answer `isTTY`.
@@ -263,6 +269,48 @@ describe('app completion on a terminal', () => {
 
     expect(existsSync(zshScript())).toBe(false);
     expect(ran.code).toBe(0);
+  }, 40_000);
+});
+
+describe('what the round-1 review found', () => {
+  it('should say Cancelled on Ctrl-C rather than reciting the whole recipe', async () => {
+    const ran = await run([], { keys: [CTRL_C] });
+
+    // `PromptError` carries `aborted` precisely to tell an interrupt from "no
+    // terminal", and read as one an interrupt printed the longest output this
+    // command has -- the entire set-up recipe, in answer to somebody asking it
+    // to stop
+    expect(ran.stderr).toContain('Cancelled');
+    expect(ran.stderr).not.toContain('completion zsh >');
+    expect(existsSync(zshScript())).toBe(false);
+    expect(ran.code).toBe(1);
+  }, 30_000);
+
+  it('should say Cancelled on Ctrl-C at the second question too', async () => {
+    // the shell answered, so the abort is the confirm's -- a different prompt
+    // through the same catch
+    const ran = await run([], { keys: [CR, CTRL_C] });
+
+    expect(ran.stderr).toContain('Cancelled');
+    expect(ran.stderr).not.toContain('completion zsh >');
+    expect(existsSync(zshScript())).toBe(false);
+    expect(ran.code).toBe(1);
+  }, 30_000);
+
+  it('should print the rm rather than the install recipe for a no-TTY uninstall', async () => {
+    expect((await run([], { keys: [CR, CR] })).code).toBe(0);
+
+    const ran = await run(['zsh', '--uninstall'], { tty: false });
+
+    // measured before the fix: it printed the plan and then the whole *install*
+    // recipe, which is the opposite of what was asked for
+    expect(ran.stderr).toContain('rm ');
+    expect(ran.stderr).toContain(zshScript());
+    expect(ran.stderr).not.toContain('completion zsh >');
+    expect(ran.stderr).not.toMatch(/fpath=\(~/);
+    // and it removed nothing, because there was nobody to ask
+    expect(existsSync(zshScript())).toBe(true);
+    expect(ran.code).toBe(1);
   }, 40_000);
 });
 

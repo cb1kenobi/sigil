@@ -48,8 +48,8 @@ import { __ } from '../i18n/index.js';
 import { baseDir, expand, home } from '../paths.js';
 import { generatedBy, installHint, shQuote, type RouteId } from './install.js';
 import type { ShellName } from './shells.js';
-import { readFileSync, statSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { accessSync, constants, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { basename, join } from 'node:path';
 
 /** Which way round the plan is being read. */
 export type Action = 'install' | 'uninstall';
@@ -184,11 +184,21 @@ function dataHome(env: Record<string, string | undefined>): string {
 /**
  * The first of these startup files that is a file, or the first regardless.
  *
- * macOS starts bash as a *login* shell, which reads `.bash_profile` and not
- * `.bashrc` -- so naming `~/.bashrc` unconditionally would tell a Mac user to
- * put a line in a file their shell does not read. Naming the one that is there
- * is the only rule that is right on both, and where none of them is there the
- * first is the one to create.
+ * `.bashrc` first, because that is where a completion conventionally goes and
+ * what an interactive bash reads. macOS starts bash as a *login* shell, which
+ * reads `.bash_profile` and not `.bashrc` -- so where `.bashrc` is absent and
+ * `.bash_profile` is there, naming the second is the only answer a shell will
+ * act on, and that is what this is for.
+ *
+ * What it does **not** claim is that the order is right on macOS when *both*
+ * exist: there it names `.bashrc`, which a login shell reads only if
+ * `.bash_profile` sources it -- which is the ordinary arrangement and is not
+ * guaranteed. The alternative is reading somebody's `.bash_profile` to find out
+ * whether it sources the other, which is parsing a dotfile to decide a
+ * suggestion, so the order stands and the wrinkle is written down. The first
+ * version of this comment gave the login-shell argument as the *reason* for the
+ * order, which on its own terms says `.bash_profile` should win -- a reader was
+ * told a false reason for defensible code. Found by review.
  *
  * @param candidates - Absolute paths, most conventional first.
  * @returns One of them.
@@ -236,6 +246,22 @@ export function installTargets(
   program: string,
   env: Record<string, string | undefined>
 ): readonly InstallTarget[] {
+  // the one reader of `program` that turns it into a *path*, so the one that
+  // has to ask whether it is a path segment. `completionSpec()` refuses a name
+  // with whitespace in it or a leading dash, because those are what a shell
+  // cannot register -- and lets a separator through, because a shell does not
+  // care. Measured: `name: '../../../evil'` wrote `<data home>/evil`, one
+  // directory up and out of the completions directory, with `writeAtomic()`
+  // creating whatever chain it landed in. Found by review.
+  //
+  // English, because `schema.name` is the app author's own: it is a bug report
+  // in their code rather than anything a user did
+  if (program === '' || program !== basename(program) || program === '.' || program === '..') {
+    throw new Error(
+      `Expected the program name to be one path segment, not "${program}": a completion script is a file named after it.`
+    );
+  }
+
   const base = dataHome(env);
   const ours = join(base, 'completions');
   const out: InstallTarget[] = [];
@@ -322,6 +348,15 @@ function resolveRoute(
       if (!statSync(dir).isDirectory()) {
         return undefined;
       }
+
+      // and writable, which is the half the existence check alone got wrong:
+      // the directory may be root-owned from a system install, on a read-only
+      // mount, or somebody else's on a shared machine -- and then `writeAtomic()`
+      // throws a raw `EACCES` while the `user` route, which works on any bash,
+      // sits unused at the next index. Nothing retries, so the check has to be
+      // here. A race remains -- writable when asked and not when written -- and
+      // that is the file system's rather than a gate's. Found by review
+      accessSync(dir, constants.W_OK);
     } catch {
       return undefined;
     }
@@ -353,8 +388,47 @@ function readOr(path: string): string | undefined {
     if (isMissing(e)) {
       return undefined;
     }
-    throw e;
+
+    // translated, because what provokes it is a *user's* own home directory: an
+    // unreadable startup file, a directory where a script should be, a
+    // permission they set. The key is the one the config stores already throw,
+    // so this costs none -- and without it the one place that throws a file
+    // system error from inside an otherwise fully translated interaction showed
+    // translated prompts and then node's English
+    throw new Error(__`Failed to read ${path}: ${(e as Error).message}`);
   }
+}
+
+/**
+ * Every spelling of one path that counts as the startup file naming it.
+ *
+ * The absolute path, and the two home-relative forms. Which matters because the
+ * `~` one is **our own output**: `installComment()` writes the routes into every
+ * generated script's header and `instructions()` prints them when there is
+ * nobody to ask, both as `~/.local/share/completions` -- so a user who set
+ * completion up by following this package's own recipe, which before SIG-151
+ * was the only way there was, has a `~` in their `.zshrc`. An absolute-only
+ * needle finds nothing there and reports `absent` for ever: the line is
+ * reprinted on every run and "nothing to do" is unreachable for exactly the
+ * population that did what they were told. Found by review.
+ *
+ * `$HOME/` beside it because a shell writer who did not want the tilde wrote
+ * that, and both are the same directory. Derived from the one path rather than
+ * listed, so there is nothing to keep in agreement.
+ *
+ * @param path - The path, absolute.
+ * @returns The spellings, longest first so a substring search is unambiguous.
+ */
+function spellings(path: string): readonly string[] {
+  const dir = homeDir();
+
+  if (!path.startsWith(dir)) {
+    return [path];
+  }
+
+  const rest = path.slice(dir.length);
+
+  return [path, `~${rest}`, `$HOME${rest}`];
 }
 
 /**
@@ -368,7 +442,12 @@ function rcStateOf(rc: RcAddition | undefined): RcState {
     return 'none';
   }
 
-  return readOr(rc.file)?.includes(rc.needle) === true ? 'present' : 'absent';
+  const held = readOr(rc.file);
+  if (held === undefined) {
+    return 'absent';
+  }
+
+  return spellings(rc.needle).some((spelling) => held.includes(spelling)) ? 'present' : 'absent';
 }
 
 /**
@@ -379,14 +458,38 @@ function rcStateOf(rc: RcAddition | undefined): RcState {
  * @param program - The program's name, for the marker.
  * @returns The plan.
  */
+/**
+ * Whether a file is one of ours, read off its **header**.
+ *
+ * The marker is a sentence, and a sentence is something any file can contain --
+ * a note quoting it, a wrapper that embeds a generated script, a README pasted
+ * into the wrong place. Both emitters put it on the first or second line, so
+ * that is where it is looked for: a file that merely mentions it fifty lines
+ * down is somebody's work and is refused. Found by review, which had
+ * `planUninstall()` **unlinking** such a file after one default-yes confirm.
+ *
+ * Three lines rather than two, because the zsh header is `#compdef` and then
+ * the marker, and one more is slack for a header that grows a line.
+ *
+ * @param held - What the file holds.
+ * @param shell - The shell its path is for.
+ * @param program - The program's name.
+ * @returns Whether this is generated output rather than somebody's file.
+ */
+function ours(held: string, shell: ShellName, program: string): boolean {
+  return held.split('\n', HEADER_LINES).join('\n').includes(generatedBy(shell, program));
+}
+
+/** How far into a file the marker has to be for the file to be ours. */
+const HEADER_LINES = 3;
+
 export function planInstall(target: InstallTarget, script: string, program: string): InstallPlan {
   const held = readOr(target.file);
-  const marker = generatedBy(target.shell, program);
 
   let file: FileState;
   if (held === undefined) {
     file = 'create';
-  } else if (!held.includes(marker)) {
+  } else if (!ours(held, target.shell, program)) {
     file = 'foreign';
   } else if (held === script) {
     file = 'current';
@@ -421,23 +524,28 @@ export function planInstall(target: InstallTarget, script: string, program: stri
  */
 export function planUninstall(target: InstallTarget, program: string): InstallPlan {
   const held = readOr(target.file);
-  const marker = generatedBy(target.shell, program);
 
   let file: FileState;
   if (held === undefined) {
     file = 'create';
-  } else if (held.includes(marker)) {
+  } else if (ours(held, target.shell, program)) {
     file = 'update';
   } else {
     file = 'foreign';
   }
 
-  // a `foreign` file is refused outright rather than offered, so there is
-  // nothing to ask about and nothing to do -- which is why both are the same
-  // condition here where the install's two part company
+  // a `foreign` file is refused outright rather than offered, so it is nothing
+  // to ask about -- which is where the install's two booleans part company
   const writes = file === 'update';
+  const rc = rcStateOf(target.rc);
 
-  return { changes: writes, file, rc: rcStateOf(target.rc), target, writes };
+  // and the line counts, which it did not for one commit: a script somebody
+  // already removed by hand with the line still in their `.zshrc` is not
+  // nothing to do, and saying so while `resultLines()` printed "Remove this
+  // line from ..." in the same breath was the interface's own contract -- "what
+  // decides nothing to do, the printed line included" -- disagreeing with one
+  // of its two constructors. Found by review
+  return { changes: writes || rc === 'present', file, rc, target, writes };
 }
 
 /**
@@ -451,9 +559,26 @@ export function planUninstall(target: InstallTarget, program: string): InstallPl
  * @param script - What to write.
  * @returns Whether anything was written.
  */
-export async function applyInstall(plan: InstallPlan, script: string): Promise<boolean> {
+export async function applyInstall(
+  plan: InstallPlan,
+  script: string,
+  opts: { replace?: boolean } = {}
+): Promise<boolean> {
   if (plan.file === 'current') {
     return false;
+  }
+
+  // the module whose job is the writing enforces its own rule rather than
+  // leaving it to one caller's discipline. `planInstall()` says whose the file
+  // is and `interactive.ts` asks about it; handed a `foreign` plan with no
+  // answer this used to write, so the refusal was a property of the command
+  // rather than of the writer. `replace` is what the answer looks like from
+  // here, so a caller that forgot to ask gets a throw rather than a destroyed
+  // file. English, because only a caller's own code can provoke it
+  if (plan.file === 'foreign' && opts.replace !== true) {
+    throw new Error(
+      `Refusing to replace ${plan.target.file}, which sigil did not write: ask first, then pass { replace: true }.`
+    );
   }
 
   await writeAtomic(plan.target.file, script);
@@ -469,6 +594,14 @@ export async function applyInstall(plan: InstallPlan, script: string): Promise<b
 export function applyUninstall(plan: InstallPlan): boolean {
   if (plan.file === 'create') {
     return false;
+  }
+
+  // and here there is no opt-in at all, which is the asymmetry `planUninstall()`
+  // records: replacing a generated path is the ordinary upgrade case and is
+  // worth asking about, where deleting a stranger's file gains nothing a `rm`
+  // would not. A caller cannot ask its way past this one
+  if (plan.file === 'foreign') {
+    throw new Error(`Refusing to remove ${plan.target.file}, which sigil did not write.`);
   }
 
   unlinkSync(plan.target.file);

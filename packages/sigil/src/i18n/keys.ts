@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 98 keys, which is what a catalog has to carry to translate sigil's own
+ * 99 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -72,6 +72,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Print a shell completion script',
   'Print the version',
   'Refusing to write {0}: {1} would be lost.\n  Pass lossy: true to write anyway, or use a store that can keep what is there.',
+  'Remove it yourself:',
   'Remove the script instead of writing one',
   'Remove this line from {0}:',
   'Remove {0} completion for {1}?',

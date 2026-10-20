@@ -29,7 +29,7 @@ import { __ } from '../i18n/index.js';
 import { createTerminal, type Terminal } from '../terminal/index.js';
 import type { ParseState } from '../types.js';
 import { completionScript } from './index.js';
-import { detectShell, instructions } from './install.js';
+import { detectShell, instructions, shQuote } from './install.js';
 import {
   applyInstall,
   applyUninstall,
@@ -60,11 +60,34 @@ export interface InstallRequest {
  * shells there are -- because "which shell are you in" is the one question this
  * cannot answer for the reader.
  *
+ * It takes the **direction**, which it did not for one commit: `app completion
+ * zsh --uninstall` in a pipe printed the plan and then the whole *install*
+ * recipe, which is the opposite of what was asked for. There is nothing to
+ * recite for an uninstall -- the plan has already named the file -- so what it
+ * prints is the `rm`, and the line to take out is `resultLines()`'s where it
+ * always was. Found by review.
+ *
  * @param program - The program's name.
  * @param shell - The shell, where one is known.
+ * @param action - Which way round.
+ * @param target - Where the script is, where a target was resolved before the
+ *   question failed.
  * @returns The block, with a trailing newline.
  */
-function byHand(program: string, shell: ShellName | undefined): string {
+function byHand(
+  program: string,
+  shell: ShellName | undefined,
+  action: Action,
+  target: InstallTarget | undefined
+): string {
+  if (action === 'uninstall') {
+    return target === undefined
+      ? `${__`Name a shell to set up completion for ${program}:`}\n\n${SHELL_NAMES.map(
+          (name) => `    ${program} completion ${name} --uninstall\n`
+        ).join('')}\n`
+      : `${__`Remove it yourself:`}\n\n    rm ${shQuote(target.file)}\n\n`;
+  }
+
   if (shell !== undefined) {
     return `${__`Set up completion for ${program}, detected ${shell}:`}\n\n${instructions(
       shell,
@@ -178,6 +201,9 @@ export async function runInstaller(state: ParseState, request: InstallRequest): 
   // path before anything is written. And it is still one mechanism -- `isTTY`
   // is an input to `run()`'s own check rather than a second copy of it
   const terminal = createTerminal({ stdout: process.stderr });
+  // kept so that a question which failed can still say which file it was about,
+  // which is what the uninstall fallback needs
+  let target: InstallTarget | undefined;
 
   try {
     shell ??= await askShell(process.env, terminal);
@@ -187,7 +213,7 @@ export async function runInstaller(state: ParseState, request: InstallRequest): 
     // it is there, because it needs nothing added to a startup file. The list
     // is never empty -- the `user` route always resolves -- which is what makes
     // this an index rather than a search
-    const target = installTargets(shell, program, process.env)[0] as InstallTarget;
+    target = installTargets(shell, program, process.env)[0] as InstallTarget;
     const script = request.uninstall ? '' : await completionScript(state, shell);
     const plan = request.uninstall
       ? planUninstall(target, program)
@@ -213,7 +239,12 @@ export async function runInstaller(state: ParseState, request: InstallRequest): 
       return 1;
     }
 
-    const did = request.uninstall ? applyUninstall(plan) : await applyInstall(plan, script);
+    // `replace` is the answer carried into the writer, which refuses a `foreign`
+    // plan without it: the refusal is the module's own rather than this
+    // function's discipline
+    const did = request.uninstall
+      ? applyUninstall(plan)
+      : await applyInstall(plan, script, { replace: plan.file === 'foreign' });
 
     process.stderr.write(`${resultLines(plan, action, did).join('\n')}\n`);
     return 0;
@@ -222,13 +253,23 @@ export async function runInstaller(state: ParseState, request: InstallRequest): 
       throw e;
     }
 
+    // Ctrl-C is not "nobody to ask", and `PromptError` carries `aborted`
+    // precisely to say which it was -- its own doc calls the two "different in
+    // kind". Read as one, an interrupt printed the longest output this command
+    // has: the whole set-up recipe, in answer to somebody asking it to stop.
+    // Found by review
+    if (e.aborted) {
+      process.stderr.write(`${__`Cancelled`}\n`);
+      return 1;
+    }
+
     // nobody to ask, which is the answer the command gave before an installer
     // existed: say how to do it by hand and exit non-zero. One mechanism rather
     // than a second reading of "is there a terminal" -- `run()` in
     // `components/prompt.ts` reads the output *and* stdin, where a check of our
     // own would read one of them and disagree about `app completion < /dev/null`
     // from a terminal
-    process.stderr.write(byHand(program, shell ?? detectShell(process.env)));
+    process.stderr.write(byHand(program, shell ?? detectShell(process.env), action, target));
     return 1;
   } finally {
     // put back what was attached: `createTerminal()` installs `exit` and signal

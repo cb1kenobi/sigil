@@ -1275,19 +1275,31 @@ async function completionProbe() {
   }
 
   // -------------------------------------------------------- is bash-completion
-  const bcDir = `${process.env.XDG_DATA_HOME ?? '~/.local/share'}/bash-completion/completions`;
+  // the **shell expression** rather than a path worked out here, which is the
+  // half the header above claims and the first version broke: a raw `??` is not
+  // `baseDir()`'s rule -- no `~` expansion, no absolute requirement -- so with
+  // `XDG_DATA_HOME=./data` the installer writes under `~/.local/share` and this
+  // told the reader to look in `./data`. A second reader of the one rule, in the
+  // file whose own header says it is not one. Found by review. What a reader
+  // pastes is the expression, which their shell resolves by the same rule
+  const bcDir = '"${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions"';
   heading(
     'the one route whose author has never run it',
     "a file in bash-completion's user directory completes with nothing added " + 'to a startup file'
   );
   write(
-    `    The installer offers ${bcDir}\r\n` +
-      '    only where that directory already exists, because there is nothing to\r\n' +
-      '    read a version off: BASH_COMPLETION_VERSINFO is set inside a bash that\r\n' +
-      '    loaded it and reaches no environment this process has. The directory\r\n' +
-      '    existing means something installed a user completion into it, which a\r\n' +
-      '    bash-completion older than 2.8 would not have done -- it read\r\n' +
-      '    ~/.bash_completion.d instead and never creates this one.\r\n\r\n' +
+    '    The installer offers\r\n' +
+      `      ${bcDir}\r\n` +
+      '    -- the expression rather than a path this worked out, because\r\n' +
+      '    XDG_DATA_HOME is read through paths.baseDir() and a relative or unset\r\n' +
+      '    one falls back to ~/.local/share. Your shell resolves it the same way.\r\n\r\n' +
+      '    It is offered only where that directory already exists, because there\r\n' +
+      '    is nothing to read a version off: BASH_COMPLETION_VERSINFO is set\r\n' +
+      '    inside a bash that loaded it and reaches no environment this process\r\n' +
+      '    has. The directory existing means something installed a user\r\n' +
+      '    completion into it, which a bash-completion older than 2.8 would not\r\n' +
+      '    have done: it read ~/.bash_completion.d instead and never creates\r\n' +
+      '    this one.\r\n\r\n' +
       '    Check it:\r\n' +
       `      ls -d ${bcDir}\r\n` +
       '      bash -ic \'echo "${BASH_COMPLETION_VERSINFO[@]:-<not loaded>}"\'\r\n\r\n' +
