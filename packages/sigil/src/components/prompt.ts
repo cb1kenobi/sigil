@@ -278,7 +278,18 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
           handlers = make();
           return handlers.view;
         },
-        { ...opts, onError: report, terminal }
+        {
+          ...opts,
+          onError: report,
+          // a prompt is a **dialogue**, not a progress report, so `--quiet` does
+          // not reach it: a silenced one draws no question and then waits
+          // forever for an answer to a question nobody was shown. That is the
+          // line this axis is drawn along -- what a command says while working
+          // is progress, and what it asks is not -- and it is drawn here, where
+          // a built-in can state it, rather than left to every app to remember
+          quiet: false,
+          terminal,
+        }
       );
     } catch (error) {
       fail(error);

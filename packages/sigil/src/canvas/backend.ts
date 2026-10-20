@@ -687,3 +687,77 @@ export function createFullscreenCanvas(opts: FullscreenCanvasOptions = {}): Canv
 
   return backend;
 }
+
+/**
+ * A backend that draws nowhere, for a run that was asked to be quiet.
+ *
+ * `mountLive()`'s one decision about whether anything may draw, made where bytes
+ * are decided rather than in each component: what writes to a terminal is a
+ * backend, so a quiet run is a backend that writes nothing. Nothing a component
+ * draws can leak a byte past this, whatever it draws, which is a guarantee by
+ * construction rather than by every built-in remembering to check.
+ *
+ * The *tree* is still built and its effects still run, and that is not waste --
+ * it is what makes a quiet run work at all. `await decrypt(text)` is settled by
+ * an effect created inside the build, so a mount that skipped the build would
+ * never resolve it: measured, the promise hangs. What a component needs in order
+ * to finish is to be told the level, which `resolveOutput()` answers as `quiet`
+ * and every built-in already reads as "do not move" -- so a quiet component
+ * takes the same path a piped one takes, and ends at once.
+ *
+ * What is load bearing here is that **no method writes through the terminal**,
+ * and `render()` doing nothing is a cost saving on top of that rather than the
+ * guarantee: a sabotage that made it paint into the 1x1 canvas changed no answer
+ * at all, because nothing downstream of it writes either. So a quiet frame costs
+ * a layout against one cell and no paint, and what stops the bytes is the
+ * absence of a `terminal.write()` anywhere below. A real canvas is kept rather
+ * than faked because the renderer reads `canvas.cells` and `canvas.stats`, and a
+ * `Canvas` that lies about its own size is a worse thing to hand it than one row
+ * of nothing.
+ *
+ * @param opts - The terminal, which is reported and never written to.
+ * @returns The backend.
+ */
+export function createSinkCanvas(opts: { terminal?: Terminal } = {}): CanvasBackend {
+  const terminal = opts.terminal ?? defaultTerminal;
+  const canvas = createCanvas({ height: 1, width: 1 });
+
+  return {
+    active: false,
+    canvas,
+    done(): void {},
+    get height(): number {
+      return canvas.height;
+    },
+    isLive: false,
+    async locate(): Promise<boolean> {
+      // nothing is on screen, so there is no origin to learn and no report to
+      // wait a round trip for
+      return false;
+    },
+    origin: undefined,
+    present(): void {},
+    // the draw callback is never invoked, unlike both other backends: a quiet
+    // frame has no audience, so what the interface calls "paints a frame and
+    // puts it on screen" does neither half here. What reads the cells it would
+    // have painted is a selection, which a quiet run has none of, and the
+    // canvas's own counters, which stay at zero -- so `FrameStats.bytes` and
+    // `cells` do not lie upward. What it does leave is `painted: needPaint` true
+    // for a frame nothing painted, which a `gatherStats` consumer would read as
+    // one. Written down rather than fixed: a quiet run has no audience for frame
+    // stats either
+    render(): void {},
+    resize(width: number, height: number): void {
+      canvas.resize(Math.max(1, width), Math.max(1, height));
+    },
+    stop(): void {},
+    terminal,
+    toCanvas(): undefined {
+      return undefined;
+    },
+    get width(): number {
+      return canvas.width;
+    },
+    write(): void {},
+  };
+}
