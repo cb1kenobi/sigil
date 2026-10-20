@@ -22192,7 +22192,7 @@ reimplemented.
   for the sharing bug and visible to one written for something else an hour
   earlier.
 
-#### The write is a diff, and three kinds of path are refused with three reasons
+#### The write is a diff, and a path it cannot take is refused with a reason
 
 - **`doc.contents = createNode(value)` is one line and loses every comment**, so
   the write computes the paths at which the document and the target **differ** and
@@ -22467,14 +22467,32 @@ Both were better found here than guessed at there, which is what the ticket said
 
 #### What it costs
 
-- **14.8 kB of its own code over one module**, plus `yaml`, which is about 300 kB
+- **17.15 kB of its own code over one module**, plus `yaml`, which is about 300 kB
   of JavaScript and has no dependencies of its own. An app that does not import
-  it pays nothing for either. It was 10.4 kB before the review round, and the
-  4.4 kB is what the seven severe fixes come to: `rootOf()` and `openRoot()`,
-  `nativePath()`, the tagged-scalar and merge-descent refusals, the key-anchor
-  fence, `align()` with `coalesce()`, and the `toJSON` walk. Re-measured rather
-  than carried, which is this file's own rule about a figure only a re-run can
-  confirm.
+  it pays nothing for either. It was 10.4 kB before the first review round, and
+  the 4.4 kB that round added is what its seven severe fixes come to: `rootOf()`
+  and `openRoot()`, `nativePath()`, the tagged-scalar and merge-descent refusals,
+  the key-anchor fence, `align()` with `coalesce()`, and the `toJSON` walk.
+
+  **This figure said 14.8 kB for two commits after it had stopped being true**,
+  which is the stale snapshot this file warns about arriving in its own
+  measurement: the cross-model round took it to 16.80 kB and did not re-run it,
+  and the second PR round's 379 bytes took it to 17.18 -- where the third
+  round's deletion of a condition takes 23 bytes back off, to 17.15. Measured
+  both from a worktree at the base commit rather than inferred from the delta,
+  which is what said whose staleness it was. And the **README** said 10 kB, which is the
+  pre-first-round figure and the one a _consumer_ reads -- stale by 6.8 kB, found
+  by following this one rather than reported. Nothing asserts either, so re-run
+  `pnpm --filter @ttylabs/config-yaml build` rather than reading them here -- and
+  no tally of how often it has moved, because that is a second figure nobody can
+  re-derive.
+
+  What the readme test holds is the **magnitude**, which is the right shape and
+  was the only reason the drift was survivable: 5k to 20k, which 17.15 passes.
+  The ceiling is 30k now, set against the one failure it is for -- `yaml` is
+  about 300 kB, so inlining it rather than importing it is what it catches --
+  rather than against today's size, where 20k was 1.16x and would have failed on
+  the next ordinary addition.
 
 - **The published declaration names no `yaml` type.** Its only import is
   `@ttylabs/sigil/config`, so a consumer that reads this store's signature does
@@ -23034,9 +23052,9 @@ picking one.
   threw its own `Unresolved alias`, with neither the file nor the path in it,
   which is exactly the message both refusals were written to replace. The file
   survived, so this is the crash class rather than data loss. A collection value
-  is deliberately still allowed through, because `editsFor()` descends into one
-  and the removal arrives as its own edit -- pinned from both sides, or the
-  guard would refuse every write to a map that happens to hold an anchor.
+  was exempted on the ground that `editsFor()` descends into one -- which is
+  true only where the two sides are the **same kind**, so the exemption was the
+  defect half-fixed, and the PR round below is where that is measured.
 - **The array guard tested "a canonical number" where it meant "an array
   index".** `String(Number(key)) !== key` passes `-1`, `1.5`, `Infinity`, `NaN`,
   `4294967295` -- one past the last index a JS array has -- and
@@ -23106,6 +23124,149 @@ kinds of path a write refuses" where there are five, and a cap paragraph
 counting nine answers where there are ten. That class is a third of the round,
 which is what this file already records about a heavily commented codebase: the
 written rule is what stops the next reader checking the call site.
+
+#### What the second PR round found: a tag refused and a value's newlines dropped
+
+Two draft comments, **both confirmed**, and they are the fourth consecutive pass
+here to find a defect in the previous round's own output -- the cross-model
+round's `tagTakes()` and the first PR round's `reshape()` both landed in the two
+commits before this. Which is the pattern this file records rather than a run of
+bad luck: code written in response to a review is code no review has seen.
+
+- **Every write onto a `!`-tagged scalar was refused, which is a document the
+  store reads that it cannot write.** The two halves landed in one commit and
+  only one of them knew about the other: `read.ts` keeps the non-specific tag in
+  `CORE_TAGS`, so `a: ! true` reads as the string `"true"`, and `tagTakes()`
+  replaced the old `typeof` comparison with a switch that has no `'!'` case --
+  so `default` refused it and `set('a', 'false')` threw
+  `it carries the tag ! ... which would not write false back as itself`. Under
+  the `typeof` proxy that same-type write was allowed, so this is a regression
+  rather than a gap, confirmed against `b440582`.
+
+  The claim is **false** of a string, measured: `'false'` renders `! "false"`
+  and reads back `'false'`, because the core schema resolves `!` on a scalar to
+  its own text -- which is the sentence `CORE_TAGS`'s own doc already carried,
+  one file away from the switch that contradicted it. Which is also why nothing
+  else may: `8080` renders `! 8080` and reads back the **string** `'8080'`,
+  `true` the string `'true'` and `null` the string `'null'`, each the silent
+  type change the named tags are refused for. It is a **sixth** tag rather than
+  one of the five that function's own matrix was measured over, which is why it
+  had no case: so it joins `!!str`'s, and both directions are pinned.
+
+- **A keep-chomped block scalar at the end of a document had its own newlines
+  dropped, silently.** `reshape()` stripped the render's whole trailing run and
+  appended the source's, and the newlines a `|+` ends with are part of its
+  **value**. Measured: `set('motd', 'hello\n\n')` into a file ending `a: 1\n`
+  rendered `motd: |+\n  hello\n\n`, this cut it to one newline, and the next
+  read answered `'hello\n'` -- with the save reporting success,
+  `canRepresent()` having allowed the string and `wouldLose` **absent**, because
+  the fidelity check asks about the _unmodified_ document. Both directions and
+  the blank-file path with them: two trailing newlines edited to three put two
+  back, three to two put three back, and a first write into a blank file lost
+  them the same way.
+
+- **The suggested fix is insufficient, and the suite is what said so.** It was to
+  reapply the shape's run only where the render's own is a single newline, on the
+  reading that `toString()` ends a document with exactly one unless a
+  keep-chomped scalar is last. `---\n` renders as `---\n\n` -- a run of two with
+  no block scalar anywhere in it, because an explicit directives-end marker over
+  a null root renders the marker and then an empty content line -- so that rule
+  rewrote a no-op write of `---\n` with a trailing blank line it never had, and
+  `should touch no file where nothing was asked for` failed on the first run.
+
+  Swept over forty shapes afterwards, those are the only two that end in a run
+  of more than one: a null root after `---`, where the run is slack, and a `|+`
+  or `>+` scalar last, where it is the value. **The bytes do not separate them**,
+  so no byte-level rule exists -- every candidate was tried against the table of
+  nine cases and each is wrong about one of them.
+
+  So the **document** answers it, which is the one party that knows: the run is
+  kept where the render ends in more than one newline **and** the last value in
+  document order is a string ending the same way. Both halves, each refusing a
+  shape the other admits and each measured -- without the count, a value `yaml`
+  chose to **quote** instead holds such a string and renders a run of one, so a
+  file ending `a: "x\\n\\n"` plus a blank line had the blank line read as the
+  value's and dropped.
+
+- **`visit()` is the wrong walk for a written document, and that cost a run.**
+  The predicate was a `Scalar` visitor, which is what `read.ts` uses -- and
+  `setIn()` stores the **plain JS value** it was handed rather than wrapping it
+  in a `Scalar`: measured, after `setIn(['motd'], 'hello\n\n')` the pair's value
+  is the string itself, and `visit()` skipped not just that value but the whole
+  pair, so the last value came back as the one _before_ it and the fix did not
+  fire at all. So `lastValue()` walks `items` and reads a node or a raw value
+  alike, including a raw object or array a write stored -- each of which is
+  reachable and each of which is pinned, because a write of
+  `{ nested: { motd: 'hi\n\n' } }` puts one at the end.
+
+- **Ten sabotages, nine caught, one declared.** Three empty-container guards were
+  **deleted** for being equivalent: reading one past the end is `undefined`,
+  which falls through to the bottom and answers `undefined`, so none of them
+  changed an answer. The declared survivor is the newline **threshold** -- inside
+  the count guard a structural run can only be a null root's, whose last value is
+  not a string at all, so loosening it to one newline changes no answer; it says
+  what the condition means where the looser spelling would be true of every block
+  scalar there is. And `Shape.trailing`'s own doc said `toString()` answers every
+  document with exactly one newline, which is the premise both of these entries
+  falsify, so it says what is true instead.
+
+#### What the third PR round found: the exemption that was never load bearing
+
+Two draft comments, **one already fixed and one live**, which is itself the
+reason to read a review against the tree rather than against the commit it
+names: both were written against `d03f3fc0`, and the `!`-tag refusal one of them
+reported had been fixed by the commit after it -- `case '!':` with a test on each
+side, and a sabotage of that case fails the one named for it. So what follows is
+the other one, and it is the **fifth consecutive pass here to find a defect in
+the previous round's own output**: the buried-anchor fence is code the
+cross-model round wrote two commits earlier.
+
+- **A kind change carried a collection, so the buried-anchor fence skipped it
+  and the save threw `yaml`'s own message.** That fence asks about every prefix
+  of the edit path and the exact path, and a subtree taken away whole arrives as
+  **one edit at the ancestor** -- so it also asks about the fences **under** that
+  path, and it exempted an edit whose value is a collection, on the ground that
+  `editsFor()` descends into one rather than replacing it.
+
+  It descends only where the two sides are the **same kind**. A map becoming an
+  array, a map becoming a `Date`, an array becoming a map: each falls through to
+  the bottom of that walk and arrives as one replacement at the parent carrying
+  a collection, which the exemption then waved past. Measured over
+  `grp:\n  host: &k example.com\nother: *k\n` before anything was changed:
+  `set('grp', ['x'])` followed by `saveSync()`, and a direct
+  `writeSync({ grp: ['x'], … })`, each threw
+  `Unresolved alias (the anchor must be set before the alias): k` -- `yaml`'s
+  own, naming neither the file nor the path, which is exactly the message the
+  fence exists to replace. The `Date` shape, the array-to-map shape and the
+  key-anchored shape all threw the same.
+
+- **The exemption bought nothing, which is why the fix is to delete it rather
+  than to narrow it.** Only two edits can carry a collection value: a **kind
+  change**, which is the case to catch, and a **new** key -- and a path the
+  document has nothing at can have no fence under it, because every fence is
+  read off the document, where `fencesOf()` walks own pairs alone and skips the
+  merge key's. So the check runs for every edit now, with no condition in front
+  of it.
+
+- **And it was never "pinned from both sides", which is what the entry above
+  claimed.** The test named for the other side is a **same-kind** write, so
+  `editsFor()` descends and emits no edit at the parent at all: it never reaches
+  the exemption. Measured -- deleting the condition failed **nothing**, all 224
+  tests green -- which is the vacuous-fixture shape this file keeps recording,
+  arriving in the sentence that was meant to say the guard had been checked. The
+  third side is a test now: a **new** key whose value is a collection, over a
+  document holding an aliased anchor, which must still be writable. Both
+  directions are pinned -- putting the exemption back fails the refusal table,
+  and loosening the fence's own prefix scoping fails twelve tests, the new-key
+  one among them.
+
+- **And two copies of a count the second round had already corrected once.**
+  That round found the module docblock claiming "three kinds of path a write
+  refuses" where it lists five, and fixed the docblock -- leaving the heading
+  above and the test's own `describe` saying three, which is the fixed-in-one-
+  place-and-left-in-another shape this file keeps recording. Neither carries a
+  count now, because the number is one nobody re-derives and the block it names
+  had grown twice since.
 
 #### The i18n gap is the sibling's, unchanged
 

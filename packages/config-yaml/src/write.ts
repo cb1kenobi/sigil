@@ -333,11 +333,23 @@ export function editsFor(current: unknown, target: unknown, at: readonly string[
  * is **not**, because JS cannot spell `2.0` and `!!float 2` does not resolve.
  * Conservative where the measurement was odd -- a string onto `!!float`
  * round-tripped and is refused anyway, because nothing should rely on it.
+ *
+ * The **non-specific** tag `!` is a **sixth** the matrix above did not cover,
+ * and leaving it out made every write onto it a false refusal: `read.ts` keeps
+ * `!` in `CORE_TAGS`, so `a: ! true` reads as the string `"true"`, and with no
+ * case here the `default` refused `set('a', 'false')` on a document the store
+ * had just read. Measured, a **string** written there round-trips exactly --
+ * `'false'` renders `! "false"` and reads back `'false'` -- because the core
+ * schema resolves `!` on a scalar to its own text. Which is also why nothing
+ * else may: `8080` renders `! 8080` and reads back the **string** `'8080'`,
+ * `true` the string `'true'` and `null` the string `'null'`, each the silent
+ * type change the named tags are refused for.
  */
 function tagTakes(tag: string, value: unknown): boolean {
   const integral = typeof value === 'number' && /^[-+]?[0-9]+$/.test(String(value));
 
   switch (tag) {
+    case '!':
     case 'tag:yaml.org,2002:str':
       return typeof value === 'string';
     case 'tag:yaml.org,2002:bool':
@@ -375,27 +387,36 @@ function assertEditable(edit: Edit, fences: Fences, read: ReadShape): void {
 
   // and an edit that takes a whole subtree away has to answer for the fences
   // **under** it, which the prefix walk above cannot see: `editsFor()` emits a
-  // drop, or a replacement whose value is not a collection, as a single edit at
-  // the ancestor, so a fenced descendant inside it was never consulted.
-  // Measured, dropping `grp` from `grp:\n  host: &k example.com\nother: *k\n`
-  // threw `yaml`'s own `Unresolved alias ... k` -- no file, no path, nothing
-  // actionable -- where dropping the anchored key itself names both. A
-  // collection value is left alone because `editsFor()` descends into one, so
-  // the removal of an anchored descendant arrives as its own edit and meets
-  // the exact-path fences instead
-  if (edit.drop || !isCollection(edit.value)) {
-    const under = `${dotted(edit.at)}.`;
-    const buried = [...fences.blocked, ...fences.keyAnchored].find(
-      ([at]) => at !== '' && at.startsWith(under)
+  // drop, or a replacement of a whole subtree, as a single edit at the
+  // ancestor, so a fenced descendant inside it was never consulted. Measured,
+  // dropping `grp` from `grp:\n  host: &k example.com\nother: *k\n` threw
+  // `yaml`'s own `Unresolved alias ... k` -- no file, no path, nothing
+  // actionable -- where dropping the anchored key itself names both.
+  //
+  // Asked of **every** edit, and the exemption it replaces is why: a value that
+  // is a collection used to be waved past, on the ground that `editsFor()`
+  // descends into one rather than replacing it -- and it descends only where
+  // the two sides are the **same kind**. A kind change, a map to an array or to
+  // a `Date` or an array to a map, falls through to the bottom of that walk and
+  // arrives here as one replacement at the parent carrying a collection, so the
+  // anchor buried inside it was never seen and `setIn()` dropped it: measured,
+  // every one of those threw `yaml`'s own `Unresolved alias ... k`, through
+  // `set()` plus `saveSync()` and through a direct `writeSync()` alike, which
+  // is exactly the message this exists to replace. Nothing was bought in
+  // exchange, because the only two edits that carry a collection are that kind
+  // change and a **new** key -- and a path the document has nothing at can hold
+  // no fence, since `fencesOf()` reads them off the document's own pairs
+  const under = `${dotted(edit.at)}.`;
+  const buried = [...fences.blocked, ...fences.keyAnchored].find(
+    ([at]) => at !== '' && at.startsWith(under)
+  );
+
+  if (buried) {
+    const [at, fence] = buried;
+
+    throw new Error(
+      __`Cannot write "${dotted(edit.at)}" in ${read.what}: it holds "${at}", which carries an anchor another node aliases, on line ${fence.line}`
     );
-
-    if (buried) {
-      const [at, fence] = buried;
-
-      throw new Error(
-        __`Cannot write "${dotted(edit.at)}" in ${read.what}: it holds "${at}", which carries an anchor another node aliases, on line ${fence.line}`
-      );
-    }
   }
 
   // a key a map takes from a **merge key** is not one of its own pairs, and

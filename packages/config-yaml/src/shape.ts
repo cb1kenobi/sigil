@@ -1,4 +1,5 @@
-import type { ToStringOptions } from 'yaml';
+import { isPlainObject } from '@ttylabs/sigil/config';
+import { isMap, isPair, isScalar, isSeq, type Document, type ToStringOptions } from 'yaml';
 
 /**
  * What a YAML document's bytes carry that its parsed form does not, and the
@@ -56,6 +57,12 @@ export interface Shape {
    * Reapplying the run recovers every one of them, which is measured -- without
    * it, `a: 1\n\n` came back `a: 1\n` and was reported as a formatting loss on a
    * file that merely ends the way an editor left it.
+   *
+   * `toString()` answering with exactly one is **not** true of every document:
+   * where the last node is a keep-chomped block scalar the run it ends with is
+   * that scalar's own value, and `---\n` renders a run of two over a null root.
+   * So this is reapplied over the first and not the second, which `reshape()`
+   * asks the document rather than the bytes.
    */
   trailing: string;
 }
@@ -120,6 +127,74 @@ export function shapeOf(source: string): Shaped {
 }
 
 /**
+ * The last value a document renders, reading a node or a raw value alike.
+ *
+ * Both, because `setIn()` stores the **plain JS value** it was handed rather
+ * than wrapping it in a `Scalar`: measured, after
+ * `setIn(['motd'], 'hello\n\n')` the pair's value is the string itself, and
+ * `visit()` -- which only ever offers nodes -- skips not just that value but the
+ * whole pair, so a `Scalar` handler over a written document reported the last
+ * value as the one *before* it. Which is what a walk of `items` sees and a
+ * visitor does not, and is why this is written out rather than delegated.
+ *
+ * In document order, so the last item of the last item is the last thing
+ * rendered: `yaml` renders a map's pairs and a sequence's items in the order
+ * they are held, and a plain object or array a write stored in insertion order.
+ *
+ * @param node - A node, a raw value, or nothing.
+ * @returns The last value rendered under it.
+ */
+function lastValue(node: unknown): unknown {
+  // reading one past the end is `undefined`, which falls through to the bottom
+  // and answers `undefined` -- so a container with nothing in it needs no guard
+  // of its own, and each of the three that was written here changed no answer
+  if (isMap(node) || isSeq(node)) {
+    const items = node.items as readonly unknown[];
+    const last = items[items.length - 1];
+    // a map holds pairs and a sequence holds its items directly
+    return lastValue(isPair(last) ? (last as { value: unknown }).value : last);
+  }
+
+  if (isScalar(node)) {
+    return node.value;
+  }
+
+  if (Array.isArray(node)) {
+    return lastValue(node[node.length - 1]);
+  }
+
+  if (isPlainObject(node)) {
+    const values = Object.values(node);
+    return lastValue(values[values.length - 1]);
+  }
+
+  return node;
+}
+
+/**
+ * Whether the document ends with a value that carries newlines of its own.
+ *
+ * A string ending in more than one newline is what makes `yaml` write `|+` or
+ * `>+` and keep them, so where the last value rendered is one, a run of
+ * newlines the render ends with is that value's. `yaml`'s own answer rather
+ * than a prediction of the style it will choose: `reshape()` only asks where
+ * the render really did end in such a run, so a string this holds that `yaml`
+ * chose to quote instead is never reached.
+ *
+ * More than one newline rather than one, which `reshape()`'s own entry records
+ * as a statement rather than a guard: its caller has already asked that the
+ * render ends in a run of more than one, and the only structural run that long
+ * is a null root's, whose last value is not a string.
+ *
+ * @param doc - The document.
+ * @returns Whether its last value keeps newlines of its own.
+ */
+function keepsNewlines(doc: Document): boolean {
+  const last = lastValue(doc.contents);
+  return typeof last === 'string' && last.endsWith('\n\n');
+}
+
+/**
  * Puts a shape back on what `toString()` rendered.
  *
  * The order is the inverse of `shapeOf()`'s and each step is the inverse of
@@ -127,12 +202,66 @@ export function shapeOf(source: string): Shaped {
  * so that a reapplied run is converted with everything else; then the mark,
  * which is outside the text either way.
  *
+ * ## A keep-chomped scalar's own newlines are its **value**, not the shape's
+ *
+ * This replaced the render's whole trailing run, and the newlines a keep-chomped
+ * block scalar at the end of a document ends with are part of its value. So a
+ * `set('motd', 'hello\n\n')` into a file ending `a: 1\n` rendered
+ * `motd: |+\n  hello\n\n`, this cut it back to the source's one newline, and the
+ * next read answered `'hello\n'` -- a silent data change, with the save reporting
+ * success, `canRepresent()` having allowed the string and `wouldLose` **absent**,
+ * because the fidelity check asks about the *unmodified* document. Both
+ * directions, and the blank-file path with them: editing an existing `|+` from
+ * two trailing newlines to three put two back, from three to two put three back,
+ * and a first write into a blank file -- where `store.ts` forces the run to one
+ * newline -- lost them the same way.
+ *
+ * ## The count cannot answer it, which is measured rather than assumed
+ *
+ * The obvious rule is to reapply the shape's run only where the render's own is
+ * a single newline, on the reading that `toString()` ends a document with
+ * exactly one unless a keep-chomped scalar is last. It is **wrong**, and the
+ * suite caught it: `---\n` renders as `---\n\n`, a run of two with no block
+ * scalar anywhere in it, because an explicit directives-end marker over a null
+ * root renders the marker and then an empty content line -- so that rule
+ * rewrote a no-op write of `---\n` with a trailing blank line it never had.
+ * Swept over forty shapes, those are the only two that end in a run of more than
+ * one: a null root after `---`, where the run is slack, and a `|+` or `>+`
+ * scalar last, where it is the value. The bytes do not separate them.
+ *
+ * So the **document** answers it, which is the one party that knows, and it is
+ * asked rather than modelled: the run is kept where the render ends in more than
+ * one newline **and** the last value in document order is a string ending the
+ * same way, which is the value those bytes came from.
+ *
+ * Both halves, because each refuses a shape the other admits, and each was
+ * measured. Without the count, a value `yaml` chose to **quote** instead holds
+ * such a string and renders a run of one, so a file ending
+ * `a: "x\\n\\n"` plus a blank line had the blank line read as the value's and
+ * dropped. Without the walk, `---\n` is the entry above. The threshold is the
+ * one part of it that is a **statement rather than a guard**: inside the count
+ * guard a structural run can only be a null root's, whose last value is not a
+ * string at all, so loosening it to a single newline changes no answer and is a
+ * declared sabotage survivor. It says what the condition means -- a value that
+ * keeps newlines past the one clip chomping already implies -- where the looser
+ * spelling would be true of every block scalar there is.
+ *
+ * Which is also why an unmodified document still round-trips byte for byte: a
+ * file ending in a keep-chomped scalar has no trailing run of its own to put
+ * back, since after one the trailing newlines *are* the value.
+ *
  * @param rendered - What `toString()` produced.
  * @param shape - The shape to put back.
+ * @param doc - The document it was rendered from, which is what says whether
+ *   the run it ends with is a value's.
  * @returns The bytes to write.
  */
-export function reshape(rendered: string, shape: Shape): string {
-  let out = rendered.replace(/\n*$/, '') + shape.trailing;
+export function reshape(rendered: string, shape: Shape, doc: Document): string {
+  const own = /\n*$/.exec(rendered)?.[0] ?? '';
+  let out =
+    own.length > 1 && keepsNewlines(doc)
+      ? rendered
+      : rendered.slice(0, rendered.length - own.length) + shape.trailing;
 
   if (shape.crlf) {
     out = out.replaceAll('\n', '\r\n');

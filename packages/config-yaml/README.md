@@ -362,7 +362,7 @@ which is why it is not taken here.
 
 ## What this costs
 
-`@ttylabs/config-yaml` is **10 kB** of its own code over one module, plus `yaml`,
+`@ttylabs/config-yaml` is **17 kB** of its own code over one module, plus `yaml`,
 which is about 300 kB of JavaScript and has no dependencies of its own. An app
 that does not import this pays nothing for either, and the published declaration
 names no `yaml` type — so a consumer that reads this store's signature does not

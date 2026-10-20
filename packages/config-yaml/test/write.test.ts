@@ -137,7 +137,7 @@ flow: {x: 1, y: 2}
     });
   });
 
-  describe('the three kinds of path a write refuses', () => {
+  describe('the paths a write refuses', () => {
     it('should refuse a write through an alias, which setIn throws an internal error about', () => {
       // measured: `setIn(['c','p'], 9)` over `c: *b` raises
       // `Expected YAML collection at c. Remaining path: p`, which names neither
@@ -228,10 +228,20 @@ flow: {x: 1, y: 2}
       // was never consulted and `yaml` threw its own `Unresolved alias`, with
       // neither the file nor the path in it, which is exactly the message
       // these refusals exist to replace
+      //
+      // The last four are a **kind** change, which is the shape a review round
+      // measured going straight through: `editsFor()` descends only where the
+      // two sides are the same kind, so a map becoming an array or a `Date` --
+      // or an array becoming a map -- arrives as one replacement at the parent
+      // carrying a collection, which the guard used to exempt
       for (const [body, target] of [
         ['grp:\n  host: &k example.com\nother: *k\n', { other: 'example.com' }],
         ['grp:\n  host: &k example.com\nother: *k\n', { grp: 5, other: 'example.com' }],
         ['grp:\n  &k host: example.com\nother: *k\n', { other: 'host' }],
+        ['grp:\n  host: &k example.com\nother: *k\n', { grp: ['x'], other: 'example.com' }],
+        ['grp:\n  host: &k example.com\nother: *k\n', { grp: new Date(0), other: 'example.com' }],
+        ['grp:\n  &k host: example.com\nother: *k\n', { grp: ['x'], other: 'host' }],
+        ['grp:\n  - &k example.com\nother: *k\n', { grp: { a: 1 }, other: 'example.com' }],
       ] as const) {
         const path = file(body);
         const before = read(path);
@@ -249,6 +259,23 @@ flow: {x: 1, y: 2}
       yaml(path).writeSync({ grp: { host: 'example.com', port: 2 }, other: 'example.com' });
       expect(read(path)).toContain('port: 2');
       expect(read(path)).toContain('&k');
+    });
+
+    it('should add a new key whose value is a collection, which has no fence under it', () => {
+      // the third side, and what says the guard asking about **every** edit is
+      // not simply total: the two edits that carry a collection are a kind
+      // change and a **new** key, and a path the document has nothing at can
+      // have no fence under it, because every fence is read off the document
+      const path = file('grp:\n  host: &k example.com\nother: *k\n');
+      yaml(path).writeSync({
+        grp: { host: 'example.com' },
+        other: 'example.com',
+        added: { a: 1 },
+      });
+
+      expect(read(path)).toContain('added:');
+      expect(read(path)).toContain('&k');
+      expect(read(path)).toContain('*k');
     });
 
     it('should allow a write to an anchor nothing aliases, which shares nothing', () => {
@@ -492,6 +519,35 @@ flow: {x: 1, y: 2}
       const path = file('a: true\n');
       yaml(path).writeSync({ a: 'false' });
       expect(yaml(path).readSync().value).toStrictEqual({ a: 'false' });
+    });
+
+    it('should take a string onto the non-specific tag, which read.ts admits', () => {
+      // `!` is in `CORE_TAGS`, so `a: ! true` reads as the string `"true"` --
+      // and with no case for it in `tagTakes()` every write onto it was
+      // refused, so a document the store reads could not be written at that
+      // key. A string round-trips exactly, because the core schema resolves
+      // `!` on a scalar to its own text
+      const path = file('a: ! true\n');
+      yaml(path).writeSync({ a: 'false' });
+      expect(read(path)).toBe('a: ! "false"\n');
+      expect(yaml(path).readSync().value).toStrictEqual({ a: 'false' });
+
+      const plain = file('a: ! 8080\n');
+      yaml(plain).writeSync({ a: 'nope' });
+      expect(yaml(plain).readSync().value).toStrictEqual({ a: 'nope' });
+    });
+
+    it('should refuse anything but a string onto the non-specific tag', () => {
+      // each of these renders and then reads back as a **string** of itself --
+      // `8080` as `'8080'`, `true` as `'true'`, `null` as `'null'` -- which is
+      // the silent type change the other four tags are refused for
+      for (const target of [{ a: 8080 }, { a: true }, { a: null }] as const) {
+        const path = file('a: ! true\n');
+        expect(() => yaml(path).writeSync(target), JSON.stringify(target)).toThrow(
+          /would not write .* back as itself/
+        );
+        expect(read(path), JSON.stringify(target)).toBe('a: ! true\n');
+      }
     });
   });
 
