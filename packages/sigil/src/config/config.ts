@@ -59,13 +59,31 @@ const ENVIRONMENT = '<environment>';
  * test that pinned the guard used a stub store whose `source` bypassed
  * `expand()`, which is why it passed throughout.
  *
+ * And the **leading `.\\`** is the other half of that same `normalize()`, which
+ * only Windows produces and which an anchored test misses entirely: there
+ * `normalize('https://host/cfg.json')` is `.\\https:\\host\\cfg.json`, because
+ * win32 reads the `//` as a separator and makes the result explicitly relative.
+ * So the scheme is no longer at the start of the string and the guard was dead
+ * for the two-slash form -- which is the common one -- on Windows alone, while
+ * `s3:bucket/key` kept firing because it has no slash to trigger the prefix.
+ * The dead watcher the guard exists to prevent, live on the one platform the
+ * suite could not see. Caught by CI on all three Windows jobs and nowhere else,
+ * which is the sixth instance of that class this repository records.
+ *
+ * Optional rather than a second pattern, because it is the same rule: a source
+ * is a URL when a scheme opens it, and `.\\` is `normalize()`'s own noise in
+ * front of one. POSIX is byte for byte unaffected -- measured over thirteen
+ * shapes on both platforms, the two answers differ for exactly the two URL
+ * forms Windows prefixes, and all four drive spellings, an absolute path, a
+ * relative one, a UNC path and a bare filename stay watched on both.
+ *
  * What it costs is a **relative** path whose first segment is two or more
  * characters and a colon -- a directory literally named `data:` -- which is
  * refused and reported rather than watched. An absolute path can never match,
  * since `/` and `\\` are not `[a-z]`. Loud and rare beats silent and common,
  * which is this repository's own standing preference.
  */
-const URL_SOURCE = /^[a-z][a-z\d+.-]+:/i;
+const URL_SOURCE = /^(?:\.[\\/])?[a-z][a-z\d+.-]+:/i;
 
 /**
  * Whether a store will write.

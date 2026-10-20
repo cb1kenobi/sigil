@@ -1121,6 +1121,62 @@ describe('watch()', () => {
     }
   });
 
+  it('should refuse the shape win32 normalize makes of a URL, on every platform', () => {
+    // the other half of the same `normalize()`, and the one no `json()` on this
+    // platform can produce: on win32 `normalize('https://host/cfg.json')` is
+    // `.\\https:\\host\\cfg.json`, because it reads the `//` as a separator and
+    // makes the result explicitly relative -- so the scheme is no longer at the
+    // start of the string and an anchored test misses it. The guard was dead
+    // for the two-slash form, which is the common one, on Windows alone.
+    //
+    // Caught by CI on all three Windows jobs and nowhere else, which is why
+    // these are fed **as literals through a stub** rather than through
+    // `json()`. That is the opposite call from the test above and for the
+    // opposite reason: there a stub bypassed `expand()` and hid a dead guard,
+    // and here `expand()` on this platform cannot produce the shape under test
+    // at all, so a literal is the only way the Windows half is visible from a
+    // Mac. Both are needed -- the real store pins what this platform produces,
+    // and these pin what the other one does
+    for (const at of [
+      '.\\https:\\example.com\\config.json',
+      '.\\s3:\\bucket\\key',
+      // and the POSIX spelling of the same prefix, which `normalize()` strips
+      // today and which costs nothing to refuse if it ever stops
+      './https:/example.com/config.json',
+    ]) {
+      const source = fakeSource();
+      const errors: unknown[] = [];
+      const config = createConfigSync({
+        layers: [{ name: 'remote', store: { ...json('/tmp/unused.json'), source: at } }],
+        watch: { onError: (e) => errors.push(e), source },
+      });
+
+      config.watch(() => {});
+      expect(source.live(), at).toBe(0);
+      expect(errors, at).toHaveLength(1);
+      expect((errors[0] as Error).message, at).toContain('not a file path');
+    }
+  });
+
+  it('should still watch a path whose own first segment merely looks relative', () => {
+    // the prefix is `normalize()`'s noise rather than part of a name, so what
+    // must not go with it is an ordinary relative path: `./config.json` has no
+    // scheme and `./a/config.json` has no colon, and both are watched. The
+    // guard reads a colon after the prefix and nothing else
+    for (const at of ['./config.json', './a/config.json', '.\\a\\config.json']) {
+      const source = fakeSource();
+      const errors: unknown[] = [];
+      const config = createConfigSync({
+        layers: [{ name: 'local', store: { ...json('/tmp/unused.json'), source: at } }],
+        watch: { onError: (e) => errors.push(e), source },
+      });
+
+      config.watch(() => {});
+      expect(errors, at).toHaveLength(0);
+      expect(source.live(), at).toBe(1);
+    }
+  });
+
   it('should still watch a Windows drive letter, which is not a scheme', () => {
     // one character before the colon, which is what the two-or-more scheme
     // keeps out of the refusal above -- in all four spellings, because `C://x`

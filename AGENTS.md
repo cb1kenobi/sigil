@@ -21082,7 +21082,7 @@ sources; the state -- the handler set, the debounce, the reload -- is on
   sleeps.** The debounce, the compare, the retry, the diff, the dispatch, the
   latch, the handler sets and every refusal run against a function that fires on
   demand, with vitest's fake timers for the debounce -- which is the repository's
-  own idiom rather than a new seam. 61 tests in tens of milliseconds.
+  own idiom rather than a new seam. 63 tests in tens of milliseconds.
 - **The fs source's climb, refcount and re-target run against a wrapped
   `node:fs`**, which is `atomic-temp.test.ts`'s and `shake-walk.test.ts`'s own
   technique and for their reason: which directory the source ended up watching is
@@ -21093,7 +21093,7 @@ sources; the state -- the handler set, the debounce, the reload -- is on
   by waiting a fixed time and hoping -- so "our own `save()` published nothing" is
   established by an external write afterwards whose own publish arrives, by which
   time the save's event has certainly been handled. About 800ms for those seven,
-  against tens of milliseconds for the 103 above them, which is what says
+  against tens of milliseconds for the 105 above them, which is what says
   the injectable source is worth having.
 - **And the first change in each of them is re-applied until it lands**, which is
   not a sleep dressed up: every one writes microseconds after `watch()`, so every
@@ -21362,6 +21362,36 @@ which is the half worth reading first.
   costs is a relative path whose first segment is two or more characters and a
   colon -- a directory named `data:` -- refused and reported rather than watched;
   an absolute path can never match. Loud and rare beats silent and common.
+
+  **And it was still dead on Windows, for the two-slash form, which is the
+  common one.** The round fixed the slashes and the one-character case and left
+  the half only one platform produces: win32's `normalize()` reads the `//` as a
+  separator and makes the result **explicitly relative**, so
+  `normalize('https://host/cfg.json')` is `.\https:\host\cfg.json` -- the
+  scheme is no longer at the start of the string and an anchored test misses it
+  entirely. `s3:bucket/key` kept firing, because it has no slash to trigger the
+  prefix, which is why two of the loop's three cases passed there. Caught by CI
+  on all three Windows jobs with macOS and Linux green, which is the **sixth**
+  instance of that class this file records -- and the first where what was
+  Windows-only was a live guard rather than a fixture.
+
+  An optional `.\` or `./` in front of the scheme is the whole fix, because it
+  is the same rule: a source is a URL when a scheme opens it, and the prefix is
+  `normalize()`'s own noise in front of one. Measured over thirteen shapes on
+  both platforms, POSIX is byte for byte unaffected and the two answers differ
+  for exactly the two forms win32 prefixes; all four drive spellings, an
+  absolute path, a relative one, a UNC path and a bare filename stay watched on
+  both.
+
+  What makes it not regress again is that the Windows shape is now pinned **on
+  every platform**, fed as a literal through a stub -- which is the opposite call
+  from the test above and for the opposite reason: there a stub bypassed
+  `expand()` and hid a dead guard, and here `expand()` on a Mac cannot produce
+  the shape under test at all, so a literal is the only way that half is visible
+  from one. Both are kept, and the sabotage is the old pattern put back, which
+  fails with the same `expected 1 to be +0` CI reported. A sibling pins the
+  other direction, since the prefix must not take an ordinary relative path with
+  it: `./config.json` and `./a/config.json` are watched.
 
 - **`wouldLose` was frozen at its construction value, which is the field's own
   purpose lying.** `types.ts` documents it as the diagnostic an app consults

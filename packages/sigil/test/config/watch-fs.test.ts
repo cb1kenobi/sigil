@@ -21,7 +21,7 @@
  * code, and `watch-real.test.ts` is where they are measured.
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -122,6 +122,10 @@ vi.mock('node:fs', async (importOriginal) => {
 });
 
 const { createSource } = await import('../../src/config/watch.js');
+// after the mock and through it, exactly as the subject reaches it: the source
+// resolves with `realPathOf()`, so a fixture that spelled the expected path any
+// other way is comparing against a second answer to the same question
+const { realPathOf } = await import('../../src/config/atomic.js');
 
 let root: string;
 
@@ -188,11 +192,21 @@ describe('the fs source', () => {
 
     createSource({})(link, () => {});
 
-    // through `realpathSync` on both sides, because the answer is physical and
-    // `/var` is itself a link on macOS -- a path compared against another built
-    // the same way, which is this repository's own rule about not spelling one
-    // twice
-    expect(calls).to.deep.equal([`watch ${realpathSync(dots)}`]);
+    // through **the subject's own resolver** on both sides, because the answer
+    // is physical and `/var` is itself a link on macOS -- a path compared
+    // against another built the same way, which is this repository's own rule
+    // about not spelling one twice.
+    //
+    // `realPathOf()` rather than `realpathSync`, which is the same rule one
+    // step in and is what CI caught: the subject resolves with
+    // `realpathSync.native` -- deliberately, because node's own `realpathSync`
+    // begins with `path.resolve()` and collapses a `..` lexically where
+    // `realpath(3)` does not -- and on Windows the two answer differently for
+    // the same path, so this compared two one-element arrays that were not
+    // equal. The comment here claimed "`realpathSync` on both sides" while the
+    // subject's side was `.native`, which is the prose-against-code failure
+    // that made it look checked
+    expect(calls).to.deep.equal([`watch ${realPathOf(dots)}`]);
   });
 
   it('should fall back to the path as named where the real one cannot be found', () => {
