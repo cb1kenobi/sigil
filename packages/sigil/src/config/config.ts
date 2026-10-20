@@ -41,10 +41,31 @@ const ENVIRONMENT = '<environment>';
 /**
  * A store source the watcher cannot read as a file path.
  *
- * `://` rather than a bare scheme, for the reason `#start()` gives: a Windows
- * drive letter is one character before its colon and a URL has the slashes.
+ * A **scheme of two or more** and a colon, which is RFC 3986's own production
+ * minus the one-character case -- because that is exactly a Windows drive
+ * letter. `C:\\x`, `c:/x` and `C:foo` are one character before the colon and
+ * every scheme worth reporting is longer, so one rule separates them with
+ * nothing about slashes in it.
+ *
+ * The slashes are what the first version matched on, and they cannot be: a
+ * source reaches here through `expand()`, which ends in `normalize()`, so
+ * `json('https://host/cfg.json')` reports `https:/host/cfg.json` -- **one
+ * slash** -- and the guard never fired for any source this repository's own
+ * store factories produce. Measured, the watcher was then handed that path,
+ * climbed to the working directory and watched it, with nothing reported: the
+ * precise failure the guard exists to prevent, for every real store. A scheme
+ * with no slashes at all -- `s3:bucket/key`, which the interface's doc invites
+ * as readily -- was the same hole by the other road. Found by review, and the
+ * test that pinned the guard used a stub store whose `source` bypassed
+ * `expand()`, which is why it passed throughout.
+ *
+ * What it costs is a **relative** path whose first segment is two or more
+ * characters and a colon -- a directory literally named `data:` -- which is
+ * refused and reported rather than watched. An absolute path can never match,
+ * since `/` and `\\` are not `[a-z]`. Loud and rare beats silent and common,
+ * which is this repository's own standing preference.
  */
-const URL_SOURCE = /^[a-z][a-z\d+.-]*:\/\//i;
+const URL_SOURCE = /^[a-z][a-z\d+.-]+:/i;
 
 /**
  * Whether a store will write.
@@ -79,7 +100,17 @@ interface Layer {
   readonly touched: Set<string>;
   /** The layer's own value, which `set()` mutates and the merge reads. */
   value: Record<string, unknown>;
-  readonly wouldLose?: readonly Loss[];
+  /**
+   * What the store said a write of this document would lose.
+   *
+   * Not `readonly`, because a reload re-reads the file and the answer is a fact
+   * about what the file now holds. Left at its construction value it is a
+   * **lying diagnostic**: watch a layer whose file had no trivia, let an editor
+   * add a comment the store cannot carry, and an app consulting the field
+   * before saving is told the write is lossless when it is not -- which is the
+   * one thing the field is documented for. Found by review.
+   */
+  wouldLose?: readonly Loss[];
 }
 
 /**
@@ -135,6 +166,18 @@ export class Config {
   readonly #timers = new Map<string, ReturnType<typeof setTimeout>>();
   /** The layers a reload is running for, which is the re-entrancy latch. */
   readonly #reloading = new Set<string>();
+  /**
+   * The layers an `await save()` is in flight for.
+   *
+   * A second latch rather than a wider `#reloading`, because the two refusals
+   * mean opposite things about the file. A reload refused by `#reloading` is
+   * one whose bytes are already being read, so a second read would read the
+   * same ones and dropping it is right. A reload refused by *this* is one whose
+   * file is about to be **written by us**, so the only way to be right about
+   * what the file says is to read it again afterwards -- which is why that
+   * refusal re-schedules and the other does not.
+   */
+  readonly #saving = new Set<string>();
   /** What to call to stop watching, one per watched layer. */
   #stops: (() => void)[] = [];
 
@@ -451,13 +494,25 @@ export class Config {
     const written: string[] = [];
 
     for (const layer of this.#targets(which)) {
-      const doc = await layer.declared.store.read();
-      const next = this.#staged(layer, doc, how);
-      await (layer.declared.store as WritableConfigStore).write(next.write, {
-        ...how,
-        paths: next.paths,
-      });
-      this.#saved(layer, next.hold);
+      // the save latch, held across every `await` this layer's save makes and
+      // released in a `finally`. Without it a debounce that fires between the
+      // read and the write reloads the layer, clears `touched`, and reassigns
+      // `value` -- so `#staged()` below claims no paths, writes the document it
+      // read, and this returns the layer as written having silently discarded
+      // the `set()` it was called to persist. Measured on a store whose `read()`
+      // yields across a macrotask, which is what `fs.promises.readFile` is
+      this.#saving.add(layer.name);
+      try {
+        const doc = await layer.declared.store.read();
+        const next = this.#staged(layer, doc, how);
+        await (layer.declared.store as WritableConfigStore).write(next.write, {
+          ...how,
+          paths: next.paths,
+        });
+        this.#saved(layer, next.hold);
+      } finally {
+        this.#saving.delete(layer.name);
+      }
       written.push(layer.name);
     }
 
@@ -576,15 +631,26 @@ export class Config {
    *
    * ## What is watched, and what is not
    *
-   * Every layer whose store reports a `source`, read as a file path. A layer
-   * with no source -- an object layer -- is not watched, and `apply()` is how
-   * it participates in the diff: so a config of nothing but object layers is a
-   * legitimate thing to call this on, and it fires on `apply()` and on nothing
-   * else.
+   * Every layer whose store reports a `source` **the watcher can read as a file
+   * path**. A layer with no source -- an object layer -- is not watched, and
+   * `apply()` is how it participates in the diff: so a config of nothing but
+   * object layers is a legitimate thing to call this on, and it fires on
+   * `apply()` and on nothing else. One whose source is a URL is not watched
+   * either and says so through `onError`, which is the debug floor unless the
+   * app named somewhere.
+   *
+   * A **symlinked** config is watched through the link, because that is where
+   * the writer writes: `realPathOf()` is what says which file a path names, so
+   * the directory watched is the real file's. What that gives up is the link
+   * itself being re-pointed while the app runs.
    *
    * The file watchers start when the **first** handler registers and stop when
-   * the last one goes, so a config nobody watches opens no file descriptor. One
-   * `fs.watch` per directory, so two layers in one directory share it.
+   * the last one goes, so a config nobody watches opens no file descriptor.
+   * Under `fs.watch` it is one watcher **per directory**, so two layers in one
+   * directory share it; under `poll` it is one `watchFile` per **file**, which
+   * is the whole of what that mode has to do -- the directory, the climb and
+   * the refcount are `fs.watch`'s problems and polling has none of them. Two
+   * `Config` instances share nothing either way.
    *
    * ## What a reload does to an unsaved `set()`
    *
@@ -676,10 +742,10 @@ export class Config {
       // skipped, because a layer with a source looks watchable where one with
       // none does not. Found by review.
       //
-      // Matched on `://` rather than on a scheme, which is what keeps a Windows
-      // drive letter out of it: `C:\x` is one character before the colon and
-      // every URL a store would report has the slashes. A POSIX path really can
-      // hold a colon, and one holding `://` is a path `resolve()` collapses
+      // Matched on a **scheme of two or more** and a colon, with nothing about
+      // slashes in it: a source reaches here through `expand()`, which
+      // normalizes, so `https://host/x` arrives as `https:/host/x` and a `://`
+      // test never fired for any real store. `URL_SOURCE` has the measurement
       if (URL_SOURCE.test(at)) {
         // not translated: a store's own source is the app's
         this.#onError(
@@ -794,12 +860,25 @@ export class Config {
     if (this.#reloading.has(layer.name)) {
       return;
     }
+    // and the save latch, which re-schedules rather than dropping: the file is
+    // about to hold what we are writing, so a read taken now would be read
+    // against a document that is already stale. Re-scheduling terminates by
+    // construction -- the reload that follows reads back what the save wrote,
+    // compares equal to what `#saved()` held, and publishes nothing -- and it is
+    // what keeps somebody *else's* write that landed in the same window from
+    // being the one event this drops
+    if (this.#saving.has(layer.name)) {
+      this.#schedule(layer, retried);
+      return;
+    }
     this.#reloading.add(layer.name);
 
     try {
       let next: Record<string, unknown>;
+      let doc: ConfigDocument;
       try {
-        next = valueOf(layer.declared, layer.declared.store.readSync(), this.#settings);
+        doc = layer.declared.store.readSync();
+        next = valueOf(layer.declared, doc, this.#settings);
       } catch (e: unknown) {
         if (!retried) {
           this.#schedule(layer, true);
@@ -822,6 +901,12 @@ export class Config {
       // where it takes effect. The compare below decides whether to *publish*,
       // which is a different question
       layer.touched.clear();
+
+      // and so is what a write of this document would lose, for the same
+      // reason: it is a fact about the file as last read rather than about
+      // whether the value moved. A file whose value is unchanged and whose
+      // comments are not has a different answer
+      layer.wouldLose = doc.wouldLose;
 
       if (!changed) {
         return;

@@ -1,8 +1,10 @@
 import {
   createConfigSync,
+  json,
   object,
   type ConfigChange,
   type ConfigDocument,
+  type Loss,
   type WatchSource,
   type WritableConfigStore,
 } from '../../src/config/index.js';
@@ -53,11 +55,16 @@ function fakeSource(): WatchSource & { fire: () => void; live: () => number } {
  */
 function stubStore(value: unknown): WritableConfigStore & {
   fail: (error?: unknown) => void;
+  hold: (gate: () => Promise<void>) => void;
+  lose: (next: readonly Loss[] | undefined) => void;
   reads: () => number;
   set: (next: unknown) => void;
+  value: () => unknown;
 } {
   let held = value;
   let error: unknown;
+  let gate: (() => Promise<void>) | undefined;
+  let losses: readonly Loss[] | undefined;
   let reads = 0;
 
   const read = (): ConfigDocument => {
@@ -65,15 +72,29 @@ function stubStore(value: unknown): WritableConfigStore & {
     if (error !== undefined) {
       throw error;
     }
-    return { value: held };
+    return { value: held, wouldLose: losses };
   };
 
   return {
     fail: (e: unknown = new Error('mid-write')): void => {
       error = e;
     },
+    lose: (next: readonly Loss[] | undefined): void => {
+      losses = next;
+    },
     format: 'stub',
-    read: (): Promise<ConfigDocument> => Promise.resolve(read()),
+    // a gate the test resolves by hand, which is the only way to put the
+    // debounce *inside* an `await save()`: a `Promise.resolve()` settles on a
+    // microtask and a `setTimeout` is a macrotask, so the read always wins
+    hold: (next: () => Promise<void>): void => {
+      gate = next;
+    },
+    read: async (): Promise<ConfigDocument> => {
+      if (gate) {
+        await gate();
+      }
+      return read();
+    },
     reads: (): number => reads,
     readSync: read,
     set: (next: unknown): void => {
@@ -92,6 +113,7 @@ function stubStore(value: unknown): WritableConfigStore & {
     writeSync: (next: unknown): void => {
       held = next;
     },
+    value: (): unknown => held,
   };
 }
 
@@ -168,11 +190,60 @@ describe('sameValue', () => {
     // two invalid Dates are the same invalid Date rather than a change on
     // every reload, which is `NaN`'s own rule read through `getTime()`
     expect(sameValue(new Date(Number.NaN), new Date(Number.NaN))).toBe(true);
-    // and **both** sides are asked, which the `getTime` guard alone does not
-    // give: a plain object that happens to have a matching `getTime` is not a
-    // date, and with only `a` tested it compared equal to one
-    expect(sameValue(new Date(5), { getTime: () => 5 })).toBe(false);
-    expect(sameValue({ getTime: () => 5 }, new Date(5))).toBe(false);
+    // and a `getTime` that **throws** is answered rather than propagated: this
+    // is a predicate, so one that throws is one every caller has to guard --
+    // and `#reload()` calls it outside the try that routes a read failure, so
+    // the throw escapes a timer callback, while `apply()` calls it after the
+    // layer was assigned. A pair it cannot compare is reported as *moved*,
+    // which is the safe direction. Found by review
+    class Hostile {
+      get [Symbol.toStringTag](): string {
+        return 'Date';
+      }
+      getTime(): number {
+        throw new Error('boom');
+      }
+    }
+    class Bad extends Date {
+      override getTime(): number {
+        throw new Error('sub');
+      }
+    }
+    expect(() => sameValue(new Hostile(), new Date(5))).not.toThrow();
+    expect(sameValue(new Hostile(), new Date(5))).toBe(false);
+    expect(sameValue(new Date(5), new Hostile())).toBe(false);
+    expect(sameValue(new Bad(), new Bad())).toBe(false);
+
+    // and the method is read on **both** sides before either is called, which
+    // needs a **plain object** spoofing the tag to see at all: such a pair has
+    // no `getTime`, so the guard falls through to the structural walk and
+    // answers `true` for two that really are the same thing -- where entering
+    // the branch would throw, be caught, and report a change on every reload.
+    //
+    // Two vacuous versions came before this one, which is why the input is
+    // spelled out. `{ getTime: () => 5 }` tags as `[object Object]`, so
+    // `sameValue` exits at the tag conjunction and never reads a method; and a
+    // tagged *class* instance is not a plain object, so with the `typeof` guard
+    // gone the catch answers `false` and the walk would have too -- the same
+    // answer by a different route, which no assertion can tell apart
+    const tagged = (): Record<string, unknown> => ({
+      get [Symbol.toStringTag](): string {
+        return 'Date';
+      },
+      x: 1,
+    });
+    expect(sameValue(tagged(), tagged())).toBe(true);
+    expect(sameValue(tagged(), { ...tagged(), x: 2 })).toBe(false);
+
+    // and the same where the method is there and **throws**, which is the half
+    // a `catch` answering `false` got wrong: two of these are the same thing,
+    // so reporting them as moved is a publish on every reload
+    const boom = (): number => {
+      throw new Error('boom');
+    };
+    const bad = (): Record<string, unknown> => ({ ...tagged(), getTime: boom });
+    expect(sameValue(bad(), bad())).toBe(true);
+    expect(sameValue(bad(), { ...bad(), x: 2 })).toBe(false);
   });
 
   it('should compare anything the merge carries by reference by identity', () => {
@@ -501,6 +572,43 @@ describe('watch()', () => {
     expect(errors).to.deep.equal([]);
   });
 
+  it('should not read a handler that returned a bare thenable as a failure', async () => {
+    // reading `.then` establishes that something is a thenable and not that it
+    // is a promise: a bare `{ then(res) { res() } }` has no `.catch`, so
+    // calling one threw a `TypeError` inside the dispatch's own `try` and a
+    // handler that **succeeded** was reported to `onError` as a failure of
+    // ours. `Promise.resolve()` adopts it instead. Found by review
+    const { config, errors, source, store } = watched({ a: 1 });
+    let ran = 0;
+    // `no-thenable` is right about every other object in this repository and
+    // this construct is the test's whole subject, so it is disabled for exactly
+    // these lines and put back. A **block** pair rather than
+    // `-next-line`, because that one is a comment a formatter can detach from
+    // the line it was written over -- the shape this repository already records
+    // going quiet. Obscuring the key was the other option and serves the
+    // linter rather than the reader; oxlint folds a `const` and flags
+    // `Object.defineProperty` too, so the obscuring would have had to be real
+    /* oxlint-disable unicorn/no-thenable */
+    config.watch((): unknown => {
+      ran++;
+      return {
+        then(resolve: (value: unknown) => void): void {
+          resolve(undefined);
+        },
+      };
+    });
+    /* oxlint-enable unicorn/no-thenable */
+
+    store.set({ a: 2 });
+    source.fire();
+    vi.advanceTimersByTime(50);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(ran).toBe(1);
+    expect(errors).to.deep.equal([]);
+  });
+
   it('should report an async handler that rejected rather than losing it', async () => {
     // a `try` cannot catch a rejection, and the handler types return `void`, so
     // TypeScript takes an `async` one happily: `config.watch(async () => {
@@ -659,6 +767,117 @@ describe('watch()', () => {
     expect(seen).to.deep.equal([{ path: 'a', previous: 50, value: 2 }]);
     // and the layer is what the file says, so there is nothing left unsaved
     expect(config.layers[0]?.dirty).toBe(false);
+  });
+
+  it('should not let a reload inside an await save() discard what was being saved', async () => {
+    // the one interleaving `readSync()` does not make atomic. `save()` yields
+    // at its `await store.read()`, so a debounce that fires there used to clear
+    // `touched` and reassign `value` -- after which `#staged()` claimed no
+    // paths, wrote the document it had read, and `save()` returned the layer as
+    // written having silently discarded the `set()`. Measured: the file kept
+    // `{a: 1}`, memory reverted to 1, and the return said `['user']`
+    const { config, source, store } = watched({ a: 1 });
+    config.watch(() => {});
+
+    // a read this test resolves by hand, which is a macrotask yield without a
+    // real one -- `Promise.resolve()` would lose to the timer the other way
+    let release: () => void = () => {};
+    store.hold(
+      () =>
+        new Promise<void>((r) => {
+          release = r;
+        })
+    );
+
+    config.set('a', 2);
+    source.fire();
+
+    const saving = config.save();
+    vi.advanceTimersByTime(50);
+    release();
+    const written = await saving;
+
+    expect(store.value(), 'what reached the file').to.deep.equal({ a: 2 });
+    expect(config.get('a'), 'what the config holds').toBe(2);
+    expect(written).to.deep.equal(['user']);
+  });
+
+  it('should still read a write that landed while the save was in flight', async () => {
+    // which is what makes the refusal a *re-schedule* rather than a drop: the
+    // event said the file moved, and the save is the one thing that cannot
+    // answer what it moved to. Dropping it is the timer-based suppression point
+    // 6 refuses -- it swallows somebody else's write in the same window
+    const { config, source, store } = watched({ a: 1 });
+    const seen: ConfigChange[] = [];
+    config.watch('a', (change) => seen.push(change));
+
+    let release: () => void = () => {};
+    store.hold(
+      () =>
+        new Promise<void>((r) => {
+          release = r;
+        })
+    );
+
+    // something to save, or `save()` touches no file and takes no latch --
+    // which is `#targets()`'s own rule and is what made the first version of
+    // this test pass for the wrong reason
+    config.set('a', 2);
+    source.fire();
+    const saving = config.save('user');
+    vi.advanceTimersByTime(50);
+    release();
+    await saving;
+
+    // somebody else wrote, between our write and the reload we re-scheduled
+    store.set({ a: 99 });
+    vi.advanceTimersByTime(50);
+
+    expect(seen).to.deep.equal([{ path: 'a', previous: 2, value: 99 }]);
+    expect(config.get('a')).toBe(99);
+  });
+
+  it('should report what a write would lose as of the latest read', () => {
+    // `wouldLose` is documented as the diagnostic an app consults **before**
+    // saving, and the watcher is what makes the file change under a live
+    // `Config` -- so left at its construction value it is a lying one: watch a
+    // layer whose file had no trivia, let an editor add a comment the store
+    // cannot carry, and the app is told the write is lossless. Found by review
+    const { config, source, store } = watched({ a: 1 });
+    config.watch(() => {});
+    expect(config.layers[0]?.wouldLose).toBeUndefined();
+
+    store.set({ a: 2 });
+    store.lose([{ kind: 'comment', detail: 'line 1' }]);
+    source.fire();
+    vi.advanceTimersByTime(50);
+
+    expect(config.get('a')).toBe(2);
+    expect(config.layers[0]?.wouldLose).to.deep.equal([{ kind: 'comment', detail: 'line 1' }]);
+
+    // and it goes away again, because it is a fact about the file as last read
+    // rather than something that accumulates
+    store.lose(undefined);
+    store.set({ a: 3 });
+    source.fire();
+    vi.advanceTimersByTime(50);
+
+    expect(config.layers[0]?.wouldLose).toBeUndefined();
+  });
+
+  it('should re-read what a write would lose even where the value did not move', () => {
+    // the half a value-keyed assignment would miss: a file whose comments moved
+    // and whose values did not publishes nothing and still has a different
+    // answer, which is why this is assigned beside `touched.clear()` rather
+    // than past the unchanged early return
+    const { config, source, store } = watched({ a: 1 });
+    config.watch(() => {});
+
+    store.lose([{ kind: 'anchor', detail: 'line 4' }]);
+    source.fire();
+    vi.advanceTimersByTime(50);
+
+    expect(config.layers[0]?.wouldLose).to.deep.equal([{ kind: 'anchor', detail: 'line 4' }]);
   });
 
   it('should leave the merged view it was holding, object and all', () => {
@@ -875,30 +1094,51 @@ describe('watch()', () => {
     // interface invites one -- and read as a path a URL climbs to the working
     // directory and watches that, which is a watcher that is dead and says
     // nothing. Found by review
-    const source = fakeSource();
-    const errors: unknown[] = [];
-    const remote = { ...stubStore({}), source: 'https://example.com/config.json' };
-    const config = createConfigSync({
-      layers: [{ name: 'remote', store: remote }],
-      watch: { onError: (e) => errors.push(e), source },
-    });
+    //
+    // Through **`json()`** rather than a stub whose `source` is written by
+    // hand, which is the hole a second review found: a real store's source went
+    // through `expand()`, which normalizes, so what the guard was handed was
+    // `https:/example.com/config.json` with **one slash** -- and a `://` test
+    // never fired for any source this repository can produce. The stub bypassed
+    // `expand()`, so the test passed while the guard was dead
+    for (const url of [
+      'https://example.com/config.json',
+      's3://bucket/key',
+      // no slashes at all, which the doc invites as readily
+      's3:bucket/key',
+    ]) {
+      const source = fakeSource();
+      const errors: unknown[] = [];
+      const config = createConfigSync({
+        layers: [{ name: 'remote', store: json(url) }],
+        watch: { onError: (e) => errors.push(e), source },
+      });
 
-    config.watch(() => {});
-    expect(source.live()).toBe(0);
-    expect(errors).toHaveLength(1);
-    expect((errors[0] as Error).message).toContain('not a file path');
+      config.watch(() => {});
+      expect(source.live(), url).toBe(0);
+      expect(errors, url).toHaveLength(1);
+      expect((errors[0] as Error).message, url).toContain('not a file path');
+    }
   });
 
   it('should still watch a Windows drive letter, which is not a scheme', () => {
-    // `C:\\x` is one character before its colon, which is what the `://` form
-    // keeps out of the refusal above
-    const source = fakeSource();
-    const config = createConfigSync({
-      layers: [{ name: 'win', store: { ...stubStore({}), source: 'C:\\app\\config.json' } }],
-      watch: { source },
-    });
-    config.watch(() => {});
-    expect(source.live()).toBe(1);
+    // one character before the colon, which is what the two-or-more scheme
+    // keeps out of the refusal above -- in all four spellings, because `C://x`
+    // matched the `://` form the first version used and so was refused
+    for (const win of [
+      'C:\\app\\config.json',
+      'C:/app/config.json',
+      'C://app/config.json',
+      'C:app',
+    ]) {
+      const source = fakeSource();
+      const config = createConfigSync({
+        layers: [{ name: 'win', store: { ...stubStore({}), source: win } }],
+        watch: { source },
+      });
+      config.watch(() => {});
+      expect(source.live(), win).toBe(1);
+    }
   });
 
   it('should watch no layer that has no path to watch', () => {

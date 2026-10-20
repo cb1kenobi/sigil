@@ -34,7 +34,7 @@
  */
 
 import { createConfig, json, object, type ConfigChange } from '../../src/config/index.js';
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -102,6 +102,40 @@ async function changed(path: string, text: string, ok: () => boolean): Promise<v
 }
 
 describe('a real watch over a real atomic write', () => {
+  it('should watch the real file, not the directory the link sits in', async () => {
+    // a symlinked config is what every dotfile manager makes of one, and
+    // `writeAtomic()` resolves through the link on purpose -- so an editor
+    // saving the real file replaces an entry in the **target's** directory and
+    // the link's own directory sees nothing. Watching there is watching a
+    // directory the writer never writes in.
+    //
+    // macOS answers this one anyway -- FSEvents is path-based and resolves the
+    // link, measured 6/6 -- so what this pins is the resolution rather than the
+    // platform: it fails wherever the watch is inode-based, which is Linux, and
+    // it fails here too the moment the climb's fallback is what answers
+    const dots = join(root, 'dotfiles');
+    const conf = join(root, 'config');
+    mkdirSync(dots);
+    mkdirSync(conf);
+
+    const real = join(dots, 'config.json');
+    const link = join(conf, 'config.json');
+    writeFileSync(real, '{"a":1}');
+    symlinkSync(real, link);
+
+    const config = await createConfig({ layers: [{ name: 'user', store: json(link) }] });
+    const seen: ConfigChange[] = [];
+    const stop = config.watch('a', (change) => seen.push(change));
+
+    try {
+      // written to the **real** path, atomically, which is what an editor does
+      await changed(real, '{"a":2}', () => seen.length === 1);
+      expect(config.get('a')).toBe(2);
+    } finally {
+      stop();
+    }
+  });
+
   it('should still be alive after a second atomic replace', async () => {
     // **the headline.** A rename swaps the inode, so a watch registered on the
     // path is watching a file nothing will ever write to again -- which is why

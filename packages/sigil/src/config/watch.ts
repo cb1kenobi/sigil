@@ -54,6 +54,7 @@
  */
 
 import debug from '../debug/index.js';
+import { realPathOf } from './atomic.js';
 import { isPlainObject, readPath } from './dotted.js';
 import type { ConfigChange, WatchOptions, WatchSource } from './types.js';
 import { statSync, unwatchFile, watch as fsWatch, watchFile, type FSWatcher } from 'node:fs';
@@ -122,11 +123,13 @@ export type Watcher = (
  * identity would report a change each time the file was touched and nothing in
  * it had moved.
  *
- * So: `Object.is` for a leaf, `getTime()` for a `Date`, and a structural walk
- * for a plain object or an array. `Object.is` rather than `===` makes a `NaN`
- * equal to itself, which an object layer can hold and which `===` would report
- * as moved on every reload; what it costs is that `0` and `-0` read as
- * different, which is a change somebody really did write into the file.
+ * So: `sameLeaf()` for a leaf, `getTime()` for a `Date`, and a structural walk
+ * for a plain object or an array. What `sameLeaf()` is -- `===` with `NaN`
+ * added back and `0` and `-0` read as one number -- is argued where it is
+ * written, and both halves are measured there. This said `Object.is` and said
+ * that `0` and `-0` read as *different*, which is the behaviour a review round
+ * then removed with a reason: a reader trusting this would have put the
+ * spurious publish after our own write back. Found by the round after it.
  *
  * A `Date` is matched with `Object.prototype.toString` rather than `instanceof`,
  * which is the call `overlay()` already makes for a boxed `String`: `instanceof`
@@ -154,20 +157,33 @@ export function sameValue(a: unknown, b: unknown): boolean {
     Object.prototype.toString.call(a) === '[object Date]' &&
     Object.prototype.toString.call(b) === '[object Date]'
   ) {
-    // `getTime` is read before it is called, because that test honours
-    // `Symbol.toStringTag`: a class instance with
-    // `get [Symbol.toStringTag]() { return 'Date' }` and no such method answers
-    // `[object Date]` here, and an object layer carries a class instance by
-    // reference. Measured -- `apply()` threw `e.getTime is not a function`
-    // *after* assigning the layer, so the caller was told the apply failed while
-    // the config had already changed, and in a reload the same throw escapes a
-    // timer callback. Found by review. Where either is not callable this falls
-    // through to the structural walk, which answers `false` for two values
-    // `sameLeaf()` has already said are not the same thing
-    const mine = (a as Date).getTime;
-    const theirs = (b as Date).getTime;
-    if (typeof mine === 'function' && typeof theirs === 'function') {
-      return sameLeaf(mine.call(a), theirs.call(b));
+    // ## The tag is a claim and the method is the answer, so both are tried
+    //
+    // That test honours `Symbol.toStringTag`, so anything at all can answer
+    // `[object Date]` here -- a class instance with
+    // `get [Symbol.toStringTag]() { return 'Date' }`, or a plain object with the
+    // same getter, both of which an object layer carries. Measured: `apply()`
+    // threw `e.getTime is not a function` **after** assigning the layer, so the
+    // caller was told the apply failed while the config had already changed,
+    // and in a reload the same throw escapes a timer callback -- which is what
+    // `#reload()` calls this outside the try that routes a read failure.
+    //
+    // So the comparison is attempted and a failure **falls through to the
+    // walk**, which covers a missing method, one that is not a function, and
+    // one that throws, in one rule rather than a `typeof` pair and a `catch`
+    // that each answered half of it. Falling through rather than answering
+    // `false` is the half that matters: two structurally equal plain objects
+    // spoofing the tag really are the same thing, and `false` there was a
+    // spurious publish on every reload -- the one failure this predicate exists
+    // to prevent. Both found by review, one round apart
+    let times: { mine: unknown; theirs: unknown } | undefined;
+    try {
+      times = { mine: (a as Date).getTime(), theirs: (b as Date).getTime() };
+    } catch {
+      // not comparable as dates, whatever the tag said
+    }
+    if (times) {
+      return sameLeaf(times.mine, times.theirs);
     }
   }
 
@@ -418,7 +434,12 @@ export function dispatch(
       // first handler finished -- and what is added is that its failure is
       // reported rather than lost. Found by review
       if (typeof (settled as { then?: unknown } | null)?.then === 'function') {
-        void (settled as Promise<unknown>).catch(onError);
+        // through `Promise.resolve()`, which **adopts** a thenable: reading
+        // `.then` establishes that it is one and not that it is a promise, and a
+        // bare `{ then(res) { res() } }` has no `.catch` -- so calling one threw
+        // a `TypeError` inside the `try`, and a handler that *succeeded* was
+        // reported to `onError` as a failure of ours. Found by review
+        void Promise.resolve(settled).catch(onError);
       }
     } catch (e: unknown) {
       onError(e);
@@ -444,7 +465,21 @@ export function reporter(opts: WatchOptions): (error: unknown) => void {
   if (onError !== undefined) {
     return (e: unknown) => {
       try {
-        onError(e);
+        // the same duck-type `dispatch()` makes, for the same reason one layer
+        // in: `onError` is typed as returning `void`, so an `async` one is
+        // assignable -- and a `try` cannot catch a rejection, so an app that
+        // wrote `onError: async (e) => { await log(e) }` produced an
+        // **unhandled rejection** from a timer callback, which is the one thing
+        // this option exists to prevent. Its failure goes to the floor rather
+        // than back through itself, which would be asking a reporter that just
+        // failed to report its own failure. Found by review
+        const answered: unknown = onError(e);
+        if (typeof (answered as { then?: unknown } | null)?.then === 'function') {
+          void Promise.resolve(answered).catch((failed: unknown) => {
+            logError(e);
+            logError(failed);
+          });
+        }
       } catch (failed: unknown) {
         // a reporter that throws has nowhere left to report to, and raising
         // from here would take down whatever was being told -- a reload, or
@@ -549,6 +584,26 @@ function pollSource(interval: number): WatchSource {
       unwatchFile(at, listener);
     };
   };
+}
+
+/**
+ * What `realPathOf()` answers, or the path as named where it refused to answer.
+ *
+ * The writer raises a failed resolution because its write cannot land; the
+ * watcher has a climb that walks past every way a path can be broken, so for it
+ * a refusal is one more broken path rather than a reason to stop watching. An
+ * `ENOTDIR` from a parent that is a regular file is the reachable one and is in
+ * the suite; an `ELOOP` from a cycle is the other.
+ *
+ * @param path - The file, as the caller named it.
+ * @returns The real file, or `path`.
+ */
+function realPath(path: string): string {
+  try {
+    return realPathOf(path);
+  } catch {
+    return path;
+  }
 }
 
 /**
@@ -803,7 +858,31 @@ function fsSource(interval: number): WatchSource {
   };
 
   return (path, onEvent) => {
-    const dir = dirname(resolve(path));
+    // the **real** file's directory, which is where its entry changes. A
+    // symlinked config is a supported layout rather than an exotic one -- it is
+    // what every dotfile manager makes of one, and `writeAtomic()` deliberately
+    // writes *through* the link -- so watching the link's own directory would be
+    // watching a directory the writer never writes in. `realPathOf()` is asked
+    // rather than resolved a second time, because two answers to "which file
+    // does this path name" is exactly how that happens.
+    //
+    // What it gives up is the link itself being *replaced*, which changes an
+    // entry in the directory this no longer watches. That is the same call
+    // `writeAtomic()` made and for the same reason: editing the file a link
+    // points at is the ordinary thing, re-pointing the link while the app runs
+    // is not, and one answer the two share beats two that agree by accident.
+    // A dangling link needs nothing of its own -- `realPathOf()` answers where
+    // the chain ends, which is a path that does not exist, which is the climb's
+    // own case.
+    //
+    // Best-effort, because that function **throws** for anything but the file
+    // not being there and the watcher must not. `ENOTDIR` is reachable from an
+    // ordinary config path whose parent is a regular file, and `ELOOP` from a
+    // cycle: for the *writer* those are the right answer, since the write cannot
+    // land, and here they would escape `#start()` and kill the whole watch over
+    // a path the climb copes with. So a resolution that failed falls back to the
+    // path as named, and whatever is wrong with it is the climb's to walk past
+    const dir = dirname(realPath(resolve(path)));
     let entry = dirs.get(dir);
 
     if (!entry) {

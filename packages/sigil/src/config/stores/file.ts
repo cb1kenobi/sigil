@@ -203,9 +203,12 @@ function fileStore(path: string): WritableConfigStore {
       const next = render(now, value, opts?.paths);
 
       // a write that changes nothing touches no file, which is not tidiness:
-      // it keeps the mtime, which is what SIG-153's watcher reads, and it is
-      // what makes `apply()` of a freshly read value a no-op rather than a
-      // rewrite of the same bytes
+      // **no event fires at all**, so a watcher is not woken to read back a
+      // document it would have found identical anyway -- and it is what makes
+      // `apply()` of a freshly read value a no-op rather than a rewrite of the
+      // same bytes. Said as "it keeps the mtime, which is what the watcher
+      // reads" for a while, which names a mechanism `fs.watch` does not have:
+      // only `watchFile` under `poll` reads one. Found by review
       if (next !== now) {
         await writeAtomic(source, next);
       }

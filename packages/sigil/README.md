@@ -1485,8 +1485,9 @@ const stopAll = config.watch((changes) => {
 
 Each returns a disposer, safe to call more than once. The file watchers start
 when the **first** handler registers and stop when the last one goes, so a
-config nobody watches opens no file descriptor — and one watcher per directory,
-so two layers in one directory share it.
+config nobody watches opens no file descriptor — and under `fs.watch` it is one
+watcher per directory, so two layers in one directory share it. Under `poll` it
+is one `watchFile` per file, because that is the whole of what polling has to do.
 
 What a handler is handed is a **diff rather than the fact of a change**, which is
 the half that makes this worth having over `fs.watch` plus a re-read of your own.
@@ -1502,10 +1503,16 @@ config.watch('theme', ({ value }) => repaint(value));
 // an app can see has changed
 ```
 
-Every layer whose store reports a `source` is watched. An **object layer** has
-no file, so it is not watched — and `apply()` is how it participates in the
-diff, which makes `config.watch()` worth calling on a config of nothing but
-object layers.
+Every layer whose store reports a `source` the watcher can read as a file path
+is watched. An **object layer** has no file, so it is not watched — and `apply()`
+is how it participates in the diff, which makes `config.watch()` worth calling on
+a config of nothing but object layers. A layer whose source is a **URL** is not
+watched either, and says so through `onError`.
+
+A **symlinked** config is watched through the link, because that is where the
+writer writes: the directory watched is the real file's rather than the link's,
+which is what makes a `stow`-style layout work. What that gives up is the link
+itself being re-pointed while the app is running.
 
 #### It survives an atomic write, which is the whole point
 
@@ -1578,15 +1585,18 @@ guessed at, because nothing in a process can tell a filesystem that will deliver
 events from one that will not.
 
 Two limits worth knowing, both named rather than guarded. A change that lands
-between the config's own read and your `watch()` call is not seen, because
-nothing was watching yet. And a filesystem event can be **dropped** — measured
-at about 3% for a watcher written to immediately after it is created, under heavy
-parallel load — which in the steady state costs latency and recovers on the next
-write. During a climb it would be permanent, so while the watcher is not on the
-directory it wants it re-checks every `interval`; that is the only **interval**
-there is, and it stops the moment the real directory appears. (A debounce
-`setTimeout` runs on every event, and under `poll` a `watchFile` runs for as long
-as you are watching; both are unref'd, so neither holds the process open.)
+between the config's own read and your `watch()` call is not delivered **on its
+own**, because nothing was watching yet — it is not lost, though: the next event
+diffs against the value the config is still holding, so that earlier change
+arrives merged into the next publish. And a filesystem event can be **dropped** —
+measured at about 3% for a watcher written to immediately after it is created,
+under heavy parallel load — which in the steady state costs latency and recovers
+on the next write. During a climb it would be permanent, so while the watcher is
+not on the directory it wants it re-checks every `interval`. (`interval` has two
+jobs: that re-check under `fs.watch`, and how often the file is stat'd under
+`poll`. A debounce `setTimeout` runs on every event, and under `poll` a
+`watchFile` runs for as long as you are watching; all of them are unref'd, so
+none holds the process open.)
 
 ### The schema
 

@@ -21065,12 +21065,14 @@ sources; the state -- the handler set, the debounce, the reload -- is on
   rather than fallen back to the default, because somebody who wrote `0` meant
   "as fast as you can".
 
-- **What it costs is 5,064 B on the config entry's graph and nothing anywhere
-  else.** 37,689 B over seven modules against 32,625 B over the same seven -- no
-  new module, because the entry already reached `debug` through `i18n`. The root
-  entry is **7,518 B, unchanged**, and `components.mjs` 239,929 B over 26,
-  unchanged -- all three measured the same way, which is the only comparison that
-  means anything. It read 4,406 B before the review round's fixes, which is why
+- **What it costs is 5,341 B on the config entry's graph and nothing anywhere
+  else.** 37,966 B over seven modules against 32,625 B over the same seven -- no
+  new module, because the entry already reached `debug` through `i18n` and
+  `atomic.ts`, which the watcher imports for `realPathOf()`, was already there
+  for the write half. The root entry is **7,518 B, unchanged**, and
+  `components.mjs` 239,929 B over 26, unchanged -- all three measured the same
+  way, which is the only comparison that means anything. It read 4,406 B before
+  the first review round's fixes and 5,064 B before the second's, which is why
   the instruction is to measure it again rather than to carry the number.
 
 #### How it is tested without a flaky suite
@@ -21267,6 +21269,201 @@ check: it read the per-layer latch as reachable only through a throw, and
 therefore the `finally` as untested. The three early returns are the reachable
 case and the sabotage that moves the delete out of the `finally` is caught by
 them.
+
+#### What review round 2 found, and the save it could silently undo
+
+Eleven findings, every one confirmed before it was believed, and its shell was
+rejected for every call too -- so like the round before it, all of it is from
+reading, and it said so. One is **severe and silent with a success return**, four
+more produce a wrong answer or a crash, and the rest are prose or a test that
+cannot reach what it names. It also **falsified two claims this section makes**,
+which is the half worth reading first.
+
+- **A reload landing inside an `await save()` discarded the value being saved,
+  and `save()` returned the layer as written.** `#reload()`'s own doc argues that
+  `readSync()` makes it atomic -- "a second event's reload cannot start inside it
+  and there is no race for a latch to fix" -- which is true of a reload racing a
+  reload and says nothing about an **async save**. `save()` yields at
+  `await store.read()`, so a debounce firing there cleared `touched`, reassigned
+  `value` to the file's own, and `#staged()` then claimed no paths and wrote back
+  the document it had read.
+
+  Measured on a store whose `read()` yields across a macrotask, which is what
+  `fs.promises.readFile` is: the file kept `{a: 1}`, memory reverted to `1`, and
+  the return said `['user']`. Silent data loss with a success return, which is
+  the worst class there is -- and worse than the documented "a reload overwrites
+  an unsaved `set()`", because here the set was _being persisted_.
+
+  The first attempt to reproduce it **passed**, which is the part worth keeping:
+  with `debounce: 0` and a `Promise.resolve()` read, the microtask drains before
+  the `setTimeout(0)` macrotask and the read always wins. A race that needs a
+  macrotask boundary cannot be staged with microtasks, and a test that stages it
+  wrongly reads as the code being fine.
+
+  So `#saving` is a **second latch** rather than a wider `#reloading`, because
+  the two refusals mean opposite things about the file: one is already reading
+  those bytes, so dropping is right, and the other is about to **write** them, so
+  the only way to be right is to read again afterwards. Which is why that refusal
+  **re-schedules** and the other does not -- and it terminates by construction,
+  since the reload that follows reads back what the save wrote and compares equal
+  to what `#saved()` held. Dropping it instead would be the timer-based
+  suppression point 6 refuses, swallowing somebody else's write in the same
+  window. `saveSync()` needs none of it and provably cannot: it is `readSync`,
+  `#staged`, `writeSync`, `#saved` with no `await` in it, so no timer can fire
+  inside it.
+
+- **The `fs` source watched the directory of the **link**, so a symlinked config
+  was never watched where it is written.** `writeAtomic()` resolves through a
+  link on purpose -- `realPathOf()` is 80 lines about doing it correctly, and
+  `write.test.ts` establishes the layout as first-class -- and the watcher took
+  `dirname(resolve(path))`, which is the link's own directory. An editor saving
+  the real file replaces an entry in the **target's** directory, so the watch
+  sees nothing, the probe believes itself settled, and `get()` answers stale
+  values for the life of the process.
+
+  `realPathOf()` is **exported** rather than resolved a second time, which is the
+  rule this repository keeps everywhere: two readers of "which file does this path
+  name" is exactly how a watcher comes to watch a directory the writer never
+  writes in. What it gives up is the link itself being **re-pointed** while the
+  app runs, which is the same call `writeAtomic()` made and for the same reason.
+
+  And it needed a **tolerant** wrapper, which the review did not predict and the
+  existing suite caught within a minute: `realPathOf()` **throws** for anything
+  but the file not being there, because for the writer a failed resolution means
+  the write cannot land. `ENOTDIR` is reachable from an ordinary config path whose
+  parent is a regular file -- there is a climb test for exactly that shape -- and
+  a throw there escapes `#start()` and kills the whole watch. So a refusal falls
+  back to the path as named and the climb walks past it, which is what the climb
+  is for.
+
+  What it is pinned by is **not** the real-watch test, and the measurement is the
+  reason: macOS resolves the link for us -- FSEvents is path-based, 6/6 -- so the
+  sabotage that removes the resolution is caught **1 run in 6** there. The
+  platform-independent claim is _which directory was watched_, which
+  `watch-fs.test.ts` already instruments, and there it is caught every time. Both
+  tests exist, and the weak one says in it that it is the integration half.
+
+- **`URL_SOURCE` was dead for every real store, which is the one that
+  falsified its own test.** It matched `://`, and a source reaches `#start()`
+  through `expand()`, which ends in `normalize()` -- so
+  `json('https://host/cfg.json')` reports `https:/host/cfg.json` with **one
+  slash** and the guard never fired. Measured end to end: no error, the path
+  handed to the source, the climb to the working directory, the dead watcher the
+  guard exists to prevent. A scheme with no slashes at all -- `s3:bucket/key`,
+  which `ConfigStore.source`'s own doc invites as readily -- was the same hole by
+  the other road. And the test that pinned it used a **stub store** whose
+  `source` bypassed `expand()`, which is why it passed throughout.
+
+  It is a **scheme of two or more** and a colon now, with nothing about slashes
+  in it, which is RFC 3986's production minus the one-character case -- because
+  that is exactly a Windows drive letter. All four drive spellings are excluded,
+  `C://app` among them, which the `://` form had **matched** and refused. What it
+  costs is a relative path whose first segment is two or more characters and a
+  colon -- a directory named `data:` -- refused and reported rather than watched;
+  an absolute path can never match. Loud and rare beats silent and common.
+
+- **`wouldLose` was frozen at its construction value, which is the field's own
+  purpose lying.** `types.ts` documents it as the diagnostic an app consults
+  before saving, and the watcher is what makes the file change under a live
+  `Config` -- so a layer whose file gained a comment the store cannot carry still
+  reported `undefined`. Measured: the value moved to 2 and the diagnostic did
+  not. Assigned beside `touched.clear()` rather than past the unchanged early
+  return, because it is a fact about the file as last read rather than about
+  whether the value moved: a file whose comments changed and whose values did not
+  publishes nothing and still has a different answer.
+
+- **`sameValue` read `getTime` and then called it unguarded**, which is the
+  previous round's own fix one step along: reading it establishes that it exists
+  and not that it answers. A class instance with the `Date` tag and a `getTime()`
+  that throws, or a `Date` subclass overriding it, threw out of a **predicate** --
+  which `#reload()` calls outside the try that routes a read failure, so it
+  escapes a timer callback, and which `apply()` calls after the layer was
+  assigned. All three shapes measured.
+
+  Writing the test for it produced the better fix, which is the entry worth
+  keeping. The first version answered `false` on a throw, and that is **wrong**
+  for two structurally equal plain objects spoofing the tag: they really are the
+  same thing, so `false` is a spurious publish on every reload -- the one failure
+  this predicate exists to prevent. Falling through to the walk instead covers a
+  missing method, one that is not a function, and one that throws, in **one rule**
+  rather than a `typeof` pair and a `catch` that each answered half of it. So the
+  pair went, and both directions of what is left fail a named test.
+
+- **Two async shapes, and both reached the one thing `onError` exists to
+  prevent.** `dispatch()` duck-typed `.then` and then called `.catch`, so a
+  handler returning a bare `{ then(res) { res() } }` threw a `TypeError` inside
+  the `try` and a handler that **succeeded** was reported as a failure of ours;
+  `Promise.resolve()` adopts a thenable instead. And `onError` is typed as
+  returning `void`, so an `async` one is assignable -- and a `try` cannot catch a
+  rejection, so `onError: async (e) => { await log(e) }` produced an **unhandled
+  rejection** from a timer callback. Its failure goes to the debug floor rather
+  than back through itself, which would be asking a reporter that just failed to
+  report its own failure. The sabotage for the second one makes vitest print
+  `Unhandled Rejection`, which is the failure the fix removes.
+
+- **Four sentences were false about the code beside them, and one of them would
+  have put a defect back.** `sameValue`'s own header said `Object.is` and said
+  that `0` and `-0` read as **different** -- which is the behaviour round 1
+  removed with a measurement, so a reader trusting the header would have restored
+  the spurious publish after our own write. `watch()`'s doc and the README each
+  said "every layer with a `source` is watched" and "one watcher per directory"
+  unconditionally, where a URL layer is not watched and `poll` is one `watchFile`
+  per **file**. The README said a change landing before `watch()` "is not seen",
+  where it is not **lost** -- measured, it arrives merged into the next publish,
+  which is a better property than the one claimed. And it said the climb's
+  re-check is "the only `interval` there is", two paragraphs from the option whose
+  own doc gives it two jobs.
+
+- **And the mtime claim, in three stores, named a mechanism the watcher does not
+  have.** `file.ts`, `config-yaml` and `config-xml` each said a no-op write
+  "keeps the mtime, which is what the watcher reads". The default watcher reads
+  **directory events and file contents** and never stats; only `watchFile` under
+  `poll` reads an mtime. What skipping the write really buys is that **no event
+  fires at all**, which is the better reason anyway.
+
+- **Three test assertions could not reach what they named, and one of them was
+  written in answer to round 1.** The poll disposer's claim is that it names
+  **its own** listener -- `unwatchFile(path)` with none removes every listener
+  for the path, including another config's -- and the `node:fs` mock **discarded
+  the listener argument**, so the test could only assert that a second `stop()`
+  does not throw, which a no-op disposer passes too. "Survive a close that
+  throws" asserted `not.toThrow()` alone, which a disposer that never calls
+  `close()` passes; it asserts the flag the mock already tracked, and is now one
+  of **five** tests that catch a never-close where it caught none. And the
+  both-sides `getTime` assertion used `{ getTime: () => 5 }`, whose tag is
+  `[object Object]`, so `sameValue` exited at the tag conjunction before either
+  method was read -- a vacuous test written in answer to the round before it.
+  Its replacement took two more goes, which is why the input is spelled out in
+  it: a tagged **class** instance is not a plain object, so the catch and the
+  walk answer the same `false` and no assertion can tell them apart.
+
+- **The demo slept rather than awaiting, so a dead watcher passed it.**
+  `step()` waited a fixed 300ms and reported "(nothing was published)", and
+  `demos/README.md` said "every step awaits a real filesystem event" -- so with
+  the watcher wholly dead the demo printed that six times and exited 0.
+  `demos.test.ts` asks for exit 0 and no stack, which made it an acceptance check
+  that could not fail. A step expecting a change now **awaits** it and throws if
+  it never comes, verified by sabotaging the built `dist/` the demo actually
+  imports: it exits non-zero with a stack. A step expecting silence can only
+  wait, and what confirms the watcher survived it is the next step's own change
+  arriving, which is the sequencing the tests already use for a negative.
+
+- **One lint warning was mine and is the entry this file already carries.** The
+  bare-thenable test trips `unicorn(no-thenable)`, which is right about every
+  other object here and wrong for the one test whose subject it is. `pnpm check`
+  exits zero over a warning, so the standing instruction is to read one on code
+  you just wrote rather than exit past it. Obscuring the key was tried twice and
+  serves the linter rather than the reader -- oxlint folds a `const` and flags
+  `Object.defineProperty` too -- so it is a **block** disable and enable with the
+  reason, rather than a `-next-line` a formatter can detach from its target.
+
+Two things the round got **wrong**, which is why a review is a set of claims to
+check. It gave `C://app/config.json` as a case the old pattern **missed**, where
+it matched it and therefore refused a Windows path -- the opposite error, and the
+one the drive-letter test now covers in all four spellings. And it read the
+`#reload()` atomicity comment as covering the save case, which was the whole
+finding: the comment is correct about what it says and silent about what it does
+not.
 
 ### An XML config store, in a package of its own
 

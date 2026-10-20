@@ -317,12 +317,20 @@ export function isMissing(e: unknown): boolean {
  * `mkdirOwnerSync()` naming that path, which is the right answer rather than
  * creating a directory where somebody put a link.
  *
+ * ## It has a second reader, which is the watcher
+ *
+ * `fsSource()` watches the **directory** a file's entry changes in, and for a
+ * symlinked config that is the directory of the real file rather than of the
+ * link -- which is this function's answer, so it asks rather than resolving a
+ * second time. Two readers of "which file does this path name" is how a watcher
+ * comes to watch a directory the writer never writes in.
+ *
  * @param path - The file, as the caller named it.
  * @returns What it resolves to, or where the chain of links ends, or itself
  *   where there is nothing there at all.
  * @throws If a resolution failed for any reason but the file not being there.
  */
-function realPathOf(path: string): string {
+export function realPathOf(path: string): string {
   try {
     return realpathSync.native(path);
   } catch (e: unknown) {

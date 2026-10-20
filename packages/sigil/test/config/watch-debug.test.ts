@@ -152,4 +152,41 @@ describe('the floor, where the app named no onError', () => {
     expect(all).toContain('the handler');
     expect(all).toContain('the reporter itself');
   });
+
+  it('should log both where the reporter rejected rather than threw', () => {
+    // `onError` is typed as returning `void`, so an `async` one is assignable
+    // and a `try` cannot catch its rejection -- which made an app that wrote
+    // `onError: async (e) => { await log(e) }` produce an **unhandled
+    // rejection** from a timer callback, the one thing this option exists to
+    // prevent. The floor is where its failure goes, because asking a reporter
+    // that just failed to report its own failure is the recursion. Found by
+    // review
+    const store = stubStore({ a: 1 });
+    const source = fakeSource();
+    const config = createConfigSync({
+      layers: [{ name: 'u', store }],
+      watch: {
+        onError: async () => {
+          await Promise.resolve();
+          throw new Error('the reporter rejected');
+        },
+        source,
+      },
+    });
+    config.watch(() => {
+      throw new Error('the handler');
+    });
+
+    store.set({ a: 2 });
+    source.fire();
+    expect(() => vi.advanceTimersByTime(50)).not.toThrow();
+
+    return Promise.resolve()
+      .then(() => Promise.resolve())
+      .then(() => {
+        const all = logged.join('');
+        expect(all).toContain('the handler');
+        expect(all).toContain('the reporter rejected');
+      });
+  });
 });

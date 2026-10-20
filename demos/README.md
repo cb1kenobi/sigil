@@ -252,12 +252,15 @@ nothing either, because the value read back is the one just written, which is
 better than suppressing events for a window after a write: that would also
 swallow somebody else's write in the same window.
 
-It takes a couple of seconds, because every step awaits a real filesystem event.
-The one line in it that is not about the feature is the warm-up loop: a watcher
-written to in the moment after it is created can lose its event, measured at
-about 3% under heavy parallel load, so the demo makes one throwaway change and
-waits for it rather than printing "nothing was published" about something that
-did happen.
+It takes a couple of seconds, because every step that expects a change **awaits**
+a real filesystem event and **throws** if it never comes — so a watcher that is
+wholly dead fails the demo rather than printing "nothing was published" six times
+and exiting 0. A step that expects silence can only wait, and what confirms the
+watcher survived it is the next step's own change arriving, since the steps run
+in order. The one line in it that is not about the feature is the warm-up loop: a
+watcher written to in the moment after it is created can lose its event, measured
+at about 3% under heavy parallel load, so the demo makes one throwaway change and
+waits for it rather than reporting a silence that is not one.
 
 ## Components
 

@@ -21,7 +21,7 @@
  * code, and `watch-real.test.ts` is where they are measured.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -52,15 +52,30 @@ let failClose = false;
 /** One entry per `fs.watchFile` call, as `poll <path> <interval> <persistent>`. */
 const polls: string[] = [];
 
+/** The listeners `fs.watchFile` was handed, so a removal can name which. */
+const listeners: unknown[] = [];
+
 vi.mock('node:fs', async (importOriginal) => {
   const real = await importOriginal<typeof import('node:fs')>();
 
   return {
     ...real,
-    unwatchFile(path: string): void {
-      polls.push(`unwatch ${path}`);
+    // the **listener** is recorded as well as the path, because that is the
+    // whole of what the poll disposer claims: `unwatchFile(path, listener)`
+    // removes that one, where `unwatchFile(path)` removes *every* listener for
+    // the path -- including another config's. The first version of the wrapper
+    // discarded it, so the test for the disposer could only assert that a
+    // second `stop()` does not throw, which a no-op disposer passes too. Found
+    // by review
+    unwatchFile(path: string, listener?: unknown): void {
+      polls.push(`unwatch ${path} ${listener === undefined ? 'all' : listeners.indexOf(listener)}`);
     },
-    watchFile(path: string, opts: { interval: number; persistent: boolean }): unknown {
+    watchFile(
+      path: string,
+      opts: { interval: number; persistent: boolean },
+      listener: unknown
+    ): unknown {
+      listeners.push(listener);
       polls.push(`poll ${path} ${opts.interval} ${opts.persistent}`);
       return undefined;
     },
@@ -113,6 +128,7 @@ let root: string;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'sigil-watch-fs-'));
   calls.length = 0;
+  listeners.length = 0;
   live.length = 0;
   polls.length = 0;
   failWatch = 0;
@@ -147,6 +163,51 @@ describe('the fs source', () => {
     mkdirSync(dir);
     createSource({})(join(dir, 'config.json'), () => {});
     expect(live[0]?.opts).to.deep.equal({ persistent: false, recursive: false });
+  });
+
+  it('should watch the directory the real file is in, not the link', () => {
+    // a symlinked config is a supported layout -- `write.test.ts` establishes
+    // it as one and `writeAtomic()` resolves through the link on purpose -- so
+    // an editor saving the real file replaces an entry in the **target's**
+    // directory. Watching the link's own directory is watching a directory the
+    // writer never writes in, and the config then answers stale values for the
+    // life of the process.
+    //
+    // Asserted here rather than only in `watch-real.test.ts` because this is
+    // the platform-independent half: macOS resolves the link for us -- FSEvents
+    // is path-based, measured 6/6 -- so the real test is caught 1 run in 6 with
+    // the resolution removed, while this is caught every time on every platform
+    const dots = join(root, 'dotfiles');
+    const conf = join(root, 'config');
+    mkdirSync(dots);
+    mkdirSync(conf);
+    const real = join(dots, 'config.json');
+    const link = join(conf, 'config.json');
+    writeFileSync(real, '{}');
+    symlinkSync(real, link);
+
+    createSource({})(link, () => {});
+
+    // through `realpathSync` on both sides, because the answer is physical and
+    // `/var` is itself a link on macOS -- a path compared against another built
+    // the same way, which is this repository's own rule about not spelling one
+    // twice
+    expect(calls).to.deep.equal([`watch ${realpathSync(dots)}`]);
+  });
+
+  it('should fall back to the path as named where the real one cannot be found', () => {
+    // `realPathOf()` **throws** for anything but the file not being there,
+    // because for the writer a failed resolution means the write cannot land.
+    // The watcher has a climb that walks past every way a path can be broken,
+    // so for it a refusal is one more broken path -- and a throw here would
+    // escape `#start()` and kill the whole watch. `ENOTDIR` from a parent that
+    // is a regular file is the reachable one; the test above it is the same
+    // path and is what caught this when the resolution was first added
+    const notADir = join(root, 'cfg');
+    writeFileSync(notADir, 'not a directory');
+
+    expect(() => createSource({})(join(notADir, 'config.json'), () => {})).not.toThrow();
+    expect(calls).to.deep.equal([`watch ${root}`]);
   });
 
   it('should climb past something that exists and is not a directory', () => {
@@ -381,6 +442,10 @@ describe('the fs source', () => {
     const stop = createSource({})(join(dir, 'config.json'), () => {});
     failClose = true;
     expect(() => stop()).not.toThrow();
+    // and `close()` was **reached**, which `not.toThrow()` alone cannot say: a
+    // disposer that never called it passes that assertion too. The mock tracks
+    // the flag whether or not the call threw. Found by review
+    expect(live[0]?.closed).toBe(true);
   });
 
   it('should resolve a relative path, since a store may hold one', () => {
@@ -583,7 +648,8 @@ describe('the poll source', () => {
     expect(calls).to.deep.equal([]);
 
     stop();
-    expect(polls.at(-1)).toBe(`unwatch ${join(root, 'a', 'b', 'config.json')}`);
+    // its own listener by index, which is the claim the disposer makes
+    expect(polls.at(-1)).toBe(`unwatch ${join(root, 'a', 'b', 'config.json')} 0`);
   });
 
   it('should pass persistent: false, so a CLI that reads config still exits', () => {
@@ -605,10 +671,31 @@ describe('the poll source', () => {
 
   it('should take a disposer called more than once', () => {
     // no latch, because `unwatchFile(path, listener)` answers for a listener it
-    // does not hold -- so a second call is a no-op rather than a wrong answer
-    const stop = createSource({ poll: true })(join(root, 'config.json'), () => {});
-    stop();
-    expect(() => stop()).not.toThrow();
+    // does not hold -- so a second call is a no-op rather than a wrong answer.
+    //
+    // What that rests on is the disposer naming **its own** listener, which is
+    // asserted rather than inferred: `unwatchFile(path)` with none removes
+    // every listener for the path, so two layers in one file would take each
+    // other's watch away. The first version of this test asserted only that a
+    // second `stop()` does not throw, which a disposer calling the one-argument
+    // form -- or doing nothing at all -- passes too. Found by review
+    const at = join(root, 'config.json');
+    const first = createSource({ poll: true });
+    const stopA = first(at, () => {});
+    const stopB = first(at, () => {});
+
+    stopA();
+    expect(polls).to.deep.equal([
+      `poll ${at} 1000 false`,
+      `poll ${at} 1000 false`,
+      `unwatch ${at} 0`,
+    ]);
+
+    stopB();
+    expect(polls.at(-1)).toBe(`unwatch ${at} 1`);
+
+    // and twice over is a no-op rather than a wrong answer
+    expect(() => stopA()).not.toThrow();
   });
 });
 

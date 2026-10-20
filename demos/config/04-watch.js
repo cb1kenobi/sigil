@@ -69,13 +69,36 @@ const stopAll = config.watch((moved) => {
   }
 });
 
-/** Does something, waits for the watcher to settle, and says if nothing moved. */
-async function step(title, change) {
+/**
+ * Does something and waits for the watcher.
+ *
+ * A step that expects a change **awaits** it and throws if it never comes,
+ * rather than sleeping and reporting "nothing was published": a demo that
+ * passes with the watcher wholly dead is a demo that demonstrates nothing, and
+ * `demos.test.ts` asks for exit 0 and no stack, so the throw is what makes a
+ * dead watcher a failing check. Found by review.
+ *
+ * A step that expects **silence** can only wait, and what confirms the watcher
+ * survived it is the next step's own change arriving -- which is the same
+ * sequencing the tests use for a negative, since the steps run in order.
+ *
+ * @param {string} title - What the step is doing.
+ * @param {() => unknown} change - The change to make.
+ * @param {'change' | 'silence'} expect - What should happen.
+ */
+async function step(title, change, expect) {
   console.log(`\n${title}`);
   changes = [];
   await change();
-  await new Promise((r) => setTimeout(r, 300));
+
+  for (let waited = 0; waited < 2000 && changes.length === 0; waited += 10) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+
   if (changes.length === 0) {
+    if (expect === 'change') {
+      throw new Error(`nothing was published for: ${title}`);
+    }
     console.log('  (nothing was published)');
   }
 }
@@ -99,45 +122,61 @@ for (let tries = 0; tries < 20 && changes.length === 0; tries++) {
   }
 }
 
-await step('the system file changes server.port, which nothing shadows:', () =>
-  atomically(system, JSON.stringify({ editor: { theme: 'light' }, server: { port: 3000 } }))
+await step(
+  'the system file changes server.port, which nothing shadows:',
+  () => atomically(system, JSON.stringify({ editor: { theme: 'light' }, server: { port: 3000 } })),
+  'change'
 );
 
-await step('the system file changes editor.theme, which the user file shadows:', () =>
-  // the layer really does reload; the merged view does not move, so nothing is
-  // published. Which is the one thing a per-file watcher can never tell you
-  atomically(system, JSON.stringify({ editor: { theme: 'dark' }, server: { port: 3000 } }))
+await step(
+  'the system file changes editor.theme, which the user file shadows:',
+  () =>
+    // the layer really does reload; the merged view does not move, so nothing is
+    // published. Which is the one thing a per-file watcher can never tell you
+    atomically(system, JSON.stringify({ editor: { theme: 'dark' }, server: { port: 3000 } })),
+  'silence'
 );
 
-await step('the user file is replaced atomically, the way an editor saves:', () =>
-  atomically(
-    user,
-    `{
+await step(
+  'the user file is replaced atomically, the way an editor saves:',
+  () =>
+    atomically(
+      user,
+      `{
   // still here: a write edits spans rather than reprinting
   "editor": { "theme": "light" },
 }`
-  )
+    ),
+  'change'
 );
 
-await step('our own save() writes the user file:', async () => {
-  // **named**, because `set()` with no layer picks the topmost writable one --
-  // which here is `runtime`, an in-memory store. Unnamed, this wrote to memory,
-  // the file on disk never moved, and the step printed "nothing was published"
-  // for the wrong reason: not the compare, but nothing having been written.
-  // Found by review, in the demo for exactly that rule
-  config.set('editor.theme', 'dark', 'user');
-  await config.save('user');
-  // the value read back is the one we just wrote, so the diff is empty. Which
-  // is better than suppressing events for a window after a write, because that
-  // would also swallow somebody else's write in the same window
-});
-
-await step('and the watch is still alive after it, which is the whole point:', () =>
-  atomically(user, '{ "editor": { "theme": "dark" }, "server": { "port": 9999 } }')
+await step(
+  'our own save() writes the user file:',
+  async () => {
+    // **named**, because `set()` with no layer picks the topmost writable one --
+    // which here is `runtime`, an in-memory store. Unnamed, this wrote to memory,
+    // the file on disk never moved, and the step printed "nothing was published"
+    // for the wrong reason: not the compare, but nothing having been written.
+    // Found by review, in the demo for exactly that rule
+    config.set('editor.theme', 'dark', 'user');
+    await config.save('user');
+    // the value read back is the one we just wrote, so the diff is empty. Which
+    // is better than suppressing events for a window after a write, because that
+    // would also swallow somebody else's write in the same window
+  },
+  'silence'
 );
 
-await step('the runtime layer is re-applied, which has no file at all:', () =>
-  config.apply('runtime', { server: { port: 1234 } })
+await step(
+  'and the watch is still alive after it, which is the whole point:',
+  () => atomically(user, '{ "editor": { "theme": "dark" }, "server": { "port": 9999 } }'),
+  'change'
+);
+
+await step(
+  'the runtime layer is re-applied, which has no file at all:',
+  () => config.apply('runtime', { server: { port: 1234 } }),
+  'change'
 );
 
 stopPort();

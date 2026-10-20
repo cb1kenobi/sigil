@@ -324,7 +324,7 @@ describe('what importing the package costs', () => {
     const graph = staticGraph('config.mjs');
     const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-    // 37,689 B over seven modules, of which about 9.9 KB is what it starts
+    // 37,966 B over seven modules, of which about 9.9 KB is what it starts
     // from: `paths.mjs`, `i18n.mjs`, the `transform` and `debug` chunks, the
     // 66-byte `env-value` chunk the parser shares, and the 525-byte
     // `mkdir-owner-sync` one the update cache shares. The graph is 4.9x the root
@@ -333,7 +333,7 @@ describe('what importing the package costs', () => {
     // anything. It was 20,649 B over six before the write half, so the span
     // writer, the atomic write and the representability check are about 11.5 KB
     // between them; 32,523 B before the store kit, which is the 102 bytes that
-    // costs; and 32,625 B before the watcher, which is 5,064 B and **no new
+    // costs; and 32,625 B before the watcher, which is 5,341 B and **no new
     // module** -- the entry already reached `debug` through `i18n`. Read
     // again after every change that moves it -- a figure only a re-run can
     // confirm is the stale snapshot this file warns about, and review round 2
