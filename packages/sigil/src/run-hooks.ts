@@ -4,7 +4,7 @@ import {
   type AfterRunHookData,
   type InternalCommand,
   type ParseState,
-  type RunOutcome,
+  type RunResult,
 } from './types.js';
 import { safeLog } from './util/safe-log.js';
 
@@ -24,7 +24,7 @@ const { log } = debug('sigil:run');
  *
  * A hook's own failure is reported under `DEBUG=sigil:run` and the next hook
  * still runs, which is `disposeOwner()`'s rule: every cleanup runs even when
- * one throws, and what it threw is reported rather than replacing the outcome
+ * one throws, and what it threw is reported rather than replacing the result
  * in flight.
  *
  * Whatever a hook hands back is ignored, which is the `catch`-as-recovery
@@ -36,20 +36,20 @@ const { log } = debug('sigil:run');
  * argument rather than a guard here that nothing could reach.
  *
  * @param cmd - The command that ran.
- * @param outcome - What its `run()` came to.
+ * @param result - What its `run()` came to.
  * @param ms - How long it took.
  * @param state - The parse state it was handed.
  */
 export async function fireAfterRun(
   cmd: InternalCommand,
-  outcome: RunOutcome,
+  result: RunResult,
   ms: number,
   state: ParseState
 ): Promise<void> {
   // frozen, and that is the `catch`-as-recovery refusal holding at run time
   // rather than only in the type. `readonly` is a TypeScript fiction once the
-  // code is running, and `main()` reads the **same** outcome object after this
-  // returns -- so a hook writing `outcome.ok = false` really did turn a
+  // code is running, and `main()` reads the **same** result object after this
+  // returns -- so a hook writing `result.ok = false` really did turn a
   // successful run into a thrown `undefined`, which is the recovery door the
   // type was written to close, open in the other direction. Measured before it
   // was closed.
@@ -58,11 +58,11 @@ export async function fireAfterRun(
   // that precisely took a review round, because the first version of this
   // comment claimed more. Refused: flipping `ok`, swapping `value` or `error`
   // for something else, and rewriting `ms` -- which is a hook misleading the
-  // hooks after it in the same chain, so `data` is frozen as well as `outcome`.
+  // hooks after it in the same chain, so `data` is frozen as well as `result`.
   //
   // **Not refused, and it must not be**: the insides of objects the *app* owns.
-  // `outcome.value` is the object the command returned, which the command can
-  // reach and mutate after returning -- measured -- and `outcome.error` is the
+  // `result.value` is the object the command returned, which the command can
+  // reach and mutate after returning -- measured -- and `result.error` is the
   // error, which `beforeError` is documented as entitled to mutate: measured,
   // a `beforeError` hook writing `err.message` and `err.exitCode` has exactly
   // the effect an `afterRun` hook writing them has, so this opens no channel
@@ -89,7 +89,7 @@ export async function fireAfterRun(
   const data: AfterRunHookData = Object.freeze({
     cmd,
     ms,
-    outcome: Object.freeze(outcome),
+    result: Object.freeze(result),
     state,
   });
 

@@ -838,7 +838,7 @@ export type BeforeErrorHook = (
  * A discriminated union rather than a value and an optional error beside it,
  * because the two are never both there and a hook reading `error` off a run
  * that returned is a hook asking a question with no answer. `ok` is what
- * narrows it, so `outcome.error` is unreachable until the hook has said which
+ * narrows it, so `result.error` is unreachable until the hook has said which
  * case it is in.
  *
  * `value` is what `run()` returned, **before** `main()`'s `?? state`
@@ -849,7 +849,7 @@ export type BeforeErrorHook = (
  * thing -- there is no such reader yet, and that half is the shape to keep
  * rather than a fact about the code today.
  */
-export type RunOutcome =
+export type RunResult =
   | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly error: unknown };
 
@@ -869,10 +869,10 @@ export type RunOutcome =
  * throw site", and a hook that could turn a failed run into a successful one
  * would have to answer what `main()` returns, what the exit code is, and
  * whether the error was ever an error. Whatever a hook hands back is ignored,
- * and the `outcome` it is handed is frozen.
+ * and the `result` it is handed is frozen.
  *
  * What that refuses is exactly what the framework is the author of: which case
- * the outcome is in, which value or error it holds, and the duration. It does
+ * the result is in, which value or error it holds, and the duration. It does
  * **not** seal the insides of objects the app owns -- the value is the
  * command's own, and the error is one `beforeError` is already entitled to
  * mutate -- so a hook can still reach what is rendered the way a `beforeError`
@@ -881,13 +881,13 @@ export type RunOutcome =
  *
  * A hook that throws is logged under `DEBUG=sigil:run` and the next one still
  * runs: every cleanup runs even when one throws, and what it threw is reported
- * rather than replacing the outcome in flight. That is the owner tree's rule,
+ * rather than replacing the result in flight. That is the owner tree's rule,
  * and it is the only one that keeps a failed cleanup from costing the user the
  * error they actually needed.
  *
  * It fires for a command that **ran**, which is the whole of what it claims: a
  * run answered by `--help` or `--version`, or one whose command has no `run`,
- * has no outcome to hand over and fires nothing. And "before `beforeError`" is
+ * has no result to hand over and fires nothing. And "before `beforeError`" is
  * about **this** `main()` call: a nested one has already rendered its own error
  * by the time the outer command returns, which is that call's error path rather
  * than something this ordering could reach.
@@ -913,14 +913,14 @@ export interface AfterRunHookData {
    * `completion` command does: asked for a script with no shell named it
    * writes the reason to stderr, sets `1` and returns, so a hook sees
    * `ok: true` beside an exit code of `1`. What is true is that no code has
-   * been **derived from this outcome** yet: `errorHandler()` runs after every
+   * been **derived from this result** yet: `errorHandler()` runs after every
    * one of these, and what it will set is `errorExitCode()`'s to read off the
    * error. A code here would be this guessing at a decision not yet taken,
    * where `process.exitCode` is there for a hook that wants what has been.
    */
   readonly ms: number;
-  /** What it came to. See {@link RunOutcome}. */
-  readonly outcome: RunOutcome;
+  /** What it came to. See {@link RunResult}. */
+  readonly result: RunResult;
   /** The parse state the command was handed. */
   readonly state: ParseState;
 }

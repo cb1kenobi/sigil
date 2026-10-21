@@ -6,7 +6,7 @@ import { fireAfterRun } from './run-hooks.js';
 import {
   type AppOptions,
   type ParseState,
-  type RunOutcome,
+  type RunResult,
   type Schema,
   type Settings,
 } from './types.js';
@@ -97,7 +97,7 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
     if (cmd?.run) {
       log(`Executing command "${cmd.name}"`);
 
-      // a throw is an **outcome** rather than an exit, which is the whole of
+      // a throw is an **result** rather than an exit, which is the whole of
       // what makes `afterRun` a `finally` rather than a success callback: there
       // is one path out of here whichever way `run()` went, and the hooks are
       // on it. Inline rather than in a helper of its own, so that the `throw`
@@ -105,12 +105,12 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
       // it -- and so that the narrowing `cmd?.run` just did is the narrowing
       // the call uses, rather than an assertion standing in for it
       const started = performance.now();
-      let outcome: RunOutcome;
+      let result: RunResult;
 
       try {
-        outcome = { ok: true, value: await cmd.run(state) };
+        result = { ok: true, value: await cmd.run(state) };
       } catch (err) {
-        outcome = { error: err, ok: false };
+        result = { error: err, ok: false };
       }
 
       // `performance.now()` rather than `Date.now()`: monotonic, so a system
@@ -120,28 +120,28 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
       // is one nobody reads twice
       const ms = performance.now() - started;
 
-      // the first consumer of the outcome, and that is why it is written off
-      // the outcome rather than off two locals: it reads the two things a hook
+      // the first consumer of the result, and that is why it is written off
+      // the result rather than off two locals: it reads the two things a hook
       // is handed, so a shape that could not say whether the command failed, or
       // how long it took, is a shape this line could not be written over
-      log(`Command "${cmd.name}" ${outcome.ok ? 'returned' : 'threw'} after ${ms.toFixed(3)}ms`);
+      log(`Command "${cmd.name}" ${result.ok ? 'returned' : 'threw'} after ${ms.toFixed(3)}ms`);
 
       // the hooks, then the error -- in that order, which is what lets a hook
       // flush its log and have the error still report. `fireAfterRun()` does
       // not throw, so nothing it does can get between this error and
       // `handleError()` below
-      await fireAfterRun(cmd, outcome, ms, state);
+      await fireAfterRun(cmd, result, ms, state);
 
-      if (!outcome.ok) {
-        throw outcome.error;
+      if (!result.ok) {
+        throw result.error;
       }
 
       // the `?? state` substitution is `main()`'s return value and not the
-      // command's result: `outcome.value` is what `run()` handed back, so a
+      // command's result: `result.value` is what `run()` handed back, so a
       // command that returned nothing is a command that returned nothing
       // wherever a hook asks what it did -- and wherever a format registry asks
       // later, which is the shape this keeps rather than a reader that exists
-      return outcome.value ?? state;
+      return result.value ?? state;
     }
 
     // nothing ran and there was nothing to run: a CLI that is all subcommands

@@ -51,7 +51,7 @@ function captureStdout() {
 /** A hook that records what it was handed, as a readable line. */
 function recorder(label: string, into: string[]) {
   return (data: AfterRunHookData): void => {
-    into.push(`${label}:${data.cmd.name}:${data.outcome.ok ? 'ok' : 'threw'}`);
+    into.push(`${label}:${data.cmd.name}:${data.result.ok ? 'ok' : 'threw'}`);
   };
 }
 
@@ -302,17 +302,17 @@ describe('afterRun', () => {
     });
   });
 
-  describe('the outcome', () => {
+  describe('the result', () => {
     it('should carry what run() returned', async () => {
-      let outcome: AfterRunHookData['outcome'] | undefined;
+      let result: AfterRunHookData['result'] | undefined;
       const schema = {
-        hooks: { afterRun: (d: AfterRunHookData) => void (outcome = d.outcome) },
+        hooks: { afterRun: (d: AfterRunHookData) => void (result = d.result) },
         commands: { build: { run: () => ({ artifacts: 2 }) } },
       };
 
       await main({ argv: ['build'], schema });
 
-      expect(outcome).toEqual({ ok: true, value: { artifacts: 2 } });
+      expect(result).toEqual({ ok: true, value: { artifacts: 2 } });
     });
 
     it('should carry the raw return rather than main()’s ?? state', async () => {
@@ -324,7 +324,7 @@ describe('afterRun', () => {
       const schema = {
         hooks: {
           afterRun: (d: AfterRunHookData) => {
-            value = d.outcome.ok ? d.outcome.value : 'threw';
+            value = d.result.ok ? d.result.value : 'threw';
           },
         },
         commands: { nil: { run: () => undefined } },
@@ -339,13 +339,13 @@ describe('afterRun', () => {
 
     it('should carry a null return, which main() also substitutes away', async () => {
       // `?? state` reads `null` as nothing too, so this is the second input
-      // where the outcome and `main()`'s answer differ -- and the one somebody
+      // where the result and `main()`'s answer differ -- and the one somebody
       // writes by accident
       let value: unknown = 'unset';
       const schema = {
         hooks: {
           afterRun: (d: AfterRunHookData) => {
-            value = d.outcome.ok ? d.outcome.value : 'threw';
+            value = d.result.ok ? d.result.value : 'threw';
           },
         },
         commands: { nil: { run: () => null } },
@@ -362,7 +362,7 @@ describe('afterRun', () => {
       const schema = {
         hooks: {
           afterRun: (d: AfterRunHookData) => {
-            value = d.outcome.ok ? d.outcome.value : 'threw';
+            value = d.result.ok ? d.result.value : 'threw';
           },
         },
         commands: { zero: { run: () => 0 } },
@@ -439,11 +439,11 @@ describe('afterRun', () => {
   });
 
   describe('a run that threw', () => {
-    it('should fire with the error as the outcome', async () => {
+    it('should fire with the error as the result', async () => {
       const boom = new Error('nope');
-      let outcome: AfterRunHookData['outcome'] | undefined;
+      let result: AfterRunHookData['result'] | undefined;
       const schema = {
-        hooks: { afterRun: (d: AfterRunHookData) => void (outcome = d.outcome) },
+        hooks: { afterRun: (d: AfterRunHookData) => void (result = d.result) },
         commands: {
           boom: {
             run: () => {
@@ -457,7 +457,7 @@ describe('afterRun', () => {
       await main({ argv: ['boom'], schema });
       stderr.restore();
 
-      expect(outcome).toEqual({ error: boom, ok: false });
+      expect(result).toEqual({ error: boom, ok: false });
     });
 
     it('should fire before beforeError, not after it', async () => {
@@ -554,9 +554,9 @@ describe('afterRun', () => {
       // anything at all can be thrown, `undefined` included -- which is why the
       // union is tagged. A shape that read `error !== undefined` would report
       // this run as a success
-      let outcome: AfterRunHookData['outcome'] | undefined;
+      let result: AfterRunHookData['result'] | undefined;
       const schema = {
-        hooks: { afterRun: (d: AfterRunHookData) => void (outcome = d.outcome) },
+        hooks: { afterRun: (d: AfterRunHookData) => void (result = d.result) },
         commands: {
           boom: {
             run: () => {
@@ -570,17 +570,17 @@ describe('afterRun', () => {
       await main({ argv: ['boom'], schema });
       stderr.restore();
 
-      expect(outcome).toEqual({ error: undefined, ok: false });
-      expect(outcome?.ok).toBe(false);
+      expect(result).toEqual({ error: undefined, ok: false });
+      expect(result?.ok).toBe(false);
     });
 
     it('should fire for a rejection as readily as for a throw', async () => {
       // a `run()` that hands back a rejected promise never raises
       // synchronously, so an implementation that only wrapped the call and not
       // the await would miss it
-      let outcome: AfterRunHookData['outcome'] | undefined;
+      let result: AfterRunHookData['result'] | undefined;
       const schema = {
-        hooks: { afterRun: (d: AfterRunHookData) => void (outcome = d.outcome) },
+        hooks: { afterRun: (d: AfterRunHookData) => void (result = d.result) },
         commands: { boom: { run: () => Promise.reject(new Error('rejected')) } },
       };
 
@@ -588,14 +588,14 @@ describe('afterRun', () => {
       await main({ argv: ['boom'], schema });
       stderr.restore();
 
-      expect(outcome?.ok).toBe(false);
-      expect((outcome as { error: Error }).error.message).toBe('rejected');
+      expect(result?.ok).toBe(false);
+      expect((result as { error: Error }).error.message).toBe('rejected');
     });
 
     it('should fire for a thrown value that is not an error', async () => {
-      let outcome: AfterRunHookData['outcome'] | undefined;
+      let result: AfterRunHookData['result'] | undefined;
       const schema = {
-        hooks: { afterRun: (d: AfterRunHookData) => void (outcome = d.outcome) },
+        hooks: { afterRun: (d: AfterRunHookData) => void (result = d.result) },
         commands: {
           boom: {
             run: () => {
@@ -609,7 +609,7 @@ describe('afterRun', () => {
       await main({ argv: ['boom'], schema });
       stderr.restore();
 
-      expect(outcome).toEqual({ error: 'a string', ok: false });
+      expect(result).toEqual({ error: 'a string', ok: false });
     });
   });
 
@@ -943,17 +943,17 @@ describe('afterRun', () => {
       expect(await main({ argv: ['build'], schema })).toBe('built');
     });
 
-    it('should refuse a hook that rewrites the outcome it was handed', async () => {
+    it('should refuse a hook that rewrites the result it was handed', async () => {
       // the recovery door in the other direction, and it was **open**: `main()`
-      // reads the same outcome object after the hooks, so a hook writing
-      // `outcome.ok = false` turned a successful run into a thrown `undefined`.
+      // reads the same result object after the hooks, so a hook writing
+      // `result.ok = false` turned a successful run into a thrown `undefined`.
       // Frozen now, so the write throws, is reported under `DEBUG=sigil:run`,
       // and changes nothing
       const schema = {
         hooks: {
           afterRun: (d: AfterRunHookData) => {
-            (d.outcome as { ok: boolean }).ok = false;
-            (d.outcome as { value: unknown }).value = 'tampered';
+            (d.result as { ok: boolean }).ok = false;
+            (d.result as { value: unknown }).value = 'tampered';
           },
         },
         commands: { build: { run: () => 'built' } },
@@ -975,7 +975,7 @@ describe('afterRun', () => {
       const schema = {
         hooks: {
           afterRun: (d: AfterRunHookData) => {
-            (d.outcome as { ok: boolean }).ok = true;
+            (d.result as { ok: boolean }).ok = true;
           },
         },
         commands: {
@@ -1048,8 +1048,8 @@ describe('afterRun', () => {
         schema: {
           hooks: {
             afterRun: (d: AfterRunHookData) => {
-              if (!d.outcome.ok) {
-                tamper(d.outcome.error);
+              if (!d.result.ok) {
+                tamper(d.result.error);
               }
             },
           },
@@ -1081,8 +1081,8 @@ describe('afterRun', () => {
         schema: {
           hooks: {
             afterRun: (d: AfterRunHookData) => {
-              if (d.outcome.ok) {
-                (d.outcome.value as { artifacts: number }).artifacts = 99;
+              if (d.result.ok) {
+                (d.result.value as { artifacts: number }).artifacts = 99;
               }
             },
           },
@@ -1176,7 +1176,7 @@ describe('afterRun', () => {
       // dropped the hook would pass this unchanged
       const sloppy = new Function(
         'd',
-        'd.state.argv.sloppyRan = true; d.outcome.ok = false; d.ms = -1;'
+        'd.state.argv.sloppyRan = true; d.result.ok = false; d.ms = -1;'
       ) as AfterRunHook;
 
       const stderr = captureStderr();
@@ -1396,17 +1396,17 @@ describe('afterRun', () => {
       // `{ then }` is indistinguishable from a promise here -- which is worth
       // pinning because an implementation that wrapped the *call* and not the
       // await would miss it, and the obvious fixture is a real promise
-      let outcome: AfterRunHookData['outcome'] | undefined;
+      let result: AfterRunHookData['result'] | undefined;
       // a **block** disable with the reason rather than a `-next-line` one: this
       // repository records a suppression a formatter can detach from its target
       // as one that stops working without anybody having edited anything, and
       // `no-thenable` is right about every other object here and wrong for the
       // one whose subject it is
       /* eslint-disable unicorn/no-thenable */
-      const result = await main({
+      const returned = await main({
         argv: ['build'],
         schema: {
-          hooks: { afterRun: (d: AfterRunHookData) => void (outcome = d.outcome) },
+          hooks: { afterRun: (d: AfterRunHookData) => void (result = d.result) },
           commands: {
             build: { run: () => ({ then: (resolve: (v: string) => void) => resolve('thenable') }) },
           },
@@ -1414,29 +1414,29 @@ describe('afterRun', () => {
       });
       /* eslint-enable unicorn/no-thenable */
 
-      expect(result).toBe('thenable');
-      expect(outcome).toEqual({ ok: true, value: 'thenable' });
+      expect(returned).toBe('thenable');
+      expect(result).toEqual({ ok: true, value: 'thenable' });
     });
 
     it('should fire for a rejection with undefined, which is the tag earning its keep', async () => {
       // the sync `throw undefined` is pinned above; this is the asynchronous
       // half, and it is the one that carries the tagged union end to end --
-      // `throw outcome.error` throws `undefined` and the handler renders
+      // `throw result.error` throws `undefined` and the handler renders
       // `Unknown error`, so an `error !== undefined` reading would have called
       // this a success all the way out
-      let outcome: AfterRunHookData['outcome'] | undefined;
+      let result: AfterRunHookData['result'] | undefined;
 
       const stderr = captureStderr();
       await main({
         argv: ['build'],
         schema: {
-          hooks: { afterRun: (d: AfterRunHookData) => void (outcome = d.outcome) },
+          hooks: { afterRun: (d: AfterRunHookData) => void (result = d.result) },
           commands: { build: { run: () => Promise.reject(undefined) } },
         },
       });
       stderr.restore();
 
-      expect(outcome).toEqual({ error: undefined, ok: false });
+      expect(result).toEqual({ error: undefined, ok: false });
       expect(stderr.text).toBe('Error: Unknown error\n');
       expect(process.exitCode).toBe(1);
     });
@@ -1599,7 +1599,7 @@ describe('afterRun', () => {
     });
 
     it('should report the outer command as having thrown what the inner threw', async () => {
-      // two outcomes rather than one reported twice: `clean` failed, and
+      // two results rather than one reported twice: `clean` failed, and
       // `build` failed because it did. The error object is the same because
       // that is what `build` threw
       const seen: string[] = [];
@@ -1607,9 +1607,9 @@ describe('afterRun', () => {
       const schema = {
         hooks: {
           afterRun: (d: AfterRunHookData) => {
-            seen.push(`${d.cmd.name}:${d.outcome.ok ? 'ok' : 'threw'}`);
-            if (!d.outcome.ok) {
-              errors.push(d.outcome.error);
+            seen.push(`${d.cmd.name}:${d.result.ok ? 'ok' : 'threw'}`);
+            if (!d.result.ok) {
+              errors.push(d.result.error);
             }
           },
         },

@@ -568,7 +568,7 @@ await main({
     hooks: {
       beforeParse: (state) => {}, // before argv is walked
       afterParse: (state) => {}, // `state.argv` is written, nothing is validated yet
-      afterRun: ({ cmd, outcome, ms }) => {}, // run() returned or threw
+      afterRun: ({ cmd, result, ms }) => {}, // run() returned or threw
       beforeError: (err, ctx) => {},
     },
     commands: {
@@ -577,7 +577,7 @@ await main({
           init: ({ options, args, commands }) => {}, // when the command is built
           parse: ({ cmd, options }) => {}, // when argv matches it
           help: ({ sections, state }) => {}, // when its help is rendered
-          afterRun: ({ cmd, outcome, ms }) => {},
+          afterRun: ({ cmd, result, ms }) => {},
           beforeError: (err, ctx) => {},
         },
         run() {},
@@ -612,33 +612,33 @@ moment: a handle to close, a lock to release, a duration to report.
 
 ```js
 hooks: {
-  afterRun({ cmd, outcome, ms, state }) {
-    if (!outcome.ok) {
-      return report.failure(cmd.name, outcome.error, ms);
+  afterRun({ cmd, result, ms, state }) {
+    if (!result.ok) {
+      return report.failure(cmd.name, result.error, ms);
     }
-    report.success(cmd.name, outcome.value, ms);
+    report.success(cmd.name, result.value, ms);
   },
 }
 ```
 
-`outcome` is a tagged union, so `ok` is what narrows it:
+`result` is a tagged union, so `ok` is what narrows it:
 
-| field           | meaning                                                   |
-| --------------- | --------------------------------------------------------- |
-| `outcome.ok`    | `true` where `run()` returned, `false` where it threw     |
-| `outcome.value` | what it returned, on `ok` -- `undefined` is a real answer |
-| `outcome.error` | what it threw, on `!ok` -- anything at all can be thrown  |
-| `ms`            | how long `run()` took, off `performance.now()`            |
-| `cmd`           | the command that ran                                      |
-| `state`         | the parse state it was handed                             |
+| field          | meaning                                                   |
+| -------------- | --------------------------------------------------------- |
+| `result.ok`    | `true` where `run()` returned, `false` where it threw     |
+| `result.value` | what it returned, on `ok` -- `undefined` is a real answer |
+| `result.error` | what it threw, on `!ok` -- anything at all can be thrown  |
+| `ms`           | how long `run()` took, off `performance.now()`            |
+| `cmd`          | the command that ran                                      |
+| `state`        | the parse state it was handed                             |
 
-**`outcome.value` is what `run()` returned**, not what `main()` answers with:
+**`result.value` is what `run()` returned**, not what `main()` answers with:
 `main()` substitutes the parse state for a command that returned nothing, and
 reporting that as the command's value would be a lie about what the command did.
 
 **It fires for a command that ran**, which is all it claims. A run answered by
 `--help` or `--version`, one whose command has no `run`, and one whose parse
-failed all have no outcome to hand over and fire nothing -- `beforeError` is the
+failed all have no result to hand over and fire nothing -- `beforeError` is the
 hook for that last one.
 
 **"Before `beforeError`" is about this `main()` call.** A command that runs
@@ -647,7 +647,7 @@ the time it returns, so the sequence a composition sees is the inner call's
 `afterRun` and `beforeError`, then the outer call's. Which is each call's own
 error path rather than something this ordering could reach.
 
-**It cannot recover.** Whatever it returns is ignored and the `outcome` it is
+**It cannot recover.** Whatever it returns is ignored and the `result` it is
 handed is frozen, so a failed run stays failed and the error still reports.
 `oclif`'s `catch` is a recovery hook; this is a reporting one. A hook that could
 turn a failure into a success would have to answer what `main()` returns, what
@@ -655,16 +655,16 @@ the exit code is, and whether the error was ever an error -- which is
 `beforeError`'s own refusal to allow suppression, one step along.
 
 What the freeze refuses is what the framework is the author of: which case the
-outcome is in, which value or error it holds, and the duration. It does **not**
-seal the insides of your own objects -- `outcome.value` is the object your
-command returned and `outcome.error` is an error a `beforeError` hook may
+result is in, which value or error it holds, and the duration. It does **not**
+seal the insides of your own objects -- `result.value` is the object your
+command returned and `result.error` is an error a `beforeError` hook may
 already mutate -- so a hook that wants to annotate either still can, and a hook
 that installs a `beforeError` reaches what is rendered exactly as declaring one
 would. Nothing there is a way round the refusal; it is the app's own channels,
 reachable from one hook more.
 
 **A hook that throws is reported and skipped.** The next hook still runs, the
-outcome is unchanged, and what it threw goes to `DEBUG=sigil:run`: a failed
+result is unchanged, and what it threw goes to `DEBUG=sigil:run`: a failed
 cleanup must not cost the user the error they actually needed.
 
 `DEBUG=sigil` prints the pair, which is the timing a command's own body never

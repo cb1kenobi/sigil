@@ -189,8 +189,8 @@ describe('a hook that threw', () => {
     expect(text()).toContain('cleanup rejected');
   });
 
-  it('should confess a hook that tried to rewrite the outcome', async () => {
-    // the frozen outcome makes the attempt loud rather than silent, which is
+  it('should confess a hook that tried to rewrite the result', async () => {
+    // the frozen result makes the attempt loud rather than silent, which is
     // the whole argument for freezing it rather than handing over a copy:
     // a hook that believed it had recovered finds out here
     await main({
@@ -198,7 +198,7 @@ describe('a hook that threw', () => {
       schema: {
         hooks: {
           afterRun: (d) => {
-            (d.outcome as { ok: boolean }).ok = false;
+            (d.result as { ok: boolean }).ok = false;
           },
         },
         commands: { build: { run: () => 'built' } },
@@ -218,7 +218,7 @@ describe('a hook that threw', () => {
     // the write to `d.state.argv` is the execution witness: this test is defined
     // by the **absence** of a confession, so without one "refused in silence"
     // and "never invoked" are indistinguishable to it. Asked for by review
-    const sloppy = new Function('d', 'd.state.argv.sloppyRan = true; d.outcome.ok = false;') as (
+    const sloppy = new Function('d', 'd.state.argv.sloppyRan = true; d.result.ok = false;') as (
       d: unknown
     ) => void;
 

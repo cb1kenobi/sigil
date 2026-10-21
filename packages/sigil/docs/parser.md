@@ -1460,13 +1460,13 @@ what it may change.
 `afterRun` is the one that fires outside `parse()`: `main()` fires it once the
 matched command's `run()` has returned **or thrown**, innermost command first
 and the schema last, before the `beforeError` hooks of that same `main()` call.
-It is handed `{ cmd, outcome, ms, state }`, where `outcome` is
+It is handed `{ cmd, result, ms, state }`, where `result` is
 `{ ok: true, value }` or `{ ok: false, error }` and `value` is what `run()`
 returned rather than what `main()` answers with. It fires only for a command
 that **ran**: a run answered by `--help` or `--version`, a command with no
 `run`, and a parse that failed reach no `afterRun`.
 
-It returns nothing and the outcome it is handed is frozen, so it cannot turn a
+It returns nothing and the result it is handed is frozen, so it cannot turn a
 failed run into a successful one — there is deliberately no `catch`-as-recovery
 hook, for the reason `beforeError` may not suppress an error. A hook that throws
 is reported under `DEBUG=sigil:run` and the next one still runs. See

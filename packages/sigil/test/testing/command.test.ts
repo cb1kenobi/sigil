@@ -490,8 +490,8 @@ describe('runCommand() and the app the caller handed it', () => {
         {},
         {
           hooks: {
-            afterRun: (data: { cmd: { name: string }; outcome: { ok: boolean } }) =>
-              void seen.push(`${data.cmd.name}:${data.outcome.ok ? 'ok' : 'threw'}`),
+            afterRun: (data: { cmd: { name: string }; result: { ok: boolean } }) =>
+              void seen.push(`${data.cmd.name}:${data.result.ok ? 'ok' : 'threw'}`),
           },
         }
       ),
@@ -516,8 +516,8 @@ describe('runCommand() and the app the caller handed it', () => {
         },
         {
           hooks: {
-            afterRun: (data: { outcome: { ok: boolean } }) =>
-              void seen.push(data.outcome.ok ? 'ok' : 'threw'),
+            afterRun: (data: { result: { ok: boolean } }) =>
+              void seen.push(data.result.ok ? 'ok' : 'threw'),
           },
         }
       ),

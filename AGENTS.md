@@ -15302,7 +15302,7 @@ the one call site is inside `main()`.
   rule". A hook that could turn a failed run into a successful one has to answer
   what `main()` returns, what the exit code is, and whether the error was ever an
   error, which is that argument one step along. So `AfterRunHook` returns `void`,
-  whatever it hands back is ignored, and the outcome it is handed is frozen --
+  whatever it hands back is ignored, and the result it is handed is frozen --
   the refusal twice over, in the type and at run time.
 
   The type half is not decoration, and the suite is what said so: the first draft
@@ -15318,16 +15318,16 @@ the one call site is inside `main()`.
   orderings to keep in agreement and two places to ask whether the command
   failed.
 
-- **It is handed an outcome rather than a value, and `ok` is the tag.**
+- **It is handed an result rather than a value, and `ok` is the tag.**
   `{ ok: true, value }` or `{ ok: false, error }`, which is what makes it a
-  `finally` rather than a success callback: a throw is an **outcome** rather than
+  `finally` rather than a success callback: a throw is an **result** rather than
   an exit, so there is one path out of the call site whichever way `run()` went.
   Tagged rather than a value with an optional error beside it because **anything
   at all can be thrown, `undefined` included** -- a shape reading
   `error !== undefined` would report `throw undefined` as a success, and that is
   a test rather than a worry.
 
-- **`outcome.value` is what `run()` returned, before `main()`'s `?? state`.**
+- **`result.value` is what `run()` returned, before `main()`'s `?? state`.**
   `main()` answers with the parse state for a command that returned nothing, and
   reporting that as the command's value would be a lie about what the command
   did. It is also what keeps one notion of a command's result, so that a format
@@ -15376,7 +15376,7 @@ the one call site is inside `main()`.
 
 - **A hook that throws is reported and the next one still runs.** The owner
   tree's rule -- every cleanup runs even when one throws, and what it threw is
-  reported rather than replacing the outcome in flight -- and it is the only one
+  reported rather than replacing the result in flight -- and it is the only one
   that keeps a failed cleanup from costing the user the error they actually
   needed. The sharper half is the **success** path, where there is no error for a
   broken hook to hide behind: a `fireAfterRun()` that let one escape would reach
@@ -15394,7 +15394,7 @@ the one call site is inside `main()`.
 - **It fires for a command that _ran_, which is all it claims.** A run answered
   by `--help` or by `--version` returns before `cmd.run` is reached; a command
   with no `run`, or with `run: null`, dispatches nothing; a parse that failed
-  never got to a command. None of those has an outcome to hand over, and
+  never got to a command. None of those has an result to hand over, and
   inventing one would mean answering `ok` for a run that did not happen. Each is
   a test, and the parse-failure pair is two tests rather than one: a **validation**
   failure and a **coercion** failure are two different throw sites -- one happens
@@ -15416,8 +15416,8 @@ the one call site is inside `main()`.
   means -- the inner step finished and so did the command that ran it, and a
   telemetry hook wants both. Measured: a schema hook over a `build` that nests a
   `clean` sees `clean:ok` then `build:ok`. Where the inner call rethrows, the
-  outer command's outcome is `{ ok: false }` carrying the **same error object**,
-  because that is what the outer command threw -- one outcome per command rather
+  outer command's result is `{ ok: false }` carrying the **same error object**,
+  because that is what the outer command threw -- one result per command rather
   than one error reported twice, which the test asserts by identity.
 
 - **What it costs is nothing measurable, and the in-process number is the one
@@ -15449,8 +15449,8 @@ the one call site is inside `main()`.
   about the same entry were stale with it, and the 5.06x ratio the config graph
   quotes is 4.78x now.
 
-- **The timing line is the first consumer of the outcome, which is why it is
-  written off the outcome rather than off two locals**: it reads the two things a
+- **The timing line is the first consumer of the result, which is why it is
+  written off the result rather than off two locals**: it reads the two things a
   hook is handed, so a shape that could not say whether the command failed, or
   how long it took, is a shape it could not have been written over.
 
@@ -15507,8 +15507,11 @@ the one call site is inside `main()`.
   deduping is on **function identity**, so a copy that produced a different
   function would have stopped it firing. It does not: a spread copies the
   reference. Pinned on both paths, a run that returned and a run that threw.
-  Nothing was added to `RanCommand`: a test that wants the outcome declares an
-  `afterRun`, and a field there would be surface with no caller.
+  Nothing was added to `RanCommand`: a test that wants the hook's `result`
+  declares an `afterRun`, and a field there would be surface with no caller.
+  That one already has a `result` of its own and it is a different thing --
+  what `main()` returned, rather than the tagged union `run()` came to -- so
+  the two are told apart by `RunResult` rather than by the field name.
 
 #### What the sabotage pass found, and the two declared survivors
 
@@ -15553,10 +15556,10 @@ produced a wrong write-up here more than once.
   declared nothing, which `should say nothing at all where the app declared no
   hook` is the input for. That test is the claim in its own right as well -- a
   namespace that confesses on every run is noise.
-- Taking `fireAfterRun()`'s return value as a replacement outcome survives,
-  because that function returns `Promise<void>`: `undefined ?? outcome` is
-  `outcome`, so the mutation is self-defeating. Dropping both freezes **and**
-  assigning a hook's return onto the outcome is caught by three tests.
+- Taking `fireAfterRun()`'s return value as a replacement result survives,
+  because that function returns `Promise<void>`: `undefined ?? result` is
+  `result`, so the mutation is self-defeating. Dropping both freezes **and**
+  assigning a hook's return onto the result is caught by three tests.
 
 Two guards were **deleted** for failing a sabotage, both in the list
 construction and both redundant with the per-source `try`: an
@@ -15600,8 +15603,8 @@ true.
 
 - **Three "ways round the refusal", all three reproducing and none of them a way
   round it** -- and establishing that took measuring the sibling channel rather
-  than arguing. A hook can mutate `outcome.error` and set its `exitCode`; it can
-  mutate the object `outcome.value` holds; and it can install a `beforeError` that
+  than arguing. A hook can mutate `result.error` and set its `exitCode`; it can
+  mutate the object `result.value` holds; and it can install a `beforeError` that
   then replaces the error. What says none is a hole is that each is a channel the
   app already had: a `beforeError` hook writing `err.message` and `err.exitCode`
   has **exactly** the effect, measured side by side; a command can keep a
@@ -15621,9 +15624,9 @@ true.
   work would be a special case nobody asked for.
 
   What was genuinely wrong is the **prose**: the first version of the freeze
-  comment said "what is a fact about what happened is the outcome and the
+  comment said "what is a fact about what happened is the result and the
   duration, and those are the two that cannot be edited after the fact", which is
-  false of nested contents. It says what is frozen -- which case the outcome is
+  false of nested contents. It says what is frozen -- which case the result is
   in, which value or error it holds, and `ms` -- and what is not, with the
   measurements beside it.
 
@@ -15722,7 +15725,7 @@ and five sentences**, and no new runtime defect in the five files round 1 read.
   Measured, after the first attempt at reproducing it used `completion bash`,
   which is the form that sets none: the finding needed the bare form, which is
   the reviewer's input rather than the obvious one. The true claim is narrower
-  and is in the same paragraph -- no code has been **derived from this outcome**
+  and is in the same paragraph -- no code has been **derived from this result**
   yet, because `errorHandler()` runs after every one of these -- and
   `process.exitCode` is there for a hook that wants what has been set.
 
@@ -15822,9 +15825,9 @@ What it established, and the structural reason each holds:
 - **A thenable is a promise to this code.** `await cmd.run(state)` assimilates
   any `{ then }`, including one whose `then` throws and one whose `then` _getter_
   throws; all three fire `afterRun` exactly once. And `Promise.reject(undefined)`
-  carries the tagged union all the way out -- `throw outcome.error` throws
+  carries the tagged union all the way out -- `throw result.error` throws
   `undefined` and the handler renders `Unknown error`.
-- **A `run()` that never settles has no outcome and no answer**, which is worth
+- **A `run()` that never settles has no result and no answer**, which is worth
   stating because "fires after `run()` returned or threw" quietly assumes a third
   case: `main()`'s promise never settles, `afterRun` never fires, and with no live
   handle the process simply exits 0 with the pending call abandoned. A `finally`
