@@ -19048,10 +19048,12 @@ renderer alone would not catch.
 
 #### What the sabotage pass found, and the litter it left twice
 
-**One hundred and thirteen mutations across five passes, every one caught and
+**One hundred and eighteen mutations across six passes, every one caught and
 three declared equivalent** -- 47 over the feature, then 26, 17, 7 and 16 over
 the guards each review round's own fixes produced, which is the gap every round
-leaves. The first pass is below; each round's is under its own heading.
+leaves, and 5 over the guards **CI's** own two findings produced, which is that
+gap one platform along. The first pass is below; each round's is under its own
+heading.
 
 **Forty-seven mutations, forty-seven caught, nothing declared** -- counted
 against the shipped tree in one run, with a green control first and the four
@@ -19691,10 +19693,20 @@ platform it was written on the spelling is right.
   separator spelled and is **stronger** than what it replaced: the subcommand and
   every argument, as a shell reads them.
 
-Both were found by reading the failure rather than guessing at it, and each is
-pinned by a sabotage that fails exactly the test named for it -- `shown()` taking
-the relative form unconditionally, the refresh command dropping `[dir]`, and
-`word()` not quoting at all.
+Both were found by reading the failure rather than guessing at it, and the five
+sabotages over the fixes are all caught: `shown()` taking the relative form
+unconditionally, the refresh command dropping `[dir]`, `word()` not quoting at
+all, and both directions of the spelling-and-round-trip split -- `=` back in the
+safe class **with no shell reachable**, which is the Windows case and which the
+spelling assertion catches, and `~'...'` prepended, which passes the spelling
+assertion and fails the parse.
+
+The class was then closed rather than the two instances: every assertion in the
+three test files was swept for a path it spelled itself, and the only other uses
+of `join()` are locating a file for the filesystem -- which wants the platform
+separator -- or comparing two lengths `shown()` compares before either is
+forward-slashed. The website's own reader was checked for the sibling rule and
+already normalizes CRLF before it looks for a fence.
 
 **And `parsed()` had become three claims in one function**, which is what the fix
 split: `commandLine()` extracts the printed command, `passed()` answers with the
