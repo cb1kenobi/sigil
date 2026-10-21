@@ -81,7 +81,7 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
     // already owns `process.exitCode` and the error handler, so one more fact
     // about the process is in character.
     //
-    // Set only when argv asked, so a programmatic `requestQuiet(true)` is not
+    // Set only when argv asked, so a programmatic `setQuiet(true)` is not
     // cleared by a parse that did not name the flag -- and **put back** on the
     // way out, which is the rule every other thing this attaches follows. One
     // `main()` per process is the ordinary case and neither half shows there;
@@ -90,17 +90,17 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
     // `--quiet` on the first run silenced every run after it with nothing in
     // argv to explain why
     if (state.quiet) {
-      const { quietGeneration, quietRequested, requestQuiet, rewindQuiet } =
+      const { quietGeneration, getQuiet, setQuiet, rewindQuiet } =
         await import('./style/output.js');
-      const before = quietRequested();
+      const before = getQuiet();
       const was = quietGeneration();
-      requestQuiet(true);
+      setQuiet(true);
       const mine = quietGeneration();
       restoreQuiet = (): void => {
         // only where nobody has written since, which is the rule
         // `captureConsole()`'s own `restoreOne()` keeps -- a method whose
         // current value is no longer ours is left alone -- asked the one way a
-        // boolean admits. A command that said `requestQuiet()` through the
+        // boolean admits. A command that said `setQuiet()` through the
         // documented door had that reversed by the teardown of a run already
         // over, and a *value* test closed only half of it: comparing `true` to
         // `true` cannot tell "nobody wrote" from "the command asked for the

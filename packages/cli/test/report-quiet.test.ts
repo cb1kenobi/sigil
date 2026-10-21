@@ -15,11 +15,11 @@
 
 import type { Diagnostic } from '../src/build/diagnostic.js';
 import { writeDiagnostics, writeNote, writeSummary } from '../src/report.js';
-import { requestQuiet } from '@ttylabs/sigil/style';
+import { setQuiet } from '@ttylabs/sigil/style';
 import { afterEach, describe, expect, it } from 'vitest';
 
 afterEach(() => {
-  requestQuiet(undefined);
+  setQuiet(undefined);
   delete process.env.SIGIL_REDUCED_MOTION;
 });
 
@@ -48,7 +48,7 @@ const diagnostic: Diagnostic = {
 
 describe('a quiet run', () => {
   it('should still write every diagnostic, which is the answer', () => {
-    requestQuiet(true);
+    setQuiet(true);
     const to = stream();
     writeDiagnostics([diagnostic], { stream: to });
     expect(to.out).toContain('commands/ship.ts:2:7');
@@ -60,7 +60,7 @@ describe('a quiet run', () => {
     writeSummary(['fixture-app', '13 commands'], loud);
     expect(loud.out).toContain('13 commands');
 
-    requestQuiet(true);
+    setQuiet(true);
     const quiet = stream();
     writeSummary(['fixture-app', '13 commands'], quiet);
     expect(quiet.out).toBe('');
@@ -71,14 +71,14 @@ describe('a quiet run', () => {
     writeNote(['Not type-checked:', 'no tsconfig.json'], loud);
     expect(loud.out).toContain('no tsconfig.json');
 
-    requestQuiet(true);
+    setQuiet(true);
     const quiet = stream();
     writeNote(['Not type-checked:', 'no tsconfig.json'], quiet);
     expect(quiet.out).toBe('');
   });
 
   it('should write nothing on a terminal either', () => {
-    requestQuiet(true);
+    setQuiet(true);
     const to = stream(true);
     writeSummary(['fixture-app', '13 commands'], to);
     writeNote(['Not type-checked:', 'no tsconfig.json'], to);

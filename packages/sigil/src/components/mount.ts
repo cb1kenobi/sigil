@@ -166,7 +166,7 @@ export function mountLive(
    * quiet holds the sink for its life: the `mountLevel()` the three lazy facades
    * and the bar ask on each `write()` can only ever *suppress*, never start
    * drawing again. Measured -- a bar built under a request and then handed a
-   * `requestQuiet(undefined)` goes on writing nothing. Which is right for the
+   * `setQuiet(undefined)` goes on writing nothing. Which is right for the
    * lifecycle an app has, one `main()` and one request with every component
    * built inside `run()`; what reaches it is a caller lifting the request
    * mid-run, which is a test's teardown or a demo. Re-resolving per frame would

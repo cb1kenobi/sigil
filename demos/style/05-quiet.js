@@ -10,7 +10,7 @@
  * The `console.log` lines around them stay, which is the next paragraph.
  *
  * What makes the third one worth having is that **nothing here is wired by
- * hand**. `requestQuiet(true)` is what `main()` calls when argv said `--quiet`,
+ * hand**. `setQuiet(true)` is what `main()` calls when argv said `--quiet`,
  * and the spinner, the bar and the typewriter below are told nothing: they read
  * the one fold, which is `resolveOutput()`.
  *
@@ -19,7 +19,7 @@
  * run is a run whose stdout is only what was asked for.
  */
 import { createProgress, createSpinner, createTypewriter } from '@ttylabs/sigil/components';
-import { requestQuiet, resolveOutput } from '@ttylabs/sigil/style';
+import { setQuiet, resolveOutput } from '@ttylabs/sigil/style';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const live = process.stdout.isTTY === true;
@@ -58,7 +58,7 @@ bar.done();
 
 // what `main()` does when argv said `--quiet`. Everything below is told
 // nothing about it and draws nothing anyway
-requestQuiet(true);
+setQuiet(true);
 say('--quiet');
 createSpinner({ text: 'Resolving' }).start().succeed('Resolved 12 packages');
 
@@ -76,6 +76,6 @@ console.log('...and nothing in that block was drawn -- these lines are the answe
 
 // put back, because it is process-wide: a demo that left it on would decide the
 // answer for anything this process did next
-requestQuiet(undefined);
+setQuiet(undefined);
 say('taken back');
 createSpinner({ text: 'Cache' }).start().info('Nothing to do');

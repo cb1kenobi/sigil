@@ -613,7 +613,7 @@ export interface ParseState<Argv = Record<string, unknown>> {
   /**
    * Set when argv asked for no progress. `main()` records it process-wide, which
    * is what makes `--quiet` reach a spinner an app never wired up; a caller
-   * using `parse()` on its own decides for itself, through `requestQuiet()`.
+   * using `parse()` on its own decides for itself, through `setQuiet()`.
    */
   quiet?: boolean;
   schema: Schema;

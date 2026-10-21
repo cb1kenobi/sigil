@@ -19,12 +19,12 @@ import { createSpinner } from '../../src/components/spinner.js';
 import { createTypewriter } from '../../src/components/typewriter.js';
 import { box, text as textNode } from '../../src/element/index.js';
 import { parse } from '../../src/parser/parse.js';
-import { requestQuiet } from '../../src/style/output.js';
+import { setQuiet } from '../../src/style/output.js';
 import { setup } from './helpers.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
-  requestQuiet(undefined);
+  setQuiet(undefined);
   vi.useRealTimers();
 });
 
@@ -119,7 +119,7 @@ describe('a facade write with nothing mounted', () => {
   });
 
   it('should honour the process-wide request as well as the option', () => {
-    requestQuiet(true);
+    setQuiet(true);
     const { stdout, terminal } = setup({ isTTY: false });
     createSpinner({ terminal, text: 'work' }).write('a note');
     expect(stdout.output).toBe('');
@@ -148,7 +148,7 @@ describe('a progress bar', () => {
   it('should stop drawing when the request arrives after it was built', () => {
     const { stdout, terminal } = setup({ isTTY: false });
     const bar = createProgress({ terminal, text: 'early', total: 2 });
-    requestQuiet(true);
+    setQuiet(true);
     bar.current = 1;
     bar.current = 2;
     bar.write('a note');
@@ -158,7 +158,7 @@ describe('a progress bar', () => {
   });
 
   it('should draw nothing at all when it was built after the request', () => {
-    requestQuiet(true);
+    setQuiet(true);
     const { stdout, terminal } = setup({ isTTY: false });
     const bar = createProgress({ terminal, text: 'late', total: 2 });
     bar.current = 2;
@@ -177,10 +177,10 @@ describe('a progress bar', () => {
    * surprise: what reaches it is a caller lifting the request mid-run.
    */
   it('should stay a sink after the request is lifted, because a mount resolves once', () => {
-    requestQuiet(true);
+    setQuiet(true);
     const { stdout, terminal } = setup({ isTTY: false });
     const bar = createProgress({ terminal, text: 'late', total: 2 });
-    requestQuiet(undefined);
+    setQuiet(undefined);
     // the fold says draw now, which is what makes the silence the mount's
     expect(mountLevel({ terminal })).toBe('reduce');
     bar.current = 1;
@@ -200,7 +200,7 @@ describe('a progress bar', () => {
   it('should give the terminal back on a quiet run, which is not a percentage', () => {
     const { stdout, terminal } = setup({ isTTY: true });
     const bar = createProgress({ terminal, text: 'work', total: 4 });
-    requestQuiet(true);
+    setQuiet(true);
     const built = stdout.output;
     bar.current = 2;
     // nothing was added for the update, which is the gate
@@ -224,7 +224,7 @@ describe('a progress bar', () => {
   it('should still erase and show the cursor for a quiet stop', () => {
     const { stdout, terminal } = setup({ isTTY: true });
     const bar = createProgress({ terminal, text: 'work', total: 4 });
-    requestQuiet(true);
+    setQuiet(true);
     const built = stdout.output;
     bar.stop();
     const after = stdout.output.slice(built.length);
@@ -343,7 +343,7 @@ describe('a prompt', () => {
    * rather than every app remembering to.
    */
   it('should ask its question even where the process was asked to be quiet', async () => {
-    requestQuiet(true);
+    setQuiet(true);
     const { stdin, stdout, terminal } = setup({ isTTY: true });
     const answered = promptText({ message: 'Your name', terminal });
 
@@ -361,7 +361,7 @@ describe('the prompt plumbing every interactive surface shares', () => {
    * passing for a reason of its own.
    */
   it('should ask a confirm as readily as a text field', async () => {
-    requestQuiet(true);
+    setQuiet(true);
     const { stdin, stdout, terminal } = setup({ isTTY: true });
     const answered = confirm({ message: 'Overwrite it', terminal });
 
@@ -371,7 +371,7 @@ describe('the prompt plumbing every interactive surface shares', () => {
   });
 
   it('should open a command palette too', async () => {
-    requestQuiet(true);
+    setQuiet(true);
     const { stdin, stdout, terminal } = setup({ isTTY: true });
     const state = await parse({ argv: [], schema: { commands: { build: { run() {} } } } });
     const chosen = commandPalette(state, { terminal });
@@ -416,15 +416,15 @@ describe('the process-wide request', () => {
    * is a flag that parses and does nothing.
    */
   it('should reach a component that was told nothing', () => {
-    requestQuiet(true);
+    setQuiet(true);
     const { stdout, terminal } = setup({ isTTY: false });
     createSpinner({ terminal, text: 'work' }).succeed('done');
     expect(stdout.output).toBe('');
   });
 
   it('should leave a component alone once it has been taken back', () => {
-    requestQuiet(true);
-    requestQuiet(undefined);
+    setQuiet(true);
+    setQuiet(undefined);
     const { stdout, terminal } = setup({ isTTY: false });
     createSpinner({ terminal, text: 'work' }).succeed('done');
     expect(stdout.output).toBe('✔ done\n');

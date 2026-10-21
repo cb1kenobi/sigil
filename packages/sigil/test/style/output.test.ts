@@ -1,11 +1,11 @@
 import { resolveMotion } from '../../src/style/motion.js';
-import { quietRequested, requestQuiet, resolveOutput } from '../../src/style/output.js';
+import { getQuiet, setQuiet, resolveOutput } from '../../src/style/output.js';
 import { describe, expect, it, afterEach } from 'vitest';
 
 afterEach(() => {
   // process-wide, so a run that set it would otherwise decide the answer for
   // every test after it in this worker
-  requestQuiet(undefined);
+  setQuiet(undefined);
 });
 
 describe('resolveMotion', () => {
@@ -67,7 +67,7 @@ describe('resolveOutput', () => {
   });
 
   it('should answer quiet for the process-wide request', () => {
-    requestQuiet(true);
+    setQuiet(true);
     expect(resolveOutput({ env: {}, live: true })).toBe('quiet');
     expect(resolveOutput({ env: {}, live: false })).toBe('quiet');
   });
@@ -78,7 +78,7 @@ describe('resolveOutput', () => {
    * answer to a question nobody was shown.
    */
   it('should let a mount say it is not progress, above the request', () => {
-    requestQuiet(true);
+    setQuiet(true);
     expect(resolveOutput({ env: {}, live: true, quiet: false })).toBe('live');
     expect(resolveOutput({ env: {}, live: false, quiet: false })).toBe('reduce');
   });
@@ -114,18 +114,18 @@ describe('resolveOutput', () => {
       'Expected quiet to be a boolean'
     );
     expect(() => resolveOutput({ live: true, quiet: 0 as never })).toThrow(TypeError);
-    expect(() => requestQuiet('false' as never)).toThrow('Expected requestQuiet to be a boolean');
-    expect(() => requestQuiet(new Boolean(true) as never)).toThrow(TypeError);
+    expect(() => setQuiet('false' as never)).toThrow('Expected setQuiet to be a boolean');
+    expect(() => setQuiet(new Boolean(true) as never)).toThrow(TypeError);
     // and a request that was refused is not a request: the slot is untouched
-    expect(quietRequested()).toBeUndefined();
+    expect(getQuiet()).toBeUndefined();
     expect(resolveOutput({ env: {}, live: true })).toBe('live');
   });
 
   it('should take a recorded request back, so a test can put it back', () => {
-    requestQuiet(true);
-    expect(quietRequested()).toBe(true);
-    requestQuiet(undefined);
-    expect(quietRequested()).toBeUndefined();
+    setQuiet(true);
+    expect(getQuiet()).toBe(true);
+    setQuiet(undefined);
+    expect(getQuiet()).toBeUndefined();
     expect(resolveOutput({ env: {}, live: true })).toBe('live');
   });
 
@@ -135,9 +135,9 @@ describe('resolveOutput', () => {
    * and `--quiet` is not a motion preference.
    */
   it('should keep quiet and reduced motion apart', () => {
-    requestQuiet(false);
+    setQuiet(false);
     expect(resolveOutput({ env: { SIGIL_REDUCED_MOTION: '1' }, live: true })).toBe('reduce');
-    requestQuiet(true);
+    setQuiet(true);
     expect(resolveOutput({ env: {}, live: true })).toBe('quiet');
   });
 });

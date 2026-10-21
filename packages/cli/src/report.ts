@@ -87,7 +87,7 @@ import {
   type TextRun,
   toDisplayText,
 } from '@ttylabs/sigil/element';
-import { quietRequested, schemeFromEnv } from '@ttylabs/sigil/style';
+import { getQuiet, schemeFromEnv } from '@ttylabs/sigil/style';
 import { themedCascade } from '@ttylabs/sigil/theme';
 import { stringWidth } from '@ttylabs/sigil/width';
 import { terminalWidth } from '@ttylabs/sigil/wrap';
@@ -565,7 +565,7 @@ function isTerminal(to: Destination | ReportStream): boolean {
  * @returns Whether to write nothing.
  */
 export function isQuiet(): boolean {
-  return quietRequested() === true;
+  return getQuiet() === true;
 }
 
 /**

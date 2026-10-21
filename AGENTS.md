@@ -3702,7 +3702,7 @@ toolchain's one reader.
   is the recorded design read in the other direction, and it cuts one way: a
   component built **under** a request holds the sink for its life, and lifting the
   request does not start it drawing -- measured, a bar built quiet and then handed
-  a `requestQuiet(undefined)` goes on writing nothing even where the fold now says
+  a `setQuiet(undefined)` goes on writing nothing even where the fold now says
   `reduce`. Right for the lifecycle an app has, one `main()` and one request with
   every component built inside `run()`; what reaches it is a caller lifting the
   request mid-run, which is a test's teardown or a demo. Re-resolving per frame
@@ -3784,8 +3784,23 @@ toolchain's one reader.
   A variable would also break the declaration-respecting rule from behind: an app
   whose `--quiet` means something of its own keeps it and gets no flag from the
   framework, and a variable would silence its built-ins anyway without going
-  through the declaration it owns. `requestQuiet()` is the programmatic door and
+  through the declaration it owns. `setQuiet()` is the programmatic door and
   `MountOptions.quiet` is the per-component one.
+
+- **It is `setQuiet()` rather than `requestQuiet()`, because nothing receives a
+  request.** The function assigns a module-level slot; there is no recipient, and
+  the one thing that outranks it -- a mount's own `quiet: false` -- is the next
+  rung of the precedence chain rather than a refusal. `request` also already
+  means something else in this package: `requestMode()` writes a DECRQM query
+  the terminal answers, so it has a respondent, a reply and the possibility of
+  silence, and one verb doing both jobs a few modules apart is the drift this
+  file deletes everywhere else. `setColorLevel()` is the structural twin down to
+  the details -- a process-wide slot, a value or `undefined` for "nobody said",
+  a `void` return, validated on the way in, overriding what the framework would
+  otherwise work out -- so `setQuiet()`/`getQuiet()` is `setColorLevel()`/
+  `getColorLevel()`'s pairing rather than a new convention. What `request` is
+  left meaning here is what the **user** does through `--quiet`, which is why
+  the prose still says it and the private slot is still `requested`.
 
 - **`--verbose` is not the same axis, which is the third.** Verbosity is how much
   a command says about its **answer**, which is the command's own business: the
@@ -3835,7 +3850,7 @@ toolchain's one reader.
 - **A boolean has no identity, so the slot carries a token.** `main()` records
   the request and puts it back on the way out, and the first version compared the
   **value** -- which cannot tell "nobody wrote since" from "a command asked for
-  the same thing", so a command that called `requestQuiet(true)` through the
+  the same thing", so a command that called `setQuiet(true)` through the
   documented door had its own statement reversed when the run ended. Found by the
   second review round. `quietGeneration()` is the answer and it is the shape of
   check `unanchor()` gives a reply about an anchor that has moved: a token that no
@@ -3844,7 +3859,7 @@ toolchain's one reader.
   compared to a `true`.
 
 - **And the restore is a _rewind_ rather than a write, which took a fourth round
-  to find.** Spelled `requestQuiet(before)`, the restore moves the token -- so a
+  to find.** Spelled `setQuiet(before)`, the restore moves the token -- so a
   **nested** `main()` whose argv also asked for quiet made the outer run's own
   token stale _by putting the outer's value back_, and the outer `finally` then
   declined to clear what it had attached. Measured on the shape the README
@@ -3872,7 +3887,7 @@ toolchain's one reader.
 
 - **Strictness is about the two values and deliberately not about
   `schema.quiet`.** Truthiness is wrong in the direction that costs: `'false'`
-  and `new Boolean(false)` are both truthy, so `requestQuiet('false')` silenced
+  and `new Boolean(false)` are both truthy, so `setQuiet('false')` silenced
   the whole process and `createSpinner({ quiet: 'false' })` silenced the spinner,
   each measured. Neither is a value anybody meant and there is no third answer to
   fall back to, so it is refused where it was written -- the call a non-boolean
@@ -3884,7 +3899,7 @@ toolchain's one reader.
 
 #### The toolchain has one reader, and the piped bytes did not move
 
-- **`isQuiet()` in `report.ts` is it**, and it reads `quietRequested()` rather
+- **`isQuiet()` in `report.ts` is it**, and it reads `getQuiet()` rather
   than calling the fold with a destination that could not change the answer. The
   summary and the note are suppressed and a **diagnostic never is**: that is the
   rule said in the one place both writers pass through, rather than at each call
@@ -3923,7 +3938,7 @@ the findings come from what nobody opened, and the previous round's fixes are
 exactly that.
 
 - **Round 1** found the `write()` leak on all three lazy facades; a `main()` leak
-  across two calls; truthiness on a non-boolean, with `requestQuiet('false')` and
+  across two calls; truthiness on a non-boolean, with `setQuiet('false')` and
   `createSpinner({ quiet: 'false' })` each measured; a dead argument in
   `report.ts`; and four pieces of missing prose.
 
@@ -4004,7 +4019,7 @@ to half the suite.
   the paragraph above it keeps about the three flags reading argv the same way.
 
 - **The other is `rewindQuiet()`'s own `asked()`**, which is a **tripwire**: its
-  one caller passes what `quietRequested()` answered, and `requestQuiet()` has
+  one caller passes what `getQuiet()` answered, and `setQuiet()` has
   already refused anything but a boolean for that. It is kept because the slot has
   two writers and that is the one place what the slot may hold is enforced --
   saying it once and trusting the other writer's caller is an invariant held two

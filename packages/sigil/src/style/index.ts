@@ -96,7 +96,7 @@ export {
 export { ease, type Easing, LINEAR, parseEasing, type StepPosition } from './easing.js';
 export { interpolate } from './interpolate.js';
 export { forcedMotion, type ReducedMotion, resolveMotion } from './motion.js';
-export { type OutputLevel, quietRequested, requestQuiet, resolveOutput } from './output.js';
+export { type OutputLevel, getQuiet, setQuiet, resolveOutput } from './output.js';
 export {
   type ColorScheme,
   forcedScheme,

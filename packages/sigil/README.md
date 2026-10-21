@@ -2913,9 +2913,9 @@ the user's override of a _detection_, and quiet is a request, which argv already
 has a spelling for.
 
 ```js
-import { requestQuiet, resolveOutput } from '@ttylabs/sigil/style';
+import { setQuiet, resolveOutput } from '@ttylabs/sigil/style';
 
-requestQuiet(true); // the programmatic door, which is what `main()` uses
+setQuiet(true); // the programmatic door, which is what `main()` uses
 resolveOutput({ live: process.stdout.isTTY === true }); // 'quiet'
 ```
 

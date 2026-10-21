@@ -1,7 +1,7 @@
 import { createSpinner } from '../../src/components/spinner.js';
 import main from '../../src/index.js';
 import { parse } from '../../src/parser/parse.js';
-import { quietRequested, requestQuiet } from '../../src/style/output.js';
+import { getQuiet, setQuiet } from '../../src/style/output.js';
 import { Internal, type ParseState, type Schema } from '../../src/types.js';
 import { setup } from '../components/helpers.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const DONE = `✔ done\n`;
 
 afterEach(() => {
-  requestQuiet(undefined);
+  setQuiet(undefined);
 });
 
 /** The root context's option registry, which is where the flag lands. */
@@ -210,7 +210,7 @@ describe('main()', () => {
         work: {
           name: 'work',
           run(state: ParseState) {
-            seen.push(quietRequested());
+            seen.push(getQuiet());
             createSpinner({ terminal, text: 'working' }).succeed('done');
             return state;
           },
@@ -251,13 +251,13 @@ describe('main()', () => {
 
   /**
    * Set only when argv asked, so a caller who recorded one programmatically is
-   * not cleared by a parse that never named the flag. `requestQuiet(undefined)`
+   * not cleared by a parse that never named the flag. `setQuiet(undefined)`
    * is the way back, which is what a test does on the way out.
    */
   it('should not clear a request a caller recorded itself', async () => {
-    requestQuiet(true);
+    setQuiet(true);
     await main({ argv: [], schema: { name: 'mycli' } });
-    expect(quietRequested()).toBe(true);
+    expect(getQuiet()).toBe(true);
   });
 
   /**
@@ -269,7 +269,7 @@ describe('main()', () => {
   it('should put the request back, so a second run is not the first one’s', async () => {
     const first = await ran(['work', '--quiet']);
     expect(first.seen).toEqual([true]);
-    expect(quietRequested()).toBeUndefined();
+    expect(getQuiet()).toBeUndefined();
 
     const second = await ran(['work']);
     expect(second.seen).toEqual([undefined]);
@@ -294,7 +294,7 @@ describe('main()', () => {
           work: {
             name: 'work',
             run(state: ParseState) {
-              requestQuiet(said);
+              setQuiet(said);
               return state;
             },
           },
@@ -302,7 +302,7 @@ describe('main()', () => {
       };
 
       await main({ argv: ['work', '--quiet'], schema });
-      expect(quietRequested()).toBe(said);
+      expect(getQuiet()).toBe(said);
     }
   );
 
@@ -337,7 +337,7 @@ describe('main()', () => {
     }
 
     await main({ argv: ['work', '--quiet'], schema });
-    expect(quietRequested()).toBeUndefined();
+    expect(getQuiet()).toBeUndefined();
 
     // and the run after it, which is what the leak actually costs
     const after = await ran(['work']);
@@ -346,10 +346,10 @@ describe('main()', () => {
   });
 
   it('should put back a request a caller had recorded, rather than clearing it', async () => {
-    requestQuiet(true);
+    setQuiet(true);
     const during = await ran(['work', '--quiet']);
     expect(during.seen).toEqual([true]);
-    expect(quietRequested()).toBe(true);
+    expect(getQuiet()).toBe(true);
   });
 
   /**

@@ -67,13 +67,13 @@
  * `--quiet` means something of its own keeps it and gets no flag from the
  * framework, which makes that app responsible for what quiet means -- and a
  * variable would silence its built-ins anyway, without going through the
- * declaration it owns. `requestQuiet()` is the programmatic door for a caller
+ * declaration it owns. `setQuiet()` is the programmatic door for a caller
  * who wants one, and `MountOptions.quiet` is the per-component one.
  *
  * ```js
- * import { requestQuiet, resolveOutput } from '@ttylabs/sigil/style';
+ * import { setQuiet, resolveOutput } from '@ttylabs/sigil/style';
  *
- * requestQuiet(true);
+ * setQuiet(true);
  * resolveOutput({ live: true }); // 'quiet'
  * ```
  */
@@ -98,7 +98,7 @@ export type OutputLevel = 'live' | 'quiet' | 'reduce';
 let requested: boolean | undefined;
 
 /**
- * How many times `requestQuiet()` has been called.
+ * How many times `setQuiet()` has been called.
  *
  * The only thing that can tell "nobody has written since" from "somebody wrote
  * the same value", which is what a restore has to ask. See `quietGeneration()`.
@@ -126,8 +126,8 @@ let wrote = 0;
  *
  * @param on - Whether to be quiet, or `undefined` for nobody having said.
  */
-export function requestQuiet(on: boolean | undefined): void {
-  requested = asked(on, 'requestQuiet');
+export function setQuiet(on: boolean | undefined): void {
+  requested = asked(on, 'setQuiet');
   wrote += 1;
 }
 
@@ -139,7 +139,7 @@ export function requestQuiet(on: boolean | undefined): void {
  * boolean has no identity: `captureConsole()` can compare the function it
  * installed, where comparing `true` to `true` cannot tell "nobody wrote since"
  * from "a command asked for the same thing" -- and reversing a command's own
- * `requestQuiet(true)` is what that cost. It is the shape of check
+ * `setQuiet(true)` is what that cost. It is the shape of check
  * `unanchor()` gives a cursor reply that arrived about an anchor that has since
  * moved: a token that no longer matches is stale and is not acted on.
  *
@@ -157,7 +157,7 @@ export function quietGeneration(): number {
  * Puts the slot back to the statement a token named.
  *
  * Which is an **undo** rather than a write, and that is the whole of why it
- * exists: a restore spelled as `requestQuiet(before)` moves the token, so a
+ * exists: a restore spelled as `setQuiet(before)` moves the token, so a
  * *nested* `main()` whose argv also asked for quiet made the outer run's own
  * token stale by putting the outer's value back -- and the outer `finally` then
  * declined to clear what it had attached. Measured on the shape the README
@@ -173,7 +173,7 @@ export function quietGeneration(): number {
  * run whose own token it was has already gone.
  *
  * `asked()` here is a **tripwire** rather than a guard, and a sabotage said so:
- * the one caller passes what `quietRequested()` answered, which `requestQuiet()`
+ * the one caller passes what `getQuiet()` answered, which `setQuiet()`
  * has already refused anything but a boolean for. It is kept because the slot has
  * two writers and this is the one place what the slot may hold is enforced --
  * saying it once and trusting the other writer's caller is an invariant held two
@@ -192,7 +192,7 @@ export function rewindQuiet(on: boolean | undefined, token: number): void {
  *
  * Truthiness is wrong here in the direction that costs: `'false'` and
  * `new Boolean(false)` -- the classic untyped-JS values -- are both truthy, so
- * `requestQuiet('false')` silenced the whole process and
+ * `setQuiet('false')` silenced the whole process and
  * `createSpinner({ quiet: 'false' })` silenced the spinner, each measured. A
  * number is the accident the other way. Neither is a value anybody meant, and
  * there is no third answer to fall back to the way a bad interval falls back to
@@ -221,11 +221,11 @@ function asked(value: unknown, where: string): boolean | undefined {
 }
 
 /**
- * What `requestQuiet()` last recorded.
+ * What `setQuiet()` last recorded.
  *
  * @returns Whether quiet was asked for, or `undefined` where nobody said.
  */
-export function quietRequested(): boolean | undefined {
+export function getQuiet(): boolean | undefined {
   return requested;
 }
 
