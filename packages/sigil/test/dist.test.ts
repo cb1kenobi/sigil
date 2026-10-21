@@ -499,7 +499,7 @@ describe('what importing the package costs', () => {
   it('should not put the prompts on the path that only prints a script', () => {
     // the whole packaging argument for SIG-151. `app completion bash > file` is
     // the scriptable form and loads the printer: the prompt chunk's own graph is
-    // 190,692 B over 23 modules, which is three times the printer's, so a
+    // 192,027 B over 24 modules, which is three times the printer's, so a
     // statically imported `confirm()` would make the redirect pay for an
     // installer it never reaches.
     //
@@ -508,15 +508,18 @@ describe('what importing the package costs', () => {
     // graph names no prompt -- and the presence half beside it, because an
     // absence alone passes forever the day the marker is reworded.
     //
-    // Measured: the printer is 62,371 B over 12 modules and the interactive
-    // path is 258,740 over 36, so the whole of what the installer and the
-    // prompts add is +196,369 and +24 -- which is a different subtraction from
+    // Measured: the printer is 63,718 B over 12 modules and the interactive
+    // path is 261,480 over 37, so the whole of what the installer and the
+    // prompts add is +197,762 and +25 -- which is a different subtraction from
     // the figure above and the two were read as one for a commit. The estimate
     // the ticket was taken on was +180 kB, which held.
     //
-    // Re-measure rather than quote: these moved by 1,218 B when the first
-    // review round's fixes landed in `interactive.ts`, which is the staleness
-    // the comment three hundred lines up is written about
+    // Re-measure rather than quote, which these have now needed twice: they
+    // moved by 1,218 B when the first review round's fixes landed in
+    // `interactive.ts`, and again when `main` was merged in -- the quiet axis
+    // and `afterRun` both grew the graphs underneath. That is the staleness the
+    // comment three hundred lines up is written about, and a merge moves these
+    // figures exactly as an edit does
     const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
     const printer = printerChunk();
 
