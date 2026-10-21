@@ -25,7 +25,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -54,15 +54,27 @@ vi.mock('node:os', async (importOriginal) => ({
 /**
  * Whether a mode bit means anything to the process running this.
  *
- * Root passes `accessSync(dir, W_OK | X_OK)` on a directory with neither bit
- * set, so the two cases that reach the writability gate by `chmod` are asserting
- * a premise -- "this cannot be written" -- that is false for the runner rather
- * than for the code. A rootful CI container is where that happens. The gate
- * itself is still pinned there by the executable-file case, which asks
- * `isDirectory()` and answers the same for everybody. Found by review round 3,
- * which caught the second of the two inheriting the first's unremarked.
+ * Two ways it does not, and each makes a `chmod`-based case assert a premise --
+ * "this cannot be written", "this file is private" -- that is false for the
+ * runner rather than for the code.
+ *
+ * **Root** passes `accessSync(dir, W_OK | X_OK)` on a directory with neither bit
+ * set, which a rootful CI container is. Found by review round 3, which caught
+ * the second of the two gate cases inheriting the first's unremarked.
+ *
+ * **Windows**, where `chmod` only toggles the read-only flag: a `0o200` or
+ * `0o500` directory is still writable *and* searchable, and a file chmod-ed
+ * `0o600` reads back `0o666`. Which is the rule AGENTS.md already records for
+ * `write.test.ts`'s own mode cases, and which cost this branch all three
+ * Windows jobs with the other six green -- the signature that file's
+ * Conventions entry names.
+ *
+ * What stays pinned there is the half that is not about a bit: the
+ * executable-file case asks `isDirectory()`, which answers the same for
+ * everybody.
  */
-const MODES_BITE = process.getuid === undefined || process.getuid() !== 0;
+const MODES_BITE =
+  process.platform !== 'win32' && (process.getuid === undefined || process.getuid() !== 0);
 
 /** Where each case's own files go, so one case cannot see another's. */
 let box: string;
@@ -248,7 +260,12 @@ describe('installTargets()', () => {
     // thing that can check it: no type can say that a printed command holds a
     // path. The shown form is `~`-relative and machine-independent because it
     // goes into a script's own header, so what is compared is the resolved path
-    // with the home put back as a `~`
+    // with the home put back as a `~` -- and with forward slashes, because a
+    // route's `commands` are **shell text** and spell a path that way on every
+    // platform while `target.file` came from `join()`. Without it this compared
+    // `~\\.local\\share\\...` against `~/.local/share/...` and failed on all
+    // three Windows jobs with the other six green, which is the signature
+    // Conventions names: a test spelling a separator its subject does not
     // the bash-completion directory under the base the call below reads, which
     // is what makes the route resolve at all. The first version of this created
     // it under `box/data` and then called `installTargets()` with no
@@ -268,7 +285,7 @@ describe('installTargets()', () => {
       for (const target of installTargets(shell, 'mycli', { HOME: FAKE_HOME })) {
         seen.add(target.id);
         const route = routes.find((it) => it.id === target.id);
-        const shown = target.file.replace(FAKE_HOME, '~');
+        const shown = target.file.replace(FAKE_HOME, '~').replaceAll(sep, '/');
 
         expect(route, `no route for ${target.id}`).toBeDefined();
         expect(
@@ -716,7 +733,7 @@ describe('installing, and re-running', () => {
     expect(readFileSync(real, 'utf8')).toBe(script);
   });
 
-  it('should keep the mode of a file somebody chmod-ed', async () => {
+  it.skipIf(!MODES_BITE)('should keep the mode of a file somebody chmod-ed', async () => {
     const st = await state();
     const script = await completionScript(st, 'zsh');
     const target = pick('zsh');

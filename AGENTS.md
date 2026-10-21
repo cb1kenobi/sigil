@@ -17068,13 +17068,30 @@ dispatches between the printer and the installer.
   first -- so even a `homedir()` that somehow answered the real home would put
   the script under the box.
 
-- **And the two mode-based gate tests are skipped as root.** Root passes
+- **And the three mode-based cases are skipped where a mode bit means nothing,
+  which is two platforms rather than one.** Root passes
   `accessSync(dir, W_OK | X_OK)` on a directory with neither bit set, so a
   rootful CI container would fail them over a premise that is false for the
-  runner rather than for the code. The gate is still pinned there by the
-  executable-file case, which asks `isDirectory()` and answers the same for
-  everybody. Review round 2 flagged the first of the two and round 3 caught the
-  second inheriting it unremarked.
+  runner rather than for the code -- review round 2 flagged the first of the
+  two gate cases and round 3 caught the second inheriting it unremarked. And
+  **Windows**, where `chmod` only toggles the read-only flag: a `0o200` or
+  `0o500` directory is still writable _and_ searchable, and a file chmod-ed
+  `0o600` reads back `0o666`. Which is the rule this file already records for
+  `write.test.ts`'s own mode cases, and which cost this branch all three Windows
+  jobs with the other six green -- the **sixth** instance of the signature
+  Conventions names, and the first where one predicate covered two unrelated
+  reasons. What stays pinned on both is the half that is not about a bit: the
+  executable-file case asks `isDirectory()`, which answers the same for
+  everybody.
+
+- **And a test never spells a separator, which the route differential did.** The
+  claim is that a route's printed `commands` name the path the installer
+  resolved, and `commands` are **shell text** -- forward-slashed on every
+  platform -- while `target.file` comes from `join()`. So it compared
+  `~\.local\share\...` against `~/.local/share/...` and failed on Windows
+  alone. The fix is `replaceAll(sep, '/')` on the test's side, which is the rule
+  Conventions states in its sharper form: compare a path against another path
+  built the way the subject builds it, and never write the separator.
 
 ##### What the three review rounds found, and what the sabotage pass found after them
 
