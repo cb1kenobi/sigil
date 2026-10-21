@@ -5,8 +5,9 @@
  *   node demos/components/11-quiet.js | cat     <- the same run, with no terminal
  *
  * On a terminal the first block animates and the second does not; piped, both
- * write one line per change, which is `reduce` -- and the third block writes
- * nothing at all either way, which is `quiet`.
+ * write one line per change, which is `reduce` -- and in the third the spinner,
+ * the bar and the typewriter draw nothing at all either way, which is `quiet`.
+ * The `console.log` lines around them stay, which is the next paragraph.
  *
  * What makes the third one worth having is that **nothing here is wired by
  * hand**. `requestQuiet(true)` is what `main()` calls when argv said `--quiet`,

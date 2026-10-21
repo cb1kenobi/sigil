@@ -11,7 +11,7 @@
 
 import { createInlineCanvas, createSinkCanvas } from '../../src/canvas/index.js';
 import { createDecrypt, decrypt } from '../../src/components/decrypt.js';
-import { mountLive } from '../../src/components/mount.js';
+import { mountLevel, mountLive } from '../../src/components/mount.js';
 import { commandPalette } from '../../src/components/palette.js';
 import { createProgress } from '../../src/components/progress.js';
 import { confirm, text as promptText } from '../../src/components/prompt.js';
@@ -164,6 +164,73 @@ describe('a progress bar', () => {
     bar.current = 2;
     bar.done();
     expect(stdout.output).toBe('');
+  });
+
+  /**
+   * The mount's level is resolved **once**, so the gates on `draw()` and
+   * `write()` can only suppress: a bar built under a request holds the sink for
+   * its life, and lifting the request does not start it drawing. Found by review
+   * round 4, which is the other order from the residue above.
+   *
+   * Right for the lifecycle an app has -- one `main()`, one request, components
+   * built inside `run()` -- and pinned so that it is a decision rather than a
+   * surprise: what reaches it is a caller lifting the request mid-run.
+   */
+  it('should stay a sink after the request is lifted, because a mount resolves once', () => {
+    requestQuiet(true);
+    const { stdout, terminal } = setup({ isTTY: false });
+    const bar = createProgress({ terminal, text: 'late', total: 2 });
+    requestQuiet(undefined);
+    // the fold says draw now, which is what makes the silence the mount's
+    expect(mountLevel({ terminal })).toBe('reduce');
+    bar.current = 1;
+    bar.text = 'moved';
+    bar.write('a line');
+    bar.done('Finished');
+    expect(stdout.output).toBe('');
+  });
+
+  /**
+   * `done()` and `stop()` give the terminal back, which is not progress -- a
+   * quiet run that left the cursor hidden is the terminal-eating failure
+   * `Terminal.restore()` exists for. So `draw()` is gated and the mount's own
+   * teardown is not, and what reaches the stream is the erase and the cursor
+   * rather than a percentage. Found by review round 4.
+   */
+  it('should give the terminal back on a quiet run, which is not a percentage', () => {
+    const { stdout, terminal } = setup({ isTTY: true });
+    const bar = createProgress({ terminal, text: 'work', total: 4 });
+    requestQuiet(true);
+    const built = stdout.output;
+    bar.current = 2;
+    // nothing was added for the update, which is the gate
+    expect(stdout.output).toBe(built);
+
+    bar.done('Finished');
+    const after = stdout.output.slice(built.length);
+    // the cursor is shown again, and no percentage and no label went out
+    expect(after).toContain('\u001b[?25h');
+    expect(after).not.toContain('50%');
+    expect(after).not.toContain('Finished');
+  });
+
+  /**
+   * `stop()`'s half of the same rule, which is its own test because it is its own
+   * method: a sabotage gating it survived the one above, since that asserts
+   * `done()`'s teardown and nothing asserted this one's. `stop()` erases the
+   * region as well as showing the cursor, which is what takes the construction
+   * frame the comment calls residue back off a screen.
+   */
+  it('should still erase and show the cursor for a quiet stop', () => {
+    const { stdout, terminal } = setup({ isTTY: true });
+    const bar = createProgress({ terminal, text: 'work', total: 4 });
+    requestQuiet(true);
+    const built = stdout.output;
+    bar.stop();
+    const after = stdout.output.slice(built.length);
+    expect(after).toContain('\u001b[?25h');
+    // the erase, which is what makes it a teardown rather than a frame
+    expect(after).toContain('\u001b[0J');
   });
 
   it('should write a line per step when it was not', () => {
@@ -498,9 +565,11 @@ describe('the sink backend', () => {
       painter.text(0, 0, 'drawn by a frame');
     });
 
+    // the two claims, and each catches one half: a `render()` that paints moves
+    // the count, and one that paints *and* writes moves the output too. A third
+    // assertion on the canvas was deleted for being unable to fail -- the only
+    // writer of that string is the callback that did not run
     expect(drew).toBe(0);
-    // blank rows, which is what a canvas nothing painted comes to
-    expect(sink.canvas.toString()).not.toContain('drawn by a frame');
     expect(stdout.output).toBe('');
   });
 });

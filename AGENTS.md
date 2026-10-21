@@ -3658,8 +3658,24 @@ toolchain's one reader.
 - **So `mountLevel()` is the same fold asked without mounting**, with the same
   inputs `mountLive()` resolves from -- which is the thing that makes it one
   mechanism rather than a second guard: a caller that assembled the inputs itself
-  would be the drift this axis exists to remove. It costs **10.3ms per 100,000
-  calls**, which is a question asked once per `write()`.
+  would be the drift this axis exists to remove.
+
+- **It costs 10.2ms per 100,000 calls, and 94% of that is one `process.env`
+  read.** Which is the more useful fact than the number: `mountLevel()` passes no
+  `env`, so `forcedMotion()` reads `process.env.SIGIL_REDUCED_MOTION`, and
+  `process.env` is a proxy over the real environment where each property read is a
+  host call. Measured over 100,000 calls after 200,000 of warm-up, five timed runs
+  each -- `mountLevel({ terminal })` is **10.17ms** and `resolveOutput({ live:
+  false })` is **10.04ms**, so the fold is all of it; the same call with an
+  explicit `env: {}` is **0.75ms**. Three fresh processes agree to within half a
+  millisecond.
+
+  Written out because a review round could not reproduce the figure and got about
+  a millisecond, which is what the last row is: a measurement of this fold that
+  passes an `env` is measuring something the real call path does not do. It is
+  nothing either way -- the question is asked once per `write()`, and nothing
+  writes a hundred thousand lines -- and the shape is worth knowing before
+  somebody puts the fold inside a loop.
 
 - **`createProgress` is the one facade that mounts eagerly, so it needs the gate
   twice.** A bar built **before** the request leaked `"Uploading 0%\n"` and every
@@ -3667,6 +3683,29 @@ toolchain's one reader.
   construction frame, measured. Deferring the mount was the obvious fix and is
   refused by a measurement: it deletes the `0%` line a loud bar prints at
   construction, which is a byte an existing app gets today.
+
+- **A mount's level is resolved once, so those gates can only suppress.** Which
+  is the recorded design read in the other direction, and it cuts one way: a
+  component built **under** a request holds the sink for its life, and lifting the
+  request does not start it drawing -- measured, a bar built quiet and then handed
+  a `requestQuiet(undefined)` goes on writing nothing even where the fold now says
+  `reduce`. Right for the lifecycle an app has, one `main()` and one request with
+  every component built inside `run()`; what reaches it is a caller lifting the
+  request mid-run, which is a test's teardown or a demo. Re-resolving per frame
+  would mean swapping a backend out from under the renderer, and nothing has
+  asked. Found by the fourth review round and pinned, so it is a decision rather
+  than a surprise.
+
+- **`done()` and `stop()` are deliberately not gated, because giving the terminal
+  back is not progress.** The inline backend's teardown writes a newline and shows
+  the cursor, and `stop()` erases the region and shows it -- and a quiet run that
+  left the cursor hidden is the terminal-eating failure `Terminal.restore()` is
+  written for. Measured on a terminal for a bar built loud and then asked to be
+  quiet: `stop()` is eleven bytes of erase-and-show and `done()` eight of
+  newline-and-show, and neither is a percentage or a label. The erase is also what
+  takes the construction frame the entry above calls residue back off a screen,
+  which is the better answer rather than a cost. `draw()` is gated and the mount's
+  own teardown is not, which is one line of asymmetry that needed saying.
 
 #### A result is not a progress report
 
@@ -3702,7 +3741,7 @@ toolchain's one reader.
   question nobody was shown. It is set after the caller's options rather than
   before, so it cannot be overridden: a prompt that could be silenced is a hang.
   What that costs is that a prompt **discards** the value, so it cannot refuse a
-  bad one -- `promptText({ quiet: 'nope' })` asks its question where
+  bad one -- `text({ quiet: 'nope' })` asks its question where
   `createSpinner({ quiet: 'nope' })` throws, which is the throw timing differing
   rather than the strictness.
 
@@ -3777,17 +3816,37 @@ toolchain's one reader.
   created by _declaring_ one, so it lands on `argv` as an undeclared option
   instead. Both are pinned rather than argued.
 
-#### `main()` restores what it attached, by generation
+#### `main()` restores what it attached, and the restore is an undo
 
-- **A boolean has no identity, so the restore counts writes.** `main()` records
+- **A boolean has no identity, so the slot carries a token.** `main()` records
   the request and puts it back on the way out, and the first version compared the
   **value** -- which cannot tell "nobody wrote since" from "a command asked for
   the same thing", so a command that called `requestQuiet(true)` through the
   documented door had its own statement reversed when the run ended. Found by the
-  second review round. `quietGeneration()` is the answer and it is
-  `unanchor()`'s: bump a generation, and an answer that does not match it is
-  stale. `captureConsole()` can compare the function it installed; a `true`
-  cannot be compared to a `true`.
+  second review round. `quietGeneration()` is the answer and it is the shape of
+  check `unanchor()` gives a reply about an anchor that has moved: a token that no
+  longer matches is stale and is not acted on. `captureConsole()`'s own
+  `restoreOne()` can compare the function it installed; a `true` cannot be
+  compared to a `true`.
+
+- **And the restore is a _rewind_ rather than a write, which took a fourth round
+  to find.** Spelled `requestQuiet(before)`, the restore moves the token -- so a
+  **nested** `main()` whose argv also asked for quiet made the outer run's own
+  token stale _by putting the outer's value back_, and the outer `finally` then
+  declined to clear what it had attached. Measured on the shape the README
+  documents, `await main({ argv, schema })` inside a `run()`: after both returned
+  the process was still quiet, and the next run with nothing in argv was silenced
+  by it -- which is exactly the leak the restore exists for, reached through the
+  one door nobody had tried. `rewindQuiet()` puts the value _and_ the token back,
+  so the two runs unwind as a stack.
+
+  Rewinding the token is as safe as rewinding the value and for the same reason:
+  the caller only reaches it where the token still matches, so nothing has
+  happened since and what goes back is the whole state that token named. The token
+  may therefore go down and be allocated again, which is benign -- a later write
+  that reuses a number is a different statement, and the run whose token it was
+  has gone. Pinned at two levels and at three, with the cost asserted as well as
+  the flag: the run _after_ the nested pair is what the leak is paid for in.
 
 - **A statement made inside a run outlives it, deliberately.** This is a
   statement about the process, so the consequence worth knowing is that a nested
@@ -3841,11 +3900,11 @@ toolchain's one reader.
   flag existing rather than a byte moving, and it is the honest form of the claim:
   nothing that reports got quieter or louder.
 
-#### What the three review rounds found
+#### What the four review rounds found
 
 Each was aimed differently -- the first at the diff with the ticket and none of
-the author's rationale, the second at the first's own skipped list **and** its
-fixes, the third at the second's. That ordering is what this file already records:
+the author's rationale, and each one after it at the previous round's own skipped
+list **and** its fixes. That ordering is what this file already records:
 the findings come from what nobody opened, and the previous round's fixes are
 exactly that.
 
@@ -3868,6 +3927,29 @@ exactly that.
   prompt's discarded-value asymmetry to be written down, which is the paragraph
   above.
 
+- **Round 4 was aimed at round 3's own fixes and at the prose, and it found the
+  nested-`main()` leak** -- which is the one defect in four rounds that is a
+  _wrong answer the previous round's fix produced_, and the entry above has it. It
+  also found a test helper whose readiness condition was any `?`, which
+  `ESC [ ? 25 l` satisfies **inside the first paint**, before the router has
+  attached its stdin listener: it worked because a pipe holds what nobody has read
+  yet, which is the shape of a test that passes for a reason other than its own.
+  Then three sentences false about the code beside them -- `promptText` for the
+  export's `text`, a package count read as a line count, and a demo header saying
+  its third block writes nothing where the three _components_ do and two
+  `console.log` lines stay -- and one assertion that could not fail, since the only
+  writer of the string it looked for was the callback the test had just asserted
+  did not run.
+
+  Two of its findings were the right answers rather than defects and are now
+  written down with their reasons: a mount resolving its level once, and
+  `done()`/`stop()` giving the terminal back.
+
+  And it **disputed the `mountLevel()` cost**, which is the entry above: the
+  figure is reproducible three times over and theirs is a measurement that passes
+  an `env` the real call path does not. Recording both is worth more than
+  recording the number.
+
 - **Two findings were refuted rather than fixed**, and both are recorded where
   they live. `--quiet --quiet=false` being quiet is `--help`'s rule, so it is
   pinned and documented rather than changed. And `resize(NaN)` is shared with the
@@ -3878,13 +3960,17 @@ exactly that.
 - **And `sigil new --quiet` deliberately does nothing beyond its own prompts**,
   because the install writes through `stdio: 'inherit'` -- the package manager
   owns that output, which is the measurement "There is no live display in the
-  toolchain" already records from the other side.
+  toolchain" already records from the other side. What that measurement says is
+  that piped npm wrote **four** lines, all at the end, and that a pty-driven pnpm
+  wrote 21 carriage returns and 82 escapes for a fourteen-_package_ install -- so
+  the README's reason is right and its count was the package count read as a line
+  count, which round 4 caught.
 
-#### What the sabotage pass found, and the one declared survivor
+#### What the sabotage pass found, and the two declared survivors
 
-Forty-six mutations, one at a time, counted against the shipped tree in **one
+Fifty-five mutations, one at a time, counted against the shipped tree in **one
 run** rather than summed across rounds, which is what makes the figure
-re-derivable. **Forty-five caught and one declared.** A green control first, and
+re-derivable. **Fifty-three caught and two declared.** A green control first, and
 the four verdict guards this repository has learned to need: a pattern that
 matched nothing, a pattern that matched more than once, a replacement equal to its
 original, and a run that found fewer test files than the control are each their
@@ -3894,7 +3980,7 @@ because `packages/cli`'s tests read sigil's `dist/` -- the stale-dist trap this
 file records, which without the rebuild makes every mutation in `src/` invisible
 to half the suite.
 
-- **The declared survivor is `detectQuiet()`'s `if (!option) return false;`**, and
+- **One declared survivor is `detectQuiet()`'s `if (!option) return false;`**, and
   it is a fast path rather than a claim: a `ParsedOption` carries a **required**
   `option`, so an `undefined` one matches nothing and the scan below answers
   `false` either way. What it skips is a walk of `state.$` for every app that
@@ -3903,16 +3989,33 @@ to half the suite.
   here alone would make two copies of one function disagree -- which is the rule
   the paragraph above it keeps about the three flags reading argv the same way.
 
-- **Five survived the first pass and every one was a test that could not see what
-  it was named for**, which is the shape this file keeps rediscovering. Two are
-  the sink's `render()` and `present()`, above -- the emptiness of the canvas
+- **The other is `rewindQuiet()`'s own `asked()`**, which is a **tripwire**: its
+  one caller passes what `quietRequested()` answered, and `requestQuiet()` has
+  already refused anything but a boolean for that. It is kept because the slot has
+  two writers and that is the one place what the slot may hold is enforced --
+  saying it once and trusting the other writer's caller is an invariant held two
+  different ways.
+
+- **Eight survived their first pass and every one was a test that could not see
+  what it was named for**, which is the shape this file keeps rediscovering. Two
+  are the sink's `render()` and `present()`, above -- the emptiness of the canvas
   covering for the absent write. One is the declaration check, which needed an
   explicit `name` to separate `find()` from `has()`. One is `createProgress`'s
-  gate, which needed a bar built **before** the request. And one is the `add`
-  declined note, which needed a spawned child with a faked TTY on both streams and
-  a key written to its stdin -- `runOnTerminal()` deliberately writes nothing to a
-  child's stdin, "a prompt is not what to spawn", so a test of a path behind a
-  confirm does both halves itself.
+  gate, which needed a bar built **before** the request, and one is `stop()`'s
+  teardown, which needed its own test because the one beside it asserts `done()`'s.
+  One is the `add` declined note, which needed a spawned child with a faked TTY on
+  both streams and a key written to its stdin -- `runOnTerminal()` deliberately
+  writes nothing to a child's stdin, "a prompt is not what to spawn", so a test of
+  a path behind a confirm does both halves itself.
+
+  And **two are that test helper's own claim**, which is the sharpest of the
+  eight: taking the latch off, and looking for any `?` rather than the question,
+  each left every assertion in the file green. Nothing outside the child can see
+  either, because **a pipe holds what nobody has read yet** -- so an early key and
+  a repeated one both work and neither is distinguishable from a correct one by
+  reading the output. So the helper reports _when_ and _how often_ it answered and
+  the test asserts that, which is the only shape that can fail for the reason its
+  name gives.
 
 - **One guard was deleted rather than tested**, which is what this repository does
   with one that cannot change an answer: a `=== true` beside `asked()` in

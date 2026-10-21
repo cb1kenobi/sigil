@@ -132,25 +132,59 @@ export function requestQuiet(on: boolean | undefined): void {
 }
 
 /**
- * How many times anybody has recorded a request.
+ * Which statement the slot currently holds.
  *
  * What `main()` needs in order to put back what it attached without reversing
- * somebody else's statement, and a **counter** rather than the value, because a
+ * somebody else's statement, and a **token** rather than the value, because a
  * boolean has no identity: `captureConsole()` can compare the function it
  * installed, where comparing `true` to `true` cannot tell "nobody wrote since"
  * from "a command asked for the same thing" -- and reversing a command's own
- * `requestQuiet(true)` is what that cost. This is the same answer
+ * `requestQuiet(true)` is what that cost. It is the shape of check
  * `unanchor()` gives a cursor reply that arrived about an anchor that has since
- * moved: bump a generation, and an answer that does not match it is stale.
+ * moved: a token that no longer matches is stale and is not acted on.
  *
- * Not in the `style` barrel: `main()` is the only reader and a counter is
+ * Not in the `style` barrel: `main()` is the only reader and a token is
  * nobody's business outside the package. A statement made *inside* a run
  * outlives it, which is what makes it a statement about the process.
  *
- * @returns The generation, which moves on every write.
+ * @returns The token, which moves on every write.
  */
 export function quietGeneration(): number {
   return wrote;
+}
+
+/**
+ * Puts the slot back to the statement a token named.
+ *
+ * Which is an **undo** rather than a write, and that is the whole of why it
+ * exists: a restore spelled as `requestQuiet(before)` moves the token, so a
+ * *nested* `main()` whose argv also asked for quiet made the outer run's own
+ * token stale by putting the outer's value back -- and the outer `finally` then
+ * declined to clear what it had attached. Measured on the shape the README
+ * documents, `await main({ argv, schema })` inside a `run()`: after both
+ * returned the process was still quiet, and the next run with nothing in argv
+ * was silenced by it, which is exactly the leak the restore is for.
+ *
+ * Rewinding the token is as safe as rewinding the value, and for the same
+ * reason: the caller only ever reaches this where the token still matches, so
+ * nothing has happened since and what is being put back is the whole state that
+ * token named. The token may therefore go down and be allocated again, which is
+ * benign -- a later write that reuses a number is a different statement, and the
+ * run whose own token it was has already gone.
+ *
+ * `asked()` here is a **tripwire** rather than a guard, and a sabotage said so:
+ * the one caller passes what `quietRequested()` answered, which `requestQuiet()`
+ * has already refused anything but a boolean for. It is kept because the slot has
+ * two writers and this is the one place what the slot may hold is enforced --
+ * saying it once and trusting the other writer's caller is an invariant held two
+ * different ways.
+ *
+ * @param on - The statement to put back.
+ * @param token - The token it was made under.
+ */
+export function rewindQuiet(on: boolean | undefined, token: number): void {
+  requested = asked(on, 'rewindQuiet');
+  wrote = token;
 }
 
 /**

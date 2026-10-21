@@ -222,6 +222,23 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
       draw();
     },
 
+    /**
+     * `draw()` is gated and `mounted.done()` is deliberately not.
+     *
+     * What the mount does on the way out is **give the terminal back** -- the
+     * inline backend writes a newline and shows the cursor, and `stop()` erases
+     * the region and shows it -- which is not progress at all. A quiet run that
+     * left the cursor hidden is the terminal-eating failure `Terminal.restore()`
+     * is written for, so those bytes survive quiet the way an error does.
+     *
+     * Measured on a terminal, for a bar built loud and then asked to be quiet:
+     * `stop()` is eleven bytes of erase-and-show and `done()` is eight of
+     * newline-and-show, and neither is a percentage. The erase is also what
+     * takes the construction frame the comment above calls residue back off a
+     * screen, which is the better answer rather than a cost.
+     *
+     * @param final - What to say instead, if anything.
+     */
     done(final?: string): void {
       if (final !== undefined) {
         state.label.set(final);
@@ -231,6 +248,7 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
       mounted.done();
     },
 
+    /** Gives the terminal back, for the reason `done()` records. */
     stop(): void {
       mounted.stop();
     },

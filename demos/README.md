@@ -296,8 +296,10 @@ node demos/components/11-quiet.js | cat
 
 `11-quiet.js` is the one of the five a pipe cannot show on its own, because its
 point is the state a pipe does **not** produce: piped, its first two blocks still
-write a line per change, which is `reduce`, and its third writes nothing at all,
-which is `quiet`. Reduced motion means an animation that has already finished and
+write a line per change, which is `reduce`, and in its third the spinner, the bar
+and the typewriter write nothing at all, which is `quiet`. The two `console.log`
+lines around them stay, which is the rule -- the answer survives and the progress
+does not. Reduced motion means an animation that has already finished and
 quiet means nothing was drawn, so they are two answers rather than two strengths
 of one -- and nothing in that demo passes the answer to a component, because
 `resolveOutput()` is the one fold and every built-in reads it.

@@ -160,6 +160,17 @@ export function mountLive(
    * build needs it at all: whether anything may draw decides which **backend**
    * this mount gets. Which also makes it one answer in one place rather than the
    * pair this used to hand down.
+   *
+   * **Once is the whole of it, and that cuts one way.** A mount is a decision
+   * about what to build and what to build it over, so a component built under
+   * quiet holds the sink for its life: the `mountLevel()` the three lazy facades
+   * and the bar ask on each `write()` can only ever *suppress*, never start
+   * drawing again. Measured -- a bar built under a request and then handed a
+   * `requestQuiet(undefined)` goes on writing nothing. Which is right for the
+   * lifecycle an app has, one `main()` and one request with every component
+   * built inside `run()`; what reaches it is a caller lifting the request
+   * mid-run, which is a test's teardown or a demo. Re-resolving per frame would
+   * mean swapping a backend out from under the renderer, and nothing has asked.
    */
   const level = mountLevel({ ...opts, terminal });
   const live = level === 'live';

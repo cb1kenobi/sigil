@@ -2936,7 +2936,7 @@ diagnostics and nothing else, and `sigil build --quiet` prints neither its
 summary nor the two tables of what it produced. `sigil new --quiet` deliberately
 does nothing beyond reaching its prompts — the install it runs writes through
 `stdio: 'inherit'`, so suppressing our one progress line while the package
-manager's own fourteen remained would be worse than leaving both.
+manager went on writing its own would be worse than leaving both.
 
 ### `sigil/themes`
 

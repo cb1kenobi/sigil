@@ -306,6 +306,45 @@ describe('main()', () => {
     }
   );
 
+  /**
+   * The leak the restore exists for, reached through the one shape nothing had
+   * tried: a **nested** `main()` whose argv also asks. Found by review round 4.
+   *
+   * A restore spelled as a write moves the token, so the inner run putting the
+   * outer's value back made the outer run's own token stale -- and the outer
+   * `finally` then declined to clear what it had attached. Both halves are
+   * asserted, because the second is the cost: the process stays quiet, and the
+   * next run with nothing in argv is silenced by it with nothing to explain why.
+   * Three deep as well as two, since a token that rewinds has to unwind a stack
+   * rather than one level.
+   */
+  it.each([[2], [3]])('should put the request back through %i nested runs', async (deep) => {
+    const leaf: Schema = { name: 'leaf', commands: { work: { name: 'work', run: () => {} } } };
+    let schema = leaf;
+    for (let at = 1; at < deep; at++) {
+      const inner = schema;
+      schema = {
+        name: `outer${at}`,
+        commands: {
+          work: {
+            name: 'work',
+            async run() {
+              await main({ argv: ['work', '--quiet'], schema: inner });
+            },
+          },
+        },
+      };
+    }
+
+    await main({ argv: ['work', '--quiet'], schema });
+    expect(quietRequested()).toBeUndefined();
+
+    // and the run after it, which is what the leak actually costs
+    const after = await ran(['work']);
+    expect(after.seen).toEqual([undefined]);
+    expect(after.out).toBe(DONE);
+  });
+
   it('should put back a request a caller had recorded, rather than clearing it', async () => {
     requestQuiet(true);
     const during = await ran(['work', '--quiet']);

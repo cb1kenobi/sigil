@@ -90,22 +90,28 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
     // `--quiet` on the first run silenced every run after it with nothing in
     // argv to explain why
     if (state.quiet) {
-      const { quietGeneration, quietRequested, requestQuiet } = await import('./style/output.js');
+      const { quietGeneration, quietRequested, requestQuiet, rewindQuiet } =
+        await import('./style/output.js');
       const before = quietRequested();
+      const was = quietGeneration();
       requestQuiet(true);
       const mine = quietGeneration();
       restoreQuiet = (): void => {
-        // only where nobody has written since, which is `captureConsole()`'s
-        // rule -- "a method whose current value is no longer ours is left
-        // alone" -- asked the one way a boolean admits. A command that said
-        // `requestQuiet()` through the documented door had that reversed by the
-        // teardown of a run already over, and a *value* test closed only half of
-        // it: comparing `true` to `true` cannot tell "nobody wrote" from "the
-        // command asked for the same thing", so a dispatcher asking for quiet
-        // for what follows still lost it. A generation can tell them apart,
-        // which is `unanchor()`'s own answer to a reply about a stale anchor
+        // only where nobody has written since, which is the rule
+        // `captureConsole()`'s own `restoreOne()` keeps -- a method whose
+        // current value is no longer ours is left alone -- asked the one way a
+        // boolean admits. A command that said `requestQuiet()` through the
+        // documented door had that reversed by the teardown of a run already
+        // over, and a *value* test closed only half of it: comparing `true` to
+        // `true` cannot tell "nobody wrote" from "the command asked for the
+        // same thing", so a dispatcher asking for quiet for what follows still
+        // lost it. A token can tell them apart, which is the shape of check
+        // `unanchor()` gives a reply about a stale anchor.
+        //
+        // And it **rewinds** rather than writing, because a write of its own is
+        // what made the nested case leak: see `rewindQuiet()`
         if (quietGeneration() === mine) {
-          requestQuiet(before);
+          rewindQuiet(before, was);
         }
       };
     }
