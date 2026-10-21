@@ -27,8 +27,8 @@ function routes(): string[] {
 }
 
 describe('the command directory', () => {
-  it('should be the four commands and nothing else', () => {
-    expect(routes()).toStrictEqual(['add', 'build', 'check', 'new']);
+  it('should be the five commands and nothing else', () => {
+    expect(routes()).toStrictEqual(['add', 'build', 'check', 'new', 'reference']);
   });
 
   it('should keep the shared pass out of the routes', () => {

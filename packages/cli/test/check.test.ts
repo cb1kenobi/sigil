@@ -73,7 +73,7 @@ describe('sigil check', () => {
       // `build` runs `check`'s pass rather than replacing it. They are files
       // in a directory now rather than keys in a map, so that is what is read
       expect(schema().commands).toBe('./commands');
-      expect(routeNames()).toStrictEqual(['add', 'build', 'check', 'new']);
+      expect(routeNames()).toStrictEqual(['add', 'build', 'check', 'new', 'reference']);
     });
 
     it('should keep its description in its own module', () => {

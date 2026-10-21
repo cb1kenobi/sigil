@@ -8,5 +8,20 @@
 
     // 203 kB of maps against 38 kB of code, published with the package.
     "sourcemap": false
+  },
+
+  // the toolchain's own command surface, committed twice over. The markdown is
+  // the website's content -- `website/src/app/reference/` reads this directory,
+  // which is what proves the generated shape is one a docs site can consume --
+  // and the JSON is what `the committed command surface` diffs, so a renamed
+  // flag fails a test rather than breaking everybody's scripts quietly.
+  //
+  // Refreshed with `pnpm --filter @ttylabs/cli reference`. Written down here
+  // rather than passed on the command line so that `sigil reference --check` in
+  // CI needs no arguments and cannot name a different destination from the one
+  // the generator wrote to.
+  "reference": {
+    "out": "../../website/src/reference",
+    "snapshot": "command-surface.json"
   }
 }

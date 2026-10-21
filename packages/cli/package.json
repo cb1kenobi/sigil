@@ -32,6 +32,7 @@
     "coverage": "vitest --coverage",
     "dev": "node ./src/sigil.ts",
     "ncu": "ncu -c 1d",
+    "reference": "node src/sigil.ts reference && node src/sigil.ts reference --json",
     "prepublishOnly": "pnpm run build",
     "test": "vitest",
     "type-check": "tsc --noEmit"

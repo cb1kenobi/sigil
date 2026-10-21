@@ -78,13 +78,14 @@ describe('@ttylabs/cli', () => {
 
     it('should route only commands that are the whole of what they claim', () => {
       // a command that exists and refuses is worse than one that does not
-      // exist yet, because only the second is honest in --help. All four are
+      // exist yet, because only the second is honest in --help. All five are
       // complete: `add` copies, `check` reads, `build` bundles and runs
-      // `check`'s pass rather than replacing it, and `new` scaffolds.
+      // `check`'s pass rather than replacing it, `new` scaffolds, and
+      // `reference` writes the command reference and the surface snapshot.
       const dir = join(root, 'src', 'commands');
       const names = (readRoutes(dir)?.routes ?? []).map((route) => route.name).sort();
 
-      expect(names).toEqual(['add', 'build', 'check', 'new']);
+      expect(names).toEqual(['add', 'build', 'check', 'new', 'reference']);
     });
 
     it('should keep the shared pass out of the command list', () => {

@@ -1,0 +1,498 @@
+{
+  "commands": [
+    {
+      "args": [],
+      "default": false,
+      "hidden": false,
+      "options": [],
+      "path": [],
+      "runnable": false,
+      "tokens": []
+    },
+    {
+      "args": [
+        {
+          "choices": [],
+          "env": [],
+          "multiple": true,
+          "name": "components",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "default": false,
+      "hidden": false,
+      "options": [
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--dir"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--force"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--yes"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [
+            "-y"
+          ],
+          "takesValue": false,
+          "type": "bool"
+        }
+      ],
+      "path": [
+        "add"
+      ],
+      "runnable": true,
+      "tokens": [
+        "add"
+      ]
+    },
+    {
+      "args": [
+        {
+          "choices": [],
+          "env": [],
+          "multiple": false,
+          "name": "dir",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "default": false,
+      "hidden": false,
+      "options": [
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--bin"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--clean",
+            "--no-clean"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--commands"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--entry"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--external"
+          ],
+          "multiple": true,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--name"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--no-shake",
+            "--shake"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--no-sourcemap",
+            "--sourcemap"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--out"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "build"
+      ],
+      "runnable": true,
+      "tokens": [
+        "build"
+      ]
+    },
+    {
+      "args": [
+        {
+          "choices": [],
+          "env": [],
+          "multiple": false,
+          "name": "dir",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "default": false,
+      "hidden": false,
+      "options": [
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--commands"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--entry"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--tree"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        }
+      ],
+      "path": [
+        "check"
+      ],
+      "runnable": true,
+      "tokens": [
+        "check"
+      ]
+    },
+    {
+      "args": [
+        {
+          "choices": [],
+          "env": [],
+          "multiple": false,
+          "name": "project-name",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "default": false,
+      "hidden": false,
+      "options": [
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--cwd"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--git",
+            "--no-git"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--install",
+            "--no-install"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--js"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [
+            "biome",
+            "eslint",
+            "none",
+            "oxlint"
+          ],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--lint"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [
+            "npm",
+            "pnpm",
+            "vlt"
+          ],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--pm"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--single"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--yes"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [
+            "-y"
+          ],
+          "takesValue": false,
+          "type": "bool"
+        }
+      ],
+      "path": [
+        "new"
+      ],
+      "runnable": true,
+      "tokens": [
+        "new"
+      ]
+    },
+    {
+      "args": [
+        {
+          "choices": [],
+          "env": [],
+          "multiple": false,
+          "name": "dir",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "default": false,
+      "hidden": false,
+      "options": [
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--check"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--entry"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--json"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--out"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "reference"
+      ],
+      "runnable": true,
+      "tokens": [
+        "reference"
+      ]
+    }
+  ],
+  "program": "sigil"
+}
