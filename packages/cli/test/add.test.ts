@@ -290,6 +290,32 @@ describe('the command, end to end', () => {
     expect(run('add', 'spinner', '--yes').stdout).toContain('.sigil-spinner-frame');
   });
 
+  /**
+   * The note is prose about what happened, so quiet drops it -- and the blank
+   * line above it belongs to it, or "nothing" is a stray newline. Found by a
+   * sabotage of that one guard surviving: nothing here ran `add` quietly.
+   *
+   * What survives is the plan, which is the answer: `add` writes files, and the
+   * list of what it wrote is what was asked for.
+   */
+  it('should drop its note under --quiet, and the blank line with it', () => {
+    const loud = run('add', 'spinner', '--yes');
+    const quiet = run('add', 'spinner', '--yes', '--force', '--quiet');
+
+    expect(loud.status).toBe(0);
+    expect(quiet.status).toBe(0);
+    // both notes: the classes it drew with, and what was copied
+    expect(loud.stdout).toContain('restyling those needs no copy');
+    expect(loud.stdout).toContain('Copied 1 file');
+    expect(quiet.stdout).not.toContain('restyling those needs no copy');
+    expect(quiet.stdout).not.toContain('Copied 1 file');
+    // the plan survives, which is what makes the absence above a claim about
+    // the note rather than about a command that printed nothing
+    expect(quiet.stdout).toContain('spinner.ts');
+    // and it does not end in the separator the note took with it
+    expect(quiet.stdout.endsWith('\n\n')).toBe(false);
+  });
+
   it('should refuse to overwrite without being told to', () => {
     expect(run('add', 'spinner', '--yes').status).toBe(0);
 

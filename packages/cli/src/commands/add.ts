@@ -40,7 +40,7 @@ import {
   readConfig,
   type Registry,
 } from '../registry/index.ts';
-import { writeNote } from '../report.ts';
+import { isQuiet, writeNote } from '../report.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { confirm, table } from '@ttylabs/sigil/components';
 import { copyFileSync, mkdirSync } from 'node:fs';
@@ -104,7 +104,13 @@ function describe(plan: Plan, registry: Registry, target: string): void {
     .sort();
 
   if (classes.length > 0) {
-    process.stdout.write('\n');
+    // the separator goes with the note it precedes, which is the same rule the
+    // one below `apply()` keeps -- and this one is the instance the first fix
+    // missed: with it left behind, a quiet `add` ended in a blank line, which
+    // its own test caught
+    if (!isQuiet()) {
+      process.stdout.write('\n');
+    }
     writeNote(
       [
         `These draw with ${classes.map((c) => `.${c}`).join(', ')} --`,
@@ -201,14 +207,24 @@ const add: AnyCommand = command({
     if (!argv.yes) {
       process.stdout.write('\n');
       if (!(await confirm({ message: 'Write these files?' }))) {
-        process.stdout.write('Nothing written.\n');
+        // through the note writer, so the two outcomes of one dialogue are
+        // treated the same way: `Copied 1 file.` below is gated, and a declined
+        // one is as much a note about what happened as the other
+        writeNote(['Nothing written.'], process.stdout);
         return;
       }
     }
 
     apply(plan);
 
-    process.stdout.write('\n');
+    // the separator belongs to the note it precedes, so it goes with it: a
+    // quiet run that left a blank line behind is one where "nothing" is not
+    // nothing. The one above the confirm is a separator before a *prompt*,
+    // which survives quiet, so it stays -- and the plan above it is the answer,
+    // since `add` writes files and the list of what it wrote is what was asked
+    if (!isQuiet()) {
+      process.stdout.write('\n');
+    }
     writeNote(
       [
         `Copied ${plan.files.length} file${plan.files.length === 1 ? '' : 's'}.`,

@@ -45,11 +45,14 @@
  *
  * `main()` never imports this: `registerCompletion()` puts a `completion`
  * command on the root and the command's own `run` is what reaches the emitters,
- * through `await import()`. So the root entry's static import graph is the same
- * 7,553 bytes it was, which `test/dist.test.ts` holds to a ceiling, and the
- * emitters are one chunk of 15,943 bytes and nothing else -- measured as the
- * difference between that chunk's import graph and the parse chunk's, so every
- * module they need was already on the parse path.
+ * through `await import()`. So the root entry's static import graph is exactly
+ * what it was without this, which `test/dist.test.ts` holds to a ceiling -- the
+ * figure itself lives there and in AGENTS.md and deliberately not here, because
+ * a third copy in a source header is one nothing re-measures: this said "the
+ * same 7,553 bytes it was" until `afterRun` moved the entry and a review round
+ * read it. The emitters are one chunk of 15,943 bytes and nothing else --
+ * measured as the difference between that chunk's import graph and the parse
+ * chunk's, so every module they need was already on the parse path.
  *
  * What a run that never asks for a script *does* pay is the registration, which
  * is on the parse path: 460 bytes of the parse chunk -- 18,685 against 19,145 --

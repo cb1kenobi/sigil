@@ -243,8 +243,14 @@ describe('what importing the package costs', () => {
       // depends on at run time.
       //
       // It is zero. Nothing on the root entry's graph imports it, so the graph
-      // is 7,532 B over the same six modules it was before -- 21 B *less*, which
-      // is a shared chunk boundary moving and is noise. `testing.mjs` is 44,328 B
+      // was 7,532 B over the same six modules it was before the testing subpath
+      // landed -- 21 B *less*, which is a shared chunk boundary moving and is
+      // noise. That figure is a measurement of **that** change rather than of
+      // the tree: the entry is **8,166 B** today, which `afterRun`, the quiet
+      // axis and this branch each moved in turn, and a review round caught this
+      // sentence claiming the old one in the present tense -- so it is written
+      // as of the merge rather than as a standing fact, which is what the
+      // instruction further down means. `testing.mjs` is 44,726 B
       // over fourteen modules and is paid only by a module that asks for it,
       // which is a test file -- the same figure AGENTS.md records, because two
       // comments disagreeing about one measurement leave a later reader with no
@@ -360,10 +366,12 @@ describe('what importing the package costs', () => {
     // from: `paths.mjs`, `i18n.mjs`, the `transform` and `debug` chunks, the
     // 66-byte `env-value` chunk the parser shares, and the 525-byte
     // `mkdir-owner-sync` one the update cache shares. The eighth is the atomic
-    // write, which SIG-151's installer now shares. The graph is 5.08x the root
-    // entry's 7,518 B and a sixth of `components.mjs`'s 240,792 B over 27 --
+    // write, which SIG-151's installer now shares. The graph is 4.68x the root
+    // entry's 8,166 B and a sixth of `components.mjs`'s 242,307 B over 28 --
     // all three measured the same way, which is the only comparison that means
-    // anything. It was 20,649 B over six before the write half, so the span
+    // anything. It read 38,064 B and 5.06x until a review round measured both:
+    // this graph is unchanged by `afterRun` and was already 37 bytes out, and
+    // the root entry moved under the ratio. It was 20,649 B over six before the write half, so the span
     // writer, the atomic write and the representability check are about 11.5 KB
     // between them; 32,523 B before the store kit, which is the 102 bytes that
     // costs; and 32,625 B before the watcher, which is 5,439 B and **no new
@@ -391,9 +399,12 @@ describe('what importing the package costs', () => {
     const graph = staticGraph('index.mjs');
     const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-    // a ceiling rather than a measurement -- it sits about 2.7x over the 7.5 KB
+    // a ceiling rather than a measurement -- it sits about 2.6x over the 8.0 KB
     // this is today, so ordinary growth never touches it and pulling a
-    // rendering path onto the entry blows straight through it.
+    // rendering path onto the entry blows straight through it. It said 7.5 KB
+    // and 2.7x until `afterRun` added 459 B of hook walk and firing to the
+    // entry, which a review round caught here as readily as in AGENTS.md --
+    // which is the argument for the figure living in two places and no more.
     //
     // 4.1 KB of that was the entry before i18n; the 2.2 KB `i18n.mjs` is the
     // tag, the plural and the locale resolution, and it is here because
@@ -535,7 +546,10 @@ describe('what importing the package costs', () => {
   });
 
   it('should keep the components entry worth importing for one component', () => {
-    // 234,912 B over 23 modules today, of which the palette is 10,624: its own
+    // 242,307 B over 28 modules today -- re-measured, because it read 234,912
+    // over 23 while the comment 130 lines up said 239,929 over 26, which is the
+    // two-comments-disagreeing-about-one-measurement defect that one is written
+    // about, in the same file. Of it the palette is 10,624: its own
     // code, the 1,778 B `transform` chunk, the 154 B `types` chunk and 180 B of
     // class names in `FRAMEWORK_CSS`, which ships because the vocabulary comment
     // is inside the template literal. The QR encoder is another 10,255 of it,

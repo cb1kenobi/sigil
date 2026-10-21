@@ -295,12 +295,26 @@ export async function initCommand(
       `Cannot set "${prop}" on the initialized "${parsed.name}" command: the parser reads cmd[Internal].${prop}, so change that instead`
   );
 
-  // `beforeError` and `help` are fired elsewhere -- by the error path and by the
-  // help module -- and are checked here anyway, because those are the two places
-  // where a value that is not a function does the most harm: one is reached only
-  // when something has already gone wrong, and the other only when somebody asks
-  // for help and gets an error instead
-  for (const name of ['beforeError', 'help', 'init', 'parse'] as const) {
+  // `afterRun`, `beforeError` and `help` are fired elsewhere -- by `main()`, by
+  // the error path and by the help module -- and are checked here anyway,
+  // because those are the three places where a value that is not a function
+  // does the most harm: two are reached only when something has already gone
+  // wrong or finished, and the third only when somebody asks for help and gets
+  // an error instead. `collectHooks()` ignores a non-function rather than
+  // rejecting it, so without this an `afterRun: 'nope'` would parse and then do
+  // nothing at all, which is the property that parses and silently lies.
+  //
+  // `subcommandLoaded` is the one it does **not** cover, and saying so is a
+  // review round's correction of a sentence here that claimed the list was
+  // every hook there is. That one is checked nowhere for a command, so
+  // `hooks: { subcommandLoaded: 'nope' }` parses, runs fine while nothing
+  // loads, and fails with a bare `hook is not a function` naming neither the
+  // hook nor the command the first time a subcommand does -- measured.
+  // Pre-existing and left alone: adding it changes when a different hook's
+  // declaration is refused, which is not a thing to take inside a ticket about
+  // this one. The schema side of all six is covered either way, because
+  // `parse()` walks `Object.entries(schema.hooks)` and is generic over the name
+  for (const name of ['afterRun', 'beforeError', 'help', 'init', 'parse'] as const) {
     const hook = decl.hooks?.[name];
     if (hook !== undefined && typeof hook !== 'function') {
       throw new TypeError(`Expected command ${name} hook to be a function`);

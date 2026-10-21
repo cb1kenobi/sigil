@@ -2,7 +2,14 @@ import debug from './debug/index.js';
 import { errorHandler } from './error-handler.js';
 import { fireBeforeError, stateFromError } from './error-hooks.js';
 import { loadCatalog } from './i18n/index.js';
-import { type AppOptions, type ParseState, type Schema, type Settings } from './types.js';
+import { fireAfterRun } from './run-hooks.js';
+import {
+  type AppOptions,
+  type ParseState,
+  type RunResult,
+  type Schema,
+  type Settings,
+} from './types.js';
 
 export * from './types.js';
 export { command } from './command.js';
@@ -39,6 +46,8 @@ get cwd(): string {
 export async function main(opts: AppOptions = {}): Promise<ParseState | unknown> {
   let state: ParseState | undefined;
   let hooksFired = false;
+  /** What the process-wide quiet request was before this run, if it moved. */
+  let restoreQuiet: (() => void) | undefined;
 
   try {
     if (opts?.settings?.assertCwd !== false) {
@@ -74,6 +83,46 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
       throw err;
     }
 
+    // recorded before anything is printed, and here rather than in `parse()`:
+    // a parser owes its caller no process-wide side effect, where `main()`
+    // already owns `process.exitCode` and the error handler, so one more fact
+    // about the process is in character.
+    //
+    // Set only when argv asked, so a programmatic `setQuiet(true)` is not
+    // cleared by a parse that did not name the flag -- and **put back** on the
+    // way out, which is the rule every other thing this attaches follows. One
+    // `main()` per process is the ordinary case and neither half shows there;
+    // what shows is a host that calls it twice, which the command palette's own
+    // documented `await main({ argv: chosen.argv, schema })` is, and where a
+    // `--quiet` on the first run silenced every run after it with nothing in
+    // argv to explain why
+    if (state.quiet) {
+      const { quietGeneration, getQuiet, setQuiet, rewindQuiet } =
+        await import('./style/output.js');
+      const before = getQuiet();
+      const was = quietGeneration();
+      setQuiet(true);
+      const mine = quietGeneration();
+      restoreQuiet = (): void => {
+        // only where nobody has written since, which is the rule
+        // `captureConsole()`'s own `restoreOne()` keeps -- a method whose
+        // current value is no longer ours is left alone -- asked the one way a
+        // boolean admits. A command that said `setQuiet()` through the
+        // documented door had that reversed by the teardown of a run already
+        // over, and a *value* test closed only half of it: comparing `true` to
+        // `true` cannot tell "nobody wrote" from "the command asked for the
+        // same thing", so a dispatcher asking for quiet for what follows still
+        // lost it. A token can tell them apart, which is the shape of check
+        // `unanchor()` gives a reply about a stale anchor.
+        //
+        // And it **rewinds** rather than writing, because a write of its own is
+        // what made the nested case leak: see `rewindQuiet()`
+        if (quietGeneration() === mine) {
+          rewindQuiet(before, was);
+        }
+      };
+    }
+
     if (state.help) {
       await printHelp(state);
       return state;
@@ -89,7 +138,52 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
     const { cmd } = state;
     if (cmd?.run) {
       log(`Executing command "${cmd.name}"`);
-      return (await cmd.run(state)) ?? state;
+
+      // a throw is an **result** rather than an exit, which is the whole of
+      // what makes `afterRun` a `finally` rather than a success callback: there
+      // is one path out of here whichever way `run()` went, and the hooks are
+      // on it. Inline rather than in a helper of its own, so that the `throw`
+      // that reaches `handleError()` is readable beside the hooks that precede
+      // it -- and so that the narrowing `cmd?.run` just did is the narrowing
+      // the call uses, rather than an assertion standing in for it
+      const started = performance.now();
+      let result: RunResult;
+
+      try {
+        result = { ok: true, value: await cmd.run(state) };
+      } catch (err) {
+        result = { error: err, ok: false };
+      }
+
+      // `performance.now()` rather than `Date.now()`: monotonic, so a system
+      // clock that moved mid-command cannot make a duration negative, and
+      // sub-millisecond, where `Date.now()` reads `0` for anything quick --
+      // which is most commands, and a timing line saying `0ms` for all of them
+      // is one nobody reads twice
+      const ms = performance.now() - started;
+
+      // the first consumer of the result, and that is why it is written off
+      // the result rather than off two locals: it reads the two things a hook
+      // is handed, so a shape that could not say whether the command failed, or
+      // how long it took, is a shape this line could not be written over
+      log(`Command "${cmd.name}" ${result.ok ? 'returned' : 'threw'} after ${ms.toFixed(3)}ms`);
+
+      // the hooks, then the error -- in that order, which is what lets a hook
+      // flush its log and have the error still report. `fireAfterRun()` does
+      // not throw, so nothing it does can get between this error and
+      // `handleError()` below
+      await fireAfterRun(cmd, result, ms, state);
+
+      if (!result.ok) {
+        throw result.error;
+      }
+
+      // the `?? state` substitution is `main()`'s return value and not the
+      // command's result: `result.value` is what `run()` handed back, so a
+      // command that returned nothing is a command that returned nothing
+      // wherever a hook asks what it did -- and wherever a format registry asks
+      // later, which is the shape this keeps rather than a reader that exists
+      return result.value ?? state;
     }
 
     // nothing ran and there was nothing to run: a CLI that is all subcommands
@@ -123,6 +217,8 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
     // a parse error never got to return a state, but it carries the one it
     // died with, which is where the matched command comes from
     return await handleError(err, state ?? stateFromError(err), opts, hooksFired);
+  } finally {
+    restoreQuiet?.();
   }
 }
 

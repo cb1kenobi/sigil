@@ -388,7 +388,7 @@ export function slotsFor(
     // steps rather than an impossibility -- a flag carries a `false` default,
     // so without this their destinations would join `answered`, which is then
     // harmless only because the ask pass below skips a flag for not being
-    // `required`. There are two of them, `--help` and `--version`
+    // `required`. There are three of them: `--help`, `--version` and `--quiet`
     if (parserOwned) {
       continue;
     }

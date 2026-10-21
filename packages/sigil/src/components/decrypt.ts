@@ -44,7 +44,7 @@ import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { graphemes } from '../width/index.js';
 import { cutAt, type TruncateMode } from '../wrap/index.js';
-import { type Mounted, type MountOptions, mountLive } from './mount.js';
+import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
 
 /** How long the jumble lasts before anything resolves, in milliseconds. */
 const JUMBLE = 2000;
@@ -1287,8 +1287,10 @@ export function createDecrypt(opts: DecryptOptions = {}): Decrypt {
 
   function mount(): Mounted {
     mounted ??= mountLive(
-      (live, motion) => {
-        const moving = live && motion !== 'reduce';
+      (level) => {
+        // the resolved answer, which is what this expression folded the pair
+        // `mountLive()` used to hand down back into -- one place computes it now
+        const moving = level === 'live';
         decryptReveal(state, {
           ...opts,
           // gated on `running` as well, which is what makes `stop()` snap to the
@@ -1403,7 +1405,13 @@ export function createDecrypt(opts: DecryptOptions = {}): Decrypt {
         mounted.write(line);
         return;
       }
-      // nothing has claimed the screen, so there is nothing to write above
+      // nothing has claimed the screen, so there is nothing to write above --
+      // and this is the one place a built-in writes without going through a
+      // backend, so it is the one place that has to ask the fold itself, and
+      // *now* rather than frozen -- see the spinner's own copy of both halves
+      if (mountLevel({ ...opts, terminal }) === 'quiet') {
+        return;
+      }
       terminal.write(line.endsWith('\n') ? line : `${line}\n`);
     },
   };

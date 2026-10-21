@@ -53,7 +53,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Declaring arguments](#declaring-arguments)
 - [Declaring commands](#declaring-commands) — nesting, lazy loading, running one from another
 - [Settings](#settings)
-- [Hooks](#hooks)
+- [Hooks](#hooks) — `afterRun`, `beforeError`, and what a hook may not do
 - [Help](#help)
 - [Shell completion](#shell-completion) — `completion` installs it, `completion bash` prints it
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
@@ -400,7 +400,7 @@ hook already are that moment.
 | `alias`                       | extra names that stay out of the help label                                      |
 | `hidden`                      | keep it out of help                                                              |
 | `help`                        | a string that replaces the screen, or a renderer that receives the generated one |
-| `hooks`                       | `init`, `parse`, `help`, `beforeError`, `subcommandLoaded`                       |
+| `hooks`                       | `init`, `parse`, `help`, `afterRun`, `beforeError`, `subcommandLoaded`           |
 | `path`                        | a module to load the command from, resolved from the file that declared it       |
 | `load`                        | that module as a function -- `() => import('./build.js')` -- for a bundled app   |
 | `routeInfo`                   | descriptions a build lifted out of the modules a `commands` path points at       |
@@ -568,6 +568,7 @@ await main({
     hooks: {
       beforeParse: (state) => {}, // before argv is walked
       afterParse: (state) => {}, // `state.argv` is written, nothing is validated yet
+      afterRun: ({ cmd, result, ms }) => {}, // run() returned or threw
       beforeError: (err, ctx) => {},
     },
     commands: {
@@ -576,6 +577,7 @@ await main({
           init: ({ options, args, commands }) => {}, // when the command is built
           parse: ({ cmd, options }) => {}, // when argv matches it
           help: ({ sections, state }) => {}, // when its help is rendered
+          afterRun: ({ cmd, result, ms }) => {},
           beforeError: (err, ctx) => {},
         },
         run() {},
@@ -585,21 +587,104 @@ await main({
 });
 ```
 
-They fire in this order:
+They fire in this order, for one `main()` call:
 
 ```
-init (at build time) → beforeParse → parse (as each command matches) → afterParse → run
+init (at build time) → beforeParse → parse (as each command matches) → afterParse
+  → run → afterRun → beforeError
 ```
+
+The two ends of that are conditional rather than part of every run.
+`beforeError` fires only for a run that failed, so a successful one ends at
+`afterRun`; and `afterRun` fires only for a command that **ran**, so a parse
+that failed goes straight to `beforeError` with nothing before it.
 
 A hook changes a command through the registries it is handed —
 `options.add(...)`, `args.push(initArg(...))`,
 `commands.add(await initCommand(...))` — which take effect immediately.
 
+### `afterRun`
+
+Fires once the matched command's `run()` has returned **or thrown**, innermost
+command first and the schema last, before anything on the error path has
+rendered. It is `finally` and `postrun` in one hook, because they are one
+moment: a handle to close, a lock to release, a duration to report.
+
+```js
+hooks: {
+  afterRun({ cmd, result, ms, state }) {
+    if (!result.ok) {
+      return report.failure(cmd.name, result.error, ms);
+    }
+    report.success(cmd.name, result.value, ms);
+  },
+}
+```
+
+`result` is a tagged union, so `ok` is what narrows it:
+
+| field          | meaning                                                   |
+| -------------- | --------------------------------------------------------- |
+| `result.ok`    | `true` where `run()` returned, `false` where it threw     |
+| `result.value` | what it returned, on `ok` -- `undefined` is a real answer |
+| `result.error` | what it threw, on `!ok` -- anything at all can be thrown  |
+| `ms`           | how long `run()` took, off `performance.now()`            |
+| `cmd`          | the command that ran                                      |
+| `state`        | the parse state it was handed                             |
+
+**`result.value` is what `run()` returned**, not what `main()` answers with:
+`main()` substitutes the parse state for a command that returned nothing, and
+reporting that as the command's value would be a lie about what the command did.
+
+**It fires for a command that ran**, which is all it claims. A run answered by
+`--help` or `--version`, one whose command has no `run`, and one whose parse
+failed all have no result to hand over and fire nothing -- `beforeError` is the
+hook for that last one.
+
+**"Before `beforeError`" is about this `main()` call.** A command that runs
+another with a nested `main()` has already let that call render its own error by
+the time it returns, so the sequence a composition sees is the inner call's
+`afterRun` and `beforeError`, then the outer call's. Which is each call's own
+error path rather than something this ordering could reach.
+
+**It cannot recover.** Whatever it returns is ignored and the `result` it is
+handed is frozen, so a failed run stays failed and the error still reports.
+`oclif`'s `catch` is a recovery hook; this is a reporting one. A hook that could
+turn a failure into a success would have to answer what `main()` returns, what
+the exit code is, and whether the error was ever an error -- which is
+`beforeError`'s own refusal to allow suppression, one step along.
+
+What the freeze refuses is what the framework is the author of: which case the
+result is in, which value or error it holds, and the duration. It does **not**
+seal the insides of your own objects -- `result.value` is the object your
+command returned and `result.error` is an error a `beforeError` hook may
+already mutate -- so a hook that wants to annotate either still can, and a hook
+that installs a `beforeError` reaches what is rendered exactly as declaring one
+would. Nothing there is a way round the refusal; it is the app's own channels,
+reachable from one hook more.
+
+**A hook that throws is reported and skipped.** The next hook still runs, the
+result is unchanged, and what it threw goes to `DEBUG=sigil:run`: a failed
+cleanup must not cost the user the error they actually needed.
+
+`DEBUG=sigil` prints the pair, which is the timing a command's own body never
+had:
+
+```
+[2026-01-01T00:00:00.000Z] sigil Executing command "build"
+[2026-01-01T00:00:00.000Z] sigil Command "build" returned after 41.028ms
+```
+
+There is no `catch`-as-recovery hook, and that is a decision rather than a gap.
+See `AGENTS.md`.
+
 ### `beforeError`
 
 Fires for every throw site, innermost command first and the schema last, before
-the error is rendered. A hook may **replace** the error but never suppress it:
-return nothing to leave it alone, return a value to make that value the error.
+the error is rendered -- and after `afterRun` where a command ran, which is not
+every throw site: a parse that failed reaches this hook and no `afterRun`. A
+hook may **replace** the error but never suppress it: return nothing to leave it alone, return a value to make that
+value the error.
 
 ```js
 hooks: {
@@ -822,8 +907,8 @@ lists -- a palette shows one row per command, and a completion menu is a list of
 tokens, so every token the parser takes is in it.
 
 A `hidden` command is not offered, and neither is anything under it; nor is a
-`hidden` option. `--help` and `--version` are, because they are things a user
-types.
+`hidden` option. `--help`, `--version` and `--quiet` are, because they are
+things a user types.
 
 Anything with no declared values falls back to your shell's own file
 completion, which is what `--out <dir>` wants.
@@ -2919,6 +3004,62 @@ SIGIL_REDUCED_MOTION=1 mycli    # or just: mycli | cat
 
 `Renderer.animating` says whether anything is in flight. There is no `onfinish`
 yet.
+
+#### `--quiet`: nothing is drawn at all
+
+That axis has a third state. Reduced motion means an animation that has
+**already finished** — the spinner draws its final frame, the bar prints its
+percentage, the typewriter prints the whole string — which is what a CI log
+wants. `--quiet` means **nothing at all**, so the three are ordered by how much
+reaches the screen: `live`, `reduce`, `quiet`.
+
+Every app gets `-q, --quiet` on its root for free, the way it gets `--help` and
+`--version`, and nothing is added over a declaration: an app whose `-q` means
+something else keeps it and gets the long form alone, and one that declares
+`--quiet` itself owns what quiet means. `schema.quiet: false` turns it off.
+
+```sh
+mycli build --quiet > out.json     # the data, and no progress beside it
+```
+
+**A result is not a progress report**, and that is the line the flag is drawn
+along. What a command _says_ survives: diagnostics, an error, `--help`, a
+`table()`, and a prompt — a dialogue is not progress, and silencing one would
+hang the program waiting for an answer to a question nobody was shown. What it
+says _while working_ does not: a spinner, a bar, a typewriter, a decrypt, and the
+notes and summaries the toolchain writes.
+
+Nothing is wired by hand. The flag reaches one fold, `resolveOutput()`, and every
+built-in reads its answer — so a spinner an app never told anything about goes
+quiet too. There is deliberately **no environment variable**: the other two are
+the user's override of a _detection_, and quiet is a request, which argv already
+has a spelling for.
+
+```js
+import { setQuiet, resolveOutput } from '@ttylabs/sigil/style';
+
+setQuiet(true); // the programmatic door, which is what `main()` uses
+resolveOutput({ live: process.stdout.isTTY === true }); // 'quiet'
+```
+
+A component that is the answer rather than the progress says so where it mounts,
+with `quiet: false` on its `MountOptions` — which is what `text()` and the other
+prompts do.
+
+It is `mountLive()`'s rule and never `render()`'s, which is the line on the
+drawing side: a full-screen app **is** the program, so quiet does not blank one.
+So a `ScrollBox` reads nothing — it is a view of content, on `table()`'s side —
+and `table()`, `largeText()` and `qrcode()` are results by their own shape, since
+each hands a string back and the caller does the writing. An app that wants a
+quiet view of its own gives `render()` a `createSinkCanvas()` backend, which is
+the spelling that exists.
+
+`sigil` itself is the acceptance test: `sigil check --quiet` prints its
+diagnostics and nothing else, and `sigil build --quiet` prints neither its
+summary nor the two tables of what it produced. `sigil new --quiet` deliberately
+does nothing beyond reaching its prompts — the install it runs writes through
+`stdio: 'inherit'`, so suppressing our one progress line while the package
+manager went on writing its own would be worse than leaving both.
 
 ### `sigil/themes`
 

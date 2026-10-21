@@ -364,8 +364,8 @@ export function commandTokens(cmd: InternalCommand): string[] {
  * `commandTokens()` above, and it is deliberate on both sides. A `hidden` option
  * is left out for the reason a hidden command is.
  *
- * `--help` and `--version` are in, although the parser owns them: they are
- * typeable, they are real, and `--hepl` is a typo worth answering.
+ * `--help`, `--version` and `--quiet` are in, although the parser owns them:
+ * they are typeable, they are real, and `--hepl` is a typo worth answering.
  *
  * @param contexts - The chain, innermost first.
  * @returns The spellings, each once, dashed as they are typed.

@@ -95,6 +95,7 @@ describe('completionSpec()', () => {
       },
       completion: false,
       help: false,
+      quiet: false,
     });
 
     expect(paths(found)).toEqual(['', 'db', 'db migrate', 'db migrate up']);
@@ -150,6 +151,7 @@ describe('completionSpec()', () => {
       },
       completion: false,
       help: false,
+      quiet: false,
     });
 
     expect(paths(found)).toEqual(['', 'shown']);
@@ -204,6 +206,7 @@ describe('completionSpec()', () => {
       },
       completion: false,
       help: false,
+      quiet: false,
     });
 
     expect(paths(found)).toEqual(['', 'outer']);
@@ -222,6 +225,7 @@ describe('completionSpec()', () => {
       },
       completion: false,
       help: false,
+      quiet: false,
     });
 
     expect(at(found, '').subcommands).toEqual([
@@ -245,6 +249,7 @@ describe('completionSpec()', () => {
       },
       completion: false,
       help: false,
+      quiet: false,
     });
 
     // who owns it, not merely that one of them does: dropping `ship` from the
@@ -269,6 +274,7 @@ describe('completionSpec()', () => {
       },
       completion: false,
       help: false,
+      quiet: false,
     });
 
     expect(at(found, '').subcommands).toEqual([
@@ -288,6 +294,7 @@ describe('completionSpec()', () => {
       },
       completion: false,
       help: false,
+      quiet: false,
     });
 
     expect(paths(found)).toEqual(['', 'fine']);
@@ -297,19 +304,22 @@ describe('completionSpec()', () => {
     const found = await spec({
       completion: false,
       help: false,
+      quiet: false,
       options: { '--shown': 'shown', '--secret': { desc: 'secret', hidden: true } },
     });
 
     expect(spellings(found, '')).toEqual(['--shown']);
   });
 
-  it('should keep --help and --version, which are typed even though their values are not', async () => {
+  it('should keep the flags the parser owns, which are typed even though their values are not', async () => {
     // the opposite call from `slotsFor()`, and for the opposite reason: what
     // `parserOwned` says is that the option's *value* is not the app's, and
-    // `--help` is a thing a user types
+    // `--help` is a thing a user types. The list is written out rather than
+    // filtered, so a fourth parser-owned flag is a test somebody extends rather
+    // than a set that silently grew
     const found = await spec({ version: '1.0.0' });
 
-    expect(spellings(found, '')).toEqual(['--help', '-h', '--version', '-v']);
+    expect(spellings(found, '')).toEqual(['--help', '-h', '--version', '-v', '--quiet', '-q']);
   });
 
   it("should offer an ancestor's options at a subcommand", async () => {
@@ -317,6 +327,7 @@ describe('completionSpec()', () => {
       commands: { build: { options: { '--out <dir>': 'out' }, run(): void {} } },
       completion: false,
       help: false,
+      quiet: false,
       options: { '--config [file]': 'config' },
     });
 
@@ -332,6 +343,7 @@ describe('completionSpec()', () => {
       },
       completion: false,
       help: false,
+      quiet: false,
       options: { '--mode [m]': { choices: ['slow'], desc: 'outer' } },
     });
 
@@ -345,6 +357,7 @@ describe('completionSpec()', () => {
     const found = await spec({
       completion: false,
       help: false,
+      quiet: false,
       options: { '--no-color': 'no colour' },
     });
 
@@ -355,6 +368,7 @@ describe('completionSpec()', () => {
     const found = await spec({
       completion: false,
       help: false,
+      quiet: false,
       options: {
         '--flag': 'a flag',
         '--b [v]': { desc: 'a bool', type: 'bool' },
@@ -382,6 +396,7 @@ describe('completionSpec()', () => {
     const found = await spec({
       completion: false,
       help: false,
+      quiet: false,
       options: { '--y [v]': { choices: [true, false], desc: 'a yesno', type: 'yesno' } },
     });
 
@@ -396,6 +411,7 @@ describe('completionSpec()', () => {
       ],
       completion: false,
       help: false,
+      quiet: false,
     });
 
     expect(at(found, '').argValues).toEqual(['a', 'b', 'c']);
@@ -419,6 +435,7 @@ describe('completionSpec()', () => {
       },
       completion: false,
       help: false,
+      quiet: false,
     });
 
     expect(at(found, '').argValues).toEqual(['pub', 'www']);
@@ -440,6 +457,7 @@ describe('completionSpec()', () => {
       },
       completion: false,
       help: false,
+      quiet: false,
       options: { '--mode [m]': { choices: ['slow'], desc: 'root mode' } },
     });
 
@@ -462,6 +480,7 @@ describe('completionSpec()', () => {
       },
       completion: false,
       help: false,
+      quiet: false,
     });
 
     expect(at(found, '').argValues).toEqual([]);
@@ -475,6 +494,7 @@ describe('completionSpec()', () => {
     const found = await spec({
       completion: false,
       help: false,
+      quiet: false,
       options: { '--x [v]': { choices: [`a${ESC}b`, 'fine'], desc: 'x' } },
     });
 
@@ -487,6 +507,7 @@ describe('completionSpec()', () => {
     const found = await spec({
       completion: false,
       help: false,
+      quiet: false,
       options: { '--b [v]': { choices: [], desc: 'nothing at all', type: 'bool' } },
     });
 
@@ -501,6 +522,7 @@ describe('completionSpec()', () => {
     const found = await spec({
       completion: false,
       help: false,
+      quiet: false,
       options: { '--x [v]': { choices: [`a${ESC}b`, `c${ESC}d`, 'fine'], desc: 'x' } },
     });
 
@@ -511,6 +533,7 @@ describe('completionSpec()', () => {
     const found = await spec({
       completion: false,
       help: false,
+      quiet: false,
       options: { '--x [v]': { choices: ['', 'fine'], desc: 'x' } },
     });
 
@@ -1437,7 +1460,17 @@ describe('the scripts as shell programs', () => {
       // which is the order the registry resolves in
       [
         ['mycli', 'build', '--'],
-        ['--mode', '--no-color', '--color', '--out', '--tag', '--config', '--help', '--version'],
+        [
+          '--mode',
+          '--no-color',
+          '--color',
+          '--out',
+          '--tag',
+          '--config',
+          '--help',
+          '--version',
+          '--quiet',
+        ],
       ],
       [
         ['mycli', 'build', '--mode', ''],

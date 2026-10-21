@@ -24,7 +24,10 @@ const ESC = String.fromCharCode(0x1b);
 async function help(schema: Schema, argv: string[] = [], width = 72) {
   let state;
   try {
-    state = await parse({ argv, schema: { completion: false, help: false, ...schema } });
+    state = await parse({
+      argv,
+      schema: { completion: false, quiet: false, help: false, ...schema },
+    });
   } catch (err) {
     state = stateFromError(err);
   }
@@ -42,7 +45,10 @@ async function help(schema: Schema, argv: string[] = [], width = 72) {
 async function themed(schema: Schema, theme: string, sheets?: string[]) {
   let state;
   try {
-    state = await parse({ argv: [], schema: { completion: false, help: false, ...schema } });
+    state = await parse({
+      argv: [],
+      schema: { completion: false, quiet: false, help: false, ...schema },
+    });
   } catch (err) {
     state = stateFromError(err);
   }
@@ -81,7 +87,7 @@ describe('the usage line', () => {
     const text = await help({ name: 'mycli' });
     const state = await parse({
       argv: [],
-      schema: { completion: false, help: false, name: 'mycli' },
+      schema: { completion: false, quiet: false, help: false, name: 'mycli' },
     });
     expect(renderHelp(state, { name: 'other' }).split('\n')[0]).toBe('Usage: other');
     expect(text).toBeTruthy();
@@ -101,6 +107,7 @@ describe('the usage line', () => {
   it('should make the command optional when one of them is the default', async () => {
     const schema: Schema = {
       completion: false,
+      quiet: false,
       help: false,
       name: 'mycli',
       commands: { build: {}, serve: { default: true, run: () => {} } },
@@ -281,6 +288,26 @@ describe('the options sections', () => {
       '  -v, --verbose  Print more about what is happening',
       '  --no-color     Turn color off',
     ]);
+  });
+
+  /**
+   * The one test here that keeps `--quiet` rather than opting out of it: every
+   * other fixture in this file suppresses the free flags so that its own lists
+   * are the claim, which collectively means nothing would fail if the flag
+   * landed in the wrong section. It is the root's, so a subcommand inherits it
+   * and it belongs under `Global options` after the command's own.
+   */
+  it('should put the flags the parser owns under Global options at a subcommand', async () => {
+    let state = await parse({
+      argv: ['build'],
+      schema: { completion: false, ...schema },
+    });
+    const global = sectionOf(renderHelp(state, { width: 72 }), 'Global options');
+    expect(global).toContain('  -q, --quiet    Suppress progress, not results');
+    expect(global).toContain('  -h, --help     Show help for a command');
+    // and in the command's own section, where it is not
+    const own = sectionOf(renderHelp(state, { width: 72 }), 'Options');
+    expect(own.join('\n')).not.toContain('--quiet');
   });
 
   it('should leave out a hidden option', async () => {
@@ -753,7 +780,10 @@ describe('help against a light background', () => {
       name: 'mycli',
       options: { '--port <n>': { default: 8080, desc: 'the port', type: 'int' } },
     };
-    const state = await parse({ argv: [], schema: { completion: false, help: false, ...schema } });
+    const state = await parse({
+      argv: [],
+      schema: { completion: false, quiet: false, help: false, ...schema },
+    });
     const dark = renderHelp(state, { colorLevel: 3, colorScheme: 'dark', width: 60 });
     const light = renderHelp(state, { colorLevel: 3, colorScheme: 'light', width: 60 });
 

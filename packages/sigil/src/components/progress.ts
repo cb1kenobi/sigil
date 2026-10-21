@@ -3,7 +3,7 @@ import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
-import { type Mounted, type MountOptions, mountLive } from './mount.js';
+import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
 
 export interface ProgressOptions extends MountOptions {
   /** The character drawn for the part still to do. Defaults to a light block. */
@@ -176,7 +176,11 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
   }
 
   const mounted: Mounted = mountLive(
-    (live) => progressView(state, { barWidth, empty, filled, live, step }),
+    // `live` is the resolved level read as a boolean: a bar is what a screen
+    // wants and a percentage is what a log wants, and a reduced-motion
+    // preference is somebody asking for the second -- a bar that fills is the
+    // thing that moves
+    (level) => progressView(state, { barWidth, empty, filled, live: level === 'live', step }),
     { ...opts, terminal }
   );
 
@@ -184,8 +188,27 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
     return Math.min(state.total.get(), Math.max(0, next));
   }
 
-  /** Settles the graph and paints, which is what every setter here owes. */
+  /**
+   * Settles the graph and paints, which is what every setter here owes.
+   *
+   * Asks the fold rather than reusing the mount's answer, which is the rule the
+   * other three facades' `write()` keeps and is needed here for the same reason
+   * one level up: this is the **one** built-in that mounts as it is built, which
+   * is what "drawn at zero" means -- so its level is resolved before `main()`
+   * has read argv, and a bar built in a command module's own body kept drawing
+   * through a `--quiet` run. Measured: `early 0%` and then every update.
+   *
+   * What it cannot take back is the frame the construction itself painted, and
+   * that is the eager mount rather than this: deferring it is what would close
+   * the last line, and it would cost the zero frame, which is the piped output
+   * this feature promised not to move -- measured, `createProgress()` alone
+   * writes `early 0%`. So the residue is one line, in the one order that
+   * reaches it. The fold is 0.1 microseconds, against a layout and a paint.
+   */
   function draw(): void {
+    if (mountLevel({ ...opts, terminal }) === 'quiet') {
+      return;
+    }
     mounted.frame();
   }
 
@@ -199,6 +222,23 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
       draw();
     },
 
+    /**
+     * `draw()` is gated and `mounted.done()` is deliberately not.
+     *
+     * What the mount does on the way out is **give the terminal back** -- the
+     * inline backend writes a newline and shows the cursor, and `stop()` erases
+     * the region and shows it -- which is not progress at all. A quiet run that
+     * left the cursor hidden is the terminal-eating failure `Terminal.restore()`
+     * is written for, so those bytes survive quiet the way an error does.
+     *
+     * Measured on a terminal, for a bar built loud and then asked to be quiet:
+     * `stop()` is eleven bytes of erase-and-show and `done()` is eight of
+     * newline-and-show, and neither is a percentage. The erase is also what
+     * takes the construction frame the comment above calls residue back off a
+     * screen, which is the better answer rather than a cost.
+     *
+     * @param final - What to say instead, if anything.
+     */
     done(final?: string): void {
       if (final !== undefined) {
         state.label.set(final);
@@ -208,6 +248,7 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
       mounted.done();
     },
 
+    /** Gives the terminal back, for the reason `done()` records. */
     stop(): void {
       mounted.stop();
     },
@@ -236,6 +277,10 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
     },
 
     write(line: string): void {
+      // the same question `draw()` asks, for the same reason
+      if (mountLevel({ ...opts, terminal }) === 'quiet') {
+        return;
+      }
       mounted.write(line);
     },
   };
