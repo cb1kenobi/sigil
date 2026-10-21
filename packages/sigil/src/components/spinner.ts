@@ -2,7 +2,7 @@ import { box, type Element, text as textNode } from '../element/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
-import { type Mounted, type MountOptions, mountLive } from './mount.js';
+import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
 
 /**
  * The default frames, which are Braille dots: they animate smoothly, sit inside
@@ -155,12 +155,16 @@ export function createSpinner(opts: SpinnerOptions = {}): Spinner {
 
   function mount(): Mounted {
     mounted ??= mountLive(
-      (live) => {
+      (level) => {
         createEffect(() => {
-          // only while there is something to animate and something running: a
-          // pipe has no frames to show, so a timer would wake the process
-          // eighty times a second to render nothing
-          if (!live || !running.get()) {
+          // only while something may move and something is running: a pipe has
+          // no frames to show and a quiet run has nobody watching, so a timer
+          // there would wake the process eighty times a second to render
+          // nothing. The resolved level rather than the raw terminal fact,
+          // which is what this read used to be -- so `SIGIL_REDUCED_MOTION=1`
+          // on a terminal left the spinner spinning, which is the one thing
+          // that variable exists to stop
+          if (level !== 'live' || !running.get()) {
             return;
           }
 
@@ -268,7 +272,20 @@ export function createSpinner(opts: SpinnerOptions = {}): Spinner {
         mounted.write(line);
         return;
       }
-      // nothing has claimed the screen, so there is nothing to write above
+      // nothing has claimed the screen, so there is nothing to write above --
+      // and this is the one place a built-in writes without going through a
+      // backend, so it is the one place that has to ask the fold itself. It
+      // leaked `"leaked\n"` under quiet before it did: not only before a
+      // `start()`, but after every `succeed()`, which clears `mounted`.
+      //
+      // Asked *now* rather than frozen, which is the one place a component does
+      // not reuse a mount's answer -- and it has to be: a facade built at module
+      // scope exists before `main()` has read argv, so a level frozen at
+      // construction could never see `--quiet` at all. The mounted branch above
+      // keeps what its mount resolved, which is what "resolves it once" means
+      if (mountLevel({ ...opts, terminal }) === 'quiet') {
+        return;
+      }
       terminal.write(line.endsWith('\n') ? line : `${line}\n`);
     },
   };

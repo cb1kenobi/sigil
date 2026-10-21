@@ -132,6 +132,10 @@ describe('the --help flag', () => {
   it('should not replace an option that took the name help', async () => {
     const schema: Schema = {
       name: 'mycli',
+      // off, so that `size` is still the claim it was written as -- that nothing
+      // was added *for help* -- rather than a count of every flag the framework
+      // offers for free
+      quiet: false,
       options: { '-x': { desc: 'The app own', name: 'help' } },
     };
     const state = await parse({ argv: ['-x'], schema });
@@ -162,12 +166,14 @@ describe('the --help flag', () => {
   it('should add nothing when help is turned off', async () => {
     const state = await parse({
       argv: [],
-      schema: { completion: false, help: false, name: 'mycli' },
+      schema: { completion: false, quiet: false, help: false, name: 'mycli' },
     });
     const { commands, options } = state.contexts[0][Internal];
     expect(options.find('--help')).toBeUndefined();
     expect(commands.find('help')).toBeUndefined();
-    expect((await run({ completion: false, help: false, name: 'mycli' }, ['--help'])).out).toBe('');
+    expect(
+      (await run({ completion: false, quiet: false, help: false, name: 'mycli' }, ['--help'])).out
+    ).toBe('');
   });
 });
 
@@ -318,7 +324,7 @@ describe('the completion command', () => {
 
   it('should say nothing in help for an app that turned it off', async () => {
     const { out } = await run(
-      { commands: { build: { desc: 'Build' } }, completion: false, name: 'mycli' },
+      { commands: { build: { desc: 'Build' } }, completion: false, quiet: false, name: 'mycli' },
       ['--help']
     );
 
@@ -469,7 +475,7 @@ describe('resolveHelp()', () => {
   it('should describe the state as it stands when there is no request', async () => {
     const state = await parse({
       argv: [],
-      schema: { completion: false, help: false, name: 'mycli' },
+      schema: { completion: false, quiet: false, help: false, name: 'mycli' },
     });
     expect(await resolveHelp(state, { width: 40 })).toBe('Usage: mycli');
   });

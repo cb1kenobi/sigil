@@ -27,7 +27,7 @@ import { createEffect, onCleanup } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { graphemes } from '../width/index.js';
-import { type Mounted, type MountOptions, mountLive } from './mount.js';
+import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
 
 /** How long a chunk is held before the next one, when nothing says otherwise. */
 const INTERVAL = 40;
@@ -531,8 +531,10 @@ export function createTypewriter(opts: TypewriterOptions = {}): Typewriter {
 
   function mount(): Mounted {
     mounted ??= mountLive(
-      (live, motion) => {
-        const moving = live && motion !== 'reduce';
+      (level) => {
+        // the resolved answer, which is what this expression folded the pair
+        // `mountLive()` used to hand down back into -- one place computes it now
+        const moving = level === 'live';
         typewriterReveal(state, {
           ...opts,
           // gated on `running` as well, which is what makes `done()` finish the
@@ -619,7 +621,13 @@ export function createTypewriter(opts: TypewriterOptions = {}): Typewriter {
         mounted.write(line);
         return;
       }
-      // nothing has claimed the screen, so there is nothing to write above
+      // nothing has claimed the screen, so there is nothing to write above --
+      // and this is the one place a built-in writes without going through a
+      // backend, so it is the one place that has to ask the fold itself, and
+      // *now* rather than frozen -- see the spinner's own copy of both halves
+      if (mountLevel({ ...opts, terminal }) === 'quiet') {
+        return;
+      }
       terminal.write(line.endsWith('\n') ? line : `${line}\n`);
     },
   };

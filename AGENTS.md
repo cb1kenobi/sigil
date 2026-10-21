@@ -85,6 +85,20 @@ resolves), `website/` (the Next.js site), `turbo.json`, `tsconfig.base.json`, an
 the shared oxlint and oxfmt configs. Each package extends the base tsconfig and
 sets its own `outDir`.
 
+**A demo lives with its _subject_, not with what it imports.** `demos/` has a
+directory per subsystem and the one a demo goes in is the layer it is about,
+whatever else it reaches for to show it: `style/02-themes.js` imports
+`@ttylabs/sigil/components`, `renderer/03-debug.js` imports it too, and
+`style/03-animation.js` imports five subpaths including `/renderer` and
+`/element` -- none of the three is in `demos/components/`, because a component a
+demo draws with is an instrument rather than the thing being demonstrated.
+Worth writing down because the rule was never stated and SIG-141's own demo was
+filed under `components/` for it: its subject is `resolveOutput()`, which is
+`src/style/output.ts`, and the axis it extends is `prefers-reduced-motion`,
+whose demo is `style/03-animation.js` -- so the two halves of one fold sat in
+two directories, which is the one arrangement that hides the point. It is
+`style/05-quiet.js`.
+
 **`packages/` holds the published packages and nothing else.** `packages/*` is
 the glob the workspace, turbo, vitest's `projects`, and the coverage `include`
 all read, so anything put there joins all four silently -- and the four entries
@@ -3559,6 +3573,494 @@ is proved.
   matches what you are looking at. The probe says so in as many words, including
   that a `COLORFGBG` disagreeing with the reply is the variable being stale rather
   than the reply being wrong.
+
+### A quiet axis: one place that decides whether anything may draw
+
+Half of what a `--json` flag is for has nothing to do with JSON -- it is
+suppressing everything else, and that is worth having on its own.
+`src/style/output.ts` is the fold, `createSinkCanvas()` is what stops the bytes,
+`src/parser/quiet.ts` is the flag, and `packages/cli/src/report.ts` is the
+toolchain's one reader.
+
+- **Nothing new was invented, which is the point.** The feature is one more
+  source folded into the place that already folds the motion preference, one
+  value added to what that fold answers, and one backend. No new resolution path
+  and nothing a component asks for itself -- which is the argument the colour
+  scheme and the utility layer are both built on, and the reason this was a small
+  ticket sitting behind a large one.
+
+- **`live`, `reduce`, `quiet` are three states rather than a boolean, because
+  reduced motion and quiet are different _answers_ from the same components.**
+  Reduced motion means an animation that has **already finished** -- the spinner
+  draws its final frame, the bar prints its percentage, the typewriter prints the
+  whole string -- which is exactly right for a CI log and exactly wrong for a
+  script that asked for nothing. So `OutputLevel` is ordered by how much reaches
+  the screen, and `resolveMotion()` came out of `motion()` so that the quiet fold
+  reads the motion fold rather than reimplementing its three sources.
+
+- **Collapsing `(live, motion)` into one level fixed a latent defect, which is
+  the clearest argument for the fold there is.** The spinner's tick read `live`
+  -- the raw terminal fact -- where every other component read the resolved
+  answer, so `SIGIL_REDUCED_MOTION=1` **on a terminal** left it spinning at
+  eighty milliseconds a frame, which is the one thing that variable exists to
+  stop. A pipe hid it, because there `live` is false and the two readings agree;
+  it took a terminal with the preference set to separate them. Two readers of one
+  rule, found by writing the fold rather than by a report.
+
+- **The screen is a ceiling rather than one more opinion, which is why the last
+  two sources are an `||`.** `live` means frames get repainted in place and a
+  pipe has nowhere to repaint, so nothing can ask for animation into one -- the
+  same asymmetry `refineColorLevel()` is written down for, where a reply may
+  raise a level and never lower it off the floor a pipe produced. It is what
+  keeps a forced `reducedMotion: 'no-preference'` from writing a line per reveal
+  step into a log file, and it answers the ticket's fourth question: the three
+  states need an order, and a non-TTY sets the ceiling at `reduce` while `quiet`
+  sits under it where anybody asked.
+
+#### Quiet is a backend, because a backend is what decides bytes
+
+- **The sink is not the first thing to reach for and the two cheaper shapes were
+  each measured wrong.** Returning an **empty tree** from the build looks like
+  the smallest change and leaves a line behind: `mountLive()` writes `"\n"` at
+  construction to reserve the row, measured, so a quiet spinner printed a blank
+  line per mount. **Not mounting at all** is worse than a line -- `await
+  decrypt(text)` is settled by an effect created inside the build, so a mount
+  that skipped the build never resolves it and the promise **hangs**, also
+  measured. What a component needs in order to finish is to be _told the level_,
+  which every built-in already reads as "do not move", so a quiet component takes
+  the same path a piped one takes and ends at once.
+
+- **So the tree is still built and its effects still run, and that is not
+  waste.** It is what makes a quiet run work at all. What a quiet frame costs is
+  a layout against one cell and no paint, and what stops the bytes is the absence
+  of a `terminal.write()` anywhere below.
+
+- **A real `Canvas` is kept rather than faked**, because the renderer reads
+  `canvas.cells` and `canvas.stats`, and a canvas that lies about its own size is
+  a worse thing to hand it than one row of nothing. `active`, `isLive` and
+  `origin` all say what is true -- nothing is on screen -- and `locate()` answers
+  `false` rather than waiting a round trip for a report about an origin there is
+  none of.
+
+- **`render()` invokes no draw, and that half needed its own input.** The
+  guarantee is that no method writes through the terminal; the emptiness of the
+  canvas is a second guard that was **covering for it**. A sabotage writing
+  `canvas.toString()` from `render()` or from `present()` survived, because the
+  draw is never invoked so the canvas is blank so the write is the empty string
+  -- two guards covering for each other, which is the shape this file records for
+  `eaten` and for the `claimed` set. A canvas painted **by hand** separates them,
+  and `present()` is the one member only that can reach: the renderer calls
+  `render()` and `done()` and never `present()`, measured, so the interface's own
+  documented second mode -- "paint it directly and call `present()`" -- is an
+  app's path rather than the framework's.
+
+- **What it leaves is `painted: needPaint` true for a frame nothing painted**,
+  which a `gatherStats` consumer would read as one. Written down rather than
+  fixed: a quiet run has no audience for frame stats either.
+
+#### The three lazy facades write through the terminal, and `mountLevel()` is why
+
+- **`write()` is "a line that stays, above the frame", and with nothing mounted
+  there is no frame** -- so the spinner, the typewriter and the decrypt wrote
+  straight through the terminal, which bypasses the backend and therefore the
+  fold. Reproduced as `"leaked\n"` on all three. Found by the first review round.
+
+- **The second shape is the common one**: `settle()` clears `mounted`, so every
+  `write()` after a `succeed()` takes the unmounted branch. A quiet spinner that
+  finished and then wrote a line leaked it.
+
+- **So `mountLevel()` is the same fold asked without mounting**, with the same
+  inputs `mountLive()` resolves from -- which is the thing that makes it one
+  mechanism rather than a second guard: a caller that assembled the inputs itself
+  would be the drift this axis exists to remove.
+
+- **It costs 10.2ms per 100,000 calls, and 94% of that is one `process.env`
+  read.** Which is the more useful fact than the number: `mountLevel()` passes no
+  `env`, so `forcedMotion()` reads `process.env.SIGIL_REDUCED_MOTION`, and
+  `process.env` is a proxy over the real environment where each property read is a
+  host call. Measured over 100,000 calls after 200,000 of warm-up, five timed runs
+  each -- `mountLevel({ terminal })` is **10.17ms** and `resolveOutput({ live:
+  false })` is **10.04ms**, so the fold is all of it; the same call with an
+  explicit `env: {}` is **0.75ms**. Three fresh processes agree to within half a
+  millisecond.
+
+  Written out because a review round could not reproduce the figure and got about
+  a millisecond, which is what the last row is: a measurement of this fold that
+  passes an `env` is measuring something the real call path does not do. It is
+  nothing either way -- the question is asked once per `write()`, and nothing
+  writes a hundred thousand lines -- and the shape is worth knowing before
+  somebody puts the fold inside a loop.
+
+- **`createProgress` is the one facade that mounts eagerly, so it needs the gate
+  twice.** A bar built **before** the request leaked `"Uploading 0%\n"` and every
+  update after it; gating `draw()` and `write()` reduces that to the single
+  construction frame, measured. Deferring the mount was the obvious fix and is
+  refused by a measurement: it deletes the `0%` line a loud bar prints at
+  construction, which is a byte an existing app gets today.
+
+- **A mount's level is resolved once, so those gates can only suppress.** Which
+  is the recorded design read in the other direction, and it cuts one way: a
+  component built **under** a request holds the sink for its life, and lifting the
+  request does not start it drawing -- measured, a bar built quiet and then handed
+  a `setQuiet(undefined)` goes on writing nothing even where the fold now says
+  `reduce`. Right for the lifecycle an app has, one `main()` and one request with
+  every component built inside `run()`; what reaches it is a caller lifting the
+  request mid-run, which is a test's teardown or a demo. Re-resolving per frame
+  would mean swapping a backend out from under the renderer, and nothing has
+  asked. Found by the fourth review round and pinned, so it is a decision rather
+  than a surprise.
+
+- **`done()` and `stop()` are deliberately not gated, because giving the terminal
+  back is not progress.** The inline backend's teardown writes a newline and shows
+  the cursor, and `stop()` erases the region and shows it -- and a quiet run that
+  left the cursor hidden is the terminal-eating failure `Terminal.restore()` is
+  written for. Measured on a terminal for a bar built loud and then asked to be
+  quiet: `stop()` is eleven bytes of erase-and-show and `done()` eight of
+  newline-and-show, and neither is a percentage or a label. The erase is also what
+  takes the construction frame the entry above calls residue back off a screen,
+  which is the better answer rather than a cost. `draw()` is gated and the mount's
+  own teardown is not, which is one line of asymmetry that needed saying.
+
+#### A result is not a progress report
+
+- **The line is between what a command says and what it says while working**, and
+  it is written on `output.ts` where a reader looks for it. `sigil check`'s
+  diagnostics are the answer to the question it was asked, and a quiet mode that
+  swallowed them would make the command useless; its summary is a report about
+  work done. So an error survives, `--help` survives, a `table()` survives, and a
+  prompt survives.
+
+- **It is `mountLive()`'s rule and never `render()`'s**, which is where the line
+  falls on the drawing side. `mountLive()` is exactly the set of things that draw
+  _beside_ an answer; `render()` is an app drawing its own tree, which **is** the
+  answer -- a full-screen app is the program, and blanking one because a script
+  wanted data on stdout would be absurd. So `RenderOptions` has no `quiet`.
+
+- **The scroll box reads nothing, and that is a decision rather than a gap.** The
+  ticket names it, so a reader has to be able to tell the two apart: it is a view
+  of content, so it is on `table()`'s side of the line, and the idiomatic
+  scroll-box app hands a tree to `render()` rather than to a mount. An app that
+  wants a quiet view of its own gives `render()` a `createSinkCanvas()` backend,
+  or does not build the tree -- the escape hatch is named for the same reason the
+  classification is, because "pass it to the mount" would be offering a spelling
+  that app does not have.
+
+- **`table()`, `largeText()` and `qrcode()` are on the result side by their own
+  shape**: each returns a string and the caller does the writing, so quiet is the
+  caller's statement about its own `write()`. `enableDebugOverlay()` is with them
+  -- it is diagnostics about the program, which survive the way an error does.
+
+- **A prompt says `quiet: false`, which is the one statement above the request.**
+  A dialogue is not progress, and a silenced one waits forever for an answer to a
+  question nobody was shown. It is set after the caller's options rather than
+  before, so it cannot be overridden: a prompt that could be silenced is a hang.
+  What that costs is that a prompt **discards** the value, so it cannot refuse a
+  bad one -- `text({ quiet: 'nope' })` asks its question where
+  `createSpinner({ quiet: 'nope' })` throws, which is the throw timing differing
+  rather than the strictness.
+
+#### The flag: where it lives, and the four questions
+
+- **It is the framework's, on the root, the way `--help` and `--version` are --
+  and that answers the ticket's first question.** Every CLI that reports progress
+  wants a way to stop, and before this each had to pass the answer by hand into
+  every spinner, bar and note it builds. Passing it by hand is the half that
+  cannot work: a built-in is built inside a command's `run()`, so one missed call
+  site is a flag that parses and does nothing. And it survives `sigil build` for
+  the reason `--version` is written down for -- the build generates the executable
+  and calls `main()`, so whatever an app wrapped around `main()` is not in the
+  bundle, and the schema is the one thing carried across whole.
+
+- **Its value never reaches `argv`, which is `parserOwned`.** A flag always has a
+  value, and an app that never declared `--quiet` should not find `quiet: false`
+  on one of its own destinations. What a command that wants to know asks is
+  `resolveOutput()`, which is the resolved answer rather than one of its four
+  sources -- a mount told `quiet: false` would make `argv.quiet` a lie.
+
+- **There is no environment variable, and that is the second question's
+  answer.** `SIGIL_COLOR_SCHEME` and `SIGIL_REDUCED_MOTION` are each the user's
+  override of a **detection** -- the framework guessed and the variable corrects
+  the guess. Quiet is not guessed: it is asked for, and the place to ask is argv.
+  A variable would also break the declaration-respecting rule from behind: an app
+  whose `--quiet` means something of its own keeps it and gets no flag from the
+  framework, and a variable would silence its built-ins anyway without going
+  through the declaration it owns. `setQuiet()` is the programmatic door and
+  `MountOptions.quiet` is the per-component one.
+
+- **It is `setQuiet()` rather than `requestQuiet()`, because nothing receives a
+  request.** The function assigns a module-level slot; there is no recipient, and
+  the one thing that outranks it -- a mount's own `quiet: false` -- is the next
+  rung of the precedence chain rather than a refusal. `request` also already
+  means something else in this package: `requestMode()` writes a DECRQM query
+  the terminal answers, so it has a respondent, a reply and the possibility of
+  silence, and one verb doing both jobs a few modules apart is the drift this
+  file deletes everywhere else. `setColorLevel()` is the structural twin down to
+  the details -- a process-wide slot, a value or `undefined` for "nobody said",
+  a `void` return, validated on the way in, overriding what the framework would
+  otherwise work out -- so `setQuiet()`/`getQuiet()` is `setColorLevel()`/
+  `getColorLevel()`'s pairing rather than a new convention. What `request` is
+  left meaning here is what the **user** does through `--quiet`, which is why
+  the prose still says it and the private slot is still `requested`.
+
+- **`--verbose` is not the same axis, which is the third.** Verbosity is how much
+  a command says about its **answer**, which is the command's own business: the
+  framework cannot know what "more" means for an app's output, so a `--verbose` it
+  added would be a flag no built-in could read -- the same defect in the other
+  direction. The framework's own half of that question is already `DEBUG` and
+  `src/debug/`. One numeric knob with quiet at the bottom would mean inventing the
+  middle of a scale nobody has asked for.
+
+- **Nothing is added over the top of a declaration, and the asymmetry is the
+  surprising half.** `find()` answers about spellings and `has()` about the
+  registry key, which is an option's name, and **both** have to be free. A taken
+  `-q` costs the app only the short form; a merely-_named_ `quiet` costs it the
+  flag **entirely**, because replacing a registry key is a worse thing to do to an
+  app than declining to add a spelling. The two halves are not the same check and
+  a sabotage said so: an option declared `--quiet` is also _named_ `quiet`, so
+  `has()` covers for `find()` until the name is explicit --
+  `{ hush: { format: '--quiet [level]', name: 'hush' } }` is the input that
+  separates them, and left to `has()` alone the framework's own `add()` replaces
+  the spelling and the app's option becomes unreachable.
+
+- **A subcommand that declares its own reaches backwards over the root's**, which
+  is the parser's context rule rather than anything here and is worth saying
+  because it is not what "shadows it for itself alone" sounds like: options
+  resolve across the whole chain, so a nearer valued declaration owns the
+  destination a bare root use wrote -- and `mycli --quiet work`, on an app whose
+  `work` declares `--quiet <level>`, is `Missing required options: --quiet` rather
+  than a quiet run. Confirmed by probe. The app claimed the spelling, so it owns
+  what every use of it means.
+
+- **Its description is one key, because an app's user reads it.** `Suppress
+  progress, not results` joins `SIGIL_KEYS` beside `Show help for a command` and
+  `Print the version`, which is the line the i18n work drew: the framework's own
+  developer-facing errors stay English, and a free flag's row on the help screen
+  is read by the app's user. `SIGIL_KEYS.length` is the figure.
+
+- **Any typed true wins, in either order, and `--no-quiet` is not a negation.**
+  `--quiet --quiet=false` is quiet, which is `--help`'s own rule rather than a
+  decision taken here -- the three flags of this shape read argv the same way, and
+  changing one inside a ticket about another is how they come to disagree. The
+  spelling somebody reaches for to undo it is `--no-quiet`, and a `no-` twin is
+  created by _declaring_ one, so it lands on `argv` as an undeclared option
+  instead. Both are pinned rather than argued.
+
+#### `main()` restores what it attached, and the restore is an undo
+
+- **A boolean has no identity, so the slot carries a token.** `main()` records
+  the request and puts it back on the way out, and the first version compared the
+  **value** -- which cannot tell "nobody wrote since" from "a command asked for
+  the same thing", so a command that called `setQuiet(true)` through the
+  documented door had its own statement reversed when the run ended. Found by the
+  second review round. `quietGeneration()` is the answer and it is the shape of
+  check `unanchor()` gives a reply about an anchor that has moved: a token that no
+  longer matches is stale and is not acted on. `captureConsole()`'s own
+  `restoreOne()` can compare the function it installed; a `true` cannot be
+  compared to a `true`.
+
+- **And the restore is a _rewind_ rather than a write, which took a fourth round
+  to find.** Spelled `setQuiet(before)`, the restore moves the token -- so a
+  **nested** `main()` whose argv also asked for quiet made the outer run's own
+  token stale _by putting the outer's value back_, and the outer `finally` then
+  declined to clear what it had attached. Measured on the shape the README
+  documents, `await main({ argv, schema })` inside a `run()`: after both returned
+  the process was still quiet, and the next run with nothing in argv was silenced
+  by it -- which is exactly the leak the restore exists for, reached through the
+  one door nobody had tried. `rewindQuiet()` puts the value _and_ the token back,
+  so the two runs unwind as a stack.
+
+  Rewinding the token is as safe as rewinding the value and for the same reason:
+  the caller only reaches it where the token still matches, so nothing has
+  happened since and what goes back is the whole state that token named. The token
+  may therefore go down and be allocated again, which is benign -- a later write
+  that reuses a number is a different statement, and the run whose token it was
+  has gone. Pinned at two levels and at three, with the cost asserted as well as
+  the flag: the run _after_ the nested pair is what the leak is paid for in.
+
+- **A statement made inside a run outlives it, deliberately.** This is a
+  statement about the process, so the consequence worth knowing is that a nested
+  run can countermand the outer one's flag for the rest of it: there is one slot
+  and the inner statement is the more recent. One process, one intent.
+
+- **The generation counter is not in the `style` barrel.** `main()` is the only
+  reader and a counter is nobody's business outside the package.
+
+- **Strictness is about the two values and deliberately not about
+  `schema.quiet`.** Truthiness is wrong in the direction that costs: `'false'`
+  and `new Boolean(false)` are both truthy, so `setQuiet('false')` silenced
+  the whole process and `createSpinner({ quiet: 'false' })` silenced the spinner,
+  each measured. Neither is a value anybody meant and there is no third answer to
+  fall back to, so it is refused where it was written -- the call a non-boolean
+  `hidden` already gets. `schema.quiet` keeps `schema.help`'s and
+  `schema.completion`'s `=== false` posture instead: a garbage value there offers
+  a flag nobody wanted, where a garbage value in a mount loses output somebody
+  did, and the three free flags agreeing with each other is worth more than this
+  one being the strictest.
+
+#### The toolchain has one reader, and the piped bytes did not move
+
+- **`isQuiet()` in `report.ts` is it**, and it reads `getQuiet()` rather
+  than calling the fold with a destination that could not change the answer. The
+  summary and the note are suppressed and a **diagnostic never is**: that is the
+  rule said in the one place both writers pass through, rather than at each call
+  site.
+
+- **`sigil build` printed two tables of what it produced**, which is the summary's
+  own subject at greater length, straight to stdout. Found by the second review
+  round -- so a quiet build lost its one-line summary and kept the same thing
+  spread over twenty. Asked once around both printers rather than inside each,
+  because the question is "is this progress" and a printer answers "here is a
+  table".
+
+- **`sigil add`'s separators go with the notes they precede**, which took three
+  instances: a quiet `add` that dropped a note and kept its blank line is one
+  where "nothing" is not nothing. The separator above the **confirm** stays,
+  because it is a separator before a _prompt_. The declined note goes through
+  `writeNote()` rather than a raw write, so the two outcomes of one dialogue are
+  treated the same way -- and that one is only reachable with a terminal on both
+  streams and a key, which is why nothing pinned it until a sabotage said so.
+
+- **Piped output with quiet off is byte-identical, measured against `main`'s own
+  built binary.** `check` over three fixtures, `check --tree`, a bare run and
+  `--version` are identical on stdout, on stderr and in the exit code. What
+  differs is exactly three screens plus the completion script -- `--help`, `help
+  check` and the bare help screen each gained the row `-q, --quiet    Suppress
+  progress, not results`, and the script offers two more candidates. Which is the
+  flag existing rather than a byte moving, and it is the honest form of the claim:
+  nothing that reports got quieter or louder.
+
+#### What the four review rounds found
+
+Each was aimed differently -- the first at the diff with the ticket and none of
+the author's rationale, and each one after it at the previous round's own skipped
+list **and** its fixes. That ordering is what this file already records:
+the findings come from what nobody opened, and the previous round's fixes are
+exactly that.
+
+- **Round 1** found the `write()` leak on all three lazy facades; a `main()` leak
+  across two calls; truthiness on a non-boolean, with `setQuiet('false')` and
+  `createSpinner({ quiet: 'false' })` each measured; a dead argument in
+  `report.ts`; and four pieces of missing prose.
+
+- **Round 2** found `main()`'s restore reversing a command's **own** statement --
+  the generation counter above; `sigil build --quiet` still printing both tables;
+  five undercounted "two parser-owned flags" enumerations, in `catalog.ts`,
+  `catalog.test.ts`, `suggest.ts`, `completion/spec.ts` and the README; and two
+  sentences in the demo that were false about what it prints.
+
+- **Round 3** found the generation question again from the other side (a value
+  comparison cannot see a command's own write), `createProgress`'s eager mount
+  leaking through `draw()` and `write()`, a sink-substitution test whose named
+  backend was a second sink -- so the byte assertion passed whether or not
+  anything was substituted -- and the `add` declined note. It also asked for the
+  prompt's discarded-value asymmetry to be written down, which is the paragraph
+  above.
+
+- **Round 4 was aimed at round 3's own fixes and at the prose, and it found the
+  nested-`main()` leak** -- which is the one defect in four rounds that is a
+  _wrong answer the previous round's fix produced_, and the entry above has it. It
+  also found a test helper whose readiness condition was any `?`, which
+  `ESC [ ? 25 l` satisfies **inside the first paint**, before the router has
+  attached its stdin listener: it worked because a pipe holds what nobody has read
+  yet, which is the shape of a test that passes for a reason other than its own.
+  Then three sentences false about the code beside them -- `promptText` for the
+  export's `text`, a package count read as a line count, and a demo header saying
+  its third block writes nothing where the three _components_ do and two
+  `console.log` lines stay -- and one assertion that could not fail, since the only
+  writer of the string it looked for was the callback the test had just asserted
+  did not run.
+
+  Two of its findings were the right answers rather than defects and are now
+  written down with their reasons: a mount resolving its level once, and
+  `done()`/`stop()` giving the terminal back.
+
+  And it **disputed the `mountLevel()` cost**, which is the entry above: the
+  figure is reproducible three times over and theirs is a measurement that passes
+  an `env` the real call path does not. Recording both is worth more than
+  recording the number.
+
+- **Two findings were refuted rather than fixed**, and both are recorded where
+  they live. `--quiet --quiet=false` being quiet is `--help`'s rule, so it is
+  pinned and documented rather than changed. And `resize(NaN)` is shared with the
+  inline backend, so it is that backend's convention rather than this one's --
+  what a sink can reach it through is an app calling `createSinkCanvas()` itself,
+  since the renderer floors a width before it resizes.
+
+- **And `sigil new --quiet` deliberately does nothing beyond its own prompts**,
+  because the install writes through `stdio: 'inherit'` -- the package manager
+  owns that output, which is the measurement "There is no live display in the
+  toolchain" already records from the other side. What that measurement says is
+  that piped npm wrote **four** lines, all at the end, and that a pty-driven pnpm
+  wrote 21 carriage returns and 82 escapes for a fourteen-_package_ install -- so
+  the README's reason is right and its count was the package count read as a line
+  count, which round 4 caught.
+
+#### What the sabotage pass found, and the two declared survivors
+
+Fifty-five mutations, one at a time, counted against the shipped tree in **one
+run** rather than summed across rounds, which is what makes the figure
+re-derivable. **Fifty-three caught and two declared.** A green control first, and
+the four verdict guards this repository has learned to need: a pattern that
+matched nothing, a pattern that matched more than once, a replacement equal to its
+original, and a run that found fewer test files than the control are each their
+own verdict rather than a pass. The tree is restored on `SIGINT` and `SIGTERM` as
+well as on an exception, and the harness **rebuilds both packages** per mutation,
+because `packages/cli`'s tests read sigil's `dist/` -- the stale-dist trap this
+file records, which without the rebuild makes every mutation in `src/` invisible
+to half the suite.
+
+- **One declared survivor is `detectQuiet()`'s `if (!option) return false;`**, and
+  it is a fast path rather than a claim: a `ParsedOption` carries a **required**
+  `option`, so an `undefined` one matches nothing and the scan below answers
+  `false` either way. What it skips is a walk of `state.$` for every app that
+  declared its own. What deleting it would cost is the reason it is kept rather
+  than removed: the body is `detectVersion()`'s byte for byte, so taking it out
+  here alone would make two copies of one function disagree -- which is the rule
+  the paragraph above it keeps about the three flags reading argv the same way.
+
+- **The other is `rewindQuiet()`'s own `asked()`**, which is a **tripwire**: its
+  one caller passes what `getQuiet()` answered, and `setQuiet()` has
+  already refused anything but a boolean for that. It is kept because the slot has
+  two writers and that is the one place what the slot may hold is enforced --
+  saying it once and trusting the other writer's caller is an invariant held two
+  different ways.
+
+- **Eight survived their first pass and every one was a test that could not see
+  what it was named for**, which is the shape this file keeps rediscovering. Two
+  are the sink's `render()` and `present()`, above -- the emptiness of the canvas
+  covering for the absent write. One is the declaration check, which needed an
+  explicit `name` to separate `find()` from `has()`. One is `createProgress`'s
+  gate, which needed a bar built **before** the request, and one is `stop()`'s
+  teardown, which needed its own test because the one beside it asserts `done()`'s.
+  One is the `add` declined note, which needed a spawned child with a faked TTY on
+  both streams and a key written to its stdin -- `runOnTerminal()` deliberately
+  writes nothing to a child's stdin, "a prompt is not what to spawn", so a test of
+  a path behind a confirm does both halves itself.
+
+  And **two are that test helper's own claim**, which is the sharpest of the
+  eight: taking the latch off, and looking for any `?` rather than the question,
+  each left every assertion in the file green. Nothing outside the child can see
+  either, because **a pipe holds what nobody has read yet** -- so an early key and
+  a repeated one both work and neither is distinguishable from a correct one by
+  reading the output. So the helper reports _when_ and _how often_ it answered and
+  the test asserts that, which is the only shape that can fail for the reason its
+  name gives.
+
+- **One guard was deleted rather than tested**, which is what this repository does
+  with one that cannot change an answer: a `=== true` beside `asked()` in
+  `resolveOutput()`, where `asked()` has already refused everything that is not a
+  boolean.
+
+#### What is deliberately out
+
+- **A `RenderOptions.quiet`**, for the reason the scroll box is a result: quiet is
+  the mount's rule and `render()` is an app drawing the answer.
+- **An environment variable**, with its reason above.
+- **`--verbose`**, likewise.
+- **Validating `schema.quiet`**, which is a change to `schema.help` and
+  `schema.completion` taken inside a ticket about a third flag.
+- **A numeric level**, which would mean inventing the middle of a scale.
+- **Suppressing a prompt**, which is a hang.
 
 ### Style
 
@@ -16170,9 +16672,10 @@ where something did not resolve, and `settings.suggestions: false` is the opt-ou
 - **Aliases are candidates and a `hidden` command is not.** An alias is a token
   somebody can type, and a transposed `sl` for a declared `ls` is exactly the typo
   this is for. `hidden` means "not listed", and a suggestion is a listing of one.
-  The parser's own `--help` and `--version` are in, because they are typeable and
-  real and `--hepl` is worth answering -- and so are the **commands** it registers,
-  which is `help` and, since shell completion landed, `completion`. The candidate
+  The parser's own `--help`, `--version` and, since the quiet axis landed,
+  `--quiet` are in, because they are typeable and real and `--hepl` is worth
+  answering -- and so are the **commands** it registers, which is `help` and,
+  since shell completion landed, `completion`. The candidate
   lists in `suggest.test.ts` are written out rather than filtered, so a third
   parser-owned command is a test somebody has to extend rather than a set that
   silently grew.

@@ -49,7 +49,7 @@ import {
   type ShakenStyles,
 } from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
-import { reportLevel, writeNote, writeSummary } from '../report.ts';
+import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
   appRuns,
   countCommands,
@@ -154,8 +154,14 @@ const build: AnyCommand = command({
       tree: { commands: found.commands, diagnostics: [] } satisfies ResolvedTree,
     });
 
-    printSizes(result.chunks);
-    printInlined(result.inlined);
+    // the two tables are what the summary says at greater length -- what was
+    // produced and what it costs -- so a quiet build loses them with it. Asked
+    // here rather than inside each printer, because the question is "is this
+    // progress" and the printers answer "here is a table"
+    if (!isQuiet()) {
+      printSizes(result.chunks);
+      printInlined(result.inlined);
+    }
     warnEmptyShake(result.styles);
 
     const total = countCommands(found.commands);

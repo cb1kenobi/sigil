@@ -87,7 +87,7 @@ import {
   type TextRun,
   toDisplayText,
 } from '@ttylabs/sigil/element';
-import { schemeFromEnv } from '@ttylabs/sigil/style';
+import { getQuiet, schemeFromEnv } from '@ttylabs/sigil/style';
 import { themedCascade } from '@ttylabs/sigil/theme';
 import { stringWidth } from '@ttylabs/sigil/width';
 import { terminalWidth } from '@ttylabs/sigil/wrap';
@@ -535,6 +535,40 @@ function isTerminal(to: Destination | ReportStream): boolean {
 }
 
 /**
+ * Whether this run was asked to say nothing while it works.
+ *
+ * The toolchain is the acceptance test for the line this axis is drawn along:
+ * **a result is not a progress report.** `sigil check`'s diagnostics are the
+ * answer to the question it was asked, so they survive quiet; its summary line
+ * is a report about work done, so it does not.
+ *
+ * The **request** rather than `resolveOutput()`, and that is a correction rather
+ * than a shortcut: a report is text whichever of `live` and `reduce` it is, so
+ * the only one of the three answers that means anything here is `quiet` -- and
+ * the only source that produces `quiet` for a caller with no mount of its own is
+ * the request. Passing a destination made the fold's other two sources look as
+ * though they could matter, and `should answer quiet only where something asked`
+ * pins that **the motion sources** cannot: it walks every screen, preference and
+ * `SIGIL_REDUCED_MOTION` the fold reads and never answers `quiet`. A source added
+ * above the request that read some *other* variable would pass that loop
+ * untouched, so it would need a pin of its own -- which is the honest statement
+ * rather than the one this sentence made. Either way, in one process either every
+ * report stream is quiet or none is. There is no `MountOptions.quiet` equivalent here, which is right --
+ * a report is nobody's progress but the command's.
+ *
+ * Exported because two of the toolchain's own commands draw without going
+ * through either writer -- `sigil build` prints two tables of what it produced,
+ * which is the summary's own subject at greater length -- and a second reader of
+ * the axis inside one package is the drift this whole ticket is about. This is
+ * the toolchain's one reader.
+ *
+ * @returns Whether to write nothing.
+ */
+export function isQuiet(): boolean {
+  return getQuiet() === true;
+}
+
+/**
  * Writes every diagnostic to a stream, in the form that stream wants.
  *
  * @param diagnostics - What the build found.
@@ -579,6 +613,11 @@ export function writeSummary(
   runs: readonly (TextRun | string)[],
   stream: ReportStream & { write(s: string): void }
 ): void {
+  if (isQuiet()) {
+    // a summary is a report about work done, which is what quiet is for
+    return;
+  }
+
   const plain = (): string =>
     runs.map((run) => (typeof run === 'string' ? run : run.text)).join(' ');
 
@@ -607,5 +646,11 @@ export function writeNote(
   runs: readonly (TextRun | string)[],
   stream: ReportStream & { write(s: string): void }
 ): void {
+  if (isQuiet()) {
+    // prose about what happened, which is the clearest case of all: a script
+    // that asked for no progress did not ask for an essay either
+    return;
+  }
+
   stream.write(`${render((width) => summaryView(runs, width), stream)}\n`);
 }

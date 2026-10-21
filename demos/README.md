@@ -290,7 +290,18 @@ node demos/components/01-spinner.js | cat
 node demos/components/02-progress.js | cat
 node demos/components/07-typewriter.js | cat
 node demos/components/09-decrypt.js | cat
+node demos/style/05-quiet.js | cat
 ```
+
+`style/05-quiet.js` is the one of the five a pipe cannot show on its own, because its
+point is the state a pipe does **not** produce: piped, its first two blocks still
+write a line per change, which is `reduce`, and in its third the spinner, the bar
+and the typewriter write nothing at all, which is `quiet`. The two `console.log`
+lines around them stay, which is the rule -- the answer survives and the progress
+does not. Reduced motion means an animation that has already finished and
+quiet means nothing was drawn, so they are two answers rather than two strengths
+of one -- and nothing in that demo passes the answer to a component, because
+`resolveOutput()` is the one fold and every built-in reads it.
 
 That is what a CI log gets, and no component had to know about it. The decrypt is
 the sharpest case: six texts, written once each, which is eight lines because one
@@ -367,6 +378,7 @@ what is left is the characters changing, which is the whole effect.
 | [`style/02-themes.js`](style/02-themes.js)                 | Restyling the built-ins, which is what a theme is |
 | [`style/03-animation.js`](style/03-animation.js)           | Transitions and keyframes, over whole cells       |
 | [`style/04-theme-switcher.js`](style/04-theme-switcher.js) | The themes sigil ships, swapped live              |
+| [`style/05-quiet.js`](style/05-quiet.js)                   | `live`, `reduce` and `quiet`, which is one axis   |
 
 `01-cascade.js` prints its answers rather than drawing them, because the contest
 is the point. Each section is one contest between two declarations that both reach the

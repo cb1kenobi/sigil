@@ -390,7 +390,13 @@ describe('bundling an app', () => {
   it('should hide a command it read as hidden', () => {
     const help = run('--help').stdout;
 
-    expect(help).not.toContain('quiet');
+    // the fixture's hidden command is called `quiet`, which collides with the
+    // `--quiet` flag the parser offers every app: a substring search over the
+    // whole screen now finds that flag's own row and says nothing about the
+    // command. A command is listed as a row whose first word is its name, so
+    // that is what this asks
+    expect(help).not.toMatch(/^\s+quiet\b/m);
+    expect(help).toContain('--quiet');
     // ...and it still runs, which is what hidden means
     expect(run('quiet').stdout.trim()).toBe('quiet');
   });

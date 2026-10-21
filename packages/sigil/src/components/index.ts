@@ -54,7 +54,7 @@ export {
   runPrompt,
   setPromptNote,
 } from './prompt.js';
-export { type Mounted, type MountOptions, mountLive } from './mount.js';
+export { mountLevel, type Mounted, type MountOptions, mountLive } from './mount.js';
 export {
   FRAMEWORK_CSS,
   frameworkSheet,

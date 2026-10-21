@@ -615,6 +615,12 @@ export interface ParseState<Argv = Record<string, unknown>> {
    * runs nothing; a caller using `parse()` on its own decides for itself.
    */
   help?: HelpRequest;
+  /**
+   * Set when argv asked for no progress. `main()` records it process-wide, which
+   * is what makes `--quiet` reach a spinner an app never wired up; a caller
+   * using `parse()` on its own decides for itself, through `setQuiet()`.
+   */
+  quiet?: boolean;
   schema: Schema;
   settings: Settings;
   /**
@@ -700,6 +706,17 @@ export interface Schema {
    * app that declares either of them keeps its own either way.
    */
   help?: boolean;
+  /**
+   * Whether to add `--quiet`, which suppresses progress and not results. On
+   * unless set to `false`; an app that declares its own keeps it either way.
+   *
+   * What the flag reaches is `resolveOutput()`, the one place that decides
+   * whether a built-in may draw -- so a spinner, a bar, a typewriter and a
+   * decrypt all go quiet without the app wiring anything, and a prompt, an
+   * error and `--help` do not, because those are what the command says rather
+   * than what it says while working. See `src/style/output.ts`.
+   */
+  quiet?: boolean;
   /**
    * Descriptions a build lifted out of the modules `commands` points at, so
    * that help can name them without importing anything. See `RouteInfo`.

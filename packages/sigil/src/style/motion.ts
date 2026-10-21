@@ -52,3 +52,31 @@ export function forcedMotion(
   }
   return undefined;
 }
+
+/**
+ * The preference, from the most specific source that has an answer.
+ *
+ * One folder with two callers rather than two chains to keep in agreement: the
+ * renderer's `motion()` is one, and `resolveOutput()` is the other, which needs
+ * the answer *before* a renderer exists. That is the only reason this moved out
+ * of `render()` -- the docblock above says the resolver lives there "because the
+ * renderer is what knows whether there is a terminal", and passing liveness as
+ * an argument is what makes that reason evaporate.
+ *
+ * The terminal is the last term rather than the first, so a pipe collapses every
+ * animation to its end state without an app having to ask.
+ *
+ * @param input - The app's own preference, whether there is a screen, and the
+ *   environment to read the override from.
+ * @returns Whether anything should move.
+ */
+export function resolveMotion(input: {
+  env?: Record<string, string | undefined>;
+  /** Whether there is a terminal to animate on: `isTTY && !closed`. */
+  live: boolean;
+  reducedMotion?: ReducedMotion;
+}): ReducedMotion {
+  return (
+    input.reducedMotion ?? forcedMotion(input.env) ?? (input.live ? 'no-preference' : 'reduce')
+  );
+}

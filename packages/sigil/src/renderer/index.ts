@@ -69,9 +69,9 @@ import {
   Animator,
   Cascade,
   type ColorScheme,
-  forcedMotion,
   forcedScheme,
   type ReducedMotion,
+  resolveMotion,
   Restyler,
   type StyleTarget,
   schemeFromTerminalEnv,
@@ -560,18 +560,18 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
   /**
    * Whether anything should move.
    *
-   * The terminal is the last term rather than the first, so a pipe collapses
-   * every animation to its end state without an app having to ask -- which is
-   * the same distinction `mountLive()` already makes for a spinner, generalized
-   * from one component to the cascade. `closed` is in it for the reason it is
-   * there: a terminal whose stream has gone is no more a screen than a pipe is.
+   * The three-source chain is `resolveMotion()`'s rather than this function's,
+   * because `resolveOutput()` needs the same answer *before* a renderer exists
+   * and two copies of one chain is two chains to keep in agreement. What is
+   * left here is the one term only the renderer knows: `closed` is in it for the
+   * reason `isTTY` is -- a terminal whose stream has gone is no more a screen
+   * than a pipe is.
    */
   function motion(): ReducedMotion {
-    return (
-      opts.reducedMotion ??
-      forcedMotion() ??
-      (terminal.isTTY && !terminal.closed ? 'no-preference' : 'reduce')
-    );
+    return resolveMotion({
+      live: terminal.isTTY && !terminal.closed,
+      reducedMotion: opts.reducedMotion,
+    });
   }
 
   const readMedia = (): void => {
