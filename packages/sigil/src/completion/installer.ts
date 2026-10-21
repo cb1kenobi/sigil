@@ -344,6 +344,19 @@ export function installTargets(
  * two files and a question about both -- and the one thing a guess here must
  * not do is delete a second file the reader was never shown.
  *
+ * It reads **every** candidate's file rather than one, so a path it cannot read
+ * refuses the run where the index installed past it -- measured: a *directory*
+ * at `<data>/completions/mycli.bash` with `bash-completion`'s route resolving
+ * used to install there happily and now throws `readOr()`'s own sentence naming
+ * the path. That is the safe direction rather than a cost, and it is the one
+ * this function is for: the search's whole job is to find out **where the
+ * install is**, so a candidate it cannot read is one where it cannot tell --
+ * and reading that as "no install there" is how a second copy gets written
+ * beside an install sitting at the path nobody could look at, which is the
+ * defect above reintroduced in the one case nothing can see. It is also
+ * `readOr()`'s own stance, which that function states: answering "there is no
+ * completion script" for an `EISDIR` is the silence that costs an afternoon.
+ *
  * **Tier 2 is the one declared survivor of the sabotage pass, and it is the
  * rule rather than a guard.** It cannot change an answer with the table as it
  * is: the only resolvable route with no rc line is `bash-completion`'s, and

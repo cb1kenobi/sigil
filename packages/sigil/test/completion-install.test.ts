@@ -1351,6 +1351,23 @@ describe('what the second PR review round found', () => {
     expect(planInstall(theirs as InstallTarget, '', 'mycli').file).toBe('foreign');
   });
 
+  it('should refuse a candidate it cannot read rather than install past it', () => {
+    // the search reads every candidate rather than one, so this refuses where
+    // the index it replaced installed happily -- measured. The safe direction
+    // rather than a cost: a path it cannot read is one where it cannot tell
+    // whether an install is there, and reading that as "none" is how a second
+    // copy gets written beside one sitting at the path nobody could look at
+    bcDir();
+    mkdirSync(join(box, 'data', 'completions', 'mycli.bash'), { recursive: true });
+
+    expect(() => pick('bash')).toThrow(/Failed to read/);
+
+    // and the plan the index would have built is fine, which is what makes this
+    // a change rather than a case that was already refused
+    const first = installTargets('bash', 'mycli', envFor())[0] as InstallTarget;
+    expect(planInstall(first, '', 'mycli').file).toBe('create');
+  });
+
   it('should prefer the install a startup file points at where two are ours', async () => {
     // which only the defect above produces, and which following the printed
     // recipes twice produces too. Tier one is about **references** rather than

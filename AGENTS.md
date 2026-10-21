@@ -18448,6 +18448,16 @@ whose preference.
   file nothing updates, where moving off `bash-completion`'s directory leaves a
   file nothing points at.
 
+- **It reads every candidate rather than one, so a path it cannot read refuses
+  the run** where the index installed past it. Measured: a _directory_ at
+  `<data>/completions/mycli.bash` with `bash-completion`'s route resolving used
+  to install there happily and now throws `readOr()`'s own sentence naming the
+  path. The safe direction rather than a cost, and the one this function is for
+  -- a candidate it cannot read is one where it cannot tell whether an install
+  is there, and reading that as "none" is how a second copy gets written beside
+  one sitting at the path nobody could look at. A behaviour change either way,
+  so it is documented and pinned rather than incidental.
+
 - **What one call cannot finish is a machine holding two of ours**, which the
   defect produced and which following the printed recipes twice produces too. It
   acts on one and the other stays; a second `--uninstall` takes it out, because
