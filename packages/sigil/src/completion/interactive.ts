@@ -40,7 +40,7 @@ import { detectShell, instructions, shQuote } from './install.js';
 import {
   applyInstall,
   applyUninstall,
-  installTargets,
+  installTarget,
   planInstall,
   planLines,
   planUninstall,
@@ -231,12 +231,15 @@ export async function runInstaller(state: ParseState, request: InstallRequest): 
   try {
     shell ??= await askShell(process.env, terminal);
 
-    // the first target is the installer's own preference, which is the route
-    // table's order: for bash that is `bash-completion`'s user directory where
-    // it is there, because it needs nothing added to a startup file. The list
-    // is never empty -- the `user` route always resolves -- which is what makes
-    // this an index rather than a search
-    target = installTargets(shell, program, process.env)[0] as InstallTarget;
+    // a search rather than an index, and the search is `installer.ts`'s because
+    // it reads the file system and asks the marker question: the install that
+    // is already there wins, and the route table decides only where a new one
+    // goes. It was `installTargets(...)[0]` for one commit, which for bash is
+    // `bash-completion`'s user directory the moment that directory appears --
+    // so a machine installed through the other route got a second copy written
+    // beside the first, with nothing printed about it and an `--uninstall` that
+    // left it. Found by review
+    target = installTarget(shell, program, process.env);
     const script = request.uninstall ? '' : await completionScript(state, shell);
     const plan = request.uninstall
       ? planUninstall(target, program)

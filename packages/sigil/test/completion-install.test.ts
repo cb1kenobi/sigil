@@ -3,6 +3,7 @@ import { generatedBy, installHint, shQuote } from '../src/completion/install.js'
 import {
   applyInstall,
   applyUninstall,
+  installTarget,
   installTargets,
   planInstall,
   planLines,
@@ -16,6 +17,7 @@ import { parse } from '../src/parser/parse.js';
 import type { ParseState, Schema } from '../src/types.js';
 import {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -116,11 +118,16 @@ async function state(schema: Schema = {}): Promise<ParseState> {
   });
 }
 
-/** The target the installer would pick, for one shell. */
+/**
+ * The target the installer would pick, for one shell.
+ *
+ * `installTarget()` rather than `installTargets(...)[0]`, which is what the
+ * installer itself asks -- so a case that writes a file and then calls this
+ * gets the target the command would act on rather than the one the table
+ * prefers, and the helper's name stays true.
+ */
 function pick(shell: ShellName, extra: Record<string, string | undefined> = {}): InstallTarget {
-  const [first] = installTargets(shell, 'mycli', envFor(extra));
-  expect(first, `no target for ${shell}`).toBeDefined();
-  return first as InstallTarget;
+  return installTarget(shell, 'mycli', envFor(extra));
 }
 
 /** Installs for real, through the plan, and answers what was written. */
@@ -141,6 +148,24 @@ describe('the home this file writes into', () => {
 });
 
 describe('installTargets()', () => {
+  it('should resolve the user route for every shell, on a machine with nothing on it', () => {
+    // the claim the doc makes and `installTarget()`'s fallback rests on: the
+    // list is never empty, because the route that needs a line added resolves
+    // wherever a home does. `pick()` used to carry this as a `toBeDefined()`
+    // of its own, which went when it was repointed at `installTarget()` -- and
+    // a claim a helper asserted in passing is one nothing names when the
+    // helper changes
+    for (const shell of SHELL_NAMES) {
+      const targets = installTargets(shell, 'mycli', envFor());
+
+      expect(targets.length, shell).toBeGreaterThan(0);
+      expect(
+        targets.map((it) => it.id),
+        shell
+      ).toContain('user');
+    }
+  });
+
   it('should put a zsh completion in a directory of our own, with an fpath line', () => {
     const target = pick('zsh');
 
@@ -1214,5 +1239,143 @@ describe('what the PR review round found', () => {
         }
       }
     }
+  });
+});
+
+describe('what the second PR review round found', () => {
+  /** The bash-completion user directory, created so that its route resolves. */
+  function bcDir(): string {
+    const dir = join(box, 'data', 'bash-completion', 'completions');
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  it('should act on the install that is there once the other route appears', async () => {
+    const script = await completionScript(await state(), 'bash');
+
+    // the reported sequence: a machine with no bash-completion directory, so
+    // the only route that resolves is `user` -- a file of our own plus a line
+    // the reader puts in a startup file
+    const first = pick('bash');
+    expect(first.id).toBe('user');
+    await install(first, script);
+    writeFileSync(join(FAKE_HOME, '.bashrc'), `${first.rc?.line ?? ''}\n`);
+
+    // and then bash-completion arrives, which makes its route resolve and puts
+    // it at the head of the table. Reading an index there wrote a **second**
+    // copy at the other path, printed nothing about the first, and left a
+    // `.bashrc` still sourcing it
+    bcDir();
+    expect(installTargets('bash', 'mycli', envFor()).map((it) => it.id)).toEqual([
+      'bash-completion',
+      'user',
+    ]);
+
+    const again = pick('bash');
+    expect(again.id).toBe('user');
+    expect(again.file).toBe(first.file);
+
+    // nothing to do, and no second file: the plan reads the install that is
+    // there, which is current, and the line it needs is already in place
+    const plan = planInstall(again, script, 'mycli');
+    expect(plan.file).toBe('current');
+    expect(plan.rc).toBe('present');
+    expect(plan.changes).toBe(false);
+    expect(await applyInstall(plan, script)).toBe(false);
+    expect(existsSync(join(bcDir(), 'mycli'))).toBe(false);
+  });
+
+  it('should take the install that is there back out once the other route appears', async () => {
+    // the other direction, which the index got wrong the same way: it removed a
+    // file that was never written and reported success, leaving the real one and
+    // its `source` line in place
+    const first = pick('bash');
+    await install(first, await completionScript(await state(), 'bash'));
+    writeFileSync(join(FAKE_HOME, '.bashrc'), `${first.rc?.line ?? ''}\n`);
+    bcDir();
+
+    const target = pick('bash');
+    expect(target.file).toBe(first.file);
+
+    const plan = planUninstall(target, 'mycli');
+    expect(plan.file).toBe('update');
+    expect(applyUninstall(plan)).toBe(true);
+    expect(existsSync(first.file)).toBe(false);
+
+    // and the line is named, which is the half an index could not reach: the
+    // route it picked has none, so it printed nothing for the reader to undo
+    expect(resultLines(plan, 'uninstall', true).join('\n')).toContain(join(FAKE_HOME, '.bashrc'));
+  });
+
+  it('should still prefer the table on a machine with nothing of ours on it', () => {
+    // tier three, which is every install that is the first: the search finds
+    // nothing of ours, so the order the table prefers stands. With no
+    // bash-completion directory that is the one route resolving on any bash
+    expect(installTargets('bash', 'mycli', envFor()).map((it) => it.id)).toEqual(['user']);
+    expect(pick('bash').id).toBe('user');
+
+    // and with it there, its directory, because that route needs no line added
+    bcDir();
+    expect(pick('bash').id).toBe('bash-completion');
+  });
+
+  it('should find a script of ours whichever route holds it', async () => {
+    // the mirror of the reported case, so the preference is not "the last
+    // route" wearing a reason: ours at `bash-completion` and nothing at `user`
+    // picks `bash-completion`
+    writeFileSync(join(bcDir(), 'mycli'), await completionScript(await state(), 'bash'));
+    expect(pick('bash').id).toBe('bash-completion');
+  });
+
+  it('should read the marker rather than the path, so a stranger-s file is not ours', () => {
+    // the same question `ours()` answers for the plan, asked one step earlier.
+    // The input is the one that separates the two readings, and the obvious one
+    // does not: ours at `user` with a stranger's file at `bash-completion`
+    // answers `user` either way, because tier one reaches it on the rc line
+    // whether or not the other file counted. So this is the mirror -- the
+    // bash-completion directory there and empty, which is where a fresh
+    // install goes, and a hand-written file of the user's own at our `user`
+    // path
+    bcDir();
+    const user = join(box, 'data', 'completions');
+    mkdirSync(user, { recursive: true });
+    writeFileSync(join(user, 'mycli.bash'), '# a script somebody wrote by hand\n');
+
+    // read as ours it would be tier one's, so the command would point at their
+    // file and offer to replace it with a clean route sitting unused
+    expect(pick('bash').id).toBe('bash-completion');
+
+    // and it is still their file rather than something to act on, which is the
+    // plan's own answer about the path this walked past
+    const theirs = installTargets('bash', 'mycli', envFor()).find((it) => it.id === 'user');
+    expect(planInstall(theirs as InstallTarget, '', 'mycli').file).toBe('foreign');
+  });
+
+  it('should prefer the install a startup file points at where two are ours', async () => {
+    // which only the defect above produces, and which following the printed
+    // recipes twice produces too. Tier one is about **references** rather than
+    // about which loader wins: the `user` route's file is named by a line in a
+    // startup file, so moving the install off it leaves that line pointing at a
+    // file nothing updates, where moving off `bash-completion`'s directory
+    // leaves a file nothing points at
+    const script = await completionScript(await state(), 'bash');
+    writeFileSync(join(bcDir(), 'mycli'), script);
+    const user = join(box, 'data', 'completions');
+    mkdirSync(user, { recursive: true });
+    writeFileSync(join(user, 'mycli.bash'), script);
+
+    const target = pick('bash');
+    expect(target.id).toBe('user');
+    expect(target.rc).toBeDefined();
+
+    // and one call cannot finish it, which is the residue written down rather
+    // than guessed at: the other copy stays, and a second uninstall is what
+    // takes it out, because the search then finds it
+    expect(applyUninstall(planUninstall(target, 'mycli'))).toBe(true);
+    const left = pick('bash');
+    expect(left.id).toBe('bash-completion');
+    expect(applyUninstall(planUninstall(left, 'mycli'))).toBe(true);
+    expect(existsSync(join(user, 'mycli.bash'))).toBe(false);
+    expect(existsSync(join(bcDir(), 'mycli'))).toBe(false);
   });
 });

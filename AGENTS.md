@@ -14021,110 +14021,6 @@ cannot -- handed a cursor inside a surrogate pair, a delete splices inside it,
 which is what `boundary()`'s own doc records and is byte for byte what the
 single-line field did before any of this was extracted.
 
-##### What the PR review round found: a recipe that could not work if followed
-
-One comment, confirmed and measured in a real zsh before anything was changed,
-and it is the class this file calls the worst kind of prose defect: **the zsh
-`fpath` recipe both printed forms carry appended the line with `>>`, which lands
-below `compinit`, so following it never loads the completion.**
-
-- **`compinit` is the call that scans `$fpath` and builds the autoload table**,
-  so a directory added after it is one nothing ever reads -- and an append lands
-  at the end of the file, which is below every `compinit` there is. There is no
-  arrangement where it works: a plain `.zshrc` runs `autoload -Uz compinit &&
-  compinit` in the middle, Oh My Zsh runs it from `oh-my-zsh.sh`, and a
-  `compinit` in `.zprofile` runs before `.zshrc` is read at all. Appending is
-  below it in all three.
-
-  Measured in zsh 5.9 against a `.zshrc` of the ordinary shape. Appended after
-  the `compinit`, `whence -w _mycli` is **`none`**. Moved one line above it, it
-  is **`function`** and `$_comps[mycli]` names it. Then the corrected recipe
-  followed literally end to end, with the **real** generated script: `_sigil` is
-  autoloaded, `$_comps[sigil]` is `_sigil`, and `autoload +X _sigil` loads the
-  body, so the file parses as well as registers.
-
-- **And the command carried `# above compinit` as a comment on the very command
-  that puts it below**, in a header **every generated script repeats** -- so the
-  recipe stated the constraint it was breaking. Which is the shape this file
-  keeps recording: prose that would mislead somebody into a real bug is worse
-  than prose that is merely absent, and here it was not prose beside the code but
-  the output itself.
-
-- **The probe had it right all along, which is what makes this a drift rather
-  than a gap.** `terminal-probe.mjs --completion`'s own docblock records that "a
-  file on `$fpath` **before** `compinit` registers in zsh 5.9", and its
-  throwaway-directory demonstration puts the `fpath=` line before the
-  `compinit`. So the correct ordering was measured, written down and
-  demonstrated in the same branch whose printed recipe instructed the opposite
-  -- two readers of one shell fact, disagreeing, which is exactly what
-  `install.ts` is one module to prevent.
-
-- **It was also the one place left offering the append the installer refuses on
-  principle.** `installer.ts` is explicit that it writes the file and _prints_
-  the rc line, because a `.zshrc` is under version control as often as not and a
-  line we appended cannot be told from a line the user wrote when an uninstall
-  comes to take it out. The recipes told the reader to do by hand what the
-  installer declines to do for them -- and in the one case where it does not even
-  work.
-
-- **So `InstallRoute.add` is a line to place rather than a command to run**, and
-  both renderers print it: `installComment()` gives the sentence the inner `#`
-  the label already takes, so what a reader lifts out of the block is the line
-  beneath it, and `instructions()` puts the sentence at the label's indent and
-  the line at the command's. The table says what the installer says, which is one
-  answer rather than two.
-
-- **An append is refused only where no append can be right**, which is the half
-  worth stating so that the asymmetry is not ironed out later. Both survivors
-  were measured rather than reasoned about. `source <(app completion zsh)` **must
-  be below** `compinit`, because the script's sourced branch calls `compdef`, and
-  the end of the file is exactly that -- `$_comps[sigil]` is `_sigil` after
-  appending it. A bash `source` line has no ordering at all, since it runs
-  `complete -F`, and `complete -p sigil` reads back
-  `complete -o default -F _sigil sigil` in bash 3.2. So this is not the dotfile
-  principle applied unevenly: it is the one recipe that cannot work, replaced.
-
-- **And bringing the branch up to date moved three baselines, which is the
-  figure hazard this file keeps recording arriving through a _merge_ rather than
-  through an edit.** The PR had gone `CONFLICTING` once SIG-145 and then SIG-141
-  landed, and a `pull_request` workflow runs against the merge ref -- so a
-  conflicting PR has none and **GitHub dispatched no run at all**. The timeline is
-  the evidence: the tip got a full run while the branch was mergeable, and the
-  push after SIG-141 landed produced zero. What that looks like in the checks list
-  is two external Socket checks passing, which reads exactly like a quiet green.
-
-  Both conflicts were the pair this file already predicted for this branch, and
-  both resolutions are the recorded ones. `src/i18n/keys.ts` is **regenerated**
-  rather than hand-merged -- `node scripts/generate-sigil-keys.mjs` from inside
-  `packages/cli` -- which produced exactly the union: 102 keys, which is 77 base
-  plus this branch's 24 plus the quiet axis's one, with the count in its own
-  docblock being the thing that conflicted. And `test/dist.test.ts` took the
-  eight-module shape, because that is what the merged tree has, with every figure
-  in it **re-measured** rather than picked from a side: the config graph is
-  38,239 B over eight, unchanged, while the root entry is **8,166 B** and
-  `components.mjs` **242,307 B over 28** -- neither of which either side said,
-  since both branches moved them. Four figures in that one file now agree with
-  the tree and with each other, which is what its own comment about two comments
-  disagreeing asks for.
-
-  The ten-odd copies in **this** file are left alone, deliberately: each records
-  what was measured for its own change, so rewriting them to today's number would
-  destroy the record rather than correct it. What is kept is the instruction to
-  re-measure, which is the entry those figures already carry.
-
-- **Four guards, five sabotages, all five caught, each by the test named for
-  it.** Putting the append back fails the two new route tests; dropping the
-  render from `installComment()` or from `instructions()` fails the two-readers
-  differential, which now walks the `where` **and** the line for the reason that
-  differential exists -- a field rendered twice with nothing comparing the two is
-  the drift this module's opening is about. Dropping `compinit` from the sentence
-  fails the first test, so the sentence is load bearing rather than decoration.
-  And giving a route both a working append and a line to place fails the third,
-  which is the inverse that keeps the field from spreading: a route with both
-  would be telling a reader to do one thing twice. The two appends that stay are
-  an **explicit list** rather than a rule about which routes may append, so that
-  a third one is a decision somebody makes.
-
 ##### What is deliberately out
 
 - **A hard-wrap mode**, with its reason above: it changes what the value is, and
@@ -17994,7 +17890,12 @@ dispatches between the printer and the installer.
   The printed **recipes** say the same thing now, and for one commit they did
   not: the zsh `fpath` route offered an `echo ... >> ~/.zshrc`, which is the
   append this declines and is also the one that cannot work, because `>>` lands
-  below `compinit`. See "What the PR review round found" below.
+  below `compinit`. See "What the first PR review round found" below -- which
+  until this branch's second round sat a thousand lines away inside the
+  multiline field's section, a `#####` heading landing in the wrong `####`
+  block, so this very "see below" pointed _above_. The sixth instance of the
+  collision this file already records, and the reason the two rounds are
+  numbered now.
 
   Which is also why there is no line to take back out: `--uninstall` removes the
   file it wrote and prints the line to remove. The asymmetry is the same one
@@ -18033,7 +17934,10 @@ dispatches between the printer and the installer.
   route needs a line and the bash one needs a line, and
   **bash-completion's user directory needs none at all** -- which is why it is
   offered first for bash where it is there, and is the one route whose author has
-  never run it.
+  never run it. Offered first rather than _acted on_ first, which is the
+  distinction the second PR round is about: the table's order decides where a
+  **new** install goes, and `installTarget()` decides which route to act on,
+  which is wherever one already is.
 
   That route is gated on three questions rather than one, and the third was found
   by the sabotage pass: the path has to **exist**, be a **directory**, and be
@@ -18390,6 +18294,216 @@ about the code beside them.
   probe's `ZDOTDIR` expansion, because nothing in the suite drives that file: it
   is run by hand, and what pins it is having driven it.
 
+##### What the first PR review round found: a recipe that could not work if followed
+
+One comment, confirmed and measured in a real zsh before anything was changed,
+and it is the class this file calls the worst kind of prose defect: **the zsh
+`fpath` recipe both printed forms carry appended the line with `>>`, which lands
+below `compinit`, so following it never loads the completion.**
+
+- **`compinit` is the call that scans `$fpath` and builds the autoload table**,
+  so a directory added after it is one nothing ever reads -- and an append lands
+  at the end of the file, which is below every `compinit` there is. There is no
+  arrangement where it works: a plain `.zshrc` runs `autoload -Uz compinit &&
+  compinit` in the middle, Oh My Zsh runs it from `oh-my-zsh.sh`, and a
+  `compinit` in `.zprofile` runs before `.zshrc` is read at all. Appending is
+  below it in all three.
+
+  Measured in zsh 5.9 against a `.zshrc` of the ordinary shape. Appended after
+  the `compinit`, `whence -w _mycli` is **`none`**. Moved one line above it, it
+  is **`function`** and `$_comps[mycli]` names it. Then the corrected recipe
+  followed literally end to end, with the **real** generated script: `_sigil` is
+  autoloaded, `$_comps[sigil]` is `_sigil`, and `autoload +X _sigil` loads the
+  body, so the file parses as well as registers.
+
+- **And the command carried `# above compinit` as a comment on the very command
+  that puts it below**, in a header **every generated script repeats** -- so the
+  recipe stated the constraint it was breaking. Which is the shape this file
+  keeps recording: prose that would mislead somebody into a real bug is worse
+  than prose that is merely absent, and here it was not prose beside the code but
+  the output itself.
+
+- **The probe had it right all along, which is what makes this a drift rather
+  than a gap.** `terminal-probe.mjs --completion`'s own docblock records that "a
+  file on `$fpath` **before** `compinit` registers in zsh 5.9", and its
+  throwaway-directory demonstration puts the `fpath=` line before the
+  `compinit`. So the correct ordering was measured, written down and
+  demonstrated in the same branch whose printed recipe instructed the opposite
+  -- two readers of one shell fact, disagreeing, which is exactly what
+  `install.ts` is one module to prevent.
+
+- **It was also the one place left offering the append the installer refuses on
+  principle.** `installer.ts` is explicit that it writes the file and _prints_
+  the rc line, because a `.zshrc` is under version control as often as not and a
+  line we appended cannot be told from a line the user wrote when an uninstall
+  comes to take it out. The recipes told the reader to do by hand what the
+  installer declines to do for them -- and in the one case where it does not even
+  work.
+
+- **So `InstallRoute.add` is a line to place rather than a command to run**, and
+  both renderers print it: `installComment()` gives the sentence the inner `#`
+  the label already takes, so what a reader lifts out of the block is the line
+  beneath it, and `instructions()` puts the sentence at the label's indent and
+  the line at the command's. The table says what the installer says, which is one
+  answer rather than two.
+
+- **An append is refused only where no append can be right**, which is the half
+  worth stating so that the asymmetry is not ironed out later. Both survivors
+  were measured rather than reasoned about. `source <(app completion zsh)` **must
+  be below** `compinit`, because the script's sourced branch calls `compdef`, and
+  the end of the file is exactly that -- `$_comps[sigil]` is `_sigil` after
+  appending it. A bash `source` line has no ordering at all, since it runs
+  `complete -F`, and `complete -p sigil` reads back
+  `complete -o default -F _sigil sigil` in bash 3.2. So this is not the dotfile
+  principle applied unevenly: it is the one recipe that cannot work, replaced.
+
+- **And bringing the branch up to date moved three baselines, which is the
+  figure hazard this file keeps recording arriving through a _merge_ rather than
+  through an edit.** The PR had gone `CONFLICTING` once SIG-145 and then SIG-141
+  landed, and a `pull_request` workflow runs against the merge ref -- so a
+  conflicting PR has none and **GitHub dispatched no run at all**. The timeline is
+  the evidence: the tip got a full run while the branch was mergeable, and the
+  push after SIG-141 landed produced zero. What that looks like in the checks list
+  is two external Socket checks passing, which reads exactly like a quiet green.
+
+  Both conflicts were the pair this file already predicted for this branch, and
+  both resolutions are the recorded ones. `src/i18n/keys.ts` is **regenerated**
+  rather than hand-merged -- `node scripts/generate-sigil-keys.mjs` from inside
+  `packages/cli` -- which produced exactly the union: 102 keys, which is 77 base
+  plus this branch's 24 plus the quiet axis's one, with the count in its own
+  docblock being the thing that conflicted. And `test/dist.test.ts` took the
+  eight-module shape, because that is what the merged tree has, with every figure
+  in it **re-measured** rather than picked from a side: the config graph is
+  38,239 B over eight, unchanged, while the root entry is **8,166 B** and
+  `components.mjs` **242,307 B over 28** -- neither of which either side said,
+  since both branches moved them. Four figures in that one file now agree with
+  the tree and with each other, which is what its own comment about two comments
+  disagreeing asks for.
+
+  The ten-odd copies in **this** file are left alone, deliberately: each records
+  what was measured for its own change, so rewriting them to today's number would
+  destroy the record rather than correct it. What is kept is the instruction to
+  re-measure, which is the entry those figures already carry.
+
+- **Four guards, five sabotages, all five caught, each by the test named for
+  it.** Putting the append back fails the two new route tests; dropping the
+  render from `installComment()` or from `instructions()` fails the two-readers
+  differential, which now walks the `where` **and** the line for the reason that
+  differential exists -- a field rendered twice with nothing comparing the two is
+  the drift this module's opening is about. Dropping `compinit` from the sentence
+  fails the first test, so the sentence is load bearing rather than decoration.
+  And giving a route both a working append and a line to place fails the third,
+  which is the inverse that keeps the field from spreading: a route with both
+  would be telling a reader to do one thing twice. The two appends that stay are
+  an **explicit list** rather than a rule about which routes may append, so that
+  a third one is a decision somebody makes.
+
+##### What the second PR review round found: the route that was not where the install was
+
+One comment, confirmed and **measured before anything was changed**, and it is
+the third consecutive pass on this ticket to find a defect in the previous
+round's own output -- the route table's order is what the first round's `fpath`
+fix was about, and this is the half of that order nothing was reading.
+
+- **The installer always acted on the first resolved route, so an install could
+  land beside an earlier one rather than on it.** `runInstaller()` took
+  `installTargets(...)[0]`, which is the **table's** preference -- and for bash
+  the table's first is `bash-completion`'s own user directory, which resolves the
+  moment that directory appears. So the reported sequence: install on a machine
+  without it, which goes to `~/.local/share/completions/mycli.bash` with a
+  `source` line the reader puts in `.bashrc`; the directory later appears;
+  re-run.
+
+  Measured on that sequence before the fix: a **second** copy written at
+  `…/bash-completion/completions/mycli`, both files on disk, the result printing
+  nothing but `Then restart your shell.` -- naming neither the old file nor the
+  `.bashrc` line -- and `mycli completion bash --uninstall` removing the new one
+  and leaving the old one with its line still in place. An upgrade that does not
+  land and an uninstall that does not uninstall, from a command that reported
+  success for both.
+
+  The half this does **not** rest on is which of two copies a shell loads, and
+  it is the one only a machine with bash-completion on it can settle: that
+  loader is bound with `complete -D`, which bash documents as applying to
+  commands with no completion defined, so a `.bashrc` sourcing our script first
+  should shadow it. **Unverified here** -- macOS ships bash 3.2, which has no
+  `-D` at all, measured -- and `scripts/terminal-probe.mjs --completion` is where
+  a reader with one can check it. The defect needs none of it: two copies of our
+  own generated script, with nothing printed about one of them and an uninstall
+  that leaves it, is wrong whichever wins.
+
+- **So `installTarget()` is a search where there was an index, and the install
+  that is there wins.** Three tiers, and `installer.ts`'s is the module because
+  it is the half that stats things and because `ours()` is already there -- a
+  second marker reader is the drift that module's opening is about. The full
+  argument is on the function; what matters here is that tier 1 over tier 2 is
+  about **references** rather than about which loader wins, which is what keeps
+  it off the unverifiable premise: an rc-bearing route's file is named by a line
+  in a startup file, so moving the install off it leaves that line pointing at a
+  file nothing updates, where moving off `bash-completion`'s directory leaves a
+  file nothing points at.
+
+- **What one call cannot finish is a machine holding two of ours**, which the
+  defect produced and which following the printed recipes twice produces too. It
+  acts on one and the other stays; a second `--uninstall` takes it out, because
+  the next run's search then finds it. Written down rather than guessed at,
+  because finishing it means a plan that names two files -- and the one thing a
+  guess must not do is delete a second file the reader was never shown.
+
+- **Six sabotages, five caught, one declared.** The search deleted fails three
+  of the new tests, tier 1 dropped and tier 1 inverted each fail the
+  two-installs test, the marker check fails the test named for it, and the
+  `user` route made to stop resolving -- which is what the fallback's
+  never-empty claim rests on -- fails 58. **Tier 2
+  is the declared survivor and it is the rule rather than a guard**: it cannot
+  change an answer with the table as it is, because the only resolvable route
+  with no rc line is `bash-completion`'s and that is the table's own first -- so
+  a target holding ours with no line **is** `targets[0]`. Brute-forced rather
+  than reasoned, over every reachable state of the two paths -- absent, ours, a
+  stranger's, with the directory there and not: twelve cases, zero differences
+  against the two-tier spelling. It stays because deleting it leaves the code
+  saying a target holding ours wins _only where it also has a line_, which agrees
+  today and would prefer the table over an existing install the moment a second
+  rc-less route is added after `user` -- this defect, reintroduced by the
+  tidy-up.
+
+- **And the marker test the pass first wrote could not see what it was named
+  for**, which is the shape this file keeps recording. Ours at `user` with a
+  stranger's file at `bash-completion` answers `user` either way, because tier 1
+  reaches it on the rc line whether or not the other file counted. The input that
+  separates them is the mirror: the bash-completion directory there and **empty**,
+  which is where a fresh install goes, with a hand-written file of the user's own
+  at our `user` path. Read as ours that is tier 1's, so the command would point
+  at their file and offer to replace it with a clean route sitting unused.
+
+- **`pick()` in the test file is `installTarget()` now**, so the helper's name
+  stays true: a case that writes a file and then calls it gets the target the
+  command would act on rather than the one the table prefers. All 66 cases that
+  existed pass unchanged, which is the check a repointed helper gets.
+
+  What it **dropped** is the `toBeDefined()` that helper carried, which was the
+  only thing holding "the list is never empty" -- the claim the fallback rests
+  on. So that is a test of its own now, named for it, and the sabotage above is
+  what says it is load bearing. A claim a helper asserted in passing is one
+  nothing names the moment the helper changes.
+
+- **Three of the cases are end to end over the real binary**, which is where
+  the claim has to be: what was wrong is what the command _printed_, and a unit
+  test of the plan can say which target it picked while saying nothing about a
+  result that named neither the old file nor the line. Sabotaged with a
+  **rebuild** in front of it, because `completion-install-tty.test.ts` reads
+  `dist/` and without one a mutation in `src/` is invisible to it -- the
+  stale-dist trap this file records. The index put back fails the two that pin
+  the fix and leaves the first-install control green, which is what says the
+  control is one.
+
+- **And the comment citing it named a test that did not exist**, which is the
+  dead-instruction class this file keeps recording: a reader goes looking for
+  `should resolve a user route for every shell, on a machine with nothing on it`
+  and finds nothing. Caught by grepping the citation rather than by a round --
+  which is the cheapest check there is on a file that cites its own tests this
+  often, and the one the previous round's own fix should have had run over it.
+
 ##### What is deliberately out
 
 - **Editing a dotfile**, for the reason above: it is very often under version
@@ -18410,6 +18524,11 @@ about the code beside them.
 - **Tightening the replace window to the planned bytes**, with the reason under
   the re-read: the question names the path, and the destructive direction is
   refused at any age.
+- **Finishing a machine that holds two of ours in one call**, with the reason
+  under `installTarget()`: it would mean a plan that names two files and a
+  question about both, and a guess there deletes a second file the reader was
+  never shown. One call acts on one of them and a second `--uninstall` takes the
+  other out.
 - **A demo under `demos/`**, and that is a decision rather than an omission.
   `demos.test.ts` spawns each one with the **real** environment, so a demo of
   this writes a script into the runner's own home -- which is the one thing this

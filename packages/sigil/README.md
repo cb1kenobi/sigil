@@ -830,6 +830,13 @@ dotfile manager, so appending to one is not this command's to do. On bash with
 `bash-completion` 2.8 or newer there is no line at all — the file goes in its
 user directory and it loads it.
 
+That is where a **new** install goes. Where one is already there, it is the one
+that gets updated, whichever route it is on: the marker in a script's own header
+is what finds it, so installing again after `bash-completion` appeared on the
+machine updates the file you already have rather than writing a second one
+somewhere else and leaving your `.bashrc` sourcing the first. `--uninstall`
+reads it the same way, so it takes out the one that is there.
+
 Re-running is a no-op that says so, and it reads the startup file to decide:
 
 ```

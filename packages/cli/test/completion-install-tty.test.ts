@@ -460,3 +460,84 @@ describe('what the sabotage pass found', () => {
     expect(ran.code).toBe(0);
   }, 30_000);
 });
+
+describe('what the second PR review round found', () => {
+  /** Where the `user` route's bash script goes. */
+  function userScript(): string {
+    return join(box, 'data', 'completions', 'probecli.bash');
+  }
+
+  /** Where `bash-completion`'s route would put one. */
+  function bcScript(): string {
+    return join(box, 'data', 'bash-completion', 'completions', 'probecli');
+  }
+
+  it('should update the install that is there once bash-completion appears', async () => {
+    // the sequence as reported, end to end, because what was wrong is what the
+    // command *printed*: a unit test of the plan can say which target it picked
+    // and cannot say that the result named neither the old file nor the line.
+    //
+    // step one, on a machine with no bash-completion directory: the only route
+    // that resolves is `user`, so the script is ours to write and the `source`
+    // line is the reader's to place
+    const first = await run([], { keys: [CR, CR], shell: '/bin/bash' });
+
+    expect(first.code).toBe(0);
+    expect(existsSync(userScript())).toBe(true);
+    expect(first.stderr).toContain('source ');
+
+    // the line put in by hand, because the installer never writes one -- which
+    // is the state a user is in after following what it printed
+    writeFileSync(join(box, 'home', '.bashrc'), `source '${userScript()}'\n`);
+
+    // and then bash-completion arrives, which makes its route resolve and puts
+    // it at the head of the table
+    mkdirSync(join(box, 'data', 'bash-completion', 'completions'), { recursive: true });
+
+    const again = await run([], { keys: [CR], shell: '/bin/bash' });
+
+    // reading an index wrote a *second* copy here, printed nothing but
+    // "Then restart your shell." and left a `.bashrc` sourcing the first
+    expect(existsSync(bcScript())).toBe(false);
+    expect(again.stderr).toContain(userScript());
+    expect(again.stderr).toContain('up to date');
+    expect(again.stderr).toContain('already names it');
+    // and it did not ask, because there is nothing to write
+    expect(again.stderr).not.toMatch(/Install bash completion/);
+    expect(again.code).toBe(0);
+  }, 60_000);
+
+  it('should take the install that is there back out once bash-completion appears', async () => {
+    const first = await run([], { keys: [CR, CR], shell: '/bin/bash' });
+    expect(first.code).toBe(0);
+    writeFileSync(join(box, 'home', '.bashrc'), `source '${userScript()}'\n`);
+    mkdirSync(join(box, 'data', 'bash-completion', 'completions'), { recursive: true });
+
+    const out = await run(['--uninstall'], { keys: [CR, CR], shell: '/bin/bash' });
+
+    // the other direction, which the index got wrong the same way: it planned
+    // a removal of a file that was never written, reported success, and left
+    // the real one with its `source` line in place
+    expect(existsSync(userScript())).toBe(false);
+    expect(out.stderr).toContain(userScript());
+    // and the line is named, which the route it used to pick has none of
+    expect(out.stderr).toContain(join(box, 'home', '.bashrc'));
+    expect(out.code).toBe(0);
+  }, 60_000);
+
+  it('should still take bash-completion-s directory for a first install', async () => {
+    // tier three unchanged, which is every install that is the first: nothing
+    // of ours is there, so the table's order stands. The **control** of the
+    // three, and it says so: it passes against the index this replaced as well,
+    // which is what makes the two above the ones that pin the fix
+    mkdirSync(join(box, 'data', 'bash-completion', 'completions'), { recursive: true });
+
+    const ran = await run([], { keys: [CR, CR], shell: '/bin/bash' });
+
+    expect(existsSync(bcScript())).toBe(true);
+    expect(existsSync(userScript())).toBe(false);
+    // and nothing to add, which is the whole reason that route is preferred
+    expect(ran.stderr).not.toContain('source ');
+    expect(ran.code).toBe(0);
+  }, 60_000);
+});

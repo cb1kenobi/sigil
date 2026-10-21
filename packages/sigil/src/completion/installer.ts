@@ -297,6 +297,93 @@ export function installTargets(
   return out;
 }
 
+/**
+ * The one target to act on, which is where the install already is.
+ *
+ * `installTargets()` answers in the **table's** order, most automatic first,
+ * which is the right order to print and the wrong one to act on. For bash the
+ * first route is `bash-completion`'s own user directory, and that resolves the
+ * moment the directory appears -- so a machine set up through the `user` route
+ * before it existed had its next install write a **second** copy at the other
+ * path and say nothing about the first. Measured before it was fixed: both
+ * files on disk, the result printing nothing but "Then restart your shell.",
+ * and `--uninstall` removing the new one while the old one and its `source`
+ * line stayed. An upgrade that does not land and an uninstall that does not
+ * uninstall, from a command that reported success for both. Found by review.
+ *
+ * So the rule is that the install which is **there** wins, and the table
+ * decides only where a new one goes:
+ *
+ * 1. a target whose file holds one of ours and whose route needs a line in a
+ *    startup file;
+ * 2. else a target whose file holds one of ours, in the table's order;
+ * 3. else the first resolved target, which is what a fresh machine gets and is
+ *    the behaviour this had for every install that was the first.
+ *
+ * Tier 1 over tier 2 is about **references** rather than about which loader
+ * wins, which is what keeps it off a premise this machine cannot settle: an
+ * rc-bearing route's file is named by a line in a startup file, so moving the
+ * install off it leaves that line pointing at a file nothing updates any more,
+ * where moving off `bash-completion`'s directory leaves a file nothing points
+ * at. One of the two is a dangling reference and the other is litter.
+ *
+ * Which of two copies a shell actually loads is the claim this does **not**
+ * rest on, and it is the one only a machine with bash-completion on it can
+ * settle: that loader is bound with `complete -D`, which bash documents as
+ * applying to commands with no completion defined, so a `.bashrc` that sources
+ * our script first should shadow it. Unverified here -- macOS ships bash 3.2,
+ * which has no `-D` at all -- and `scripts/terminal-probe.mjs --completion` is
+ * where a reader with one can check it.
+ *
+ * What one call cannot finish is a machine that holds **two** of ours, which is
+ * what the defect above produced and what following the printed recipes twice
+ * also produces. It acts on one of them and the other stays: an install leaves
+ * a stale copy that nothing it printed names, and an uninstall has to be run
+ * again to take the second one out, because the next run then finds it.
+ * Written down rather than fixed, because finishing it means a plan that names
+ * two files and a question about both -- and the one thing a guess here must
+ * not do is delete a second file the reader was never shown.
+ *
+ * **Tier 2 is the one declared survivor of the sabotage pass, and it is the
+ * rule rather than a guard.** It cannot change an answer with the table as it
+ * is: the only resolvable route with no rc line is `bash-completion`'s, and
+ * that is the table's own first -- so a target holding ours with no line **is**
+ * `targets[0]`, and the fallback answers the same. Brute-forced rather than
+ * reasoned, over every reachable state of the two paths -- absent, ours, a
+ * stranger's, with the directory there and not -- twelve cases, zero
+ * differences against the two-tier spelling. It stays because deleting it
+ * leaves the code saying that a target holding ours wins *only where it also
+ * has a line*, which is a weaker rule that agrees today and would prefer the
+ * table over an existing install the moment a second rc-less route is added
+ * after `user` -- which is this defect, reintroduced by the tidy-up.
+ *
+ * @param shell - The shell.
+ * @param program - The program's name, as the user types it.
+ * @param env - The environment, for `XDG_DATA_HOME` and `ZDOTDIR`.
+ * @returns The target.
+ */
+export function installTarget(
+  shell: ShellName,
+  program: string,
+  env: Record<string, string | undefined>
+): InstallTarget {
+  const targets = installTargets(shell, program, env);
+  const mine = targets.filter((target) => {
+    const held = readOr(target.file);
+    return held !== undefined && ours(held, target.shell, program);
+  });
+
+  // `targets[0]` is the fallback rather than a case to guard: `installTargets()`
+  // never answers empty, because the `user` route resolves on every machine for
+  // both shells -- which is the claim that doc makes and `should resolve the
+  // user route for every shell, on a machine with nothing on it` holds
+  if (mine.length === 0) {
+    return targets[0] as InstallTarget;
+  }
+
+  return mine.find((target) => target.rc !== undefined) ?? (mine[0] as InstallTarget);
+}
+
 /** The resolved half of a target, before the route's own fields go on it. */
 type Resolved = Omit<InstallTarget, 'id' | 'label' | 'shell'>;
 
