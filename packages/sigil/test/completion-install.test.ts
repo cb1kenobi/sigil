@@ -1282,7 +1282,7 @@ describe('what the second PR review round found', () => {
     expect(plan.rc).toBe('present');
     expect(plan.changes).toBe(false);
     expect(await applyInstall(plan, script)).toBe(false);
-    expect(existsSync(join(bcDir(), 'mycli'))).toBe(false);
+    expect(existsSync(join(box, 'data', 'bash-completion', 'completions', 'mycli'))).toBe(false);
   });
 
   it('should take the install that is there back out once the other route appears', async () => {
@@ -1299,6 +1299,10 @@ describe('what the second PR review round found', () => {
 
     const plan = planUninstall(target, 'mycli');
     expect(plan.file).toBe('update');
+    // the premise the output assertion below rests on, named rather than left
+    // to it: with the line read as absent `resultLines()` prints nothing and
+    // the `toContain` would fail for the wrong reason
+    expect(plan.rc).toBe('present');
     expect(applyUninstall(plan)).toBe(true);
     expect(existsSync(first.file)).toBe(false);
 

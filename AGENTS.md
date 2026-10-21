@@ -18469,7 +18469,7 @@ whose preference.
   of the new tests, tier 1 dropped and tier 1 inverted each fail the
   two-installs test, the marker check fails the test named for it, and the
   `user` route made to stop resolving -- which is what the fallback's
-  never-empty claim rests on -- fails 58 of that file's 73.
+  never-empty claim rests on -- fails 59 of that file's 74.
 
   **Tier 2 is the declared survivor, and it is the rule rather than a guard**:
   it cannot change an answer with the table as it is, because the only
