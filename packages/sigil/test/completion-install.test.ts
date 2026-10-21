@@ -1150,3 +1150,69 @@ describe('what the round-2 review found', () => {
     }
   });
 });
+
+describe('what the PR review round found', () => {
+  it('should print the fpath line to place rather than appending it below compinit', () => {
+    // `>>` lands at the end of the file, which is below every `compinit` there
+    // is -- and `compinit` is the call that scans `$fpath` and builds the
+    // autoload table, so a directory added after it is one nothing ever reads.
+    // Measured in zsh 5.9 against a `.zshrc` of the ordinary shape,
+    // `autoload -Uz compinit && compinit` with the line appended after it:
+    // `whence -w _mycli` is `none`. Moved one line above the `compinit`, it is
+    // `function` and `$_comps[mycli]` names it. So the recipe that shipped
+    // could not work for anybody who followed it -- while carrying
+    // `# above compinit` as a comment on the very command that puts it below
+    const route = installHint('zsh', 'mycli').routes.find((it) => it.id === 'user');
+
+    expect(route?.add?.line).toBe('fpath=(~/.local/share/completions $fpath)');
+    expect(route?.add?.where).toContain('compinit');
+
+    // and no command of the route touches a startup file at all, which is what
+    // the append was: the file is ours to write and the line is the reader's to
+    // place, which is `installer.ts`'s own rule arriving in the table
+    for (const command of route?.commands ?? []) {
+      expect(command, command).not.toContain('zshrc');
+    }
+  });
+
+  it('should leave every append that lands where it has to, which is the asymmetry', () => {
+    // not a dotfile principle applied unevenly -- an append is refused only
+    // where no append can be right, and both of these were measured rather than
+    // reasoned about. `source <(app completion zsh)` *must* be below
+    // `compinit`, because the script's sourced branch calls `compdef`, and the
+    // end of the file is exactly that: `$_comps[sigil]` is `_sigil` after it. A
+    // bash `source` line has no ordering at all, since it runs `complete -F`,
+    // and `complete -p sigil` reads it back in bash 3.2.
+    //
+    // An explicit list rather than a rule about which routes may append, so
+    // that a third one is a decision somebody makes -- which is the call the
+    // raw-control-character exceptions already get
+    const appends = (shell: ShellName): readonly string[] =>
+      installHint(shell, 'mycli').routes.flatMap((route) =>
+        route.commands.filter((command) => command.includes('>>'))
+      );
+
+    expect(appends('zsh')).toEqual([
+      "echo 'source <(mycli completion zsh)' >> ~/.zshrc  # below compinit",
+    ]);
+    expect(appends('bash')).toEqual([
+      "echo 'source ~/.local/share/completions/mycli.bash' >> ~/.bashrc",
+    ]);
+  });
+
+  it('should carry a line to place on no route an append can finish', () => {
+    // the inverse, so the field cannot quietly spread: a route with both a
+    // working append and a line to place would be telling a reader to do the
+    // same thing twice
+    for (const shell of SHELL_NAMES) {
+      for (const route of installHint(shell, 'mycli').routes) {
+        if (route.add !== undefined) {
+          expect(
+            route.commands.some((it) => it.includes('>>')),
+            `${shell}/${route.id}`
+          ).toBe(false);
+        }
+      }
+    }
+  });
+});

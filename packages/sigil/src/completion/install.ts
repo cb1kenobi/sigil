@@ -54,6 +54,45 @@ import type { ShellName } from './shells.js';
 export type RouteId = 'bash-completion' | 'eval' | 'fpath' | 'system' | 'user';
 
 /**
+ * A line the reader has to place themselves, because no append can put it where
+ * it goes.
+ *
+ * `fpath=(dir $fpath)` has to run **above** `compinit`: that call is what scans
+ * `$fpath` and builds the autoload table, so a directory added after it is one
+ * nothing ever reads -- and `>>` lands at the end of the file, which is below
+ * every `compinit` there is. Measured in zsh 5.9 against a `.zshrc` of the
+ * ordinary shape, `autoload -Uz compinit && compinit` with the line appended
+ * after it: `whence -w _mycli` is `none`. Moved one line above the `compinit`,
+ * it is `function` and `$_comps[mycli]` names it. So the recipe that shipped
+ * could not work for anybody who followed it -- while carrying `# above
+ * compinit` as a comment on the very command that puts it below, which is the
+ * broken-if-followed prose this repository calls the worst kind, in a header
+ * every generated script repeats.
+ *
+ * It is the table saying what `installer.ts` already says -- it writes the file
+ * and *prints* the rc line -- rather than a new rule. That module declines to
+ * touch a startup file at all, because a `.zshrc` is under version control as
+ * often as not and a line we appended cannot be told from a line the user wrote
+ * when an uninstall comes to take it out; these recipes were the one place left
+ * offering the append it refuses, and the one place the append does not even
+ * work.
+ *
+ * Which is why it is not every append: what stays a command is every one that
+ * **lands where it has to**, and both were measured rather than reasoned about.
+ * `source <(app completion zsh)` must be below `compinit`, because the script's
+ * sourced branch calls `compdef`, and the end of the file is exactly that --
+ * `$_comps[sigil]` is `_sigil` after it. A bash `source` line has no ordering at
+ * all, since it runs `complete -F`, and `complete -p sigil` reads it back in
+ * bash 3.2. So an append is refused here only where no append can be right.
+ */
+export interface InstallLine {
+  /** The line, verbatim. */
+  readonly line: string;
+  /** Where it goes, as a sentence that names the file and ends in a colon. */
+  readonly where: string;
+}
+
+/**
  * One way to install a completion script, as the commands to run.
  *
  * A list rather than a single answer because both shells have several, and
@@ -63,6 +102,12 @@ export type RouteId = 'bash-completion' | 'eval' | 'fpath' | 'system' | 'user';
  * did, and choosing among them is what the installer does.
  */
 export interface InstallRoute {
+  /**
+   * A line to put in a startup file by hand, where no command can do it. Absent
+   * on every route an append really can finish, which is the asymmetry
+   * `InstallLine` is written about.
+   */
+  readonly add?: InstallLine;
   /** Which route this is, which is what `installTargets()` resolves. */
   readonly id: RouteId;
   /** What distinguishes this route from the others. */
@@ -197,10 +242,13 @@ function routesFor(shell: ShellName, program: string): readonly InstallRoute[] {
   if (shell === 'zsh') {
     return [
       {
+        add: {
+          line: `fpath=(${SHOWN_USER_DIR} $fpath)`,
+          where: 'then add this line to ~/.zshrc, above your compinit line:',
+        },
         commands: [
           `mkdir -p ${SHOWN_USER_DIR}`,
           `${program} completion zsh > ${SHOWN_USER_DIR}/_${program}`,
-          `echo 'fpath=(${SHOWN_USER_DIR} $fpath)' >> ~/.zshrc  # above compinit`,
         ],
         id: 'user',
         label: 'in a directory of your own on $fpath, which compinit autoloads',
@@ -275,6 +323,12 @@ export function installComment(shell: ShellName, program: string): string {
     for (const command of route.commands) {
       out.push(`#   ${command}`);
     }
+    if (route.add !== undefined) {
+      // the sentence takes the inner `#` the label takes, because it is prose
+      // rather than a command -- so what a reader copies out of the block is
+      // the line beneath it and nothing else
+      out.push(`#   # ${route.add.where}`, `#   ${route.add.line}`);
+    }
   }
 
   out.push('#', `# ${hint.after}`);
@@ -331,6 +385,11 @@ export function instructions(shell: ShellName, program: string): string {
     out.push(`  ${route.label}`);
     for (const command of route.commands) {
       out.push(`    ${command}`);
+    }
+    if (route.add !== undefined) {
+      // at the label's indent and the command's, so the sentence reads as the
+      // route's own and the line reads as the thing to take away
+      out.push(`  ${route.add.where}`, `    ${route.add.line}`);
     }
     out.push('');
   }

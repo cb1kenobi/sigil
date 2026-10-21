@@ -13519,6 +13519,82 @@ cannot -- handed a cursor inside a surrogate pair, a delete splices inside it,
 which is what `boundary()`'s own doc records and is byte for byte what the
 single-line field did before any of this was extracted.
 
+##### What the PR review round found: a recipe that could not work if followed
+
+One comment, confirmed and measured in a real zsh before anything was changed,
+and it is the class this file calls the worst kind of prose defect: **the zsh
+`fpath` recipe both printed forms carry appended the line with `>>`, which lands
+below `compinit`, so following it never loads the completion.**
+
+- **`compinit` is the call that scans `$fpath` and builds the autoload table**,
+  so a directory added after it is one nothing ever reads -- and an append lands
+  at the end of the file, which is below every `compinit` there is. There is no
+  arrangement where it works: a plain `.zshrc` runs `autoload -Uz compinit &&
+  compinit` in the middle, Oh My Zsh runs it from `oh-my-zsh.sh`, and a
+  `compinit` in `.zprofile` runs before `.zshrc` is read at all. Appending is
+  below it in all three.
+
+  Measured in zsh 5.9 against a `.zshrc` of the ordinary shape. Appended after
+  the `compinit`, `whence -w _mycli` is **`none`**. Moved one line above it, it
+  is **`function`** and `$_comps[mycli]` names it. Then the corrected recipe
+  followed literally end to end, with the **real** generated script: `_sigil` is
+  autoloaded, `$_comps[sigil]` is `_sigil`, and `autoload +X _sigil` loads the
+  body, so the file parses as well as registers.
+
+- **And the command carried `# above compinit` as a comment on the very command
+  that puts it below**, in a header **every generated script repeats** -- so the
+  recipe stated the constraint it was breaking. Which is the shape this file
+  keeps recording: prose that would mislead somebody into a real bug is worse
+  than prose that is merely absent, and here it was not prose beside the code but
+  the output itself.
+
+- **The probe had it right all along, which is what makes this a drift rather
+  than a gap.** `terminal-probe.mjs --completion`'s own docblock records that "a
+  file on `$fpath` **before** `compinit` registers in zsh 5.9", and its
+  throwaway-directory demonstration puts the `fpath=` line before the
+  `compinit`. So the correct ordering was measured, written down and
+  demonstrated in the same branch whose printed recipe instructed the opposite
+  -- two readers of one shell fact, disagreeing, which is exactly what
+  `install.ts` is one module to prevent.
+
+- **It was also the one place left offering the append the installer refuses on
+  principle.** `installer.ts` is explicit that it writes the file and _prints_
+  the rc line, because a `.zshrc` is under version control as often as not and a
+  line we appended cannot be told from a line the user wrote when an uninstall
+  comes to take it out. The recipes told the reader to do by hand what the
+  installer declines to do for them -- and in the one case where it does not even
+  work.
+
+- **So `InstallRoute.add` is a line to place rather than a command to run**, and
+  both renderers print it: `installComment()` gives the sentence the inner `#`
+  the label already takes, so what a reader lifts out of the block is the line
+  beneath it, and `instructions()` puts the sentence at the label's indent and
+  the line at the command's. The table says what the installer says, which is one
+  answer rather than two.
+
+- **An append is refused only where no append can be right**, which is the half
+  worth stating so that the asymmetry is not ironed out later. Both survivors
+  were measured rather than reasoned about. `source <(app completion zsh)` **must
+  be below** `compinit`, because the script's sourced branch calls `compdef`, and
+  the end of the file is exactly that -- `$_comps[sigil]` is `_sigil` after
+  appending it. A bash `source` line has no ordering at all, since it runs
+  `complete -F`, and `complete -p sigil` reads back
+  `complete -o default -F _sigil sigil` in bash 3.2. So this is not the dotfile
+  principle applied unevenly: it is the one recipe that cannot work, replaced.
+
+- **Four guards, five sabotages, all five caught, each by the test named for
+  it.** Putting the append back fails the two new route tests; dropping the
+  render from `installComment()` or from `instructions()` fails the two-readers
+  differential, which now walks the `where` **and** the line for the reason that
+  differential exists -- a field rendered twice with nothing comparing the two is
+  the drift this module's opening is about. Dropping `compinit` from the sentence
+  fails the first test, so the sentence is load bearing rather than decoration.
+  And giving a route both a working append and a line to place fails the third,
+  which is the inverse that keeps the field from spreading: a route with both
+  would be telling a reader to do one thing twice. The two appends that stay are
+  an **explicit list** rather than a rule about which routes may append, so that
+  a third one is a decision somebody makes.
+
 ##### What is deliberately out
 
 - **A hard-wrap mode**, with its reason above: it changes what the value is, and
@@ -16787,6 +16863,11 @@ dispatches between the printer and the installer.
   entitled to take. It _reads_ it, which is what makes a re-run say "already
   names it" rather than printing the line a second time -- and that read is the
   whole of what the rc half of the plan is.
+
+  The printed **recipes** say the same thing now, and for one commit they did
+  not: the zsh `fpath` route offered an `echo ... >> ~/.zshrc`, which is the
+  append this declines and is also the one that cannot work, because `>>` lands
+  below `compinit`. See "What the PR review round found" below.
 
   Which is also why there is no line to take back out: `--uninstall` removes the
   file it wrote and prints the line to remove. The asymmetry is the same one
