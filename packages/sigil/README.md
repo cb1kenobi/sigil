@@ -60,7 +60,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `KEYS`
 - [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths, `save()`
-- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `updates`, `testing`
+- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `updates`, `testing`, `reference`
 
 ---
 
@@ -3380,6 +3380,37 @@ rather than anything like `sigil/components`.
 see **[Testing](#testing)** above, which is where the argument for each of them
 is. Listed here so that this section is the whole catalogue of subpaths rather
 than most of it.
+
+### `sigil/reference`
+
+```js
+import { commandSurface } from '@ttylabs/sigil/reference';
+
+const surface = await commandSurface(schema);
+
+surface.program; // 'mycli'
+surface.commands; // the root first, then depth-first in name order
+surface.commands[1]; // { path: ['build'], tokens: ['build', 'b'], args, options, … }
+```
+
+Your app's whole command surface as plain data: every argv path, every token
+that reaches it, and what each one accepts. It is what
+[`sigil reference`](../cli#the-command-reference-and-the-surface-snapshot)
+prints as markdown for a reader and as a sorted JSON snapshot for a diff, and it
+is a third reader of the registries beside `commandCatalog()` and the completion
+spec — all three answer different questions, and `should reach every command the
+completion spec reaches` is the differential that keeps them from drifting about
+the one they agree on.
+
+It **imports every command module**, because an option and an argument live only
+inside the module that declares them. That is the same cost generating a
+completion script pays, for the same reason, and it is why this is a subpath
+nothing in the runtime imports: an app pays for it only by asking.
+
+What it records is what the app declared. `help`, `completion`, `--help` and
+`--version` are `parse()`'s own additions, so a surface built from a schema does
+not have them — which is what keeps an app's snapshot moving when the app moves
+rather than when the framework does.
 
 ### `sigil/which`
 

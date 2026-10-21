@@ -262,7 +262,7 @@ function valuesFor(type: string, choices: unknown): readonly string[] | undefine
   // written against. What an unusable list comes to is `undefined` rather than
   // `[]`, which changes no answer and is one spelling for one meaning
   if (Array.isArray(choices)) {
-    const values = dedupe(choices.map((choice) => tokenFor(choice, type)).filter(typeable));
+    const values = declaredValues(type, choices);
     return values.length > 0 ? values : undefined;
   }
 
@@ -272,6 +272,30 @@ function valuesFor(type: string, choices: unknown): readonly string[] | undefine
   if (type === 'yesno') {
     return ['yes', 'no'];
   }
+}
+
+/**
+ * The tokens a declared `choices` list is reachable by, in the order it was
+ * written.
+ *
+ * The first branch of `valuesFor()`, lifted out because the command surface
+ * asks the same question and must not answer it a second way: a `yesno` whose
+ * choices are the booleans is reachable only by the words, and a choice holding
+ * a control character is reachable by nothing. Two readers that each stringified
+ * a choice themselves would be two answers to "what can be typed here", which is
+ * the one thing a reference and a completion script have to agree about.
+ *
+ * What it does *not* do is add the two words a bare `bool` or `yesno` takes --
+ * that is `valuesFor()`'s own second half and belongs only to a completion
+ * menu. A reference records what the declaration said, and the type already says
+ * the rest.
+ *
+ * @param type - The data type a value is coerced with.
+ * @param choices - The declared list.
+ * @returns The tokens, deduplicated, in declaration order.
+ */
+export function declaredValues(type: string, choices: readonly unknown[]): string[] {
+  return dedupe(choices.map((choice) => tokenFor(choice, type)).filter(typeable));
 }
 
 /**
@@ -410,11 +434,16 @@ function optionsOf(chain: readonly InternalCommand[]): CompletionOption[] {
  * one that goes somewhere else, and offering it would be offering a token that
  * completes the wrong subtree.
  *
+ * Exported because the command surface asks the same question and a second walk
+ * of the same registry is how the two come to disagree about which token reaches
+ * what -- which for a reference is a documented alias that routes somewhere
+ * else.
+ *
  * @param parent - The command whose registry holds it.
  * @param child - The subcommand, as the registry holds it.
  * @returns The tokens, the name first and the aliases sorted after it.
  */
-function tokensFor(parent: InternalCommand, child: InternalCommand): string[] {
+export function tokensFor(parent: InternalCommand, child: InternalCommand): string[] {
   const registry = parent[Internal].commands;
 
   return [child.name, ...[...child[Internal].aliases].sort()].filter(
