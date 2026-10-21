@@ -18400,10 +18400,15 @@ below `compinit`, so following it never loads the completion.**
 
 ##### What the second PR review round found: the route that was not where the install was
 
-One comment, confirmed and **measured before anything was changed**, and it is
-the third consecutive pass on this ticket to find a defect in the previous
-round's own output -- the route table's order is what the first round's `fpath`
-fix was about, and this is the half of that order nothing was reading.
+One comment, confirmed and **measured before anything was changed**, and what
+makes it worth the entry is where it was: `runInstaller()`'s one line of target
+selection, which **four earlier passes had in scope and none flagged** -- the
+three reading rounds and the first PR round, with round 3 having read that very
+function and come back with a TTY comment and two untested `byHand()` branches.
+So this is not the previous round's output being wrong, which is the pattern
+this file usually records; it is a line every pass read as an index because the
+list it indexes is documented as being in preference order, and never asked
+whose preference.
 
 - **The installer always acted on the first resolved route, so an install could
   land beside an earlier one rather than on it.** `runInstaller()` took
@@ -18454,11 +18459,13 @@ fix was about, and this is the half of that order nothing was reading.
   of the new tests, tier 1 dropped and tier 1 inverted each fail the
   two-installs test, the marker check fails the test named for it, and the
   `user` route made to stop resolving -- which is what the fallback's
-  never-empty claim rests on -- fails 58. **Tier 2
-  is the declared survivor and it is the rule rather than a guard**: it cannot
-  change an answer with the table as it is, because the only resolvable route
-  with no rc line is `bash-completion`'s and that is the table's own first -- so
-  a target holding ours with no line **is** `targets[0]`. Brute-forced rather
+  never-empty claim rests on -- fails 58 of that file's 73.
+
+  **Tier 2 is the declared survivor, and it is the rule rather than a guard**:
+  it cannot change an answer with the table as it is, because the only
+  resolvable route with no rc line is `bash-completion`'s and that is the
+  table's own first -- so a target holding ours with no line **is**
+  `targets[0]`. Brute-forced rather
   than reasoned, over every reachable state of the two paths -- absent, ours, a
   stranger's, with the directory there and not: twelve cases, zero differences
   against the two-tier spelling. It stays because deleting it leaves the code
