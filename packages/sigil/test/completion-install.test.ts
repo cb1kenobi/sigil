@@ -1,4 +1,4 @@
-import { completionScript } from '../src/completion/index.js';
+import { completionScript, programOf } from '../src/completion/index.js';
 import { generatedBy, installHint, shQuote } from '../src/completion/install.js';
 import {
   applyInstall,
@@ -50,6 +50,19 @@ vi.mock('node:os', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:os')>()),
   homedir: () => FAKE_HOME,
 }));
+
+/**
+ * Whether a mode bit means anything to the process running this.
+ *
+ * Root passes `accessSync(dir, W_OK | X_OK)` on a directory with neither bit
+ * set, so the two cases that reach the writability gate by `chmod` are asserting
+ * a premise -- "this cannot be written" -- that is false for the runner rather
+ * than for the code. A rootful CI container is where that happens. The gate
+ * itself is still pinned there by the executable-file case, which asks
+ * `isDirectory()` and answers the same for everybody. Found by review round 3,
+ * which caught the second of the two inheriting the first's unremarked.
+ */
+const MODES_BITE = process.getuid === undefined || process.getuid() !== 0;
 
 /** Where each case's own files go, so one case cannot see another's. */
 let box: string;
@@ -314,22 +327,30 @@ describe('what the round-1 review found', () => {
     const target = pick('zsh');
     mkdirSync(target.dir, { recursive: true });
 
-    // a file that merely *quotes* the sentence, fifty lines down. The marker is
-    // a sentence and a sentence is something any file can contain, so a
-    // substring search over the whole file read somebody's note as generated
-    // output -- and `planUninstall()` then unlinked it after one default-yes
-    // confirm
+    // the marker as a whole comment line of its own, fifty lines down. The
+    // marker is a sentence and a sentence is something any file can contain, so
+    // a search over the whole file read somebody's note as generated output --
+    // and `planUninstall()` then unlinked it after one default-yes confirm.
+    //
+    // A **whole** line rather than a quoted one, which is what makes the window
+    // the thing under test: round 1's fixture wrote `# not the <marker>`, and
+    // once round 2 tightened the comparison to equality that line was foreign
+    // whatever the window was -- so widening the window to the whole file
+    // changed no answer and the test that is named for the window stayed green.
+    // Found by the sabotage pass
     writeFileSync(
       target.file,
-      `# my own thing\n${'# padding\n'.repeat(40)}# not the ${generatedBy('zsh', 'mycli')}\n`
+      `# my own thing\n${'# padding\n'.repeat(40)}# ${generatedBy('zsh', 'mycli')}\n`
     );
 
     expect(planInstall(target, script, 'mycli').file).toBe('foreign');
     expect(planUninstall(target, 'mycli').file).toBe('foreign');
 
     // and the header really is where ours puts it, or the check above is
-    // tighter than the emitters
-    expect(planInstall(target, script, 'mycli')).toBeDefined();
+    // tighter than the emitters -- which is what the real script says and not
+    // what a `toBeDefined()` says, as the first version of this had it: that
+    // assertion holds for every object there is, so the pair below is the whole
+    // of the claim. Found by review round 2
     writeFileSync(target.file, script);
     expect(planInstall(target, script, 'mycli').file).toBe('current');
   });
@@ -412,21 +433,24 @@ describe('what the round-1 review found', () => {
     }
   });
 
-  it("should not offer bash-completion's directory where it cannot be written", () => {
-    const bc = join(box, 'data', 'bash-completion', 'completions');
-    mkdirSync(bc, { recursive: true });
-    expect(installTargets('bash', 'mycli', envFor())[0]?.id).toBe('bash-completion');
+  it.skipIf(!MODES_BITE)(
+    "should not offer bash-completion's directory where it cannot be written",
+    () => {
+      const bc = join(box, 'data', 'bash-completion', 'completions');
+      mkdirSync(bc, { recursive: true });
+      expect(installTargets('bash', 'mycli', envFor())[0]?.id).toBe('bash-completion');
 
-    // root-owned from a system install, a read-only mount, somebody else's on a
-    // shared machine: existence alone preferred it and `writeAtomic()` then
-    // threw a raw EACCES while the route that works on any bash sat unused
-    chmodSync(bc, 0o500);
-    try {
-      expect(installTargets('bash', 'mycli', envFor()).map((it) => it.id)).toEqual(['user']);
-    } finally {
-      chmodSync(bc, 0o700);
+      // root-owned from a system install, a read-only mount, somebody else's on a
+      // shared machine: existence alone preferred it and `writeAtomic()` then
+      // threw a raw EACCES while the route that works on any bash sat unused
+      chmodSync(bc, 0o500);
+      try {
+        expect(installTargets('bash', 'mycli', envFor()).map((it) => it.id)).toEqual(['user']);
+      } finally {
+        chmodSync(bc, 0o700);
+      }
     }
-  });
+  );
 
   it('should count the rc line as outstanding for an uninstall too', async () => {
     const st = await state();
@@ -515,10 +539,15 @@ describe('planInstall()', () => {
     const target = pick('zsh');
     // a **directory** at the script's path, which is `EISDIR` on every
     // platform -- a path under a file would be `ENOTDIR` on POSIX and read as
-    // absence on Windows, so it would pin nothing there
+    // absence on Windows, so it would pin nothing there.
+    //
+    // Both halves of the message, because the first version matched `/EISDIR/`
+    // alone -- which the raw node error satisfies, so it could not tell the
+    // wrapped sentence from the one `readFileSync` throws and the wrapping is
+    // the thing this test is named for. Found by review round 2
     mkdirSync(target.file, { recursive: true });
 
-    expect(() => planInstall(target, 'x', 'mycli')).toThrow(/EISDIR|illegal operation/);
+    expect(() => planInstall(target, 'x', 'mycli')).toThrow(/^Failed to read .*: EISDIR/);
   });
 });
 
@@ -847,5 +876,260 @@ describe('what it says', () => {
 
     expect(said).toContain(target.rc?.line ?? '!');
     expect(readFileSync(rcFile, 'utf8')).toBe(`${target.rc?.line ?? ''}\n`);
+  });
+});
+
+describe('what the round-2 review found', () => {
+  it('should say whose a foreign file is on the way out rather than throwing, with the line still there', async () => {
+    const target = pick('zsh');
+    mkdirSync(target.dir, { recursive: true });
+    writeFileSync(target.file, '# somebody else wrote this\n');
+    // the rc line present as well, which is the composition the two round-1
+    // fixes had between them: `changes` was true because of the line, the
+    // confirm was asked, and `applyUninstall()` then refused outright -- so a
+    // refusal the plan had already printed came back out of the generic error
+    // handler as a stack-free crash. Neither fix is wrong alone
+    writeFileSync(join(FAKE_HOME, '.zshrc'), `${target.rc?.line ?? ''}\n`);
+
+    const plan = planUninstall(target, 'mycli');
+
+    expect(plan.file).toBe('foreign');
+    expect(plan.writes).toBe(false);
+    expect(plan.changes).toBe(true);
+    expect(planLines(plan, 'uninstall').join('\n')).toContain('was not written by sigil');
+    // and the apply layer still refuses outright if it is reached, which is
+    // why the gate above it has to be `writes` rather than `changes`
+    expect(() => applyUninstall(plan)).toThrow(/did not write/);
+  });
+
+  it('should refuse a foreign file against the file it is about to write, not against the plan it was handed', async () => {
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+    mkdirSync(target.dir, { recursive: true });
+
+    // planned when there was nothing there, so the plan says `create` and
+    // carries no refusal -- and something else put a file at the path before
+    // the write. A check against the plan is a check against what was true a
+    // moment ago, which for a path in a shared home is not the question
+    const plan = planInstall(target, script, 'mycli');
+    expect(plan.file).toBe('create');
+    writeFileSync(target.file, '# mine now\n');
+
+    await expect(applyInstall(plan, script, { replace: false })).rejects.toThrow(
+      /Refusing to replace/
+    );
+    expect(readFileSync(target.file, 'utf8')).toBe('# mine now\n');
+  });
+
+  it('should let a yes about the path cover whatever stranger is there when it writes', async () => {
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+    mkdirSync(target.dir, { recursive: true });
+    writeFileSync(target.file, '# file A, somebody else\n');
+
+    const plan = planInstall(target, script, 'mycli');
+    expect(plan.file).toBe('foreign');
+    // a *different* stranger's file in the window the question was on screen,
+    // which the answer still covers. A decision rather than a hole, and the
+    // reasons are on `replaceable()`: the question names the path and nothing
+    // else, and the destructive direction refuses a stranger at any age. Pinned
+    // so that it is checked rather than declared -- the comment claimed the
+    // opposite until review round 3
+    writeFileSync(target.file, '# file B, somebody else again\n');
+
+    expect(await applyInstall(plan, script, { replace: true })).toBe(true);
+    expect(readFileSync(target.file, 'utf8')).toBe(script);
+  });
+
+  it('should refuse to unlink a foreign file that appeared after the plan was taken', async () => {
+    const target = pick('zsh');
+    mkdirSync(target.dir, { recursive: true });
+    writeFileSync(target.file, await completionScript(await state(), 'zsh'));
+
+    const plan = planUninstall(target, 'mycli');
+    expect(plan.writes).toBe(true);
+    writeFileSync(target.file, '# mine now\n');
+
+    expect(() => applyUninstall(plan)).toThrow(/did not write/);
+    expect(readFileSync(target.file, 'utf8')).toBe('# mine now\n');
+  });
+
+  it('should recognise every home spelling a startup file can hold', async () => {
+    const script = await completionScript(await state(), 'zsh');
+    // the default route rather than `box`, because the whole function only
+    // fires for a path under the home and `XDG_DATA_HOME` points `box`
+    // elsewhere -- which is what every other case in this file wants and this
+    // one cannot have
+    const [first] = installTargets('zsh', 'mycli', { XDG_DATA_HOME: undefined });
+    const target = first as InstallTarget;
+    const rcFile = target.rc?.file ?? '';
+    const tail = target.dir.slice(FAKE_HOME.length).replaceAll('\\', '/');
+
+    expect(target.dir.startsWith(FAKE_HOME)).toBe(true);
+
+    // `~` is this package's own output -- every generated header and every
+    // printed recipe writes one -- and `$HOME` and `${HOME}` are what a shell
+    // writer who did not want a tilde wrote. The braced form is the one the
+    // first version missed, and it is the common one in a hand-maintained
+    // dotfile because it survives concatenation
+    for (const home of ['~', '$HOME', '${HOME}']) {
+      writeFileSync(rcFile, `fpath+=("${home}${tail}")\n`);
+      expect(planInstall(target, script, 'mycli').rc, home).toBe('present');
+    }
+  });
+
+  it('should not read a home that merely shares a prefix as the home', async () => {
+    const script = await completionScript(await state(), 'zsh');
+    // a sibling of the fake home whose name extends it, which is what
+    // `XDG_DATA_HOME` pointed one directory sideways produces -- home
+    // `/tmp/home` against `/tmp/homely/...` derives `$HOMEly/...`, naming a
+    // variable nobody set
+    const near = `${FAKE_HOME}ly`;
+    mkdirSync(near, { recursive: true });
+    const [target] = installTargets('zsh', 'mycli', envFor({ XDG_DATA_HOME: near }));
+    const rcFile = target?.rc?.file ?? '';
+    const tail = (target?.dir ?? '').slice(FAKE_HOME.length).replaceAll('\\', '/');
+
+    writeFileSync(rcFile, `fpath+=("$HOME${tail}")\n`);
+
+    expect(target?.dir.startsWith(near)).toBe(true);
+    expect(planInstall(target as InstallTarget, script, 'mycli').rc).toBe('absent');
+    rmSync(near, { force: true, recursive: true });
+  });
+
+  it.skipIf(!MODES_BITE)(
+    'should refuse a bash-completion directory it cannot enter as well as one it cannot write',
+    () => {
+      const dir = join(box, 'data', 'bash-completion', 'completions');
+      mkdirSync(dir, { recursive: true });
+      // write-only, which `W_OK` alone passes: a gate that asked only about
+      // writing offered the route and then failed inside `writeAtomic()` on the
+      // `mkdir` -- which is the one failure mode a gate exists to turn into an
+      // offer that is not made
+      chmodSync(dir, 0o200);
+
+      try {
+        expect(installTargets('bash', 'mycli', envFor())[0]?.id).not.toBe('bash-completion');
+      } finally {
+        chmodSync(dir, 0o700);
+      }
+    }
+  );
+
+  it('should refuse an executable file where the bash-completion directory goes', () => {
+    const dir = join(box, 'data', 'bash-completion', 'completions');
+    mkdirSync(dirname(dir), { recursive: true });
+    // the one input the directory test answers for and the access test does
+    // not, measured rather than reasoned: a **missing** path is `ENOENT` out of
+    // `accessSync` and a non-executable file is `EACCES`, so for both of those
+    // the route is skipped whether or not anything asked what kind of thing is
+    // there. An executable file passes `W_OK | X_OK` outright, and the route is
+    // then offered over a path `writeAtomic()` fails on with `ENOTDIR` -- which
+    // is a gate failing to not offer a route that cannot work, and is the whole
+    // of what the gate is for. Found by the sabotage pass
+    writeFileSync(dir, '#!/bin/sh\n');
+    chmodSync(dir, 0o700);
+
+    expect(installTargets('bash', 'mycli', envFor())[0]?.id).not.toBe('bash-completion');
+  });
+
+  it('should take a route it can both write and enter', () => {
+    const dir = join(box, 'data', 'bash-completion', 'completions');
+    mkdirSync(dir, { recursive: true });
+
+    expect(installTargets('bash', 'mycli', envFor())[0]?.id).toBe('bash-completion');
+  });
+
+  it('should not read a file that quotes the marker in its own header as one of ours', async () => {
+    const script = await completionScript(await state(), 'zsh');
+    const target = pick('zsh');
+    mkdirSync(target.dir, { recursive: true });
+    // the marker as an exact comment with more after it, on line 2, which a
+    // substring check reads as the header and a whole-line check does not. The
+    // round-1 test quoted it at line 50, which the three-line window already
+    // excluded -- so the window was doing the work and the comparison was
+    // unpinned.
+    //
+    // The leading `# ` is part of the marker, which is why the first version of
+    // this fixture could not reach the branch either: `# unlike the "<marker>"`
+    // holds the sentence and not the comment, so a substring check answered no
+    // and the mutation survived the test written for it. Found by the sabotage
+    // pass
+    writeFileSync(
+      target.file,
+      `#!/bin/zsh\n# ${generatedBy('zsh', 'mycli')} -- no, this one is mine\nfoo\n`
+    );
+
+    expect(planInstall(target, script, 'mycli').file).toBe('foreign');
+  });
+
+  it('should reduce one name to one program, at both readers', async () => {
+    const esc = String.fromCharCode(0x1b);
+    // the input that made the two readers disagree about the *subject* rather
+    // than the predicate: `completionSpec()` strips the control character and
+    // the installer did not, so the script's header named `mycli` and the file
+    // it was written to was `_my<ESC>cli` with a marker naming the raw string.
+    // Measured before the fix: the first install wrote, every re-run read its
+    // own file as `foreign`, and `--uninstall` refused to remove it. Found by
+    // review round 3
+    const st = await parse({
+      argv: [],
+      env: {},
+      schema: { commands: { b: { run(): void {} } }, name: `my${esc}cli` },
+    });
+    const script = await completionScript(st, 'zsh');
+    const program = programOf(st.schema.name) ?? '';
+    const [target] = installTargets('zsh', program, envFor());
+
+    expect(program).toBe('mycli');
+    expect(basename(target?.file ?? '')).toBe('_mycli');
+    expect(script).toContain(generatedBy('zsh', program));
+
+    // and the marker the installer builds is the one the emitter wrote, which
+    // is what makes a re-run a re-run rather than a stranger's file
+    mkdirSync(target?.dir ?? '', { recursive: true });
+    writeFileSync(target?.file ?? '', script);
+    expect(planInstall(target as InstallTarget, script, program).file).toBe('current');
+    expect(planUninstall(target as InstallTarget, program).file).toBe('update');
+  });
+
+  it('should take a padded name on the install path, which the printer already trimmed', async () => {
+    // the second half of the same divergence, from the other side:
+    // `installTargets()` runs before `completionScript()` does, so a name the
+    // printer serves happily threw on the install path
+    const program = programOf(' mycli ') ?? '';
+
+    expect(program).toBe('mycli');
+    expect(() => installTargets('zsh', program, envFor())).not.toThrow();
+  });
+
+  it('should refuse a nameless app rather than reaching for a file called _app', async () => {
+    const { runInstaller } = await import('../src/completion/interactive.js');
+    const st = await parse({ argv: [], env: {}, schema: { commands: { b: { run(): void {} } } } });
+
+    // the `?? 'app'` fallback this replaced is the one a nameless app met on
+    // the **uninstall** direction, which builds no script and so reached no
+    // other guard: `installTargets()` resolved `_app` and the marker named
+    // `app`, so a stray file of that name would have been removed. The install
+    // direction was covered by accident, because `completionScript()` runs
+    // first and refuses. Found by review round 3
+    // the shell named, because the shell prompt comes first and in a worker
+    // there is nobody to ask -- so a bare call takes the no-TTY branch and
+    // never reaches the guard, which is what the first version of this test
+    // asserted its way past
+    await expect(runInstaller(st, { shell: 'zsh', uninstall: true })).rejects.toThrow(
+      /one path segment/
+    );
+  });
+
+  it('should refuse the same program name at both readers', () => {
+    // `spec.ts` refuses a name that is not one word and `installTargets()` has
+    // to refuse the same, or an app whose script can never be registered is one
+    // the installer offers to write anyway
+    for (const name of ['', ' ', 'two words', '-lead']) {
+      expect(() => installTargets('zsh', name, envFor()), name).toThrow();
+    }
   });
 });

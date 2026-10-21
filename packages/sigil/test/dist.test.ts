@@ -356,11 +356,12 @@ describe('what importing the package costs', () => {
     const graph = staticGraph('config.mjs');
     const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-    // 38,064 B over seven modules, of which 9,880 B over six is what it starts
+    // 38,239 B over eight modules, of which 9,880 B over six is what it starts
     // from: `paths.mjs`, `i18n.mjs`, the `transform` and `debug` chunks, the
     // 66-byte `env-value` chunk the parser shares, and the 525-byte
-    // `mkdir-owner-sync` one the update cache shares. The graph is 5.06x the root
-    // entry's 7,518 B and a sixth of `components.mjs`'s 239,929 B over 26 --
+    // `mkdir-owner-sync` one the update cache shares. The eighth is the atomic
+    // write, which SIG-151's installer now shares. The graph is 5.08x the root
+    // entry's 7,518 B and a sixth of `components.mjs`'s 240,792 B over 27 --
     // all three measured the same way, which is the only comparison that means
     // anything. It was 20,649 B over six before the write half, so the span
     // writer, the atomic write and the representability check are about 11.5 KB
@@ -380,9 +381,9 @@ describe('what importing the package costs', () => {
     // onto it does. The **measured** figure is here and in AGENTS.md and
     // nowhere else, for the reason the root entry's is: two comments
     // disagreeing about one measurement leave a later reader with no way to
-    // tell which was measured. The README carries a rounded "about 31 kB over
-    // seven modules" for an app author deciding whether to import it, which is
-    // a different statement and names the same seven
+    // tell which was measured. The README carries a rounded "about 38 kB over
+    // eight modules" for an app author deciding whether to import it, which is
+    // a different statement and names the same eight
     expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(48 * 1024);
   });
 
@@ -486,8 +487,8 @@ describe('what importing the package costs', () => {
 
   it('should not put the prompts on the path that only prints a script', () => {
     // the whole packaging argument for SIG-151. `app completion bash > file` is
-    // the scriptable form and loads the printer: the prompts are 190,692 B over
-    // 23 modules, which is about four times the printer's own graph, so a
+    // the scriptable form and loads the printer: the prompt chunk's own graph is
+    // 190,692 B over 23 modules, which is three times the printer's, so a
     // statically imported `confirm()` would make the redirect pay for an
     // installer it never reaches.
     //
@@ -496,9 +497,15 @@ describe('what importing the package costs', () => {
     // graph names no prompt -- and the presence half beside it, because an
     // absence alone passes forever the day the marker is reworded.
     //
-    // Measured: the printer is 62,319 B over 12 modules and the interactive
-    // path is 256,906 over 36, so the prompts are +194,587 and +24. The
-    // estimate the ticket was taken on was +180 kB, which held
+    // Measured: the printer is 62,371 B over 12 modules and the interactive
+    // path is 258,740 over 36, so the whole of what the installer and the
+    // prompts add is +196,369 and +24 -- which is a different subtraction from
+    // the figure above and the two were read as one for a commit. The estimate
+    // the ticket was taken on was +180 kB, which held.
+    //
+    // Re-measure rather than quote: these moved by 1,218 B when the first
+    // review round's fixes landed in `interactive.ts`, which is the staleness
+    // the comment three hundred lines up is written about
     const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
     const printer = printerChunk();
 
