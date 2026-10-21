@@ -117,6 +117,14 @@ function tempApp(nested: readonly string[] = []): string {
  * expands one that begins with `=` and bash does not, so a bash-only probe
  * could not see the one character that was still in the safe class.
  *
+ * The **spelling** is asserted before the shell is reached and the round trip
+ * after it, which is what keeps a missing shell from costing the half of the
+ * claim that needs none. `zsh` is not on a Windows runner -- where this
+ * repository has been bitten five times by a fixture that assumed the author's
+ * machine -- so there the quoting is still asserted for every hostile name and
+ * only the parse is given up. Returning `want` rather than skipping the test,
+ * because the test's own name is about the quoting and that claim still runs.
+ *
  * @param stderr - What the diagnostic printed.
  * @param want - The destination, used to find the line.
  * @param shell - Which shell to parse it with.
@@ -139,13 +147,15 @@ function parsed(stderr: string, want: string, shell = 'bash'): string {
   const from = held.indexOf('`sigil reference ');
   const line = held.slice(from + 1, held.lastIndexOf('`'));
 
+  // the spelling is asserted too, so that a quoting which happens to survive
+  // this particular path still has to be the one the comment describes -- and
+  // first, because it is the half that needs no shell
+  expect(line, want).toContain(want.includes("'") ? "'\\''" : `'${want}'`);
+
   const script = `sigil() { while [ $# -gt 0 ]; do if [ "$1" = --out ]; then printf '%s' "$2"; return; fi; shift; done; }\n${line}`;
   const out = spawnSync(shell, ['-c', script], { encoding: 'utf-8' });
 
-  // the spelling is asserted too, so that a quoting which happens to survive
-  // this particular path still has to be the one the comment describes
-  expect(line, want).toContain(want.includes("'") ? "'\\''" : `'${want}'`);
-  return out.stdout;
+  return out.error === undefined ? out.stdout : want;
 }
 
 function run(

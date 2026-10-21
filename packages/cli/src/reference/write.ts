@@ -120,6 +120,14 @@ function write(path: string, body: string): void {
  * place and exact in the other, which is two readers of one rule. The
  * filesystem answers it in one, correctly on both.
  *
+ * What it rests on is a filesystem that reports a meaningful inode, which NTFS
+ * and APFS both do and a FAT volume or some network shares do not. One that
+ * answered `0` for everything would make every held file read as one this run
+ * wrote, so nothing would ever be reported stale and `--check` could not fire --
+ * and `should report a page a command no longer has, and never delete it` is
+ * what fails there rather than the check going quiet, which is the right place
+ * for a claim about a platform this is not written on.
+ *
  * @param path - The file.
  * @returns Its identity, or `undefined`.
  * @throws If it is there and cannot be read.
