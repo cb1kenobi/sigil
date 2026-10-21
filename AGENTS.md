@@ -85,6 +85,20 @@ resolves), `website/` (the Next.js site), `turbo.json`, `tsconfig.base.json`, an
 the shared oxlint and oxfmt configs. Each package extends the base tsconfig and
 sets its own `outDir`.
 
+**A demo lives with its _subject_, not with what it imports.** `demos/` has a
+directory per subsystem and the one a demo goes in is the layer it is about,
+whatever else it reaches for to show it: `style/02-themes.js` imports
+`@ttylabs/sigil/components`, `renderer/03-debug.js` imports it too, and
+`style/03-animation.js` imports five subpaths including `/renderer` and
+`/element` -- none of the three is in `demos/components/`, because a component a
+demo draws with is an instrument rather than the thing being demonstrated.
+Worth writing down because the rule was never stated and SIG-141's own demo was
+filed under `components/` for it: its subject is `resolveOutput()`, which is
+`src/style/output.ts`, and the axis it extends is `prefers-reduced-motion`,
+whose demo is `style/03-animation.js` -- so the two halves of one fold sat in
+two directories, which is the one arrangement that hides the point. It is
+`style/05-quiet.js`.
+
 **`packages/` holds the published packages and nothing else.** `packages/*` is
 the glob the workspace, turbo, vitest's `projects`, and the coverage `include`
 all read, so anything put there joins all four silently -- and the four entries

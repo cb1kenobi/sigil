@@ -1,8 +1,8 @@
 /**
  * The three states of one axis: `live`, `reduce`, `quiet`.
  *
- *   node demos/components/11-quiet.js
- *   node demos/components/11-quiet.js | cat     <- the same run, with no terminal
+ *   node demos/style/05-quiet.js
+ *   node demos/style/05-quiet.js | cat     <- the same run, with no terminal
  *
  * On a terminal the first block animates and the second does not; piped, both
  * write one line per change, which is `reduce` -- and in the third the spinner,

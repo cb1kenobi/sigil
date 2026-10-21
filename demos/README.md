@@ -276,7 +276,6 @@ waits for it rather than reporting a silence that is not one.
 | [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it            |
 | [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself            |
 | [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells             |
-| [`components/11-quiet.js`](components/11-quiet.js)                 | `live`, `reduce` and `quiet`, which is one axis         |
 
 ### Try them without a terminal
 
@@ -291,10 +290,10 @@ node demos/components/01-spinner.js | cat
 node demos/components/02-progress.js | cat
 node demos/components/07-typewriter.js | cat
 node demos/components/09-decrypt.js | cat
-node demos/components/11-quiet.js | cat
+node demos/style/05-quiet.js | cat
 ```
 
-`11-quiet.js` is the one of the five a pipe cannot show on its own, because its
+`style/05-quiet.js` is the one of the five a pipe cannot show on its own, because its
 point is the state a pipe does **not** produce: piped, its first two blocks still
 write a line per change, which is `reduce`, and in its third the spinner, the bar
 and the typewriter write nothing at all, which is `quiet`. The two `console.log`
@@ -379,6 +378,7 @@ what is left is the characters changing, which is the whole effect.
 | [`style/02-themes.js`](style/02-themes.js)                 | Restyling the built-ins, which is what a theme is |
 | [`style/03-animation.js`](style/03-animation.js)           | Transitions and keyframes, over whole cells       |
 | [`style/04-theme-switcher.js`](style/04-theme-switcher.js) | The themes sigil ships, swapped live              |
+| [`style/05-quiet.js`](style/05-quiet.js)                   | `live`, `reduce` and `quiet`, which is one axis   |
 
 `01-cascade.js` prints its answers rather than drawing them, because the contest
 is the point. Each section is one contest between two declarations that both reach the
