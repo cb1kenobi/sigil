@@ -873,7 +873,12 @@ describe('what it says', () => {
     const said = resultLines(plan, 'install', true).join('\n');
 
     expect(said).toContain(target.rc?.line ?? '!');
-    expect(said).toContain('compinit');
+    // the fixture holds no `compinit`, so this is the `none` branch -- named
+    // rather than left to a bare `toContain('compinit')`, which both branches
+    // satisfy now: one says "above your compinit line" and the other says there
+    // is no compinit line, and a test that cannot tell them apart would have
+    // passed over the message being wrong for everybody with a framework
+    expect(said).toContain('has no compinit line');
     // the half that is the whole decision: the startup file is read and not
     // written
     expect(readFileSync(rcFile, 'utf8')).toBe('# mine\n');
@@ -1398,5 +1403,113 @@ describe('what the second PR review round found', () => {
     expect(applyUninstall(planUninstall(left, 'mycli'))).toBe(true);
     expect(existsSync(join(user, 'mycli.bash'))).toBe(false);
     expect(existsSync(join(bcDir(), 'mycli'))).toBe(false);
+  });
+});
+
+describe('what the second PR review round found', () => {
+  /**
+   * The message as `resultLines()` prints it for a fresh zsh install.
+   *
+   * @param rc - What the startup file holds, or nothing to leave it absent.
+   * @returns The lines, joined.
+   */
+  async function saidFor(rc: string | undefined): Promise<string> {
+    if (rc !== undefined) {
+      writeFileSync(join(FAKE_HOME, '.zshrc'), rc);
+    }
+
+    const script = await completionScript(await state(), 'zsh');
+    const target = pick('zsh');
+    const plan = planInstall(target, script, 'mycli');
+    await applyInstall(plan, script);
+
+    return resultLines(plan, 'install', true).join('\n');
+  }
+
+  it('should name the compinit line only where the file has one', async () => {
+    // "above your compinit line" is precise where there is one and
+    // unfollowable where there is not, and most zsh users with a framework have
+    // not: Oh My Zsh runs `compinit` from `oh-my-zsh.sh`, so a `.zshrc` that
+    // sources it holds no such line while the completion system is fully set
+    // up -- measured by grepping one. Which is the broken-if-followed prose
+    // this repository calls the worst kind, one step along from the `>>` the
+    // first round took out: there the recipe named a command that could not
+    // work, here it names a line that is not in the file
+    const said = await saidFor('autoload -Uz compinit\ncompinit\n');
+
+    expect(said).toContain('above your compinit line');
+
+    // and it does not offer the call, which is the other half: a reader who
+    // already runs one does not need a second
+    expect(said).not.toContain('autoload -Uz compinit && compinit');
+  });
+
+  it('should say what to do where the file has no compinit line', async () => {
+    const said = await saidFor('export ZSH="$HOME/.oh-my-zsh"\nsource $ZSH/oh-my-zsh.sh\n');
+
+    // the top of the file, which is measured correct for Oh My Zsh: the
+    // `fpath` line as line 1 of a `.zshrc` sourcing `oh-my-zsh.sh` on line 5
+    // registers the completion, where the same line below the `source`
+    // registers nothing
+    expect(said).toContain('top of');
+    expect(said).not.toContain('above your compinit line');
+
+    // and the call to paste, because nothing here can tell a framework user
+    // from somebody with no completion system at all -- both read "there is no
+    // compinit line in this file" -- so the one message has to serve both. A
+    // redundant one after Oh My Zsh's own is measured harmless
+    expect(said).toContain('autoload -Uz compinit && compinit');
+  });
+
+  it('should treat a startup file that is not there as having no compinit line', async () => {
+    // the case a fresh machine is in, and the one where the first branch's
+    // sentence is least followable: there is no file to find a line in
+    expect(existsSync(join(FAKE_HOME, '.zshrc'))).toBe(false);
+
+    const said = await saidFor(undefined);
+
+    expect(said).toContain('top of');
+    expect(said).toContain('autoload -Uz compinit && compinit');
+  });
+
+  it('should read the anchor off the startup file, not off the route', async () => {
+    // `RcAddition` carried a dead `where` field for the whole of SIG-151 that
+    // this replaces, and it could never have answered: `resolveRoute()` builds
+    // that record and does no I/O on the startup file. So the anchor is
+    // discovered where the file is read, which is one read for both questions
+    const script = await completionScript(await state(), 'zsh');
+
+    writeFileSync(join(FAKE_HOME, '.zshrc'), '# mine\n');
+    expect(planInstall(pick('zsh'), script, 'mycli').anchor).toBe('none');
+
+    writeFileSync(join(FAKE_HOME, '.zshrc'), '# mine\nautoload -Uz compinit && compinit\n');
+    expect(planInstall(pick('zsh'), script, 'mycli').anchor).toBe('compinit');
+  });
+
+  it('should leave bash alone, which has no compinit at all', async () => {
+    const script = await completionScript(await state(), 'bash');
+    const target = pick('bash');
+    const plan = planInstall(target, script, 'mycli');
+    await applyInstall(plan, script);
+    const said = resultLines(plan, 'install', true).join('\n');
+
+    expect(said).toContain(target.rc?.line ?? '!');
+
+    // the shell is asked before the anchor rather than the anchor carrying a
+    // third state, so there is nothing for bash's line to precede and the
+    // sentence names the file alone
+    expect(said).not.toContain('compinit');
+    expect(plan.anchor).toBe('none');
+  });
+
+  it('should not claim a compinit line exists in the machine-independent recipe', async () => {
+    // the header every generated script carries and the no-terminal
+    // instructions, which cannot read a startup file -- so they say the general
+    // thing. Naming "your compinit line" there is the same defect with no way
+    // to detect its way out
+    const route = installHint('zsh', 'mycli').routes.find((it) => it.id === 'user');
+
+    expect(route?.add?.where).toContain('compinit');
+    expect(route?.add?.where).not.toContain('your compinit line');
   });
 });

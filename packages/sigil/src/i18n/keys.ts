@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 102 keys, which is what a catalog has to carry to translate sigil's own
+ * 104 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -30,6 +30,7 @@ export const SIGIL_KEYS: readonly string[] = [
   '({0} to submit)',
   '<command>',
   'A line has to go in {0}',
+  'Add this line to the top of {0}:',
   'Add this line to {0}, above your compinit line:',
   'Add this line to {0}:',
   'Alias:',
@@ -59,6 +60,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Invalid string: {0}',
   'Invalid value "{0}" for {1}',
   'Invalid value for "{0}" in {1}: {2}',
+  'It has to run before compinit, and that file has no compinit line.\nIf a framework runs one for you, put it above the line that sources it.\nIf nothing runs one, add this line as well:',
   'It will remove {0}',
   'It will replace {0}',
   'It will write {0}',

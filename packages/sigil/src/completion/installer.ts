@@ -73,9 +73,46 @@ export interface RcAddition {
    * directory every one of them writes into.
    */
   readonly needle: string;
-  /** Where in the file it has to go, where that matters. */
-  readonly where?: string;
 }
+
+/**
+ * What a zsh startup file holds to put the `fpath` line above.
+ *
+ * The line has to run before `compinit`, which is the call that scans `$fpath`
+ * and builds the autoload table -- and for a long time the message said "above
+ * your compinit line" whatever the file held, which is unfollowable for anybody
+ * whose file has no such line. Most zsh users with a framework are in exactly
+ * that state: Oh My Zsh runs `compinit` from `oh-my-zsh.sh`, so a `.zshrc` that
+ * sources it has no `compinit` in it at all -- measured, `grep compinit` over
+ * such a file finds nothing while the shell's completion system is fully set up.
+ * Which is the broken-if-followed prose this repository calls the worst kind,
+ * one step along from the `>>` the first PR round took out: there the recipe
+ * named a command that could not work, and here it names a line that is not
+ * there.
+ *
+ * It is **not** on `RcAddition`, which is where a `where` field sat dead for the
+ * whole of SIG-151 and is what this replaces: that record is built by
+ * `resolveRoute()`, which does no I/O on the startup file, so it cannot know.
+ * The answer is discovered where the file is read, which is `rcStateOf()` -- one
+ * read for both questions, so asking costs nothing.
+ */
+export type RcAnchor =
+  /** It has a `compinit` line of its own, which is the line to name. */
+  | 'compinit'
+  /**
+   * It has none, so there may be nothing in it to go above at all.
+   *
+   * Three states share this one answer and the message has to be true of all
+   * three, which is why it does not assert that nothing runs `compinit`: a
+   * framework sources one, a framework this does not recognise sources one, or
+   * the user has no completion system and needs the call themselves. Naming the
+   * framework's own line was built and refused -- it needs a table of what runs
+   * `compinit`, of which exactly one entry is measurable here, and "the top of
+   * the file" is measured correct for Oh My Zsh anyway: the `fpath` line as line
+   * 1 of a `.zshrc` that sources `oh-my-zsh.sh` on line 5 registers the
+   * completion, where the same line below the `source` registers nothing.
+   */
+  | 'none';
 
 /** A place this process can write a completion script to. */
 export interface InstallTarget {
@@ -115,6 +152,14 @@ export type RcState =
 
 /** What installing or uninstalling would do. */
 export interface InstallPlan {
+  /**
+   * What the startup file holds to put the line above.
+   *
+   * `none` for every route that needs no line and for bash, which has no
+   * `compinit` -- so a reader of this asks about zsh's `user` route or gets the
+   * degenerate answer, which is the one `resultLines()` wants anyway.
+   */
+  readonly anchor: RcAnchor;
   /**
    * Whether anything at all is outstanding, the printed line included.
    *
@@ -431,7 +476,6 @@ function resolveRoute(
           file: join(zdot, '.zshrc'),
           line: `fpath=(${shQuote(ours)} $fpath)`,
           needle: ours,
-          where: 'above your compinit line',
         },
       };
     }
@@ -610,22 +654,42 @@ function spellings(path: string): readonly string[] {
 }
 
 /**
- * Whether the startup file already names the path the line would add.
+ * What the startup file says, read once.
+ *
+ * Both questions off one read, which is what makes the anchor free: whether the
+ * path is named already decides whether to print, and whether a `compinit` line
+ * is there decides *which* sentence -- and a second read for the second would be
+ * two answers about one file, with a write between them.
  *
  * @param rc - The addition, or nothing where the route needs none.
- * @returns What there is to do about it.
+ * @returns What there is to do about it, and what to put the line above.
  */
-function rcStateOf(rc: RcAddition | undefined): RcState {
+function rcStateOf(rc: RcAddition | undefined): {
+  readonly anchor: RcAnchor;
+  readonly state: RcState;
+} {
   if (rc === undefined) {
-    return 'none';
+    return { anchor: 'none', state: 'none' };
   }
 
   const held = readOr(rc.file);
   if (held === undefined) {
-    return 'absent';
+    // a file that is not there has no line to go above, which is the `none`
+    // message's own case: it says what to do where there is nothing to precede
+    return { anchor: 'none', state: 'absent' };
   }
 
-  return spellings(rc.needle).some((spelling) => held.includes(spelling)) ? 'present' : 'absent';
+  // the word anywhere in the file, which is the same granularity the needle is
+  // read at and for its reason: a mention inside a comment read as "there is a
+  // compinit line" costs the reader today's sentence, which is the status quo
+  // and names a line they can see, where missing a real one costs them the
+  // sentence that cannot be followed. The loose direction is the safe one
+  const anchor: RcAnchor = held.includes('compinit') ? 'compinit' : 'none';
+
+  return {
+    anchor,
+    state: spellings(rc.needle).some((spelling) => held.includes(spelling)) ? 'present' : 'absent',
+  };
 }
 
 /**
@@ -696,10 +760,10 @@ export function planInstall(target: InstallTarget, script: string, program: stri
     file = 'update';
   }
 
-  const rc = rcStateOf(target.rc);
+  const { anchor, state: rc } = rcStateOf(target.rc);
   const writes = file !== 'current';
 
-  return { changes: writes || rc === 'absent', file, program, rc, target, writes };
+  return { anchor, changes: writes || rc === 'absent', file, program, rc, target, writes };
 }
 
 /**
@@ -740,7 +804,7 @@ export function planUninstall(target: InstallTarget, program: string): InstallPl
   // `writes: false`, and a caller that read the first threw the refusal below
   // out to its own error handler. Found by review
   const writes = file === 'update';
-  const rc = rcStateOf(target.rc);
+  const { anchor, state: rc } = rcStateOf(target.rc);
 
   // and the line counts, which it did not for one commit: a script somebody
   // already removed by hand with the line still in their `.zshrc` is not
@@ -748,7 +812,7 @@ export function planUninstall(target: InstallTarget, program: string): InstallPl
   // line from ..." in the same breath was the interface's own contract -- "what
   // decides nothing to do, the printed line included" -- disagreeing with one
   // of its two constructors. Found by review
-  return { changes: writes || rc === 'present', file, program, rc, target, writes };
+  return { anchor, changes: writes || rc === 'present', file, program, rc, target, writes };
 }
 
 /**
@@ -877,12 +941,13 @@ export function applyUninstall(plan: InstallPlan): boolean {
 /**
  * The plan, as the lines to show before asking.
  *
- * Rendered here rather than in the command, because the one line that is not a
- * path is the `where` clause -- "above your compinit line" -- and that is a
- * fact about zsh. A translator wants whole sentences rather than a fragment
- * through a slot, which is the rule the suggestion work records, so the clause
- * is inside the key and the key is chosen by the shell. That choice belongs
- * where the shell knowledge already is.
+ * Rendered here rather than in the command, because the lines that are not
+ * paths are facts about zsh: which line the addition has to precede, and what
+ * to do where the file holds no such line. A translator wants whole sentences
+ * rather than a fragment through a slot, which is the rule the suggestion work
+ * records, so each clause is inside its own key and the key is chosen by the
+ * shell and by `InstallPlan.anchor`. That choice belongs where the shell
+ * knowledge already is.
  *
  * @param plan - What would happen.
  * @param action - Which way round.
@@ -922,6 +987,66 @@ export function planLines(plan: InstallPlan, action: Action): string[] {
   }
 
   return out.map((line) => `  ${line}`);
+}
+
+/**
+ * The call a zsh user needs where nothing in their startup files makes one.
+ *
+ * Not a key: it is a line of shell rather than prose, which is the same call
+ * every `rc.line` here gets.
+ */
+const COMPINIT_LINE = 'autoload -Uz compinit && compinit';
+
+/**
+ * How to say where the line goes, which is three sentences on zsh and one on
+ * bash.
+ *
+ * bash has no `compinit`, so there is nothing for its line to precede and the
+ * sentence names the file alone -- which is why the shell is asked before the
+ * anchor rather than the anchor carrying a third state for it.
+ *
+ * The two zsh forms are the whole of the fix: naming "your compinit line" is
+ * precise where the file has one and unfollowable where it has not, and most
+ * zsh users with a framework have not -- Oh My Zsh runs `compinit` from
+ * `oh-my-zsh.sh`, so their `.zshrc` holds no such line while their completion
+ * system is perfectly set up. See `RcAnchor` for what each state is true of.
+ *
+ * The `none` form prints a second line to paste rather than only prose, because
+ * what a reader with no completion system at all needs is that call and nothing
+ * here can tell them apart from a framework user: both read "there is no
+ * compinit line in this file". Suggesting it to somebody who did not need it is
+ * measured harmless -- a redundant `autoload -Uz compinit && compinit` after Oh
+ * My Zsh's own registers the completion exactly as without it -- which is what
+ * makes the one sentence safe for all three states.
+ *
+ * @param rc - The addition.
+ * @param shell - The shell.
+ * @param anchor - What the startup file holds to put it above.
+ * @returns The lines, with no leading or trailing blank.
+ */
+function addLines(rc: RcAddition, shell: ShellName, anchor: RcAnchor): string[] {
+  if (shell !== 'zsh') {
+    return [__`Add this line to ${rc.file}:`, '', `    ${rc.line}`];
+  }
+
+  if (anchor === 'compinit') {
+    return [__`Add this line to ${rc.file}, above your compinit line:`, '', `    ${rc.line}`];
+  }
+
+  return [
+    __`Add this line to the top of ${rc.file}:`,
+    '',
+    `    ${rc.line}`,
+    '',
+    // one key rather than three, so a translator has the whole of it and may
+    // reorder it: the rule the read-only `delete` message already keeps, and
+    // the reason it is written as a template with real line breaks in it
+    __`It has to run before compinit, and that file has no compinit line.
+If a framework runs one for you, put it above the line that sources it.
+If nothing runs one, add this line as well:`,
+    '',
+    `    ${COMPINIT_LINE}`,
+  ];
 }
 
 /**
@@ -971,16 +1096,7 @@ export function resultLines(plan: InstallPlan, action: Action, did: boolean): st
   // them
 
   if (rc !== undefined && plan.rc === 'absent') {
-    out.push(
-      '',
-      shell === 'zsh'
-        ? __`Add this line to ${rc.file}, above your compinit line:`
-        : __`Add this line to ${rc.file}:`,
-      '',
-      `    ${rc.line}`,
-      '',
-      __`Then restart your shell.`
-    );
+    out.push('', ...addLines(rc, shell, plan.anchor), '', __`Then restart your shell.`);
   } else if (did) {
     // nothing to add, which is `bash-completion`'s own user directory and the
     // one route that is fully automatic -- so the only thing left is the shell

@@ -77,6 +77,15 @@ export type RouteId = 'bash-completion' | 'eval' | 'fpath' | 'system' | 'user';
  * offering the append it refuses, and the one place the append does not even
  * work.
  *
+ * **Which line it has to precede is not always a `compinit` line**, and this is
+ * the machine-independent half, so it says the general thing. A framework runs
+ * `compinit` for the reader: Oh My Zsh does it from `oh-my-zsh.sh`, so a
+ * `.zshrc` that sources it holds no `compinit` at all -- measured -- and a
+ * recipe naming "your compinit line" there names a line that is not in the
+ * file. The *resolved* half can do better, because it reads the startup file
+ * anyway: `installer.ts`'s `RcAnchor` is that, and it is the one place this
+ * knowledge is allowed to be specific, because it is the one place it is known.
+ *
  * Which is why it is not every append: what stays a command is every one that
  * **lands where it has to**, and both were measured rather than reasoned about.
  * `source <(app completion zsh)` must be below `compinit`, because the script's
@@ -244,7 +253,8 @@ function routesFor(shell: ShellName, program: string): readonly InstallRoute[] {
       {
         add: {
           line: `fpath=(${SHOWN_USER_DIR} $fpath)`,
-          where: 'then add this line to ~/.zshrc, above your compinit line:',
+          where:
+            "then add this line to ~/.zshrc, above whatever runs compinit -- yours or your framework's:",
         },
         commands: [
           `mkdir -p ${SHOWN_USER_DIR}`,

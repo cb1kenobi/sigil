@@ -824,6 +824,27 @@ The two questions are a `select()` with what `$SHELL` named already highlighted
 a `confirm()` over the plan. They draw on **stderr**, because this command's
 stdout is the script.
 
+On zsh the last part depends on what your `.zshrc` holds, because the `fpath`
+line has to run before `compinit` — the call that scans `$fpath` and builds the
+completion table. The block above is what a file with its own `compinit` line
+gets. A file with **no** such line gets this instead, which is most people with
+a framework: Oh My Zsh runs `compinit` from `oh-my-zsh.sh`, so a `.zshrc` that
+sources it has no `compinit` in it anywhere.
+
+```
+Add this line to the top of /Users/you/.zshrc:
+
+    fpath=('/Users/you/.local/share/completions' $fpath)
+
+It has to run before compinit, and that file has no compinit line.
+If a framework runs one for you, put it above the line that sources it.
+If nothing runs one, add this line as well:
+
+    autoload -Uz compinit && compinit
+
+Then restart your shell.
+```
+
 It writes the file and **prints** the line rather than editing a dotfile: a
 `.zshrc` is very often under version control and is routinely written by a
 dotfile manager, so appending to one is not this command's to do. On bash with

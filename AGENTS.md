@@ -18521,12 +18521,138 @@ whose preference.
   which is the cheapest check there is on a file that cites its own tests this
   often, and the one the previous round's own fix should have had run over it.
 
+##### What the third PR review round found: the compinit line that is not there
+
+One report, from a real machine, and it is the **first PR round on this ticket
+to find a defect in its predecessor's own output** by the shortest route there
+is: the first round replaced a `>>` append with a line to place, and the
+sentence it placed it with names a line most zsh users do not have. Which is
+the pattern this file records four times over -- code written in response to a
+review is code no review has seen.
+
+- **The message names "your compinit line" over a `.zshrc` that has none, and a
+  framework is why.** `compinit` is the call that scans `$fpath` and builds the
+  autoload table, so the `fpath` line has to precede it -- and a framework runs
+  it for the reader: **Oh My Zsh calls `compinit` from `oh-my-zsh.sh`**, at
+  lines 238 and 243 of it, so a `.zshrc` that sources that file holds no
+  `compinit` anywhere. Measured by grepping the reporter's own: three matches
+  for `oh-my-zsh`, **zero** for `compinit`, with the shell's completion system
+  fully set up. So the instruction could not be followed, which is the first
+  round's own finding one step along -- there the recipe named a **command** that
+  could not work, here it names a **line that is not in the file**.
+
+  It is the commoner case rather than an edge, which is what makes it worth the
+  round: a `compinit` line of one's own is what a zsh user with no framework
+  writes, and a framework is what most of them have.
+
+- **Three placements measured, in a throwaway `ZDOTDIR` replicating that
+  shape.** The `fpath` line **above** `source $ZSH/oh-my-zsh.sh` registers the
+  completion -- `$_comps[sigil]` is `_sigil` and `whence -w` says `function` --
+  and **below** it registers nothing at all. As **line 1** of the file, above
+  everything, it registers: which is what makes "the top of the file" a measured
+  instruction rather than a guess, and is the sentence the fix prints. With no
+  framework and no `compinit` at all the line alone registers nothing and the
+  line plus `autoload -Uz compinit && compinit` registers.
+
+- **So the anchor is read off the startup file, which costs nothing because that
+  file is already read.** `rcStateOf()` reads it to decide whether the path is
+  named already; asking the same text whether it holds `compinit` is one more
+  question of one read, and `RcAnchor` is the answer. A file with a `compinit`
+  line keeps the old sentence, which is precise and names a line the reader can
+  see; one without gets "the top of" plus the call to paste.
+
+  It is **not** on `RcAddition`, and that is where a dead `where` field sat for
+  the whole of SIG-151: written in `resolveRoute()` and read **nowhere**, while
+  `planLines()`'s own doc justified its location by it. It could never have
+  answered either, which is the point -- that record is built without touching
+  the file system, so the knowledge it was shaped for was not available where it
+  sat. The dead-property class this file records for `Command.file` and
+  `BundleResult.generated`, with the twist that the field was the right idea in
+  the wrong module.
+
+- **The `none` sentence does not assert that nothing runs `compinit`, because
+  three states share it.** A framework sources one, a framework this does not
+  recognise sources one, or there is no completion system at all -- and "nothing
+  there runs compinit" is **false** for the first two. So it says what is true of
+  all three: that file has no `compinit` line, a framework's own line is what to
+  go above if one runs it, and here is the call if nothing does. One key with
+  three lines in it rather than three keys, which is the rule the read-only
+  `delete` message already keeps: a sentence per line hands a translator
+  fragments and no way to reorder them.
+
+  Offering the call to somebody who did not need it is **measured harmless** -- a
+  redundant `autoload -Uz compinit && compinit` after Oh My Zsh's own registers
+  the completion exactly as without it -- which is what makes one sentence safe
+  for all three.
+
+- **Naming the framework's own line was built and refused, and the refusal is a
+  measurement rather than taste.** "above your `source $ZSH/oh-my-zsh.sh` line"
+  is the most actionable sentence available and it needs a table of what runs
+  `compinit`, of which **exactly one entry is measurable here**: Oh My Zsh is
+  installed on this machine and prezto, zim and the rest are not, so every other
+  row would be this repository guessing -- which is the call the shells map
+  already makes, where "adding one is a module plus a run by somebody who has
+  that shell". And the fallback it would refine is measured **correct** for Oh My
+  Zsh anyway, since line 1 works. A table whose absence is safe is a refinement
+  rather than a fix, and it can wait for somebody with those frameworks to hand.
+
+- **The machine-independent recipe says the general thing, because it cannot
+  read anything.** `install.ts`'s route table goes into every generated script's
+  own header and into the no-terminal instructions, so it is redirected to a
+  file, checked in and generated on a build machine -- there is no startup file
+  for it to consult. It says "above whatever runs compinit -- yours or your
+  framework's" now. That asymmetry is the module's own design read forwards: the
+  shown form is machine-independent and the resolved form is this machine's, and
+  this is the one place the knowledge is allowed to be specific because it is the
+  one place it is known.
+
+- **Seven sabotages, seven caught, and one harness verdict.** The old sentence
+  for every state, the anchor pinned each way, a missing file read as
+  `compinit`, bash given the zsh sentence, the call dropped from the `none`
+  branch, and the recipe's claim put back -- each fails the test named for it.
+  The eighth attempt came back `SURVIVED` and was the harness being wrong rather
+  than the code unguarded: the replacement left the `if` **unbalanced**, so the
+  file did not transform and vitest reported `Tests no tests` with no `×` line
+  for the verdict to read. Balanced as `|| true` it fails three tests. Which is
+  the fourth distinct way a sabotage pass has been found to be the thing that was
+  wrong here, after a stale pattern, an apostrophe spelled as an escape and a
+  `vitest run` whose paths missed -- and the reason a run that produced no
+  summary is its own verdict.
+
+  One existing assertion was **sharpened** rather than added to: `should print
+  the line to add and never add it` writes a `.zshrc` of `# mine`, which is the
+  `none` branch, and asserted `toContain('compinit')` -- which **both** branches
+  satisfy now, since one names a compinit line and the other says there is none.
+  A test that cannot tell them apart would have passed over the message being
+  wrong for everybody with a framework.
+
 ##### What is deliberately out
 
 - **Editing a dotfile**, for the reason above: it is very often under version
   control and routinely written by a dotfile manager, and appending to one is a
   decision this is not entitled to take. The line is printed and the read is what
   makes a re-run quiet.
+- **An Oh My Zsh route, which would need no startup-file line at all and is the
+  shape the bash side already has.** Oh My Zsh puts `$ZSH_CACHE_DIR/completions`
+  on `$fpath` itself, at line 68 of `oh-my-zsh.sh`, so a `_app` dropped there is
+  loaded with **nothing added to any file** -- measured, and its own `charm`
+  plugin writes a generated completion into exactly that directory, which is as
+  close to a sanctioned location as a framework offers. `omz reload` clears only
+  the compdump, so it is not swept. That is `bash-completion`'s own user
+  directory one shell along, gate and all: the directory existing is what stands
+  in for a version check, because `$ZSH` is set only inside a zsh that sourced
+  the file and reaches no environment this process has.
+
+  Refused **here** rather than refused outright, and the distinction matters: it
+  is a new `RouteId`, a tier in `installTarget()`'s search, an uninstall path and
+  a row in every script's header, taken inside a round about a sentence -- which
+  is the call this file records for narrowing the toolchain's type check inside a
+  caching ticket. It also writes into another tool's **cache** directory, where
+  `bash-completion`'s is an XDG data directory documented for user completions,
+  so the two are not on the same footing and that is a decision somebody should
+  take on its own terms. What the message fix buys in the meantime is that the
+  one-line edit it asks for is followable, which it was not.
+
 - **An `--install` flag or an `install` subcommand**, with the reason at the top:
   the bare spelling was already a command whose whole output was instructions.
 - **Running `compinit` or sourcing anything**, which is a shell's own business
