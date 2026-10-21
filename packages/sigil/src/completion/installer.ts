@@ -46,10 +46,10 @@
 import { isMissing, writeAtomic } from '../config/atomic.js';
 import { __ } from '../i18n/index.js';
 import { baseDir, expand, home } from '../paths.js';
-import { generatedBy, installHint, shQuote, type RouteId } from './install.js';
+import { generatedBy, installHint, registerable, shQuote, type RouteId } from './install.js';
 import type { ShellName } from './shells.js';
 import { accessSync, constants, readFileSync, statSync, unlinkSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, join, sep } from 'node:path';
 
 /** Which way round the plan is being read. */
 export type Action = 'install' | 'uninstall';
@@ -133,6 +133,15 @@ export interface InstallPlan {
    * never arises, because an uninstall has no script to compare against.
    */
   readonly file: FileState;
+  /**
+   * The program's name, so the apply layer can ask the ownership question
+   * again rather than trusting this snapshot.
+   *
+   * On the plan because that is what `applyInstall()` is handed: the marker is
+   * a function of the shell and the program, and the target carries only the
+   * first.
+   */
+  readonly program: string;
   /** Whether the startup file names it. */
   readonly rc: RcState;
   /** Where it goes. */
@@ -262,6 +271,18 @@ export function installTargets(
     );
   }
 
+  // and the shell's own question, asked through the same predicate
+  // `completionSpec()` asks it with. On the install path the script is
+  // generated first, so that one answers; an **uninstall** builds no spec at
+  // all, so a name with whitespace or a leading dash reached the only guard
+  // this path has and sailed through it. Two questions about one name, and the
+  // second was asked in one place of two. Found by review
+  if (!registerable(program)) {
+    throw new Error(
+      `Expected the program name to be one word not beginning with a dash, not "${program}": a completion script names the command it completes for.`
+    );
+  }
+
   const base = dataHome(env);
   const ours = join(base, 'completions');
   const out: InstallTarget[] = [];
@@ -356,7 +377,12 @@ function resolveRoute(
       // sits unused at the next index. Nothing retries, so the check has to be
       // here. A race remains -- writable when asked and not when written -- and
       // that is the file system's rather than a gate's. Found by review
-      accessSync(dir, constants.W_OK);
+      // write **and** search: creating a file in a directory on POSIX needs
+      // both, and `W_OK` alone passes a `0o200` directory that then throws the
+      // very `EACCES` this gate was added to avoid -- measured, the gate was
+      // one permission bit narrower than its own stated purpose. Found by
+      // review
+      accessSync(dir, constants.W_OK | constants.X_OK);
     } catch {
       return undefined;
     }
@@ -412,23 +438,75 @@ function readOr(path: string): string | undefined {
  * reprinted on every run and "nothing to do" is unreachable for exactly the
  * population that did what they were told. Found by review.
  *
- * `$HOME/` beside it because a shell writer who did not want the tilde wrote
- * that, and both are the same directory. Derived from the one path rather than
- * listed, so there is nothing to keep in agreement.
+ * `$HOME` and `${HOME}` beside it because a shell writer who did not want the
+ * tilde wrote one of those, and the braced form is the common one in a
+ * hand-maintained dotfile precisely because it survives concatenation. All
+ * three are derived from the one path rather than listed, so there is nothing
+ * to keep in agreement.
+ *
+ * Two details that are not decoration. The home has to end at a **separator**,
+ * or a needle that merely shares its prefix -- home `/Users/ann`, needle
+ * `/Users/anna/...` through `XDG_DATA_HOME` -- derives `$HOMEa/...`, which is a
+ * reference to a different variable. And the home-relative forms are written
+ * with forward slashes whatever `join()` produced, because what reads them is a
+ * bash or zsh startup file: on Windows the needle is backslashed and no rc file
+ * there spells a path that way, so the `~` population the whole function exists
+ * for would have gone unrecognised. Both found by review.
  *
  * @param path - The path, absolute.
- * @returns The spellings, longest first so a substring search is unambiguous.
+ * @returns The spellings. The order says nothing: the caller asks whether
+ *   **any** of them is in the file, so there is no disambiguation here to get
+ *   right -- which the first version of this line claimed there was.
  */
 function spellings(path: string): readonly string[] {
   const dir = homeDir();
+  const edge = dir.endsWith(sep) ? dir : dir + sep;
 
-  if (!path.startsWith(dir)) {
+  if (!path.startsWith(edge)) {
     return [path];
   }
 
-  const rest = path.slice(dir.length);
+  // forward slashes, because a shell startup file spells a path that way on
+  // every platform -- and the **absolute** form gets one too, which the first
+  // version did not: `join()` backslashes it on Windows, where what a Git Bash
+  // or MSYS user writes into an rc file is `C:/Users/ann/...`. So that spelling
+  // matched none of the four and read `absent` for ever, which is the same
+  // "our own needle, wrong string" the relative forms were fixed for, one
+  // entry along. Both are offered rather than one replacing the other, because
+  // a `.bashrc` written by a Windows tool may hold either. Found by review
+  // round 3.
+  //
+  // Both rewrites are deliberate survivors of the sabotage pass, and
+  // unreachable on POSIX by **proof** rather than for want of a fixture: `sep`
+  // is `/` there, so `slash()` is the identity and the `Set` collapses to the
+  // three spellings POSIX already had. What pins them is CI -- `should
+  // recognise every home spelling a startup file can hold` writes a
+  // forward-slashed needle into the rc file and asks for `present`, which on
+  // Windows fails against a backslashed spelling -- which is the strongest
+  // evidence available and is better than a test this machine could run.
+  // `asWindows()` cannot reach them, because that forces `process.platform`
+  // and `sep` was bound at module load.
+  //
+  // `edge` rather than `dir` for the slice, because the separator has to come
+  // back: a home of `/` -- which is what a root account has in a container --
+  // made `path.slice(dir.length)` drop it, so the spellings were `~home/u/...`
+  // and `$HOMEhome/u/...`, the first naming a *different* directory and the
+  // others a variable nobody set. Reported by review round 3, and the shape is
+  // the separator-boundary fix's own rule applied to the wrong end.
+  //
+  // It has **no observable consequence**, which was measured rather than
+  // assumed and is why there is no test beside it: `/` is the only home the
+  // old slice loses a separator for -- it needs `dir` not to end in `sep` and
+  // yet `path.slice(dir.length)` to drop one -- and there every home-relative
+  // spelling trivially *contains* the absolute one, which is in the same list.
+  // So `rcStateOf()`'s `some(includes)` answers `present` either way, and a
+  // test written for it passed against the defect. The expression is corrected
+  // because the strings it derives are what the function promises and `edge` is
+  // no more code than `dir`; what is not done is ship a test that cannot fail
+  const slash = (text: string): string => text.replaceAll(sep, '/');
+  const rest = `/${slash(path.slice(edge.length))}`;
 
-  return [path, `~${rest}`, `$HOME${rest}`];
+  return [...new Set([path, slash(path), `~${rest}`, `$HOME${rest}`, `\${HOME}${rest}`])];
 }
 
 /**
@@ -477,7 +555,28 @@ function rcStateOf(rc: RcAddition | undefined): RcState {
  * @returns Whether this is generated output rather than somebody's file.
  */
 function ours(held: string, shell: ShellName, program: string): boolean {
-  return held.split('\n', HEADER_LINES).join('\n').includes(generatedBy(shell, program));
+  const line = `# ${generatedBy(shell, program)}`;
+
+  // the **whole** of one header line rather than a substring of one, which is
+  // the same defect one window along: a two-line hand-written file whose second
+  // line reads `# (replaces the zsh completion for \`mycli\`, generated by
+  // sigil.)` had the marker inside the window and was unlinked on Enter. Both
+  // emitters write the sentence as a comment of its own, so equality is what
+  // they mean. Found by review.
+  //
+  // It **narrows** the class rather than closing it, which the first version of
+  // this comment claimed: a hand-written file one of whose first three lines is
+  // *exactly* that comment -- a wrapper quoting the generated header above its
+  // own code -- is still read as ours. Found by review round 3, and it is
+  // accepted rather than closed, because no marker scheme can do better: that
+  // file is byte for byte indistinguishable in its header from a generated
+  // script somebody edited the body of, which is the ordinary upgrade case and
+  // **must** be replaceable. Nothing stronger is available short of signing the
+  // whole file, and what the design buys instead is that the destructive
+  // direction asks: `planUninstall()` defaults to yes for a file it reads as
+  // ours and `planInstall()` replaces one without asking, so the cost of the
+  // false positive is one Enter on a question that named the path
+  return held.split('\n', HEADER_LINES).some((it) => it.trimEnd() === line);
 }
 
 /** How far into a file the marker has to be for the file to be ours. */
@@ -500,7 +599,7 @@ export function planInstall(target: InstallTarget, script: string, program: stri
   const rc = rcStateOf(target.rc);
   const writes = file !== 'current';
 
-  return { changes: writes || rc === 'absent', file, rc, target, writes };
+  return { changes: writes || rc === 'absent', file, program, rc, target, writes };
 }
 
 /**
@@ -535,7 +634,11 @@ export function planUninstall(target: InstallTarget, program: string): InstallPl
   }
 
   // a `foreign` file is refused outright rather than offered, so it is nothing
-  // to ask about -- which is where the install's two booleans part company
+  // to **write** -- which is where the install's two booleans part company, and
+  // is why a caller has to gate the write on `writes` rather than on `changes`:
+  // a foreign file with the rc line still present is `changes: true` and
+  // `writes: false`, and a caller that read the first threw the refusal below
+  // out to its own error handler. Found by review
   const writes = file === 'update';
   const rc = rcStateOf(target.rc);
 
@@ -545,7 +648,7 @@ export function planUninstall(target: InstallTarget, program: string): InstallPl
   // line from ..." in the same breath was the interface's own contract -- "what
   // decides nothing to do, the printed line included" -- disagreeing with one
   // of its two constructors. Found by review
-  return { changes: writes || rc === 'present', file, rc, target, writes };
+  return { changes: writes || rc === 'present', file, program, rc, target, writes };
 }
 
 /**
@@ -575,7 +678,13 @@ export async function applyInstall(
   // rather than of the writer. `replace` is what the answer looks like from
   // here, so a caller that forgot to ask gets a throw rather than a destroyed
   // file. English, because only a caller's own code can provoke it
-  if (plan.file === 'foreign' && opts.replace !== true) {
+  // read **now** rather than trusted from the plan, which is a snapshot taken
+  // before a question was on screen. The question can sit there indefinitely,
+  // and a second terminal running the same command, a dotfile manager or an
+  // editor can put a file at the target in that window -- so a plan that said
+  // `create` was an answer about bytes that are no longer there, and the
+  // refusal was a property of the plan's age. Found by review
+  if (!replaceable(plan, opts.replace === true)) {
     throw new Error(
       `Refusing to replace ${plan.target.file}, which sigil did not write: ask first, then pass { replace: true }.`
     );
@@ -583,6 +692,54 @@ export async function applyInstall(
 
   await writeAtomic(plan.target.file, script);
   return true;
+}
+
+/**
+ * Whether the file at the target is one this may write over.
+ *
+ * Asked of the file rather than of the plan, for the reason `applyInstall()`
+ * gives: a plan is a snapshot and a question takes time. What the re-read
+ * closes is the plan that said `create` over a path something has since put a
+ * file at -- which without it was written over on the strength of an answer
+ * nobody was asked for.
+ *
+ * What it does **not** close, and this is a decision rather than a residue: a
+ * yes about one stranger's file covers a *different* stranger's file that
+ * arrived in the same window. The first version of this comment claimed the
+ * opposite -- "what it cannot do is cover a different stranger's file" -- and
+ * the code never had it, because `replaced && plan.file === 'foreign'` is true
+ * of any foreign file. Found by review round 3.
+ *
+ * The answer is kept rather than tightened, for two reasons. The question names
+ * the **path** and nothing else -- "`<path>` was not written by sigil. Replace
+ * it?" -- so a yes is an answer about that path, and the bytes were never shown
+ * for it to be an answer about. And the destructive direction is refused
+ * outright at any age: `applyUninstall()` re-reads and throws for a file that is
+ * not ours whatever anybody said, which is the asymmetry `planUninstall()`
+ * records -- replacing a generated path is the ordinary upgrade case and
+ * deleting a stranger's file gains nothing a `rm` would not. Tightening it would
+ * mean carrying the planned bytes on the plan so that a yes could be refused in
+ * exactly the case the user said yes to.
+ *
+ * The window is one prompt wide, and through a **symlink** at the target it
+ * reaches whatever the link points at -- which is `writeAtomic()` following it
+ * on purpose, is what makes a dotfile manager's layout work, and is pinned by
+ * `should write through a symlink rather than replacing it`.
+ *
+ * @param plan - What was planned.
+ * @param replaced - Whether the caller was told yes.
+ * @returns Whether to go ahead.
+ */
+function replaceable(plan: InstallPlan, replaced: boolean): boolean {
+  const held = readOr(plan.target.file);
+
+  if (held === undefined || ours(held, plan.target.shell, plan.program)) {
+    return true;
+  }
+
+  // a stranger's file, so only an answer about *this* one lets it through --
+  // which is the plan's own reading having been `foreign` when it was asked
+  return replaced && plan.file === 'foreign';
 }
 
 /**
@@ -600,7 +757,16 @@ export function applyUninstall(plan: InstallPlan): boolean {
   // records: replacing a generated path is the ordinary upgrade case and is
   // worth asking about, where deleting a stranger's file gains nothing a `rm`
   // would not. A caller cannot ask its way past this one
-  if (plan.file === 'foreign') {
+  // read now rather than trusted, for `applyInstall()`'s reason: a file swapped
+  // in while the question was on screen was deleted on the strength of a plan
+  // that described the one before it
+  const held = readOr(plan.target.file);
+  if (held === undefined) {
+    // gone since the plan, which is a race rather than a failure: what was
+    // asked for has happened
+    return false;
+  }
+  if (!ours(held, plan.target.shell, plan.program)) {
     throw new Error(`Refusing to remove ${plan.target.file}, which sigil did not write.`);
   }
 

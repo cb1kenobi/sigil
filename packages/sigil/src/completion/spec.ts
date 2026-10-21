@@ -40,6 +40,7 @@
 
 import { loadCommand } from '../parser/command/load-command.js';
 import { Internal, type InternalCommand, type InternalOption, type Schema } from '../types.js';
+import { registerable } from './install.js';
 
 /** Where the tree is, which is what a parse already produced. */
 export interface CompletionTarget {
@@ -200,6 +201,40 @@ export function oneLine(text: unknown): string | undefined {
 
   const flat = text.replaceAll(/\s+/gu, ' ').replaceAll(CONTROL, '').trim();
   return flat || undefined;
+}
+
+/**
+ * The program a completion is for, from a schema's `name`.
+ *
+ * One function because the two readers of that name disagreed about what it
+ * *is* rather than about what is allowed. `registerable()` was already shared,
+ * and `completionSpec()` asked it of `oneLine(name)` while the installer asked
+ * it of the raw string -- so the predicate agreed and the subject did not, and
+ * the two halves of one command answered differently about one app:
+ *
+ * - `name: 'my<ESC>cli'`. The printer strips the control character and writes a
+ *   header naming `mycli`; the installer's path was `_my<ESC>cli` and its
+ *   marker was built from the raw name. Measured: the first install wrote, and
+ *   then every re-run read its own file as `foreign` -- so it asked before
+ *   replacing the script it had just written, and `--uninstall` **refused to
+ *   remove it at all**. An installed completion nothing could maintain or take
+ *   back out.
+ * - `name: ' mycli '`. The printer trims and serves it; the install path threw,
+ *   because `installTargets()` runs before `completionScript()` does.
+ *
+ * Which is the shared-predicate-unshared-subject shape, and the reason the
+ * derivation is a function rather than a rule each caller keeps. Found by
+ * review round 3.
+ *
+ * It does not say whether the result is *registerable* -- that is
+ * `registerable()`'s, asked by both callers of this -- only what the name
+ * reduces to.
+ *
+ * @param name - What the schema declared, which is `unknown` to this package.
+ * @returns The name, or nothing where there is none left.
+ */
+export function programOf(name: unknown): string | undefined {
+  return oneLine(name);
 }
 
 /**
@@ -436,7 +471,7 @@ export async function completionSpec(target: CompletionTarget): Promise<Completi
   }
 
   const root = contexts[contexts.length - 1] as InternalCommand;
-  const program = oneLine(target.schema?.name);
+  const program = programOf(target.schema?.name);
 
   // a script has to say which command it completes for, and it says so in
   // three places -- `complete -F`, `compdef`, and zsh's `#compdef` first line,
@@ -451,8 +486,13 @@ export async function completionSpec(target: CompletionTarget): Promise<Completi
   // `complete -o default -F _x '-D'` is `complete: -D: invalid option` and the
   // name is never registered -- measured. There is no `--` to put in front of
   // it that `compdef` and `#compdef` would both take, and a command whose name
-  // begins with a dash is one no shell can invoke plainly anyway
-  if (!program || /\s/u.test(program) || program.startsWith('-')) {
+  // begins with a dash is one no shell can invoke plainly anyway.
+  //
+  // The rule is `registerable()` in `./install.js` rather than a pattern here,
+  // because the **installer** asks it too: an uninstall builds no spec, so that
+  // path had this question asked nowhere at all. The sentence stays this
+  // caller's, since what it is about is printing a script
+  if (!registerable(program)) {
     throw new Error(
       `Cannot generate a completion script: ${
         program

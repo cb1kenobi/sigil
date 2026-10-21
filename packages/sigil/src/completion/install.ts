@@ -130,6 +130,42 @@ export function generatedBy(shell: ShellName, program: string): string {
 }
 
 /**
+ * Whether a shell could register a completion for this name.
+ *
+ * One predicate because there are two readers and they must not come apart:
+ * `completionSpec()` asks before printing a script, because a script says which
+ * command it completes for in three places and zsh's `#compdef` first line is a
+ * *comment* `compinit` reads, which cannot be quoted at all; and
+ * `installTargets()` asks because an **uninstall** builds no spec, so that path
+ * had the question asked nowhere. Each caller keeps its own sentence, because
+ * each is about a different consequence -- which is the shape `isMissing()`
+ * already has.
+ *
+ * Whitespace and a leading dash. The second is not a quoting problem either:
+ * quote removal happens before a builtin reads its words, so
+ * `complete -o default -F _x '-D'` is `complete: -D: invalid option` and the
+ * name is never registered -- measured.
+ *
+ * It says nothing about whether the name is one *path* segment, which is a
+ * different question with a different owner: a program called `a/b` can be
+ * registered and invoked, and cannot be a file named after itself. That half is
+ * `installTargets()`'s alone.
+ *
+ * A type predicate rather than a `boolean`, because `completionSpec()` reads a
+ * `schema.name` that may be absent and the guard it replaces narrowed it: one
+ * function answering both "is this usable" and "is this there" is what lets the
+ * caller go on using the name afterwards.
+ *
+ * @param program - The program's name, or nothing where the schema names none.
+ * @returns Whether a shell can register it.
+ */
+export function registerable(program: string | undefined): program is string {
+  return (
+    program !== undefined && program !== '' && !/\s/u.test(program) && !program.startsWith('-')
+  );
+}
+
+/**
  * A string as one shell word, single-quoted.
  *
  * POSIX single-quoting, which is one rule rather than bash's and zsh's: a path

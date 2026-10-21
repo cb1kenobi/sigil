@@ -14,9 +14,16 @@
  * it here leaves **21,176** -- 115 bytes *below* where it started, because the
  * no-TTY fallback text that used to be inline came with it. So the installer
  * costs the parse path nothing at all, and the interactive graph it hangs off
- * is 256,906 bytes over 36 modules against the printer's 62,319 over 12: the
- * prompts are +194,587, paid by `app completion` on a terminal and by nothing
- * else.
+ * is 258,740 bytes over 36 modules against the printer's 62,371 over 12: the
+ * prompts are **+196,369**, paid by `app completion` on a terminal and by
+ * nothing else.
+ *
+ * Read it again rather than quoting it: the first version of this paragraph
+ * said 256,906 and +194,587, which were right when they were taken and 1,218
+ * bytes stale by the end of the first review round -- the fixes that round
+ * produced landed in this file, and nobody re-ran the one measurement the
+ * comment says to. Which is this repository's own rule about a figure nobody
+ * re-derives, met in the sentence recording it. Found by the second round.
  *
  * The three modules are one job each, which is also what makes the middle one
  * testable: `./install.ts` is the table of where a completion goes and touches
@@ -28,7 +35,7 @@ import { confirm, PromptError, select } from '../components/prompt.js';
 import { __ } from '../i18n/index.js';
 import { createTerminal, type Terminal } from '../terminal/index.js';
 import type { ParseState } from '../types.js';
-import { completionScript } from './index.js';
+import { completionScript, programOf } from './index.js';
 import { detectShell, instructions, shQuote } from './install.js';
 import {
   applyInstall,
@@ -81,11 +88,20 @@ function byHand(
   target: InstallTarget | undefined
 ): string {
   if (action === 'uninstall') {
-    return target === undefined
-      ? `${__`Name a shell to set up completion for ${program}:`}\n\n${SHELL_NAMES.map(
+    if (target !== undefined) {
+      return `${__`Remove it yourself:`}\n\n    rm ${shQuote(target.file)}\n\n`;
+    }
+
+    // no target, which means `askShell()` is what failed: nobody to ask and no
+    // shell on argv. Its own key rather than the install one, which said "set
+    // up" for a removal -- and it names the shell `$SHELL` found where it found
+    // one, which the first version computed and then did not use. Found by
+    // review, and nothing reached this branch because every test named a shell
+    return shell === undefined
+      ? `${__`Name a shell to remove completion for ${program} from:`}\n\n${SHELL_NAMES.map(
           (name) => `    ${program} completion ${name} --uninstall\n`
         ).join('')}\n`
-      : `${__`Remove it yourself:`}\n\n    rm ${shQuote(target.file)}\n\n`;
+      : `${__`Name the shell to remove completion for ${program} from:`}\n\n    ${program} completion ${shell} --uninstall\n\n`;
   }
 
   if (shell !== undefined) {
@@ -159,8 +175,8 @@ function question(
 
   // the plan has already said whose the file is, so this is the question and
   // not the statement -- which is also what keeps it to one key rather than one
-  // per direction: an uninstall never reaches here, because `planUninstall()`
-  // refuses a foreign file outright rather than offering to delete it
+  // per direction: an uninstall never reaches here, because a foreign file is
+  // not something to write, so `writes` is false and the caller does not ask
   if (plan.file === 'foreign') {
     return { default: false, message: __`Replace it?` };
   }
@@ -184,7 +200,14 @@ function question(
  *   do, and one where there was nobody to ask or the answer was no.
  */
 export async function runInstaller(state: ParseState, request: InstallRequest): Promise<number> {
-  const program = state.schema.name ?? 'app';
+  // through `programOf()`, which is the one reader of what a schema's `name`
+  // comes to: the printer flattened it and this did not, so one app had two
+  // names and the installer's own marker never matched the header it wrote.
+  // `''` rather than a fallback, because `installTargets()` already refuses it
+  // with the sentence an app author needs -- and a nameless app reaching the
+  // **uninstall** direction, which builds no script and so met no other guard,
+  // was looking for a file called `_app`. Found by review round 3
+  const program = programOf(state.schema.name) ?? '';
   const action: Action = request.uninstall ? 'uninstall' : 'install';
   let shell = request.shell;
 
@@ -239,12 +262,24 @@ export async function runInstaller(state: ParseState, request: InstallRequest): 
       return 1;
     }
 
-    // `replace` is the answer carried into the writer, which refuses a `foreign`
-    // plan without it: the refusal is the module's own rather than this
-    // function's discipline
-    const did = request.uninstall
-      ? applyUninstall(plan)
-      : await applyInstall(plan, script, { replace: plan.file === 'foreign' });
+    // gated on `writes` for the same reason the question is, and the sabotage
+    // pass then measured which direction it decides: `applyInstall()` answers
+    // `false` for a `current` plan itself, so for an install the gate is
+    // redundant and reading `changes` here changes no answer. The **uninstall**
+    // is the whole of it, and this is the half that was missing: a plan with something outstanding and nothing to
+    // write reached the writer anyway, and for a **foreign uninstall** -- whose
+    // `changes` counts the rc line and whose `writes` is false by design -- the
+    // writer's own refusal then threw out to the generic error handler. Two
+    // fixes each right alone, composed into a crash, and which one you got
+    // depended on a line in a file this does not write. Found by review
+    const did = plan.writes
+      ? request.uninstall
+        ? applyUninstall(plan)
+        : // `replace` is the answer carried into the writer, which refuses a
+          // `foreign` plan without it: the refusal is the module's own rather
+          // than this function's discipline
+          await applyInstall(plan, script, { replace: plan.file === 'foreign' })
+      : false;
 
     process.stderr.write(`${resultLines(plan, action, did).join('\n')}\n`);
     return 0;
