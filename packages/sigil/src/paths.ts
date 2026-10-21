@@ -188,8 +188,20 @@ function resolvePath(env: string, type?: string) {
  * The absoluteness is `node:path`'s, so it is the running platform's: a
  * drive-relative `C:foo` is not absolute on Windows and neither is a bare
  * `C:\foo` anywhere else, and each is right for the platform it is asked on.
+ *
+ * Exported because it has a second reader, which is what this file's own
+ * entries keep insisting on: `src/completion/installer.ts` reads
+ * `XDG_DATA_HOME` and `ZDOTDIR` and needs this rule rather than a three-line
+ * copy of it -- the rule being the XDG spec's for *any* base directory rather
+ * than anything about caches or configs. It deliberately does **not** fall back
+ * to the platform table, which is `resolvePath()`'s half: a caller that wants
+ * "the data directory" wants `data()`, and a caller that wants "this variable,
+ * read properly" wants this.
+ *
+ * @param value - The variable's value, or nothing where it is unset.
+ * @returns The directory, or nothing where the value named none that counts.
  */
-function baseDir(value: string | undefined): string | undefined {
+export function baseDir(value: string | undefined): string | undefined {
   // a missing, empty, or whitespace-only value is one nobody configured, and
   // none of them is absolute -- the blank ones fall out of `isAbsolute()`
   // rather than being trimmed, since leading whitespace in a real path is the

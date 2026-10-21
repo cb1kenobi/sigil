@@ -68,7 +68,7 @@ import { zshScript } from './zsh.js';
 
 export { bashQuote } from './bash.js';
 export { SHELL_NAMES, type ShellName } from './shells.js';
-export { completionSpec, oneLine } from './spec.js';
+export { completionSpec, oneLine, programOf } from './spec.js';
 export type {
   CompletionCommand,
   CompletionOption,

@@ -153,6 +153,30 @@ function parseChunk(): string {
   return expect.fail('the root entry no longer reaches parse() through a dynamic import');
 }
 
+/**
+ * The chunk the `completion` command reaches the emitters through.
+ *
+ * A hashed name for `parseChunk()`'s reason: the printer is behind an
+ * `await import()`, which is the whole point, so it is read out of the
+ * specifier. The parse chunk is where the `import()` is, because that is where
+ * the command's `run` lives.
+ *
+ * @returns The chunk's file name.
+ */
+function printerChunk(): string {
+  for (const name of staticGraph(parseChunk())) {
+    const m = readFileSync(join(dist, name), 'utf8').match(
+      /import\(`?\.\/(completion-[^`")]+\.mjs)`?\)/
+    );
+
+    if (m) {
+      return m[1] as string;
+    }
+  }
+
+  return expect.fail('the completion command no longer reaches the emitters dynamically');
+}
+
 describe('what importing the package costs', () => {
   /**
    * Names only a component's implementation defines.
@@ -222,9 +246,11 @@ describe('what importing the package costs', () => {
       // was 7,532 B over the same six modules it was before the testing subpath
       // landed -- 21 B *less*, which is a shared chunk boundary moving and is
       // noise. That figure is a measurement of **that** change rather than of
-      // the tree: the entry is 7,977 B today, which `afterRun` moved, and a
-      // review round caught this sentence claiming the old one in the present
-      // tense. `testing.mjs` is 44,726 B
+      // the tree: the entry is **8,166 B** today, which `afterRun`, the quiet
+      // axis and this branch each moved in turn, and a review round caught this
+      // sentence claiming the old one in the present tense -- so it is written
+      // as of the merge rather than as a standing fact, which is what the
+      // instruction further down means. `testing.mjs` is 44,726 B
       // over fourteen modules and is paid only by a module that asks for it,
       // which is a test file -- the same figure AGENTS.md records, because two
       // comments disagreeing about one measurement leave a later reader with no
@@ -311,28 +337,37 @@ describe('what importing the package costs', () => {
     }
   );
 
-  it('should reach exactly the seven modules the measurement names', () => {
+  it('should reach exactly the eight modules the measurement names', () => {
     // the markers say what it must not reach and this says it reaches nothing
     // else at all, which is the only form that catches a parser module arriving
     // as a chunk of its own under a name nothing here could have predicted.
-    // Seven: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
-    // `env-value` and `mkdir-owner-sync` chunks -- which is the module list the
-    // byte figure below is over, so the two cannot come apart. The last of them
-    // is the write half's: `save()` creates the directory it writes into, which
-    // is the "apply the parent directory's owner under sudo" rule the update
-    // cache already reads
-    expect([...staticGraph('config.mjs')].sort()).toHaveLength(7);
+    // Eight: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
+    // `env-value`, `mkdir-owner-sync` and `atomic` chunks -- which is the
+    // module list the byte figure below is over, so the two cannot come apart.
+    // `mkdir-owner-sync` is the write half's: `save()` creates the directory it
+    // writes into, which is the "apply the parent directory's owner under sudo"
+    // rule the update cache already reads.
+    //
+    // It was seven until SIG-151, and the eighth is a chunk boundary rather
+    // than a module: `completion/installer.ts` writes a completion script with
+    // `writeAtomic()` -- a second *caller* rather than a second writer, which
+    // is what keeps the symlink and the chown out of a second resolver -- so
+    // `atomic.ts` is shared and rolldown splits it out of this entry instead of
+    // inlining it. Measured at 38,101 B over seven before and 38,239 over
+    // eight after: 138 bytes of preamble for the sharing
+    expect([...staticGraph('config.mjs')].sort()).toHaveLength(8);
   });
 
   it('should cost a module rather than a component', () => {
     const graph = staticGraph('config.mjs');
     const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-    // 38,101 B over seven modules, of which 9,880 B over six is what it starts
+    // 38,239 B over eight modules, of which 9,880 B over six is what it starts
     // from: `paths.mjs`, `i18n.mjs`, the `transform` and `debug` chunks, the
     // 66-byte `env-value` chunk the parser shares, and the 525-byte
-    // `mkdir-owner-sync` one the update cache shares. The graph is 4.78x the root
-    // entry's 7,977 B and a sixth of `components.mjs`'s 239,929 B over 26 --
+    // `mkdir-owner-sync` one the update cache shares. The eighth is the atomic
+    // write, which SIG-151's installer now shares. The graph is 4.68x the root
+    // entry's 8,166 B and a sixth of `components.mjs`'s 242,307 B over 28 --
     // all three measured the same way, which is the only comparison that means
     // anything. It read 38,064 B and 5.06x until a review round measured both:
     // this graph is unchanged by `afterRun` and was already 37 bytes out, and
@@ -354,9 +389,9 @@ describe('what importing the package costs', () => {
     // onto it does. The **measured** figure is here and in AGENTS.md and
     // nowhere else, for the reason the root entry's is: two comments
     // disagreeing about one measurement leave a later reader with no way to
-    // tell which was measured. The README carries a rounded "about 31 kB over
-    // seven modules" for an app author deciding whether to import it, which is
-    // a different statement and names the same seven
+    // tell which was measured. The README carries a rounded "about 38 kB over
+    // eight modules" for an app author deciding whether to import it, which is
+    // a different statement and names the same eight
     expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(48 * 1024);
   });
 
@@ -461,8 +496,60 @@ describe('what importing the package costs', () => {
     expect(carriers(graph, 'Invalid boolean')).not.toEqual([]);
   });
 
+  it('should not put the prompts on the path that only prints a script', () => {
+    // the whole packaging argument for SIG-151. `app completion bash > file` is
+    // the scriptable form and loads the printer: the prompt chunk's own graph is
+    // 192,027 B over 24 modules, which is three times the printer's, so a
+    // statically imported `confirm()` would make the redirect pay for an
+    // installer it never reaches.
+    //
+    // `interactive.ts` is the module that holds them and the command reaches it
+    // through `await import()`, so what is asserted is that the **printer's**
+    // graph names no prompt -- and the presence half beside it, because an
+    // absence alone passes forever the day the marker is reworded.
+    //
+    // Measured: the printer is 63,718 B over 12 modules and the interactive
+    // path is 261,480 over 37, so the whole of what the installer and the
+    // prompts add is +197,762 and +25 -- which is a different subtraction from
+    // the figure above and the two were read as one for a commit. The estimate
+    // the ticket was taken on was +180 kB, which held.
+    //
+    // Re-measure rather than quote, which these have now needed twice: they
+    // moved by 1,218 B when the first review round's fixes landed in
+    // `interactive.ts`, and again when `main` was merged in -- the quiet axis
+    // and `afterRun` both grew the graphs underneath. That is the staleness the
+    // comment three hundred lines up is written about, and a merge moves these
+    // figures exactly as an edit does
+    const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
+    const printer = printerChunk();
+
+    for (const marker of ['because the input is not a terminal', '(space to select']) {
+      expect(carriers(shipped, marker), marker).not.toEqual([]);
+      expect(carriers(staticGraph(printer), marker), marker).toEqual([]);
+    }
+
+    // and the other side of it: the printer really is what prints
+    expect(carriers(staticGraph(printer), '#compdef ')).not.toEqual([]);
+  });
+
+  it('should keep the completion installer off the root entry', () => {
+    // it writes files into a home directory, so every module it needs --
+    // `config/atomic.ts`, `paths.ts`, `mkdir-owner-sync.ts` -- would be on the
+    // path a `--version` takes if the command reached it statically. The
+    // command is on the parse path by construction, because a `choices` list
+    // has to exist while the schema is built; the installer is two dynamic
+    // imports past it
+    const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
+    const root = staticGraph('index.mjs');
+
+    for (const marker of ['was not written by sigil', 'bash-completion']) {
+      expect(carriers(shipped, marker), marker).not.toEqual([]);
+      expect(carriers(root, marker), marker).toEqual([]);
+    }
+  });
+
   it('should keep the components entry worth importing for one component', () => {
-    // 239,929 B over 26 modules today -- re-measured, because it read 234,912
+    // 242,307 B over 28 modules today -- re-measured, because it read 234,912
     // over 23 while the comment 130 lines up said 239,929 over 26, which is the
     // two-comments-disagreeing-about-one-measurement defect that one is written
     // about, in the same file. Of it the palette is 10,624: its own

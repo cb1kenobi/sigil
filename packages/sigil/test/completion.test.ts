@@ -947,6 +947,17 @@ describe('the completion command', () => {
           expect(script).toContain(command);
           expect(instructions(shell, 'mycli')).toContain(command);
         }
+
+        // the line a reader has to place by hand goes through the same
+        // differential, because it is the second thing the two renderers print
+        // and a field rendered twice with nothing comparing the two is exactly
+        // the drift this module's own opening is about. The sentence as well as
+        // the line: a line with no `above your compinit line` over it is a line
+        // somebody appends
+        for (const text of route.add === undefined ? [] : [route.add.where, route.add.line]) {
+          expect(script).toContain(text);
+          expect(instructions(shell, 'mycli')).toContain(text);
+        }
       }
     }
   );

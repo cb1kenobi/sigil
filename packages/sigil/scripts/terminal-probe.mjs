@@ -6,6 +6,7 @@
  *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --mouse
  *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --clipboard
  *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --qrcode
+ *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --completion
  *
  * `test/canvas/diff.test.ts` replays the diff's output against `FakeTerminal`,
  * a model written in this repo. That is the right way to test a diff -- it pins
@@ -1185,6 +1186,266 @@ async function clipboard() {
   );
 }
 
+/**
+ * Where a completion script has to go, against the shell you are actually in.
+ *
+ *   pnpm build && node packages/sigil/scripts/terminal-probe.mjs --completion
+ *
+ * **The check is to start a shell with the lines this prints and press tab.**
+ * Which is the whole of why this mode exists, and it is `--clipboard`'s
+ * argument rather than `--qrcode`'s: the answer lives in another process's
+ * startup, so nothing in this one can ask about it.
+ *
+ * What is already settled without a shell, so that nobody re-establishes it
+ * here: the plan, the idempotency, the symlink, the mode and the paths are all
+ * in `test/completion-install.test.ts` with a faked home, and the command's own
+ * asking and its no-terminal fallback are in
+ * `packages/cli/test/completion-install-tty.test.ts` with a faked terminal. And
+ * two of the routes were driven for real on the machine this was written on: a
+ * file on `$fpath` before `compinit` registers in zsh 5.9 and completes with
+ * descriptions, and a `source` line registers `complete -o default -F` in bash
+ * 3.2. Neither is what this mode is about.
+ *
+ * What it is about is the three things that need *your* machine:
+ *
+ * - whether **`bash-completion` 2.8 or newer** is what you have, and whether it
+ *   really loads a file from its user directory with nothing added to a startup
+ *   file. There is no `bash-completion` on the machine this was written on, so
+ *   that route is the one claim here whose author has never executed it -- the
+ *   installer offers it only where the directory already exists, which is a
+ *   signal rather than a version check.
+ * - whether your **`compinit` cache** picks a new file up. zsh writes a
+ *   `.zcompdump` and rebuilds it when `fpath` changes, mostly -- "restart your
+ *   shell" is what the hint says, and a stale dump is what would make that a lie.
+ * - whether the **startup file** the installer names is the one your shell
+ *   reads. macOS starts bash as a login shell, which reads `.bash_profile` and
+ *   not `.bashrc`, so it names the one that is there -- and which that is, is a
+ *   fact about your home directory.
+ *
+ * It reads `process.env` and this function imports nothing from `dist/`, which
+ * is deliberate rather than a limitation: the *paths* are what `app completion`
+ * itself prints, and a probe that worked them out again would be the second
+ * reader `install.ts` is written against. So this prints the **inputs** and the
+ * commands, and the answer comes from running the real thing. The *file's* own
+ * top-level imports do load `dist/`, so `--completion` on an unbuilt tree dies
+ * at module load like every other mode -- which the recipe's `pnpm build &&`
+ * covers, and which the first version of this sentence claimed for the mode
+ * rather than for the function. Found by review round 3.
+ *
+ * Nothing here writes a file or queries anything, so there is nothing to put
+ * back and no `finally` -- which is `--clipboard`'s position rather than
+ * `--mouse`'s. `key()` sets raw mode per keypress and restores it itself, which
+ * is why that is not an exception.
+ */
+async function completionProbe() {
+  let step = 0;
+  /**
+   * @param {string} title
+   * @param {string} claim - What a shell that agrees does.
+   */
+  const heading = (title, claim) => {
+    step++;
+    write(`\r\n[${step}] ${title}\r\n`);
+    write(`    the claim: ${claim}\r\n\r\n`);
+  };
+
+  const next = async (prompt = 'press a key') => {
+    write(`\r\n    ${prompt} `);
+    const pressed = await key();
+    write('\r\n');
+    return pressed !== '\u0003';
+  };
+
+  write(CLEAR + HOME + SHOW_CURSOR);
+  write('Where a completion goes, against this machine. Ctrl-C stops.\r\n');
+
+  // ------------------------------------------------------------- the inputs
+  heading(
+    'what the installer reads',
+    '$SHELL names your **login** shell by its basename, which is not ' +
+      'necessarily the shell you are in -- and the installer asks rather than ' +
+      'guessing wherever it names none this knows'
+  );
+  for (const name of ['SHELL', 'XDG_DATA_HOME', 'ZDOTDIR', 'HOME']) {
+    write(`    ${name}=${process.env[name] ?? '<unset>'}\r\n`);
+  }
+  write(
+    '\r\n    $SHELL is what your login shell was set to, so a zsh started from\r\n' +
+      '    bash still reports bash -- which is why the prompt offers the other\r\n' +
+      '    shell rather than taking the detection as settled. Check it with\r\n' +
+      '      echo "$SHELL"   ps -o comm= -p $$\r\n' +
+      '    and if those two disagree, pick at the prompt.\r\n\r\n' +
+      '    The data home is one rule, stated once: XDG_DATA_HOME through\r\n' +
+      '    paths.baseDir(), which expands a leading ~ and then requires the\r\n' +
+      '    result to be absolute, falling back to ~/.local/share -- which is\r\n' +
+      "    bash-completion's own fallback on every platform, and is deliberately\r\n" +
+      '    not the macOS Application Support directory `paths.data()` answers\r\n' +
+      '    with: a completion written there is a file bash-completion never\r\n' +
+      '    looks in.\r\n'
+  );
+  if (!(await next())) {
+    return;
+  }
+
+  // -------------------------------------------------------- is bash-completion
+  // the **shell expression** rather than a path worked out here, which is the
+  // half the header above claims and the first version broke: a raw `??` is not
+  // `baseDir()`'s rule -- no `~` expansion, no absolute requirement -- so with
+  // `XDG_DATA_HOME=./data` the installer writes under `~/.local/share` and this
+  // told the reader to look in `./data`. A second reader of the one rule, in the
+  // file whose own header says it is not one. Found by review round 1.
+  //
+  // What a reader pastes is the expression, and round 2 then caught the sentence
+  // under it claiming their shell resolves it "the same way". It does not:
+  // `${X:-d}` takes any non-empty X, where `baseDir()` refuses a relative one
+  // and expands a `~`. The two agree for every value anybody sets and part
+  // company for exactly `XDG_DATA_HOME=./data` and `XDG_DATA_HOME=~/x`, which
+  // the text now names rather than papering over -- the installer's answer is
+  // the one that decides where the file went
+  const bcDir = '"${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions"';
+  heading(
+    'the one route whose author has never run it',
+    "a file in bash-completion's user directory completes with nothing added " + 'to a startup file'
+  );
+  write(
+    '    The installer offers\r\n' +
+      `      ${bcDir}\r\n` +
+      '    -- the expression rather than a path this worked out, because the\r\n' +
+      '    rule is paths.baseDir() and is stated in step 1. Your shell resolves\r\n' +
+      '    the expression by its own rule, which takes any non-empty value: so\r\n' +
+      '    a relative or ~-prefixed XDG_DATA_HOME is the one case where the two\r\n' +
+      '    answer differently, and the installer is the one that decides.\r\n\r\n' +
+      '    It is offered only where that path exists, is a directory, and can\r\n' +
+      '    be both written and entered -- three questions rather than one,\r\n' +
+      '    because a file there passes a writability test on its own and an\r\n' +
+      '    unsearchable directory fails the write that follows. Existence is the\r\n' +
+      '    signal: there is nothing to read a version off, since\r\n' +
+      '    BASH_COMPLETION_VERSINFO is set inside a bash that loaded it and\r\n' +
+      '    reaches no environment this process has. The directory existing means\r\n' +
+      '    something installed a user completion into it, which a\r\n' +
+      '    bash-completion older than 2.8 would not have done: it read\r\n' +
+      '    ~/.bash_completion.d instead and never creates this one.\r\n\r\n' +
+      '    Check it, which is the same three questions:\r\n' +
+      `      test -d ${bcDir} && test -w ${bcDir} && test -x ${bcDir}\r\n` +
+      '      bash -ic \'echo "${BASH_COMPLETION_VERSINFO[@]:-<not loaded>}"\'\r\n\r\n' +
+      '    If you have it and the route still does not complete, that is the\r\n' +
+      '    finding: the gate is a signal and not a version check, and a machine\r\n' +
+      '    where the signal is wrong is what would make it one.\r\n'
+  );
+  if (!(await next())) {
+    return;
+  }
+
+  // ------------------------------------------------------------- try it live
+  heading(
+    'trying it without touching your home directory',
+    'these put a completion somewhere disposable and a shell started with them ' + 'completes'
+  );
+  write(
+    '    The installer writes into your data home, which is the right place and\r\n' +
+      '    is not where a probe should write. So: a throwaway directory, the same\r\n' +
+      '    script, and the same two lines. Both were run on the machine this was\r\n' +
+      '    written on -- zsh 5.9 and bash 3.2 -- and what they say here is about\r\n' +
+      '    yours. Use any sigil app in place of mycli.\r\n\r\n' +
+      '      d=$(mktemp -d) && mkdir -p "$d/completions"\r\n\r\n' +
+      '    zsh, which is the fpath route the installer takes:\r\n' +
+      '      mycli completion zsh > "$d/completions/_mycli"\r\n' +
+      '      zsh -c \'fpath=("\'"$d"\'/completions" $fpath)\r\n' +
+      '              autoload -Uz compinit && compinit -u -d "\'"$d"\'/dump"\r\n' +
+      '              print -r -- "comp=${_comps[mycli]}"\'\r\n\r\n' +
+      '    bash, which is the source route:\r\n' +
+      '      mycli completion bash > "$d/completions/mycli.bash"\r\n' +
+      '      bash -c \'source "\'"$d"\'/completions/mycli.bash"; complete -p mycli\'\r\n\r\n' +
+      '    Expect comp=_mycli from the first and\r\n' +
+      '    complete -o default -F _mycli mycli from the second -- both measured\r\n' +
+      '    here. For the real thing, interactively: zsh -i, then mycli and a tab.\r\n'
+  );
+  if (!(await next())) {
+    return;
+  }
+
+  // --------------------------------------------------------- the compinit cache
+  heading(
+    'the compinit cache',
+    'after the install, one restart is enough -- a second one being needed is a ' +
+      'stale .zcompdump and makes the hint a lie'
+  );
+  write(
+    '    zsh caches what it found on $fpath in a .zcompdump and rebuilds it when\r\n' +
+      '    fpath changes. "Then restart your shell" is what the installer prints,\r\n' +
+      '    and a dump that survives the change is the one thing that would make\r\n' +
+      '    that wrong. If a restart is not enough here:\r\n\r\n' +
+      '      rm -f ~/.zcompdump* && exec zsh\r\n\r\n' +
+      '    and say so, because the hint should then say it too.\r\n'
+  );
+  if (!(await next())) {
+    return;
+  }
+
+  // ------------------------------------------------------------- the rc caveat
+  heading(
+    'what it will not do',
+    'it printed the line and did not add it, which is the one decision you may ' + 'disagree with'
+  );
+  write(
+    '    A .zshrc is very often under version control and is routinely written\r\n' +
+      '    by a dotfile manager, so this does not append to one. It reads it, to\r\n' +
+      '    find out whether the line is already there -- so re-running says\r\n' +
+      '    "already names it" rather than printing the line twice.\r\n\r\n' +
+      '    Which is also why there is no line to un-add: --uninstall removes the\r\n' +
+      '    file it wrote and prints the line to take out.\r\n\r\n' +
+      '    The startup file it names for bash is the first of ~/.bashrc,\r\n' +
+      '    ~/.bash_profile and ~/.profile that is a **file**, and for zsh it is\r\n' +
+      '    $ZDOTDIR/.zshrc through the same paths.baseDir() rule as step 1 --\r\n' +
+      '    a leading ~ expanded, then absolute or it falls back. On this\r\n' +
+      '    machine:\r\n'
+  );
+  // `isFile()` rather than `existsSync`, and ZDOTDIR honoured, because this is
+  // a second reader of `installer.ts`'s own `firstExisting()` and of its
+  // `baseDir(env['ZDOTDIR'])` -- and the first version of it was a second
+  // reader that disagreed: a directory named `.bashrc` printed as "there" where
+  // the installer skips it, and `~/.zshrc` printed as the zsh target under a
+  // ZDOTDIR that moves it. A probe whose whole job is to say what is true about
+  // this machine, saying something the installer does not do. Found by review
+  // round 2. The code cannot be shared -- `src/` spells its imports `.js` for
+  // `.ts` files, so node cannot load one -- so what keeps the two agreeing is
+  // that each line here names which function it is restating
+  const { statSync } = await import('node:fs');
+  const { isAbsolute, join } = await import('node:path');
+  const { homedir } = await import('node:os');
+  /** @param {string} path */
+  const isFile = (path) => {
+    try {
+      return statSync(path).isFile();
+    } catch {
+      return false;
+    }
+  };
+  // `expand()`'s half of `baseDir()` as well as its absoluteness half, which
+  // the first version dropped: `ZDOTDIR=~/zdot` is expanded and then absolute,
+  // so the installer reads `~/zdot/.zshrc` where this reported `~/.zshrc`. The
+  // same divergence class as the `existsSync` one this block was written to
+  // fix. Found by review round 3.
+  //
+  // A declared survivor of the sabotage pass, because nothing in the suite
+  // drives this file: it is run by hand, which is what every mode here is for,
+  // and what pins it is having driven it under `ZDOTDIR=~/zdot` and read
+  // `/Users/chris/zdot/.zshrc` back -- the installer's own answer
+  const raw = process.env['ZDOTDIR'];
+  const zdot = raw !== undefined && raw.startsWith('~') ? join(homedir(), raw.slice(1)) : raw;
+  const zhome = zdot !== undefined && zdot !== '' && isAbsolute(zdot) ? zdot : homedir();
+  const files = [
+    join(homedir(), '.bashrc'),
+    join(homedir(), '.bash_profile'),
+    join(homedir(), '.profile'),
+    join(zhome, '.zshrc'),
+  ];
+  for (const path of files) {
+    write(`      ${isFile(path) ? 'a file ' : 'absent '} ${path}\r\n`);
+  }
+  await next('done');
+}
+
 /** Written with `fromCharCode` for the reason the rest of this repo is. */
 const ESC_CHAR = String.fromCharCode(0x1b);
 const BEL_CHAR = String.fromCharCode(0x07);
@@ -1498,6 +1759,13 @@ async function main() {
   // here that not even a second process could settle
   if (process.argv.includes('--qrcode')) {
     await qrcodeProbe();
+    return;
+  }
+
+  // and where a completion goes is text plus a shell somebody starts, which is
+  // `--clipboard`'s shape: the answer lives in another process's startup
+  if (process.argv.includes('--completion')) {
+    await completionProbe();
     return;
   }
 

@@ -33,14 +33,31 @@
  * for what it found, or names the shells it can print for when it cannot tell.
  * An invalid name is still an error, because `choices` is judged on the way in.
  *
- * It goes to stderr and exits non-zero, which is the better *error* rather than
- * an answer: `app completion > file` must not fill the file the reader wanted a
- * script in. What makes it exit zero is having actually installed something,
- * which is the installer's -- and that is a separate ticket because it writes to
- * a user's home directory, which had four decisions in it that belong to the
- * user. Three are now taken: write the script file, **print** the rc line rather
- * than editing a dotfile, and confirm first. What is left to it is the paths, the
- * idempotency and taking it back out again.
+ * ## A bare `completion` on a terminal installs it
+ *
+ * Which is what makes it exit zero: it has done something. It asks which shell
+ * -- a `select()` with what `$SHELL` named already highlighted, so the detected
+ * answer is one Enter away and the override is an arrow key, which is where
+ * `select()` earns its place over a `confirm()` -- then shows the exact path it
+ * will write and the exact line to add, asks, writes the file and prints the
+ * line. The line is printed rather than appended, because a `.zshrc` is a file
+ * the user has an opinion about and very often has under version control.
+ * `--uninstall` is the same thing backwards.
+ *
+ * With nobody to ask it prints the instructions and exits non-zero, which is
+ * what it did before an installer existed -- and that falls out of one
+ * mechanism rather than a second reading of "is there a terminal": `run()` in
+ * `components/prompt.ts` rejects with a `PromptError` when either end is not a
+ * terminal, so the fallback is a `catch`. A check of our own would read
+ * `process.stdout.isTTY` where the prompt reads the `Terminal` wrapper *and*
+ * stdin, and the two disagree about `app completion < /dev/null` from a
+ * terminal. What that costs is the 9.5ms of module load the prompts are --
+ * measured, eight runs each -- on a path whose answer is already an error.
+ *
+ * The stderr and the non-zero are still the better *error* rather than an
+ * answer: `app completion > file` must not fill the file the reader wanted a
+ * script in, and a script that checked the exit code still sees that nothing
+ * was installed.
  *
  * ## The emitters are behind a dynamic import
  *
@@ -100,36 +117,38 @@ export async function registerCompletion(root: InternalCommand, schema: Schema):
     ],
     desc: __`Print a shell completion script`,
     name: 'completion',
+    options: {
+      // the only option, and there is deliberately no `--force` beside it.
+      // `sigil add` needs one because it has nobody to ask; this asks, so a
+      // file that is not ours is named in the plan and the question says what
+      // replacing it means. A flag whose whole job is to answer a question
+      // somebody is being asked anyway is one more thing to document
+      '--uninstall': { desc: __`Remove the script instead of writing one` },
+    },
 
     async run(state: ParseState) {
-      const { completionScript } = await import('../completion/index.js');
-      const { detectShell, instructions } = await import('../completion/install.js');
+      // `find` over the same list `choices` was built from, which narrows to
+      // `ShellName` with no cast: `choices` has judged the value by the time
+      // any `run` is reached, so a match is the shell and a miss is argv
+      // having named none
+      const named = SHELL_NAMES.find((name) => name === state.argv.shell);
+      const uninstall = state.argv.uninstall === true;
 
-      // `choices` has judged it by the time any `run` is reached, so a string
-      // here is one of the shells
-      const named = state.argv.shell;
-      if (typeof named === 'string') {
+      // the scriptable form, unchanged: a named shell prints, which is what
+      // `gh`, `kubectl`, `rustup` and `deno` all do and what both generated
+      // headers document the redirect for. `--uninstall` is the one thing that
+      // makes a named shell mean something else, because there the shell says
+      // *which* installation to take out rather than what to print
+      if (named !== undefined && !uninstall) {
+        const { completionScript } = await import('../completion/index.js');
         process.stdout.write(await completionScript(state, named));
         return;
       }
 
-      const program = state.schema.name ?? 'app';
-      const shell = detectShell(process.env);
-
-      // stderr and a non-zero exit, because this is the better *error*
-      // rather than an answer: `app completion > file` must not write
-      // instructions into what the reader wanted a script in, and a script
-      // that checked the exit code still sees that no shell was named. What
-      // makes it exit zero is having actually installed something, which is
-      // the installer's to do
-      process.stderr.write(
-        shell
-          ? `${__`Set up completion for ${program}, detected ${shell}:`}\n\n${instructions(shell, program)}`
-          : `${__`Name a shell to set up completion for ${program}:`}\n\n${SHELL_NAMES.map(
-              (name) => `    ${program} completion ${name}\n`
-            ).join('')}\n`
-      );
-      process.exitCode = 1;
+      // everything the installer is lives behind this, which is what keeps the
+      // parse chunk a dispatcher: see `interactive.ts` for the measurement
+      const { runInstaller } = await import('../completion/interactive.js');
+      process.exitCode = await runInstaller(state, { shell: named, uninstall });
     },
   });
 
