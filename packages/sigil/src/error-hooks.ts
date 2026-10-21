@@ -1,18 +1,9 @@
 import debug from './debug/index.js';
-import { ErrorState, type BeforeErrorHook, type ParseState, type Schema } from './types.js';
+import { collectHooks } from './hook-sources.js';
+import { ErrorState, type ParseState, type Schema } from './types.js';
 import { safeLog } from './util/safe-log.js';
 
 const { log } = debug('sigil:error');
-
-/**
- * Anything that can declare `beforeError` hooks: the schema, and every command
- * in the context chain.
- */
-type HookSource = {
-  hooks?: {
-    beforeError?: BeforeErrorHook;
-  };
-};
 
 /**
  * Stashes the in-flight parse state on an error on its way out, so the error
@@ -54,51 +45,6 @@ export function stateFromError(err: unknown): ParseState | undefined {
 }
 
 /**
- * Collects the `beforeError` hooks that apply to an error, innermost command
- * first and the schema last, so each layer sees what the layer inside it made
- * of the error -- the same direction the error itself travels.
- *
- * Nothing here may throw: it runs on the error path, and an exception would
- * lose the error being reported. A hook list that is not an array of
- * functions is ignored rather than rejected; `parse()` and `initCommand()`
- * already reject those when the schema is initialized.
- *
- * @param state - The parse state, when parsing got far enough to produce one.
- * @param schema - The schema, for errors thrown before there was a state.
- * @returns The hooks to fire, in order, each one only once.
- */
-function collectHooks(
-  state: ParseState | undefined,
-  schema: Schema | undefined
-): BeforeErrorHook[] {
-  // the innermost context is an initialized command, the outermost is the
-  // schema itself -- but as the proxy `initCommand()` wrapped it in, so the
-  // schema is worth visiting again and a set of the hooks themselves, not of
-  // their sources, is what keeps them from firing twice
-  const sources: HookSource[] = [...(state?.contexts ?? []), state?.schema ?? schema].filter(
-    (source) => !!source
-  ) as HookSource[];
-  const hooks = new Set<BeforeErrorHook>();
-
-  for (const source of sources) {
-    let hook: BeforeErrorHook | undefined;
-
-    try {
-      hook = source.hooks?.beforeError;
-    } catch {
-      // a throwing getter has nothing to contribute
-      continue;
-    }
-
-    if (typeof hook === 'function') {
-      hooks.add(hook);
-    }
-  }
-
-  return [...hooks];
-}
-
-/**
  * Fires the `beforeError` hooks for an error on its way out.
  *
  * A hook may observe the error, mutate it, or return a replacement -- it may
@@ -120,7 +66,7 @@ export async function fireBeforeError(
 ): Promise<unknown> {
   let current = err;
 
-  for (const hook of collectHooks(state, schema)) {
+  for (const hook of collectHooks('beforeError', state, schema)) {
     let result: unknown;
 
     try {

@@ -53,7 +53,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Declaring arguments](#declaring-arguments)
 - [Declaring commands](#declaring-commands) — nesting, lazy loading, running one from another
 - [Settings](#settings)
-- [Hooks](#hooks)
+- [Hooks](#hooks) — `afterRun`, `beforeError`, and what a hook may not do
 - [Help](#help)
 - [Shell completion](#shell-completion) — `completion bash`, `completion zsh`
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
@@ -400,7 +400,7 @@ hook already are that moment.
 | `alias`                       | extra names that stay out of the help label                                      |
 | `hidden`                      | keep it out of help                                                              |
 | `help`                        | a string that replaces the screen, or a renderer that receives the generated one |
-| `hooks`                       | `init`, `parse`, `help`, `beforeError`, `subcommandLoaded`                       |
+| `hooks`                       | `init`, `parse`, `help`, `afterRun`, `beforeError`, `subcommandLoaded`           |
 | `path`                        | a module to load the command from, resolved from the file that declared it       |
 | `load`                        | that module as a function -- `() => import('./build.js')` -- for a bundled app   |
 | `routeInfo`                   | descriptions a build lifted out of the modules a `commands` path points at       |
@@ -568,6 +568,7 @@ await main({
     hooks: {
       beforeParse: (state) => {}, // before argv is walked
       afterParse: (state) => {}, // `state.argv` is written, nothing is validated yet
+      afterRun: ({ cmd, result, ms }) => {}, // run() returned or threw
       beforeError: (err, ctx) => {},
     },
     commands: {
@@ -576,6 +577,7 @@ await main({
           init: ({ options, args, commands }) => {}, // when the command is built
           parse: ({ cmd, options }) => {}, // when argv matches it
           help: ({ sections, state }) => {}, // when its help is rendered
+          afterRun: ({ cmd, result, ms }) => {},
           beforeError: (err, ctx) => {},
         },
         run() {},
@@ -585,21 +587,104 @@ await main({
 });
 ```
 
-They fire in this order:
+They fire in this order, for one `main()` call:
 
 ```
-init (at build time) → beforeParse → parse (as each command matches) → afterParse → run
+init (at build time) → beforeParse → parse (as each command matches) → afterParse
+  → run → afterRun → beforeError
 ```
+
+The two ends of that are conditional rather than part of every run.
+`beforeError` fires only for a run that failed, so a successful one ends at
+`afterRun`; and `afterRun` fires only for a command that **ran**, so a parse
+that failed goes straight to `beforeError` with nothing before it.
 
 A hook changes a command through the registries it is handed —
 `options.add(...)`, `args.push(initArg(...))`,
 `commands.add(await initCommand(...))` — which take effect immediately.
 
+### `afterRun`
+
+Fires once the matched command's `run()` has returned **or thrown**, innermost
+command first and the schema last, before anything on the error path has
+rendered. It is `finally` and `postrun` in one hook, because they are one
+moment: a handle to close, a lock to release, a duration to report.
+
+```js
+hooks: {
+  afterRun({ cmd, result, ms, state }) {
+    if (!result.ok) {
+      return report.failure(cmd.name, result.error, ms);
+    }
+    report.success(cmd.name, result.value, ms);
+  },
+}
+```
+
+`result` is a tagged union, so `ok` is what narrows it:
+
+| field          | meaning                                                   |
+| -------------- | --------------------------------------------------------- |
+| `result.ok`    | `true` where `run()` returned, `false` where it threw     |
+| `result.value` | what it returned, on `ok` -- `undefined` is a real answer |
+| `result.error` | what it threw, on `!ok` -- anything at all can be thrown  |
+| `ms`           | how long `run()` took, off `performance.now()`            |
+| `cmd`          | the command that ran                                      |
+| `state`        | the parse state it was handed                             |
+
+**`result.value` is what `run()` returned**, not what `main()` answers with:
+`main()` substitutes the parse state for a command that returned nothing, and
+reporting that as the command's value would be a lie about what the command did.
+
+**It fires for a command that ran**, which is all it claims. A run answered by
+`--help` or `--version`, one whose command has no `run`, and one whose parse
+failed all have no result to hand over and fire nothing -- `beforeError` is the
+hook for that last one.
+
+**"Before `beforeError`" is about this `main()` call.** A command that runs
+another with a nested `main()` has already let that call render its own error by
+the time it returns, so the sequence a composition sees is the inner call's
+`afterRun` and `beforeError`, then the outer call's. Which is each call's own
+error path rather than something this ordering could reach.
+
+**It cannot recover.** Whatever it returns is ignored and the `result` it is
+handed is frozen, so a failed run stays failed and the error still reports.
+`oclif`'s `catch` is a recovery hook; this is a reporting one. A hook that could
+turn a failure into a success would have to answer what `main()` returns, what
+the exit code is, and whether the error was ever an error -- which is
+`beforeError`'s own refusal to allow suppression, one step along.
+
+What the freeze refuses is what the framework is the author of: which case the
+result is in, which value or error it holds, and the duration. It does **not**
+seal the insides of your own objects -- `result.value` is the object your
+command returned and `result.error` is an error a `beforeError` hook may
+already mutate -- so a hook that wants to annotate either still can, and a hook
+that installs a `beforeError` reaches what is rendered exactly as declaring one
+would. Nothing there is a way round the refusal; it is the app's own channels,
+reachable from one hook more.
+
+**A hook that throws is reported and skipped.** The next hook still runs, the
+result is unchanged, and what it threw goes to `DEBUG=sigil:run`: a failed
+cleanup must not cost the user the error they actually needed.
+
+`DEBUG=sigil` prints the pair, which is the timing a command's own body never
+had:
+
+```
+[2026-01-01T00:00:00.000Z] sigil Executing command "build"
+[2026-01-01T00:00:00.000Z] sigil Command "build" returned after 41.028ms
+```
+
+There is no `catch`-as-recovery hook, and that is a decision rather than a gap.
+See `AGENTS.md`.
+
 ### `beforeError`
 
 Fires for every throw site, innermost command first and the schema last, before
-the error is rendered. A hook may **replace** the error but never suppress it:
-return nothing to leave it alone, return a value to make that value the error.
+the error is rendered -- and after `afterRun` where a command ran, which is not
+every throw site: a parse that failed reaches this hook and no `afterRun`. A
+hook may **replace** the error but never suppress it: return nothing to leave it alone, return a value to make that
+value the error.
 
 ```js
 hooks: {
