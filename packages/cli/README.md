@@ -19,9 +19,91 @@ There is no `sigil dev`. This is a resolver and a compiler, not a server.
 | `sigil build`              | Bundles it into one executable plus a chunk per command                                                                                                           |
 | `sigil add`                | Copies a component's source into your app, so you own it                                                                                                          |
 | `sigil completion [shell]` | Prints a completion script for bash or zsh, or says how to install one for the shell you are in — this one is the framework's, and every app it builds has it too |
+| `sigil reference`          | Writes a markdown command reference, or a stable JSON snapshot of the command surface                                                                             |
 
 `build` runs `check`'s pass rather than replacing it, so an app that builds is
 one that checks out.
+
+## The command reference, and the surface snapshot
+
+```sh
+sigil reference                                  # one document, to stdout
+sigil reference --out docs/reference             # a page per command
+sigil reference --json --out command-surface.json
+sigil reference --check                          # exit non-zero if the pages moved
+sigil reference --json --check                   # and the snapshot, which is a second run
+```
+
+Two artifacts over one payload. The **markdown** is for reading: usage,
+arguments, options, aliases, examples and the subcommand list, with YAML front
+matter a docs site can route on. It says everything `--help` says about a
+declaration and in the same words -- a default, that an option may be repeated,
+which command a bare invocation runs -- because the one artifact that is for
+reading should not say less than the screen. The **JSON** is for diffing. A CLI's command
+surface is its public API, and nothing in a build notices when it moves — so a
+pull request that renames a flag breaks everybody's scripts and reads as a
+one-line change. Commit the snapshot, put `sigil reference --json --check` in
+CI, and that pull request fails instead.
+
+What counts as a surface change, and what does not:
+
+| In the snapshot                                                                 | Not in it                                      |
+| ------------------------------------------------------------------------------- | ---------------------------------------------- |
+| every argv path, and every token that reaches it — a command's name and aliases | `desc`, on a command, an option or an argument |
+| each option's long and short spellings                                          | `examples`                                     |
+| whether an option takes a value, is required, is repeatable, and its data type  | an option's help `group` and its value `hint`  |
+| each option's `choices`, spelled the way argv has to type them                  | an option's `default`                          |
+| the environment variables an option reads, in declaration order                 | the destination a value lands on in `argv`     |
+| each positional's name, position, requiredness, variadicity, type and `choices` | the version, the date, and any path            |
+| whether a command or an option is `hidden`                                      | whether an option has a `default` at all       |
+| the environment variables an argument reads, in declaration order               |                                                |
+| which command is the `default` one a bare invocation runs                       |                                                |
+| whether a path has a handler at all, or is a namespace that only lists          |                                                |
+
+Every list in it is sorted except the environment variables: a spelling reaches
+an option and a choice is accepted whichever order the declaration wrote them
+in, so those are sets and sorting them keeps the snapshot still when nothing
+moved. `env` is an ordered list, because the first variable that is **set** is
+the one that wins.
+
+The line is **what argv accepts, not what the screen says**. A reworded
+description must not fail a check, or nobody can leave the check on. A `default`
+is out because it is what the app _does_ rather than what argv _accepts_, and
+because a computed one has no stable serialization — a `default: () => …` would
+either move the snapshot on every run or have to be called during a doc
+generation. What that gives up is stated rather than implied: **nothing in the
+snapshot records whether an option has a default**, so adding or removing one is
+invisible to the check. `required` is a different question — it says whether the
+option has to appear, and an optional option may have a default or not.
+
+Two things _are_ in it that read as behaviour and are not. Which command is the
+`default` one decides what a bare invocation does, so moving that mark changes
+what `mycli` with no arguments means. And whether a path has a handler at all
+separates a command from a namespace that only lists its children — a namespace
+gaining a `run` is a path that did nothing and now does something.
+
+`hidden` is in it, and that is the one worth knowing. A hidden command is not
+listed and is still **reachable**, so hiding one breaks nobody's script today
+and leaves a thing nothing documents. The snapshot records it so the diff shows
+it; whether hiding is a breaking change is then a question a reviewer answers
+rather than one this tool guesses. Which direction breaks is the same kind of
+question: an alias **removed** breaks and one added does not, an option becoming
+**required** breaks and becoming optional does not, a positional **losing** its
+`...` breaks and gaining one does not. The check says the surface moved; the
+diff says which way.
+
+One invocation checks one destination, which is why a CI step is the pair rather
+than one line: `--json` is what says which artifact is meant, so the markdown and
+the snapshot are two runs exactly as refreshing them is. `package.json`'s own
+script is that pair.
+
+`sigil reference` **imports** your app, which is the one thing `sigil build`
+refuses to do. It has to: an option and an argument live only inside the module
+that declares them — nothing lifts them out of source — so a reference cannot be
+a static read. That is also why this is not part of the build: a build must not
+run the app, and an opt-in flag would not change what a build _is_. Nothing is
+deleted either, ever. A page left over from a command you renamed is reported
+and left for you to remove.
 
 ## Configuration
 
@@ -35,6 +117,10 @@ to say so in the name; both at once is an error.
 {
   "components": "src/components",
   "locale": "de",
+  "reference": {
+    "out": "docs/reference",
+    "snapshot": "command-surface.json",
+  },
   "build": {
     "external": ["some-native-package"],
     "name": "mycli",
@@ -63,6 +149,13 @@ is a fact about the app rather than a bundler knob, and the build is simply the
 only thing that can carry it: the runtime does not read a config file at
 startup. It reaches the **built** app only, so an app whose unbundled runs
 should match writes `defaultLocale` in its schema too.
+
+`reference` says **where** the command reference goes, not whether to write one:
+`sigil reference` with nowhere to put anything prints one document to stdout, so
+naming a destination here is how you say it once instead of in every invocation
+and every CI step. Both are relative to the app — a reference is a committed
+artifact, so an absolute path would be one machine's answer written into a file
+every machine reads.
 
 `shake` decides whether the utility stylesheet is cut down to the classes your
 source can actually name. It is on by default, it only affects an app that

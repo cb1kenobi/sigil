@@ -18684,6 +18684,988 @@ review is code no review has seen.
   `packages/cli/test/completion-install-tty.test.ts`, which spawns the real
   binary over a faked terminal with `HOME` pointed at a box.
 
+### A markdown command reference, and a surface snapshot
+
+`oclif readme` writes a whole command reference into an app's README on publish
+and Salesforce generates a doc site from it; sigil generated a help _screen_ and
+nothing that outlived the process. The sharper half is
+`@oclif/plugin-command-snapshot`, which commits the command surface as JSON so
+that a pull request renaming a flag **fails** rather than silently breaking
+everybody's scripts. `src/reference/surface.ts` in the runtime is the walk,
+`packages/cli/src/reference/` is the two printers, and `sigil reference` is the
+command.
+
+#### Where the surface comes from, which the ticket did not ask and which decides everything else
+
+The ticket read as "the extraction is done" -- the build already walks the tree
+and `commandCatalog()` already reads the registries -- and those are two
+different sources. Measured on this repository's own tree: `ResolvedCommand`
+carries `name`, `desc`, `hidden`, `kind` and `module` and **no options and no
+arguments**, because nothing lifts an option out of source. So a reference
+printed from the build's static walk would be a usage line and a subcommand
+list and nothing else.
+
+Which is the question `completionSpec()` already answered, in the same words:
+generating from the **live initialized registries** has neither problem, and the
+module loading is the cost to pay for it. So this is that answer again, and the
+rest of the design falls out of it -- what remained was who imports the app.
+
+#### `commandSurface(schema)` is a published subpath, and the toolchain never sees `Internal`
+
+`@ttylabs/sigil/reference` exports one function: a `Schema` in, plain data out.
+Three reasons, and the first is the one that is not a preference.
+
+**`Internal` is a module-private `Symbol()`**, so two copies of the runtime
+cannot read each other's internals. A design that handed an _initialized
+command_ across the package boundary would break the moment an app pinned a
+different `@ttylabs/sigil` -- silently, as an empty reference, which is the worst
+class there is. What crosses here is a plain object: an entry exports a schema
+(or a function returning one), `command()` is the identity function, so a
+command module's declaration is plain data too. Nothing with a symbol on it is
+ever handed over.
+
+**The walk needs `loadCommand()`, which is not published and must not be.**
+`initCommand` and `loadCommand` on the root barrel would pull the parse chunk
+onto the root entry, which `should not load the parser to import the package`
+refuses and a 20 kB ceiling would catch. A subpath puts them in a chunk nothing
+else reaches. Measured: the root entry is **7,518 B over 6 modules, unchanged**
+to the byte, and `reference.mjs` is **31,139 B over 9 modules** -- reached only
+by something that imports it, which is the toolchain. The second figure moved
+twice while this was being written, by the review rounds' own fixes, so re-run
+the measurement rather than reading it here: the module count is the shape worth
+knowing and the root entry's 7,518 B is what the 20 kB ceiling holds.
+
+**And printing is toolchain work**, which is the rule the utility generator
+records: reading `PROPERTIES` and parsing every declaration on the way out is
+the toolchain's, and a few hundred rules of CSS is a string constant. Here the
+walk is the runtime's because only the runtime can read a registry, and both
+printers are `@ttylabs/cli`'s -- so no app pays a byte for a format it will
+never print.
+
+What the split leaves is one skew: the toolchain's runtime _interprets_ the
+app's declaration, so an app whose runtime is newer and declares something this
+one refuses fails here and works there. Loudly, naming the declaration, which is
+the same exposure `readAppCommands()` already has. The shape if it ever matters
+is `typecheck.ts`'s -- resolve the capability from the app -- and there is no
+caller for that.
+
+#### It is a third reader of the registries, and the differential is what keeps it one answer
+
+`commandCatalog()`, `completionSpec()` and this one read the same registries for
+three different questions, and none is derivable from either other. A catalog
+answers _what can be selected and run_, so a namespace is noise and only
+**required** options are listed. Completion answers _what can be typed_, so
+`required` and `multiple` are irrelevant and the arguments' values are unioned
+rather than kept per position. A reference answers _what does this program
+accept_, which needs every option, each positional in its own place, and the
+`required`/`multiple` neither of the others records.
+
+So `should reach every command the completion spec reaches` is the differential,
+which is the shape `should offer every command the catalog lists` already has.
+What is _not_ re-derived is anything either already decides: `tokensFor()` and
+the choice-token rule are **imported** from the completion spec, because "which
+tokens reach this command" and "what can be typed for this choice" have one
+right answer each. `declaredValues()` is that rule lifted out of `valuesFor()`
+-- its first branch, with the two words a bare `bool` or `yesno` takes left
+behind, because those belong to a menu and a reference records what the
+declaration said.
+
+#### Four decisions, and the fourth is the list
+
+**One file or many: both, and the destination decides which.** Many is the
+answer for a directory and one is the answer for a pipe, because a pipe has
+nowhere to put many -- which is `completion`'s own shape, a script to stdout and
+an install that writes files, rather than a refusal to choose. `--out` writes a
+page per command plus an index, because that is what a docs site routes on and
+the only shape that stays navigable past a dozen commands; with nowhere to put
+anything, one document goes to stdout, which is what you pipe and what a README
+injection would take. One printer with two layouts: `listed()` decides what a
+reference _contains_ and `page()` decides what a page _says_, and the only thing
+the two layouts answer differently is how a command is pointed at -- a parameter
+rather than a second printer.
+
+A document links **nowhere**, deliberately. An anchor is the obvious answer and
+is renderer-specific: how a heading becomes a fragment is GitHub's own rule, and
+a subtly wrong link goes nowhere, which is worse than a name that was never a
+link.
+
+**On by default: nothing is written unless asked, and `sigil.json` says where
+rather than whether.** `sigil reference` with no destination prints and writes
+nothing at all, so the worry the ticket named -- a build that writes files
+nobody asked for -- never arises. `reference.out` and `reference.snapshot` are
+top level rather than under `build`, for the reason `locale` is: `build` is
+where the bundler knobs live. Both are relative to the **app** rather than to
+the working directory, which is `components`' rule and matters more here: a
+reference is a committed artifact, so an absolute path would be one machine's
+answer written into a file every machine reads.
+
+**`sigil build` does not write it, and that is the one place this diverges from
+the ticket's own checklist.** Four reasons, the first decisive. The build
+**parses** the app's entry rather than importing it, and that is not a rule
+about surprise -- it is a rule about what a build is, recorded as the reason an
+app which opens a connection at module scope does not do it during a build. An
+opt-in key makes the surprise go away and does not make the build a different
+kind of thing, which is what it would be; taking that inside a documentation
+ticket is the shape this file refuses repeatedly. Then: a build writes into
+`--out` and nothing else, where a reference lands in the source tree and would
+make `git status` dirty after every build with no `clean()` to answer for it. It
+would make a reference a built-app-only feature, where generating from the
+registries is what makes it work in dev. And it couples a doc generation to a
+bundle it has nothing to do with.
+
+**The check fails whatever invoked it, and what this repository puts in front of
+it is a test.** `sigil reference --check` compares and exits non-zero, so a CI
+step is one line. Failing a _test_ is what this repository does with its own
+committed artifacts -- `registry.test.ts` and the turbo hash assertions both
+live there -- and `the committed command surface` is that, driven from **source**
+rather than from `dist/`: a stale `dist/` is silent, so a test that spawned the
+bundle would assert against a binary predating the edit under review, which is
+the one failure a drift check cannot have.
+
+#### What counts as a surface change, and what does not
+
+Recorded in the snapshot: every argv path; every token that reaches it, which is
+a command's name and its aliases; each option's long and short spellings;
+whether an option takes a value, is required and is repeatable, and its data
+type; each option's `choices`, spelled the way argv has to type them; the
+environment variables an option reads; each positional's name, position,
+requiredness, variadicity, type and `choices`; **the environment variables an
+argument reads**, which were recorded nowhere until a review round measured
+`ENTRY=x mycli` filling a positional; whether a command or an option is
+`hidden`; which command is the `default` one a bare invocation runs; and whether
+a path has a handler at all or is a namespace that only lists.
+
+Every list in it is sorted **except the environment variables**, and that
+exception is the distinction `ordered()` is for: `long`, `short` and `choices`
+are sets, because a spelling reaches the option and a choice is accepted
+whichever order the declaration wrote them in, so sorting them is what keeps the
+snapshot from moving when nothing argv accepts has. `env` is an **ordered** list,
+because `envValue()` answers with the first variable that is set -- so the order
+is the precedence, and sorting it hid a real change.
+
+The last two were absent and a review round found them. Both read as behaviour
+and are not: a `default` command is dispatched when argv named none, so moving
+the mark changes what `mycli` on its own means, and a namespace gaining a `run`
+is a path that did nothing and now does something.
+
+Not recorded: `desc`, on a command, an option or an argument; `examples`; an
+option's help `group` and its value `hint`; an option's `default`; the
+destination a value lands on in `argv`; and the version, the date and any path.
+
+The line is **what argv accepts, not what the screen says**, which is the line
+the ticket asked for. A reworded description must not fail a check, or nobody
+can leave the check on. `default` is out for two reasons rather than one: it is
+what the app _does_ rather than what argv _accepts_, and a computed one has no
+stable serialization, so a `default: () => ...` would either move the snapshot on
+every run or have to be called during a doc generation. What that gives up is
+stated rather than implied: **nothing in the snapshot records whether an option
+has a default**, so adding or removing one is invisible to the check. The first
+version of this said `required` already records it, which is false -- `required`
+says whether the option has to appear, and an optional option may have a default
+or not. Found by review. `env` is **in**, which is the one addition the ticket did not
+name: `PORT=3000 myapp` working is a contract a script relies on, and removing a
+variable breaks it exactly as removing a spelling does.
+
+**`hidden` is in it, and that is the one worth thinking about.** A hidden
+command is not listed and is still **reachable**, so hiding one breaks nobody's
+script today -- which argues for leaving it out -- and leaves a thing nothing
+documents, which argues for the opposite. What settles it is that the check is
+not "is this breaking?" but "**did the surface move without you saying so?**",
+which is `registry.test.ts`'s own temperament: it fails on a _stale_ entry
+rather than on a _wrong_ one. So the snapshot records `hidden` and the diff
+shows it, and whether hiding is a breaking change is a question a reviewer
+answers rather than one this tool guesses.
+
+Which is also why there is no classifier. Direction is what decides breakage --
+an alias **removed** breaks and one added does not, an option becoming
+**required** breaks and becoming optional does not, a positional **losing** its
+`...` breaks and gaining one does not -- and a tool that judged it would be a
+second reader of what a surface is, wrong about half the cases. The check says
+the surface moved; the diff says which way; the list above says which way is
+which.
+
+#### Three places the two readers deliberately disagree
+
+The markdown and the snapshot read one surface, and each drops what the other
+needs. Which is the design rather than a wart, and it is why the walk is
+faithful: `commandSurface()` records `hidden`, every spelling and every
+description, and each printer decides.
+
+**A hidden command gets no page and is in the snapshot.** The sharpest of the
+three, and the reason the surface records `hidden` rather than filtering on it.
+A hidden command takes its subtree with it, for the reason the catalog records:
+a listing that named a hidden command's children would have named the branch
+anyway.
+
+**A negated flag's positive spelling is printed nowhere and recorded.**
+`--no-clean` also accepts `--clean`, and help deliberately leaves that off the
+row because printing both reads as two options that mean opposite things while
+the description describes one of them. A reference is a listing, so it follows.
+The snapshot keeps both, because both resolve: dropping `--clean` from what argv
+accepts would be a surface change, and hiding a row is not.
+
+**Order is faithful in the surface and normalized in the snapshot.** Which
+spelling a declaration wrote first is a fact about the declaration, so the walk
+keeps declaration order and the markdown reads in it, while the snapshot sorts
+the commands by path, the options by their spellings, and each option's own
+spellings and environment variables -- so that changing the order a _reference_
+reads in is not a change to the surface. The **arguments** are never sorted,
+anywhere, because their order is their position and sorting them would hide the
+one change a reader most needs to see.
+
+#### The spellings are filtered through the registry, which the obvious reading gets wrong
+
+`initOption()` puts a negated flag's positive spelling in its own `long` --
+`--no-cheese` also lists `--cheese` -- and `OptionRegistry.add()` then gives
+that spelling to the **valued** twin where there is one, with a `??=`. So a
+declaration's own list over-reports, and a reference built from it would document
+`--cheese` as reaching the off switch. The short half is the same rule with a
+different cause and needs its own test: `#chars[alias] = key` is written with no
+`??=`, so two options declaring `-c` means the **second** takes it. Measured both
+ways. `registry.find(spelling) === opt` is the exact answer, which is
+`tokensFor()`'s own trick one level down.
+
+#### The front matter's values are JSON, and that is both at once
+
+JSON is a subset of YAML, so a front matter whose values are JSON parses as YAML
+for a site that wants one **and** is readable with `JSON.parse` by a site that
+would rather not take a dependency to read three keys. What it buys is the thing
+a hand-rolled `key: value` reader gets wrong: a description holding a colon, a
+quote or a `#` is escaped by construction rather than by a rule somebody has to
+remember. `title`, `path` as an array, and `description` where there is one.
+
+**Which `oxfmt` would have destroyed, and that is why the artifacts are
+excluded from it.** Measured: the formatter rewrites `title: "sigil new"` to
+`title: 'sigil new'`, which is valid YAML and is **not** valid JSON -- so
+`JSON.parse` refuses it and the contract the website reads these by is gone. It
+also aligns the table pipes and collapses the snapshot's arrays, which are
+cosmetic by comparison. A generated artifact has one writer; `ignorePatterns`
+gains `packages/cli/command-surface.json` and `website/src/reference/**`, which
+is the call `test/parser/fixtures/**` already got.
+
+#### A bar is escaped in every cell, and the placeholder is why
+
+A table row is split on its bars **before** anything inside it is parsed, so a
+code span is no shelter -- and the value placeholder spells a `choices` list
+with `|`, so `--lint [oxlint|eslint|biome|none]` added three columns to its own
+row and shifted every cell after it. Found by reading a generated page rather
+than by a test, which is why `should give every table row the columns its header
+has` exists and why it counts only the bars that are **not** escaped: a counter
+that split on every bar would agree with the bug. It counts the **rows** too,
+because the column check alone cannot see the other way a cell breaks a table --
+a review round's finding, below.
+
+The escaping is `table()`'s, which is the one function that knows a cell sits
+between columns. It was `cell()`'s and `code()`'s, and that put it in the wrong
+place twice over: a code span built for a _heading_ went through `code()`, so a
+program name holding a bar rendered a visible backslash. One reader of "a bar is
+a column separator", in the function about columns -- and the header is
+deliberately not escaped, since every header this module passes is one of its own
+literals and a sabotage of that escape failed nothing.
+
+Which is also why there is no `Values` column. The placeholder already carries
+the choices, so a column for them would be the same fact twice -- and in every
+table that has none it would be an empty column.
+
+#### Nothing is ever deleted, which is the one place this parts from `--out`
+
+A build owns its output directory: it created it, and `clean()` empties it. A
+reference is written into a directory a docs site owns as well, where a
+hand-written page sits beside the generated ones -- so a stale page is
+**reported** and left, and a `--check` fails over it. Reporting costs the author
+one `rm`; deleting costs them a file they wrote, and the guard that would make
+deleting safe does not exist: `sigil build`'s own refusal is of the app root and
+above, and a destination typed one directory wrong is below it.
+
+Which forced a message per kind rather than one sentence with the kind
+interpolated: `sigil reference` writes a missing or an out-of-date file and does
+**not** remove a stale one, so telling a reader to run it over a left-over page
+is an instruction that does nothing. That is the one shape of wrong message this
+file keeps finding.
+
+#### `--check` compares content rather than bytes, which is the CRLF trap answered
+
+`.gitattributes` says `text=auto` and lists no `*.md`, so git checks a markdown
+file out with CRLF on Windows while a reference is always written with LF. A byte
+comparison would fail `--check` on all three Windows jobs over a tree with
+nothing wrong with it, which is the fifth time this repository has been bitten by
+that. So both sides are normalized -- which is the more honest question anyway,
+since what a check is about is whether the _surface_ moved and a line ending is
+not part of it.
+
+Normalized at both readers rather than forced with `eol=lf` in
+`.gitattributes`, which would fix this repository and not an app's -- and which
+is a **global** turbo input, so editing it invalidates every task's hash for a
+gain that is a quiet `git status` on one platform.
+
+#### What it records is what the app declared
+
+`help`, `completion`, `--help` and `--version` are added by `parse()`, so a
+surface built by initializing the schema simply does not have them. That is the
+answer rather than a filter: an app's snapshot should move when the app moves and
+not when the framework does, and what the framework adds is the framework's to
+document. It is also what makes the walk callable with no argv, which a generator
+has none of.
+
+Options are recorded **where they were declared** and not flattened down the
+chain, although an ancestor's resolve at every command below it: recording the
+chain would put a root option in every command's entry and make one declaration
+N diffs. The inheritance is a fact about the parser rather than about any one
+command, so the markdown says it once as prose on each page that has an ancestor
+with options.
+
+#### The website consumes it, which is what proves the shape is usable
+
+`website/src/reference/` holds the generated pages, committed, and
+`website/src/app/reference/` renders them: the directory is read, the front
+matter is parsed with `JSON.parse` per value, the nav is built from `title` and
+`path`, and the body goes through `react-markdown` with `remark-gfm`. GFM is not
+optional there -- every argument and option list is a table, so without it they
+render as paragraphs of pipes.
+
+Committed rather than generated during `next build`, which is the call
+`src/i18n/keys.ts` and `src/style/utilities.ts` already make: a generated file in
+the tree is one a reviewer can read in the diff, a drift test is what keeps it
+honest, and generating at build time would make the website's build depend on
+importing the toolchain's own app. `website/turbo.json` already hashes `src/**`,
+so the pages are an input without anything being added.
+
+What it proved is worth more than that it renders. Two deps (`react-markdown`,
+`remark-gfm`), **eight routes prerendered -- `/`, `/_not-found`, `/reference` and
+one per command** -- and `build.html` holding **two real `<table>` elements over
+twelve `<tr>`** between them. The first two figures were a route count and a row
+count and both were wrong, which a review round caught by counting the source
+rather than the build: a prerender includes `_not-found` and the `[slug]` pages
+are one per command rather than per file, and a markdown table's `| --- |`
+separator is not a row in the HTML. Re-count from `.next/server/app` rather than
+reading them here.
+
+`should be a page the website can read` asserts the contract from the package
+that has tests, because a front matter the site cannot read is the failure mode a
+renderer alone would not catch.
+
+#### What the sabotage pass found, and the litter it left twice
+
+**One hundred and thirteen mutations across five passes, every one caught and
+three declared equivalent** -- 47 over the feature, then 26, 17, 7 and 16 over
+the guards each review round's own fixes produced, which is the gap every round
+leaves. The first pass is below; each round's is under its own heading.
+
+**Forty-seven mutations, forty-seven caught, nothing declared** -- counted
+against the shipped tree in one run, with a green control first and the four
+verdict guards this repository has learned to need. One pattern went **stale**
+when the formatter reflowed the line it quoted, and was reported as
+`PATTERN MISSED` rather than as a guard that is not load bearing, which is the
+seventh time that guard has earned its keep.
+
+Six survived the first pass and every one was a test that could not reach the
+branch it was named for. Three were in the walk and the printers: the **short**
+spelling filter, whose input is two options declaring `-c` rather than a negated
+flag, since the implied positive spelling is always a **long** one; the
+snapshot's **command sort**, which coincides with the walk's own pre-order for
+every ordinary tree -- space sorts before every character a route name can hold,
+measured -- so the input that makes it matter is a _scrambled surface_ rather
+than an app, which is available because the surface is plain data; and
+`read()`'s **ENOENT-only** rule, whose input is a directory where a file was
+named, which is `isMissing()`'s own recorded defect one package along.
+
+The other three are the finding worth keeping, and they are about the **harness**
+rather than the code. They were reported as caught on the first pass and
+survived on the second, because the first pass's own mutations had written files
+into the repository: a `--check writes nothing` mutation left a
+`packages/cli/does-not-exist/` behind and a relative-destination mutation left a
+`packages/cli/docs/`, and both made a later test pass for the wrong reason. The
+control failing is how the first was found and a full-suite run is how the
+second was. So three guards -- the `--check` with no destination, the stale
+message, and the app-relative destination -- had no test at all and now have
+one, and both tests write into a temp directory of their own: a destination
+inside the repository is one a sabotage can create.
+
+Which is the rule this file already states about a sabotage verdict said one
+level up. A verdict is a statement about the tests, and a harness that mutates a
+checkout can change what the tests are statements about. `git status` after a
+pass, and a control before every one.
+
+#### What review round 1 found, and the two it was right about by the wrong reason
+
+Pointed at the diff with the ticket's constraints and **not** at the rationale,
+so that it could not simply confirm the argument above. **Eleven findings, every
+one confirmed against the code before it was believed** -- two of them a wrong
+file on disk, five more a wrong value or a message that sends a reader nowhere,
+and the rest prose or a test that cannot fail for the reason its name gives.
+Plus five weak tests and a coverage list, which is the next round's worklist.
+
+Every one is a shape a pass built out of deletions is blind to by construction:
+not one is a dead guard, and nine of the eleven are a guard that was never
+written.
+
+- **A command named `../evil` or `a/b` wrote a page outside the destination,
+  while the summary said it had written into it.** The severe one. A page's file
+  is the path joined flat, so a segment holding a separator -- or spelled `..` --
+  escapes: measured, `'../evil'` put `evil.md` one directory **above** `--out`
+  with stderr reporting `5 files into ...out2`, and `a/b` wrote into a
+  subdirectory the website's own reader never looks in. Neither could be seen
+  again either, because the stale sweep reads the destination's top level, so
+  `--check` agreed with a file that was not there. Refused in `listed()`, where
+  the `-` collision refusal already is, because both are the same question: can
+  this path be a file name.
+
+- **A `--check` could pass with a page missing, on the filesystem this is about.**
+  The clash key was `file` and the default filesystem on macOS and Windows is
+  case-insensitive, so `DB` and `db` are two keys and one file there: the second
+  write won and `--check` then compared that one file twice. Folded
+  unconditionally rather than per platform, because a committed reference is read
+  on every platform -- and the **lookup** fold needed an input the obvious
+  fixture cannot reach: the walk is sorted by code unit, so for `DB`/`db` the
+  uppercase always arrives first and a folded `set` alone catches it. `Ab`/`aB`
+  is the pair where neither is uniformly upper, and it is in the test.
+
+- **The snapshot could not see a command becoming the `default` one, nor a
+  namespace gaining a `run`.** Both are a thing argv reaches -- a `default`
+  command is dispatched when argv named none, so moving the mark changes what a
+  bare invocation does, and a namespace gaining a handler is a path that did
+  nothing and now does something -- and neither was recorded. `SurfaceCommand`
+  carries `default` and `runnable` now, the snapshot projects both, and the
+  README's table has a row for each.
+
+- **The usage line omitted `[options]` for a command that only inherits them,
+  four lines above prose saying those options resolve there.** Two sentences on
+  one page disagreeing, which is why the fact is passed into `usage()` rather
+  than re-derived from the command.
+
+- **`--check`'s diagnostics told the reader to run a command that would not write
+  the file being checked.** The refresh was built from the _format_ alone, so a
+  destination that came from `--out` was named by a `sigil reference` that writes
+  somewhere else -- or, with no `sigil.json` key, refuses outright. It is built
+  from the invocation now, with the `--out` quoted where a shell would split it.
+  Which is the one shape of wrong message this repository keeps finding, in the
+  function whose whole job is to say the thing to do.
+
+- **Four strings a declaration owns broke markdown structure.** A program name
+  or a command name holding a backtick ended its own code span, after which the
+  rest of the heading was parsed as markdown; an example whose text held a fence
+  closed the block it was in; and the front matter had its `|` backslash-escaped,
+  so a consumer read a different string than the app declared. `code()` picks a
+  delimiter longer than the longest run in the content and pads where it starts
+  or ends with one, which is CommonMark's own rule; `fenced()` does the same for
+  a verbatim block; and the front matter and the page prose go through
+  `oneLine()`, where a bar is an ordinary character.
+
+- **And the bar escaping was in the wrong place, which the fix for that one
+  exposed.** It was in `cell()` and in `code()`, so a code span built for a
+  _heading_ escaped a bar that is an ordinary character there and rendered a
+  visible backslash. It is `table()`'s now -- the one function that knows a cell
+  sits between columns -- which is one reader of that rule where there were two.
+  The header is **not** escaped, and that is the rule about a guard that cannot
+  change an answer: every header this module passes is one of its own literals.
+
+- **Two sorts read the machine's locale.** `localeCompare` for the commands and
+  for the options, so the same surface printed different bytes on a German laptop
+  and on CI -- which for a committed artifact is a check that fails over who ran
+  the generator. Both are by code unit now, and so is the walk in
+  `commandSurface()`; `ordered()` was already right, because `Array.sort()` with
+  no comparator is specified to compare by UTF-16 code unit. `Zed` before `ant`
+  and `--B` before `--a` are the discriminators, each asserted beside a
+  `localeCompare` call that says so out loud, so neither test can quietly become
+  one about two names the two orders agree about.
+
+- **Reordering a `choices` list -- and only that -- moved the snapshot.** It was
+  the one list here that was not sorted, which made reordering it the only
+  cosmetic edit that could fail the check. A reordered list accepts exactly the
+  same set of values, so what moved was the hint on the screen rather than what
+  argv takes.
+
+- **`referenceDocs()` threw where its own caller's comment said it would 404.**
+  `/reference`'s `notFound()` says "a reference nobody generated is a 404 rather
+  than a crash", and `readdirSync` of a missing directory is `ENOENT` -- so an
+  emptied tree was exactly the crash that comment denies. Measured both ways
+  against a real `next build`: with the guard the build succeeds and `/reference`
+  prerenders as a 404, and with it removed the build fails with
+  `Failed to collect page data for /reference/[slug]`. `ENOENT` alone, which is
+  the rule the toolchain's own reader keeps.
+
+- **And the README claimed `required` records whether an option has a
+  `default`.** It does not: `required` says whether the option has to appear, and
+  an optional option may have a default or not. What the snapshot gives up is
+  stated now rather than implied -- nothing in it records whether a default
+  exists, so adding or removing one is invisible to the check.
+
+##### Two of its findings were right about the symptom and wrong about the cause
+
+Which is worth more than the findings, because both corrections are measurements
+and one of them deleted a guard.
+
+- **A hidden `a b` really does make a visible `a`->`b` page vanish, and not for
+  the reason given.** The round read it as a path-key ambiguity -- `['a b']` and
+  `['a', 'b']` join to one string -- and a path segment **cannot hold a space**:
+  `initCommand()`'s label rule reads whitespace as the separator between a name
+  and its aliases, so a `commands` key of `'go x'` is a command named `go`
+  aliased `x`, and a routed file called `a b.js` is the same. Measured on both.
+  What actually happens is a **registry** collision: `a b.js` becomes a command
+  named `a`, which collides with the `a/` directory beside it, and the hidden one
+  wins or loses by registration order. That is the parser's, it predates this
+  feature, and it is recorded rather than worked around here.
+
+  So `key()` stays and its comment says what is true: NUL rather than a space is
+  a **statement rather than a guard**, written that way so the key's correctness
+  does not rest on the label rule holding. The sabotage of it is declared
+  equivalent rather than surviving, and `should read a space in a declared name
+  as the separator it is` pins the premise -- which is the premise two other
+  decisions here rest on.
+
+- **A link destination does need angle brackets, and not for a space.** Measured,
+  `(`, `)`, `<`, `>`, `|` and a backtick all survive into a command name and a
+  space does not -- so `go(x` produced `](go(x.md)`, whose unbalanced paren ends
+  the link one character early, which is the real reachable case. And the first
+  fix for it **stripped** `<` and `>` inside the brackets, so `go<x.md` came out
+  as a link to `gox.md`: a page that is not there, which is a wrong value where a
+  broken link is merely broken. They are percent-encoded now.
+
+##### The five weak tests, and the helper that made one of them weaker
+
+Each got the input that makes the guard it names load bearing, reasoned backwards
+from "what would make this matter" rather than forwards from "no test failed".
+
+- **The table test counted columns and not rows**, so a row _torn in half by a
+  newline_ passed it: the first line still has the right column count and the
+  continuation line is filtered out for not starting with a bar. It asserts both
+  now -- and writing the count half found `tableUnder()` itself over-broad: it
+  took every bar-leading line to the end of the file, so a count over
+  `## Arguments` picked up the `## Options` rows as well and a column assertion
+  read two tables as one. It takes the contiguous run.
+- **The option sort asserted one spelling per option**, so a declaration's
+  internal order was unpinned -- which is how `choices` came to be the one list
+  that was not sorted. It asserts `long`, `short`, `env` and `choices` of one
+  option now.
+- **The stability test called `commandSurface()` twice in one process**, which
+  cannot speak to the cross-machine stability the snapshot exists for. The two
+  locale discriminators above are what do.
+- **The differential compared two sorted path sets**, so a command both walks
+  dropped satisfied it, and sorting destroyed the one thing the surface's own
+  order is: it asserts what the set _is_ and the pre-order as well.
+- **The framework-absence test substring-matched four quoted strings**, which a
+  snapshot that had lost every command it ever had also satisfies. It parses the
+  JSON, asks the token and spelling sets, and has a presence half.
+
+##### What the pass over round 1's own fixes found
+
+Twenty-six mutations over the guards those fixes produced, **twenty-six caught**,
+nought survived and the harness missed nothing -- after ten survivors and four
+stale patterns on the first run, which is the gap every round leaves: code
+written in answer to a review is code no review and no pass has seen.
+
+Of the ten, **seven were a guard whose fixture could not reach the branch** and
+each got the input named above. **Two were not guards at all**: the NUL path key
+is equivalent to the obvious spelling for every reachable input, and the header
+escape was **deleted**.
+
+The third was recorded as equivalent and is not, which round 2 corrected: the
+segment-wise path comparison was argued to agree with a joined one for every
+name, and that is true of the _order two paths come out in_ and false of what the
+sort does with a **tie**. `['a', 'b']` and `['a b']` join to one string, so a
+joined comparator leaves them in whichever order the input had -- and the
+assertion was on the joined form, which cannot tell the two apart from either
+input. Asserted as arrays, the joined comparator fails. Which is this file's own
+lesson about a sabotage survivor arriving one level in: the mutation survived
+because the test could not see it, and the forward reading was that the code did
+not matter.
+
+Two things about the harness, both of which this file has had to record before.
+Four patterns went **stale** when `oxfmt` reflowed the lines they quoted, and
+were reported as `PATTERN MISSED` rather than as passes. And three sigil-source
+mutations **survived every cli test**, because `@ttylabs/cli` imports
+`@ttylabs/sigil` through the published `exports` map, which points at `dist/` --
+so a mutation in that package's source is invisible to a test in this one unless
+something rebuilds. The answer is a test in the _sigil_ suite for each guard the
+sigil source holds, which is where those three now are; the alternative is a
+rebuild per mutation, which is the stale-`dist` trap paid for twenty-six times
+over.
+
+#### What review round 2 found, pointed at round 1's fixes and round 1's skipped list
+
+Code written in answer to a review is code no review has seen, and that gap grows
+with every round -- so this one was given two things and nothing else: the regions
+round 1's own fixes changed, and the eleven items round 1 listed as not examined.
+**Sixteen findings, every one confirmed before it was believed**, two of them
+severe. Six were in round 1's fixes; the rest came from the files nobody had
+opened, which is the distribution this file keeps recording.
+
+- **A case-only rename made `--check` fail for ever, and the message told the
+  reader to delete the page.** The severe one, and it is round 1's own fix half
+  applied: `listed()` folds the case when it refuses two pages that want one
+  file, and `stale()` compared names **exactly** -- two readers of "the same
+  file". Measured on this Mac: renaming a command `DB` to `db` writes the new
+  bytes into the entry still called `DB.md`, after which every `--check` reports
+  that entry stale, and the diagnostic for a stale page says to delete it by
+  hand. Deleting it deletes the only copy.
+
+  The fix is **not** a second fold, which would be wrong on Linux -- there the two
+  really are two files and the old one really is stale. What the sweep wants to
+  know is whether a directory entry _is_ a file this run wrote, and a name cannot
+  answer that: `dev:ino` can, and answers correctly on both kinds of volume.
+  Measured: `statSync('db.md')` returns `DB.md`'s inode here. One mechanism where
+  a name comparison would have to be the fold in one place and exact in the
+  other.
+
+- **The refusal printed the control character it exists to keep out of a
+  page.** The other severe one, and the shape is this repository's own rule
+  arriving through the one path that is supposed to be the safe one:
+  `commandSurface({ name: '\u001b]8;;x\u0007' })` threw an `Error` whose message
+  holds the raw bytes, and `errorHandler()` writes a message to stderr -- so the
+  sequence ran on the terminal of whoever built the app. Measured. The message
+  names what is wrong with the name now and does not show it.
+
+  And the comment above it claimed this is "the same refusal `completionSpec()`
+  makes" and that the two "answer the same". They do not, measured both ways:
+  that one cleans the name with `oneLine()` first, so a control character is
+  _stripped_ there and the name is **accepted**, and it refuses a leading dash,
+  which this accepts. Neither transfers -- a reference prints the name into a code
+  span, a fence and a JSON string, where a dash is ordinary, and it must refuse
+  what completion merely cleans, because what reaches a page is the name rather
+  than a cleaned copy. Two questions, two checks, said out loud where the previous
+  sentence claimed the opposite.
+
+- **A grandparent's options were inherited and the page said they were not.**
+  Round 1 fixed the usage line for options inherited from the **root**, and
+  `findOption()` walks the whole context chain -- measured through a real
+  `main()`, `mycli db migrate --conn x` lands on `argv.conn` where `--conn` is
+  `db`'s. So a nested page said `mycli db migrate` on its usage line over an
+  option the parse accepts, and nothing on it pointed at `db`. The page now names
+  **each** ancestor that declares one, linked, because a reader looking for
+  `--conn` has to know which page to open -- and AGENTS.md already said "each page
+  that has an ancestor with options", so the prose was written for the general
+  case and the code was not.
+
+- **Reordering an argument's `choices` still moved the snapshot.** Round 1 sorted
+  an option's and left an argument's in declaration order, so that was the one
+  cosmetic edit left that could fail the check -- and
+  `should never sort the arguments` pins the order of the arguments themselves
+  rather than the choices inside one, so nothing could see it.
+
+- **The refresh command omitted `[dir]` and `--entry`, and under-quoted the
+  path.** Round 1's own fix, two thirds done: pasting its command in this
+  repository writes **this** toolchain's reference into the app's docs directory,
+  and without `--entry` the command it prints regenerates the conventional entry
+  and puts back the page it has just reported as stale. And the quoting class was
+  an enumeration of what a shell splits on, which left `;`, `&`, `|`, `(`, `)`
+  and `<` out -- so a destination called `docs/foo;rm` printed a command whose
+  second half is a second command. It is built from the whole invocation now, and
+  what is matched is the set a shell treats as **ordinary**, which is small and
+  known.
+
+- **A description was parsed as markdown.** `desc: '# of files to keep'`
+  rendered as an `<h1>`, measured through `react-markdown` and `remark-gfm`, and
+  one beginning `- `, `1. `, `>` or `---` is a list, a quote or a rule. A `desc`
+  is spliced in as its own paragraph, so whatever it starts with is at the start
+  of a line after a blank one -- which is where every block opener in CommonMark
+  lives -- and "every string a declaration owns is escaped on the way out" is this
+  module's own claim. `paragraph()` escapes the opener, with the **punctuation**
+  escaped for an ordered marker rather than the digit, since `\1` is not an
+  escape.
+
+- **An indented fence inside an example still closed the block.** Round 1 sized
+  the fence from runs at column 0 and CommonMark lets a closing fence be indented
+  up to three spaces, so `see\n   ```\ndone` closed the block at the indented run
+  and `done` came out as a paragraph of the page.
+
+- **`#` and `?` in a command name were each a different wrong link.**
+  `](go#x.md)` is a link to `go` with a fragment of `x.md` and `](go?x.md)` one
+  with a query -- a _wrong_ answer rather than a broken one, where round 1's
+  angle-bracketing fixed only the unbalanced paren. The destination is a URL, so
+  it is encoded as one: `encodeURIComponent()` makes the href resolve to the file,
+  and what it leaves is a paren, which is exactly what the angle brackets are
+  still for.
+
+- **Every link on the website 404'd, and below 640px they were the only
+  navigation.** The generator links to a **file** -- `add.md` -- because that is
+  what a directory of pages is, and a route there is `/reference/add`: left alone,
+  `add.md` resolved to `/reference/add.md`, whose slug is `add.md`, which
+  `referenceDoc()` does not find. Measured in the built HTML. And the nav was
+  `hidden` until the `sm` breakpoint, so on a phone the subcommand table was the
+  only way off the index and every link in it was one of those. A `routed()`
+  mapping in the one place that renders a link, the nav on every viewport, and
+  `aria-current` on the page that is open.
+
+- **`display: block` on the table took it out of the accessibility tree.** Every
+  argument list and option list is a GFM table, which is why `remark-gfm` is
+  there, and `display: block` on the `<table>` itself stops its rows and column
+  headers being announced as a table at all. The overflow is a wrapper's now.
+
+- **`default` and `runnable` were recorded in the snapshot and printed
+  nowhere**, which is a field the reference parses and does nothing with. Each is
+  a thing a reader of the page needs: `mycli <entry>` runs the default command, so
+  the page describing that command is the page that has to say so, and a namespace
+  lists its children and does nothing of its own -- otherwise indistinguishable
+  from a command whose usage line happens to take no arguments. Both are one line
+  beside the usage block, because that is what each is about.
+
+- **The segment-wise sort test could not see the swap it names**, which is the
+  entry above: asserted as joined strings it passed for a joined comparator, and
+  asserted as arrays it fails. So the comparison is a real guard with a test
+  rather than the declared equivalence this file had recorded.
+
+- **The README said one `--check` catches both artifacts.** One invocation checks
+  one destination -- `--json` is what says which -- so with both keys set
+  `sigil reference --check` compares the markdown and never opens
+  `command-surface.json`. A CI step written from that line cannot see a snapshot
+  change. It names the pair now, which is what `package.json`'s own script
+  already was.
+
+- **And three stale sentences**: `code()`'s `@returns` still said it escapes the
+  bars, which is the behaviour from before round 1 moved that into `table()` --
+  aligning the function with it puts a visible backslash back in a heading; the
+  `reference.mjs` byte figure was the pre-fix bundle; and a test comment named a
+  `nested/deep.ts` where the fixture is `.js`, which is the extension `top.js`'s
+  own comment explains and beside which a `.ts` is the two-routes-one-name error.
+
+##### What it refuted, and the one edge nobody here can settle
+
+Twelve suspicions disproved, each with the probe: a trailing backslash in a
+description does not break a row, because a cell is never flush against the
+delimiter; `\|` inside a link destination renders as `go%7Cx.md`, which is the
+file; the built toolchain's `reference` and the source-run one produce identical
+bytes, markdown and JSON alike, and `dist/sigil.mjs` bakes `reference` beside the
+other four with `@ttylabs/sigil/reference` externalized; `--entry` pointing at a
+directory fails closed through `isFile`; an app with only a `sigil.jsonc` is read,
+and both files at once is refused naming both; neither config package reads
+`commandSurface`; and the lockfile keeps `react-markdown` and `remark-gfm` in the
+website alone.
+
+What it could not settle is **a page whose file name is a Windows reserved device
+name** -- `con.md`, `nul.md`, `aux.md`, which a routed `con.js` asks for. On
+Windows those names are devices whatever the extension, so writing one writes to
+the console rather than to a file. It is left alone deliberately: it is a claim
+about a platform nobody here can test, and a refusal invented on an unverified
+claim is the thing this repository refuses -- which is the same call the tmux
+passthrough entry records. Recorded so that whoever meets it finds the mechanism
+named rather than reported.
+
+##### What the pass over round 2's own fixes found
+
+Seventeen mutations over the guards those fixes produced, **seventeen caught**,
+nothing survived and the harness missed nothing -- after one survivor, which was
+the quoting class and was the reviewer's own observation read one step further:
+the test used `foo;rm -rf`, and the old pattern catches that **because of the
+space**. `foo;rm` is the input that separates them, and `;` is the character that
+turns a printed command into two.
+
+#### What review round 3 found, pointed at round 2's fixes and round 2's skipped list
+
+**Nine findings, every one confirmed**, and not one of them severe -- which after
+two rounds that each produced two severe is the useful shape of a third. Five
+were in round 2's own fixes, which is the third round running to find something
+in its predecessor's output, and the rest came from the files nobody had opened.
+
+- **A description that opens an HTML block swallowed the rest of the page**, and
+  it is the character the comment left out while calling the set "the whole of
+  what opens a block at the start of a line". CommonMark's type 1 and type 2
+  blocks -- `<pre`, `<script`, `<style`, `<textarea`, `<!--` -- do **not** end at
+  a blank line, and a `desc` is written as its own paragraph: measured,
+  `desc: '<pre>keep this'` made `## Usage` literal text and put the usage fence
+  and every example inside one raw HTML run. `<div>` is type 6 and stops at the
+  blank line, which is why the obvious probe looks fine. A backslash-escaped `<`
+  opens nothing, and the claim about the set is gone with the fix.
+
+- **The parent's page said the program does nothing, on the page for the
+  invocation that dispatches the default child.** Round 2 put the sentence on the
+  **child's** page and left the parent's `else if (!cmd.runnable)` branch saying
+  "Lists the commands under it and takes no action of its own" -- measured over a
+  `default: true` `build`, where `main({ argv: ['out.js'] })` runs it. A page
+  contradicting itself about the one thing it is for, and the test for that
+  sentence never read `index.md`, so it could not fail. The parent names which
+  child runs now, linked, and the namespace line fires only where there is no
+  default child at all.
+
+- **And the default sentence was a raw code span**, which every other name on the
+  page goes through `code()` to avoid: a program called ``my`cli`` produced
+  `` `my`cli` ``, which renders as a code span of `my` followed by prose. A
+  backtick in a name is reachable -- the heading test already uses ``tick`x``.
+
+- **`word()` quoted with `JSON.stringify`, and bash expands inside double
+  quotes.** Round 2's own fix, which widened the _set_ that gets quoted and left
+  the _quoting_ unsafe: measured by handing the printed command to bash, a
+  destination ending `foo$HOME` was passed as `foo/Users/chris` and one ending
+  `` foo`echo PWNED` `` ran the `echo`. Single quotes expand nothing, and the one
+  character they cannot hold is closed, escaped and reopened.
+
+  The test could not have seen it either, and that is the sharper half: it
+  asserted that stderr contains `JSON.stringify(docs)` -- a string compare
+  against the unsafe spelling, under a name about a shell. It hands the line to
+  **bash** now, with the program defined as a function that prints its own
+  arguments, and asserts the argument the shell built. Which found a property of
+  the message worth knowing on the way: the command is wrapped in a pair of
+  backticks for a human, and the stale page's own path is printed in front of it,
+  so a destination holding a backtick means the helper has to find the backtick
+  that opens the **command** rather than the first one on the line.
+
+- **The website's nav was a second, unencoded reader of where a page is.**
+  `routed()` was taught to encode and the nav interpolated the slug raw -- so a
+  command called `go#x`, whose page is `go#x.md`, gave `/reference/go#x`, which a
+  URL parser reads as `/reference/go` with a fragment. `?` is the same one query
+  along. One `referenceHref()` now, used by both, which is the rule those two
+  broke by being two.
+
+- **And the `a` and `table` renderers put `node="[object Object]"` on the
+  element**, because `react-markdown` passes the mdast node into every component
+  and both spread the rest of their props. Measured in the rendered HTML.
+
+- **Two figures in this file did not match the tree**, counted from the build
+  rather than from memory: it said ten prerendered routes where there are
+  **eight** -- `/`, `/_not-found`, `/reference` and one per command -- and a table
+  with eleven rows where `build.html` holds **two tables over twelve `<tr>`**,
+  because a markdown table's `| --- |` separator is not a row in the HTML. The
+  byte figures on the same page were re-measured and do match.
+
+- **And two stale sentences**: `readSection`'s comment still described the
+  dropped keys as "a typo for one of these six" after it grew a second section
+  with two fields, and a test comment still called the program-name refusal "the
+  same refusal `completionSpec()` makes" -- which is the sentence the source
+  comment had just been corrected to withdraw.
+
+##### What the pass over round 3's own fixes found
+
+Seven mutations, **seven caught**, after one survivor and one harness verdict.
+
+The survivor is the one worth recording: reading the default child off
+`children` rather than off the whole surface is **equivalent for a visible
+child**, so every fixture had it. A **hidden** default child is the input --
+there the parent still acts, and the `children` reading made it say "takes no
+action of its own" instead, with the name spelled as code rather than linked
+because a hidden command has no page to point at.
+
+And the harness refused a verdict rather than reporting a pass: the first
+mutation of the `code()` call put a nested backtick inside a template literal, so
+the tree did not compile and the run found 21 suites where the control had 26.
+Which is the fourth distinct way this repository has had a sabotage round turn
+out to be saying nothing, and the guard that caught it is the one that compares
+the suite count.
+
+#### What review round 4 found, and the pattern across four of them
+
+**Nine findings, every one confirmed**, two of them severe -- and the shape across
+the four rounds is worth as much as any one of them: **every round found a defect
+in its predecessor's own output**, four times running. Round 2 found round 1's
+case fold half applied and its refresh command two thirds built; round 3 found
+round 2's HTML opener and its double-quote shell quoting; round 4 found round 3's
+default sentence over-claiming. Code written in answer to a review is code no
+review has seen, and the cheapest round to arrange is the one aimed at the last
+round's fixes.
+
+- **The page said a bare invocation runs a command its own default supersedes,
+  and said a command token was required.** `dispatchDefaultCommand()` adopts a
+  default and then asks **that** command for a default of its own, so with a
+  nested default the leaf is what runs -- measured through `main()`, root ->
+  `build` -> `fast` runs `fast` for `[]`, `['build']` and `['build', 'fast']`
+  alike, so `build.md`'s "`mycli` on its own is this command" was false of
+  exactly that schema. A default command with a **required argument** is the same
+  over-claim one step shorter: `mycli` alone exits 1 there with
+  `Missing required arguments`.
+
+  What is true of every one of those is which parent dispatches the command, so
+  that is what it says -- "Runs when no command is named at `mycli`" -- and the
+  parent's own sentence names the child, which is where a reader following the
+  chain goes next. Both sentences are then true at every depth, with no chain
+  walk to keep in agreement with the parser's.
+
+  And the usage line said `<command>` where `usageLine()` says `[command]`: a
+  command token is not required when something runs without one, and bare `mycli`
+  exits 0. One more place the page disagreed with help about the same schema.
+
+- **The snapshot sorted `env`, and `env` order is precedence.** `envValue()`
+  answers with the **first** variable that is set, so swapping
+  `['SERVER_PORT', 'PORT']` for `['PORT', 'SERVER_PORT']` changes which one wins
+  -- and the sorted list made that identical bytes, so a pull request that moved
+  it did not fail `--check` and the file told a reader the wrong winner.
+  Measured. `ordered()` is for a **set**: `long`, `short` and `choices` are sets,
+  because a spelling reaches the option and a choice is accepted whichever order
+  the declaration wrote them in. `env` is not one, and the test locked the defect
+  in by expecting the sorted form under a comment about choices and spellings.
+
+- **An argument's environment variables were recorded nowhere.** `initArg()`
+  stores `envs` and `envValue()` reads them with the same first-wins rule, so
+  `ENTRY=x mycli` filling a positional is a contract a script relies on -- and
+  renaming the variable could not fail `--check`. `optionOf()` copied `env` and
+  `argumentOf()` did not.
+
+- **A repeated option was spelled like a variadic argument.** `multiple` appended
+  `...` to the hint and to the type, so the committed page said
+  `--external [pkg...]` with a type of `string...` -- and an option **never**
+  consumes the rest: measured, `sigil build --external a b` is
+  `{ external: ['a'], dir: 'b' }`, where the second token is the positional
+  `[dir]`. `[pkg...]` is the spelling of an argument like `[components...]`,
+  which does. And `string...` is not a data type the parser has. Help prints
+  `--external [pkg]`, so that is what this prints, with "may be repeated" in the
+  description -- one spelling where there were two, and the one help already
+  uses. `...` stays on an **argument**, where it is the `...` in the name.
+
+- **An example help prints was absent from the reference**, and an option's
+  `default` was too. Both are the artifact that is _for reading_ saying less than
+  `--help` about the same declaration, which is the wrong way round:
+  `examplesOf()` required a `label` where help's `exampleList()` keeps any entry
+  with a truthy `text` and prints the label only where there is one, and
+  `SurfaceOption` carried no `default` at all. Both now follow help's own rule,
+  down to `impliedDefault` -- a flag's implied `false` is noise rather than
+  information. The **snapshot** still drops the default, deliberately and for the
+  reason recorded above, and `should hold what argv accepts and not what the
+  screen says` now declares one so that stays a check rather than a sentence.
+
+  `CommandExample.label` is **required** in the declaration type, so an example
+  with no label is reachable from JavaScript rather than from TypeScript. The
+  tests cast rather than the type being widened: that is a change to `Command`'s
+  own public types, and what is being fixed is that help tolerates the shape and
+  the reference did not.
+
+- **`word()` left a leading `=` bare, and zsh expands one.** Measured in both
+  shells: `=ls` unquoted is `/bin/ls` in zsh and `=ls` in bash, and zsh is the
+  default shell on the platform this diagnostic is pasted into. So a destination
+  called `=out` -- a legal directory name -- printed a command that becomes a
+  path to a program when pasted. `=` is out of the safe class, which costs
+  `foo=bar` two characters. The probe spawns **both** shells now, because a
+  bash-only one could not see it.
+
+- **And two more sentences**: `readSection`'s summary line still said it is the
+  `build` section's reader after it grew a second one, and this file's own route
+  and table counts were off -- eight prerendered routes rather than ten, and two
+  tables over twelve `<tr>` rather than one table of eleven rows, because a
+  markdown table's `| --- |` separator is not a row in the HTML.
+
+##### What it refuted, and the one defect left out of scope
+
+Thirteen suspicions disproved with a probe, the most useful being a line-by-line
+check of the committed `command-surface.json` against the declarations -- every
+`multiple`, `required`, `takesValue`, `type` and `choices` of every command,
+`_inspect.ts` correctly absent as a `_`-prefixed route, every lone negated flag
+recording both spellings -- and a re-read of all six committed pages as the
+website's own reader parses them. Both came back clean.
+
+**A cycle of plain command objects overflows the stack inside `initCommand()`,
+and that is left alone.** Measured: two plain objects naming each other in their
+`commands` maps throw `RangeError: Maximum call stack size exceeded` before
+`commandSurface()`'s own `seen` guard is reached, because `initCommand()`
+initializes a declaration that already has a `name` in place. The walk's guard is
+for a cycle built out of commands `initCommand()` has already returned, which is
+the shape a registry holds and the shape the test builds.
+
+It is the **parser's** and it predates this feature, the failure is loud rather
+than silent, and the fix the reviewer names is a bound inside `initCommand()` --
+which is a change to how every app's schema is built, taken inside a ticket about
+a documentation printer. That is the shape this repository refuses, so it is
+recorded here with the measurement rather than fixed here.
+
+##### What the pass over round 4's own fixes found
+
+Sixteen mutations, **sixteen caught**, after four survivors and one stale
+pattern.
+
+All four survivors were in `packages/sigil/src/reference/surface.ts` and all four
+are the same thing, which is now the second time this pass has met it:
+`@ttylabs/cli` imports `@ttylabs/sigil` through the published `exports` map,
+which points at `dist/`, so a mutation in that package's **source** is invisible
+to every test in this one until something rebuilds. The answer is a test in the
+_sigil_ suite for each guard the sigil source holds -- which is where the
+argument's `env`, the option's `default`, the implied-default test and the
+example filter now each have one.
+
 ### Translating: the English is the key
 
 Translatable strings, for the framework's own output and for an app's.
