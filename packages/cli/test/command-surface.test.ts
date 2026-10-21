@@ -1,3 +1,4 @@
+import { displayPath } from '../src/build/diagnostic.ts';
 import { readRoutes } from '@ttylabs/sigil/routes';
 import { spawnSync } from 'node:child_process';
 import {
@@ -99,65 +100,103 @@ function tempApp(nested: readonly string[] = []): string {
 }
 
 /**
- * Runs the toolchain from source.
+ * The command a diagnostic printed, for a shell to read.
  *
- * @param argv - The arguments.
- * @param cwd - Where to run it, defaulting to the package.
- * @returns What it said and how it ended.
- */
-/**
- * What a shell passes as `--out` when the printed command is pasted into it.
- *
- * Which is the only form of "safe to paste" worth asserting: a string compare
- * against the quoting this happens to write cannot see a quoting a shell still
- * expands. `bash` is spawned with the program defined as a function that prints
- * its own arguments, so what comes back is the argument the shell built.
- *
- * Both shells, because they do not agree about what an unquoted word is: zsh
- * expands one that begins with `=` and bash does not, so a bash-only probe
- * could not see the one character that was still in the safe class.
- *
- * The **spelling** is asserted before the shell is reached and the round trip
- * after it, which is what keeps a missing shell from costing the half of the
- * claim that needs none. `zsh` is not on a Windows runner -- where this
- * repository has been bitten five times by a fixture that assumed the author's
- * machine -- so there the quoting is still asserted for every hostile name and
- * only the parse is given up. Returning `want` rather than skipping the test,
- * because the test's own name is about the quoting and that claim still runs.
+ * Between the **first** backtick of the command and the **last** one on the line
+ * rather than by a `[^`]*` run: the message wraps the command in a pair of
+ * backticks for a human to see, and a destination may hold one -- which made the
+ * greedy form necessary and is a fact about the message rather than about the
+ * quoting. From the backtick that opens the **command** rather than the first on
+ * the line, because the line begins with the stale page's own path and that path
+ * holds the backticks too in the one case this exists for.
  *
  * @param stderr - What the diagnostic printed.
- * @param want - The destination, used to find the line.
- * @param shell - Which shell to parse it with.
- * @returns The `--out` argument as the shell read it.
+ * @returns The command, without its backticks.
  */
-function parsed(stderr: string, want: string, shell = 'bash'): string {
-  // between the **first** backtick and the **last** one on the line rather than
-  // by a `[^`]*` run: the message wraps the command in a pair of backticks for a
-  // human to see, and a destination may hold one -- which made the greedy form
-  // necessary and is a fact about the message rather than about the quoting
+function commandLine(stderr: string): string {
   const held = stderr.split('\n').find((it) => it.includes('`sigil reference '));
 
   if (held === undefined) {
     throw new Error(`No command in:\n${stderr}`);
   }
 
-  // from the backtick that opens the **command** rather than the first one on
-  // the line: the line begins with the stale page's own path, and that path
-  // holds the backticks too in the one case this helper exists for
   const from = held.indexOf('`sigil reference ');
-  const line = held.slice(from + 1, held.lastIndexOf('`'));
 
-  // the spelling is asserted too, so that a quoting which happens to survive
-  // this particular path still has to be the one the comment describes -- and
-  // first, because it is the half that needs no shell
-  expect(line, want).toContain(want.includes("'") ? "'\\''" : `'${want}'`);
-
-  const script = `sigil() { while [ $# -gt 0 ]; do if [ "$1" = --out ]; then printf '%s' "$2"; return; fi; shift; done; }\n${line}`;
-  const out = spawnSync(shell, ['-c', script], { encoding: 'utf-8' });
-
-  return out.error === undefined ? out.stdout : want;
+  return held.slice(from + 1, held.lastIndexOf('`'));
 }
 
+/**
+ * The arguments a shell builds when the printed command is pasted into it.
+ *
+ * Which is the only form of "safe to paste" worth asserting: a string compare
+ * against the quoting this happens to write cannot see a quoting a shell still
+ * expands, and a literal concatenation of the arguments cannot see a platform
+ * whose paths need quoting at all -- a Windows path holds a `\`, which is not in
+ * `word()`'s safe class, so the message correctly quotes it and a test spelling
+ * the bare form failed on all three Windows jobs over a message with nothing
+ * wrong with it. The program is defined as a function printing its own
+ * arguments, so what comes back is what the shell built.
+ *
+ * A shell that is not installed answers nothing rather than failing, because
+ * `zsh` is not on a Windows runner. Each caller says what it does about that,
+ * and every claim that needs no shell is asserted outside this.
+ *
+ * @param line - The command, from `commandLine()`.
+ * @param shell - Which shell to parse it with.
+ * @returns Every argument as the shell read it, or nothing where the shell is
+ *   not installed.
+ */
+function passed(line: string, shell = 'bash'): string[] | undefined {
+  const script = `sigil() { printf '%s\\n' "$@"; }\n${line}`;
+  const out = spawnSync(shell, ['-c', script], { encoding: 'utf-8' });
+
+  return out.error === undefined ? out.stdout.split('\n').slice(0, -1) : undefined;
+}
+
+/**
+ * What a shell passes as `--out`, for a destination that has to be quoted.
+ *
+ * Both shells, because they do not agree about what an unquoted word is: zsh
+ * expands one that begins with `=` and bash does not, so a bash-only probe could
+ * not see the one character that was still in the safe class.
+ *
+ * The **spelling** is asserted before the shell is reached and the round trip
+ * after it, which is what keeps a missing shell from costing the half of the
+ * claim that needs none -- so on Windows the quoting is still asserted for every
+ * hostile name and only the parse is given up. The two are not redundant: a
+ * spelling that still holds the single-quoted form and that a shell expands,
+ * `~\'...\'`, passes the first and fails the second.
+ *
+ * @param stderr - What the diagnostic printed.
+ * @param want - The destination, which this asserts is quoted.
+ * @param shell - Which shell to parse it with.
+ * @returns The `--out` argument as the shell read it.
+ */
+function parsed(stderr: string, want: string, shell = 'bash'): string {
+  const line = commandLine(stderr);
+
+  expect(line, want).toContain(want.includes("'") ? "'\\''" : `'${want}'`);
+
+  const args = passed(line, shell);
+
+  if (args === undefined) {
+    return want;
+  }
+
+  const at = args.indexOf('--out');
+
+  expect(at, want).toBeGreaterThan(-1);
+
+  return args[at + 1] ?? '';
+}
+
+/**
+ * Runs the toolchain from source.
+ *
+ * @param argv - The arguments.
+ * @param cwd - Where to run it, defaulting to the package.
+ * @returns What it said and how it ended.
+ */
 function run(
   argv: string[],
   cwd = root
@@ -292,7 +331,12 @@ describe('a reference with nowhere to go', () => {
     const inside = run(['reference', dir, '--out', join(dir, 'docs')]);
 
     expect(inside.stderr).toContain('docs');
-    expect(inside.stderr).not.toContain(dir);
+    // through `displayPath()`, because that is what the summary prints through:
+    // it forward-slashes, so a backslashed expectation is one that cannot fail
+    // on Windows and the absolute half below could not pass there. Written with
+    // the function the subject uses rather than with a separator of this test's
+    // own, which is the rule, six times now
+    expect(inside.stderr).not.toContain(displayPath(dir));
 
     // and the absolute form where that really is the shorter of the two, which
     // is what says a comparison is being made rather than one branch taken.
@@ -309,8 +353,10 @@ describe('a reference with nowhere to go', () => {
     const deep = tempApp(levels);
     const out = resolve(deep, ...levels.map(() => '..'), 'docs');
 
+    // in **platform** form, because `shown()` compares the two before either is
+    // forward-slashed and both separators are one character
     expect(relative(deep, out).length).toBeGreaterThan(out.length);
-    expect(run(['reference', deep, '--out', out]).stderr).toContain(out);
+    expect(run(['reference', deep, '--out', out]).stderr).toContain(displayPath(out));
   });
 
   it('should tell a reader to remove a stale page rather than to re-run', () => {
@@ -336,8 +382,15 @@ describe('a reference with nowhere to go', () => {
     // this invocation passed: a message naming less than was typed tells the
     // reader to run something that writes somewhere else -- without `[dir]`,
     // pasting it in this repository writes *this* toolchain's reference into the
-    // app's docs directory. Found by review, twice
-    expect(result.stderr).toContain(`sigil reference ${dir} --out ${docs}`);
+    // app's docs directory. Found by review, twice.
+    //
+    // Asserted as the arguments a **shell** builds rather than as a literal
+    // concatenation: a Windows path is quoted, correctly, and this spelled the
+    // bare form -- which failed all three Windows jobs over a message with
+    // nothing wrong with it
+    const want = ['reference', dir, '--out', docs];
+
+    expect(passed(commandLine(result.stderr)) ?? want).toStrictEqual(want);
   });
 
   it('should quote an argument a shell would not read as one word', () => {

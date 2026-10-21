@@ -18729,11 +18729,13 @@ ever handed over.
 onto the root entry, which `should not load the parser to import the package`
 refuses and a 20 kB ceiling would catch. A subpath puts them in a chunk nothing
 else reaches. Measured: the root entry is **7,518 B over 6 modules, unchanged**
-to the byte, and `reference.mjs` is **31,139 B over 9 modules** -- reached only
+to the byte, and `reference.mjs` is **31,215 B over 9 modules** -- reached only
 by something that imports it, which is the toolchain. The second figure moved
-twice while this was being written, by the review rounds' own fixes, so re-run
+three times while this was being written -- twice by the review rounds' own
+fixes and once by round 4's, after this paragraph had recorded it -- so re-run
 the measurement rather than reading it here: the module count is the shape worth
-knowing and the root entry's 7,518 B is what the 20 kB ceiling holds.
+knowing, the root entry's 7,518 B is what the 20 kB ceiling holds, and the
+subpath's own figure is held by nothing but this sentence.
 
 **And printing is toolchain work**, which is the rule the utility generator
 records: reading `PROPERTIES` and parsing every declaration on the way out is
@@ -19665,6 +19667,51 @@ to every test in this one until something rebuilds. The answer is a test in the
 _sigil_ suite for each guard the sigil source holds -- which is where the
 argument's `env`, the option's `default`, the implied-default test and the
 example filter now each have one.
+
+#### What CI found that four review rounds and five sabotage passes did not
+
+Nine jobs, and the three Windows ones failed on two tests in one file while
+macOS and Linux were green -- which is this repository's own recorded signature,
+and it is the **sixth** instance of the entry under Conventions. Neither failure
+was the code, and that is the point worth keeping: four rounds reading a diff and
+113 mutations over it cannot see a fixture that spells a path, because on the
+platform it was written on the spelling is right.
+
+- **A summary asserted against a backslashed path, where `shown()` ends in
+  `displayPath()`.** So `toContain(out)` could not match on Windows -- and the
+  `not.toContain(dir)` beside it could not **fail** there, which is the same slip
+  pointing the other way and is the more dangerous half: an assertion that cannot
+  fail on a platform is one that silently stops covering it. Both go through
+  `displayPath()` now, which is the function the subject uses.
+
+- **A refresh command asserted as a literal concatenation, where a Windows path
+  is correctly quoted.** `word()`'s safe class is `[\w./@:+-]`, which holds no
+  `\`, so the message quoted the path and the test demanded the bare form. It is
+  asserted as the argument array a real shell builds now, which needs no
+  separator spelled and is **stronger** than what it replaced: the subcommand and
+  every argument, as a shell reads them.
+
+Both were found by reading the failure rather than guessing at it, and each is
+pinned by a sabotage that fails exactly the test named for it -- `shown()` taking
+the relative form unconditionally, the refresh command dropping `[dir]`, and
+`word()` not quoting at all.
+
+**And `parsed()` had become three claims in one function**, which is what the fix
+split: `commandLine()` extracts the printed command, `passed()` answers with the
+arguments a shell built, and `parsed()` asserts the quoting and reads `--out`
+back. The spelling is asserted **before** the shell is reached and the round trip
+after, so a missing shell costs only the half that needs one -- `zsh` is on no
+Windows runner, and there the quoting is still asserted for every hostile name.
+The two halves are not redundant, which a sabotage had to establish rather than a
+sentence: `~'...'` still holds the single-quoted form, passes the spelling
+assertion and fails the round trip.
+
+**It also found `run()`'s doc comment orphaned above `parsed()`'s**, two blocks
+stacked over one function, so the file documented `parsed()` twice and `run()`
+nowhere. Caused by inserting a helper between a doc and its body, invisible to
+`tsc`, to the linter and to every one of the five sabotage passes -- and it is
+the detached-comment hazard this file records for a suppression a formatter can
+move, arriving in prose. Reattached.
 
 ### Translating: the English is the key
 
@@ -27974,6 +28021,27 @@ has been corrected.
   So before writing a fixture that depends on a failure, check whether a sibling
   test provokes the same one some other way -- the repository usually knows, and
   the full entry is under "An XML config store, in a package of its own".
+
+  **A sixth arrived in SIG-144, in both of the shapes this entry already names,
+  and the rule has a sharper form because of it: a test never spells a path it
+  could ask a function for.** Two tests over one message, both failing on all
+  three Windows jobs and nowhere else, and neither was the code. One asserted
+  `toContain(out)` where the summary prints through `displayPath()`, which
+  forward-slashes -- so the expectation could not match on Windows, and its
+  sibling `not.toContain(dir)` could not **fail** there, which is the same slip
+  pointing the other way. The other spelled the refresh command as
+  `` `sigil reference ${dir} --out ${docs}` ``, and a Windows path holds a `\`,
+  which is not in `word()`'s safe class -- so the message correctly **quoted**
+  it and the test demanded the bare form.
+
+  What makes it the sharper form rather than a sixth repetition is that
+  `asWindows()` reaches neither: both are the test's own spelling of a value the
+  subject had already produced. So the fix in each is to ask the producer --
+  `displayPath(out)` for the path a reader is shown, and the argument array a
+  real shell builds for the command, which is `passed()` and is what the quoting
+  tests beside it already did. The second is stronger than the literal it
+  replaced besides: it asserts the subcommand and every argument as a shell reads
+  them rather than as a concatenation.
 
 - **An assertion is a call, and `expect(x).to.be.ok` is not one.** Chai spells
   that one as a getter, so it reads to a linter as an expression nobody used --
