@@ -760,11 +760,13 @@ It does not ask there, because there is nothing to write: where the script is
 already right and only the line is outstanding it prints the line and asks
 nothing at all. The script is replaced without ceremony when your app's commands
 change — it is generated output, and the marker in its own header is how the
-installer knows one of its own from a file you wrote, which it refuses to touch.
+installer knows one of its own from a file you wrote. A file without the marker
+is one it will not replace silently: it says whose it is, asks, and defaults to
+no.
 
-`--uninstall` is the same thing backwards. It removes the file it wrote — and
-only one it wrote, checked by the marker every generated script carries — and
-prints the line to take out.
+`--uninstall` is the same thing backwards. It asks once, and never about a file
+that is not its own: the marker is what decides, and a file without it is
+refused outright rather than offered. Then it prints the line to take out.
 
 Name the shell and it prints the script instead, which is the form to redirect
 and is what `gh`, `kubectl`, `rustup` and `deno` all do:
@@ -3197,10 +3199,11 @@ import { createConfigSync, json, object } from '@ttylabs/sigil/config';
 ```
 
 It imports no parser module at all, which makes it usable from an app that does
-not use sigil's parser. The subpath is about 37 kB over seven modules — `paths`,
+not use sigil's parser. The subpath is about 38 kB over eight modules — `paths`,
 the type coercion, i18n, the debug logger, the environment-variable rule the
-parser shares, the directory creation the update cache shares, and the module
-itself — which is a module rather than anything like `sigil/components`.
+parser shares, the directory creation the update cache shares, the atomic write
+the completion installer shares, and the module itself — which is a module
+rather than anything like `sigil/components`.
 
 ### `sigil/testing`
 

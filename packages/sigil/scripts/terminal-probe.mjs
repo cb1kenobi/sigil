@@ -1222,15 +1222,20 @@ async function clipboard() {
  *   not `.bashrc`, so it names the one that is there -- and which that is, is a
  *   fact about your home directory.
  *
- * It reads `process.env` and imports nothing from `dist/`, which is deliberate
- * rather than a limitation: the *paths* are what `app completion` itself prints,
- * and a probe that worked them out again would be the second reader
- * `install.ts` is written against. So this prints the **inputs** and the
- * commands, and the answer comes from running the real thing.
+ * It reads `process.env` and this function imports nothing from `dist/`, which
+ * is deliberate rather than a limitation: the *paths* are what `app completion`
+ * itself prints, and a probe that worked them out again would be the second
+ * reader `install.ts` is written against. So this prints the **inputs** and the
+ * commands, and the answer comes from running the real thing. The *file's* own
+ * top-level imports do load `dist/`, so `--completion` on an unbuilt tree dies
+ * at module load like every other mode -- which the recipe's `pnpm build &&`
+ * covers, and which the first version of this sentence claimed for the mode
+ * rather than for the function. Found by review round 3.
  *
- * Nothing here writes a file, sets a mode or queries anything, so there is
- * nothing to put back and no `finally` -- which is `--clipboard`'s position
- * rather than `--mouse`'s.
+ * Nothing here writes a file or queries anything, so there is nothing to put
+ * back and no `finally` -- which is `--clipboard`'s position rather than
+ * `--mouse`'s. `key()` sets raw mode per keypress and restores it itself, which
+ * is why that is not an exception.
  */
 async function completionProbe() {
   let step = 0;
@@ -1257,18 +1262,26 @@ async function completionProbe() {
   // ------------------------------------------------------------- the inputs
   heading(
     'what the installer reads',
-    '$SHELL names the shell you are in, by its basename -- and where it names ' +
-      'none this knows, the installer asks rather than guessing'
+    '$SHELL names your **login** shell by its basename, which is not ' +
+      'necessarily the shell you are in -- and the installer asks rather than ' +
+      'guessing wherever it names none this knows'
   );
   for (const name of ['SHELL', 'XDG_DATA_HOME', 'ZDOTDIR', 'HOME']) {
     write(`    ${name}=${process.env[name] ?? '<unset>'}\r\n`);
   }
   write(
-    '\r\n    The data home is XDG_DATA_HOME where it is set and absolute, else\r\n' +
-      "    ~/.local/share -- which is bash-completion's own fallback on every\r\n" +
-      '    platform, and is deliberately not the macOS Application Support\r\n' +
-      '    directory `paths.data()` answers with: a completion written there is\r\n' +
-      '    a file bash-completion never looks in.\r\n'
+    '\r\n    $SHELL is what your login shell was set to, so a zsh started from\r\n' +
+      '    bash still reports bash -- which is why the prompt offers the other\r\n' +
+      '    shell rather than taking the detection as settled. Check it with\r\n' +
+      '      echo "$SHELL"   ps -o comm= -p $$\r\n' +
+      '    and if those two disagree, pick at the prompt.\r\n\r\n' +
+      '    The data home is one rule, stated once: XDG_DATA_HOME through\r\n' +
+      '    paths.baseDir(), which expands a leading ~ and then requires the\r\n' +
+      '    result to be absolute, falling back to ~/.local/share -- which is\r\n' +
+      "    bash-completion's own fallback on every platform, and is deliberately\r\n" +
+      '    not the macOS Application Support directory `paths.data()` answers\r\n' +
+      '    with: a completion written there is a file bash-completion never\r\n' +
+      '    looks in.\r\n'
   );
   if (!(await next())) {
     return;
@@ -1280,8 +1293,15 @@ async function completionProbe() {
   // `baseDir()`'s rule -- no `~` expansion, no absolute requirement -- so with
   // `XDG_DATA_HOME=./data` the installer writes under `~/.local/share` and this
   // told the reader to look in `./data`. A second reader of the one rule, in the
-  // file whose own header says it is not one. Found by review. What a reader
-  // pastes is the expression, which their shell resolves by the same rule
+  // file whose own header says it is not one. Found by review round 1.
+  //
+  // What a reader pastes is the expression, and round 2 then caught the sentence
+  // under it claiming their shell resolves it "the same way". It does not:
+  // `${X:-d}` takes any non-empty X, where `baseDir()` refuses a relative one
+  // and expands a `~`. The two agree for every value anybody sets and part
+  // company for exactly `XDG_DATA_HOME=./data` and `XDG_DATA_HOME=~/x`, which
+  // the text now names rather than papering over -- the installer's answer is
+  // the one that decides where the file went
   const bcDir = '"${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions"';
   heading(
     'the one route whose author has never run it',
@@ -1290,18 +1310,23 @@ async function completionProbe() {
   write(
     '    The installer offers\r\n' +
       `      ${bcDir}\r\n` +
-      '    -- the expression rather than a path this worked out, because\r\n' +
-      '    XDG_DATA_HOME is read through paths.baseDir() and a relative or unset\r\n' +
-      '    one falls back to ~/.local/share. Your shell resolves it the same way.\r\n\r\n' +
-      '    It is offered only where that directory already exists, because there\r\n' +
-      '    is nothing to read a version off: BASH_COMPLETION_VERSINFO is set\r\n' +
-      '    inside a bash that loaded it and reaches no environment this process\r\n' +
-      '    has. The directory existing means something installed a user\r\n' +
-      '    completion into it, which a bash-completion older than 2.8 would not\r\n' +
-      '    have done: it read ~/.bash_completion.d instead and never creates\r\n' +
-      '    this one.\r\n\r\n' +
-      '    Check it:\r\n' +
-      `      ls -d ${bcDir}\r\n` +
+      '    -- the expression rather than a path this worked out, because the\r\n' +
+      '    rule is paths.baseDir() and is stated in step 1. Your shell resolves\r\n' +
+      '    the expression by its own rule, which takes any non-empty value: so\r\n' +
+      '    a relative or ~-prefixed XDG_DATA_HOME is the one case where the two\r\n' +
+      '    answer differently, and the installer is the one that decides.\r\n\r\n' +
+      '    It is offered only where that path exists, is a directory, and can\r\n' +
+      '    be both written and entered -- three questions rather than one,\r\n' +
+      '    because a file there passes a writability test on its own and an\r\n' +
+      '    unsearchable directory fails the write that follows. Existence is the\r\n' +
+      '    signal: there is nothing to read a version off, since\r\n' +
+      '    BASH_COMPLETION_VERSINFO is set inside a bash that loaded it and\r\n' +
+      '    reaches no environment this process has. The directory existing means\r\n' +
+      '    something installed a user completion into it, which a\r\n' +
+      '    bash-completion older than 2.8 would not have done: it read\r\n' +
+      '    ~/.bash_completion.d instead and never creates this one.\r\n\r\n' +
+      '    Check it, which is the same three questions:\r\n' +
+      `      test -d ${bcDir} && test -w ${bcDir} && test -x ${bcDir}\r\n` +
       '      bash -ic \'echo "${BASH_COMPLETION_VERSINFO[@]:-<not loaded>}"\'\r\n\r\n' +
       '    If you have it and the route still does not complete, that is the\r\n' +
       '    finding: the gate is a signal and not a version check, and a machine\r\n' +
@@ -1370,14 +1395,53 @@ async function completionProbe() {
       '    Which is also why there is no line to un-add: --uninstall removes the\r\n' +
       '    file it wrote and prints the line to take out.\r\n\r\n' +
       '    The startup file it names for bash is the first of ~/.bashrc,\r\n' +
-      '    ~/.bash_profile and ~/.profile that exists. On this machine:\r\n'
+      '    ~/.bash_profile and ~/.profile that is a **file**, and for zsh it is\r\n' +
+      '    $ZDOTDIR/.zshrc through the same paths.baseDir() rule as step 1 --\r\n' +
+      '    a leading ~ expanded, then absolute or it falls back. On this\r\n' +
+      '    machine:\r\n'
   );
-  const { existsSync } = await import('node:fs');
-  const { join } = await import('node:path');
+  // `isFile()` rather than `existsSync`, and ZDOTDIR honoured, because this is
+  // a second reader of `installer.ts`'s own `firstExisting()` and of its
+  // `baseDir(env['ZDOTDIR'])` -- and the first version of it was a second
+  // reader that disagreed: a directory named `.bashrc` printed as "there" where
+  // the installer skips it, and `~/.zshrc` printed as the zsh target under a
+  // ZDOTDIR that moves it. A probe whose whole job is to say what is true about
+  // this machine, saying something the installer does not do. Found by review
+  // round 2. The code cannot be shared -- `src/` spells its imports `.js` for
+  // `.ts` files, so node cannot load one -- so what keeps the two agreeing is
+  // that each line here names which function it is restating
+  const { statSync } = await import('node:fs');
+  const { isAbsolute, join } = await import('node:path');
   const { homedir } = await import('node:os');
-  for (const name of ['.bashrc', '.bash_profile', '.profile', '.zshrc']) {
-    const path = join(homedir(), name);
-    write(`      ${existsSync(path) ? 'there  ' : 'absent '} ${path}\r\n`);
+  /** @param {string} path */
+  const isFile = (path) => {
+    try {
+      return statSync(path).isFile();
+    } catch {
+      return false;
+    }
+  };
+  // `expand()`'s half of `baseDir()` as well as its absoluteness half, which
+  // the first version dropped: `ZDOTDIR=~/zdot` is expanded and then absolute,
+  // so the installer reads `~/zdot/.zshrc` where this reported `~/.zshrc`. The
+  // same divergence class as the `existsSync` one this block was written to
+  // fix. Found by review round 3.
+  //
+  // A declared survivor of the sabotage pass, because nothing in the suite
+  // drives this file: it is run by hand, which is what every mode here is for,
+  // and what pins it is having driven it under `ZDOTDIR=~/zdot` and read
+  // `/Users/chris/zdot/.zshrc` back -- the installer's own answer
+  const raw = process.env['ZDOTDIR'];
+  const zdot = raw !== undefined && raw.startsWith('~') ? join(homedir(), raw.slice(1)) : raw;
+  const zhome = zdot !== undefined && zdot !== '' && isAbsolute(zdot) ? zdot : homedir();
+  const files = [
+    join(homedir(), '.bashrc'),
+    join(homedir(), '.bash_profile'),
+    join(homedir(), '.profile'),
+    join(zhome, '.zshrc'),
+  ];
+  for (const path of files) {
+    write(`      ${isFile(path) ? 'a file ' : 'absent '} ${path}\r\n`);
   }
   await next('done');
 }
