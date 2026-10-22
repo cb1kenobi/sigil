@@ -19725,6 +19725,66 @@ nowhere. Caused by inserting a helper between a doc and its body, invisible to
 the detached-comment hazard this file records for a suppression a formatter can
 move, arriving in prose. Reattached.
 
+#### What the PR review round found: the one string never cleaned
+
+One defect, reported twice -- once against a commit before CI's own finding
+landed and once against the tip, so the second report is what says it was still
+live. And it is **round 4's own output**: that round is where an option's
+`default` started being printed at all, so the pattern its own entry records
+holds for a fifth time, this time between a reading round and the PR. What makes
+it worth more than the count is where the defect is: four reading rounds, five
+sabotage passes and CI had each read this module, and the thing they missed is
+one string that goes into a cell without passing the function the module's own
+header is written about.
+
+- **An option's `default` went into a table cell without being cleaned, so a
+  newline in one tore the row in two.** `described()` runs `cell()` over the
+  description and the note beside it is `scalarText(opt.default)` raw -- and
+  `table()` escapes only the bar. Measured in all four shapes before anything
+  was changed: `default: 'a\nb'` passes `scalarText()`'s `value === value.trim()`
+  test, which is about _leading and trailing_ whitespace, and comes back
+  unchanged; `default: () => {\n  return process.cwd();\n}` prints through
+  `String(fn)`, which is the function's own source. Each left a first line with
+  **two columns where the header has three** and a continuation line GFM reads
+  as a stray paragraph, so the website rendered a broken table. A bar in a
+  default is the one of the four that was already safe, because that is
+  `table()`'s.
+
+- **And a control character in one reached the committed page raw**, which is
+  this module's own rule broken at the one string it does not apply to: an ESC
+  is not whitespace, so `'\x1b[31mred'` is its own trimmed form and came through
+  whole. No column check can see that one, because an ESC takes no column --
+  which is why it is pinned by its own test rather than by the row count.
+
+- **The clean goes at the boundary rather than on the note, and that retires a
+  call rather than adding one.** `described()` documents itself as returning _a
+  cell_, so `cell()` wraps the whole of it and the inner `cell(opt.desc)` --
+  which was the only cleaning there was -- goes. One pass where there were two
+  readers of "a cell is one line", and a note added later is clean without
+  anybody having to remember. `oneLine()` is idempotent, so the narrower fix on
+  the note alone works too; what decided it is that the wider one cannot be got
+  wrong by a later edit.
+
+- **The row-count test had no default in its fixture, which is exactly why it
+  could not see this** -- the shape this file keeps recording, in the test
+  written for the sibling defect. It carries both tearing shapes now, and the
+  sabotage is what says the pair is load bearing: with the fix removed, **two**
+  tests fail, that one and the control-character one, and no others. Clearing
+  `CONTROL` out of `oneLine()` fails the new test and the description's own,
+  which is what says the two halves are pinned separately.
+
+- **It moved no committed artifact**, checked rather than assumed: no option in
+  this toolchain has a default with whitespace in it, so
+  `sigil reference --check` is still up to date and the snapshot drops `default`
+  anyway.
+
+**And the review body's own finding was already closed**, which is worth saying
+rather than quietly not acting on: it is CI's two Windows fixtures, reported
+against the commit _before_ the fix for them, and all nine jobs are green on the
+tip. Verified by reading the two tests rather than by the commit message -- both
+build their expectation with `displayPath()` and with the argument array a shell
+builds.
+
 ### Translating: the English is the key
 
 Translatable strings, for the framework's own output and for an app's.

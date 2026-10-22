@@ -117,7 +117,7 @@ describe('the markdown reference', () => {
     // argument, two options and no children, and the root lists `go`
     const expected: Record<string, number> = {
       '## Arguments': 3,
-      '## Options': 4,
+      '## Options': 6,
       '## Subcommands': 3,
     };
 
@@ -130,6 +130,20 @@ describe('the markdown reference', () => {
             args: [{ choices: ['one', 'two'], desc: 'Which\none | two', name: '[which]' }],
             options: {
               '--lint [lint]': { choices: ['oxlint', 'eslint', 'biome'] },
+              // a **default** holding a newline, in both of the shapes that
+              // reach one: a string the declaration wrote, and `String(fn)` for
+              // a computed one, which is the function's own source. Neither went
+              // through `cell()` -- the description did and the note beside it
+              // did not -- so each tore its row in two and this test could not
+              // see it, because no fixture here declared a default. Found by
+              // review, twice
+              '--out [dir]': { default: 'a\nb', desc: 'Where it goes' },
+              '--root [dir]': {
+                default: () => {
+                  return process.cwd();
+                },
+                desc: 'From where',
+              },
               '--sep [s]': { desc: 'A | B | C' },
             },
             run() {},
@@ -680,6 +694,47 @@ describe('the markdown reference', () => {
     );
 
     expect(variadic).toContain('`[files...]`');
+  });
+
+  it('should flatten a default rather than letting it break the row it is in', async () => {
+    // the other half of the row-count test's fixture, asserted as the *text*
+    // rather than as a shape: a `default` is a value a declaration owns and
+    // never went through `cell()`, so a newline in one tore the row and a
+    // control character reached the committed page raw -- against this module's
+    // own rule that every such string is escaped on the way out. The column
+    // check cannot see the second one at all, because an ESC takes no column.
+    // Found by review
+    const body = pageFor(
+      referencePages(
+        await surface({
+          commands: {
+            go: {
+              options: {
+                '--colour [c]': { default: '\u001b[31mred', desc: 'Colour' },
+                '--mode [m]': { default: 'a\nb', desc: 'The mode' },
+                '--root [dir]': {
+                  default: () => {
+                    return process.cwd();
+                  },
+                  desc: 'From where',
+                },
+              },
+              run() {},
+            },
+          },
+        })
+      ),
+      'go.md'
+    );
+
+    // one line each, with the newline joining the two words rather than
+    // vanishing between them -- which is what `\\s+` collapsing before the
+    // control characters go is for
+    expect(body).toContain('| `--mode [m]` | `string` | The mode (default: a b) |');
+    expect(body).toContain('| `--root [dir]` | `string` | From where (default: () => { return');
+    // and the ESC dropped, which is what the description already did with one
+    expect(body).toContain('(default: [31mred)');
+    expect(body).not.toContain('\u001b');
   });
 
   it('should keep an example help would print, and omit a label it would not', async () => {

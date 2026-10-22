@@ -313,6 +313,28 @@ function typeCell(type: string, multiple: boolean): string {
  * round. The snapshot drops both, deliberately and for the reason recorded
  * there.
  *
+ * `cell()` wraps the **whole** of it rather than the description alone, which
+ * is where that call was: a `default` is a value a declaration owns and
+ * `scalarText()` hands back a string as it stands, so a multi-line one -- and
+ * `String(fn)` for a computed default, which is the function's own source --
+ * put a raw newline in the row. GFM ends a row at the first one, so the rest
+ * became a stray paragraph and the website rendered a broken table. Measured:
+ * `default: 'a\nb'` and `default: () => {\n  return process.cwd();\n}` each
+ * tore the row in two, leaving a first line with two columns where the header
+ * has three, and a control character in a default reached the committed page
+ * raw. Found by review, twice, and by the row-count test having no default in
+ * its fixture to see it with.
+ *
+ * One pass at the boundary rather than one per note: this returns a cell, so
+ * every string that reaches it is cleaned where it becomes one -- which is also
+ * what makes a note added later clean without anybody having to remember.
+ *
+ * What that collapses is a *run* of spaces inside a default `scalarText()`
+ * quoted, so `default: '   '` reads `(default: " ")` where help prints all
+ * three. Markdown collapses inline whitespace on the way to HTML anyway, so
+ * what the committed page says is what the website was going to render either
+ * way -- which is the one place this is deliberately not help's own text.
+ *
  * @param opt - The option.
  * @returns The cell.
  */
@@ -321,9 +343,10 @@ function described(opt: SurfaceOption): string {
     ...(opt.multiple ? [REPEATABLE] : []),
     ...(opt.default === undefined ? [] : [`default: ${scalarText(opt.default)}`]),
   ];
-  const said = cell(opt.desc);
 
-  return notes.length === 0 ? said : [said, `(${notes.join(', ')})`].filter(Boolean).join(' ');
+  return cell(
+    notes.length === 0 ? opt.desc : [opt.desc, `(${notes.join(', ')})`].filter(Boolean).join(' ')
+  );
 }
 
 /**
