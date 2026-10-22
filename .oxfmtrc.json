@@ -17,7 +17,12 @@
     "sortSideEffects": false
   },
   "experimentalSortPackageJson": true,
-  "ignorePatterns": ["**/dist/**", "**/test/parser/fixtures/**"],
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/test/parser/fixtures/**",
+    "packages/cli/command-surface.json",
+    "website/src/reference/**"
+  ],
   "insertFinalNewline": true,
   "objectWrap": "preserve",
   "overrides": [

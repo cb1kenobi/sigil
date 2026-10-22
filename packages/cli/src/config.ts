@@ -89,6 +89,21 @@ export interface BuildConfig {
   readonly sourcemap?: boolean;
 }
 
+/** What `sigil reference` reads from the config. */
+export interface ReferenceConfig {
+  /**
+   * Where the markdown pages go, relative to the app.
+   *
+   * Opt-in, which is the whole of what this key is for: `sigil reference` with
+   * nowhere to put anything prints one document to stdout, so a destination
+   * named here is how an app says "and this is where it lives" once instead of
+   * in every invocation and every CI step.
+   */
+  readonly out?: string;
+  /** Where the JSON snapshot of the command surface goes, relative to the app. */
+  readonly snapshot?: string;
+}
+
 /** `sigil.json`, as it is on disk. */
 export interface SigilConfig {
   readonly build?: BuildConfig;
@@ -114,10 +129,24 @@ export interface SigilConfig {
    * for BCP 47 in the toolchain would be one that disagrees with `Intl`.
    */
   readonly locale?: string;
+  /**
+   * Where `sigil reference` writes, when the invocation does not say.
+   *
+   * Top level rather than under `build`, for the reason `locale` is: `build` is
+   * where the bundler knobs live, and `sigil build` does not write a reference.
+   * It cannot -- an option lives only inside the module that declares it, so a
+   * reference means importing the app, which is the one thing the build refuses
+   * by design. So this is read by one command, which is the shape `components`
+   * already has.
+   */
+  readonly reference?: ReferenceConfig;
 }
 
-/** The fields `build` may hold, as the one list `readSection()` picks by. */
-const FIELDS = ['external', 'name', 'out', 'safelist', 'shake', 'sourcemap'] as const;
+/** The fields each section may hold, as the one list `readSection()` picks by. */
+const FIELDS = {
+  build: ['external', 'name', 'out', 'safelist', 'shake', 'sourcemap'],
+  reference: ['out', 'snapshot'],
+} as const satisfies Record<string, readonly string[]>;
 
 /**
  * What the file may hold, in the parser's own type vocabulary.
@@ -150,6 +179,8 @@ export const CONFIG_SCHEMA: ConfigSchema = {
   'build.sourcemap': { type: 'bool' },
   components: { type: 'string' },
   locale: { type: 'string' },
+  'reference.out': { type: 'string' },
+  'reference.snapshot': { type: 'string' },
 };
 
 /**
@@ -217,23 +248,24 @@ export function readSigilConfig(root: string): SigilConfig {
   // would be a second place to look for an answer to one question
   const config = createConfigSync({ layers: [configLayer(root)], schema: CONFIG_SCHEMA });
 
-  const section = config.get('build');
-  const build = readSection(section);
+  const build = readSection(config.get('build'), 'build');
   const components = readName(config.get('components'), 'components');
   const locale = readName(config.get('locale'), 'locale');
+  const reference = readSection(config.get('reference'), 'reference');
 
   // the keys are set only where the file said something, so that a directory
   // with no file in it and a file holding `{}` are the same answer -- which they
   // are, and which the old reader distinguished only by returning early
   return {
-    ...(build && { build }),
-    ...(components !== undefined && { components: readRelative(components) }),
+    ...(build && { build: readBuild(build as BuildConfig) }),
+    ...(components !== undefined && { components: readRelative(components, 'components') }),
     ...(locale !== undefined && { locale }),
+    ...(reference && { reference: readReference(reference as ReferenceConfig) }),
   };
 }
 
 /**
- * The `build` section, which the schema's vocabulary cannot shape.
+ * One section of the file, which the schema's vocabulary cannot shape.
  *
  * A config schema declares settings by dotted path and deliberately has no
  * nested object shapes, so `build.external` is typed and `build` itself is not
@@ -245,32 +277,42 @@ export function readSigilConfig(root: string): SigilConfig {
  * So this is the same split `components` already takes: the schema does types,
  * and a check the vocabulary cannot say stays here.
  *
- * @param value - What the merged view holds at `build`.
- * @returns The section, or `undefined` where the file said nothing.
+ * One function for both sections rather than one each, because the question is
+ * the same one twice: is it an object, and which of its keys does this tool
+ * declare. What differs between them is the semantic checks, which stay with
+ * the section they are about.
+ *
+ * @param value - What the merged view holds at the section.
+ * @param name - The section, which is both the message and the field list.
+ * @returns The section's declared keys, or `undefined` where the file said
+ *   nothing.
  * @throws If it is there and is not an object.
  */
-function readSection(value: unknown): BuildConfig | undefined {
+function readSection(
+  value: unknown,
+  name: keyof typeof FIELDS
+): Record<string, unknown> | undefined {
   if (value === undefined) {
     return undefined;
   }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`${CONFIG_FILE}: "build" must be an object`);
+    throw new Error(`${CONFIG_FILE}: "${name}" must be an object`);
   }
 
   // the declared fields and nothing else, which is what the hand-written reader
   // did by naming each one. The merged view holds whatever the *file* holds, so
   // passing it through would hand back an object with keys `BuildConfig` does
   // not declare -- a value that lies about its own type, over a key that is
-  // almost always a typo for one of these six
+  // almost always a typo for one of the fields the section declares
   const held = value as Record<string, unknown>;
-  const build: Record<string, unknown> = {};
-  for (const field of FIELDS) {
+  const section: Record<string, unknown> = {};
+  for (const field of FIELDS[name]) {
     if (Object.hasOwn(held, field)) {
-      build[field] = held[field];
+      section[field] = held[field];
     }
   }
 
-  return Object.keys(build).length > 0 ? readBuild(build as BuildConfig) : undefined;
+  return Object.keys(section).length > 0 ? section : undefined;
 }
 
 /**
@@ -305,14 +347,40 @@ function readName(value: unknown, field: string): string | undefined {
  * is.
  *
  * @param value - The non-empty name.
+ * @param field - The field, for the message.
  * @returns It, unchanged.
  * @throws If it is absolute.
  */
-function readRelative(value: string): string {
+function readRelative(value: string, field: string): string {
   if (isAbsolute(value)) {
-    throw new Error(`${CONFIG_FILE}: "components" must be relative to the app`);
+    throw new Error(`${CONFIG_FILE}: "${field}" must be relative to the app`);
   }
   return value;
+}
+
+/**
+ * The `reference` section, whose two fields are both destinations.
+ *
+ * Relative to the app for `components`' own reason -- it is a fact about what
+ * the field is *for* rather than about what kind of value it is -- and the
+ * reason is sharper here: a reference is a committed artifact, so an absolute
+ * path in the config would be one machine's answer written into a file every
+ * machine reads.
+ *
+ * @param reference - What the merged view holds at `reference`.
+ * @returns The section.
+ * @throws If a destination is empty or absolute.
+ */
+function readReference(reference: ReferenceConfig): ReferenceConfig {
+  for (const field of ['out', 'snapshot'] as const) {
+    const value = readName(reference[field], `reference.${field}`);
+
+    if (value !== undefined) {
+      readRelative(value, `reference.${field}`);
+    }
+  }
+
+  return reference;
 }
 
 /**

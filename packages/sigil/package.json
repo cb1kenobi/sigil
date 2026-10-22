@@ -82,6 +82,10 @@
       "types": "./dist/paths.d.mts",
       "default": "./dist/paths.mjs"
     },
+    "./reference": {
+      "types": "./dist/reference.d.mts",
+      "default": "./dist/reference.mjs"
+    },
     "./renderer": {
       "types": "./dist/renderer.d.mts",
       "default": "./dist/renderer.mjs"
