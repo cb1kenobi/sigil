@@ -786,9 +786,20 @@ Each is refused with the path:
 Error: JSON has no mapping for Map, so it writes {} (at "rows")
 ```
 
-A class instance is written as its fields, a `Date` as its `toJSON`, and `null`
-as `null` — those are values JSON holds faithfully, so they are held. An app's
-own serializer answers for its own format the same way.
+A class instance is written as its fields, a `Date` as its `toJSON`, a boxed
+primitive as the primitive, an array as its elements, and `null` as `null` —
+those are values JSON holds faithfully, so they are held. An app's own serializer
+answers for its own format the same way.
+
+What it does **not** catch is written down rather than implied, because each is
+out of a replacer's reach: `-0` is written as `0`; a symbol-keyed or
+non-enumerable property is dropped, which is the JavaScript convention for "not
+part of the data"; an inherited property is dropped where the object has own ones
+of its own; and an **invalid** `Date` is written as `null`, because
+`Date.prototype.toJSON` has already turned it into one before anything here sees
+it. An empty `Map` is refused and an empty typed array with it, which is the one
+place the answer depends on the data: a `Map` is `{}` whether or not it has
+entries, where a typed array with bytes in it is written as an object of indices.
 
 ### Both spellings, and why
 

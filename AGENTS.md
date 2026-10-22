@@ -4589,6 +4589,123 @@ meant, and the rest were prose that was false about the code beside it.
   finding about a defect you introduced on purpose. The same thing happened to the
   config write work from a `pnpm fmt` in another terminal.
 
+#### What the second round found, and the report it never wrote
+
+`muse-wonder-1.0-high` again, pointed at round one's own **output** plus the
+regions round one had not opened -- which is this file's own recorded practice
+and is the sharpest arrangement: code written in response to a review is code no
+review has seen. It **died twice with zero bytes and exit 0**, which is the
+`cursor-agent` failure this file already records from the YAML store's rounds,
+and it wrote no report either time.
+
+What it left behind is four probe files in the working tree, and they are worth
+more than a report: **eight defects in round one's own `lossyAs()`**, every one
+reproduced here before it was believed, and a thorough adversarial pass over the
+chain rule that came back **clean on every case**. So the round counts, and it
+counts for the thing a report would have compressed away -- the probes name the
+inputs. The relevant process note is below: it also **edited the reviewed tree**,
+which is the hazard round one already demonstrated in the other direction.
+
+- **The sharpest is a wrong value written rather than a loss let through.** The
+  `{}` test asked `JSON.stringify(value) === '{}'` to tell an object JSON writes
+  as its own fields from one it has no mapping for -- which serializes the
+  subtree a **second** time, so every getter under it ran twice and the value
+  written was the **second read**: measured, a getter returning a counter wrote
+  `2` where plain `JSON.stringify` writes `1`. And a **stateful** getter
+  defeated the check outright, which is the hole rather than the cost: one
+  answering a `Map` on the first call and a number on the second passed and
+  wrote the number, so on the run where the order was the other way round the
+  `Map` reached a pipe as `{}`. It is also **quadratic**, since the whole subtree
+  is re-serialized at every non-plain object in it.
+
+  So the question is asked of the value's own shape instead, which invokes
+  nothing and is `O(1)`: `SerializeJSONProperty` unwraps a boxed primitive and
+  otherwise writes the object's own enumerable string keys, so it writes `{}`
+  exactly when there are none and it is not boxed. The boxed test is the
+  **internal slot** -- `Number.prototype.valueOf` throws for anything without
+  `[[NumberData]]`, and that slot is set only by `new Number()` -- because that
+  is what the specification itself asks, where a `Symbol.toStringTag` read is
+  forgeable and `instanceof` is realm-dependent. A boxed **symbol** is
+  deliberately not in that list, because `JSON.stringify(Object(Symbol()))` is
+  `{}` and it belongs to the key test.
+
+- **Four values JSON silently changes were getting through**, each measured. A
+  boxed `Number` holding `NaN` or an infinity is written as `null`. A boxed
+  `BigInt` makes `JSON.stringify` throw. A **named property on an array** is
+  dropped, which is the headline "a key is dropped" class arriving through the
+  one door the first spelling skipped entirely -- `lossyAs()` returned early for
+  an array -- and is the call the XML store already makes about a non-index own
+  property. And a property on a boxed primitive goes the same way.
+
+  The inverses are narrow and are pinned beside them, because a refusal widened
+  to cover one of these would break a working app: a boxed string's own index
+  keys **are** the string, an array with only index keys is written, and a typed
+  array with bytes in it is written as an object of indices.
+
+- **An empty key reported no path at all.** The path was keyed on `key === ''`
+  for the root, and `{ '': NaN }` is a path whose one segment is the empty
+  string -- so the one case where a reader most needs the location lost it. The
+  `WeakMap` holds **segments** now, where an empty list is the root and a
+  one-segment list holding `''` is a path, and the path is printed through
+  `JSON.stringify` -- a key holding a quote or a newline came out of a bare
+  interpolation unreadable.
+
+- **Two hostile reads escaped as somebody else's message.** A `Proxy` whose
+  `getPrototypeOf` trap throws reported `proto boom` where `JSON.stringify`
+  writes `{}`, because `isRecord()` asks a question JSON never asks; and a `then`
+  **getter** that throws reported itself out of `assertSerialized()`, whose whole
+  job is to report what the serializer answered. Both are guarded, and there is
+  one bracket over every read of somebody else's object in `unwritten()` --
+  answering `undefined` rather than reporting, because a value whose own
+  introspection throws is one `JSON.stringify` is about to meet and throw about
+  with a message that names the trap.
+
+- **And `Object` is the one kind name that says nothing**, which is reachable:
+  `Object.create({ inherited: 1 })` is not a record, has no own keys and reports
+  `Object`. The generic sentence is the honest half, and the path is what
+  identifies it.
+
+- **What is left is a residual, written down rather than closed**, and three of
+  the four are structurally out of a replacer's reach. `-0` is written as `0`,
+  and refusing it would refuse a value any arithmetic produces for a difference
+  `JSON.parse` cannot observe. A **symbol-keyed** or **non-enumerable** property
+  is dropped, and that is the JavaScript convention for "not part of the data" --
+  used by this very framework, whose `Internal` symbol hangs metadata off every
+  command, so refusing it would refuse an app returning anything this framework
+  built. Which is the opposite call from the XML store, and the two differ for
+  the reason `jsonCanHold()` and this differ: that one writes a **file** read
+  back, where a dropped key changes the round trip. An **invalid `Date`** is
+  written as `null` because its own `toJSON` has already turned it into one
+  before the replacer sees it -- the same hole the config module records in its
+  own JSON store. And an **empty typed array** is refused while a full one is
+  written, which is the one place the answer depends on the data: no rule
+  separates "this kind is always `{}`" from "this instance happens to be empty",
+  because `Object.keys(new Map([['k', 1]]))` is also empty.
+
+- **The chain rule came back clean, which is the other half of the round.** Its
+  own probes walked the accepted set through a `default` command that joins the
+  chain after argv is walked, a parent narrower than its child and a child
+  narrower than its parent, both token orders for each, `help list` against `list
+  --help`, and a bad name against `--help` and `--version`. Every one is the
+  answer round one's fix is written for: position-independent, nearest
+  declaration governing, and a bad name winning over `--help` as documented.
+
+  Two consequences it surfaced are worth recording rather than fixing. A command
+  whose **declaration** names a format the schema does not provide fails every
+  run, `--version` included, which is the documented "a declaration that cannot
+  mean anything fails where it was written" applied to the cheap path. And `help
+  list` does **not** check `list`'s declaration where `list --help` does, because
+  `help`'s chain is `['help', root]` -- which is the deferral working rather than
+  an inconsistency, since `help list` dispatches `help`.
+
+- **And the process note is the one worth keeping.** The reviewer wrote four
+  probe files into the tree it was reviewing, despite being told not to, and it
+  is the same hazard round one met from the other side -- there I edited the tree
+  while it was reading and it reported my own edits as findings. The answer for
+  both is a **git worktree**: the probes were harvested into one and re-run
+  against the fix there, which is how the eight were confirmed without touching
+  the branch.
+
 #### What is deliberately out
 
 - **A process-wide `registerFormat()`**, with the leak reason above.

@@ -112,8 +112,74 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return false;
   }
 
-  const proto = Object.getPrototypeOf(value) as object | null;
-  return proto === Object.prototype || proto === null;
+  // a `Proxy` can refuse the question, which `JSON.stringify` never asks -- so
+  // a throwing `getPrototypeOf` trap must not replace a sentence about a silent
+  // loss with one about a prototype. Found by a review round's own probe.
+  // Answering `false` sends it to the key test, where a proxy over a `Map`
+  // answers no keys and is refused for what JSON really writes
+  try {
+    const proto = Object.getPrototypeOf(value) as object | null;
+    return proto === Object.prototype || proto === null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A canonical array index, which is the only kind of key `JSON.stringify`
+ * writes when it writes an array.
+ *
+ * The spelling the XML store's own entry records arriving at: `String(Number(k))
+ * === k` passes `-1`, `1.5`, `Infinity`, `NaN` and `4294967295`, none of which
+ * is an index and every one of which is a named property JSON drops.
+ *
+ * @param key - The own enumerable key.
+ * @returns Whether JSON writes it as an element.
+ */
+function isIndex(key: string): boolean {
+  return /^(?:0|[1-9][0-9]*)$/.test(key) && Number(key) < 2 ** 32 - 1;
+}
+
+/**
+ * The internal-slot readers `SerializeJSONProperty` consults, in its order.
+ *
+ * A boxed `Number`, `String` or `Boolean` is **unwrapped** by `JSON.stringify`
+ * and a boxed `BigInt` makes it throw, so a boxed primitive is the one
+ * non-plain object JSON does not write as its own fields -- and telling one
+ * apart is a question about an internal slot rather than about a prototype.
+ * `Number.prototype.valueOf` throws for anything without `[[NumberData]]`, and
+ * that slot is set only by `new Number()`: so this is unforgeable, where a
+ * `Symbol.toStringTag` read is not, and realm-independent, where `instanceof`
+ * is not.
+ *
+ * `Symbol.prototype.valueOf` is deliberately absent, because a boxed symbol is
+ * **not** unwrapped -- `JSON.stringify(Object(Symbol()))` is `{}` -- so it
+ * belongs to the key test below rather than here.
+ */
+const BOXED = [
+  Number.prototype.valueOf,
+  String.prototype.valueOf,
+  Boolean.prototype.valueOf,
+  BigInt.prototype.valueOf,
+] as readonly ((this: unknown) => unknown)[];
+
+/**
+ * The primitive a boxed object holds, or nothing where it is not one.
+ *
+ * @param value - A non-plain, non-array object.
+ * @returns The held primitive, wrapped so that a held `0` is distinguishable
+ *   from "not boxed".
+ */
+function boxedValue(value: object): { of: unknown } | undefined {
+  for (const read of BOXED) {
+    try {
+      return { of: read.call(value) };
+    } catch {
+      // not an object of that kind, which is the whole of the question
+    }
+  }
+
+  return undefined;
 }
 
 /**
@@ -175,37 +241,101 @@ function lossyAs(value: unknown): string | undefined {
     return 'JSON has no bigint';
   }
 
-  if (value === null || typeof value !== 'object' || Array.isArray(value) || isRecord(value)) {
+  if (value === null || typeof value !== 'object') {
     return undefined;
   }
 
-  // `toJSON` has already run by the time a replacer is handed a value, so a
-  // `Date` and anything else that says what it is in JSON never reaches this.
-  // A throw is not ours to report: the outer `JSON.stringify` is about to meet
-  // the same value and will throw about it with its own message
-  let written: string | undefined;
+  // one bracket over every read of somebody else's object, which answers
+  // `undefined` rather than reporting: a value whose own introspection throws
+  // -- a `Proxy` whose `ownKeys` refuses -- is one `JSON.stringify` is about to
+  // meet, and the throw it gets then is JSON's own and names the trap. Ours
+  // would be a sentence about a loss over a value nobody could serialize
   try {
-    written = JSON.stringify(value);
+    return unwritten(value);
   } catch {
     return undefined;
   }
+}
 
-  if (written !== '{}') {
+/**
+ * The object half of `lossyAs()`, which is where every read of somebody else's
+ * value happens.
+ *
+ * `toJSON` has already run by the time a replacer is handed a value, so a
+ * `Date`, and anything else that says what it is in JSON, never reaches this at
+ * all -- which is also why an **invalid** `Date` is out of reach: its own
+ * `toJSON` answers `null`, so what arrives here is a `null` indistinguishable
+ * from one somebody wrote. The config module records the same hole in its JSON
+ * store.
+ *
+ * What it asks is **not** `JSON.stringify(value) === '{}'`, which was the first
+ * spelling and is what a review round's own probe took apart. Asking JSON costs
+ * three things, and the first is a wrong answer rather than a cost: the subtree
+ * is serialized twice, so every **getter** under it runs twice and the value
+ * written is the **second** read -- measured, a getter returning a counter
+ * wrote `2` where plain `JSON.stringify` writes `1`, and a stateful one that
+ * answers a `Map` once defeats the check outright. Then it is quadratic, since
+ * the whole subtree is re-serialized at every non-plain object in it. So the
+ * question is asked of the value's own shape instead, which is `O(1)`, invokes
+ * nothing, and is exact: `SerializeJSONProperty` unwraps a boxed primitive and
+ * otherwise writes the object's own enumerable string keys, so it writes `{}`
+ * exactly when there are none and it is not boxed.
+ *
+ * @param value - A non-null object, as the replacer was handed it.
+ * @returns What would be lost, or `undefined`.
+ */
+function unwritten(value: object): string | undefined {
+  // an array is written as its **elements**, so what JSON drops is a named
+  // property somebody hung off it -- which is the "a key is dropped" class
+  // arriving through the one door the first spelling skipped entirely, and the
+  // call the XML store already makes about a non-index own property
+  if (Array.isArray(value)) {
+    const extra = Object.keys(value).find((key) => !isIndex(key));
+
+    return extra === undefined
+      ? undefined
+      : `JSON writes an array as its elements, so the ${JSON.stringify(extra)} property on it is dropped`;
+  }
+
+  if (isRecord(value)) {
+    return undefined;
+  }
+
+  const box = boxedValue(value);
+
+  if (box) {
+    if (typeof box.of === 'bigint') {
+      return 'JSON has no bigint';
+    }
+
+    if (typeof box.of === 'number' && !Number.isFinite(box.of)) {
+      return `JSON writes ${String(box.of)} as null`;
+    }
+
+    // a boxed string's own index keys **are** the string, so they are the one
+    // set of keys not being dropped by being unwrapped
+    const extra = Object.keys(value).find((key) => typeof box.of !== 'string' || !isIndex(key));
+
+    return extra === undefined
+      ? undefined
+      : `JSON writes a boxed ${typeof box.of} as the ${typeof box.of} it holds, so the ${JSON.stringify(extra)} property on it is dropped`;
+  }
+
+  if (Object.keys(value).length > 0) {
     return undefined;
   }
 
   // no article in front of the name, because `a Error` is what one costs and
   // agreement is not a thing to write a table for. Read off the **prototype**
-  // rather than off the value and inside a `try`, because this is a sentence
-  // about somebody else's object and a throwing `constructor` must not replace
-  // a message about a silent loss with one about a getter
-  let kind: string | undefined;
-  try {
-    const proto = Object.getPrototypeOf(value) as { constructor?: { name?: string } } | null;
-    kind = typeof proto?.constructor?.name === 'string' ? proto.constructor.name : undefined;
-  } catch {
-    kind = undefined;
-  }
+  // rather than off the value, because this is a sentence about somebody else's
+  // object and a `constructor` of their own making is theirs to define
+  const proto = Object.getPrototypeOf(value) as { constructor?: { name?: string } } | null;
+  const named = typeof proto?.constructor?.name === 'string' ? proto.constructor.name : undefined;
+  // `Object` is the one name that says nothing, and it is reachable: an object
+  // whose prototype is an ordinary object -- `Object.create({ inherited: 1 })`
+  // -- is not a record, has no own keys, and reports `Object`. The path is what
+  // identifies it, so the generic sentence is the honest half
+  const kind = named === 'Object' ? undefined : named;
 
   return kind
     ? `JSON has no mapping for ${kind}, so it writes {}`
@@ -225,22 +355,33 @@ function lossyAs(value: unknown): string | undefined {
  * carries the **path** as it goes, which a replacer can do and a hand walk would
  * have to reproduce `toJSON` short-circuiting to match -- `this` is the holder,
  * and a holder is always visited before the values under it, so one `WeakMap`
- * from object to the path it was reached by is enough. Two paths to one object
- * are a DAG rather than a cycle and either is a true path, so the collision is
- * benign; a real cycle is `JSON.stringify`'s own throw, whose message says so.
+ * from object to the segments it was reached by is enough. Two paths to one
+ * object are a DAG rather than a cycle and either is a true path, so the
+ * collision is benign; a real cycle is `JSON.stringify`'s own throw, whose
+ * message says so.
+ *
+ * Segments rather than a joined string, because the **root** has to be
+ * distinguishable from a key of `''`: keying it on `key === ''` reported
+ * `{ '': NaN }` as the root and lost the location, where an empty list of
+ * segments is the root and a one-segment list holding the empty string is a
+ * path. The path is printed through `JSON.stringify` for the same reason -- a
+ * key holding a quote or a newline came out of a bare interpolation unreadable.
+ * Both found by a review round's own probe.
  *
  * @param value - What the command returned, or the error payload.
  * @returns The JSON text.
  * @throws If JSON would silently change what it was given.
  */
 function json(value: unknown): string {
-  const at = new WeakMap<object, string>();
+  const at = new WeakMap<object, readonly string[]>();
 
   return JSON.stringify(
     value,
     function (this: unknown, key: string, it: unknown): unknown {
+      // the one call with no recorded holder is the root: its `this` is the
+      // wrapper `JSON.stringify` makes, which nothing put in the map
       const base = typeof this === 'object' && this !== null ? at.get(this) : undefined;
-      const where = key === '' ? '' : base ? `${base}.${key}` : key;
+      const where = base === undefined ? [] : [...base, key];
 
       if (it !== null && typeof it === 'object') {
         at.set(it, where);
@@ -248,7 +389,9 @@ function json(value: unknown): string {
 
       const lost = lossyAs(it);
       if (lost !== undefined) {
-        throw new TypeError(where === '' ? lost : `${lost} (at "${where}")`);
+        throw new TypeError(
+          where.length === 0 ? lost : `${lost} (at ${JSON.stringify(where.join('.'))})`
+        );
       }
 
       return it;
@@ -428,7 +571,17 @@ export function assertSerialized(text: unknown, name: string): string {
   // serializes the payload with the same serializer. `Promise.resolve()` adopts
   // a bare thenable as readily as a promise, and the `catch` swallows rather
   // than reports because the throw below is the report. Found by review
-  if (text !== null && typeof (text as { then?: unknown })?.then === 'function') {
+  // the read is guarded, because a `then` of somebody else's making can throw
+  // and this function's whole job is to report what the serializer answered
+  // rather than to report a getter. Found by a review round's own probe
+  let thenable = false;
+  try {
+    thenable = typeof (text as { then?: unknown }).then === 'function';
+  } catch {
+    // not a promise, and the throw below says what it is instead
+  }
+
+  if (thenable) {
     void Promise.resolve(text).catch(() => {});
     throw new TypeError(
       `Expected the "${name}" output format to return a string, got a promise: a serializer is synchronous, because the error path that uses it is`

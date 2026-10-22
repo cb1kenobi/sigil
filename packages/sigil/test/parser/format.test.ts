@@ -746,6 +746,25 @@ describe('what the command returned', () => {
     ['a Set', () => ({ r: new Set([1]) }), 'no mapping for Set', 'r'],
     ['an Error', () => ({ r: new Error('boom') }), 'no mapping for Error', 'r'],
     ['a bigint', () => ({ a: 10n }), 'JSON has no bigint', 'a'],
+    // the five a review round's own probe found getting through, each of them
+    // a value JSON writes *something* for that is not what it was handed
+    [
+      'a property on an array',
+      () => ({ a: Object.assign([1, 2], { extra: 'lost' }) }),
+      'so the "extra" property on it is dropped',
+      'a',
+    ],
+    ['a boxed NaN', () => ({ a: new Number(Number.NaN) }), 'JSON writes NaN as null', 'a'],
+    ['a boxed infinity', () => ({ a: new Number(Infinity) }), 'JSON writes Infinity as null', 'a'],
+    [
+      'a property on a boxed number',
+      () => ({ a: Object.assign(new Number(5), { extra: 'lost' }) }),
+      'boxed number as the number it holds, so the "extra" property',
+      'a',
+    ],
+    ['a boxed bigint', () => ({ a: Object(10n) }), 'JSON has no bigint', 'a'],
+    // and the one whose path was lost: a key of `''` reported as the root
+    ['a NaN under an empty key', () => ({ '': Number.NaN }), 'JSON writes NaN as null', ''],
   ])('should refuse %s rather than let json lose it', async (_what, make, says, where) => {
     const schema: Schema = {
       commands: { list: { format: true, run: make } },
@@ -795,6 +814,16 @@ describe('what the command returned', () => {
       },
       '{\n  "a": {\n    "n": 1\n  },\n  "b": {\n    "n": 1\n  }\n}',
     ],
+    // the inverses of the five above, because the refusals are narrow: a boxed
+    // number JSON writes faithfully is written, an array with only index keys is
+    // written, and a boxed string's own index keys **are** the string rather
+    // than properties being dropped
+    ['a boxed string', () => ({ a: new String('x') }), '{\n  "a": "x"\n}'],
+    ['a boxed boolean', () => ({ a: new Boolean(true) }), '{\n  "a": true\n}'],
+    ['an array with only elements', () => ({ a: [1, 2] }), '{\n  "a": [\n    1,\n    2\n  ]\n}'],
+    // a typed array has own index keys, so JSON writes them -- which is not a
+    // typed array on the other side, and is what `JSON.stringify` does
+    ['a typed array', () => ({ a: new Uint8Array([1]) }), '{\n  "a": {\n    "0": 1\n  }\n}'],
   ])('should write %s, which json holds faithfully', async (_what, make, out) => {
     const schema: Schema = {
       commands: { list: { format: true, run: make } },
@@ -802,6 +831,114 @@ describe('what the command returned', () => {
     } as never;
 
     expect((await run(['list', '--json'], schema)).out).toBe(`${out}\n`);
+  });
+
+  /**
+   * The sharpest of the review round's findings, because it is a **wrong value
+   * written** rather than a loss let through. The first spelling asked
+   * `JSON.stringify(value) === '{}'` to tell an object JSON writes as its own
+   * fields from one it has no mapping for -- which serializes the subtree a
+   * second time, so every getter under it ran **twice and the written value was
+   * the second read**: a getter returning a counter wrote `2` where plain
+   * `JSON.stringify` writes `1`.
+   *
+   * So the claim is parity with `JSON.stringify`, asserted as both halves: the
+   * getter is read once, and the value written is the first read. The shape test
+   * that replaced it invokes nothing, which is also what makes it `O(1)` rather
+   * than quadratic in the depth of a tree of class instances.
+   */
+  it('should read a getter exactly once, as plain stringify does', async () => {
+    let reads = 0;
+    const held = new (class Counted {})();
+    Object.defineProperty(held, 'x', {
+      enumerable: true,
+      get: () => {
+        reads += 1;
+        return reads;
+      },
+    });
+    const schema: Schema = {
+      commands: { list: { format: true, run: () => ({ a: held }) } },
+      name: 'mycli',
+    } as never;
+    const ran = await run(['list', '--json'], schema);
+
+    expect(reads).toBe(1);
+    expect(ran.out).toBe('{\n  "a": {\n    "x": 1\n  }\n}\n');
+  });
+
+  /**
+   * And the hole the double read left: a getter answering a `Map` on one call
+   * and a number on the next passed the check and wrote the number, so a `Map`
+   * reached a pipe as `{}` on the run where the order was the other way round.
+   * One read means the value checked is the value written.
+   */
+  it('should refuse what a stateful getter answered, not its second answer', async () => {
+    let reads = 0;
+    const held = new (class Stateful {})();
+    Object.defineProperty(held, 'x', {
+      enumerable: true,
+      get: () => {
+        reads += 1;
+        return reads === 1 ? new Map([['k', 1]]) : 7;
+      },
+    });
+    const schema: Schema = {
+      commands: { list: { format: true, run: () => ({ a: held }) } },
+      name: 'mycli',
+    } as never;
+    const ran = await run(['list', '--json'], schema);
+
+    expect(reads).toBe(1);
+    expect(JSON.parse(ran.err).error.message).toContain(
+      'no mapping for Map, so it writes {} (at "a.x")'
+    );
+  });
+
+  /**
+   * A key holding a quote or a newline came out of a bare interpolation
+   * unreadable, and a reader cannot act on a path they cannot parse. Printed
+   * through `JSON.stringify`, which is also what makes the empty-key row in the
+   * table above read as `(at "")` rather than as no path at all.
+   */
+  it('should print a path a key made awkward', async () => {
+    const schema: Schema = {
+      commands: { list: { format: true, run: () => ({ 'a"b': { 'c\nd': Number.NaN } }) } },
+      name: 'mycli',
+    } as never;
+
+    expect(JSON.parse((await run(['list', '--json'], schema)).err).error.message).toContain(
+      String.raw`(at "a\"b.c\nd")`
+    );
+  });
+
+  /**
+   * A `Proxy` can refuse a question `JSON.stringify` never asks, and
+   * `isRecord()` asks one: a throwing `getPrototypeOf` trap reported `proto
+   * boom` where JSON writes `{}`. So the refusal falls through to the key test
+   * and the answer is the one JSON gives.
+   */
+  it('should write what json writes for a proxy that refuses its prototype', async () => {
+    const schema: Schema = {
+      commands: {
+        list: {
+          format: true,
+          run: () => ({
+            a: new Proxy(
+              {},
+              {
+                getPrototypeOf() {
+                  throw new Error('proto boom');
+                },
+              }
+            ),
+          }),
+        },
+      },
+      name: 'mycli',
+    } as never;
+
+    expect((await run(['list', '--json'], schema)).out).toBe('{\n  "a": {}\n}\n');
   });
 
   /**
