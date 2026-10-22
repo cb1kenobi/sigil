@@ -4281,9 +4281,33 @@ The sharpest question in the design, and the ticket did not name it.
   so selecting a format would put two answers on one stream and resolving it would
   need `check` to branch. A command whose own answer is on stdout is not a
   candidate for a serialized form unless it gives stdout up, and `--tree` is
-  exactly that. The dogfood is `demos/parser/12-formats.js` instead, which is
-  drivable by `demos.test.ts` because its default run writes nothing to stderr --
-  the stdout answer -- while `report` beside it shows the stderr one.
+  exactly that. The dogfood is `demos/parser/12-formats.js` instead, where `list`
+  is the stdout answer and `report` beside it is the stderr one.
+
+  **Its bare run walks all nine of its own header's command lines**, which was
+  `['list']` until somebody ran it and saw a table -- the one presentation that
+  shows none of the design. A reader's own arguments still win, which is every
+  parser demo's rule, so the tour is the else branch rather than a replacement.
+  What that cost is an `EXPECTED` entry in `demos.test.ts`, because two of the
+  nine write to **stderr** and one sets an exit code: `report`'s own human form,
+  and `boom`'s error through the built-in and through the app's own serializer.
+  Which is `09-errors.js`'s own shape -- a demo whose narrative is stdout and
+  whose stderr is what it exists to show -- so it is declared there with the
+  reason rather than avoided by picking steps that keep the stream clean. The
+  exit code is cleared per step and printed where there was one, since the tour
+  itself completed, and the interleaving on a terminal **is** the claim: the
+  table and the JSON are on screen together and `report --json | jq .total` is
+  still clean.
+
+  `lines()` is what makes that entry readable, and it is shared rather than a
+  second spelling: eleven lines of exact stderr hand-written as `\r?\n` and
+  escaped braces is a wall nobody can edit safely, so the lines are the input and
+  the escaping is one function's -- which `09-errors.js`'s two-line entry now
+  goes through too, because two ways of saying "this exact stderr" in one table
+  is the drift this file deletes everywhere else. Exact rather than loose for
+  that file's own reason, and sabotage-checked in both directions: one wrong
+  digit in an expected line fails it, and dropping the per-step exit-code reset
+  fails the code assertion beside it.
 
 #### What a command returned, and the three answers to `undefined`
 

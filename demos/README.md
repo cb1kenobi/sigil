@@ -73,12 +73,21 @@ You never touch `process.argv` and you never build a string.
 node demos/parser/11-dispatch.js shortcut
 ```
 
-`12-formats.js` is the one to run piped, because that is the half a screen
-cannot show:
+`12-formats.js` run bare walks all nine of the command lines in its own header,
+in order, with each one's point above it and the exit code printed where there is
+one — which is the only way to see the design rather than read it, since any
+single run shows one presentation of it:
+
+```sh
+node demos/parser/12-formats.js
+```
+
+It is also the one to run piped, because that is the half a screen cannot show:
 
 ```sh
 node demos/parser/12-formats.js list --json | jq .total
 node demos/parser/12-formats.js list --format csv
+node demos/parser/12-formats.js report --json | jq .total   # table still on screen
 node demos/parser/12-formats.js boom --json
 node demos/parser/12-formats.js boom --format csv
 ```
