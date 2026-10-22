@@ -176,7 +176,7 @@ const EXPECTED: Record<string, { code: number; stderr: RegExp }> = {
       'sorry: Error: Missing required arguments: <host>'
     ),
   },
-  // the demo about output formats, whose bare run walks all nine commands in its
+  // the demo about output formats, whose bare run walks every command line in its
   // header. Its stderr is part of what it shows rather than a failure: an unknown
   // format's message naming what the command *does* accept, then `report`'s own
   // human form -- which is the answer to "where does a command's own drawing go
@@ -188,16 +188,19 @@ const EXPECTED: Record<string, { code: number; stderr: RegExp }> = {
     code: 0,
     stderr: lines(
       'Error: Unknown output format "nope". This command accepts: json, csv, yaml',
-      'alpha   12',
-      'bravo   7',
+      'alpha                12',
+      'bravo                7',
+      'charlie "big, loud"  31',
       '{',
       '  "error": {',
-      '    "message": "nothing to list",',
+      '    "message": "nothing to list, \\"alpha\\" is gone",',
       '    "name": "TypeError"',
       '  }',
       '}',
       'error',
-      '"nothing to list"'
+      '"nothing to list, ""alpha"" is gone"',
+      'error:',
+      '  message: "nothing to list, \\"alpha\\" is gone"'
     ),
   },
 };

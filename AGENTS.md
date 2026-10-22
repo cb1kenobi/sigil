@@ -4284,14 +4284,14 @@ The sharpest question in the design, and the ticket did not name it.
   exactly that. The dogfood is `demos/parser/12-formats.js` instead, where `list`
   is the stdout answer and `report` beside it is the stderr one.
 
-  **Its bare run walks all nine of its own header's command lines**, which was
+  **Its bare run walks every one of its own header's command lines**, which was
   `['list']` until somebody ran it and saw a table -- the one presentation that
   shows none of the design. A reader's own arguments still win, which is every
   parser demo's rule, so the tour is the else branch rather than a replacement.
-  What that cost is an `EXPECTED` entry in `demos.test.ts`, because two of the
-  nine write to **stderr** and one sets an exit code: `report`'s own human form,
-  and `boom`'s error through the built-in and through the app's own serializer.
-  Which is `09-errors.js`'s own shape -- a demo whose narrative is stdout and
+  What that cost is an `EXPECTED` entry in `demos.test.ts`, because several steps
+  write to **stderr** and three set an exit code: `report`'s own human form, an
+  unknown format's message, and `boom`'s error through the built-in and through
+  each of the app's own serializers. Which is `09-errors.js`'s own shape -- a demo whose narrative is stdout and
   whose stderr is what it exists to show -- so it is declared there with the
   reason rather than avoided by picking steps that keep the stream clean. The
   exit code is cleared per step and printed where there was one, since the tour
@@ -4300,7 +4300,7 @@ The sharpest question in the design, and the ticket did not name it.
   still clean.
 
   `lines()` is what makes that entry readable, and it is shared rather than a
-  second spelling: eleven lines of exact stderr hand-written as `\r?\n` and
+  second spelling: a dozen-odd lines of exact stderr hand-written as `\r?\n` and
   escaped braces is a wall nobody can edit safely, so the lines are the input and
   the escaping is one function's -- which `09-errors.js`'s two-line entry now
   goes through too, because two ways of saying "this exact stderr" in one table
@@ -4308,6 +4308,29 @@ The sharpest question in the design, and the ticket did not name it.
   that file's own reason, and sabotage-checked in both directions: one wrong
   digit in an expected line fails it, and dropping the per-step exit-code reset
   fails the code assertion beside it.
+
+  **And one row is named `charlie "big, loud"`, which is what makes the two
+  serializers it ships honest.** A space, a comma and a pair of double quotes is
+  the one value every format has to say something different about -- and both of
+  the app's own were the naive interpolation, so the comma turned one CSV field
+  into two columns and the quotes made the YAML scalar ambiguous. Silently, in a
+  demo whose subject is that a serializer an app brings is the app's to get
+  right, which is the loss class the built-in `json` refuses at the value one
+  layer up. `csvCell()` is RFC 4180 -- wrap on a comma, a quote or a break, and
+  double the quotes -- and `yamlScalar()` quotes **always**, because the long
+  rule is the one a plain scalar needs and quoting unconditionally is the short
+  answer that cannot be got wrong. Both are verified against a parser that is
+  not ours rather than by reading: `csv.reader` and the `yaml` package each read
+  the name back whole, with the sizes still numbers.
+
+  The error message gained a comma and quotes with it, and `boom --format yaml`
+  joined the tour -- which is the step that pins the pair. `demos.test.ts`
+  asserts no demo's **stdout**, so the data path's escaping is unpinnable without
+  a new mechanism for one demo; the error path's is in the declared stderr, so
+  `""alpha""` and `\"alpha\"` sit two lines apart in it and each escaper fails
+  that test when it is sabotaged. The step earns its place either way, since the
+  same message under two rules side by side is the sharpest way to say escaping
+  is per format and the app's.
 
 #### What a command returned, and the three answers to `undefined`
 
@@ -4829,7 +4852,7 @@ because a mutation is a fact rather than an opinion.
   screen, in no reference and in no completion script.
 
 - **Every command line in the demo's own header was run**, which no round had
-  done, and all nine do what the header says. `demos/README.md`'s three piped
+  done, and every one of them does what the header says. `demos/README.md`'s piped
   lines likewise.
 
 - **And one measurement of mine was wrong in the way this file keeps

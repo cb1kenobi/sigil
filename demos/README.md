@@ -73,7 +73,7 @@ You never touch `process.argv` and you never build a string.
 node demos/parser/11-dispatch.js shortcut
 ```
 
-`12-formats.js` run bare walks all nine of the command lines in its own header,
+`12-formats.js` run bare walks every one of the command lines in its own header,
 in order, with each one's point above it and the exit code printed where there is
 one — which is the only way to see the design rather than read it, since any
 single run shows one presentation of it:

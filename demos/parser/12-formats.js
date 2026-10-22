@@ -10,6 +10,7 @@
  *   node demos/parser/12-formats.js report --json
  *   node demos/parser/12-formats.js boom --json
  *   node demos/parser/12-formats.js boom --format csv
+ *   node demos/parser/12-formats.js boom --format yaml
  *   node demos/parser/12-formats.js watch --json
  *
  * What `run()` does not do is the point: nothing below computes two answers.
@@ -27,20 +28,40 @@
  * the option is in no registry, so it is on no help screen and in no completion
  * script for a command that has nothing to present.
  *
- * Run it with no arguments and it walks all nine, which is the one way to see
+ * Run it with no arguments and it walks every one, which is the one way to see
  * the design rather than read it: the same `run()` under each presentation, in
- * order, with the exit code printed where there is one. Two of those steps write
- * to **stderr** -- `report`'s own human form and `boom`'s serialized error -- so
- * on a terminal they arrive interleaved with the headings, and piped they
- * separate. That is the claim demonstrated by being run rather than asserted:
- * `report --json | jq .total` answers `2` with the table still on screen.
+ * order, with the exit code printed where there is one. Several of those steps
+ * write to **stderr** -- `report`'s own human form, and every failure's error,
+ * rendered or serialized -- so on a terminal they arrive interleaved with the
+ * headings, and piped they separate. That is the claim demonstrated by being run rather than asserted:
+ * `report --json | jq .total` answers the row count with the table still on
+ * screen.
+ *
+ * And one of the rows is named `charlie "big, loud"`, which is there to be
+ * **escaped**: a space, a comma and a pair of double quotes is the one value
+ * every format below has to say something different about. `json` escapes the
+ * quotes and needs nothing written here, because that is what `JSON.stringify`
+ * is; CSV wraps the field and doubles them; YAML quotes the scalar and
+ * backslashes them. `boom --format csv` and `boom --format yaml` are the same
+ * message through the same two rules, side by side -- which is the point a
+ * serializer an app brings has to get right, and the naive interpolation gets
+ * wrong in the direction that does not announce itself.
  */
 import { main } from '@ttylabs/sigil';
 
-/** What `list` answers with, and what it draws. One value, two presentations. */
+/**
+ * What `list` answers with, and what it draws. One value, several presentations.
+ *
+ * The third name holds a space, a comma and a pair of double quotes, which is
+ * the one row worth having: every format below has to say something different
+ * about it, and the naive version of each -- `${row.name},${row.size}` and
+ * `- name: ${row.name}` -- turns it into a file that lies rather than one that
+ * fails. `json` needs nothing, because escaping is what `JSON.stringify` is.
+ */
 const rows = [
   { name: 'alpha', size: 12 },
   { name: 'bravo', size: 7 },
+  { name: 'charlie "big, loud"', size: 31 },
 ];
 
 /**
@@ -54,20 +75,60 @@ const rows = [
  */
 const isError = (value) => value !== null && typeof value === 'object' && 'error' in value;
 
+/**
+ * One CSV field, escaped the way RFC 4180 says.
+ *
+ * A field holding a comma, a quote or a line break is wrapped in quotes and its
+ * own quotes are **doubled** -- which is worth a function rather than an
+ * interpolation, because the interpolation is wrong in the direction that does
+ * not announce itself: one field holding a comma becomes two columns, so a row
+ * of three values parses as four and every consumer reads the wrong one. A
+ * serializer an app brings is the app's to get right, which is the half of
+ * "`yaml`, `xml`, `csv` and `tsv` are an app's to bring" that a demo can show.
+ */
+const csvCell = (text) => (/[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text);
+
 /** A serializer an app brings, which is the division: `json` ships, this does not. */
 const toCsv = (value) =>
   isError(value)
-    ? `error\n${JSON.stringify(value.error.message)}`
-    : ['name,size', ...(value.rows ?? []).map((row) => `${row.name},${row.size}`)].join('\n');
+    ? // the error goes through the same escaping, because a message is a field
+      // too -- and `JSON.stringify`, which this used, is the *other* grammar:
+      // it writes `\"` where CSV wants `""`
+      `error\n${csvCell(value.error.message)}`
+    : ['name,size', ...(value.rows ?? []).map((row) => `${csvCell(row.name)},${row.size}`)].join(
+        '\n'
+      );
+
+/**
+ * One YAML scalar, always double-quoted.
+ *
+ * Always, rather than only where it is needed: a plain scalar is the one that
+ * needs the long rule -- a leading `- `, `?`, `#` or quote, a `: ` anywhere in
+ * it, a trailing space, something that would read back as a number or as `true`
+ * -- so quoting unconditionally is the short answer that is always right, where
+ * quoting conditionally is a rule to get wrong. Inside quotes a backslash and a
+ * quote are escaped, which is where the third row shows up as `\"`.
+ */
+const yamlScalar = (text) => `"${text.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
 
 /** And one more, to show that `--format` takes a name rather than only JSON. */
 const toYaml = (value) =>
   isError(value)
-    ? `error:\n  message: ${value.error.message}`
-    : (value.rows ?? []).map((row) => `- name: ${row.name}\n  size: ${row.size}`).join('\n');
+    ? `error:\n  message: ${yamlScalar(value.error.message)}`
+    : (value.rows ?? [])
+        .map((row) => `- name: ${yamlScalar(row.name)}\n  size: ${row.size}`)
+        .join('\n');
 
-/** The human form, which both commands below draw the same way. */
-const table = () => rows.map((row) => `${row.name.padEnd(8)}${row.size}`).join('\n');
+/**
+ * The human form, which both commands below draw the same way.
+ *
+ * The column is measured rather than a constant, because the third name is
+ * wider than the `padEnd(8)` this had -- a table whose own width is a guess is
+ * the thing `table()` in `@ttylabs/sigil/components` exists to not be, and this
+ * is the hand-rolled version a demo can read in one line.
+ */
+const column = Math.max(...rows.map((row) => row.name.length)) + 2;
+const table = () => rows.map((row) => `${row.name.padEnd(column)}${row.size}`).join('\n');
 
 const schema = {
   name: 'formats',
@@ -130,7 +191,7 @@ const schema = {
         // exit code still carrying the verdict. Which is why `isError()` is up
         // at the top: a serializer this app wrote is handed that payload too,
         // and one written only for the data loses the error without saying so
-        throw new TypeError('nothing to list');
+        throw new TypeError('nothing to list, "alpha" is gone');
       },
     },
 
@@ -151,6 +212,10 @@ const tour = [
   [['report', '--json'], 'the human form on stderr, so both can be on screen at once'],
   [['boom', '--json'], 'a failure leaves through the same selection, as data'],
   [['boom', '--format', 'csv'], "and through the app's own serializer too, which is why it checks"],
+  [
+    ['boom', '--format', 'yaml'],
+    'the same message, escaped the other way -- escaping is per format',
+  ],
   [['watch', '--json'], 'no `format` declared, so `--json` is swallowed and nothing serializes'],
 ];
 
