@@ -4829,8 +4829,9 @@ cheapest round to arrange is the one aimed at the last round's fixes.
   declaration, which is the copy that ships.** Round three's own entry above
   records correcting that sentence in `parser/format.ts`, and
   `Command.format`'s doc said it too -- so the fix landed in the one a
-  maintainer reads and not in the one that goes into `dist/index.d.mts` and is
-  what an app author sees on hover. Measured end to end before anything was
+  maintainer reads and not in the one that **ships**: `Command` is re-exported
+  by `index.d.mts` out of the `types-*.d.mts` chunk the doc physically sits in,
+  which is what an editor shows an app author on hover. Measured end to end before anything was
   changed: `mycli dashboard --format json` on a command that did not opt in
   exits **0** and serializes nothing, and `Unknown option "--format"` is the
   answer only with `allowUnknownOptions: false`. Which is the
