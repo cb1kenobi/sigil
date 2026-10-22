@@ -277,6 +277,13 @@ function writeFormatted(state: ParseState, cmd: InternalCommand, value: unknown)
     );
   }
 
+  // resolved against the whole registry rather than against what this command
+  // accepts, which is safe by construction rather than by luck: `detectFormat()`
+  // set `state.format` only after `formatFor()` had judged the name against the
+  // chain's own accepted set, so a name that is here is one that passed. Passing
+  // the narrowing again would mean carrying it on the state -- a second field
+  // answering a question already answered -- and `true` is a superset of it, so
+  // the two cannot disagree about which serializer this name names
   const text = assertSerialized(formatFor(state.schema, name)(value), name);
 
   // exactly one trailing newline, which is `errorHandler()`'s own rule: a

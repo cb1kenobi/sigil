@@ -159,6 +159,9 @@ describe('the --format option', () => {
     const state = await parse({ argv: [], schema: app() });
     const options = state.contexts[0][Internal].commands.find('list')?.[Internal].options;
 
+    // the presence half, or this passes the day the option stops being added
+    // at all -- which is the absence-only shape this suite refuses elsewhere
+    expect(options?.find('--format')).toBeTruthy();
     expect(options?.find('-f')).toBeUndefined();
     expect(options?.find('--output')).toBeUndefined();
   });
@@ -212,11 +215,17 @@ describe('what the walkers see', () => {
   it('should not be a palette slot', async () => {
     const state = await parse({
       argv: [],
-      schema: { commands: { list: { format: true, run: () => 1 } }, name: 'mycli' } as never,
+      schema: {
+        commands: { list: { format: true, options: { '--req <r>': {} }, run: () => 1 } },
+        name: 'mycli',
+      } as never,
     });
     const entry = (await commandCatalog(state)).find((it) => it.path.join(' ') === 'list');
 
-    expect(entry?.slots).toEqual([]);
+    // the required option beside it is what says the catalog is reading this
+    // command's options at all -- without it the empty list would pass for a
+    // catalog that had stopped looking
+    expect(entry?.slots.map((slot) => slot.spelling)).toEqual(['--req']);
   });
 });
 
@@ -329,6 +338,46 @@ describe('selecting a format', () => {
     );
   });
 
+  /**
+   * The same command line with the token moved in front of the subcommand,
+   * which is the one arrangement the test above cannot see: the token resolves
+   * against the contexts known at that moment, which is `db` alone, so reading
+   * the accepted set off the option argv bound to gave `db`'s `true` and
+   * `--format json` was taken -- exit 0, the JSON on stdout, with `list`
+   * having declared that it presents yaml and nothing else. Two answers to one
+   * command line depending on where the token sat. Found by review.
+   *
+   * `--json` is the sharper half, because the sugar itself is only there
+   * because an **ancestor** offered it: `list` accepts `['yaml']`, so no
+   * `--json` was added to its registry, and the one that resolves is `db`'s.
+   * Which is options resolving across the chain, and is why what a token may
+   * *name* has to be the nearest command's answer rather than the answer of
+   * whichever registry holds the option.
+   */
+  it('should narrow what is accepted wherever in the line the token sat', async () => {
+    const schema: Schema = {
+      commands: {
+        db: {
+          commands: { list: { format: ['yaml'], run: () => ({ rows: 1 }) } },
+          format: true,
+        },
+      },
+      formats: { yaml },
+      name: 'mycli',
+    } as never;
+
+    // before the subcommand, both spellings
+    expect((await run(['db', '--format', 'json', 'list'], schema)).err).toContain(
+      'This command accepts: yaml'
+    );
+    expect((await run(['db', '--json', 'list'], schema)).err).toContain(
+      'This command accepts: yaml'
+    );
+
+    // and the one it does present is taken from either position
+    expect((await run(['db', '--format', 'yaml', 'list'], schema)).out).toBe('yaml:{"rows":1}\n');
+  });
+
   it('should serialize what a default command returned', async () => {
     const schema: Schema = {
       commands: { go: { default: true, format: true, run: () => ({ d: 1 }) } },
@@ -394,6 +443,88 @@ describe('the format registry', () => {
     await expect(
       parse({ argv: [], schema: { formats: { yaml: 'nope' as never }, name: 'mycli' } })
     ).rejects.toThrow('Expected the "yaml" schema format to be a function');
+  });
+
+  /**
+   * Every one of these parsed and then did something nobody meant, which is
+   * the shape a review round found three of at once. The array is the sharpest
+   * because it **works**: `Object.entries` keys it by index, so a format called
+   * `0` was mintable and selectable. The `Map` is the shape anybody reaching
+   * for a registry writes and contributed nothing at all, so an app that had
+   * declared yaml was told it accepts json.
+   */
+  it.each([
+    ['an array', [() => 'x'] as never],
+    ['a Map', new Map([['yaml', () => 'x']]) as never],
+    [
+      'a class instance',
+      new (class F {
+        yaml = () => 'x';
+      })() as never,
+    ],
+  ])('should refuse a formats written as %s', async (_what, formats) => {
+    await expect(parse({ argv: [], schema: { formats, name: 'mycli' } })).rejects.toThrow(
+      'written as an object literal'
+    );
+  });
+
+  /**
+   * A name is what a user types after `--format`, and the empty string is the
+   * one thing argv can say that is *not* a name: `--format=` is how a value is
+   * deliberately left empty, so `{ '': fn }` made that spelling select a
+   * format.
+   */
+  it('should refuse a format with no name', async () => {
+    await expect(
+      parse({ argv: [], schema: { formats: { '': () => 'x' }, name: 'mycli' } })
+    ).rejects.toThrow('the empty string is not one a user can type');
+  });
+
+  /**
+   * The refusal prints the names a command accepts, so a control character in
+   * one is a sequence waiting for a terminal to execute it -- which it did:
+   * `This command accepts: json, y<ESC>[31ml` reached stderr with the escape
+   * intact. The rule this repository keeps for every byte it emits, met through
+   * a declaration.
+   */
+  it('should refuse a format name holding a control character', async () => {
+    await expect(
+      parse({
+        argv: [],
+        schema: { formats: { [`y${String.fromCharCode(0x1b)}[31ml`]: () => 'x' }, name: 'mycli' },
+      })
+    ).rejects.toThrow('to have no control character in its name');
+  });
+
+  /**
+   * A serializer is synchronous and the type says so, which a JavaScript app is
+   * not bound by -- and an `async` one costs more than a confusing message:
+   * what `writeFormatted()` and the error path each create is a promise nobody
+   * awaits, so one that **rejects** took the process down with two unhandled
+   * rejections about an answer nothing was waiting for. Both halves are pinned:
+   * the message names a promise, and the rejection does not escape.
+   */
+  it('should name a promise and swallow its rejection', async () => {
+    const seen: unknown[] = [];
+    const onUnhandled = (err: unknown) => void seen.push(err);
+    process.on('unhandledRejection', onUnhandled);
+
+    try {
+      const ran = await run(
+        ['list', '--format', 'slow'],
+        app(['slow'], { slow: (() => Promise.reject(new Error('nope'))) as never })
+      );
+
+      expect(ran.out).toBe('');
+      expect(ran.err).toContain('got a promise: a serializer is synchronous');
+
+      // a rejection is reported on a later turn, so the wait is what makes the
+      // absence mean anything
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(seen).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 });
 
@@ -512,10 +643,16 @@ describe('a declaration', () => {
   it('should add nothing for false or absent', async () => {
     const state = await parse({
       argv: [],
-      schema: { commands: { off: { format: false }, plain: {} }, name: 'm' } as never,
+      schema: {
+        commands: { off: { format: false }, on: { format: true }, plain: {} },
+        name: 'm',
+      } as never,
     });
     const commands = state.contexts[0][Internal].commands;
 
+    // and the command beside them that did opt in, so the two absences are
+    // about `false` and absence rather than about the option having gone
+    expect(commands.find('on')?.[Internal].options.find('--format')).toBeTruthy();
     expect(commands.find('off')?.[Internal].options.find('--format')).toBeUndefined();
     expect(commands.find('plain')?.[Internal].options.find('--format')).toBeUndefined();
   });
@@ -584,31 +721,123 @@ describe('what the command returned', () => {
   });
 
   /**
-   * Reachable through the **built-in**, which is what makes `assertSerialized()`
-   * a guard rather than a tripwire: `JSON.stringify` answers the *value*
-   * `undefined` for a function and for a symbol, so without it the word
-   * `undefined` would reach stdout.
+   * Every one of these is a value `JSON.stringify` writes *something* for
+   * rather than refusing, and in each case the something is not what the
+   * command returned. They were reaching the pipe until a review round named
+   * them: a `Map` of results piped `{}` and said nothing, which is the one
+   * thing the house rules name directly.
+   *
+   * The **path** is the half that makes a message actionable, and the two the
+   * built-in already threw for are in the table for exactly that: JSON's own
+   * `Do not know how to serialize a BigInt` names no value, so a payload with
+   * one `n` somewhere in it left the author to go and find it.
    */
-  it('should refuse a value json answers nothing for', async () => {
+  it.each([
+    ['a function', () => ({ a: { b() {} } }), 'JSON has no function', 'a.b'],
+    ['a symbol', () => ({ a: Symbol('s') }), 'JSON has no symbol', 'a'],
+    ['an undefined inside', () => ({ a: { b: undefined } }), 'JSON has no undefined', 'a.b'],
+    // the hole and an `undefined` somebody wrote are the same value to a
+    // replacer, which is honest rather than a gap: JSON writes both as `null`
+    // eslint-disable-next-line no-sparse-arrays
+    ['a hole', () => ({ a: [1, , 2] }), 'JSON has no undefined', 'a.1'],
+    ['a NaN', () => ({ a: { b: [0, Number.NaN] } }), 'JSON writes NaN as null', 'a.b.1'],
+    ['an Infinity', () => ({ a: -Infinity }), 'JSON writes -Infinity as null', 'a'],
+    ['a Map', () => ({ r: new Map([['k', 1]]) }), 'no mapping for Map', 'r'],
+    ['a Set', () => ({ r: new Set([1]) }), 'no mapping for Set', 'r'],
+    ['an Error', () => ({ r: new Error('boom') }), 'no mapping for Error', 'r'],
+    ['a bigint', () => ({ a: 10n }), 'JSON has no bigint', 'a'],
+  ])('should refuse %s rather than let json lose it', async (_what, make, says, where) => {
     const schema: Schema = {
-      commands: { list: { format: true, run: () => () => 1 } },
+      commands: { list: { format: true, run: make } },
       name: 'mycli',
     } as never;
     const ran = await run(['list', '--json'], schema);
 
     expect(ran.out).toBe('');
-    expect(JSON.parse(ran.err).error.message).toContain(
-      'Expected the "json" output format to return a string'
-    );
+    // the error itself is serialized, which is the whole point of the feature:
+    // a script gets JSON either way
+    const { message } = JSON.parse(ran.err).error as { message: string };
+    expect(message).toContain(says);
+    expect(message).toContain(`(at "${where}")`);
   });
 
-  it('should let what json throws about reach the error path', async () => {
+  /**
+   * What JSON writes faithfully is written, and each of these is a value a
+   * prototype table would have refused: a class instance is written as its
+   * fields, which is what the app asked for, and a boxed `Number` is a
+   * non-plain object with no own keys that JSON writes as `5`. Which is why the
+   * `{}` family is asked of `JSON.stringify` itself rather than of a table.
+   *
+   * The pair is the inverse of the table above, so a refusal widened to cover
+   * one of these fails here rather than going quiet.
+   */
+  it.each([
+    [
+      'a class instance',
+      () => ({
+        a: new (class F {
+          x = 1;
+        })(),
+      }),
+      '{\n  "a": {\n    "x": 1\n  }\n}',
+    ],
+    ['a boxed number', () => ({ a: new Number(5) }), '{\n  "a": 5\n}'],
+    ['a Date', () => ({ a: new Date(0) }), '{\n  "a": "1970-01-01T00:00:00.000Z"\n}'],
+    ['a toJSON', () => ({ a: { toJSON: () => 'ok' } }), '{\n  "a": "ok"\n}'],
+    // one object reached twice is a DAG rather than a cycle, and the path
+    // carried through the replacer collides on it benignly: either path is a
+    // true path, and a real cycle is `JSON.stringify`'s own throw
+    [
+      'a DAG',
+      () => {
+        const n = { n: 1 };
+        return { a: n, b: n };
+      },
+      '{\n  "a": {\n    "n": 1\n  },\n  "b": {\n    "n": 1\n  }\n}',
+    ],
+  ])('should write %s, which json holds faithfully', async (_what, make, out) => {
     const schema: Schema = {
-      commands: { list: { format: true, run: () => ({ n: 1n }) } },
+      commands: { list: { format: true, run: make } },
       name: 'mycli',
     } as never;
 
-    expect((await run(['list', '--json'], schema)).err).toContain('BigInt');
+    expect((await run(['list', '--json'], schema)).out).toBe(`${out}\n`);
+  });
+
+  /**
+   * The cycle is JSON's own throw rather than ours, and the message it already
+   * carries is better than anything a replacer could say without a second
+   * `WeakSet` of its own.
+   */
+  it('should let the cycle json throws about reach the error path', async () => {
+    const cyc: Record<string, unknown> = {};
+    cyc.self = cyc;
+    const schema: Schema = {
+      commands: { list: { format: true, run: () => cyc } },
+      name: 'mycli',
+    } as never;
+
+    expect(JSON.parse((await run(['list', '--json'], schema)).err).error.message).toContain(
+      'circular'
+    );
+  });
+
+  /**
+   * `assertSerialized()`'s own door, now that `lossyAs()` has taken the
+   * built-in's: the type says `string` and a JavaScript app is not bound by it,
+   * so a serializer that returns nothing is the one reachable way to put the
+   * word `undefined` on stdout.
+   */
+  it('should refuse a serializer that did not answer with text', async () => {
+    const schema: Schema = {
+      commands: { list: { format: ['bad'], run: () => ({ a: 1 }) } },
+      formats: { bad: () => undefined as never },
+      name: 'mycli',
+    } as never;
+    const ran = await run(['list', '--format', 'bad'], schema);
+
+    expect(ran.out).toBe('');
+    expect(ran.err).toContain('Expected the "bad" output format to return a string, got undefined');
   });
 
   /**
@@ -866,7 +1095,42 @@ describe('the quiet implication', () => {
    * though it had been typed.
    */
   it('should not set state.quiet', async () => {
-    expect((await parse({ argv: ['list', '--json'], schema: app() })).quiet).toBeUndefined();
+    const state = await parse({ argv: ['list', '--json'], schema: app() });
+
+    // and the format *is* settled, so the absence is about which field the
+    // implication is made on rather than about the parse having read nothing
+    expect(state.format).toBe('json');
+    expect(state.quiet).toBeUndefined();
+  });
+
+  /**
+   * The one branch a command legitimately has, and the one `mark()`'s own doc
+   * used to deny: stdout belongs to the serializer once a format was selected,
+   * so a command drawing its own human form there has to be able to stop. What
+   * is off `argv` is the **name**, which is the two-answers conditional; what
+   * `run()` is handed is whether one was asked for.
+   */
+  it('should hand run() the format while keeping it off argv', async () => {
+    const seen: (string | undefined)[] = [];
+    const schema: Schema = {
+      commands: {
+        list: {
+          format: true,
+          run: (state: { argv: Record<string, unknown>; format?: string }) => {
+            seen.push(state.format, state.argv.format as undefined);
+            return { a: 1 };
+          },
+        },
+      },
+      name: 'mycli',
+    } as never;
+
+    await run(['list', '--json'], schema);
+    await run(['list'], schema);
+
+    // the name on the state, nothing on argv, and `undefined` where argv asked
+    // for no format at all -- which is what the demo's one branch reads
+    expect(seen).toEqual(['json', undefined, undefined, undefined]);
   });
 });
 
@@ -883,11 +1147,58 @@ describe('what a format does not reach', () => {
     expect(ran.out).toContain('Usage: mycli list');
   });
 
-  /** A version is a question about the program, not a command's answer. */
+  /**
+   * A version is a question about the program, not a command's answer.
+   *
+   * The `default` command is what makes the test able to fail, and it was
+   * missing: without it there is nothing for a format to present, so stdout was
+   * the version whether or not `--version` won. Found by review. With it, a
+   * `--version` that stopped short-circuiting prints the JSON instead.
+   */
   it('should leave --version printing the version', async () => {
-    const schema: Schema = { format: true, name: 'mycli', version: '1.2.3' } as never;
+    const schema: Schema = {
+      commands: { go: { default: true, format: true, run: () => ({ d: 1 }) } },
+      name: 'mycli',
+      version: '1.2.3',
+    } as never;
 
     expect((await run(['--version', '--json'], schema)).out).toBe('1.2.3\n');
+  });
+
+  /**
+   * Which side of the seam a parse error falls on is which pass it came out of,
+   * and the boundary is `detectFormat()`: it runs after argv has been **walked**
+   * and before it is **judged**. So a value its type rejects is a plain line,
+   * because the throw is inside the pass that reads the option and no format had
+   * been settled, while a judgement is a payload.
+   *
+   * Recorded rather than closed -- there is no earlier point that has both the
+   * token and a settled chain -- and pinned so that it is a documented seam
+   * rather than a surprise. The token order is both ways round, because the
+   * first reading of this was that the format being read *first* would settle
+   * it, and it does not: the pass is what decides, not the position.
+   */
+  it.each([
+    ['a value its type rejects, format last', ['list', '--n', 'eight', '--json'], false],
+    ['a value its type rejects, format first', ['list', '--json', '--n', 'eight'], false],
+    ['an unexpected argument', ['list', '--json', 'extra'], true],
+  ])('should serialize %s only where argv was being judged', async (_what, argv, serialized) => {
+    const schema: Schema = {
+      commands: {
+        list: { format: true, options: { '--n <v>': { type: 'int' } }, run: () => ({}) },
+      },
+      name: 'mycli',
+    } as never;
+    const ran = await run(argv, schema);
+
+    expect(ran.code).toBe(1);
+    expect(ran.err.startsWith('{')).toBe(serialized);
+    // either way the message is the same one the plain form prints, which is
+    // what `errorPayload()` is built from -- and the exit code is the half a
+    // script keys on whichever form it got
+    expect(serialized ? JSON.parse(ran.err).error.message : ran.err).toContain(
+      serialized ? 'Unexpected argument' : 'Invalid integer: eight'
+    );
   });
 });
 

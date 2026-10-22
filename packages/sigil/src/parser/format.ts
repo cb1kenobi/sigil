@@ -165,18 +165,26 @@ export async function registerFormats(
  * Marks an option as one that selects an output format, and records what the
  * command accepts on the option itself.
  *
- * Carried by the thing argv resolved to rather than looked up again, which is
- * the discipline `baseDir` already keeps: which declaration won is the
- * registry's answer, and recomputing it is how a second reader comes to
- * disagree with the first. A subcommand that declares its own `format` reaches
- * backwards over its parent's exactly as any option does, and the accepted set
- * that comes with it is the nearer one's without anything having to ask.
+ * What the mark says is that this option **selects a format**, which is what
+ * `detectFormat()` reads to tell a format token from any other option. What it
+ * deliberately does *not* decide is what that token may name: the accepted set
+ * is carried here as well, and it is read off the **chain** rather than off the
+ * option argv bound to. The two part company whenever the token precedes the
+ * subcommand -- `db --format json list` binds to `db`'s option, because `list`
+ * has not been seen yet -- so reading it here would make a narrowing on `list`
+ * apply or not according to where in the line the token sat. See
+ * `detectFormat()`; the set is on the option because that is where both
+ * spellings can share one, and it is the nearest command's that governs.
  *
- * `parserOwned`, which is the whole design said in one field: the value never
- * reaches `argv`, so a command **cannot** branch on it. Offering `argv.format`
- * would be handing back the conditional this exists to delete -- and the
- * command does not need it, because selecting a format implies quiet, so
- * whatever it would have drawn is already suppressed.
+ * `parserOwned` keeps the value off `argv`, and what that is for is narrower
+ * than "a command cannot branch on it" -- which is what this said and is false
+ * of the one branch a command legitimately has. `state.format` **is** handed to
+ * `run()`, and a command that draws its own human form to stdout has to read it,
+ * because stdout belongs to the serializer once a format was selected. What is
+ * off `argv` is the **name**: a destination called `format` on an app that never
+ * declared one is a value nothing wrote, and reading which format was asked for
+ * is the two-answers conditional this exists to delete, where asking whether one
+ * was is a question about presentation. See the module doc.
  *
  * @param opt - The option, or `undefined` where the registry did not take it.
  * @param accepts - What the command accepts.
@@ -248,7 +256,16 @@ function formatFromValue(parsed: ParsedOption): string | undefined {
  *   argv selected is not one this command presents.
  */
 export function detectFormat(state: ParseState): void {
-  let found = false;
+  /**
+   * What the command that **ran** accepts, which is the nearest declaration in
+   * the chain. `state.contexts` is innermost-first, so the first one found is
+   * it -- and `undefined` afterwards means no command in the chain opted in at
+   * all, which is a declared fast path rather than a guard: without it the walk
+   * below finds nothing and `state.format` stays unset, which is the same
+   * answer. What it buys is not walking argv a second time for every app whose
+   * commands never declared `format`, which is most of them.
+   */
+  let governs: true | readonly string[] | undefined;
 
   for (const cmd of state.contexts) {
     for (const opt of cmd[Internal].options.values()) {
@@ -258,43 +275,50 @@ export function detectFormat(state: ParseState): void {
         continue;
       }
 
-      found = true;
+      // every declaration in the chain, because a command naming a format the
+      // schema does not provide is a mistake wherever in the chain it sits
       assertDeclared(state, cmd, accepts);
+      governs ??= accepts;
     }
   }
 
-  if (!found) {
+  if (governs === undefined) {
     return;
   }
 
-  let selected: { accepts: true | readonly string[]; name: string } | undefined;
+  let selected: string | undefined;
 
   for (const parsed of state.$) {
     if (parsed.type !== 'Option') {
       continue;
     }
 
-    const option = parsed as ParsedOption;
-    const accepts = option.option[Internal].formats;
-
-    if (accepts === undefined) {
+    // the option's own mark says which *tokens* are format selectors, and says
+    // nothing about what they may name: that is `governs`. Reading the accepted
+    // set off the option argv bound to was the first spelling and it is
+    // **position-dependent**, which is the one thing a format must not be --
+    // `db --format json list` resolves the token against the contexts known at
+    // that moment, which is `db` alone, so a narrowing on `list` was never
+    // applied and `db list --format json` and `db --format json list` were two
+    // different answers to one command line. Found by review
+    if (parsed.option[Internal].formats === undefined) {
       continue;
     }
 
-    const name = formatFromValue(option);
+    const name = formatFromValue(parsed);
 
     if (name !== undefined) {
-      selected = { accepts, name };
+      selected = name;
     }
   }
 
-  if (selected) {
+  if (selected !== undefined) {
     // resolved rather than merely looked up, and the answer is discarded: the
     // point is that the *same* function `main()` gets the serializer from is
     // what judged the name, so a parse that accepted a name cannot meet a
     // `main()` that has nothing to serialize it with
-    formatFor(state.schema, selected.name, selected.accepts);
-    state.format = selected.name;
+    formatFor(state.schema, selected, governs);
+    state.format = selected;
   }
 }
 

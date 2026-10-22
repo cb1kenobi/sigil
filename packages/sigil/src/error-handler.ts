@@ -139,10 +139,30 @@ function errorPayload(err: unknown): SerializedError {
  * selection. The exit code still carries the verdict.
  *
  * It reads the format off the state, which is what makes it work for a parse
- * error too: `--format json` on a command whose `--port` was given a letter is
- * a failure the user asked to receive as JSON, and by then `detectFormat()` has
- * run. A parse that failed *before* the format was settled falls back to the
- * message, which is the honest answer -- nothing had yet said which format.
+ * error too: `--json` on a command that was not given a required option is a
+ * failure the user asked to receive as JSON, and `Missing required options:
+ * --port` comes out as a payload.
+ *
+ * ## Where the seam is, measured rather than described
+ *
+ * `detectFormat()` runs after argv has been **walked** and before it is
+ * **judged**, which is the window `afterParse` is documented for -- so which
+ * side of the seam a parse error falls on is which of those two it came out of,
+ * and it is not the side the first version of this comment claimed. Measured on
+ * the one it named: `--port eight` on an `int` is `Invalid integer: eight` as a
+ * **plain line**, in either token order, because a value its type rejects
+ * throws while argv is being read and nothing had yet said which format.
+ * `Missing required options` and `Unexpected argument "extra"` are both
+ * payloads, because those are judgements.
+ *
+ * Which is the same boundary the help rule already draws in the same place:
+ * help wins over a *missing* required option, and an invalid value "failed on
+ * the way in, while argv was being read, and there was never a question to
+ * answer". Moving `detectFormat()` earlier would not close it -- the throw is
+ * inside the pass that reads the option, so there is no earlier point that has
+ * both the token and a settled chain. Recorded rather than guarded, because
+ * what it costs is a plain line where a script wanted a payload and the
+ * **exit code still carries the verdict**, which is the half a script keys on.
  *
  * A serializer that throws on the payload falls back to the message rather
  * than replacing the error with its own: a broken serializer must not cost the

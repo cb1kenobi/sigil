@@ -8,6 +8,7 @@
  *   node demos/parser/12-formats.js list --format nope
  *   node demos/parser/12-formats.js report --json
  *   node demos/parser/12-formats.js boom --json
+ *   node demos/parser/12-formats.js boom --format csv
  *   node demos/parser/12-formats.js watch --json
  *
  * What `run()` does not do is the point: nothing below computes two answers.
@@ -30,13 +31,28 @@ const rows = [
   { name: 'bravo', size: 7 },
 ];
 
+/**
+ * A serializer is handed **both** of a run's two answers, which is the half an
+ * app has to know and the half the first version of this demo got wrong: on the
+ * failure path it gets `{ error: { message, name } }` rather than the shape the
+ * command returns, so a serializer written only for the data silently produces
+ * a header row with no rows under it and the error is simply gone. Which is
+ * what `boom --format csv` did. So each of these says what it does with a
+ * payload, and the shape is `SerializedError`.
+ */
+const isError = (value) => value !== null && typeof value === 'object' && 'error' in value;
+
 /** A serializer an app brings, which is the division: `json` ships, this does not. */
 const toCsv = (value) =>
-  ['name,size', ...(value.rows ?? []).map((row) => `${row.name},${row.size}`)].join('\n');
+  isError(value)
+    ? `error\n${JSON.stringify(value.error.message)}`
+    : ['name,size', ...(value.rows ?? []).map((row) => `${row.name},${row.size}`)].join('\n');
 
 /** And one more, to show that `--format` takes a name rather than only JSON. */
 const toYaml = (value) =>
-  (value.rows ?? []).map((row) => `- name: ${row.name}\n  size: ${row.size}`).join('\n');
+  isError(value)
+    ? `error:\n  message: ${value.error.message}`
+    : (value.rows ?? []).map((row) => `- name: ${row.name}\n  size: ${row.size}`).join('\n');
 
 /** The human form, which both commands below draw the same way. */
 const table = () => rows.map((row) => `${row.name.padEnd(8)}${row.size}`).join('\n');
@@ -100,7 +116,9 @@ await main({
           // a script that gets JSON on success and a rendered message on failure
           // cannot be scripted against, so the error leaves through the same
           // selection: `{ "error": { "message", "name" } }`, on stderr, with the
-          // exit code still carrying the verdict
+          // exit code still carrying the verdict. Which is why `isError()` is up
+          // at the top: a serializer this app wrote is handed that payload too,
+          // and one written only for the data loses the error without saying so
           throw new TypeError('nothing to list');
         },
       },

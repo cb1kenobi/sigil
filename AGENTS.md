@@ -4419,6 +4419,176 @@ on an exception.
   **replaced** `render` that throws while a format is selected, which is the only
   place the outer fallback's choice is observable.
 
+#### What the first review round found, and the one thing that was losing data
+
+`muse-wonder-1.0-high` through `cursor-agent`, pointed at the diff with the
+ticket's own requirements and **not** the rationale, so that it could not simply
+confirm the argument above. **Ten confirmed findings plus three documentation
+ones**, every one reproduced here before it was believed -- and the distribution
+is the one this file keeps recording: not one of them is a dead guard, which is
+the half a sabotage pass is blind to by construction. Three were a wrong answer
+on a reachable path, four were an input that parsed and then did something nobody
+meant, and the rest were prose that was false about the code beside it.
+
+- **The `json` built-in silently lost nested data, which is the severe one.**
+  `JSON.stringify` has three answers for a value it cannot hold and only one is
+  loud, and the design had argued for leaving the silent two to JSON "for the
+  reason `jsonCanHold()` in the config module records refusing it: there, a value
+  is being written back to a file somebody will read again, and here it is being
+  handed to a pipe once". That reasoning is wrong about **which** losses are at
+  stake. A `Map` of results reaches a pipe as `{}`, a function or an `undefined`
+  value has its **key dropped**, and `NaN` and both infinities are `null` -- so a
+  command returning a `Map` piped an empty object and nothing said a word, which
+  is the one thing the house rules name directly.
+
+  The framework already refused a _top-level_ `undefined` for exactly this
+  reason, which is what makes the nested case the same rule half applied.
+
+  `lossyAs()` is the answer and a **replacer** is the mechanism, which is the
+  reviewer's own suggestion and is better than the hand walk that was weighed
+  against it: a replacer sees what `JSON.stringify` sees, so `toJSON` and a boxed
+  primitive need no special case, and it carries the **path** -- `this` is the
+  holder and a holder is always visited before the values under it, so one
+  `WeakMap` is enough. Measured on fourteen shapes before anything was written,
+  and on twenty-one afterwards.
+
+  Two decisions inside it are not the obvious ones. It is **not** `jsonCanHold()`
+  from the config module, and the two differ on purpose: that one asks whether a
+  value survives a write and a read _back_, so it refuses a class instance, where
+  this asks only whether JSON writes what it was given once -- so a class
+  instance is written as its fields, which is what the app asked for. And the
+  `{}` family is asked of **`JSON.stringify` itself** rather than of a prototype
+  table, because `new Number(5)` is a non-plain object with no own keys that JSON
+  writes as `5`: a table keyed on the prototype refuses a value that is written
+  faithfully, and asking what JSON will write cannot be wrong about what JSON will
+  write. An empty `Map` is the one value this calls a loss that holds nothing to
+  lose, which is correct -- a `Map` is `{}` whether or not it has entries, so the
+  app's serialization is wrong regardless of what is in it now.
+
+  It costs **1,534 B on every app's root entry**, and that cannot be deferred for
+  the reason the rest of the chunk cannot: `renderError()` is synchronous by
+  design, so there is no `await import()` on the path that reaches it.
+
+- **The accepted set was position-dependent, which is the one a format must not
+  be.** `detectFormat()` read `accepts` off the option argv **bound to**, and a
+  token resolves against the contexts known at that moment -- so `db --format json
+  list`, on a `db` that accepts everything and a `list` narrowed to `['yaml']`,
+  bound to `db`'s option and `list`'s narrowing was never applied: exit 0, the
+  JSON on stdout. `db list --format json` refused it correctly, so one command
+  line had two answers depending on where the token sat.
+
+  The set comes off the **settled chain** now -- `state.contexts` is
+  innermost-first, so the first command that declared one governs, which is the
+  parser's own nearer-declaration rule. `--json` is the sharper half of the test,
+  because the sugar itself is only there because an _ancestor_ offered it: `list`
+  accepts only yaml, so no `--json` was added to its registry and the one that
+  resolves is `db`'s. Which is options resolving across the chain, and is exactly
+  why what a token may **name** has to be the nearest command's answer rather than
+  the answer of whichever registry holds the option.
+
+  The existing test could not see it, and its own name said why: it "only ever
+  places the token _after_ the subcommand name". And `mark()`'s doc was the
+  sentence that made the defect look impossible -- it claimed the accepted set
+  "that comes with it is the nearer one's without anything having to ask", which is
+  true of the _option_ and false of the _set_.
+
+- **An async serializer cost two unhandled rejections, not just a confusing
+  message.** The type says `string` and a JavaScript app is not bound by it, and
+  `got object` sends the author to look at their data rather than at their
+  signature. The half that costs something is that the promise is **discarded** --
+  by `writeFormatted()` and again by the error path, which serializes the payload
+  with the same serializer -- so one that _rejects_ took the process down with two
+  unhandled rejections about an answer nothing was waiting for. Measured.
+  `assertSerialized()` names a promise and swallows its rejection, which is safe
+  because the throw below it is the report.
+
+- **Three inputs `outputFormats()` took and should not have, all measured.** An
+  **array** _works_: `Object.entries` keys it by index, so `formats: [fn]` mints a
+  format called `0` and `--format 0` selects it. A **`Map`** -- which is the shape
+  anybody reaching for a registry writes -- contributes **nothing**, so an app that
+  had declared yaml was told `This command accepts: json`. And `{ '': fn }` made
+  `--format=`, which is the one way argv says "deliberately empty", select a
+  format. A fourth came with them: a format **name holding a control character**
+  reached stderr raw in the `This command accepts:` list and executed on the
+  terminal, which is the rule this repository keeps for every byte it emits.
+
+  All four are refused where the declaration was written. `isRecord()` is a local
+  predicate with two readers in the module rather than the config module's
+  published `isPlainObject()`, and that is a layering call with a measurement
+  behind it: that one is `@ttylabs/sigil/config` public API with about fifty
+  readers across three packages, so moving it to `src/util/` -- the answer this
+  repository has reached for three times -- is a change to published API taken
+  inside a ticket about output formats.
+
+- **The demo destroyed the error it was written to demonstrate.** `boom --format
+  csv` printed `name,size` and nothing else, because `toCsv` read `value.rows`
+  and the failure path hands over `{ error: { message, name } }`. So the one demo
+  of "errors are data too" showed two formats losing the error, and
+  `renderError()`'s catch did not fire because the serializer did not throw -- it
+  returned a string. Which is the fact an app author most needs and the README did
+  not state: **a serializer is handed both of a run's two answers.** Both
+  serializers branch on it now, the README says so with the shape, and
+  `demos/README.md` says why the extra command is in the list.
+
+- **`renderError()`'s motivating example was the one case that does not
+  serialize.** It gave `--format json` on a command "whose `--port` was given a
+  letter" as what the format-aware path is for, and measured: `Invalid integer:
+  eight` is a **plain line**, in either token order, because a value its type
+  rejects throws while argv is being **read** and `detectFormat()` runs after the
+  walk and before the judging. `Missing required options` and `Unexpected
+  argument` are both payloads.
+
+  Which is the same boundary the help rule already draws in the same place, and
+  it is now pinned by a test over both token orders rather than described -- so
+  finding 3's "make the seam an explicit recorded acceptance" is a check. Moving
+  `detectFormat()` earlier would not close it: the throw is inside the pass that
+  reads the option, so there is no earlier point that has both the token and a
+  settled chain.
+
+- **And four sentences were false about the code beside them**, one of which
+  contradicted its own file nine lines up. `format.ts`'s header and the README
+  both said "no command branches at all" / "what stops a command branching on it
+  at all" -- while the README's own previous paragraph says reading `state.format`
+  is "a question about presentation", and the demo's `list` does exactly that
+  branch, because stdout belongs to the serializer once a format was selected.
+  `mark()`'s doc said `parserOwned` means a command **cannot** branch on it,
+  where what is off `argv` is the **name**. And `demos/README.md`'s table row
+  said "out of one `run()` with no branch in it".
+
+  The true statement is narrower and is what all four say now: no command branches
+  on _which_ format, which is the `if (json) … else …`; whether one was selected
+  is a different question and is `state.format`. Plus one minor:
+  `SerializedError.name` was documented as present "where it has one that says
+  more than `Error`", and `Error` is included -- deliberately, because a script
+  asking "is this an `Error` or a `TypeError`" needs the field either way.
+
+- **Two tests could not fail for the reason their names gave**, which is the
+  class the round found last and the one this suite refuses elsewhere. The
+  `--version` test had no `default` command, so there was nothing for a format to
+  present and stdout was the version whether or not `--version` won; it has one
+  now, so a `--version` that stopped short-circuiting prints the JSON. And the
+  BigInt test asserted `toContain('BigInt')` against JSON's own message, which
+  says nothing about _which_ value -- it is one row of a ten-row table over every
+  silent loss now, each asserting the path, with an inverse table beside it over
+  the five values JSON holds faithfully so that a refusal widened to cover one of
+  those fails rather than going quiet.
+
+- **One minor was left as a comment rather than a change.** `writeFormatted()`
+  and `renderError()` re-resolve with `accepts = true` rather than with the
+  command's own narrowing, which is safe by construction: `detectFormat()` set
+  `state.format` only after `formatFor()` had judged the name against the chain's
+  set, so a name that is there is one that passed, and `true` is a superset.
+  Passing the narrowing again would mean a second field on `ParseState` answering
+  a question already answered.
+
+- **And one process error of mine is worth recording with them.** The reviewer
+  flagged uncommitted modifications to two source files that it had not made --
+  because I edited the tree while the round was running. AGENTS.md's own rule says
+  nothing else touches the tree while a sabotage pass is live; a review round is
+  the same hazard with a worse signature, because what comes back is a confident
+  finding about a defect you introduced on purpose. The same thing happened to the
+  config write work from a `pnpm fmt` in another terminal.
+
 #### What is deliberately out
 
 - **A process-wide `registerFormat()`**, with the leak reason above.

@@ -14,20 +14,20 @@ arguments and yours are used instead.
 
 ## The parser
 
-|                                                                |                                                                   |
-| -------------------------------------------------------------- | ----------------------------------------------------------------- |
-| [`parser/01-hello.js`](parser/01-hello.js)                     | The smallest thing that works                                     |
-| [`parser/02-options.js`](parser/02-options.js)                 | Flags, values, types, defaults, `env`, choices, repeats, negation |
-| [`parser/03-arguments.js`](parser/03-arguments.js)             | Required, optional, and variadic positionals                      |
-| [`parser/04-subcommands.js`](parser/04-subcommands.js)         | Nesting, aliases, hidden commands, and how options resolve        |
-| [`parser/05-default-command.js`](parser/05-default-command.js) | A single-command CLI                                              |
-| [`parser/06-lazy-commands.js`](parser/06-lazy-commands.js)     | Commands read from a directory, loaded when matched               |
-| [`parser/07-help.js`](parser/07-help.js)                       | Groups, contributed sections, and writing your own                |
-| [`parser/08-hooks.js`](parser/08-hooks.js)                     | Watching a parse, adding an option mid-parse, rewriting an error  |
-| [`parser/09-errors.js`](parser/09-errors.js)                   | The default handler, your own, and catching it yourself           |
-| [`parser/10-palette.js`](parser/10-palette.js)                 | A command palette generated from the command registry             |
-| [`parser/11-dispatch.js`](parser/11-dispatch.js)               | Re-routing and executing one command from another                 |
-| [`parser/12-formats.js`](parser/12-formats.js)                 | `--json` and `--format`, out of one `run()` with no branch in it  |
+|                                                                |                                                                     |
+| -------------------------------------------------------------- | ------------------------------------------------------------------- |
+| [`parser/01-hello.js`](parser/01-hello.js)                     | The smallest thing that works                                       |
+| [`parser/02-options.js`](parser/02-options.js)                 | Flags, values, types, defaults, `env`, choices, repeats, negation   |
+| [`parser/03-arguments.js`](parser/03-arguments.js)             | Required, optional, and variadic positionals                        |
+| [`parser/04-subcommands.js`](parser/04-subcommands.js)         | Nesting, aliases, hidden commands, and how options resolve          |
+| [`parser/05-default-command.js`](parser/05-default-command.js) | A single-command CLI                                                |
+| [`parser/06-lazy-commands.js`](parser/06-lazy-commands.js)     | Commands read from a directory, loaded when matched                 |
+| [`parser/07-help.js`](parser/07-help.js)                       | Groups, contributed sections, and writing your own                  |
+| [`parser/08-hooks.js`](parser/08-hooks.js)                     | Watching a parse, adding an option mid-parse, rewriting an error    |
+| [`parser/09-errors.js`](parser/09-errors.js)                   | The default handler, your own, and catching it yourself             |
+| [`parser/10-palette.js`](parser/10-palette.js)                 | A command palette generated from the command registry               |
+| [`parser/11-dispatch.js`](parser/11-dispatch.js)               | Re-routing and executing one command from another                   |
+| [`parser/12-formats.js`](parser/12-formats.js)                 | `--json` and `--format`, out of one value with no two-answer branch |
 
 Two worth running with `--help` to see what the screen does:
 
@@ -72,7 +72,13 @@ cannot show:
 node demos/parser/12-formats.js list --json | jq .total
 node demos/parser/12-formats.js list --format csv
 node demos/parser/12-formats.js boom --json
+node demos/parser/12-formats.js boom --format csv
 ```
+
+The last one is there because a serializer an app writes is handed **both** of a
+run's two answers: the data on success and `{ error: { message, name } }` on
+failure. One written only for the data loses the error without saying so, which
+is what the first version of that demo did.
 
 Every command in it computes one value and returns it, and which presentation
 reaches the terminal is the framework's — so there is no `if (json)` anywhere in

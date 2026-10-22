@@ -772,7 +772,23 @@ export default {
 An entry named `json` replaces the built-in. A serializer is **synchronous**,
 which is forced rather than chosen: `errorHandler()` is synchronous, and the
 serialized error has to come out of the same selection the serialized result
-does.
+does. Returning a promise is refused, naming it.
+
+The built-in **refuses what JSON would silently change** rather than writing it.
+Two of `JSON.stringify`'s three answers for a value it cannot hold are silent: a
+function, a symbol or an `undefined` has its key dropped in an object and becomes
+`null` in an array, and `NaN`, both infinities and every object JSON has no
+mapping for — a `Map`, a `Set`, an `Error` — are rewritten as `null` or `{}`. So
+a command returning a `Map` of results would have piped `{}` and said nothing.
+Each is refused with the path:
+
+```
+Error: JSON has no mapping for Map, so it writes {} (at "rows")
+```
+
+A class instance is written as its fields, a `Date` as its `toJSON`, and `null`
+as `null` — those are values JSON holds faithfully, so they are held. An app's
+own serializer answers for its own format the same way.
 
 ### Both spellings, and why
 
@@ -807,8 +823,21 @@ exit 1
 
 `name` is the half a script can branch on, and that is why it is there: a
 **message is translated and a name is not**, so a script keyed on the message
-breaks the moment `LANG` moves. `exitCode` is absent on purpose — the process
-already carries the verdict.
+breaks the moment `LANG` moves. It is present wherever the thrown value has one,
+which is every `Error` there is; a thrown string has none. `exitCode` is absent
+on purpose — the process already carries the verdict.
+
+Which means **your serializer is handed both of a run's two answers**: the data
+on success and that payload on failure. One written only for the data loses the
+error without saying so — a CSV serializer reading `value.rows` gets a header row
+and nothing under it. Check for `error` first:
+
+```js
+const toCsv = (value) =>
+  'error' in value
+    ? `error\n${JSON.stringify(value.error.message)}`
+    : ['name,size', ...value.rows.map((r) => `${r.name},${r.size}`)].join('\n');
+```
 
 One seam is worth knowing. A value that failed **on the way in** — `--port
 eight` on an `int` — is reported as a plain message rather than as data, because
@@ -864,8 +893,10 @@ suppression would be partial, which is worse than none.
 `--help` still prints help, because help is the answer to the question and a
 format is about how an answer is presented. `--version` still prints the version,
 which is a question about the program rather than a command's answer. And
-`argv.format` does not exist: the value is the parser's, which is what stops a
-command branching on it at all.
+`argv.format` does not exist: the **name** is the parser's, so a command cannot
+branch on _which_ format was asked for, which is the conditional this deletes.
+Whether one was asked for is a different question and is `state.format`, nine
+lines up.
 
 A command that declares `format` and returns `undefined` is **refused**, naming
 the command. Printing nothing leaves a script with empty stdout and exit zero, so
