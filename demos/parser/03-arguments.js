@@ -12,6 +12,7 @@ await main({
   argv: process.argv.length > 2 ? undefined : ['copy', 'a.txt', 'b.txt', 'dist/'],
   schema: {
     name: 'args',
+    completion: false,
     commands: {
       copy: {
         desc: 'Copy files somewhere',

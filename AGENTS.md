@@ -18684,6 +18684,19 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   at run time exactly as an unbundled one does, which is why that is not a
   divergence.
 
+  **And eleven demos gained the same line, for a reason the tests do not have.**
+  A test turns it off so an expectation does not move; a demo turns it off
+  because it is one idea each, and a free row on a `--help` screen is a row the
+  file did not write and is not about. `help` stays, because `07-help.js` is
+  about exactly that, and `completion` is demonstrated nowhere -- which is what
+  makes the rule stateable rather than tidiness. `10-palette.js` is the one that
+  keeps it and is the interesting one: the palette reads the **registry** rather
+  than the declaration, so the one command the app never declared is the row that
+  proves it, which is that demo's whole claim. The three demos that pass their
+  own `argv` and never parse `--help` -- `09-errors.js`, `05-quiet.js` and the
+  config four -- needed nothing, and a line there would have been noise. Measured
+  rather than swept: twelve demos showed the row and one of the twelve should.
+
 - **Two keys joined `SIGIL_KEYS`, which is the one place this is an app's user's
   business rather than a developer's.** `@ttylabs/cli`'s own output is
   deliberately not translated because its reader is a developer; a `completion`

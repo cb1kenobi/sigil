@@ -17,6 +17,7 @@ await main({
   schema: {
     name: 'lazy',
     desc: 'Commands read from a directory',
+    completion: false,
     commands: join(import.meta.dirname, 'commands'),
   },
 });

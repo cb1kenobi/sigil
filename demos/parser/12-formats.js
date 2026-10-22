@@ -70,6 +70,7 @@ await main({
     // brings the YAML library it chose.
     formats: { csv: toCsv, yaml: toYaml },
 
+    completion: false,
     commands: {
       list: {
         desc: 'List things, drawing to stdout where nothing asked for data',

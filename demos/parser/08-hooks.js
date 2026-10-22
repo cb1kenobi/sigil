@@ -23,6 +23,7 @@ await main({
           : undefined,
     },
 
+    completion: false,
     commands: {
       build: {
         args: ['<entry>'],

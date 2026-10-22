@@ -13,6 +13,7 @@ await main({
   schema: {
     name: 'hello',
     desc: 'A very small CLI',
+    completion: false,
     commands: {
       greet: {
         desc: 'Say hello to somebody',
