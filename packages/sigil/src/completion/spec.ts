@@ -374,10 +374,13 @@ function spellingsOf(opt: InternalOption): string[] {
  *
  * A `hidden` option is left out, which is the same rule a hidden command
  * follows: `hidden` means "not listed", and a completion menu is a listing. A
- * `parserOwned` one -- `--help`, `--version` and `--quiet` -- is *kept*, which is
- * the opposite call from `slotsFor()` and is right for the opposite reason: what
- * that flag says is that the option's *value* is not the app's business, and
- * `--help` is a thing a user types.
+ * `parserOwned` one -- `--help`, `--version`, `--quiet`, and `--format` with its
+ * `--json` sugar -- is *kept*, which is the opposite call from `slotsFor()` and
+ * is right for the opposite reason: what that flag says is that the option's
+ * *value* is not the app's business, and `--help` is a thing a user types.
+ * Measured on a command that declared `format`: the generated bash script lists
+ * `--format` and `--json` beside `--help` and `--quiet`, and names `--format` as
+ * one that takes a value.
  *
  * Deduplicated by spelling with the nearer declaration winning, because that is
  * the order the registry lookup resolves in: a command declaring `--mode`

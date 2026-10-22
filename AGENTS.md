@@ -4311,10 +4311,14 @@ The sharpest question in the design, and the ticket did not name it.
   the _value_ `undefined` for a function, a symbol and `undefined` itself, which
   would reach stdout as the word; and it rewrites `NaN` and `Infinity` as `null`.
   The second is reachable through `json` by a command returning a function, so the
-  refusal has a real caller. The third is JSON's and is left alone, which is the
-  opposite call from `jsonCanHold()` in the config module and for a stated reason:
-  there a value is written back to a file somebody will read again, and here it is
-  handed to a pipe once.
+  refusal has a real caller. The third was left to JSON for one commit, on the
+  argument that a value here is handed to a pipe once where the config module's
+  `jsonCanHold()` guards a file somebody reads back -- and a review round measured
+  what that argument costs: a `Map` of results piped `{}` and said nothing.
+  `lossyAs()` refuses all three families at the value now, so `NaN` is `JSON
+  writes NaN as null` naming the path rather than a `null` on somebody's stdout.
+  What is still left alone is the residual below, and that is where the
+  `jsonCanHold()` comparison belongs.
 
 - **`writeFormatted()` writes exactly one trailing newline**, stripping whatever
   the serializer ended with -- `errorHandler()`'s own rule, which is what keeps a
@@ -4362,15 +4366,23 @@ The sharpest question in the design, and the ticket did not name it.
 
 #### What it costs, and the i18n line
 
-- **1,482 B on the root entry, which is 9,648 B over seven modules against a 20
-  kB ceiling.** The 819 B `format` chunk is on that graph for one reason:
+- **3,825 B on the root entry, which is 11,991 B over seven modules against a 20
+  kB ceiling.** The 3,160 B `format` chunk is on that graph for one reason:
   `errorHandler()` serializes an error in the selected format, so it is reachable
   from the error path every app has. Carrying the **resolved serializer** on
   `ParseState` instead would take the chunk off the graph entirely and was weighed
   and refused -- a _name_ is what a reader, a hook and a test want on the state,
   and `formatFor()` is deterministic given the schema, so resolving it twice cannot
-  drift. `components.mjs` moved 242,307 to 243,401 B over 29 for the same reason:
+  drift. `components.mjs` moved 242,297 to 245,744 B over 29 for the same reason:
   it reaches `error-handler`.
+
+  Every one of those is re-measured rather than carried, and a review round is
+  what asked: this bullet read 1,482 B and 9,648 B with an 819 B chunk, which was
+  the honest measurement of the **first** commit and went stale the moment round
+  one's loss refusal landed -- while `dist.test.ts`, which the rounds did update,
+  said 11,991 B. Two figures for one measurement leave a later reader no way to
+  tell which was measured, which is the defect that file's own comment is written
+  about, so both are the same number now and neither was copied from the other.
 
 - **Three translated keys and five English ones**, which is the line this file
   already draws. `Present the result in this format`, `Present the result as JSON`
@@ -4465,9 +4477,14 @@ meant, and the rest were prose that was false about the code beside it.
   lose, which is correct -- a `Map` is `{}` whether or not it has entries, so the
   app's serialization is wrong regardless of what is in it now.
 
-  It costs **1,534 B on every app's root entry**, and that cannot be deferred for
+  It costs **1,615 B on every app's root entry**, and that cannot be deferred for
   the reason the rest of the chunk cannot: `renderError()` is synchronous by
-  design, so there is no `await import()` on the path that reaches it.
+  design, so there is no `await import()` on the path that reaches it. Measured by
+  replacing `json()`'s body with a plain `JSON.stringify` and letting the shaker
+  drop what nothing then reaches -- which is the walk's **own** cost, where the
+  2,341 B this and `dist.test.ts` each said for a while is what round one's whole
+  commit added, four other fixes included. A figure means what its measurement
+  asked, so the method is written beside it.
 
 - **The accepted set was position-dependent, which is the one a format must not
   be.** `detectFormat()` read `accepts` off the option argv **bound to**, and a
@@ -4798,6 +4815,93 @@ because a mutation is a fact rather than an opinion.
   second step, so a `grep -c "^  '"` against the unformatted file matched
   nothing. A figure that disagrees is a harness to go and read. The committed set
   is byte for byte what the generator produces.
+
+#### What the PR review round found, and the copy that ships
+
+Two comments, **both confirmed before they were believed**, and both are prose
+contradicting the code beside it -- which makes this the **fourth** pass here to
+find a defect in its predecessor's own output, after rounds two and three each
+did the same. That is the pattern this file records rather than a run of bad
+luck: code written in answer to a review is code no review has seen, and the
+cheapest round to arrange is the one aimed at the last round's fixes.
+
+- **The `Unknown option` claim was fixed in the module and left in the
+  declaration, which is the copy that ships.** Round three's own entry above
+  records correcting that sentence in `parser/format.ts`, and
+  `Command.format`'s doc said it too -- so the fix landed in the one a
+  maintainer reads and not in the one that goes into `dist/index.d.mts` and is
+  what an app author sees on hover. Measured end to end before anything was
+  changed: `mycli dashboard --format json` on a command that did not opt in
+  exits **0** and serializes nothing, and `Unknown option "--format"` is the
+  answer only with `allowUnknownOptions: false`. Which is the
+  fixed-in-one-place-and-left-in-another class, in the worse of the two places.
+
+- **And the second paragraph of the same doc was the fifth copy of a sentence
+  round one corrected in four.** It said whether the command's own drawing
+  reaches the terminal "is the framework's decision, so there is no `if (json)`
+  to write", where the framework **cannot** decide that -- it could only suppress
+  a command's own stdout by patching `process.stdout.write`, which a spawned
+  child writing to the inherited fd walks straight past. `format.ts`, the README
+  and `demos/README.md` each say the narrow thing already: no command branches on
+  **which** format, and a command drawing its own human form to stdout reads
+  `state.format` or draws to stderr. The declaration now says it too.
+
+- **The figures were measured rather than copied from either side, and what a
+  figure means depends on what its measurement asked.** `dist.test.ts` said
+  11,991 B and AGENTS.md said 9,648 B, and the comment in that file claims to
+  record "the same figure AGENTS.md records, because two comments disagreeing
+  about one measurement leave a later reader with no way to tell which was
+  measured" -- so the disagreement was in the file whose own comment is written
+  about it. Re-measured: the root entry is **11,991 B over seven modules**
+  against `main`'s 8,166 B over six, so the delta is **3,825 B** rather than
+  either side's 1,482 or 3,823; the `format` chunk is **3,160 B**; and
+  `components.mjs` is **245,744 B over 29** against `main`'s 242,297.
+
+  The **loss refusal** is the one worth the entry, because the two numbers in
+  the tree were both honest and were answers to different questions.
+  **1,615 B** is the walk's own cost, measured by replacing `json()`'s body with
+  a plain `JSON.stringify` in a worktree and letting the shaker drop what
+  nothing then reaches -- and 2,341 B is what round one's **whole commit** added,
+  which is the chain-rule fix, the async serializer, the `outputFormats()`
+  refusals and the control-character guard as well. Neither figure was wrong; the
+  sentence naming one of them was. So the method is written beside the number,
+  which is the only thing that stops the next reader comparing two measurements
+  of two different things.
+
+- **And `assertSerialized()`'s bullet still said JSON's `NaN` rewrite "is left
+  alone", which round one's own fix had made false.** Measured:
+  `{ a: NaN }` through `--json` is `JSON writes NaN as null (at "a")` on stderr
+  with exit 1, and so is an infinity. What is still left alone is the residual --
+  `-0`, a symbol key, a non-enumerable property, an invalid `Date` and an empty
+  typed array -- which is where the `jsonCanHold()` comparison belongs and where
+  that bullet now points.
+
+**Four adjacent enumerations were short by one, and this change is what made
+them so.** Not named by the round, and the same class as its second finding: the
+parser-owned set is `--help`, `--version`, `--quiet` and now `--format` with its
+`--json` sugar, and `completion/spec.ts`, `suggest.ts`, `catalog.ts` and the
+README each still said three. Which is the defect the quiet axis already records
+five instances of, arriving a sixth time -- so each is corrected with the
+measurement rather than only the count: the generated bash script lists
+`--format` and `--json` beside `--help` and `--quiet`, `--formt` answers `Did you
+mean "--format"?` and `--jsn` answers `--json`.
+
+`catalog.ts`'s needed more than a number, which is why counting is not the whole
+of it. Its parser-owned skip is a **declared statement** whose safety argument is
+that a flag carries a `false` default and the ask pass skips a flag for not being
+`required` -- and `--format` is the one parser-owned option that is **not** a
+flag, so neither step covers it. What makes it inert there is a third route the
+comment did not have: it carries no `env` and no `default`, so there is no way
+for it to join `answered` at all, and it is declared `[name]` rather than
+`<name>`, so the ask pass skips it too. A count corrected without the clause
+would have left the argument false for exactly the option that was added.
+
+The other three readings of that set are each a **contrast** rather than a count
+-- `format.ts` twice and `AGENTS.md` once, each naming the three to say what
+`--format` is not -- and `catalog.test.ts`'s is correctly scoped: "the flags the
+parser adds" really are three, because `--format` is not a flag and is added per
+command on opt-in rather than to every schema. Swept and written down so the next
+reader finds a decision rather than four more sites to correct.
 
 #### What is deliberately out
 
@@ -19129,8 +19233,8 @@ below `compinit`, so following it never loads the completion.**
   eight-module shape, because that is what the merged tree has, with every figure
   in it **re-measured** rather than picked from a side: the config graph is
   38,239 B over eight, unchanged, while the root entry is **8,166 B** and
-  `components.mjs` **242,307 B over 28** -- figures SIG-142 then moved to 9,648 B
-  over seven and 243,401 B over 29, which is that entry's own instruction working
+  `components.mjs` **242,307 B over 28** -- figures SIG-142 then moved to 11,991 B
+  over seven and 245,744 B over 29, which is that entry's own instruction working
   rather than a contradiction -- neither of which either side said,
   since both branches moved them. Four figures in that one file now agree with
   the tree and with each other, which is what its own comment about two comments

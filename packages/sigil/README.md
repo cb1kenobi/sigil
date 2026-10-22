@@ -1154,8 +1154,8 @@ lists -- a palette shows one row per command, and a completion menu is a list of
 tokens, so every token the parser takes is in it.
 
 A `hidden` command is not offered, and neither is anything under it; nor is a
-`hidden` option. `--help`, `--version` and `--quiet` are, because they are
-things a user types.
+`hidden` option. `--help`, `--version`, `--quiet` and a command's own `--format`
+and `--json` are, because they are things a user types.
 
 Anything with no declared values falls back to your shell's own file
 completion, which is what `--out <dir>` wants.

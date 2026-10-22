@@ -366,7 +366,7 @@ describe('what importing the package costs', () => {
     // from: `paths.mjs`, `i18n.mjs`, the `transform` and `debug` chunks, the
     // 66-byte `env-value` chunk the parser shares, and the 525-byte
     // `mkdir-owner-sync` one the update cache shares. The eighth is the atomic
-    // write, which SIG-151's installer now shares. The graph is 3.96x the root
+    // write, which SIG-151's installer now shares. The graph is 3.19x the root
     // entry's 11,991 B and a sixth of `components.mjs`'s 245,744 B over 29 --
     // all three measured the same way, which is the only comparison that means
     // anything. It read 38,064 B and 5.06x until a review round measured both:
@@ -406,7 +406,7 @@ describe('what importing the package costs', () => {
     // entry, which a review round caught here as readily as in AGENTS.md --
     // which is the argument for the figure living in two places and no more.
     //
-    // 3,823 B of it is SIG-142's output formats, and it is on the entry for one
+    // 3,825 B of it is SIG-142's output formats, and it is on the entry for one
     // reason: `errorHandler()` serializes an error in the selected format, so
     // the 3,160 B `format` chunk is reachable from the error path every app has.
     // Carrying the resolved serializer on `ParseState` instead would take the
@@ -414,7 +414,7 @@ describe('what importing the package costs', () => {
     // what a reader, a hook and a test want on the state, and `formatFor()` is
     // deterministic given the schema, so resolving it twice cannot drift.
     //
-    // 2,341 B of that chunk is the **loss refusal**, which two review rounds
+    // 1,615 B of that chunk is the **loss refusal**, which two review rounds
     // are what bought: `json` walks what it was handed and refuses a value
     // `JSON.stringify` would silently rewrite, so a command returning a `Map`
     // of results no longer pipes `{}`. It cannot be deferred for the reason the

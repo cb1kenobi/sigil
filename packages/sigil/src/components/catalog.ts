@@ -388,7 +388,12 @@ export function slotsFor(
     // steps rather than an impossibility -- a flag carries a `false` default,
     // so without this their destinations would join `answered`, which is then
     // harmless only because the ask pass below skips a flag for not being
-    // `required`. There are three of them: `--help`, `--version` and `--quiet`
+    // `required`. There are four: `--help`, `--version`, `--quiet` and
+    // `--format` with its `--json` sugar -- and that last one is the one that is
+    // not a flag, so neither step above covers it. What makes it inert is that it
+    // carries no `env` and no `default`, so there is no route by which it joins
+    // `answered` at all, and it is declared `[name]` rather than `<name>`, so
+    // the ask pass skips it for not being `required` either
     if (parserOwned) {
       continue;
     }

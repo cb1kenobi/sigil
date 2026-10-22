@@ -221,14 +221,21 @@ export interface Command<
    * `true` is every format the schema provides, a list is those names, and
    * absent is no option at all -- because a command with no data to serialize
    * must not grow one. That is the whole of the per-command rule: the option
-   * exists where the command said it does, so `mycli dashboard --format json` is
-   * an unknown option rather than a flag that parses and does nothing.
+   * exists where the command said it does, so on a command that did **not** opt
+   * in it is in no registry -- no help row, no reference entry, no completion
+   * candidate. Typing it anyway is swallowed by default, because
+   * `allowUnknownOptions` is true and an undeclared option produces a value
+   * rather than erroring: `mycli dashboard --format json` exits 0 and serializes
+   * nothing. `Unknown option "--format"` is the answer for an app that turned
+   * that setting off.
    *
-   * What it changes about the command is nothing. `run()` returns data, as it
-   * may already; whether that value is serialized to stdout or the command's own
-   * drawing reaches the terminal is the framework's decision, so there is no
-   * `if (json)` to write. Selecting a format implies quiet, so a spinner the
-   * command built is already silent.
+   * What it changes about the command is that none branches on **which** format
+   * was asked for, which is the whole of the `if (json) ... else ...`: `run()`
+   * returns one value, as it may already, and the serializer presents it. What a
+   * command drawing its **own** human form to stdout must still ask is *whether*
+   * one was selected, because stdout belongs to the serializer once it was --
+   * read `state.format`, or draw to stderr and need no branch at all. Selecting
+   * a format implies quiet, so a spinner the command built is already silent.
    *
    * ```js
    * command({
