@@ -1,0 +1,334 @@
+/**
+ * `--format`, and the `--json` sugar, wired the way `--quiet` is -- except for
+ * the one thing that makes this option different from every other the parser
+ * adds: it is **per command**, because the command is what asked for it.
+ *
+ * ## Why it is not on the root
+ *
+ * `--help`, `--version` and `--quiet` go on the root context, because options
+ * resolve across the whole chain and a question about the program is one every
+ * invocation can ask. A format is not that. A full-screen dashboard has no data
+ * to serialize, and a `--format` on it would be an option that parses and does
+ * nothing -- which this repository calls worse than no option at all. So a
+ * command **opts in**, by declaring the formats it supports or `true` for every
+ * one the schema provides, and the option exists exactly where the command said
+ * it does: `mycli dashboard --format json` is `Unknown option` rather than a
+ * silent no-op.
+ *
+ * Which also means it is added in `initCommand()` rather than in `parse()`, and
+ * that is the whole of why it belongs in the reference and in a completion
+ * script where the other three do not. Those are added by the parse, so a
+ * surface built by initializing the schema "simply does not have them. That is
+ * the answer rather than a filter: an app's snapshot should move when the app
+ * moves and not when the framework does, and what the framework adds is the
+ * framework's to document." This one is the app's: the command declared
+ * `format`, so the option it got is as much a part of its declared surface as
+ * any option it wrote out, and every walk of the registries sees it for free.
+ *
+ * ## Both spellings, and that is muscle memory rather than an oversight
+ *
+ * Two spellings of one thing is something this repository normally refuses, so
+ * the reason is written down rather than left to look like a slip: `--json` is
+ * what everybody types and what every other tool accepts, and a framework that
+ * made people learn `--format json` instead would be spending its users'
+ * goodwill on consistency they did not ask for. So `--json` is sugar, offered
+ * only where the command accepts `json`, and it is the same mechanism rather
+ * than a second one -- see `formatFromValue()`.
+ *
+ * `--output` is deliberately **not** offered. `-o`/`--output` means an output
+ * *file* in gcc, curl, ffmpeg and most of what a user of this framework has
+ * ever typed, so claiming it for a format name would be this framework taking a
+ * spelling that already means something else. And there is no short form:
+ * unlike `-h`, `-v` and `-q` there is no consensus on one, and `-f` is `--force`
+ * or `--file` far more often than it is `--format`.
+ *
+ * ## There is no `choices` list, and the message is why
+ *
+ * The obvious thing is to give the option a `choices` list so a bad name is a
+ * parse error. It is refused, and not for want of a place to put it: the list is
+ * `declared ∩ what the schema provides`, which is knowable at init for
+ * `format: ['json']` and **not** for `format: true`, because `initCommand()` has
+ * no schema. So `choices` would judge one spelling of the declaration and not
+ * the other -- two behaviours for one thing, which is what this repository
+ * deletes everywhere else.
+ *
+ * One validation point instead, in `detectFormat()`, which runs before anything
+ * is validated and so before the command runs. What that buys beyond
+ * consistency is the message: `formatFor()` names what *is* available, where
+ * `Invalid value "{0}" for {1}` has the list in hand and does not print it.
+ * What it costs is value completion -- `mycli build --format <TAB>` offers
+ * nothing -- and no choices in the generated reference. Both are a missing
+ * feature rather than a wrong answer, and both are additive later: the shape is
+ * to thread the schema's format names into `initCommand()` the way `baseDir` is
+ * threaded, after which `choices` answers for both spellings at once.
+ */
+
+import { formatFor, outputFormats } from '../format.js';
+import { __ } from '../i18n/index.js';
+import {
+  Internal,
+  type InternalCommand,
+  type InternalOption,
+  type ParseState,
+  type ParsedOption,
+} from '../types.js';
+import type { OptionRegistry } from './option/option-registry.js';
+
+/**
+ * Adds `--format` -- and `--json`, where the command accepts it -- to a command
+ * that declared `format`.
+ *
+ * Called from `initCommand()`, so the option is part of the command's registry
+ * before anything walks it: help, the reference, a completion script and the
+ * parse all see one option rather than four readers each adding their own.
+ *
+ * Nothing is added over the top of a declaration, and the asymmetry is
+ * `registerQuiet()`'s own: `find()` answers about spellings and `has()` about
+ * the key the registry stores an option under, which is its name. A merely
+ * *named* `format` costs the command the option entirely, where a taken
+ * `--json` costs it only the sugar -- because replacing a registry key is a
+ * worse thing to do to an app than declining to add a spelling.
+ *
+ * @param options - The command's option registry.
+ * @param accepts - What the declaration said: `true` for every format the
+ *   schema provides, a list of names, `false` or absent for no option.
+ * @param name - The command's name, for the message.
+ * @throws If `format` is neither a boolean nor a non-empty list of strings.
+ */
+export async function registerFormats(
+  options: OptionRegistry,
+  accepts: unknown,
+  name: string
+): Promise<void> {
+  if (accepts === undefined || accepts === false) {
+    return;
+  }
+
+  // the call a non-boolean `hidden` already gets, and for its reason: a
+  // declaration that cannot mean anything is refused where it was written
+  // rather than discovered as an option that does nothing. An empty list is
+  // refused with it, because a `--format` that rejects every value is a flag
+  // that cannot work -- and saying so beats treating `[]` as `false`, which is
+  // the silent reading
+  if (accepts !== true) {
+    if (!Array.isArray(accepts) || accepts.some((it) => !it || typeof it !== 'string')) {
+      throw new TypeError(
+        `Expected format in "${name}" command to be true, false, or a non-empty list of format names`
+      );
+    }
+    if (accepts.length === 0) {
+      throw new TypeError(
+        `Expected format in "${name}" command to name at least one format: a command that presents none should not declare one`
+      );
+    }
+  }
+
+  const list: true | readonly string[] = accepts === true ? true : [...accepts];
+  let added = false;
+
+  if (!options.find('--format') && !options.has('format')) {
+    // `[name]` rather than `<name>`, because `<value>` makes the **option**
+    // required here rather than its value -- which would make every run of an
+    // opted-in command fail for not having asked for a format
+    await options.add({ desc: __`Present the result in this format`, format: '--format [name]' });
+    added = mark(options.find('--format'), list);
+  }
+
+  // only where `json` is one of the formats this command presents, or the sugar
+  // would select a format the command refuses. `true` always includes it,
+  // because the registry is `json` plus whatever the schema added and there is
+  // no way to take it away
+  const takesJson = list === true || list.includes('json');
+
+  if (takesJson && !options.find('--json') && !options.has('json')) {
+    await options.add({ desc: __`Present the result as JSON`, format: '--json' });
+    added = mark(options.find('--json'), list) || added;
+  }
+
+  // a command that took both spellings for itself and still declares `format`
+  // has no way left to select one, which is a declaration that parses and does
+  // nothing -- the thing this repository calls worse than one that does not
+  // exist. Refused here because this is the one place both facts are in hand:
+  // what the command declared, and what the registry would let us add.
+  //
+  // Only where **neither** could be added, which is what keeps the graceful
+  // half graceful: an app that claimed `--format` keeps it and still selects
+  // with `--json`, exactly as one that claimed `-q` keeps `--quiet`
+  if (!added) {
+    throw new Error(
+      `The "${name}" command declares "format" and also declares every spelling that would select one, so no format can be asked for. Drop "format", or free "--format"${takesJson ? ' or "--json"' : ''}.`
+    );
+  }
+}
+
+/**
+ * Marks an option as one that selects an output format, and records what the
+ * command accepts on the option itself.
+ *
+ * Carried by the thing argv resolved to rather than looked up again, which is
+ * the discipline `baseDir` already keeps: which declaration won is the
+ * registry's answer, and recomputing it is how a second reader comes to
+ * disagree with the first. A subcommand that declares its own `format` reaches
+ * backwards over its parent's exactly as any option does, and the accepted set
+ * that comes with it is the nearer one's without anything having to ask.
+ *
+ * `parserOwned`, which is the whole design said in one field: the value never
+ * reaches `argv`, so a command **cannot** branch on it. Offering `argv.format`
+ * would be handing back the conditional this exists to delete -- and the
+ * command does not need it, because selecting a format implies quiet, so
+ * whatever it would have drawn is already suppressed.
+ *
+ * @param opt - The option, or `undefined` where the registry did not take it.
+ * @param accepts - What the command accepts.
+ * @returns Whether there was an option to mark, which is what the caller needs
+ *   in order to tell a command that can select a format from one that cannot.
+ */
+function mark(opt: InternalOption | undefined, accepts: true | readonly string[]): boolean {
+  if (!opt) {
+    return false;
+  }
+
+  opt[Internal].formats = accepts;
+  opt[Internal].parserOwned = true;
+
+  return true;
+}
+
+/**
+ * The format name a parsed option selects.
+ *
+ * One rule for both spellings rather than a second field saying which is the
+ * sugar: a format option whose value is a **string** names that format, and one
+ * whose value is `true` names the format it is **called after**. So `--json`
+ * selects `json` because it is called `json`, and the mechanism would give a
+ * later `--yaml` the same thing for nothing.
+ *
+ * It is safe for `--format` because that option takes a value, so its value is
+ * always a string: a bare `--format` is `Missing value for option --format`, and
+ * `--format=` is the empty string, which is the one way to say "deliberately
+ * empty" and is refused as a format name like any other.
+ *
+ * `false` names nothing, which is what makes `--json=false` contribute nothing
+ * rather than select JSON.
+ *
+ * @param parsed - The parsed option.
+ * @returns The name it selects, or `undefined` where it selects none.
+ */
+function formatFromValue(parsed: ParsedOption): string | undefined {
+  const { option, value } = parsed;
+  return typeof value === 'string' ? value : value === true ? option.name : undefined;
+}
+
+/**
+ * Settles which format argv asked for, and refuses one this command cannot
+ * present.
+ *
+ * **Last wins**, which is where this parts company with the three flags the
+ * parser owns: `--help`, `--version` and `--quiet` are *questions*, so any
+ * typed true wins in either order, and a format is a *value*, so the rule is
+ * the one every valued option in this schema already follows. `--json --format
+ * yaml` is yaml and `--format yaml --json` is json, which needs no rule of its
+ * own -- and `--json --json=false` is still json, because a `false` names
+ * nothing and the first use is the last one that said anything.
+ *
+ * The declared names are checked whether or not argv asked for a format, so a
+ * command naming a format the schema does not provide is a parse error on every
+ * run rather than a surprise on the first run that types `--format`. It is the
+ * call `initCommand()` makes for a non-boolean `hidden`: a declaration that
+ * cannot mean anything fails where it was written. Only the chain is walked, so
+ * a routed tree pays for the commands argv named and nothing else.
+ *
+ * A bad name throws rather than deferring to `--help`, which is the rule
+ * already recorded for a value: help wins over a *missing* required option,
+ * because that is a question about what the command needs, and an invalid value
+ * "failed on the way in, while argv was being read".
+ *
+ * @param state - The parse state.
+ * @throws If a declared format is not one the schema provides, or if the name
+ *   argv selected is not one this command presents.
+ */
+export function detectFormat(state: ParseState): void {
+  let found = false;
+
+  for (const cmd of state.contexts) {
+    for (const opt of cmd[Internal].options.values()) {
+      const accepts = opt[Internal].formats;
+
+      if (accepts === undefined) {
+        continue;
+      }
+
+      found = true;
+      assertDeclared(state, cmd, accepts);
+    }
+  }
+
+  if (!found) {
+    return;
+  }
+
+  let selected: { accepts: true | readonly string[]; name: string } | undefined;
+
+  for (const parsed of state.$) {
+    if (parsed.type !== 'Option') {
+      continue;
+    }
+
+    const option = parsed as ParsedOption;
+    const accepts = option.option[Internal].formats;
+
+    if (accepts === undefined) {
+      continue;
+    }
+
+    const name = formatFromValue(option);
+
+    if (name !== undefined) {
+      selected = { accepts, name };
+    }
+  }
+
+  if (selected) {
+    // resolved rather than merely looked up, and the answer is discarded: the
+    // point is that the *same* function `main()` gets the serializer from is
+    // what judged the name, so a parse that accepted a name cannot meet a
+    // `main()` that has nothing to serialize it with
+    formatFor(state.schema, selected.name, selected.accepts);
+    state.format = selected.name;
+  }
+}
+
+/**
+ * Refuses a command that declared a format the schema does not provide.
+ *
+ * English rather than a catalog key: what it reports is a mistake in the app's
+ * own declaration, which is the line this repository draws between a message a
+ * user's argv provoked and one only the app's code can.
+ *
+ * @param state - The parse state, for the schema.
+ * @param cmd - The command that declared it, for the message.
+ * @param accepts - What it declared.
+ */
+function assertDeclared(
+  state: ParseState,
+  cmd: InternalCommand,
+  accepts: true | readonly string[]
+): void {
+  if (accepts === true) {
+    return;
+  }
+
+  // membership rather than a `formatFor()` in a `try`, because that function
+  // throws two different things: a name this command cannot present, and a
+  // `schema.formats` that is not an object of functions. Catching would report
+  // the second as the first, which is a message pointing at the wrong mistake
+  const formats = outputFormats(state.schema);
+
+  for (const name of accepts) {
+    if (!formats.has(name)) {
+      throw new Error(
+        `The "${cmd.name}" command declares the "${name}" output format, which this app does not provide. Add it to "formats" on the schema.`
+      );
+    }
+  }
+}

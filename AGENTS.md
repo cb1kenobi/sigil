@@ -4062,6 +4062,380 @@ to half the suite.
 - **A numeric level**, which would mean inventing the middle of a scale.
 - **Suppressing a prompt**, which is a hang.
 
+### Output formats: `run()` returns data, a serializer presents it
+
+oclif's answer to "give me JSON" is `enableJsonFlag` plus `toSuccessJson()`, and
+the two objections to copying it are both right: `--json` is one format of
+several people want, and a command that branches on it grows an
+`if (json) … else …` with two code paths that drift. `src/format.ts` is the
+registry and the serialization, `src/parser/format.ts` is the option and the
+detection, and the serialized error is `renderError()`'s third form.
+
+- **The conditional exists because the command is doing both jobs, so the two
+  jobs are split.** `run()` returns data, and optionally also draws, exactly as
+  today; a serializer is selected by name and presents what was returned. No
+  command computes two answers. Which is the shape the quiet axis takes one layer
+  along -- a component says what it is and `resolveOutput()` decides whether it
+  draws -- and it is why this was a small ticket sitting behind a large one.
+
+- **The registry is on the **schema**, and that is the one place this parts
+  company with `setQuiet()`.** A process-wide slot is right for quiet for a
+  recorded reason: "the two ends have no other connection -- `--quiet` is read
+  while argv is parsed, and a spinner is built later inside a command's `run()`".
+  It does not transfer. A format's two ends are the **parse**, which decides
+  whether the name is one this app has, and **`main()`**, which serializes the
+  value -- and the schema is in hand at both, so a module-level registry would be
+  the second mechanism. It would also leak between two schemas in one process,
+  which the nested `main()` the palette documents really is, and which quiet needs
+  a whole generation token to survive. `sigil build` carries it for free, because
+  `formats` is an ordinary schema property and the build spreads the app's schema
+  whole.
+
+- **A serializer is synchronous, and that is forced rather than preferred.**
+  `errorHandler()` is synchronous, and the serialized error has to come out of the
+  same selection the serialized result does -- "a script that gets JSON on success
+  and a rendered element tree on failure cannot be scripted against" is the
+  ticket's own sentence and is the whole reason the error half exists. So
+  `OutputFormat` is `(value: unknown) => string` with no promise anywhere in it,
+  which is also the better answer: a serializer that did I/O could fail half way
+  through writing an answer it had already begun.
+
+- **`json` ships and nothing else does.** `JSON.stringify` is free, so the
+  zero-dependency constraint is untouched, and `yaml`, `xml`, `csv` and `tsv` are
+  the app's to register -- the same division the config stores draw. An entry
+  named `json` replaces the built-in, which is the declaration-respecting rule
+  every free flag here follows, said about a name rather than a spelling.
+
+#### It is per command, which is why it is added in `initCommand()`
+
+- **`--help`, `--version` and `--quiet` go on the root and this does not.** Those
+  are questions about the program, and options resolve across the whole chain, so
+  one there answers everywhere. A format is not that: a full-screen dashboard has
+  no data to serialize, and a `--format` on it would be an option that parses and
+  does nothing. So a command opts in with `format: true | string[]`, and the
+  option exists exactly where the command said it does.
+
+  What "unknown option" comes to then depends on `allowUnknownOptions`, which is
+  **on** by default -- so `mycli dashboard --json` lands on `argv.json` as the
+  pass-through that setting is for and nothing serializes, and with it off it is
+  the error. The ticket's phrasing assumed the second; both halves are pinned, and
+  the second is the one that says the option really is absent rather than present
+  and inert.
+
+- **Which is also why it is registered where a command's declaration becomes a
+  registry, rather than in `parse()`.** The other three are added by the parse, so
+  a surface built by initializing the schema "simply does not have them. That is
+  the answer rather than a filter: an app's snapshot should move when the app moves
+  and not when the framework does, and what the framework adds is the framework's
+  to document." This one is the **app's**: the command declared `format`, so the
+  option it got is as much a part of its declared surface as one it wrote out --
+  and `initCommand()` is the one place that makes help, the reference, a
+  completion script and the parse all see one option rather than four readers each
+  adding their own.
+
+- **The accepted set is carried on the option, not looked up off the command.**
+  `opt[Internal].formats` holds `true` or the declared names, which is the
+  discipline `baseDir` already keeps: which declaration argv resolved against is
+  the registry's answer, so a subcommand that declares its own `format` reaches
+  backwards over its parent's and brings its own accepted set with it, with
+  nothing having to recompute which declaration won. Present is also what _marks_
+  an option as one that selects a format, which is how both spellings are
+  recognized without a second field saying which is the sugar.
+
+- **`parserOwned`, which is the whole design said in one field.** The value never
+  reaches `argv`, so a command **cannot** branch on it -- offering `argv.format`
+  would hand back the conditional this exists to delete. What a command reads
+  instead is `state.format`, which is the framework's record rather than the raw
+  option value, and the distinction matters: see "Where a command's own human form
+  goes" below.
+
+- **There is no `choices` list, and the message is why.** The obvious thing is a
+  `choices` list so a bad name is a parse error, and it is refused -- not for want
+  of a place to put it, but because the list is `declared ∩ what the schema
+  provides`, which is knowable at init for `format: ['json']` and **not** for
+  `format: true`, since `initCommand()` has no schema. So `choices` would judge one
+  spelling of the declaration and not the other, which is two behaviours for one
+  thing. One validation point instead, in `detectFormat()`, which runs before
+  anything is validated and so before the command runs -- and what that buys
+  beyond consistency is the message: `formatFor()` names what _is_ available, where
+  `Invalid value "{0}" for {1}` has the list in hand and does not print it, which
+  the suggestion work already records as the better fix and a different ticket.
+
+  What it costs is value completion -- `mycli build --format <TAB>` offers nothing
+  -- and no choices in the generated reference. Both are a missing feature rather
+  than a wrong answer, and both are additive later: the shape is to thread the
+  schema's format names into `initCommand()` the way `baseDir` is threaded, after
+  which `choices` answers for both spellings at once.
+
+#### Both spellings, and the ordering rule that needs no special case
+
+- **`--json` is sugar for `--format json`, and the justification is muscle
+  memory rather than consistency.** Two spellings of one thing is something this
+  repository refuses, so the reason is written down rather than left to look like
+  an oversight: `--json` is what everybody types and what every other tool
+  accepts, and a framework that made people learn `--format json` instead would be
+  spending its users' goodwill on a consistency they did not ask for. Offered only
+  where the command accepts `json`, or the sugar would select a format the command
+  refuses.
+
+- **One mechanism rather than two, and it generalizes for free.** A format option
+  whose value is a **string** names that format; one whose value is `true` names
+  the format it is **called after**. So `--json` selects `json` because it is
+  called `json`, and a later `--yaml` would get the same thing for nothing. It is
+  safe for `--format` because that option takes a value, so its value is always a
+  string: a bare `--format` is `Missing value for option --format`, and
+  `--format=` is the empty string -- the one way to say "deliberately empty" --
+  which is refused as a format name like any other.
+
+- **Last wins**, which is where this parts company with the three flags the parser
+  owns: those are _questions_, so any typed true wins in either order, and a format
+  is a _value_, so the rule is the one every valued option in this schema already
+  follows. `--json --format yaml` is yaml and `--format yaml --json` is json, with
+  no rule of its own -- and `--json --json=false` is still json, because a `false`
+  names nothing and the first use is the last one that said anything, which is
+  `--quiet`'s own reading of a typed no arriving through the last-wins rule rather
+  than through a special case.
+
+- **`--output` is not offered and neither is a short form.** `-o`/`--output` means
+  an output **file** in gcc, curl, ffmpeg and most of what a user of this framework
+  has ever typed, so claiming it for a format name would be taking a spelling that
+  already means something else. And unlike `-h`, `-v` and `-q` there is no
+  consensus on a short form: `-f` is `--force` or `--file` far more often than it
+  is `--format`.
+
+#### Errors are the third form through a seam that already had two
+
+- **`renderError()` reads the format off the state**, so the serialized error and
+  the serialized result come out of one selection. `report.ts` in the toolchain
+  already keeps a two-forms discipline -- a laid-out form for a terminal and one
+  line per record for a pipe -- and this is a third form through the same seam
+  rather than a new mechanism. On **stderr**, where an error always goes, with the
+  exit code carrying the verdict.
+
+- **The payload is `{ error: { message, name? } }`.** Wrapped, because
+  `{"message":…}` is indistinguishable from a command that succeeded and returned a
+  `message`. Built from the same `errorMessage()` the human form prints, so the two
+  cannot come to disagree about what the error said. `name` is included whenever
+  the thrown value has one -- which is uniform for every `Error` and absent for a
+  thrown string -- and it is there rather than as a nicety because **a message is
+  translated and a name is not**, so a script keyed on the message breaks the
+  moment `LANG` moves. `exitCode` is deliberately absent: the process already
+  carries the verdict, and putting it in the payload would be the same fact twice.
+
+- **`errorLine()` is its own function, because a fallback that can re-enter what
+  it is a fallback for is not one.** `renderError()` falls back to the message
+  where the serializer throws on the payload -- a broken serializer must not cost
+  the reader the error they actually needed -- and `errorHandler()`'s own catch
+  around a replaced renderer falls back to the same plain function rather than to
+  the format-aware one.
+
+- **An invalid _value_ is the one seam, and it is pinned rather than
+  discovered.** `--port eight` on an `int` throws while argv is being **read**,
+  which is before `detectFormat()` has run, so it is reported as a plain message:
+  "it failed on the way in", which is the rule already recorded for why help does
+  not win over an invalid value. Everything judged _after_ the walk serializes --
+  a missing required option, an unexpected argument, a value outside `choices` --
+  measured on all four. Detecting the format mid-walk would close half of it and
+  is refused: `--json --port x` serializing while `--port x --json` did not is a
+  rule nobody can reason about, where consistently-plain is one sentence.
+
+#### Selecting a format implies quiet, and the implication is made where it is read
+
+- **A spinner interleaved with JSON on stdout is unusable**, which is why this
+  ticket waited on the quiet axis rather than carrying its own suppression.
+  `main()`'s condition is `state.quiet || state.format !== undefined`, one place,
+  so `state.quiet` keeps meaning "argv asked" and the implication reads where it
+  is made rather than making the flag look as though it had been typed.
+
+#### Where a command's own human form goes, which the demo found
+
+The sharpest question in the design, and the ticket did not name it.
+
+- **The framework decides which presentation reaches the terminal only for what
+  **it** draws.** Quiet reaches `mountLive()` -- the spinner, the bar, the
+  typewriter, the decrypt -- and it deliberately does not reach a `table()`,
+  because that one "hands a string back and the caller does the writing, so quiet
+  is the caller's statement about its own `write()`". So a command's own result on
+  stdout is the command's, and stdout belongs to the serializer once a format is
+  selected: two answers on one stream.
+
+- **It cannot be fixed in the framework, and that is a measurement rather than a
+  preference.** `main()` could only suppress a command's stdout by patching
+  `process.stdout.write`, and a spawned child writing to the **inherited fd**
+  walks straight past such a patch -- so the suppression would be partial, which
+  is worse than none, and silently dropping a second answer is the loss class this
+  repository refuses everywhere.
+
+- **So there are two honest answers and the demo shows both.** Ask `state.format`
+  whether to _present_ the human form, which is one line and is a question about
+  presentation rather than the two-answers conditional the design deletes -- the
+  value is computed once either way, which is exactly the distinction between this
+  and `if (json) … else …`. Or put the human form on **stderr**, so both can be on
+  screen at once and a pipe still gets clean data, which is the split `report.ts`
+  already makes: its diagnostics and its summary are on stderr precisely so that
+  `--tree` can own stdout.
+
+- **Which is why `sigil check` does not adopt this, and that refusal is a finding
+  rather than scope discipline.** It is the obvious acceptance test -- its
+  diagnostics are already structured data -- and it writes `--tree` to **stdout**,
+  so selecting a format would put two answers on one stream and resolving it would
+  need `check` to branch. A command whose own answer is on stdout is not a
+  candidate for a serialized form unless it gives stdout up, and `--tree` is
+  exactly that. The dogfood is `demos/parser/12-formats.js` instead, which is
+  drivable by `demos.test.ts` because its default run writes nothing to stderr --
+  the stdout answer -- while `report` beside it shows the stderr one.
+
+#### What a command returned, and the three answers to `undefined`
+
+- **A command that opted in and returned `undefined` is refused, naming the
+  command.** Three answers were available and only this one can be acted on.
+  Printing nothing leaves a script with empty stdout and exit zero, so `jq` fails
+  with "Unexpected end of input" and the failure names nothing; printing `null`
+  claims the command's answer was `null`, which is a lie if it meant to return
+  something. A refusal names the command, goes to stderr and exits non-zero, which
+  is what a script's `set -e` is for -- and `--format json` that produces no JSON
+  is the property that parses and does nothing, which this file calls worse than
+  one that does not exist. `null` itself is a value JSON represents and is
+  presented.
+
+- **It runs after the `afterRun` hooks, which is the honest ordering.** The
+  command really did return, so a hook that asked what it did is right to have been
+  told `ok`; what failed is the presentation, and the error it throws reaches the
+  same path every other one does -- serialized in the selected format, because the
+  payload is a plain object every serializer can take. Pinned, because the ordering
+  is a decision rather than a convenience.
+
+- **`assertSerialized()` is a guard rather than a tripwire, and the built-in is
+  what makes it one.** `JSON.stringify` has three answers and two are silent: it
+  **throws** for a `BigInt` and a circular structure, which propagates; it answers
+  the _value_ `undefined` for a function, a symbol and `undefined` itself, which
+  would reach stdout as the word; and it rewrites `NaN` and `Infinity` as `null`.
+  The second is reachable through `json` by a command returning a function, so the
+  refusal has a real caller. The third is JSON's and is left alone, which is the
+  opposite call from `jsonCanHold()` in the config module and for a stated reason:
+  there a value is written back to a file somebody will read again, and here it is
+  handed to a pipe once.
+
+- **`writeFormatted()` writes exactly one trailing newline**, stripping whatever
+  the serializer ended with -- `errorHandler()`'s own rule, which is what keeps a
+  CSV serializer that already ends with one from producing a blank line.
+
+#### Two refusals at the declaration, and what each closes
+
+- **A declared name the schema does not provide fails on every run**, rather than
+  on the first run that types `--format`. Checked over the chain in
+  `detectFormat()` whether or not argv asked, which is the call `initCommand()`
+  makes for a non-boolean `hidden`: a declaration that cannot mean anything fails
+  where it was written. Only the chain is walked, so a routed tree pays for the
+  commands argv named and nothing else -- and a bad declaration on a command
+  nobody ran does not refuse the app, which is pinned as the other half.
+
+  Asked as **membership** rather than as a `formatFor()` in a `try`, because that
+  function throws two different things -- a name this command cannot present, and
+  a `schema.formats` that is not an object of functions -- and catching would
+  report the second as the first, which is a message pointing at the wrong
+  mistake.
+
+- **A command that left no spelling to select with is refused.** A command that
+  declares `format` and also declares both `--format` and `--json` has no way left
+  to ask for one, which is a declaration that parses and does nothing. Refused in
+  `registerFormats()`, which is the one place both facts are in hand: what the
+  command declared, and what the registry would let us add. Only where **neither**
+  could be added, which is what keeps the graceful half graceful -- an app that
+  claimed `--format` keeps it and still selects with `--json`, exactly as one that
+  claimed `-q` keeps `--quiet`.
+
+- **And the asymmetry a merely-_named_ `format` has is `registerQuiet()`'s own.**
+  `find()` answers about spellings and `has()` about the key the registry stores an
+  option under, which is its name -- so an option spelled `-x` and named `format`
+  costs the command the option **entirely**, where a taken `--json` costs it only
+  the sugar. Replacing a registry key is a worse thing to do to an app than
+  declining to add a spelling.
+
+- **`format: []` is refused rather than read as `false`.** It is "I present no
+  format", which `false` already says, and a `--format` that rejects every value is
+  a flag that cannot work. Refusing beats the silent reading.
+
+- **`schema.formats` is validated unconditionally**, the way the hooks are:
+  `detectFormat()` looks only where a command opted in, so an app with a broken
+  `formats` and no command that presents one would otherwise never find out.
+
+#### What it costs, and the i18n line
+
+- **1,482 B on the root entry, which is 9,648 B over seven modules against a 20
+  kB ceiling.** The 819 B `format` chunk is on that graph for one reason:
+  `errorHandler()` serializes an error in the selected format, so it is reachable
+  from the error path every app has. Carrying the **resolved serializer** on
+  `ParseState` instead would take the chunk off the graph entirely and was weighed
+  and refused -- a _name_ is what a reader, a hook and a test want on the state,
+  and `formatFor()` is deterministic given the schema, so resolving it twice cannot
+  drift. `components.mjs` moved 242,307 to 243,401 B over 29 for the same reason:
+  it reaches `error-handler`.
+
+- **Three translated keys and five English ones**, which is the line this file
+  already draws. `Present the result in this format`, `Present the result as JSON`
+  and `Unknown output format "{0}". This command accepts: {1}` are what a **user**
+  provokes, so they are keys -- 107 now. Everything else is a mistake in the app's
+  own declaration or its own serializer -- a bad `formats`, a bad `format`, an
+  empty list, a declared name the app does not provide, a command that returned
+  nothing, a serializer that answered with something that is not text -- and a
+  translated bug report is one the maintainer cannot read.
+
+#### What the sabotage pass found, and the two guards covering for each other
+
+Thirty-nine mutations, one at a time with the five affected suites run after
+each. **All thirty-nine are caught**, after two survivors and one stale pattern,
+and the interesting half is not the count. A green control first, and the four
+verdict guards this repository has learned to need -- a pattern that matched
+nothing, one that matched more than once, a replacement equal to its original,
+and a run that found fewer test files than the control, each its own verdict
+rather than a pass -- with the tree restored on `SIGINT` and `SIGTERM` as well as
+on an exception.
+
+- **The stale pattern was the formatter's**, which is the shape this file records
+  from seven earlier passes: `oxfmt` reflowed `formatFor()`'s `available` onto two
+  lines after the case was written, so it matched nothing and read as a guard that
+  is not load bearing.
+
+- **And the two survivors were two guards covering for each other**, which is the
+  shape recorded for `eaten` and for the `claimed` set. `renderError()` has a
+  catch of its own around the serializer, and `errorHandler()` has one around a
+  replaced renderer -- and with the first in place either spelling of the second
+  produced the same text, so neither mutation could be seen.
+
+  Separating them found a **better answer** rather than a missing test, which is
+  what makes it worth the entry. `errorHandler()`'s fallback was the plain line,
+  on the reading that "a fallback that could re-enter whatever just threw is not
+  a fallback" -- and what threw there is the **caller's** `render`, not ours, so
+  re-entering our own format-aware renderer cannot loop and is the answer the
+  reader asked for: falling back to the plain form would silently drop the format
+  in the one case where the app's own renderer is what is broken. So the fallback
+  is `renderError(err, ctx)` and the inner catch is what makes that safe.
+
+  Both are pinned now, and each needed an input nothing else in the suite
+  reaches: `renderError()` called **directly**, which is what makes its own catch
+  load bearing rather than redundant -- it is exported for a caller to wrap, so
+  `decorate(renderError(err, ctx))` has to get text -- and `errorHandler()` with a
+  **replaced** `render` that throws while a format is selected, which is the only
+  place the outer fallback's choice is observable.
+
+#### What is deliberately out
+
+- **A process-wide `registerFormat()`**, with the leak reason above.
+- **`choices` on the option**, with the two-behaviours reason above, and the shape
+  of the fix named so that whoever wants value completion finds it.
+- **`--output` and a short form**, each with its own reason.
+- **An async serializer**, which the synchronous error path forbids.
+- **A declared return type per command**, which is the strict answer to "what does
+  the data have to be" and is more than anyone has asked for. Loose, with the
+  serializer refusing what it cannot represent, which is the ticket's own call.
+- **Suppressing a command's own stdout**, with the spawned-child measurement.
+- **`sigil check --json`**, with the `--tree` measurement -- which is a finding
+  about what a candidate command looks like rather than a gap.
+- **A format on `--help` or `--version`**, because help is the answer to the
+  question and a version is a question about the program rather than a command's
+  answer. Both are pinned so the absence is a decision.
+
 ### Style
 
 - **The property table is the single source of truth.** Every property's initial
@@ -18375,7 +18749,9 @@ below `compinit`, so following it never loads the completion.**
   eight-module shape, because that is what the merged tree has, with every figure
   in it **re-measured** rather than picked from a side: the config graph is
   38,239 B over eight, unchanged, while the root entry is **8,166 B** and
-  `components.mjs` **242,307 B over 28** -- neither of which either side said,
+  `components.mjs` **242,307 B over 28** -- figures SIG-142 then moved to 9,648 B
+  over seven and 243,401 B over 29, which is that entry's own instruction working
+  rather than a contradiction -- neither of which either side said,
   since both branches moved them. Four figures in that one file now agree with
   the tree and with each other, which is what its own comment about two comments
   disagreeing asks for.

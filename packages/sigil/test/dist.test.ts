@@ -246,8 +246,8 @@ describe('what importing the package costs', () => {
       // was 7,532 B over the same six modules it was before the testing subpath
       // landed -- 21 B *less*, which is a shared chunk boundary moving and is
       // noise. That figure is a measurement of **that** change rather than of
-      // the tree: the entry is **8,166 B** today, which `afterRun`, the quiet
-      // axis and this branch each moved in turn, and a review round caught this
+      // the tree: the entry is **9,648 B** today, which `afterRun`, the quiet
+      // axis, output formats and this branch each moved in turn, and a review round caught this
       // sentence claiming the old one in the present tense -- so it is written
       // as of the merge rather than as a standing fact, which is what the
       // instruction further down means. `testing.mjs` is 44,726 B
@@ -366,8 +366,8 @@ describe('what importing the package costs', () => {
     // from: `paths.mjs`, `i18n.mjs`, the `transform` and `debug` chunks, the
     // 66-byte `env-value` chunk the parser shares, and the 525-byte
     // `mkdir-owner-sync` one the update cache shares. The eighth is the atomic
-    // write, which SIG-151's installer now shares. The graph is 4.68x the root
-    // entry's 8,166 B and a sixth of `components.mjs`'s 242,307 B over 28 --
+    // write, which SIG-151's installer now shares. The graph is 3.96x the root
+    // entry's 9,648 B and a sixth of `components.mjs`'s 243,401 B over 29 --
     // all three measured the same way, which is the only comparison that means
     // anything. It read 38,064 B and 5.06x until a review round measured both:
     // this graph is unchanged by `afterRun` and was already 37 bytes out, and
@@ -399,12 +399,20 @@ describe('what importing the package costs', () => {
     const graph = staticGraph('index.mjs');
     const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-    // a ceiling rather than a measurement -- it sits about 2.6x over the 8.0 KB
+    // a ceiling rather than a measurement -- it sits about 2.1x over the 9.4 KB
     // this is today, so ordinary growth never touches it and pulling a
     // rendering path onto the entry blows straight through it. It said 7.5 KB
     // and 2.7x until `afterRun` added 459 B of hook walk and firing to the
     // entry, which a review round caught here as readily as in AGENTS.md --
     // which is the argument for the figure living in two places and no more.
+    //
+    // 1,482 B of it is SIG-142's output formats, and it is on the entry for one
+    // reason: `errorHandler()` serializes an error in the selected format, so
+    // the 819 B `format` chunk is reachable from the error path every app has.
+    // Carrying the resolved serializer on `ParseState` instead would take the
+    // chunk off this graph entirely and was weighed and refused -- a name is
+    // what a reader, a hook and a test want on the state, and `formatFor()` is
+    // deterministic given the schema, so resolving it twice cannot drift.
     //
     // 4.1 KB of that was the entry before i18n; the 2.2 KB `i18n.mjs` is the
     // tag, the plural and the locale resolution, and it is here because
@@ -549,7 +557,7 @@ describe('what importing the package costs', () => {
   });
 
   it('should keep the components entry worth importing for one component', () => {
-    // 242,307 B over 28 modules today -- re-measured, because it read 234,912
+    // 243,401 B over 29 modules today -- re-measured, because it read 234,912
     // over 23 while the comment 130 lines up said 239,929 over 26, which is the
     // two-comments-disagreeing-about-one-measurement defect that one is written
     // about, in the same file. Of it the palette is 10,624: its own

@@ -27,6 +27,7 @@ arguments and yours are used instead.
 | [`parser/09-errors.js`](parser/09-errors.js)                   | The default handler, your own, and catching it yourself           |
 | [`parser/10-palette.js`](parser/10-palette.js)                 | A command palette generated from the command registry             |
 | [`parser/11-dispatch.js`](parser/11-dispatch.js)               | Re-routing and executing one command from another                 |
+| [`parser/12-formats.js`](parser/12-formats.js)                 | `--json` and `--format`, out of one `run()` with no branch in it  |
 
 Two worth running with `--help` to see what the screen does:
 
@@ -63,6 +64,25 @@ You never touch `process.argv` and you never build a string.
 ```sh
 node demos/parser/11-dispatch.js shortcut
 ```
+
+`12-formats.js` is the one to run piped, because that is the half a screen
+cannot show:
+
+```sh
+node demos/parser/12-formats.js list --json | jq .total
+node demos/parser/12-formats.js list --format csv
+node demos/parser/12-formats.js boom --json
+```
+
+Every command in it computes one value and returns it, and which presentation
+reaches the terminal is the framework's — so there is no `if (json)` anywhere in
+it. What the framework cannot decide is where a command's **own** human form
+goes, because stdout belongs to the serializer once a format is selected, and
+`list` and `report` are the two honest answers: one asks `state.format` whether
+to draw, which is a question about presentation rather than the two-answers
+conditional the design deletes, and the other writes to stderr so both can be on
+screen at once. `watch` declares no `format`, so `--json` is not one of its
+options at all.
 
 That one is worth running. It reaches a sibling through the registry and calls
 its `run()` directly, which is the obvious shortcut and is silently wrong twice

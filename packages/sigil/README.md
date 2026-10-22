@@ -54,6 +54,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Declaring commands](#declaring-commands) — nesting, lazy loading, running one from another
 - [Settings](#settings)
 - [Hooks](#hooks) — `afterRun`, `beforeError`, and what a hook may not do
+- [Output formats](#output-formats) — `--json`, `--format`, and a serialized error
 - [Help](#help)
 - [Shell completion](#shell-completion) — `completion` installs it, `completion bash` prints it
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
@@ -705,6 +706,172 @@ cmd.hooks.parse = async (data) => {
 ```
 
 ---
+
+## Output formats
+
+A command **returns data**. A serializer **presents it**. So nothing in a
+command branches on whether JSON was asked for, which is the one thing a
+`--json` flag usually costs: an `if (json) … else …` with two code paths that
+drift apart.
+
+```js
+command({
+  format: true,
+  run: () => ({ items: ['a', 'b'] }),
+});
+```
+
+```sh
+mycli list                    # whatever the command drew
+mycli list --json             # the return value, as JSON, on stdout
+mycli list --format yaml      # ...or as anything the app registered
+```
+
+### It is per command, and that is the point
+
+`--format` exists exactly where a command declared `format`, and nowhere else. A
+full-screen dashboard has no data to serialize, so a `--format` on it would be an
+option that parses and does nothing — which this framework treats as worse than
+no option at all. `true` is every format the app provides; a list is the subset
+this command can present.
+
+```js
+{
+  format: true;
+} // every format the schema provides
+{
+  format: ['json', 'csv'];
+} // these two, and --format yaml is refused here
+{
+  /* nothing */
+} // no option at all
+```
+
+An ancestor's declaration resolves for its subcommands the way any option does,
+and a nearer one narrows: a `db` that declares `format: true` gives `db list` the
+option, and a `db list` that declares `format: ['yaml']` presents only that.
+
+### `json` ships; everything else is the app's
+
+`JSON.stringify` is free, so `json` is built in and the framework still has zero
+dependencies. `yaml`, `xml`, `csv` and `tsv` are an app's to bring, which is the
+same division the config stores draw — the framework ships the plumbing and the
+one format that costs nothing, and an app that wants YAML brings the YAML library
+it chose.
+
+```js
+import { stringify } from 'yaml';
+
+export default {
+  name: 'mycli',
+  formats: { yaml: (value) => stringify(value) },
+  commands: { list: { format: true, run: () => ({ items: [] }) } },
+};
+```
+
+An entry named `json` replaces the built-in. A serializer is **synchronous**,
+which is forced rather than chosen: `errorHandler()` is synchronous, and the
+serialized error has to come out of the same selection the serialized result
+does.
+
+### Both spellings, and why
+
+`--json` is sugar for `--format json`. Two spellings of one thing is something
+this repository normally refuses, so the reason is written down rather than left
+to look like a slip: `--json` is what everybody types and what every other tool
+accepts. It is offered only where the command accepts `json`, and the last
+spelling that named a format wins — so `--json --format yaml` is yaml and
+`--format yaml --json` is json.
+
+`--output` is deliberately not offered: `-o`/`--output` means an output _file_ in
+gcc, curl, ffmpeg and most of what a user has ever typed. There is no short form
+either, because unlike `-h`, `-v` and `-q` there is no consensus on one and `-f`
+is `--force` far more often than `--format`.
+
+### Errors are data too
+
+A script that gets JSON on success and a rendered message on failure cannot be
+scripted against. So the error leaves through the same selection, on stderr,
+where an error always goes — and the exit code still carries the verdict.
+
+```sh
+$ mycli list --json; echo "exit $?"
+{
+  "error": {
+    "message": "nothing to list",
+    "name": "TypeError"
+  }
+}
+exit 1
+```
+
+`name` is the half a script can branch on, and that is why it is there: a
+**message is translated and a name is not**, so a script keyed on the message
+breaks the moment `LANG` moves. `exitCode` is absent on purpose — the process
+already carries the verdict.
+
+One seam is worth knowing. A value that failed **on the way in** — `--port
+eight` on an `int` — is reported as a plain message rather than as data, because
+argv is still being read at that point and nothing has yet said which format was
+asked for. Everything judged after the walk does serialize: a missing required
+option, an unexpected argument, a value outside `choices`. Detecting the format
+mid-walk would close half of it and is refused, because `--json --port x`
+serializing while `--port x --json` did not is a rule nobody can reason about.
+
+### Selecting a format implies quiet
+
+A spinner interleaved with JSON on stdout is unusable, so asking for machine
+output is asking for nothing else. `--format` records quiet process-wide for the
+length of the run, which is the one fold every built-in already reads — so a
+spinner the command built goes silent with nothing wired up.
+
+### Where a command's own human form goes
+
+The framework decides which presentation reaches the terminal for what **it**
+draws. A command's own `process.stdout.write` is the command's, and stdout
+belongs to the serializer once a format is selected — so a command that draws its
+result as well as returning it has to say where the human form goes. Two honest
+answers, and `demos/parser/12-formats.js` shows both:
+
+```js
+run({ format }) {
+  // ask whether to *present* it. One answer, computed once, below
+  if (format === undefined) {
+    process.stdout.write(`${table(rows)}\n`);
+  }
+  return { rows };
+}
+```
+
+```js
+run() {
+  // or put the human form on stderr, so both can be on screen at once and a
+  // pipe still gets clean data. Which is the split `sigil check` makes
+  process.stderr.write(`${table(rows)}\n`);
+  return { rows };
+}
+```
+
+Reading `state.format` is a question about **presentation**, not the two-answers
+conditional this design deletes: the value is computed once either way. The
+framework cannot make that choice for you, and the reason is measurable: it could
+only suppress a command's stdout by patching `process.stdout.write`, which a
+spawned child writing to the inherited fd walks straight past — so the
+suppression would be partial, which is worse than none.
+
+### What a format does not reach
+
+`--help` still prints help, because help is the answer to the question and a
+format is about how an answer is presented. `--version` still prints the version,
+which is a question about the program rather than a command's answer. And
+`argv.format` does not exist: the value is the parser's, which is what stops a
+command branching on it at all.
+
+A command that declares `format` and returns `undefined` is **refused**, naming
+the command. Printing nothing leaves a script with empty stdout and exit zero, so
+`jq` fails with "Unexpected end of input" and names nothing; printing `null`
+claims the command's answer was `null`. `null` itself is a value JSON represents
+and is presented.
 
 ## Help
 

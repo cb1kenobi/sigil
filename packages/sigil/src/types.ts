@@ -214,6 +214,32 @@ export interface Command<
    */
   routeInfo?: Record<string, RouteInfo>;
   examples?: CommandExample | CommandExample[];
+  /**
+   * Which output formats this command can present its return value in, which is
+   * how it opts into `--format` and the `--json` sugar.
+   *
+   * `true` is every format the schema provides, a list is those names, and
+   * absent is no option at all -- because a command with no data to serialize
+   * must not grow one. That is the whole of the per-command rule: the option
+   * exists where the command said it does, so `mycli dashboard --format json` is
+   * an unknown option rather than a flag that parses and does nothing.
+   *
+   * What it changes about the command is nothing. `run()` returns data, as it
+   * may already; whether that value is serialized to stdout or the command's own
+   * drawing reaches the terminal is the framework's decision, so there is no
+   * `if (json)` to write. Selecting a format implies quiet, so a spinner the
+   * command built is already silent.
+   *
+   * ```js
+   * command({
+   *   format: true,
+   *   run: () => ({ items: ['a', 'b'] }),
+   * });
+   * ```
+   *
+   * See `src/parser/format.ts` and `Schema.formats`.
+   */
+  format?: boolean | string[];
   help?: string | HelpRenderer;
   hidden?: boolean;
   /**
@@ -530,6 +556,21 @@ export interface InternalOptionBase extends InternalBase {
   isFlag: boolean;
   label: string;
   long: Set<string>;
+  /**
+   * What the command accepts, set on the two options `registerFormats()` adds
+   * where a command declared `format`: `true` for every format the schema
+   * provides, or the names it listed.
+   *
+   * On the option rather than looked up off the declaring command, which is the
+   * discipline `baseDir` keeps: which declaration argv resolved against is the
+   * registry's answer, so a subcommand that declares its own `format` reaches
+   * backwards over its parent's and brings its own accepted set with it.
+   *
+   * Present is also what marks an option as one that selects a format at all,
+   * which is how `detectFormat()` recognizes both `--format` and `--json`
+   * without a second field saying which is the sugar.
+   */
+  formats?: true | readonly string[];
   /** The negated flag declared alongside this option, sharing its destination. */
   negatedTwin?: InternalOption;
   /**
@@ -616,6 +657,18 @@ export interface ParseState<Argv = Record<string, unknown>> {
    */
   help?: HelpRequest;
   /**
+   * The output format argv selected, where the command opted in by declaring
+   * `format`. The **name**, because that is what argv said and what a hook or a
+   * test reads; `main()` resolves the serializer through `formatFor()`, which is
+   * the same function the parse judged the name with.
+   *
+   * Set only when a format was asked for, so an app whose commands never opt in
+   * never meets it. `main()` serializes the command's return value to stdout and
+   * records quiet process-wide, both of which a caller using `parse()` on its
+   * own decides for itself.
+   */
+  format?: string;
+  /**
    * Set when argv asked for no progress. `main()` records it process-wide, which
    * is what makes `--quiet` reach a spinner an app never wired up; a caller
    * using `parse()` on its own decides for itself, through `setQuiet()`.
@@ -630,6 +683,21 @@ export interface ParseState<Argv = Record<string, unknown>> {
    */
   version?: string;
 }
+
+/**
+ * Presents a command's return value as text.
+ *
+ * Registered on `Schema.formats` under the name `--format` takes, and selected
+ * per command through `Command.format`. The value is whatever `run()` returned,
+ * or, on the error path, a {@link SerializedError}.
+ *
+ * **Synchronous**, which is forced rather than preferred: `errorHandler()` is
+ * synchronous, and the serialized error has to come from the same function the
+ * serialized result does or a script cannot be written against the pair. What
+ * it may not represent it should throw about, which is what `json` does for a
+ * `BigInt` and a circular structure.
+ */
+export type OutputFormat = (value: unknown) => string;
 
 export interface Schema {
   args?: (string | Argument)[];
@@ -701,6 +769,36 @@ export interface Schema {
    * parser. See `src/completion/`.
    */
   completion?: boolean;
+  /**
+   * The serializers this app can present a command's return value with, keyed on
+   * the name `--format` takes.
+   *
+   * `json` is built in and needs no entry, because `JSON.stringify` is free and
+   * the zero-dependency constraint is untouched by it. `yaml`, `xml`, `csv` and
+   * `tsv` are an app's to bring, which is the same division the config stores
+   * draw: the framework ships the plumbing and the one format that costs
+   * nothing. An entry named `json` replaces the built-in, which is the
+   * declaration-respecting rule every free flag here follows.
+   *
+   * A serializer is **synchronous**, and that is forced rather than chosen:
+   * `errorHandler()` is synchronous, and a serialized error has to come out of
+   * the same function a serialized result does -- a script that gets JSON on
+   * success and a rendered message on failure cannot be scripted against.
+   *
+   * ```js
+   * import { stringify } from 'yaml';
+   *
+   * export default {
+   *   name: 'mycli',
+   *   formats: { yaml: (value) => stringify(value) },
+   *   commands: { list: { format: true, run: () => ({ items: [] }) } },
+   * };
+   * ```
+   *
+   * Which formats a *command* presents is the command's own `format`. See
+   * `src/format.ts`.
+   */
+  formats?: Record<string, OutputFormat>;
   /**
    * Whether to add `--help` and a `help` command. On unless set to `false`; an
    * app that declares either of them keeps its own either way.
