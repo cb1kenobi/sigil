@@ -21,7 +21,10 @@
  * selected. `list` and `report` are the two honest answers to that, and the
  * comments on each say which. `watch` declares no `format` at all, so `--json`
  * is not one of its options -- which is what keeps the flag off a command with
- * no data to serialize.
+ * no data to serialize. Typing it anyway is **swallowed** rather than refused,
+ * because `allowUnknownOptions` is on by default; what the opt-in buys is that
+ * the option is in no registry, so it is on no help screen and in no completion
+ * script for a command that has nothing to present.
  */
 import { main } from '@ttylabs/sigil';
 

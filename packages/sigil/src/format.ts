@@ -76,6 +76,8 @@
 import { __ } from './i18n/index.js';
 import type { OutputFormat, Schema } from './types.js';
 
+export type { SerializedError } from './types.js';
+
 /**
  * C0, `DEL` and C1, named rather than enumerated.
  *
@@ -108,21 +110,20 @@ const CONTROL = /\p{Cc}/u;
  * @returns Whether it is a plain object.
  */
 function isRecord(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+  if (value === null || typeof value !== 'object') {
     return false;
   }
 
-  // a `Proxy` can refuse the question, which `JSON.stringify` never asks -- so
-  // a throwing `getPrototypeOf` trap must not replace a sentence about a silent
-  // loss with one about a prototype. Found by a review round's own probe.
-  // Answering `false` sends it to the key test, where a proxy over a `Map`
-  // answers no keys and is refused for what JSON really writes
-  try {
-    const proto = Object.getPrototypeOf(value) as object | null;
-    return proto === Object.prototype || proto === null;
-  } catch {
-    return false;
-  }
+  // no `Array.isArray` in front of this, and no `try` around it, and both were
+  // written and then **deleted for being unable to change an answer** -- which
+  // is what a sabotage pass is for. An array's prototype is `Array.prototype`,
+  // so the test below answers `false` for one anyway, and every caller that
+  // cares asks `Array.isArray` first. And a `Proxy` whose `getPrototypeOf` trap
+  // throws is answered by `lossyAs()`'s own bracket, which is where the reason
+  // is written: a `catch` here made the two guards cover for each other, so
+  // neither mutation could be seen
+  const proto = Object.getPrototypeOf(value) as object | null;
+  return proto === Object.prototype || proto === null;
 }
 
 /**
@@ -247,9 +248,13 @@ function lossyAs(value: unknown): string | undefined {
 
   // one bracket over every read of somebody else's object, which answers
   // `undefined` rather than reporting: a value whose own introspection throws
-  // -- a `Proxy` whose `ownKeys` refuses -- is one `JSON.stringify` is about to
-  // meet, and the throw it gets then is JSON's own and names the trap. Ours
-  // would be a sentence about a loss over a value nobody could serialize
+  // -- a `Proxy` whose `ownKeys` or `getPrototypeOf` refuses -- is one
+  // `JSON.stringify` is about to meet, and the throw it gets then is JSON's own
+  // and names the trap. Ours would be a sentence about a loss over a value
+  // nobody could serialize, and a `Proxy` that refuses its prototype is one
+  // JSON writes as `{}` rather than failing at all. This is the **only** guard
+  // for that: `isRecord()` had a `catch` of its own and the two covered for
+  // each other, which is what a sabotage pass separated
   try {
     return unwritten(value);
   } catch {
@@ -504,36 +509,6 @@ export function formatFor(
   }
 
   return serialize;
-}
-
-/**
- * What a serialized error says.
- *
- * Wrapped in `error` rather than being the error's own fields at the top level,
- * because `{"message":…}` is indistinguishable from a command that succeeded and
- * returned a `message` -- and a reader merging the two streams has to be able to
- * tell them apart. Every tool that serializes an error wraps it.
- *
- * `name` is the half a script can branch on, and that is the reason it is here
- * rather than a nicety: **a message is translated and a name is not**, so a
- * script keyed on the message breaks the moment `LANG` moves. It is present
- * wherever the thrown value has one, which is uniform for every `Error` there
- * is -- `Error` included, because a script asking "is this an `Error` or a
- * `TypeError`" needs the field to be there either way, and a rule that omitted
- * the base name would be a field that is absent for the commonest case. A
- * thrown *string* has none, which is the one shape the `?` is for. `exitCode`
- * is deliberately absent -- the process already carries the verdict, and
- * putting it in the payload would be the same fact twice.
- *
- * It is built from the same `message` the human form prints, so the two cannot
- * come to disagree about what the error says.
- */
-export interface SerializedError {
-  error: {
-    message: string;
-    /** The error's own `name`, where the thrown value has one at all. */
-    name?: string;
-  };
 }
 
 /**

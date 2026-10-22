@@ -12,8 +12,18 @@
  * nothing -- which this repository calls worse than no option at all. So a
  * command **opts in**, by declaring the formats it supports or `true` for every
  * one the schema provides, and the option exists exactly where the command said
- * it does: `mycli dashboard --format json` is `Unknown option` rather than a
- * silent no-op.
+ * it does.
+ *
+ * What that comes to for a command that did **not** opt in is narrower than the
+ * first version of this sentence claimed, and it claimed `Unknown option`:
+ * measured, `mycli dashboard --format json` exits **0** and serializes nothing,
+ * because `allowUnknownOptions` defaults to true and an undeclared option
+ * produces a value rather than erroring. `Unknown option "--format"` is the
+ * answer for an app that turned that off. Which is still the point rather than
+ * a hole in it: what is refused is the option **existing** -- it is in no
+ * registry, so it is on no help screen, in no reference and in no completion
+ * script -- where an option added everywhere would be one that parses and does
+ * nothing on every command with no data to serialize.
  *
  * Which also means it is added in `initCommand()` rather than in `parse()`, and
  * that is the whole of why it belongs in the reference and in a completion
@@ -192,6 +202,12 @@ export async function registerFormats(
  *   in order to tell a command that can select a format from one that cannot.
  */
 function mark(opt: InternalOption | undefined, accepts: true | readonly string[]): boolean {
+  // a **tripwire** rather than a guard, and the sabotage pass is what
+  // established it: every caller looks the option up immediately after adding
+  // it, and `OptionRegistry.add()` throws rather than declining, so there is no
+  // reachable way for this to be `undefined`. It is kept because the honest
+  // alternative is a `TypeError` from the next line, and `add()` answers `void`
+  // so the lookup cannot be avoided
   if (!opt) {
     return false;
   }

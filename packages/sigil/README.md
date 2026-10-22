@@ -749,7 +749,15 @@ this command can present.
 
 An ancestor's declaration resolves for its subcommands the way any option does,
 and a nearer one narrows: a `db` that declares `format: true` gives `db list` the
-option, and a `db list` that declares `format: ['yaml']` presents only that.
+option, and a `db list` that declares `format: ['yaml']` presents only that. The
+narrowing holds wherever in the line the token sat, so `db --format json list`
+and `db list --format json` are the same answer.
+
+On a command that declared nothing, `--format` is in no registry — so it is on no
+help screen, in no generated reference and in no completion script. What typing
+it anyway does is `allowUnknownOptions`' business rather than this feature's: on
+by default it is swallowed and nothing is serialized, and
+`settings: { allowUnknownOptions: false }` makes it `Unknown option "--format"`.
 
 ### `json` ships; everything else is the app's
 
@@ -769,10 +777,11 @@ export default {
 };
 ```
 
-An entry named `json` replaces the built-in. A serializer is **synchronous**,
-which is forced rather than chosen: `errorHandler()` is synchronous, and the
-serialized error has to come out of the same selection the serialized result
-does. Returning a promise is refused, naming it.
+An entry named `json` replaces the built-in. `OutputFormat` is the type of one —
+`(value: unknown) => string` — and a serializer is **synchronous**, which is
+forced rather than chosen: `errorHandler()` is synchronous, and the serialized
+error has to come out of the same selection the serialized result does. Returning
+a promise is refused, naming it.
 
 The built-in **refuses what JSON would silently change** rather than writing it.
 Two of `JSON.stringify`'s three answers for a value it cannot hold are silent: a
@@ -841,7 +850,8 @@ on purpose — the process already carries the verdict.
 Which means **your serializer is handed both of a run's two answers**: the data
 on success and that payload on failure. One written only for the data loses the
 error without saying so — a CSV serializer reading `value.rows` gets a header row
-and nothing under it. Check for `error` first:
+and nothing under it. Check for `error` first, and `SerializedError` is the type
+of what you find there:
 
 ```js
 const toCsv = (value) =>

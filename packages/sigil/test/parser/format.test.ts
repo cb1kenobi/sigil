@@ -675,6 +675,29 @@ describe('a declaration', () => {
    * and nothing else -- which is also what keeps the check from refusing an app
    * over a command nobody ran.
    */
+  /**
+   * **Every** declaration in the chain, which is what `detectFormat()`'s own
+   * comment says and what a sabotage pass found nothing pinning: checking only
+   * the nearest one leaves a broken declaration on an **ancestor** unreported
+   * for every run that reaches a child with a good one. The claim is that a
+   * declaration which cannot mean anything fails wherever in the chain it sits.
+   */
+  it('should refuse a bad declaration on an ancestor of the command that ran', async () => {
+    const schema: Schema = {
+      commands: {
+        db: {
+          commands: { list: { format: true, run: () => ({ a: 1 }) } },
+          format: ['yaml'],
+        },
+      },
+      name: 'mycli',
+    } as never;
+
+    expect((await run(['db', 'list'], schema)).err).toContain(
+      'The "db" command declares the "yaml" output format, which this app does not provide'
+    );
+  });
+
   it('should not refuse a bad declaration on a command argv did not name', async () => {
     const schema: Schema = {
       commands: { bad: { format: ['yaml'] }, list: { format: true, run: () => ({ a: 1 }) } },
@@ -939,6 +962,56 @@ describe('what the command returned', () => {
     } as never;
 
     expect((await run(['list', '--json'], schema)).out).toBe('{\n  "a": {}\n}\n');
+  });
+
+  /**
+   * `isIndex()` is what decides which of an array's own keys JSON writes, and
+   * both halves of it were unpinned until a sabotage pass said so. A key is an
+   * index only in its **canonical** spelling, so `"00"` and `"01"` are named
+   * properties JSON drops -- which `/^[0-9]+$/` reads as indices -- and the
+   * ceiling is real, because `2 ** 32 - 1` is one past the last index an array
+   * can have and is therefore a named property too.
+   *
+   * The XML store's own entry records arriving at the same spelling from the
+   * other direction, which is why it is this one rather than
+   * `String(Number(key)) === key`.
+   */
+  it.each([
+    ['a leading zero', '00'],
+    ['one past the last index', '4294967295'],
+  ])('should refuse %s on an array, which json drops', async (_what, key) => {
+    const schema: Schema = {
+      commands: {
+        list: { format: true, run: () => ({ a: Object.assign([1], { [key]: 'lost' }) }) },
+      },
+      name: 'mycli',
+    } as never;
+    const ran = await run(['list', '--json'], schema);
+
+    expect(ran.out).toBe('');
+    expect(JSON.parse(ran.err).error.message).toContain(
+      `so the ${JSON.stringify(key)} property on it is dropped`
+    );
+  });
+
+  /**
+   * `Object` is the one kind name that says nothing, and it is reachable rather
+   * than hypothetical: an object whose prototype is an ordinary object is not a
+   * record, has no own keys, and reports `Object` -- so the sentence would have
+   * read "JSON has no mapping for Object", which names nothing a reader can act
+   * on. The path is what identifies it.
+   */
+  it('should not name a kind called Object, which says nothing', async () => {
+    const schema: Schema = {
+      commands: { list: { format: true, run: () => ({ a: Object.create({ inherited: 1 }) }) } },
+      name: 'mycli',
+    } as never;
+    const { message } = JSON.parse((await run(['list', '--json'], schema)).err).error as {
+      message: string;
+    };
+
+    expect(message).toContain('no mapping for this kind of object, so it writes {} (at "a")');
+    expect(message).not.toContain('for Object');
   });
 
   /**

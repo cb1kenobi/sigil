@@ -699,6 +699,36 @@ export interface ParseState<Argv = Record<string, unknown>> {
  */
 export type OutputFormat = (value: unknown) => string;
 
+/**
+ * What a serialized error says.
+ *
+ * Wrapped in `error` rather than being the error's own fields at the top level,
+ * because `{"message":…}` is indistinguishable from a command that succeeded and
+ * returned a `message` -- and a reader merging the two streams has to be able to
+ * tell them apart. Every tool that serializes an error wraps it.
+ *
+ * `name` is the half a script can branch on, and that is the reason it is here
+ * rather than a nicety: **a message is translated and a name is not**, so a
+ * script keyed on the message breaks the moment `LANG` moves. It is present
+ * wherever the thrown value has one, which is uniform for every `Error` there
+ * is -- `Error` included, because a script asking "is this an `Error` or a
+ * `TypeError`" needs the field to be there either way, and a rule that omitted
+ * the base name would be a field that is absent for the commonest case. A
+ * thrown *string* has none, which is the one shape the `?` is for. `exitCode`
+ * is deliberately absent -- the process already carries the verdict, and
+ * putting it in the payload would be the same fact twice.
+ *
+ * It is built from the same `message` the human form prints, so the two cannot
+ * come to disagree about what the error says.
+ */
+export interface SerializedError {
+  error: {
+    message: string;
+    /** The error's own `name`, where the thrown value has one at all. */
+    name?: string;
+  };
+}
+
 export interface Schema {
   args?: (string | Argument)[];
   /**

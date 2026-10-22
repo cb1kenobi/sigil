@@ -4706,6 +4706,99 @@ which is the hazard round one already demonstrated in the other direction.
   against the fix there, which is how the eight were confirmed without touching
   the branch.
 
+#### Round three never answered, and what was done in its place
+
+Four launches of `cursor-agent --model muse-wonder-1.0-high`, every one a
+**zero-byte exit 0**, and the deaths got _earlier_ rather than later: the last
+two produced nothing at all, where round two at least left its probes. A
+single-focus chunk at `-medium`, which is the technique this file records as the
+one that landed a round on the YAML store, died the same way. So the retrying
+stopped at four, which is the rule this repository already keeps about a
+subagent that stalls.
+
+What stands in its place is **this repository's own work against round three's
+brief, labelled as such** -- which is the precedent the YAML store set and is
+weaker evidence than a reviewer's for the stated reason: nobody who had not
+written the code read it. A sabotage pass is the part of it that is not weaker,
+because a mutation is a fact rather than an opinion.
+
+- **Thirty-eight mutations, thirty-seven caught, one declared.** A green control
+  first and the four verdict guards, and three of the four fired, which is the
+  argument for having them: the summary regex required a `passed` count, which a
+  run where **every** suite fails does not print -- the identical bug this file
+  records **twice**, reproduced a third time by somebody who had read both
+  entries, and it reported 33 of 40 mutations as `HARNESS BROKEN` rather than as
+  passes. The suite-count guard then caught a second one, which is the glob that
+  matches nothing: `test/readme.test.ts` does not exist -- the config module's is
+  at `test/config/readme.test.ts` -- so vitest ignored the path, one suite ran
+  where two were named, and the control said `1 suites`. And a run backgrounded
+  through `nohup` was killed partway and left a mutation in the worktree, which
+  is why the pass runs in the foreground.
+
+- **Two guards were deleted for being unable to change an answer**, and the
+  first is two guards covering for each other -- the shape round one already
+  found once. `isRecord()` had a `try` around its `getPrototypeOf` for a `Proxy`
+  that refuses the question, and `lossyAs()` has a bracket over every read of
+  somebody else's object: with the second in place the first cannot change an
+  answer, and the proxy test passes either way. The bracket is the one guard now
+  and the reason is written where it is. And `isRecord()`'s `Array.isArray` was
+  dead on every path: an array's prototype is `Array.prototype`, so the test
+  below answers `false` anyway, and both callers that care ask `Array.isArray`
+  first.
+
+- **Four survivors were a guard with no test, and each got the input that makes
+  it matter.** Both halves of `isIndex()`: a key of `"00"` is a named property
+  JSON drops, which `/^[0-9]+$/` reads as an index, and `"4294967295"` is one
+  past the last index an array can have. The `Object`-name fallback, whose input
+  is `Object.create({ inherited: 1 })` -- not a record, no own keys, and it
+  reports a kind named `Object`, which names nothing. And **`assertDeclared()`
+  walking the whole chain**, which is the sharpest of the four: checking only
+  the nearest declaration leaves a broken one on an **ancestor** unreported for
+  every run that reaches a child with a good one, which contradicts the comment
+  beside it and this section's own claim that such a declaration fails on every
+  run.
+
+- **The one declared survivor is a tripwire rather than a guard.** `mark()`'s
+  `if (!opt) return false` cannot be reached: every caller looks the option up
+  immediately after adding it, and `OptionRegistry.add()` throws rather than
+  declining. It is kept because `add()` answers `void`, so the lookup cannot be
+  avoided, and the honest alternative is a `TypeError` from the next line --
+  which is the footing `clipboardSequence()`'s own unreachable assertion is on.
+
+- **`OutputFormat` was published and named nowhere, and `SerializedError` was
+  the opposite.** The first is in `dist/index.d.mts`, so it is a type an app
+  writes into its own signatures, and the README did not mention it -- which is
+  the class `testing-helpers.test.ts` closed for its own section, an export
+  nobody can find. The second is the payload the README now tells every
+  serializer to branch on and was **not** exported at all, so an app following
+  that instruction had nothing to narrow to. It moved to `types.ts` beside
+  `OutputFormat`, which is where the other public types are, and both are named
+  in the README.
+
+- **And the header claimed `Unknown option` where the answer is silence.**
+  `parser/format.ts` said that a command which did not opt in answers
+  `mycli dashboard --format json` with `Unknown option` "rather than a silent
+  no-op" -- and measured, it exits **0** and serializes nothing, because
+  `allowUnknownOptions` defaults to true and an undeclared option produces a
+  value rather than erroring. The _test_ was honest all along: it asserts the
+  empty output **and** the `Unknown option "--format"` an app that turned the
+  setting off gets. So what was wrong is the sentence, which is the dangerous
+  half -- a reader would report the silence as a bug. What the opt-in really
+  buys is said instead: the option is in no registry, so it is on no help
+  screen, in no reference and in no completion script.
+
+- **Every command line in the demo's own header was run**, which no round had
+  done, and all nine do what the header says. `demos/README.md`'s three piped
+  lines likewise.
+
+- **And one measurement of mine was wrong in the way this file keeps
+  recording.** Regenerating `src/i18n/keys.ts` looked like it had produced an
+  **empty** key set -- 108 deletions -- and the generator had written 107 keys
+  correctly: it writes unformatted output and `pnpm fmt` is the documented
+  second step, so a `grep -c "^  '"` against the unformatted file matched
+  nothing. A figure that disagrees is a harness to go and read. The committed set
+  is byte for byte what the generator produces.
+
 #### What is deliberately out
 
 - **A process-wide `registerFormat()`**, with the leak reason above.
