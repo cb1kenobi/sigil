@@ -25,7 +25,8 @@
  * `first` from the **offset**, so no `view` however large puts a row above the
  * offset in the window, and at the mid-list offset this times at that side built
  * 20,106 elements rather than 40,010 -- which read as a 97.7ms first frame where
- * AGENTS.md records 190.6, and was very nearly written up as a faster machine.
+ * src/components/AGENTS.md records 190.6, and was very nearly written up as a
+ * faster machine.
  *
  * What keeps the hand-built side honest is that it and the window are required to
  * paint the **same frame** and report the **same range** at six offsets before
@@ -37,10 +38,11 @@
  * the first section lost -- it is the same component with the declaration removed --
  * and it is SIG-132.
  *
- * Interleaved rather than batched, for the reason AGENTS.md records twice: two
- * batches minutes apart disagree with each other, and run in the other order
- * with themselves, on a machine that is doing anything else. Check the absolute
- * numbers against the ones AGENTS.md writes down before believing a delta.
+ * Interleaved rather than batched, for the reason src/layout/AGENTS.md and
+ * src/style/AGENTS.md each record: two batches minutes apart disagree with each
+ * other, and run in the other order with themselves, on a machine that is doing
+ * anything else. Check the absolute numbers against the ones
+ * src/components/AGENTS.md writes down before believing a delta.
  */
 import { CellBuffer, Painter, StyleTable } from '../dist/canvas.mjs';
 import { ScrollBox } from '../dist/components.mjs';
@@ -366,5 +368,6 @@ console.log(
 );
 
 console.log(
-  'the arrange is no longer the frame; what is left is under "A scroll box" in AGENTS.md.'
+  'the arrange is no longer the frame; what is left is under "A scroll box" in' +
+    ' src/components/AGENTS.md.'
 );

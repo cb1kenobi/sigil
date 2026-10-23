@@ -5,7 +5,7 @@
  * nothing outside can see it -- the file exists only between the open and the
  * rename, and both halves are synchronous enough that no caller can look. The
  * alternative to wrapping `fs` is a seam whose only reader would be this file,
- * which is the shape AGENTS.md argues against.
+ * which is the shape packages/cli/AGENTS.md argues against.
  *
  * So `node:fs` and `node:fs/promises` are wrapped the way `bundle-close.test.ts`
  * wraps `rolldown`: the real calls run, the real files are written, and the one
@@ -191,7 +191,8 @@ describe('where the temp file goes', () => {
     // anyway is a failure over a file it was going to write correctly. The root
     // half -- that `sudo mycli config set` leaves a config its owner can still
     // edit -- is a claim no non-root test can make, so it is declared in
-    // AGENTS.md rather than asserted here
+    // docs/history/writing-a-config-file-back-without-destroying-it.md rather
+    // than asserted here
     const path = join(root, 'c.jsonc');
     writeFileSync(path, 'old');
     writeAtomicSync(path, 'new');

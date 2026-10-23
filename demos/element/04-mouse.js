@@ -39,10 +39,10 @@ import { createEffect, render } from '@ttylabs/sigil/renderer';
 import { State } from '@ttylabs/sigil/signals';
 import { Cascade, parseStylesheet } from '@ttylabs/sigil/style';
 
-// both halves, and the reason is recorded in AGENTS.md: the query goes to the
-// terminal's output and the reply arrives on its input, so a guard that asked
-// about stdin alone let `| cat` through from a terminal and threw a stack over the
-// output
+// both halves, and the reason is recorded in packages/sigil/src/terminal/AGENTS.md:
+// the query goes to the terminal's output and the reply arrives on its input, so a
+// guard that asked about stdin alone let `| cat` through from a terminal and threw a
+// stack over the output
 if (!process.stdin.isTTY || !process.stdout.isTTY) {
   console.log('This demo reads the mouse, so it needs a terminal on both sides.');
   console.log('Run it without a pipe: node demos/element/04-mouse.js');

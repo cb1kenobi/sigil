@@ -119,7 +119,8 @@ if (process.stdin.isTTY && process.stdout.isTTY) {
       // layout. Written as `.log { height: 20 }` instead there is no floor to read,
       // so the first layout builds no rows and the frame's second pass is what
       // fills the window in -- correct either way since SIG-132, and two layouts
-      // rather than one. Recorded under "Windowing a long list" in AGENTS.md.
+      // rather than one. Recorded under "Windowing a long list" in
+      // packages/sigil/src/components/AGENTS.md.
       //
       // It is a floor rather than a bound, which is the same entry: a host that can
       // grow makes a declared height no ceiling at all, and the arranged height

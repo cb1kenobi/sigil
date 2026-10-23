@@ -6,8 +6,9 @@ import { describe, expect, it } from 'vitest';
  *
  * This was `test/canvas/screen.ts` and advanced one column per **code unit**, so
  * a picture over a row holding a wide cluster was not to be trusted -- which is
- * a finding AGENTS.md records from a prompt test whose CJK row appeared to have
- * a character replaced when the frame had changed a style and nothing else.
+ * a finding src/components/AGENTS.md records from a prompt test whose CJK row
+ * appeared to have a character replaced when the frame had changed a style and
+ * nothing else.
  *
  * The existing suite is the regression suite for the fix and did not move: all
  * of it passes unchanged. What is here is the half it could not see, because

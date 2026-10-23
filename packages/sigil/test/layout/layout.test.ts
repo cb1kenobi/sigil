@@ -1693,10 +1693,10 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
   });
 
   it('should not let the child vanish, which is what the shrinkable case did', () => {
-    // the report AGENTS.md had wrong. `flex-shrink` defaults to 1, so the row
-    // measured zero, `resolveFlexible()` shrank the child to fit the zero it had
-    // been given, and the content was simply not on screen -- no overflow for
-    // `checkInvariants()` to catch and nothing to point at
+    // the report src/layout/AGENTS.md had wrong. `flex-shrink` defaults to 1, so
+    // the row measured zero, `resolveFlexible()` shrank the child to fit the zero
+    // it had been given, and the content was simply not on screen -- no overflow
+    // for `checkInvariants()` to catch and nothing to point at
     const tree = box(
       { 'align-items': 'flex-start', 'flex-direction': 'column' },
       row({ 'flex-basis': '40', height: '1' })

@@ -20,10 +20,11 @@
  * `clearExtents()` is the same trick `test/element/scroll.test.ts` uses, and the
  * reason both are written the same way.
  *
- * Interleaved rather than batched, for the reason AGENTS.md records twice: two
- * batches minutes apart disagree with each other, and run in the other order
- * with themselves, on a machine that is doing anything else. Check the absolute
- * numbers against the ones AGENTS.md writes down before believing a delta.
+ * Interleaved rather than batched, for the reason src/layout/AGENTS.md and
+ * src/style/AGENTS.md each record: two batches minutes apart disagree with each
+ * other, and run in the other order with themselves, on a machine that is doing
+ * anything else. Check the absolute numbers against the ones
+ * src/components/AGENTS.md writes down before believing a delta.
  */
 import { CellBuffer, Painter, StyleTable } from '../dist/canvas.mjs';
 import { arrange, box, hitTest, paint, resolveStyles, text } from '../dist/element.mjs';
