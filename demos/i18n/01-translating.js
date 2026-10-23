@@ -100,6 +100,7 @@ await main({
       ja: () => Promise.resolve(ja),
       pl: () => Promise.resolve(pl),
     },
+    completion: false,
     commands: {
       show: {
         default: true,

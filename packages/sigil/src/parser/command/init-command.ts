@@ -12,6 +12,7 @@ import { copyDeclaration } from '../../util/copy-declaration.js';
 import { lockDerived } from '../../util/lock-derived.js';
 import { resolveDesc } from '../../util/resolve-desc.js';
 import { initArgs } from '../argument/init-args.js';
+import { registerFormats } from '../format.js';
 import { OptionRegistry } from '../option/option-registry.js';
 import { CommandRegistry } from './command-registry.js';
 import {
@@ -261,6 +262,17 @@ export async function initCommand(
     }
   }
 
+  // after the declaration's own options, so a command that declared `--format`
+  // itself keeps it -- and here rather than in `parse()`, which is where the
+  // other three free flags are added, because this one is the *command's*: it
+  // exists only where a command opted in, so the registry every walk reads is
+  // the one place it belongs. See `src/parser/format.ts`
+  // what it returns is recorded on the command below, because the option says
+  // which tokens select a format and the command says what they may name -- and
+  // an explicit `false` has no option to be recorded on at all, which is what
+  // makes it an opt-out rather than a spelling of absence
+  const formats = await registerFormats(options, decl.format, parsed.name);
+
   const cmd = Object.defineProperty(cloneDeclaration(decl, parsed, argDecls), Internal, {
     configurable: true,
     value: {
@@ -268,6 +280,7 @@ export async function initCommand(
       args,
       baseDir,
       commands,
+      formats,
       label: parsed.label,
       load: decl.load,
       // a placeholder has not pulled its module in yet; `loadCommand()`

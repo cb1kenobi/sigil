@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 104 keys, which is what a catalog has to carry to translate sigil's own
+ * 108 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -73,6 +73,8 @@ export const SIGIL_KEYS: readonly string[] = [
   'No commands match',
   'Nothing to do.',
   'Options:',
+  'Present the result as JSON',
+  'Present the result in this format',
   'Print a shell completion script',
   'Print the version',
   'Refusing to write {0}: {1} would be lost.\n  Pass lossy: true to write anyway, or use a store that can keep what is there.',
@@ -86,6 +88,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Set up completion for {0}, detected {1}:',
   'Show help for a command',
   'Suppress progress, not results',
+  'The "{0}" command presents no output formats, so "{1}" cannot be asked for.',
   'The command to describe',
   'The shell to generate for',
   'Then restart your shell.',
@@ -95,6 +98,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Unknown command "{0}". Did you mean "{1}"?',
   'Unknown option "{0}"',
   'Unknown option "{0}". Did you mean "{1}"?',
+  'Unknown output format "{0}". This command accepts: {1}',
   'Unsafe config key "{0}" in {1}',
   'Unterminated comment in {0} on line {1}',
   'Unterminated string in {0} on line {1}',

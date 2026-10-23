@@ -54,6 +54,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Declaring commands](#declaring-commands) — nesting, lazy loading, running one from another
 - [Settings](#settings)
 - [Hooks](#hooks) — `afterRun`, `beforeError`, and what a hook may not do
+- [Output formats](#output-formats) — `--json`, `--format`, and a serialized error
 - [Help](#help)
 - [Shell completion](#shell-completion) — `completion` installs it, `completion bash` prints it
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
@@ -706,6 +707,269 @@ cmd.hooks.parse = async (data) => {
 
 ---
 
+## Output formats
+
+A command **returns data**. A serializer **presents it**. So nothing in a
+command branches on whether JSON was asked for, which is the one thing a
+`--json` flag usually costs: an `if (json) … else …` with two code paths that
+drift apart.
+
+```js
+command({
+  format: true,
+  run: () => ({ items: ['a', 'b'] }),
+});
+```
+
+```sh
+mycli list                    # whatever the command drew
+mycli list --json             # the return value, as JSON, on stdout
+mycli list --format yaml      # ...or as anything the app registered
+```
+
+### It is per command, and that is the point
+
+`--format` exists exactly where a command declared `format`, and nowhere else. A
+full-screen dashboard has no data to serialize, so a `--format` on it would be an
+option that parses and does nothing — which this framework treats as worse than
+no option at all. `true` is every format the app provides; a list is the subset
+this command can present.
+
+```js
+{
+  format: true;
+} // every format the schema provides
+{
+  format: ['json', 'csv'];
+} // these two, and --format yaml is refused here
+{
+  format: false;
+} // none, whatever an ancestor presents
+{
+  /* nothing */
+} // no option of its own, inheriting an ancestor's
+```
+
+An ancestor's declaration resolves for its subcommands the way any option does,
+and the **nearest** one governs: a `db` that declares `format: true` gives `db
+list` the option, and a `db list` that declares `format: ['yaml']` presents only
+that. Which holds wherever in the line the token sat, so `db --format json list`
+and `db list --format json` are the same answer.
+
+So `false` is how a subcommand declines that inheritance, which is the one thing
+absence cannot say: the dashboard under a `db` that presents data presents none,
+and `db dashboard --json` is refused rather than run and then complained about.
+
+```sh
+$ mycli db dashboard --json; echo "exit $?"
+Error: The "dashboard" command presents no output formats, so "json" cannot be asked for.
+exit 1
+```
+
+Refused rather than ignored, which is the same answer a name the command cannot
+present already gets — presenting none is that question with the empty answer.
+`Unknown option` would be a lie, because the option is declared by the ancestor,
+resolves, and is on its help screen. Where no ancestor declared anything the two
+spellings are indistinguishable, so absence is the one to write unless there is
+an inheritance to decline.
+
+On a command with no declaration of its own, `--format` is in no registry — so it
+is on no help screen, in no generated reference and in no completion script. With
+no ancestor that declared one either, there is no such option anywhere in the
+chain, and what typing it anyway does is `allowUnknownOptions`' business rather
+than this feature's: on by default it is swallowed and nothing is serialized, and
+`settings: { allowUnknownOptions: false }` makes it `Unknown option "--format"`.
+
+### `json` ships; everything else is the app's
+
+`JSON.stringify` is free, so `json` is built in and the framework still has zero
+dependencies. `yaml`, `xml`, `csv` and `tsv` are an app's to bring, which is the
+same division the config stores draw — the framework ships the plumbing and the
+one format that costs nothing, and an app that wants YAML brings the YAML library
+it chose.
+
+```js
+import { stringify } from 'yaml';
+
+export default {
+  name: 'mycli',
+  formats: { yaml: (value) => stringify(value) },
+  commands: { list: { format: true, run: () => ({ items: [] }) } },
+};
+```
+
+An entry named `json` replaces the built-in. `OutputFormat` is the type of one —
+`(value: unknown) => string` — and a serializer is **synchronous**, which is
+forced rather than chosen: `errorHandler()` is synchronous, and the serialized
+error has to come out of the same selection the serialized result does. Returning
+a promise is refused, naming it.
+
+The built-in **refuses what JSON would silently change** rather than writing it.
+Two of `JSON.stringify`'s three answers for a value it cannot hold are silent: a
+function, a symbol or an `undefined` has its key dropped in an object and becomes
+`null` in an array, and `NaN`, both infinities and every object JSON has no
+mapping for — a `Map`, a `Set`, an `Error` — are rewritten as `null` or `{}`. So
+a command returning a `Map` of results would have piped `{}` and said nothing.
+Each is refused with the path:
+
+```
+Error: JSON has no mapping for Map, so it writes {} (at "rows")
+```
+
+A class instance is written as its fields, a `Date` as its `toJSON`, a boxed
+primitive as the primitive, an array as its elements, and `null` as `null` —
+those are values JSON holds faithfully, so they are held. An app's own serializer
+answers for its own format the same way.
+
+What it does **not** catch is written down rather than implied, because each is
+out of a replacer's reach: `-0` is written as `0`; a symbol-keyed or
+non-enumerable property is dropped, which is the JavaScript convention for "not
+part of the data"; an inherited property is dropped where the object has own ones
+of its own; and an **invalid** `Date` is written as `null`, because
+`Date.prototype.toJSON` has already turned it into one before anything here sees
+it. An empty `Map` is refused and an empty typed array with it, which is the one
+place the answer depends on the data: a `Map` is `{}` whether or not it has
+entries, where a typed array with bytes in it is written as an object of indices.
+
+### Both spellings, and why
+
+`--json` is sugar for `--format json`. Two spellings of one thing is something
+this repository normally refuses, so the reason is written down rather than left
+to look like a slip: `--json` is what everybody types and what every other tool
+accepts. It is offered only where the command accepts `json`, and the last
+spelling that named a format wins — so `--json --format yaml` is yaml and
+`--format yaml --json` is json.
+
+`--output` is deliberately not offered: `-o`/`--output` means an output _file_ in
+gcc, curl, ffmpeg and most of what a user has ever typed. There is no short form
+either, because unlike `-h`, `-v` and `-q` there is no consensus on one and `-f`
+is `--force` far more often than `--format`.
+
+### Errors are data too
+
+A script that gets JSON on success and a rendered message on failure cannot be
+scripted against. So the error leaves through the same selection, on stderr,
+where an error always goes — and the exit code still carries the verdict.
+
+```sh
+$ mycli list --json; echo "exit $?"
+{
+  "error": {
+    "message": "nothing to list",
+    "name": "TypeError"
+  }
+}
+exit 1
+```
+
+`name` is the half a script can branch on, and that is why it is there: a
+**message is translated and a name is not**, so a script keyed on the message
+breaks the moment `LANG` moves. It is present wherever the thrown value has one,
+which is every `Error` there is; a thrown string has none. `exitCode` is absent
+on purpose — the process already carries the verdict.
+
+Which means **your serializer is handed both of a run's two answers**: the data
+on success and that payload on failure. One written only for the data loses the
+error without saying so — a CSV serializer reading `value.rows` gets a header row
+and nothing under it. Check for `error` first, and `SerializedError` is the type
+of what you find there:
+
+```js
+// `null` is a value the framework presents, so a bare `'error' in value` is a
+// TypeError rather than a check
+const isError = (value) => value !== null && typeof value === 'object' && 'error' in value;
+
+// and one field, escaped the way RFC 4180 says: wrapped where it holds a comma,
+// a quote or a line break, with its own quotes doubled. The interpolation this
+// replaces is wrong in the direction that does not announce itself — a name
+// holding a comma becomes two columns, so a row of two values parses as three
+// and every consumer reads the wrong one
+const csvCell = (text) => (/[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text);
+
+const toCsv = (value) =>
+  isError(value)
+    ? // the message goes through the same escaping, because it is a field too —
+      // and `JSON.stringify` is the *other* grammar: it writes `\"` where CSV
+      // wants `""`
+      `error\n${csvCell(value.error.message)}`
+    : // and `value?.rows` for the same reason the guard above is not a bare
+      // `in`: the serializer is handed whatever the command returned, `null`
+      // included, so a header with nothing under it is the answer rather than a
+      // throw from inside your own serializer
+      ['name,size', ...(value?.rows ?? []).map((r) => `${csvCell(r.name)},${r.size}`)].join('\n');
+```
+
+Which is more than the shape, and deliberately: a serializer an app brings is the
+app's to get right, and each of those mistakes is **silent** — the row still
+writes, the error still writes, and a consumer reads a field that is not the one
+that went in. `demos/parser/12-formats.js` ships the same two escaping helpers,
+with a row named `charlie "big, loud"` to show them working.
+
+One seam is worth knowing. A value that failed **on the way in** — `--port
+eight` on an `int` — is reported as a plain message rather than as data, because
+argv is still being read at that point and nothing has yet said which format was
+asked for. Everything judged after the walk does serialize: a missing required
+option, an unexpected argument, a value outside `choices`. Detecting the format
+mid-walk would close half of it and is refused, because `--json --port x`
+serializing while `--port x --json` did not is a rule nobody can reason about.
+
+### Selecting a format implies quiet
+
+A spinner interleaved with JSON on stdout is unusable, so asking for machine
+output is asking for nothing else. `--format` records quiet process-wide for the
+length of the run, which is the one fold every built-in already reads — so a
+spinner the command built goes silent with nothing wired up.
+
+### Where a command's own human form goes
+
+The framework decides which presentation reaches the terminal for what **it**
+draws. A command's own `process.stdout.write` is the command's, and stdout
+belongs to the serializer once a format is selected — so a command that draws its
+result as well as returning it has to say where the human form goes. Two honest
+answers, and `demos/parser/12-formats.js` shows both:
+
+```js
+run({ format }) {
+  // ask whether to *present* it. One answer, computed once, below
+  if (format === undefined) {
+    process.stdout.write(`${table(rows)}\n`);
+  }
+  return { rows };
+}
+```
+
+```js
+run() {
+  // or put the human form on stderr, so both can be on screen at once and a
+  // pipe still gets clean data. Which is the split `sigil check` makes
+  process.stderr.write(`${table(rows)}\n`);
+  return { rows };
+}
+```
+
+Reading `state.format` is a question about **presentation**, not the two-answers
+conditional this design deletes: the value is computed once either way. The
+framework cannot make that choice for you, and the reason is measurable: it could
+only suppress a command's stdout by patching `process.stdout.write`, which a
+spawned child writing to the inherited fd walks straight past — so the
+suppression would be partial, which is worse than none.
+
+### What a format does not reach
+
+`--help` still prints help, because help is the answer to the question and a
+format is about how an answer is presented. `--version` still prints the version,
+which is a question about the program rather than a command's answer. And
+`argv.format` does not exist: the **name** is the parser's, so a command cannot
+branch on _which_ format was asked for, which is the conditional this deletes.
+Whether one was asked for is a different question and is `state.format`, nine
+lines up.
+
+A command that declares `format` and returns `undefined` is **refused**, naming
+the command. Printing nothing leaves a script with empty stdout and exit zero, so
+`jq` fails with "Unexpected end of input" and names nothing; printing `null`
+claims the command's answer was `null`. `null` itself is a value JSON represents
+and is presented.
+
 ## Help
 
 `--help` and a `help` command are added to the root automatically, and only
@@ -935,8 +1199,8 @@ lists -- a palette shows one row per command, and a completion menu is a list of
 tokens, so every token the parser takes is in it.
 
 A `hidden` command is not offered, and neither is anything under it; nor is a
-`hidden` option. `--help`, `--version` and `--quiet` are, because they are
-things a user types.
+`hidden` option. `--help`, `--version`, `--quiet` and a command's own `--format`
+and `--json` are, because they are things a user types.
 
 Anything with no declared values falls back to your shell's own file
 completion, which is what `--out <dir>` wants.

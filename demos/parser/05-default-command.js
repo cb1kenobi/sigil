@@ -12,6 +12,7 @@ await main({
   argv: process.argv.length > 2 ? undefined : ['src/index.js', '--minify'],
   schema: {
     name: 'bundle',
+    completion: false,
     commands: {
       build: {
         default: true,

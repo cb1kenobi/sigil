@@ -214,6 +214,48 @@ export interface Command<
    */
   routeInfo?: Record<string, RouteInfo>;
   examples?: CommandExample | CommandExample[];
+  /**
+   * Which output formats this command can present its return value in, which is
+   * how it opts into `--format` and the `--json` sugar.
+   *
+   * `true` is every format the schema provides, a list is those names, and
+   * absent is no option at all -- because a command with no data to serialize
+   * must not grow one. That is the whole of the per-command rule: the option
+   * exists where the command said it does, so on a command that did **not** opt
+   * in it is in no registry -- no help row, no reference entry, no completion
+   * candidate. Typing it anyway is swallowed by default, because
+   * `allowUnknownOptions` is true and an undeclared option produces a value
+   * rather than erroring: `mycli dashboard --format json` exits 0 and serializes
+   * nothing. `Unknown option "--format"` is the answer for an app that turned
+   * that setting off.
+   *
+   * An ancestor's declaration resolves for its subcommands the way any option
+   * does, and the **nearest** one governs -- so `false` is how a subcommand
+   * opts out of one: a `dashboard` under a `db` that declares `format: true`
+   * presents none, and a format asked for there is refused rather than run and
+   * then complained about. Absence is the other answer and is not the same one:
+   * it inherits. Where no ancestor declared anything the two are
+   * indistinguishable, which is why absence is the one to write unless there is
+   * an inheritance to decline.
+   *
+   * What it changes about the command is that none branches on **which** format
+   * was asked for, which is the whole of the `if (json) ... else ...`: `run()`
+   * returns one value, as it may already, and the serializer presents it. What a
+   * command drawing its **own** human form to stdout must still ask is *whether*
+   * one was selected, because stdout belongs to the serializer once it was --
+   * read `state.format`, or draw to stderr and need no branch at all. Selecting
+   * a format implies quiet, so a spinner the command built is already silent.
+   *
+   * ```js
+   * command({
+   *   format: true,
+   *   run: () => ({ items: ['a', 'b'] }),
+   * });
+   * ```
+   *
+   * See `src/parser/format.ts` and `Schema.formats`.
+   */
+  format?: boolean | string[];
   help?: string | HelpRenderer;
   hidden?: boolean;
   /**
@@ -286,6 +328,31 @@ export interface InternalCommandBase extends InternalBase {
    * from a file.
    */
   dir?: string;
+  /**
+   * What this command's `format` declaration came to, which is what
+   * `detectFormat()` reads to settle which formats the command that ran can
+   * present: `true` for every format the schema provides, the names it listed,
+   * `false` for an explicit opt-out, and `undefined` where it said nothing.
+   *
+   * On the **command** rather than on the option it adds, which reads backwards
+   * and is the only placement that can answer the question. The set is read off
+   * the settled **chain** -- innermost-first, nearest declaration governing --
+   * because reading it off the option argv bound to is position-dependent:
+   * `db --format json list` resolves the token against the contexts known at
+   * that moment, so a narrowing on `list` was never applied. An option is
+   * therefore the wrong place to keep it, and `false` has no option to be kept
+   * on at all, which is the half that made an opt-out unexpressible.
+   *
+   * `undefined` and `false` add no option either way, and they are nonetheless
+   * two different answers: absence inherits an ancestor's declaration the way
+   * any option resolves across the chain, and `false` stops the walk, so a
+   * dashboard under a `db` that presents data presents none. Without the
+   * distinction `false` is a value that parses and does nothing, which is what
+   * this repository calls worse than one that does not exist.
+   *
+   * See `src/parser/format.ts` and {@link InternalOptionBase.selectsFormat}.
+   */
+  formats?: true | readonly string[] | false;
   label: string;
   /**
    * What a build lifted out of the modules in `dir`, consulted by the walk.
@@ -530,6 +597,22 @@ export interface InternalOptionBase extends InternalBase {
   isFlag: boolean;
   label: string;
   long: Set<string>;
+  /**
+   * This option **selects an output format**, which is set on the two
+   * `registerFormats()` adds where a command declared `format`. It is how
+   * `detectFormat()` tells a format token from any other option, and one field
+   * answers for both `--format` and `--json` rather than a second saying which
+   * is the sugar.
+   *
+   * What it deliberately does **not** say is what that token may *name*: that
+   * is {@link InternalCommandBase.formats}, read off the chain, and the two are
+   * separate because they are two questions -- which tokens are selectors, and
+   * what the command that ran presents. Keeping the accepted set here as well
+   * was the first shape and it is read from nowhere, because the set has to
+   * come off the nearest declaration rather than off whichever registry held
+   * the option argv resolved against.
+   */
+  selectsFormat?: boolean;
   /** The negated flag declared alongside this option, sharing its destination. */
   negatedTwin?: InternalOption;
   /**
@@ -616,6 +699,18 @@ export interface ParseState<Argv = Record<string, unknown>> {
    */
   help?: HelpRequest;
   /**
+   * The output format argv selected, where the command opted in by declaring
+   * `format`. The **name**, because that is what argv said and what a hook or a
+   * test reads; `main()` resolves the serializer through `formatFor()`, which is
+   * the same function the parse judged the name with.
+   *
+   * Set only when a format was asked for, so an app whose commands never opt in
+   * never meets it. `main()` serializes the command's return value to stdout and
+   * records quiet process-wide, both of which a caller using `parse()` on its
+   * own decides for itself.
+   */
+  format?: string;
+  /**
    * Set when argv asked for no progress. `main()` records it process-wide, which
    * is what makes `--quiet` reach a spinner an app never wired up; a caller
    * using `parse()` on its own decides for itself, through `setQuiet()`.
@@ -629,6 +724,51 @@ export interface ParseState<Argv = Record<string, unknown>> {
    * never both set.
    */
   version?: string;
+}
+
+/**
+ * Presents a command's return value as text.
+ *
+ * Registered on `Schema.formats` under the name `--format` takes, and selected
+ * per command through `Command.format`. The value is whatever `run()` returned,
+ * or, on the error path, a {@link SerializedError}.
+ *
+ * **Synchronous**, which is forced rather than preferred: `errorHandler()` is
+ * synchronous, and the serialized error has to come from the same function the
+ * serialized result does or a script cannot be written against the pair. What
+ * it may not represent it should throw about, which is what `json` does for a
+ * `BigInt` and a circular structure.
+ */
+export type OutputFormat = (value: unknown) => string;
+
+/**
+ * What a serialized error says.
+ *
+ * Wrapped in `error` rather than being the error's own fields at the top level,
+ * because `{"message":…}` is indistinguishable from a command that succeeded and
+ * returned a `message` -- and a reader merging the two streams has to be able to
+ * tell them apart. Every tool that serializes an error wraps it.
+ *
+ * `name` is the half a script can branch on, and that is the reason it is here
+ * rather than a nicety: **a message is translated and a name is not**, so a
+ * script keyed on the message breaks the moment `LANG` moves. It is present
+ * wherever the thrown value has one, which is uniform for every `Error` there
+ * is -- `Error` included, because a script asking "is this an `Error` or a
+ * `TypeError`" needs the field to be there either way, and a rule that omitted
+ * the base name would be a field that is absent for the commonest case. A
+ * thrown *string* has none, which is the one shape the `?` is for. `exitCode`
+ * is deliberately absent -- the process already carries the verdict, and
+ * putting it in the payload would be the same fact twice.
+ *
+ * It is built from the same `message` the human form prints, so the two cannot
+ * come to disagree about what the error says.
+ */
+export interface SerializedError {
+  error: {
+    message: string;
+    /** The error's own `name`, where the thrown value has one at all. */
+    name?: string;
+  };
 }
 
 export interface Schema {
@@ -701,6 +841,36 @@ export interface Schema {
    * parser. See `src/completion/`.
    */
   completion?: boolean;
+  /**
+   * The serializers this app can present a command's return value with, keyed on
+   * the name `--format` takes.
+   *
+   * `json` is built in and needs no entry, because `JSON.stringify` is free and
+   * the zero-dependency constraint is untouched by it. `yaml`, `xml`, `csv` and
+   * `tsv` are an app's to bring, which is the same division the config stores
+   * draw: the framework ships the plumbing and the one format that costs
+   * nothing. An entry named `json` replaces the built-in, which is the
+   * declaration-respecting rule every free flag here follows.
+   *
+   * A serializer is **synchronous**, and that is forced rather than chosen:
+   * `errorHandler()` is synchronous, and a serialized error has to come out of
+   * the same function a serialized result does -- a script that gets JSON on
+   * success and a rendered message on failure cannot be scripted against.
+   *
+   * ```js
+   * import { stringify } from 'yaml';
+   *
+   * export default {
+   *   name: 'mycli',
+   *   formats: { yaml: (value) => stringify(value) },
+   *   commands: { list: { format: true, run: () => ({ items: [] }) } },
+   * };
+   * ```
+   *
+   * Which formats a *command* presents is the command's own `format`. See
+   * `src/format.ts`.
+   */
+  formats?: Record<string, OutputFormat>;
   /**
    * Whether to add `--help` and a `help` command. On unless set to `false`; an
    * app that declares either of them keeps its own either way.

@@ -142,6 +142,22 @@ describe('the demos', () => {
  * all nine of CI's node-and-os combinations.
  */
 
+/**
+ * An exact stderr, written as the lines it is.
+ *
+ * Two of these are several lines long, and a hand-written alternation of
+ * `\r?\n` and escaped braces is a wall nobody reads or can edit safely -- so the
+ * lines are the input and the escaping is this function's. Exact rather than
+ * loose for the reason the whole file is: a pattern that matches almost any line
+ * is the vacuous assertion this repository keeps deleting.
+ *
+ * `\r?` because a pipe on Windows is still whatever wrote to it.
+ */
+function lines(...out: string[]): RegExp {
+  const escaped = out.map((line) => line.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  return new RegExp(`^${escaped.join('\\r?\\n')}\\r?\\n$`);
+}
+
 /** A demo that does not exit `0` with nothing on stderr, and why. */
 const EXPECTED: Record<string, { code: number; stderr: RegExp }> = {
   // the non-TTY rule, and `demos/README.md` prints this very line
@@ -155,9 +171,37 @@ const EXPECTED: Record<string, { code: number; stderr: RegExp }> = {
   // rule `errorHandler()` exists to keep and which `STACK` below re-checks
   'demos/parser/09-errors.js': {
     code: 0,
-    // `\r?` because a pipe on Windows is still whatever `console.error` wrote
-    stderr:
-      /^Error: Missing required arguments: <host>\r?\nsorry: Error: Missing required arguments: <host>\r?\n$/,
+    stderr: lines(
+      'Error: Missing required arguments: <host>',
+      'sorry: Error: Missing required arguments: <host>'
+    ),
+  },
+  // the demo about output formats, whose bare run walks every command line in its
+  // header. Its stderr is part of what it shows rather than a failure: an unknown
+  // format's message naming what the command *does* accept, then `report`'s own
+  // human form -- which is the answer to "where does a command's own drawing go
+  // once stdout belongs to the serializer" -- and then `boom`'s error through the
+  // built-in and through the app's own serializer, as data both times. The exit
+  // code is 0 because the tour completed; each failing step's own code is printed
+  // to stdout and cleared, which is `09-errors.js`'s rule one demo along
+  'demos/parser/12-formats.js': {
+    code: 0,
+    stderr: lines(
+      'Error: Unknown output format "nope". This command accepts: json, csv, yaml',
+      'alpha                12',
+      'bravo                7',
+      'charlie "big, loud"  31',
+      '{',
+      '  "error": {',
+      '    "message": "nothing to list, \\"alpha\\" is gone",',
+      '    "name": "TypeError"',
+      '  }',
+      '}',
+      'error',
+      '"nothing to list, ""alpha"" is gone"',
+      'error:',
+      '  message: "nothing to list, \\"alpha\\" is gone"'
+    ),
   },
 };
 

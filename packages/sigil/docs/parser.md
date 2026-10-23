@@ -92,6 +92,7 @@ declaring both throws.
 | `commands`  | `object \| string`       | Subcommands, or a path to load them from                       |
 | `default`   | `boolean`                | Runs when argv named no command — see below                    |
 | `desc`      | `string`                 | Description for help                                           |
+| `format`    | `boolean \| string[]`    | Output formats this command presents — see below               |
 | `hidden`    | `boolean`                | Omit from help; a `!` name prefix sets it too                  |
 | `hooks`     | `object`                 | `init`, `parse`, `help`, `afterRun`, `beforeError` — see below |
 | `load`      | `() => Promise<unknown>` | The module as a function, for a bundled app                    |
@@ -116,6 +117,24 @@ the label it happens to sit on: making it positional would mean `'!build, b'`
 silently published a visible command. An alias that should stay out of help
 without hiding the command goes in the `alias` property, which never reaches
 the label.
+
+### Output formats
+
+`format` is how a command opts into `--format` and the `--json` sugar, which is
+the one option the parser adds **per command** rather than to the root: a
+full-screen dashboard has no data to serialize, so an option there would be one
+that parses and does nothing. `true` is every format `schema.formats` provides, a
+list is those names, and absent is no option of its own.
+
+Because it is an option, it resolves across the context chain like any other, and
+the **nearest** declaration governs — so a subcommand inherits its ancestor's
+and `format: false` is how one declines that inheritance. A format asked for on a
+command that presents none is refused by the parse, before the command runs,
+rather than selected and then complained about. The value never reaches `argv`;
+what a command reads is `state.format`, and only to decide whether to draw its
+own human form, never which format to produce.
+
+See the Output formats section of the package README for the serializer side.
 
 ### The default command
 

@@ -20,6 +20,7 @@ await main({
     // or after the command name, either works
     options: { '-v, --verbose': 'Say more' },
 
+    completion: false,
     commands: {
       // the first bare label names the command, the rest are aliases
       'db, d': {

@@ -1,5 +1,6 @@
 import debug from '../debug/index.js';
 import { attachState, fireBeforeError } from '../error-hooks.js';
+import { outputFormats } from '../format.js';
 import { __ } from '../i18n/index.js';
 import {
   Internal,
@@ -20,6 +21,7 @@ import { assertChoices, transformValue } from '../util/transform.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
 import { registerCompletion } from './completion.js';
+import { detectFormat } from './format.js';
 import { detectHelp, registerHelp } from './help.js';
 import { detectQuiet, registerQuiet } from './quiet.js';
 import { unexpectedArgument, unknownOption } from './suggest.js';
@@ -80,6 +82,13 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
       }
     }
 
+    // unconditionally, the way the hooks are: `detectFormat()` would otherwise
+    // be the only reader, and it looks only where a command opted in -- so an
+    // app with a `formats` that is not an object of functions and no command
+    // that presents one would never find out, which is a declaration that
+    // parses and does nothing
+    outputFormats(schema);
+
     if (argv !== undefined && !Array.isArray(argv)) {
       throw new TypeError('Expected argv to be an array');
     }
@@ -133,6 +142,13 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
     if (detectQuiet(state, quietHandles)) {
       state.quiet = true;
     }
+
+    // after the chain is settled, because the option belongs to whichever
+    // command opted in and that command may be three levels down. It runs
+    // whether or not argv asked, so a declaration naming a format this app
+    // does not provide fails on every run rather than on the first run that
+    // types `--format`
+    detectFormat(state);
 
     // after help and only when help was not asked for, because being asked
     // what a program does and answering with a version string is not an answer

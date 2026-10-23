@@ -1,10 +1,12 @@
 import debug from './debug/index.js';
 import { errorHandler } from './error-handler.js';
 import { fireBeforeError, stateFromError } from './error-hooks.js';
+import { assertSerialized, formatFor } from './format.js';
 import { loadCatalog } from './i18n/index.js';
 import { fireAfterRun } from './run-hooks.js';
 import {
   type AppOptions,
+  type InternalCommand,
   type ParseState,
   type RunResult,
   type Schema,
@@ -96,7 +98,12 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
     // documented `await main({ argv: chosen.argv, schema })` is, and where a
     // `--quiet` on the first run silenced every run after it with nothing in
     // argv to explain why
-    if (state.quiet) {
+    // a format implies quiet, and that is the whole reason this ticket waited on
+    // the quiet axis: a spinner interleaved with JSON on stdout is unusable, so
+    // asking for machine output is asking for nothing else. One condition rather
+    // than `state.quiet` being set for both, so that flag keeps meaning "argv
+    // asked" and the implication reads where it is made
+    if (state.quiet || state.format !== undefined) {
       const { quietGeneration, getQuiet, setQuiet, rewindQuiet } =
         await import('./style/output.js');
       const before = getQuiet();
@@ -178,11 +185,19 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
         throw result.error;
       }
 
+      // the format registry is the reader the comment here used to say would
+      // come, and this is why `result.value` is kept apart from what `main()`
+      // returns: `?? state` is the return value's own substitution, and
+      // serializing the parse state because a command returned nothing would be
+      // presenting the framework's bookkeeping as the command's answer
+      if (state.format !== undefined) {
+        writeFormatted(state, cmd, result.value);
+      }
+
       // the `?? state` substitution is `main()`'s return value and not the
       // command's result: `result.value` is what `run()` handed back, so a
       // command that returned nothing is a command that returned nothing
-      // wherever a hook asks what it did -- and wherever a format registry asks
-      // later, which is the shape this keeps rather than a reader that exists
+      // wherever a hook asks what it did
       return result.value ?? state;
     }
 
@@ -220,6 +235,61 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
   } finally {
     restoreQuiet?.();
   }
+}
+
+/**
+ * Presents what a command returned in the format argv selected.
+ *
+ * To **stdout**, which is the contract: selecting a format is asking for the
+ * answer on stdout and nothing else there, which is what the quiet implication
+ * buys. The error form goes to stderr through `errorHandler()`, as an error
+ * always does, and the exit code carries the verdict.
+ *
+ * A command that opted in and returned `undefined` is **refused**, which is the
+ * one call here a reader may want the reasoning for. Three answers were
+ * available and only this one can be acted on. Printing nothing leaves a script
+ * with empty stdout and exit zero, so `jq` fails with "Unexpected end of input"
+ * and the failure names nothing. Printing `null` claims the command's answer was
+ * `null`, which is a lie if it meant to return something. A refusal names the
+ * command, goes to stderr and exits non-zero, which is what a script's `set -e`
+ * is for -- and `--format json` that produces no JSON is the property that
+ * parses and does nothing, which this repository calls worse than one that does
+ * not exist.
+ *
+ * It runs **after** the `afterRun` hooks, which is the honest ordering rather
+ * than a convenience: the command really did return, so a hook that asked what
+ * it did is right to have been told `ok`. What failed is the presentation, and
+ * the error it throws reaches the same path every other one does -- serialized
+ * in the selected format, because `renderError()` reads the state.
+ *
+ * @param state - The parse state, for the schema and the selected name.
+ * @param cmd - The command that ran, for the message.
+ * @param value - What `run()` returned.
+ * @throws If the command returned nothing, or the serializer answered with
+ *   something that is not text.
+ */
+function writeFormatted(state: ParseState, cmd: InternalCommand, value: unknown): void {
+  const name = state.format!;
+
+  if (value === undefined) {
+    throw new Error(
+      `The "${cmd.name}" command returned nothing to present as "${name}". A command that declares "format" has to return the data it presents.`
+    );
+  }
+
+  // resolved against the whole registry rather than against what this command
+  // accepts, which is safe by construction rather than by luck: `detectFormat()`
+  // set `state.format` only after `formatFor()` had judged the name against the
+  // chain's own accepted set, so a name that is here is one that passed. Passing
+  // the narrowing again would mean carrying it on the state -- a second field
+  // answering a question already answered -- and `true` is a superset of it, so
+  // the two cannot disagree about which serializer this name names
+  const text = assertSerialized(formatFor(state.schema, name)(value), name);
+
+  // exactly one trailing newline, which is `errorHandler()`'s own rule: a
+  // line-oriented consumer wants one and a serializer that already ended with
+  // one must not produce a blank line
+  process.stdout.write(`${text.replace(/[\r\n]+$/, '')}\n`);
 }
 
 /**

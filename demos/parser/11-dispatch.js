@@ -63,6 +63,7 @@ const schema = {
   // visible rather than a claim
   options: { '-v, --verbose': 'Say more' },
 
+  completion: false,
   commands: {
     clean,
 

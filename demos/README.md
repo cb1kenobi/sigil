@@ -12,21 +12,30 @@ Each file opens with the commands worth trying. The parser demos run a sample
 argv when you give them none, so they do something on their own — pass your own
 arguments and yours are used instead.
 
+Almost every schema here says `completion: false`, which is the opt-out for the
+shell-completion command `parse()` adds to every app. It is off because no demo
+is **about** completion, so on a `--help` screen it is a row the file did not
+write — where `help` stays, because `07-help.js` is about exactly that. One demo
+keeps it and that is the interesting one: `10-palette.js` lists `completion`
+because the palette reads the **registry** rather than the declaration, so the
+one command the app never declared is the row that proves it.
+
 ## The parser
 
-|                                                                |                                                                   |
-| -------------------------------------------------------------- | ----------------------------------------------------------------- |
-| [`parser/01-hello.js`](parser/01-hello.js)                     | The smallest thing that works                                     |
-| [`parser/02-options.js`](parser/02-options.js)                 | Flags, values, types, defaults, `env`, choices, repeats, negation |
-| [`parser/03-arguments.js`](parser/03-arguments.js)             | Required, optional, and variadic positionals                      |
-| [`parser/04-subcommands.js`](parser/04-subcommands.js)         | Nesting, aliases, hidden commands, and how options resolve        |
-| [`parser/05-default-command.js`](parser/05-default-command.js) | A single-command CLI                                              |
-| [`parser/06-lazy-commands.js`](parser/06-lazy-commands.js)     | Commands read from a directory, loaded when matched               |
-| [`parser/07-help.js`](parser/07-help.js)                       | Groups, contributed sections, and writing your own                |
-| [`parser/08-hooks.js`](parser/08-hooks.js)                     | Watching a parse, adding an option mid-parse, rewriting an error  |
-| [`parser/09-errors.js`](parser/09-errors.js)                   | The default handler, your own, and catching it yourself           |
-| [`parser/10-palette.js`](parser/10-palette.js)                 | A command palette generated from the command registry             |
-| [`parser/11-dispatch.js`](parser/11-dispatch.js)               | Re-routing and executing one command from another                 |
+|                                                                |                                                                     |
+| -------------------------------------------------------------- | ------------------------------------------------------------------- |
+| [`parser/01-hello.js`](parser/01-hello.js)                     | The smallest thing that works                                       |
+| [`parser/02-options.js`](parser/02-options.js)                 | Flags, values, types, defaults, `env`, choices, repeats, negation   |
+| [`parser/03-arguments.js`](parser/03-arguments.js)             | Required, optional, and variadic positionals                        |
+| [`parser/04-subcommands.js`](parser/04-subcommands.js)         | Nesting, aliases, hidden commands, and how options resolve          |
+| [`parser/05-default-command.js`](parser/05-default-command.js) | A single-command CLI                                                |
+| [`parser/06-lazy-commands.js`](parser/06-lazy-commands.js)     | Commands read from a directory, loaded when matched                 |
+| [`parser/07-help.js`](parser/07-help.js)                       | Groups, contributed sections, and writing your own                  |
+| [`parser/08-hooks.js`](parser/08-hooks.js)                     | Watching a parse, adding an option mid-parse, rewriting an error    |
+| [`parser/09-errors.js`](parser/09-errors.js)                   | The default handler, your own, and catching it yourself             |
+| [`parser/10-palette.js`](parser/10-palette.js)                 | A command palette generated from the command registry               |
+| [`parser/11-dispatch.js`](parser/11-dispatch.js)               | Re-routing and executing one command from another                   |
+| [`parser/12-formats.js`](parser/12-formats.js)                 | `--json` and `--format`, out of one value with no two-answer branch |
 
 Two worth running with `--help` to see what the screen does:
 
@@ -63,6 +72,40 @@ You never touch `process.argv` and you never build a string.
 ```sh
 node demos/parser/11-dispatch.js shortcut
 ```
+
+`12-formats.js` run bare walks every one of the command lines in its own header,
+in order, with each one's point above it and the exit code printed where there is
+one — which is the only way to see the design rather than read it, since any
+single run shows one presentation of it:
+
+```sh
+node demos/parser/12-formats.js
+```
+
+It is also the one to run piped, because that is the half a screen cannot show:
+
+```sh
+node demos/parser/12-formats.js list --json | jq .total
+node demos/parser/12-formats.js list --format csv
+node demos/parser/12-formats.js report --json | jq .total   # table still on screen
+node demos/parser/12-formats.js boom --json
+node demos/parser/12-formats.js boom --format csv
+```
+
+The last one is there because a serializer an app writes is handed **both** of a
+run's two answers: the data on success and `{ error: { message, name } }` on
+failure. One written only for the data loses the error without saying so, which
+is what the first version of that demo did.
+
+Every command in it computes one value and returns it, and which presentation
+reaches the terminal is the framework's — so there is no `if (json)` anywhere in
+it. What the framework cannot decide is where a command's **own** human form
+goes, because stdout belongs to the serializer once a format is selected, and
+`list` and `report` are the two honest answers: one asks `state.format` whether
+to draw, which is a question about presentation rather than the two-answers
+conditional the design deletes, and the other writes to stderr so both can be on
+screen at once. `watch` declares no `format`, so `--json` is not one of its
+options at all.
 
 That one is worth running. It reaches a sibling through the registry and calls
 its `run()` directly, which is the obvious shortcut and is silently wrong twice
