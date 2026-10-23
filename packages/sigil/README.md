@@ -285,6 +285,29 @@ $ bundle src/index.ts --minify
 src/index.ts true
 ```
 
+### Topic separator
+
+A command path is spelled with spaces, and `topicSeparator: ':'` adds oclif's
+spelling of the same path beside it:
+
+```js
+export default {
+  topicSeparator: ':',
+  commands: { db: { commands: { migrate: { run: () => {} } } } },
+};
+```
+
+```
+mycli db:migrate    mycli db migrate    mycli db:migrate up
+```
+
+All three work: it adds a spelling rather than choosing between two. A coloned
+token is split only when **every** segment resolves as a command, so a value
+that holds a colon is never eaten — `mycli fetch http://example.com` is left
+alone, and so is `mycli db:bogus`. Only `' '` and `':'` are accepted. See
+[docs/parser.md](docs/parser.md#topic-separator) for the full rule and the two
+things it does not reach.
+
 ### Lazy loading
 
 A command can be a path to a module, a directory tree of them, or a package

@@ -911,6 +911,200 @@ where something did not resolve, and `settings.suggestions: false` is the opt-ou
 - **An `Extra arguments` suggestion.** What follows `--` goes through whole, which
   is a recorded decision, so there is nothing it was meant to be.
 
+### `:` as a topic separator, a tokenizer alias and nothing more
+
+oclif's default is `my:awesome:command`, and Heroku, Salesforce and dokku all
+read that way, so it is muscle memory for a lot of people even though nobody
+here likes it. `schema.topicSeparator: ':'` is the whole declaration;
+`src/util/topic.ts` is the spelling and `src/parser/command/topic.ts` is the
+resolution.
+
+- **It is a tokenizer change and not a resolution change, which is why it is
+  small.** `parseArgv()` resolves a command by
+  `contexts[0][Internal].commands.find(subject)` one token at a time, unshifting
+  the match onto the chain -- so a coloned token needs no new resolution path at
+  all. One token becomes several commands and the loop that already walks
+  `db migrate up` is the loop that walks them. Routes are untouched:
+  `db/migrate/up.ts` produces the same tree either way, the baked tree
+  `sigil build` emits does not care, and neither does the palette's catalog.
+
+- **The one hazard is that a positional value holds a colon all the time**, and
+  the rule that closes it is: try the token **whole** first, because a command
+  may legitimately be _named_ with a colon; then split; then use the split only
+  if **every** segment resolves as a command against successively inner
+  contexts. That is non-destructive by construction rather than by a list of
+  exceptions -- a URL, `host:port`, `node:22`, `10:30` and a drive-relative
+  `C:foo` are each left alone because `http`, `localhost`, `node`, `10` and `C`
+  are not commands. Where the first segment is not one, which is the
+  overwhelming case, it costs one `Map` lookup and reads nothing.
+
+  `db:bogus` is the sharp half and is what says the rule has to be _every_
+  segment rather than the first: `db` really is a command, and taking it would
+  leave `bogus` to land on whatever argument `db` declares -- a value eaten by
+  a command nobody named. The token reports whole.
+
+- **Both forms work, and that is cheaper than refusing one.** oclif's
+  `topicSeparator` is a choice between the two; here the colon form is added
+  beside the space form, which the repository would normally refuse as two
+  spellings of one thing. The reason it is allowed is arithmetic rather than
+  taste: the "every segment resolves" rule means the space form already goes
+  through the ordinary loop untouched, so refusing it would be code added to
+  take something away. Mixed forms fall out of the same fact --
+  `mycli db:migrate up` works because the first token's segments resolve and
+  `up` is then an ordinary token -- so they are a test rather than a feature.
+
+- **`' '` and `':'` and nothing else.** A `.` collides with a version number, a
+  `-` with option syntax, and a separator the parser has to guard against its
+  own grammar is a knob nobody can be given safely. Refused unconditionally in
+  `parse()`, beside `outputFormats()` and for its reason: only a coloned token
+  would ever read the answer, so an app whose separator is `'/'` would
+  otherwise run for months and then refuse the one invocation that used it.
+
+- **An empty segment refuses the token before anything loads**, and that is the
+  one guard here that changes no answer. `find()` refuses an empty name
+  already, so `db:` would be refused one step later anyway -- after `db` had
+  been **loaded** to find out what is under it. A trailing colon is something a
+  value has, so what the check buys is that a value never imports a module.
+  Pinned by a test that counts loads, because an unreachable guard is a thing
+  this repository deletes and the outcome alone cannot tell the two apart -- it
+  passed its own sabotage until that test existed.
+
+- **A refused path's loads are recorded rather than dropped, and that is the
+  half that could have been a silent lie.** Finding out whether the next
+  segment resolves means reading the level above it, and loading is the one
+  thing the walk cannot undo. `loadCommand()` answers a second call with the
+  **placeholder** it was given, so a load whose result was thrown away would
+  mark that placeholder loaded and leave a later match in the same parse
+  holding a command with the declaration and none of the module -- no `desc`,
+  no `run`, the shape this file already calls worse than an error. So the
+  loaded command goes back into its parent's registry, which is the mutation a
+  `parse` hook is already handed and which carries the placeholder's aliases,
+  label and `default` across. It is also what keeps `subcommandLoaded` firing
+  exactly once, since the registry hands the loaded command over and nothing
+  loads it again.
+
+  Measured rather than reasoned: `config:bogus config` on a routed tree answers
+  with `config`'s own `desc` and `run` with the swap and with neither without
+  it. A **directory** route is the case that makes the test subtle, because
+  reading the level mutates the placeholder -- so `config:bogus config set`
+  resolves `set` either way and only the intermediate command's own module is
+  lost. The assertion is on the intermediate command for that reason.
+
+- **A matched command joins the chain before its module loads, and a refused
+  path comes back off it.** That is the contract the space form keeps in as
+  many words at both of its own call sites -- a module that will not load is an
+  error this command's own `beforeError` hooks should still see -- so the walk
+  grows `contexts` as it goes rather than committing at the end, and a
+  _refusal_ splices back off exactly what it added. The distinction is the one
+  the rule rests on: a refusal is a token that was never a path, where a throw
+  is a command that really did match. Both are pinned, and the second against
+  the space form's own answer rather than in isolation -- `db:migrate` over a
+  `db` whose `load` throws fires `db` then the schema, which is what
+  `db migrate` fires.
+
+- **One divergence from the space form, and it is intrinsic rather than an
+  oversight.** A command contributed by an **ancestor's `parse` hook** is
+  reachable by `mycli db migrate` and not by `mycli db:migrate`: that hook
+  fires when a command is committed, and no hook on the path may fire until the
+  whole path has resolved, so the hook that would add `migrate` has not run
+  when `migrate` is looked for. Firing them as the walk went would commit half
+  a path that then failed, which is the one thing the atomic rule exists to
+  refuse. Options are unaffected, because every hook on the path fires at the
+  one token and before the rest of argv is read -- both halves are pinned, the
+  option that works and the command that does not.
+
+- **One `ParsedCommand` per command rather than one per token, each carrying
+  the segment as it was typed.** Everything downstream counts those entries --
+  `asked()` trims a help chain back to the commands argv _named_ -- so a token
+  that named three has to count as three or `mycli db:migrate --help` would
+  describe the wrong command. The `inputs` is the segment rather than the
+  command's name, because `state.$` is what argv said and `d:m` reaching `db`
+  and `migrate` through their aliases is exactly the case where the two
+  differ.
+
+- **The separator reaches the usage line and deliberately not the command
+  list.** A CLI configured for colons whose usage line prints spaces is telling
+  the reader to type something other than what it chose, and the usage line is
+  the one place help prints a _path_. The `Commands:` list is the children of
+  the command being described, so a row is a name rather than a path -- and the
+  space form still works, so `migrate` is typeable exactly as printed. oclif
+  prints full ids there because its help is flat; ours is hierarchical.
+
+  No plumbing was needed for it, which the ticket expected to be the expensive
+  half: `HelpTarget` has carried a `schema` since the usage line needed a
+  program name, and `resolveHelp()` already fills it. A caller handing
+  `renderHelp()` a bare context chain gets the space form.
+
+- **`help db:migrate` answers through the parse's own rule rather than a second
+  one.** `resolve()` tries the name whole, then the split, then refuses -- and
+  the message is what that buys. Splitting on the first segment alone would be
+  better for `help db:bogus`, which could then say `Unknown command "bogus"`,
+  and it would report `Unknown command "http"` about a URL. One rule and one
+  message about one token is worth more than a marginally sharper message about
+  the case that is already an error.
+
+- **A build carries it for nothing, which is the `formats` precedent.**
+  `generateBin()` writes `commands`, `version` and `defaultLocale` over a
+  runtime `{ ...schema }`, so an ordinary schema property comes across whole --
+  measured on the `buildable` fixture with `topicSeparator: ':'` added:
+  `db:migrate` and `db migrate` both run and the built app's usage line reads
+  `buildable db:migrate`. No fixture is committed for it, because what would be
+  pinned is the spread rather than anything of this feature's.
+
+- **The spelling and the resolution are two modules, and `./help`'s graph is
+  why.** `topicSeparator()` and `splitTopic()` are pure functions of a schema
+  and a string; `resolveTopic()` needs `loadCommand()`. One module holding both
+  put the whole command loader on the `./help` entry's graph to read a
+  one-character answer -- measured, **161,274 B over 22 modules to 178,555 B
+  over 25**. So the dependency-free half lives in `src/util/topic.ts`, which is
+  `src/util/fuzzy.ts`'s own move for its own reason, and help imports only
+  that.
+
+  What it comes to is **291 B** of shared chunk: `index.mjs` is **11,991 B over
+  7 modules**, byte for byte what it was, because none of this is on the path
+  that answers `--version`; `help.mjs` is 161,274 B over 22 to **161,674 B over
+  23**; and the parse chunk is 49,573 B over 13 to **50,548 B over 14**.
+
+> Moved: _What the sabotage pass found, and the guard that passed its own_, _What the by-hand audit found: the help plumbing was already there_, _And a measurement that moved a module_ — see [docs/history/as-a-topic-separator-a-tokenizer-alias-and-nothing-more.md](../../../../docs/history/as-a-topic-separator-a-tokenizer-alias-and-nothing-more.md).
+
+#### What is deliberately out
+
+- **A generated completion script that offers the colon form.** Both forms
+  work, so what the script offers is typeable -- which makes this a missing
+  completion rather than a wrong one, and the distinction is the one this file
+  draws for `choices` on a format option. The reason it is missing is that a
+  coloned path is **one shell word** with `:` inside bash's own
+  `COMP_WORDBREAKS`, so completing it is a rewrite of how `bash.ts` and
+  `zsh.ts` read the current word rather than a separator threaded through.
+  `path.join(' ')` in both emitters is a **case-arm key** matched against the
+  words a shell split, not something a reader is shown, so nothing there is
+  printing the wrong separator today.
+
+- **The markdown command reference.** `packages/cli/src/reference/markdown.ts`
+  prints a command path a dozen ways, and an app that chose colons would want
+  its reference to read in colons. It is a documentation generator rather than
+  something a user types against, both forms work, and it carries a surface
+  snapshot that every one of those lines would churn -- so it is additive later
+  and is a ticket of its own.
+
+- **A suggestion for a mistyped segment.** `mycli db:migrat` reports
+  `Unexpected argument "db:migrat"` with no suggestion, because the candidates
+  are the innermost context's own tokens and `db:migrat` is near none of them.
+  Offering `db:migrate` would mean suggesting a **path**, which is the
+  multi-level suggestion already refused one entry along for its own reason --
+  a routed tree's deeper registries are empty until something walks them, so it
+  would work for an inline schema and silently not for the routed one
+  `sigil new` scaffolds. Measured that it offers nothing _wrong_, which is the
+  half that matters: `db` is seven edits from `db:migrat` and the rate refuses
+  it.
+
+- **A separator on the `Commands:` list**, with the hierarchical-list reason
+  above.
+
+- **A per-command separator.** It is a property of the whole CLI -- a tree that
+  spelled one level with colons and the next with spaces is a tree nobody can
+  read -- so the schema is the only place it can go.
+
 ### Sharing options between commands
 
 - **Nothing declares what a command inherits, because nothing has to.** Options
