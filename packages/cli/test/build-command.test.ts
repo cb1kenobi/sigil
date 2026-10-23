@@ -92,6 +92,49 @@ describe('sigil build', () => {
     expect(process.exitCode).toBeFalsy();
   }, 60_000);
 
+  it('should build a single-command app, whose schema is the command', async () => {
+    // the `--single` layout. It was refused outright with `no "commands" found`,
+    // so it ran from source and could not be built -- the works-unbundled,
+    // fails-built divergence the shared route rules exist to prevent, arriving
+    // through the schema rather than through a route.
+    //
+    // What is asserted is that the executable **answers**, not only that the
+    // build exited zero: the bundle is where the generated entry's baked
+    // `commands` meets a schema that has a root `run` instead, and a build that
+    // wrote an app which then does nothing is the defect this is a fix for
+    const { err } = await sigil('build', join(fixtures, 'discover', 'single-app'), '--out', out);
+
+    expect(err).not.toContain('no "commands" found');
+    // not `0 commands`, which is what a tree the build failed to read says
+    expect(err).toContain('the root command');
+    expect(process.exitCode).toBeFalsy();
+
+    const named = spawnSync(process.execPath, [join(out, 'single-app.mjs'), 'Ada'], {
+      encoding: 'utf-8',
+    });
+
+    expect(named.status, named.stderr).toBe(0);
+    expect(named.stdout).toBe('hello Ada\n');
+
+    const bare = spawnSync(process.execPath, [join(out, 'single-app.mjs')], {
+      encoding: 'utf-8',
+    });
+
+    expect(bare.status, bare.stderr).toBe(0);
+    expect(bare.stdout).toBe('hello world\n');
+  }, 60_000);
+
+  it('should refuse an app whose schema declares neither commands nor a run', async () => {
+    // the other half of the test above: a schema with no `commands` is a
+    // single-command app only when it has a `run`, and an app that simply
+    // forgot them has to go on being told
+    const { err } = await sigil('build', join(fixtures, 'discover', 'no-run'), '--out', out);
+
+    expect(err).toContain('no "commands" found');
+    expect(existsSync(join(out, 'no-run.mjs'))).toBe(false);
+    expect(process.exitCode).toBe(1);
+  }, 60_000);
+
   it('should compile an app’s templates, and ship no parser for them', async () => {
     // the payoff, asserted rather than assumed: a compiled template ships no
     // parser, so the tag, the parser and the IR walk shake out of the bundle.

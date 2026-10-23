@@ -1,0 +1,7 @@
+{
+  "name": "single-app",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

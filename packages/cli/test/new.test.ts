@@ -1,4 +1,5 @@
 import { nameProblem, scaffold, type ScaffoldOptions } from '../src/scaffold/index.js';
+import { runCommand } from '@ttylabs/sigil/testing';
 import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
@@ -11,7 +12,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 /**
@@ -151,6 +152,41 @@ describe('the scaffold', () => {
     const entry = files({ layout: 'single' }).get('src/index.ts') as string;
     expect(entry).not.toContain('commands:');
     expect(entry).toContain('run(');
+  });
+
+  it('should scaffold a single-command app that produces its output', async () => {
+    // The gap that let SIG-150 ship, which is why this is here rather than
+    // among the text assertions: the single layout's generated test asserted
+    // `--help`, and `--help` worked. What did not was the thing the app is
+    // *for* -- `main()` dispatched only the command that matched and the root
+    // is never one, so the as-scaffolded app answered `demo world` with no
+    // output at all, exit zero.
+    //
+    // This file's own header says running a scaffolded app needs a network and
+    // a package manager, and for the single layout that is too strong: its
+    // entry imports nothing, so the one file can be written out and imported.
+    // `--js` deliberately, because a `.ts` under vitest would prove vite can
+    // read TypeScript rather than anything about this schema.
+    const scratch = mkdtempSync(join(tmpdir(), 'sigil-single-'));
+
+    try {
+      const entry = join(scratch, 'single-entry.js');
+      writeFileSync(
+        entry,
+        files({ language: 'js', layout: 'single' }).get('src/index.js') as string
+      );
+
+      const { default: schema } = (await import(pathToFileURL(entry).href)) as {
+        default: Record<string, unknown>;
+      };
+      const ran = await runCommand({ argv: ['world'], schema });
+
+      expect(ran.code).toBe(0);
+      expect(ran.out).toBe('hello world\n');
+      expect(ran.err).toBe('');
+    } finally {
+      rmSync(scratch, { force: true, recursive: true });
+    }
   });
 
   it('should keep the dev runner out of the entry names discovery looks for', () => {

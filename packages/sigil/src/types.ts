@@ -958,22 +958,40 @@ export interface Schema {
   name?: string;
   options?: OptionDeclarations;
   /**
-   * The app's version, which adds `-v, --version` and answers it.
+   * What the app does when argv named no command.
    *
-   * Declared here rather than handled around `main()` because the schema is
-   * what `sigil build` carries across whole: an app that printed its version
-   * from its own bin printed nothing once it had been built, since the build
-   * generates the executable and calls `main()` itself. Left out, no flag is
-   * added and nothing answers.
+   * The schema **is** the root command -- `parse()` builds `contexts[0]` from
+   * it -- so this is that command's `run`, and it is how a single-command app
+   * is written: the schema's own `args` and `options` are the command's, and
+   * there is no subcommand to name.
    *
-   * A **function** is called only if `--version` is actually used, and that is
-   * the spelling an app reading its own `package.json` wants: doing it eagerly
-   * is a file read on every run, and in a bundle it is a file read that throws
-   * -- `../package.json` off `import.meta.url` points wherever the bundle was
-   * written. `sigil build` replaces this with the literal it read at build
-   * time, so the function is the unbundled answer and the string is the built
-   * one.
+   * ```js
+   * export default {
+   *   name: 'greet',
+   *   args: [{ name: '[who]' }],
+   *   run({ argv }) {
+   *     process.stdout.write(`hello ${argv.who ?? 'world'}\n`);
+   *   },
+   * };
+   * ```
+   *
+   * Declared here because `main()` dispatches it, which is the reason
+   * {@link Schema.desc} is declared: a property the framework reads should be
+   * a property the types name. Unlike `Command.run` the `argv` is not
+   * inferred, because `main()` takes a `Schema` rather than inferring one from
+   * a call -- so the parameter is `any`-wide for `AnyCommand`'s own recorded
+   * reason, a narrow-`argv` handler not being assignable to a wide one.
+   *
+   * A `default` command wins over this, and an app that declares `commands`
+   * and no `run` gets the help screen.
+   *
+   * No `| null`, unlike `Command.run`: `initCommand()` refuses a `run` that is
+   * not a function with `Invalid run function`, so that one is a type
+   * permitting what the runtime throws on -- recorded in `after-run.test.ts`,
+   * where a test named for it passed for the wrong reason. Repeating it here
+   * would be repeating a known-wrong type.
    */
+  run?: CommandRunHandler<any>;
   /**
    * What a command path may be spelled with, in argv.
    *
@@ -994,6 +1012,23 @@ export interface Schema {
    * tree. See `src/parser/command/topic.ts`.
    */
   topicSeparator?: TopicSeparator;
+  /**
+   * The app's version, which adds `-v, --version` and answers it.
+   *
+   * Declared here rather than handled around `main()` because the schema is
+   * what `sigil build` carries across whole: an app that printed its version
+   * from its own bin printed nothing once it had been built, since the build
+   * generates the executable and calls `main()` itself. Left out, no flag is
+   * added and nothing answers.
+   *
+   * A **function** is called only if `--version` is actually used, and that is
+   * the spelling an app reading its own `package.json` wants: doing it eagerly
+   * is a file read on every run, and in a bundle it is a file read that throws
+   * -- `../package.json` off `import.meta.url` points wherever the bundle was
+   * written. `sigil build` replaces this with the literal it read at build
+   * time, so the function is the unbundled answer and the string is the built
+   * one.
+   */
   version?: string | (() => string);
 }
 

@@ -563,8 +563,14 @@ the one call site is inside `main()`.
 
 - **It fires for a command that _ran_, which is all it claims.** A run answered
   by `--help` or by `--version` returns before `cmd.run` is reached; a command
-  with no `run`, or with `run: null`, dispatches nothing; a parse that failed
-  never got to a command. None of those has an result to hand over, and
+  with no `run` dispatches nothing; a parse that failed never got to a command.
+  A `run: null` is in that last group rather than the middle one, which is the
+  correction `should fire nothing for a run: null, which initCommand refuses
+  outright` carries in full: `Command.run` is typed `| null`, so `null` reads as
+  the spelling for "dispatches nothing", and `initCommand()` **refuses** it with
+  `Invalid run function` -- so the parse fails and this is silent for the reason
+  every parse failure is. That type permits what the runtime throws on, which is
+  why `Schema.run` is not spelled the same way. None of those has an result to hand over, and
   inventing one would mean answering `ok` for a run that did not happen. Each is
   a test, and the parse-failure pair is two tests rather than one: a **validation**
   failure and a **coercion** failure are two different throw sites -- one happens

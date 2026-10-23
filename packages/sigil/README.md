@@ -33,9 +33,10 @@ $ mycli build src/index.ts a b --target cjs -v
 cjs src/index.ts [ 'a', 'b' ] true
 ```
 
-`main()` reads `process.argv`, matches a command, validates, and runs it. An
-error becomes a message on stderr and a non-zero exit code — never a stack
-trace, because the caller is a bin script.
+`main()` reads `process.argv`, matches a command, validates, and runs it — or
+runs a `run` on the schema itself, where the app has no subcommands. An error
+becomes a message on stderr and a non-zero exit code — never a stack trace,
+because the caller is a bin script.
 
 **[docs/parser.md](docs/parser.md)** is the full parser reference: syntax,
 semantics, precedence, and every place this parser deliberately differs from
@@ -51,7 +52,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [The root entry](#the-root-entry) — `main()`, `command()`, `options()`, errors
 - [Declaring options](#declaring-options)
 - [Declaring arguments](#declaring-arguments)
-- [Declaring commands](#declaring-commands) — nesting, lazy loading, running one from another
+- [Declaring commands](#declaring-commands) — nesting, a single-command app, lazy loading, running one from another
 - [Settings](#settings)
 - [Hooks](#hooks) — `afterRun`, `beforeError`, and what a hook may not do
 - [Output formats](#output-formats) — `--json`, `--format`, and a serialized error
@@ -259,10 +260,41 @@ every option its parents declared — `mycli -v build` and `mycli build -v` both
 set `verbose`. Help reads the same chain and lists what is left under
 `Global options`.
 
+### A single-command app
+
+A CLI with nothing to subcommand declares no `commands` at all. The schema **is**
+the root command, so a `run` on it is what the app does, and the schema's own
+`args` and `options` are that command's:
+
+```js
+await main({
+  schema: {
+    name: 'greet',
+    desc: 'Say hello',
+    args: [{ name: '[who]' }],
+    options: { '-v, --verbose': 'Say more' },
+    run({ argv }) {
+      console.log(`hello ${argv.who ?? 'world'}`);
+    },
+  },
+});
+```
+
+```
+$ greet world
+hello world
+```
+
+This is what `sigil new --single` scaffolds. Adding `commands` later does not
+silence it: a `run` on the schema is what the app does when argv named no
+command, whichever way round. What outranks it is `--help`, `--version`, and a
+`default` command, which is an explicit declaration about a command of its own.
+
 ### The default command
 
-Marked `default`, a command runs when argv named none — which is how a
-single-command CLI is written:
+Marked `default`, a command runs when argv named none — which is the other way
+to write a single-command CLI, and the one to reach for when the command wants a
+name, a help entry and arguments of its own:
 
 ```js
 await main({

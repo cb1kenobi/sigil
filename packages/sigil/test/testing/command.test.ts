@@ -24,10 +24,13 @@ afterEach(() => {
 /**
  * A schema with one command, which is the shape `main()` dispatches.
  *
- * A **command** rather than a `run` on the schema itself, and that is not a
- * stylistic choice: `main()` runs the command that *matched*, and the root is
- * never one -- so a schema carrying only a `run` parses and then does nothing at
- * all. Measured while writing this file, and reported.
+ * A **command** rather than a `run` on the schema itself, which was once the
+ * only shape that worked: `main()` ran the command that *matched* and the root
+ * is never one, so a schema carrying only a `run` parsed and then did nothing at
+ * all. Measured while writing this file, reported, and fixed in SIG-150 -- a
+ * root `run` is dispatched now, and `test/root-run.test.ts` is where that lives.
+ * This stays a command because what it is here to exercise is dispatch by
+ * **match**, which is the other half.
  *
  * @param over - What to change about the command.
  * @param schema - What to change about the schema around it.

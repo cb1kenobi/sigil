@@ -751,6 +751,47 @@ These look like bugs and are not. Each is intentional and covered by tests.
   resolves with `undefined`. Its caller is a bin script, so an unhandled
   rejection dumping a stack is the wrong default. `settings.errorHandler:
   false` rethrows instead; a function replaces the handler.
+- **`main()` dispatches a `run` on the schema when argv named no command, and
+  the schema really is the root command.** `parse()` builds `contexts[0]` from
+  `initCommand({ ...schema, ... })` and `copyDeclaration()` carries `run` across
+  with everything else, so the root has always _been_ a command carrying the
+  schema's `run`, its `args` and its `options` -- and `main()` dispatched only
+  the command that **matched**, which the root never is. So that `run` was
+  unreachable: a single-command app, which is what `sigil new --single`
+  scaffolds, parsed argv and then did nothing at all, exit zero, nothing said.
+  Removing that is one `?? state.contexts.at(-1)`, and what makes it a fix
+  rather than a change to what `main()` promises every app is that **nothing can
+  have depended on it**: code that never ran has no behaviour to preserve, so
+  the only app this moves is one carrying a handler it was silently not calling,
+  and it moves it towards doing what it said. Which is also why the whole suite
+  passed before a test was added -- 7,514 of them, none describing a root `run`.
+
+  The rule is one sentence and deliberately not two: a `run` on the schema is
+  what the app does when argv named no command, **whether or not it also
+  declares `commands`**. The narrower reading -- only when there are none, which
+  would mirror the "nothing ran, so print help" rule's own condition -- was
+  refused because it makes a working `run` go silent the day somebody adds a
+  commands directory beside it, which is the silent-behaviour-change-on-an-
+  unrelated-edit shape this file refuses everywhere. What outranks it is what
+  outranks any command: `--help`, `--version`, and a `default` command, that
+  last one because dispatching one sets `state.cmd` and an explicit declaration
+  about a command with its own name, args and help entry beats the root
+  answering by position. Reached through `state.cmd` being unset rather than
+  through its `run` being unset, so a **namespace** command argv really did name
+  still lists its children instead of the root answering for it.
+
+  The other available fix was scaffolding a hidden `default` command, and it is
+  refused twice over: it leaves the framework's own root `run` dead, so an app
+  that writes the obvious thing by hand still does nothing, and it costs the
+  root help screen the schema's own arguments -- measured, `[who]` leaves the
+  usage line, because the argument then belongs to the command. `Schema.run` is
+  declared in the types for `Schema.desc`'s recorded reason, a property the
+  framework reads being one the types should name, and **not** typed `| null`
+  the way `Command.run` is: `initCommand()` refuses a `run` that is not a
+  function, so that one permits what the runtime throws on. Covered by
+  `test/root-run.test.ts`; the measurements and the sabotage pass are in
+  [docs/history/a-run-on-the-schema-which-is-how-a-single-command-app-is-writ.md](docs/history/a-run-on-the-schema-which-is-how-a-single-command-app-is-writ.md).
+
 - **Every hook is one function, not a list of them.** `beforeParse`,
   `afterParse`, `beforeError`, `init`, `parse` and `help` all take a function,
   which is what `transform` and `settings.errorHandler` already take -- so the
@@ -1287,17 +1328,6 @@ per entry, linked from the entry itself. Read it when you need to know
 why rather than what: it is the record of what each round found.
 
 ## Known bugs
-
-- **`sigil new --single` scaffolds an app that does nothing.** `main()` runs the
-  command that **matched** and the root is never one, so a schema carrying only a
-  `run` -- which is exactly what that layout writes -- parses argv, writes
-  nothing, runs nothing and exits zero. Measured: the as-scaffolded app answers
-  `demo world` with no output at all. Found while writing SIG-140's own tests,
-  and left alone there because both available fixes are a design decision --
-  `main()` dispatching a root `run` is a change to every app's semantics, and a
-  hidden `default` command loses the argument from the root help screen. The full
-  measurement, including what the `--help` screen says, is under "Testing
-  helpers, and the faked TTY our own suite proves you need".
 
 - A subcommand's option used before its subcommand is not protected from being
   consumed as an earlier option's value, because it is not declared yet on the

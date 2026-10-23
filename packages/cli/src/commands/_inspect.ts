@@ -45,6 +45,16 @@ export interface Inspection {
   readonly commands: readonly ResolvedCommand[];
   /** Everything worth saying, in the order it was found. */
   readonly diagnostics: readonly Diagnostic[];
+  /**
+   * Whether the schema is itself the command, which is a single-command app.
+   *
+   * There is then nothing to walk and nothing to bake, so `commands` is empty
+   * and that is the right answer rather than a problem. It is carried here so
+   * that a summary can say `the root command` instead of `0 commands`, which
+   * would be indistinguishable from a tree this failed to read -- the one
+   * thing the count exists to make visible.
+   */
+  readonly root: boolean;
   /** What the type check did, or why it did not. */
   readonly types: TypeCheckResult;
 }
@@ -79,11 +89,11 @@ export function inspect(options: InspectOptions): Inspection {
   const types = typeCheck({ cwd: app.root });
   diagnostics.push(...types.diagnostics);
 
-  const commands = findCommands(app, options.commands, diagnostics);
+  const found = findCommands(app, options.commands, diagnostics);
 
   diagnostics.push(...checkTranslations(app, diagnostics));
 
-  return { app, commands, diagnostics, types };
+  return { app, commands: found.commands, diagnostics, root: found.root, types };
 }
 
 /**
@@ -137,15 +147,15 @@ function checkTranslations(app: DiscoveredApp, found: Diagnostic[]): readonly Di
  * @param app - The app.
  * @param named - A directory the caller named, if any.
  * @param diagnostics - Where to report.
- * @returns The commands.
+ * @returns The commands, and whether the schema is itself the command.
  */
 function findCommands(
   app: DiscoveredApp,
   named: string | undefined,
   diagnostics: Diagnostic[]
-): readonly ResolvedCommand[] {
+): { commands: readonly ResolvedCommand[]; root: boolean } {
   if (named !== undefined) {
-    return walkCommandDir(resolve(app.root, named), diagnostics);
+    return { commands: walkCommandDir(resolve(app.root, named), diagnostics), root: false };
   }
 
   const declared = readAppCommands(app);
@@ -154,8 +164,14 @@ function findCommands(
   if (!declared.commands) {
     // only when the entry declared none at all: one it declared and this could
     // not read has already been reported, and saying it again here would get
-    // the second telling wrong
-    if (!declared.found) {
+    // the second telling wrong.
+    //
+    // And not when the schema carries a `run`, which is a single-command app:
+    // `main()` dispatches the root, so there is nothing missing. Both halves
+    // are needed -- without the `run` test an app that simply forgot its
+    // `commands` builds in silence, and without this one the layout
+    // `sigil new --single` scaffolds cannot be built at all.
+    if (!declared.found && !declared.root) {
       diagnostics.push({
         file: app.entry,
         message:
@@ -163,14 +179,18 @@ function findCommands(
         severity: 'error',
       });
     }
-    return [];
+    return { commands: [], root: declared.root };
   }
 
   // a path is the filesystem router, which is a tree to walk; an object is the
   // app having written its commands out, which is already the tree
-  return declared.commands.kind === 'directory'
-    ? walkCommandDir(declared.commands.dir, diagnostics)
-    : declared.commands.commands;
+  return {
+    commands:
+      declared.commands.kind === 'directory'
+        ? walkCommandDir(declared.commands.dir, diagnostics)
+        : declared.commands.commands,
+    root: false,
+  };
 }
 
 /**
@@ -340,4 +360,28 @@ export function appRuns(app: DiscoveredApp): TextRun[] {
  */
 export function countCommands(commands: readonly ResolvedCommand[]): number {
   return [...walkTree(commands)].length;
+}
+
+/**
+ * What a summary calls what the app has, which is a count or the root.
+ *
+ * `0 commands` about a single-command app would be the one reading the count
+ * exists to prevent: a build that compiled none when the author wrote twelve
+ * and a build of an app that has none are the same sentence, and only the
+ * first is a problem. So a schema that is itself the command says so.
+ *
+ * Shared rather than written out in each command, which is `diagnosticLocation()`'s
+ * rule one file along: `check` and `build` read the same app through the same
+ * pass, so they must not come to disagree about what to call what they found.
+ *
+ * @param found - What reading the app turned up.
+ * @returns The phrase, with no punctuation of its own.
+ */
+export function commandsFound(found: Inspection): string {
+  if (found.root) {
+    return 'the root command';
+  }
+
+  const total = countCommands(found.commands);
+  return `${total} command${total === 1 ? '' : 's'}`;
 }

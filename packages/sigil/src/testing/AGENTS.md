@@ -371,27 +371,30 @@ sentence under "The extraction, and what it was allowed to touch" in
   section, which is most of the value of the ticket, and the scaffold, which puts
   a working one in front of every new app.
 
-- **A root schema's `run` is never dispatched, so `sigil new --single`
-  scaffolds an app that does nothing -- and that is reported rather than
-  fixed here.** Found while writing `command.test.ts`, whose first fixture put
-  `run` on the schema the way the scaffold does. `main()` runs the command that
-  **matched** and the root is never one, so `main({ schema: { name, args, run } })`
-  parses argv, writes nothing, runs nothing and exits zero. Measured: the
-  as-scaffolded single app answers `demo world` with **no output at all**, while
-  the same app with the `run` moved into a hidden `default` command answers
-  `hello world`. Its `--help` is wrong in a second way besides -- `Usage: demo
-  [options] <command> [who]` names a required `<command>` when the only command
-  is `help`.
+- **A root schema's `run` was never dispatched, so `sigil new --single`
+  scaffolded an app that did nothing -- reported here and fixed in SIG-150.**
+  Found while writing `command.test.ts`, whose first fixture put `run` on the
+  schema the way the scaffold does. `main()` ran the command that **matched**
+  and the root is never one, so `main({ schema: { name, args, run } })` parsed
+  argv, wrote nothing, ran nothing and exited zero. Measured: the as-scaffolded
+  single app answered `demo world` with **no output at all**, while the same app
+  with the `run` moved into a hidden `default` command answered `hello world`.
 
-  It is consistent with what this file already says -- "a schema that declares
-  none is one being used as a parser" -- so what is wrong is the scaffold using a
-  parser as an app, and both available fixes are a design decision somebody
-  should take on their own terms: `main()` dispatching a root `run` is a change
-  to every app's semantics, and a hidden default command loses `[who]` from the
-  root help screen, which was measured too. Taking either inside a ticket about
-  test helpers is the shape this file refuses repeatedly. So the generated test
-  covers the **multi** layout end to end -- the default, and the one where a
-  command really is dispatched -- and asserts `--help` for the single layout,
-  which does work. A scaffold test that avoided the broken path _silently_ would
-  be the dishonest version; this is the same avoidance with the measurement
-  written down beside it.
+  Deferring it was right and the avoidance it cost is the part worth keeping:
+  the generated test covered the **multi** layout end to end and asserted
+  `--help` for the single layout, which did work, with the measurement written
+  down beside it rather than the broken path quietly skipped. What the deferral
+  then bought is visible in the fix: `main()` dispatching a root `run` reads as
+  a change to every app's semantics and is not one, because a `run` that never
+  ran has no behaviour to preserve -- an argument nobody had made while this
+  entry was the only place the defect was written down. The full rule is under
+  "`main()` dispatches a `run` on the schema" in the root `AGENTS.md`, and the
+  single layout's generated test now asserts the greeting the way the multi
+  layout's does.
+
+  Its `--help` is wrong in a second way that is **not** fixed and is not this:
+  `Usage: demo [options] <command> [who]` names a `<command>` when the only
+  commands are the two the framework adds, because the registry is never empty
+  and the usage line reads the registry. Left alone deliberately -- it is a
+  question about what help prints for an app with no commands of its own, which
+  is help's to answer and not a dispatch rule.

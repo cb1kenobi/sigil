@@ -421,6 +421,48 @@ makes it testable with a fixture directory and no bundler at all.
   subcommand the walk reaches anyway. More than one _outermost_ schema in a
   module is an ambiguity this cannot resolve, and choosing by source order would
   be choosing by accident, so it says so and asks for `--commands`.
+- **...and a schema with no `commands` but a `run` is a single-command app,
+  which the build refused outright.** `no "commands" found in this module` is the
+  right answer for an app that forgot them and the wrong one for an app that has
+  none: `main()` dispatches a `run` on the schema, so the absence _is_ the
+  answer. What that cost is the divergence the shared route rules exist to
+  prevent, arriving through the schema rather than through a route -- the layout
+  `sigil new --single` scaffolds ran from source and could not be built at all,
+  so `pnpm build` failed on a brand-new app. Both halves of the test are
+  load-bearing and each alone is wrong in the case the other covers: without the
+  `run` test an app that simply forgot its `commands` builds in silence, and
+  without the absence test the scaffolded layout is refused. Pinned in both
+  directions, and the positive assertion of that message did not exist before --
+  it was asserted only as a `not.toContain`.
+- **It is a presence test, and so it is `outermostDeclaring()` rather than
+  `outermostWith()`.** Those two differ in one thing that matters here:
+  `plainProperty()` answers with a **value**, so it leaves out a method, an
+  accessor and a computed key -- right for reading a `desc` or a `commands`
+  path, and wrong for `run`, whose commonest spelling by a long way is the
+  method `run({ argv }) { ... }` the scaffold itself writes. Getting that wrong
+  is silent in the direction that hurts: the schema reads as declaring no `run`
+  and the app is refused exactly as before, which is why the sabotage that swaps
+  the two is one of the four recorded for this. One walk with two membership
+  tests rather than two walks, for the reason the walk is shared at all --
+  "which object is the schema" must have one answer. Nothing is _read_ out of
+  the literal, so a module with two run-bearing literals needs no ambiguity rule
+  of its own: the runtime reads `schema.run` off the module's own export, and
+  what this decides is only whether a missing `commands` is a problem. A
+  **spread** still does not count, which is the recorded rule for a `desc` read
+  from the other side.
+- **`0 commands` is what the summary must not say about it, which is the count
+  earning its keep.** A build that compiled none when the author wrote twelve
+  and a build of an app that has none are the same sentence, and only the first
+  is a problem -- so a single-command app is `the root command` in both
+  summaries. `commandsFound()` is shared between `check` and `build` rather than
+  written out in each, which is `diagnosticLocation()`'s own rule one file along:
+  they read the same app through the same pass and must not come to disagree
+  about what to call what they found. Nothing else about the build moved --
+  `generateBin()` writes its baked `commands` over a schema that has a root `run`
+  instead, which is an empty object over an absent one, and the executable it
+  produces answers `single-app Ada` and bare `single-app` exactly as the app does
+  from source. The measurements and the sabotage pass are in
+  [docs/history/a-run-on-the-schema-which-is-how-a-single-command-app-is-writ.md](../../docs/history/a-run-on-the-schema-which-is-how-a-single-command-app-is-writ.md).
 - **A `load: () => import('./check.js')` is followed to the `check.ts` beside
   it.** Not a guess: a TypeScript ES module imports its neighbour with a `.js`
   specifier while the file on disk is `.ts`, which is the convention this repo
