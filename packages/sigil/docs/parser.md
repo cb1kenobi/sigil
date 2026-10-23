@@ -118,6 +118,88 @@ silently published a visible command. An alias that should stay out of help
 without hiding the command goes in the `alias` property, which never reaches
 the label.
 
+### Topic separator
+
+A command path is spelled with spaces — `mycli db migrate up` — and
+`schema.topicSeparator: ':'` adds oclif's spelling of the same path beside it:
+
+```js
+const schema = {
+  topicSeparator: ':',
+  commands: {
+    db: { commands: { migrate: { commands: { up: { run: () => {} } } } } },
+  },
+};
+```
+
+```
+mycli db:migrate:up      # the colon form
+mycli db migrate up      # still works
+mycli db:migrate up      # and so does a mixed one
+```
+
+It **adds** rather than choosing, where oclif's `topicSeparator` picks one of
+the two. That is not generosity: a coloned token is split only when every
+segment resolves as a command, and the space form goes through the ordinary
+resolution loop — so refusing it would be code added to take something away.
+
+Only `' '` and `':'` are accepted; anything else throws while the schema is
+read, on every run rather than on the first run that types one.
+
+Nothing else moves. Routes are untouched: `db/migrate/up.ts` produces the same
+tree either way, and this is a spelling over that tree rather than a second
+one.
+
+#### A value that holds a colon is never split
+
+A positional value holds a colon all the time — a URL, `host:port`, `node:22`,
+a time, a drive-relative Windows path — so the split is governed by one rule:
+
+1. The token is tried **whole** first, because a command may legitimately be
+   named with a colon in it.
+2. It is then split, and the split is used only if **every** segment resolves
+   as a command against successively inner contexts.
+3. Otherwise the token is left exactly as it was found.
+
+Step 1 is what decides the precedence question: a command **literally named**
+`db:migrate:up` wins over a `db` → `migrate` → `up` path spelled the same way,
+at any depth, because the registry is asked for the whole token first. That has
+to be the way round it is — a literally named command is the one spelling that
+also works with the separator off, so it cannot be the loser.
+
+There is nothing in between whole and segments. A literal `db:migrate` is never
+read as the _first segment_ of `db:migrate:up`: the whole token is tried, misses,
+and splits on every separator, so `db`, `migrate` and `up` are what resolve.
+A longest-prefix walk is the plausible alternative and is refused, since it
+would cost a lookup per prefix on every coloned token to disambiguate a schema
+that declared one path two ways. Each token still has exactly one answer —
+`db:migrate` reaches the literal and `db:migrate:up` reaches the path — and the
+path is reachable in the space form either way.
+
+So `mycli fetch http://example.com` is never touched, because `http` is not a
+command. Neither is `mycli db:bogus`, even though `db` is one: a path that
+resolves half way is not a path, and taking `db` would leave `bogus` to land on
+whatever argument `db` declares — a value eaten by a command nobody named.
+`db:bogus` reports `Unexpected argument "db:bogus"`, which is what the token
+was.
+
+The same rule reads a path given to the `help` command, so `mycli help
+db:migrate` answers what `mycli db:migrate --help` would.
+
+#### What it does not reach
+
+A command contributed by an **ancestor's `parse` hook** is reachable by `mycli
+db migrate` and not by `mycli db:migrate`. That is the atomic rule rather than
+an oversight: a `parse` hook fires when a command is committed, and no hook on
+the path may fire until the whole path has resolved — so the hook that would
+add `migrate` has not run when `migrate` is looked for. Options are unaffected,
+since every hook on the path fires before the rest of argv is read.
+
+A generated **completion script** offers the space form only. Both forms work,
+so what it offers is typeable; the colon form is a missing completion rather
+than a wrong one, and the reason it is missing is that a coloned path is one
+shell word with `:` inside `COMP_WORDBREAKS`.
+
 ### Output formats
 
 `format` is how a command opts into `--format` and the `--json` sugar, which is

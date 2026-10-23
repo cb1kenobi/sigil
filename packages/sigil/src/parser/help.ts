@@ -8,8 +8,10 @@ import {
   type ParseState,
   type Schema,
 } from '../types.js';
+import { splitTopic, topicSeparator } from '../util/topic.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
+import { resolveTopic } from './command/topic.js';
 import { unknownCommand } from './suggest.js';
 
 /**
@@ -198,19 +200,36 @@ function path(state: ParseState, command: InternalCommand): string[] {
 async function resolve(state: ParseState, names: string[]): Promise<InternalCommand[]> {
   // the root, which is the last element of any chain
   const chain = [state.contexts[state.contexts.length - 1]!];
+  const separator = topicSeparator(state.schema);
 
   for (const name of names) {
     const parent = chain[0]!;
     const found = parent[Internal].commands.find(name);
 
-    if (!found) {
-      throw new Error(unknownCommand(name, parent, state.settings));
+    if (found) {
+      // a lazily declared command has its description and its own subcommands
+      // in a module, and describing it means reading them -- so `help
+      // <command>` is a load like any other and its parent is told about it
+      // like any other
+      chain.unshift(await loadCommand(found, parent));
+      continue;
     }
 
-    // a lazily declared command has its description and its own subcommands in
-    // a module, and describing it means reading them -- so `help <command>` is
-    // a load like any other and its parent is told about it like any other
-    chain.unshift(await loadCommand(found, parent));
+    // `help db:migrate` answers the question `mycli db:migrate --help` would,
+    // through the parse's own rule rather than a second one: whole first, then
+    // split, and the split only when every segment resolves. The message is
+    // what that buys -- a refused split reports `db:bogus` and
+    // `http://example.com` whole, which is what the parse says about the same
+    // token, where splitting on the first segment alone would report
+    // `Unknown command "http"` about a URL
+    const segments = splitTopic(name, separator);
+
+    // `chain` is a context chain, innermost first, which is what
+    // `resolveTopic()` grows -- so the walk puts what it resolved on the front
+    // of it and takes it back off again where the path is refused
+    if (!(segments && (await resolveTopic(chain, segments)))) {
+      throw new Error(unknownCommand(name, parent, state.settings));
+    }
   }
 
   return chain;

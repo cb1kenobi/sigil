@@ -36,6 +36,7 @@ one command the app never declared is the row that proves it.
 | [`parser/10-palette.js`](parser/10-palette.js)                 | A command palette generated from the command registry               |
 | [`parser/11-dispatch.js`](parser/11-dispatch.js)               | Re-routing and executing one command from another                   |
 | [`parser/12-formats.js`](parser/12-formats.js)                 | `--json` and `--format`, out of one value with no two-answer branch |
+| [`parser/13-topics.js`](parser/13-topics.js)                   | `topicSeparator: ':'`, and the value it refuses to eat              |
 
 Two worth running with `--help` to see what the screen does:
 
@@ -106,6 +107,23 @@ to draw, which is a question about presentation rather than the two-answers
 conditional the design deletes, and the other writes to stderr so both can be on
 screen at once. `watch` declares no `format`, so `--json` is not one of its
 options at all.
+
+`13-topics.js` is the one to run several ways, because the claim is that three
+spellings of one path are one path:
+
+```sh
+node demos/parser/13-topics.js db:migrate:up --steps 2
+node demos/parser/13-topics.js db migrate up --steps 2
+node demos/parser/13-topics.js db:migrate up
+node demos/parser/13-topics.js db:migrate --help        # the usage line reads in colons
+```
+
+The three that matter are the ones where nothing happens. `fetch
+http://example.com` and `fetch localhost:8080` are values that hold a colon,
+which is the ordinary case the split has to survive, and `db:bogus` is the
+sharp one: `db` really is a command, and the token is still left whole, because
+a path that resolves half way is not a path. Taking `db` there would leave
+`bogus` to land on whatever argument `db` declares.
 
 That one is worth running. It reaches a sibling through the registry and calls
 its `run()` directly, which is the obvious shortcut and is silently wrong twice

@@ -17,9 +17,11 @@ import {
 } from '../types.js';
 import { camelCase } from '../util/camel-case.js';
 import { envValue } from '../util/env-value.js';
+import { splitTopic, topicSeparator } from '../util/topic.js';
 import { assertChoices, transformValue } from '../util/transform.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
+import { resolveTopic } from './command/topic.js';
 import { registerCompletion } from './completion.js';
 import { detectFormat } from './format.js';
 import { detectHelp, registerHelp } from './help.js';
@@ -88,6 +90,12 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
     // that presents one would never find out, which is a declaration that
     // parses and does nothing
     outputFormats(schema);
+
+    // and for the same reason: `parseArgv()` asks for it too, but only a
+    // coloned token would ever read the answer -- so an app whose
+    // `topicSeparator` is `'/'` would run for months and then refuse the one
+    // invocation that used it
+    topicSeparator(schema);
 
     if (argv !== undefined && !Array.isArray(argv)) {
       throw new TypeError('Expected argv to be an array');
@@ -601,6 +609,7 @@ async function dispatchDefaultCommand(
 async function parseArgv(state: ParseState): Promise<void> {
   const { $, contexts } = state;
   const defaults = new Set<InternalCommand>();
+  const separator = topicSeparator(state.schema);
 
   await state.schema.hooks?.beforeParse?.(state);
 
@@ -663,6 +672,48 @@ async function parseArgv(state: ParseState): Promise<void> {
         };
 
         await loaded.hooks?.parse?.({ cmd: loaded, ...loaded[Internal] });
+
+        continue;
+      }
+
+      // ...and the whole token is tried before it is taken apart, because a
+      // command may legitimately be *named* with a separator in it. Only then
+      // is the coloned form read, and only when every segment resolves: a
+      // token that is a value keeps being one, which is what lets `mycli fetch
+      // http://example.com` through unchanged. See `command/topic.ts`
+      const segments = subject === undefined ? undefined : splitTopic(subject, separator);
+      // grows `contexts` with what resolved, and leaves it alone when the
+      // token turns out not to be a path
+      const topic = segments && (await resolveTopic(contexts, segments));
+
+      if (topic) {
+        log(`Found command path "${subject}"`);
+
+        state.cmd = contexts[0];
+
+        // one `ParsedCommand` per command rather than one for the token, so
+        // that everything downstream counts commands the way it always has --
+        // help trims a chain back to the commands argv *named*, and a token
+        // that named three has to count as three. Each carries the segment as
+        // it was *typed*, which for an alias is not the command's name
+        $.splice(
+          j,
+          1,
+          ...topic.map<ParsedValue>((cmd, i) => ({
+            cmd,
+            inputs: [segments[i]!],
+            type: 'Command',
+          }))
+        );
+
+        // the whole path resolved before any of its hooks fired, so this is a
+        // loop over what is already in hand, in the order the segments were
+        // typed
+        for (const cmd of topic) {
+          await cmd.hooks?.parse?.({ cmd, ...cmd[Internal] });
+        }
+
+        j += topic.length - 1;
 
         continue;
       }

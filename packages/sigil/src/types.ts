@@ -771,6 +771,17 @@ export interface SerializedError {
   };
 }
 
+/**
+ * What a command path is spelled with in argv.
+ *
+ * Two, because those are the two anybody types: a space, which is what this
+ * framework reads by default, and a colon, which is oclif's default. Not an
+ * open string -- a `.` collides with a version number, a `-` with option
+ * syntax, and a separator the parser has to guard against its own grammar is
+ * a knob nobody can be given safely. See {@link Schema.topicSeparator}.
+ */
+export type TopicSeparator = ' ' | ':';
+
 export interface Schema {
   args?: (string | Argument)[];
   /**
@@ -963,6 +974,26 @@ export interface Schema {
    * time, so the function is the unbundled answer and the string is the built
    * one.
    */
+  /**
+   * What a command path may be spelled with, in argv.
+   *
+   * `' '` is the default and is what this framework has always read:
+   * `mycli db migrate up`, one token per command. `':'` adds the oclif
+   * spelling of the same path -- `mycli db:migrate:up` -- which Heroku,
+   * Salesforce and dokku all read, so it is muscle memory for a lot of people.
+   *
+   * It **adds** rather than choosing, where oclif's `topicSeparator` picks one
+   * of the two: the space form keeps working, and so do the mixed forms
+   * (`mycli db:migrate up`). That is not generosity, it is what the splitting
+   * rule already means -- a coloned token is split only when **every** segment
+   * resolves as a command, so refusing the space form would be code added to
+   * take something away.
+   *
+   * Nothing else moves. Routes are untouched: `db/migrate/up.ts` produces the
+   * same tree either way, and this is a spelling over it rather than a second
+   * tree. See `src/parser/command/topic.ts`.
+   */
+  topicSeparator?: TopicSeparator;
   version?: string | (() => string);
 }
 

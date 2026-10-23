@@ -19,6 +19,7 @@ import {
   type ParseState,
   type Schema,
 } from '../types.js';
+import { topicSeparator } from '../util/topic.js';
 import { terminalWidth } from '../wrap/index.js';
 import { type BuiltSection, byGroup, createSections, withoutTwins } from './sections.js';
 import { type Definition, hanging, heading, type ListOptions, section } from './template.js';
@@ -188,6 +189,7 @@ export function helpView(target: HelpTarget, opts: HelpOptions = {}): Element {
         .slice(0, -1)
         .reverse()
         .map((ctx) => ctx.name),
+      separator: topicSeparator(target.schema),
       width,
     }),
   ];
@@ -322,6 +324,8 @@ interface UsageParts {
   name: string;
   options: boolean;
   path: string[];
+  /** What a command path is spelled with. */
+  separator: string;
 }
 
 /**
@@ -340,7 +344,15 @@ interface UsageParts {
  * @returns The usage line.
  */
 function usageLine(parts: UsageParts): Element {
-  const line = [parts.name, ...parts.path];
+  // the path is joined with the schema's separator and the program's name is
+  // not, because the name is not part of the path: `mycli db:migrate` is what
+  // oclif's own usage lines read like, and a CLI configured for colons whose
+  // usage line prints spaces is telling the reader to type something other
+  // than what it chose. With the default separator this is the join it always
+  // was
+  const line = parts.path.length
+    ? [`${parts.name} ${parts.path.join(parts.separator)}`]
+    : [parts.name];
 
   if (parts.options) {
     // metasyntax rather than an option name: nobody types the word, so unlike
