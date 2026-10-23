@@ -6,6 +6,8 @@ import { parse } from '../../src/parser/parse.js';
 import { commandSurface } from '../../src/reference/surface.js';
 import { getQuiet, setQuiet } from '../../src/style/output.js';
 import { Internal, type OutputFormat, type Schema } from '../../src/types.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
@@ -299,9 +301,10 @@ describe('selecting a format', () => {
   });
 
   /**
-   * The accepted set is carried on the option rather than looked up off the
-   * declaring command, so a command three levels down presents its ancestor's
-   * formats without anything having to ask which declaration won.
+   * An ancestor's declaration resolves for its subcommands the way any option
+   * does, so a command that said nothing presents what its nearest declaring
+   * ancestor presents -- which is what makes `false` an opt-out rather than a
+   * spelling of absence. See below.
    */
   it('should resolve an ancestor’s declaration for a subcommand', async () => {
     const schema: Schema = {
@@ -315,10 +318,10 @@ describe('selecting a format', () => {
   });
 
   /**
-   * A nearer declaration owns the destination, which is the parser's own
-   * context rule -- so the accepted set that comes with it is the nearer one's.
-   * The subcommand here presents only `yaml`, so the parent's `json` is refused
-   * at it.
+   * The **nearest** declaration in the chain governs, which is the parser's own
+   * context rule read off `state.contexts` rather than off the option argv
+   * resolved against. The subcommand here presents only `yaml`, so the parent's
+   * `json` is refused at it.
    */
   it('should let a nearer declaration narrow what is accepted', async () => {
     const schema: Schema = {
@@ -376,6 +379,139 @@ describe('selecting a format', () => {
 
     // and the one it does present is taken from either position
     expect((await run(['db', '--format', 'yaml', 'list'], schema)).out).toBe('yaml:{"rows":1}\n');
+  });
+
+  /**
+   * `false` is a declaration rather than a spelling of absence, which is the
+   * half the accepted set living on the option could not express: `false` adds
+   * no option to hang it on, so the walk found the **parent's** and the opt-out
+   * was invisible. Measured before the fix: `db dashboard --json` turned on
+   * quiet, *ran the dashboard*, and then failed with `The "dashboard" command
+   * returned nothing to present as "json". A command that declares "format" has
+   * to return the data it presents.` -- a message blaming a command for a
+   * declaration it had explicitly declined. Found by review.
+   *
+   * Refused rather than ignored, which is the same answer a name the command
+   * cannot present already gets: presenting none is that question with the empty
+   * answer, and a token that parses and does nothing is what this repository
+   * calls worse than one that does not exist.
+   */
+  it('should refuse a format on a command that declared format: false', async () => {
+    const schema: Schema = {
+      commands: {
+        db: {
+          commands: { dashboard: { format: false, run: () => undefined } },
+          format: true,
+        },
+      },
+      name: 'mycli',
+    } as never;
+
+    for (const argv of [
+      ['db', 'dashboard', '--json'],
+      ['db', 'dashboard', '--format', 'json'],
+      // and wherever in the line the token sat, which is the one thing a format
+      // must not depend on
+      ['db', '--json', 'dashboard'],
+    ]) {
+      const ran = await run(argv, schema);
+
+      expect(ran.err).toContain(
+        'The "dashboard" command presents no output formats, so "json" cannot be asked for.'
+      );
+      expect(ran.code).toBe(1);
+      expect(ran.out).toBe('');
+    }
+  });
+
+  /**
+   * The other half of the same defect, and the worse one: a command that
+   * *returns* a value had it serialized over its own opt-out, exit 0, with
+   * nothing saying so.
+   */
+  it('should not serialize what an opted-out command returned', async () => {
+    const schema: Schema = {
+      commands: {
+        db: {
+          commands: { off: { format: false, run: () => ({ secret: 1 }) } },
+          format: true,
+        },
+      },
+      name: 'mycli',
+    } as never;
+
+    expect((await run(['db', 'off', '--json'], schema)).out).toBe('');
+  });
+
+  /**
+   * The refusal is the *token's*, so an opted-out command that was asked for no
+   * format runs exactly as it would have -- and a typed no names nothing, which
+   * is the rule `--json=false` already follows, so that is not a token asking
+   * for a format either.
+   */
+  it('should leave an opted-out command alone where no format was asked for', async () => {
+    const drew = vi.fn();
+    const schema: Schema = {
+      commands: { db: { commands: { off: { format: false, run: drew } }, format: true } },
+      name: 'mycli',
+    } as never;
+
+    expect((await run(['db', 'off'], schema)).code).toBe(0);
+    expect((await run(['db', 'off', '--json=false'], schema)).code).toBe(0);
+    expect(drew).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * The nearest declaration governs in **both** directions, which is what makes
+   * this the parser's own context rule rather than a special case for `false`: a
+   * leaf that declares nothing inherits the opt-out above it, and one that
+   * declares a format of its own reaches back over it.
+   *
+   * The message names the command that **ran** rather than the one that declared
+   * the `false`, because that is the one the user typed and the statement is
+   * true of it either way -- a leaf under an opted-out parent presents none too.
+   */
+  it('should settle an opt-out at the nearest declaration, in both directions', async () => {
+    const tree = (leaf: unknown): Schema =>
+      ({
+        commands: {
+          db: {
+            commands: {
+              mid: { commands: { leaf: { format: leaf, run: () => ({ a: 1 }) } }, format: false },
+            },
+            format: true,
+          },
+        },
+        name: 'mycli',
+      }) as never;
+
+    // nothing declared on the leaf: it inherits `mid`'s opt-out, and the message
+    // names the leaf
+    expect((await run(['db', 'mid', 'leaf', '--json'], tree(undefined))).err).toContain(
+      'The "leaf" command presents no output formats'
+    );
+
+    // and a declaration of its own reaches back over it
+    expect((await run(['db', 'mid', 'leaf', '--json'], tree(true))).out).toBe('{\n  "a": 1\n}\n');
+  });
+
+  /**
+   * An opt-out does not excuse its ancestors: every declaration in the chain is
+   * still checked, because a command naming a format the schema does not provide
+   * is a mistake wherever in the chain it sits. Which is why the opt-out settles
+   * what *governs* without stopping the validation walk.
+   */
+  it('should still refuse a bad declaration above an opted-out command', async () => {
+    const schema: Schema = {
+      commands: {
+        db: { commands: { off: { format: false, run: () => 1 } }, format: ['nope'] },
+      },
+      name: 'mycli',
+    } as never;
+
+    expect((await run(['db', 'off'], schema)).err).toContain(
+      'The "db" command declares the "nope" output format, which this app does not provide'
+    );
   });
 
   it('should serialize what a default command returned', async () => {
@@ -655,6 +791,65 @@ describe('a declaration', () => {
     expect(commands.find('on')?.[Internal].options.find('--format')).toBeTruthy();
     expect(commands.find('off')?.[Internal].options.find('--format')).toBeUndefined();
     expect(commands.find('plain')?.[Internal].options.find('--format')).toBeUndefined();
+  });
+
+  /**
+   * ...and yet they are two different answers, which is the whole of what makes
+   * an opt-out expressible: absence inherits an ancestor's declaration the way
+   * any option resolves across the chain, and `false` stops the walk. Recorded
+   * on the **command**, because `false` adds no option to be recorded on -- the
+   * half that made it unexpressible while the accepted set lived on the option.
+   */
+  it('should record false and absence as two different declarations', async () => {
+    const state = await parse({
+      argv: [],
+      schema: {
+        commands: {
+          list: { format: ['json'] },
+          off: { format: false },
+          on: { format: true },
+          plain: {},
+        },
+        name: 'm',
+      } as never,
+    });
+    const commands = state.contexts[0][Internal].commands;
+
+    expect(commands.find('on')?.[Internal].formats).toBe(true);
+    expect(commands.find('list')?.[Internal].formats).toEqual(['json']);
+    expect(commands.find('off')?.[Internal].formats).toBe(false);
+    expect(commands.find('plain')?.[Internal].formats).toBeUndefined();
+  });
+
+  /**
+   * And the option carries the marker rather than the set, which is the other
+   * half of the same split: one field says which tokens are format selectors
+   * and the command says what they may name. Keeping the set here as well was
+   * read from nowhere, because it has to come off the nearest declaration
+   * rather than off whichever registry held the option argv resolved against.
+   */
+  it('should mark both spellings as format selectors, carrying no set', async () => {
+    const state = await parse({
+      argv: [],
+      schema: {
+        commands: { list: { format: true, options: { '--port [n]': 'a port' } } },
+        name: 'm',
+      } as never,
+    });
+    const options = state.contexts[0][Internal].commands.find('list')?.[Internal].options;
+
+    for (const spelling of ['--format', '--json']) {
+      const opt = options?.find(spelling);
+
+      expect(opt?.[Internal].selectsFormat).toBe(true);
+      expect(opt?.[Internal].parserOwned).toBe(true);
+    }
+
+    // and the command's own option beside them, so the marker is about the two
+    // the parser added rather than about every option in the registry -- which
+    // is what `detectFormat()` reads it to tell apart
+    expect(options?.find('--port')).toBeTruthy();
+    expect(options?.find('--port')?.[Internal].selectsFormat).toBeUndefined();
   });
 
   /**
@@ -1452,5 +1647,174 @@ describe('the two forms of one result', () => {
 
     expect(parsed.rows).toEqual(rows);
     expect(drawn.err.trim().split('\n')).toEqual(parsed.rows.map((it) => `${it.name} ${it.size}`));
+  });
+});
+
+/**
+ * The README's own CSV serializer, run.
+ *
+ * It is the example an app author copies for "your serializer is handed both
+ * answers", and the version this replaces was wrong in three ways that are each
+ * **silent**: `${r.name},${r.size}` left a name holding a comma as two columns,
+ * `JSON.stringify` wrote `\"` where CSV wants `""`, and a bare `'error' in
+ * value` is a `TypeError` for the `null` the framework explicitly presents. Read
+ * back through a real parser rather than compared to a string, a hostile name
+ * came out as `['charlie "big', ' loud"', '31']` -- three fields where the
+ * header has two -- and the error message as two fields of nonsense.
+ *
+ * Read **out of** the README rather than retyped, which is the config README's
+ * own technique and for its reason: a block quoted in a test is a copy nothing
+ * compares, and a copy nothing compares is one that drifts. Nothing else in this
+ * repository checks a block of the main README, which is how the broken one
+ * shipped.
+ */
+describe("the README's CSV serializer", () => {
+  /** The README, with the line endings git gave it on this platform taken off. */
+  const readme = readFileSync(join(import.meta.dirname, '../../README.md'), 'utf8').replaceAll(
+    '\r\n',
+    '\n'
+  );
+
+  /**
+   * The one `js` block in the output-formats section that defines `toCsv`.
+   *
+   * Bounded to the section, because a `js` fence elsewhere would make this
+   * answer about a different page.
+   */
+  const source = (() => {
+    const from = readme.indexOf('## Output formats');
+    const to = readme.indexOf('\n## ', from);
+    const found = [...readme.slice(from, to).matchAll(/^```js$\n([^]*?)^```$/gm)]
+      .map(([, body]) => body as string)
+      .filter((it) => it.includes('const toCsv'));
+
+    expect(found, 'one ```js block defining toCsv').to.have.length(1);
+    return found[0] as string;
+  })();
+
+  /**
+   * The block's own `toCsv`, evaluated.
+   *
+   * `new Function` rather than an import, because what is being pinned is the
+   * text of the README: anything that retyped it into a module would be the copy
+   * this exists to not have.
+   */
+  const toCsv = new Function(`${source}\nreturn toCsv;`)() as OutputFormat;
+
+  /**
+   * A row whose name holds the one character class CSV has to escape, which is
+   * the demo's own row: a space, a comma and a pair of double quotes is the one
+   * value every format has to say something different about.
+   */
+  const rows = [{ name: 'charlie "big, loud"', size: 31 }];
+
+  /**
+   * One CSV document, read the way a consumer reads it.
+   *
+   * Hand-rolled rather than a parser dependency -- this package has none -- and
+   * it is RFC 4180's own rule, which is what makes it an independent reading
+   * rather than the serializer's own escaping run backwards.
+   *
+   * @param text - The document.
+   * @returns Its rows, each a list of fields.
+   */
+  function readCsv(text: string): string[][] {
+    const out: string[][] = [[]];
+    let field = '';
+    let quoted = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+
+      if (quoted) {
+        if (ch === '"' && text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else if (ch === '"') {
+          quoted = false;
+        } else {
+          field += ch;
+        }
+      } else if (ch === '"' && field === '') {
+        quoted = true;
+      } else if (ch === ',') {
+        out[out.length - 1]?.push(field);
+        field = '';
+      } else if (ch === '\n') {
+        out[out.length - 1]?.push(field);
+        field = '';
+        out.push([]);
+      } else {
+        field += ch;
+      }
+    }
+
+    out[out.length - 1]?.push(field);
+    return out;
+  }
+
+  it('should read a hostile name back whole, in the field the header named', async () => {
+    const schema: Schema = {
+      commands: { list: { format: true, run: () => ({ rows }) } },
+      formats: { csv: toCsv },
+      name: 'mycli',
+    } as never;
+
+    const read = readCsv((await run(['list', '--format', 'csv'], schema)).out.trimEnd());
+
+    expect(read).toEqual([
+      ['name', 'size'],
+      ['charlie "big, loud"', '31'],
+    ]);
+  });
+
+  it('should read an error message back whole, as one field', async () => {
+    const schema: Schema = {
+      commands: {
+        boom: {
+          format: true,
+          run() {
+            throw new Error('cannot read "a,b"');
+          },
+        },
+      },
+      formats: { csv: toCsv },
+      name: 'mycli',
+    } as never;
+
+    const ran = await run(['boom', '--format', 'csv'], schema);
+
+    expect(readCsv(ran.err.trimEnd())).toEqual([['error'], ['cannot read "a,b"']]);
+    expect(ran.code).toBe(1);
+  });
+
+  /**
+   * The third of the three, and the one that is a throw rather than a wrong
+   * field: `null` is a value JSON holds and the framework presents, so the guard
+   * cannot be a bare `in`.
+   */
+  it('should not throw for the null the framework presents', () => {
+    expect(() => toCsv(null)).not.toThrow();
+    expect(() => toCsv(42)).not.toThrow();
+  });
+
+  /**
+   * And the two helpers are the demo's, character for character, so the one
+   * reader an app author copies and the one a demo shows cannot come apart --
+   * which is the rule this repository keeps for every other thing it says twice.
+   */
+  it('should be the same two helpers the demo ships', () => {
+    const demo = readFileSync(
+      join(import.meta.dirname, '../../../../demos/parser/12-formats.js'),
+      'utf8'
+    ).replaceAll('\r\n', '\n');
+
+    for (const line of [
+      "const isError = (value) => value !== null && typeof value === 'object' && 'error' in value;",
+      'const csvCell = (text) => (/[",\\r\\n]/.test(text) ? `"${text.replaceAll(\'"\', \'""\')}"` : text);',
+    ]) {
+      expect(source, 'the README quotes it').toContain(line);
+      expect(demo, 'and so does the demo').toContain(line);
+    }
   });
 });

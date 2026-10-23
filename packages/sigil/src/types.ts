@@ -229,6 +229,15 @@ export interface Command<
    * nothing. `Unknown option "--format"` is the answer for an app that turned
    * that setting off.
    *
+   * An ancestor's declaration resolves for its subcommands the way any option
+   * does, and the **nearest** one governs -- so `false` is how a subcommand
+   * opts out of one: a `dashboard` under a `db` that declares `format: true`
+   * presents none, and a format asked for there is refused rather than run and
+   * then complained about. Absence is the other answer and is not the same one:
+   * it inherits. Where no ancestor declared anything the two are
+   * indistinguishable, which is why absence is the one to write unless there is
+   * an inheritance to decline.
+   *
    * What it changes about the command is that none branches on **which** format
    * was asked for, which is the whole of the `if (json) ... else ...`: `run()`
    * returns one value, as it may already, and the serializer presents it. What a
@@ -319,6 +328,31 @@ export interface InternalCommandBase extends InternalBase {
    * from a file.
    */
   dir?: string;
+  /**
+   * What this command's `format` declaration came to, which is what
+   * `detectFormat()` reads to settle which formats the command that ran can
+   * present: `true` for every format the schema provides, the names it listed,
+   * `false` for an explicit opt-out, and `undefined` where it said nothing.
+   *
+   * On the **command** rather than on the option it adds, which reads backwards
+   * and is the only placement that can answer the question. The set is read off
+   * the settled **chain** -- innermost-first, nearest declaration governing --
+   * because reading it off the option argv bound to is position-dependent:
+   * `db --format json list` resolves the token against the contexts known at
+   * that moment, so a narrowing on `list` was never applied. An option is
+   * therefore the wrong place to keep it, and `false` has no option to be kept
+   * on at all, which is the half that made an opt-out unexpressible.
+   *
+   * `undefined` and `false` add no option either way, and they are nonetheless
+   * two different answers: absence inherits an ancestor's declaration the way
+   * any option resolves across the chain, and `false` stops the walk, so a
+   * dashboard under a `db` that presents data presents none. Without the
+   * distinction `false` is a value that parses and does nothing, which is what
+   * this repository calls worse than one that does not exist.
+   *
+   * See `src/parser/format.ts` and {@link InternalOptionBase.selectsFormat}.
+   */
+  formats?: true | readonly string[] | false;
   label: string;
   /**
    * What a build lifted out of the modules in `dir`, consulted by the walk.
@@ -564,20 +598,21 @@ export interface InternalOptionBase extends InternalBase {
   label: string;
   long: Set<string>;
   /**
-   * What the command accepts, set on the two options `registerFormats()` adds
-   * where a command declared `format`: `true` for every format the schema
-   * provides, or the names it listed.
+   * This option **selects an output format**, which is set on the two
+   * `registerFormats()` adds where a command declared `format`. It is how
+   * `detectFormat()` tells a format token from any other option, and one field
+   * answers for both `--format` and `--json` rather than a second saying which
+   * is the sugar.
    *
-   * On the option rather than looked up off the declaring command, which is the
-   * discipline `baseDir` keeps: which declaration argv resolved against is the
-   * registry's answer, so a subcommand that declares its own `format` reaches
-   * backwards over its parent's and brings its own accepted set with it.
-   *
-   * Present is also what marks an option as one that selects a format at all,
-   * which is how `detectFormat()` recognizes both `--format` and `--json`
-   * without a second field saying which is the sugar.
+   * What it deliberately does **not** say is what that token may *name*: that
+   * is {@link InternalCommandBase.formats}, read off the chain, and the two are
+   * separate because they are two questions -- which tokens are selectors, and
+   * what the command that ran presents. Keeping the accepted set here as well
+   * was the first shape and it is read from nowhere, because the set has to
+   * come off the nearest declaration rather than off whichever registry held
+   * the option argv resolved against.
    */
-  formats?: true | readonly string[];
+  selectsFormat?: boolean;
   /** The negated flag declared alongside this option, sharing its destination. */
   negatedTwin?: InternalOption;
   /**

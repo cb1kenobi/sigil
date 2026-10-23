@@ -267,7 +267,11 @@ export async function initCommand(
   // other three free flags are added, because this one is the *command's*: it
   // exists only where a command opted in, so the registry every walk reads is
   // the one place it belongs. See `src/parser/format.ts`
-  await registerFormats(options, decl.format, parsed.name);
+  // what it returns is recorded on the command below, because the option says
+  // which tokens select a format and the command says what they may name -- and
+  // an explicit `false` has no option to be recorded on at all, which is what
+  // makes it an opt-out rather than a spelling of absence
+  const formats = await registerFormats(options, decl.format, parsed.name);
 
   const cmd = Object.defineProperty(cloneDeclaration(decl, parsed, argDecls), Internal, {
     configurable: true,
@@ -276,6 +280,7 @@ export async function initCommand(
       args,
       baseDir,
       commands,
+      formats,
       label: parsed.label,
       load: decl.load,
       // a placeholder has not pulled its module in yet; `loadCommand()`

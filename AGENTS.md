@@ -4133,14 +4133,24 @@ detection, and the serialized error is `renderError()`'s third form.
   completion script and the parse all see one option rather than four readers each
   adding their own.
 
-- **The accepted set is carried on the option, not looked up off the command.**
-  `opt[Internal].formats` holds `true` or the declared names, which is the
-  discipline `baseDir` already keeps: which declaration argv resolved against is
-  the registry's answer, so a subcommand that declares its own `format` reaches
-  backwards over its parent's and brings its own accepted set with it, with
-  nothing having to recompute which declaration won. Present is also what _marks_
-  an option as one that selects a format, which is how both spellings are
-  recognized without a second field saying which is the sugar.
+- **The option says which tokens select a format and the **command** says what
+  they may name, which are two questions and so two fields.**
+  `opt[Internal].selectsFormat` is a plain marker, which is how both spellings
+  are recognized without a second field saying which is the sugar, and
+  `cmd[Internal].formats` holds `true`, the declared names, or `false`.
+
+  This entry read the other way for two commits -- the accepted set was on the
+  option, "which is the discipline `baseDir` already keeps: which declaration
+  argv resolved against is the registry's answer" -- and that justification was
+  **already stale when it was written**, because review round 1 had moved the set
+  off the option argv bound to and onto the settled chain for being
+  position-dependent. So the placement was being defended by appeal to a
+  mechanism that no longer ran, in five places: `mark()`'s doc, which round 1
+  corrected, plus `InternalOption.formats`' own doc, two test doc comments and
+  this. What is on the option is read from nowhere once the set comes off the
+  chain, which is what says the field was in the wrong place rather than merely
+  described wrongly -- and `false` has no option to be recorded on at all, which
+  is the half that made an opt-out unexpressible. See below.
 
 - **`parserOwned`, which is the whole design said in one field.** The value never
   reaches `argv`, so a command **cannot** branch on it -- offering `argv.format`
@@ -4431,14 +4441,16 @@ The sharpest question in the design, and the ticket did not name it.
   tell which was measured, which is the defect that file's own comment is written
   about, so both are the same number now and neither was copied from the other.
 
-- **Three translated keys and five English ones**, which is the line this file
-  already draws. `Present the result in this format`, `Present the result as JSON`
-  and `Unknown output format "{0}". This command accepts: {1}` are what a **user**
-  provokes, so they are keys -- 107 now. Everything else is a mistake in the app's
-  own declaration or its own serializer -- a bad `formats`, a bad `format`, an
-  empty list, a declared name the app does not provide, a command that returned
-  nothing, a serializer that answered with something that is not text -- and a
-  translated bug report is one the maintainer cannot read.
+- **Four translated keys and five English ones**, which is the line this file
+  already draws. `Present the result in this format`, `Present the result as
+  JSON`, `Unknown output format "{0}". This command accepts: {1}` and `The "{0}"
+  command presents no output formats, so "{1}" cannot be asked for.` are what a
+  **user** provokes, so they are keys; `SIGIL_KEYS.length` is the figure, and the
+  fourth is the opt-out refusal the second PR round added. Everything else is a
+  mistake in the app's own declaration or its own serializer -- a bad `formats`, a
+  bad `format`, an empty list, a declared name the app does not provide, a command
+  that returned nothing, a serializer that answered with something that is not
+  text -- and a translated bug report is one the maintainer cannot read.
 
 #### What the sabotage pass found, and the two guards covering for each other
 
@@ -4950,6 +4962,112 @@ The other three readings of that set are each a **contrast** rather than a count
 parser adds" really are three, because `--format` is not a flag and is added per
 command on opt-in rather than to every schema. Swept and written down so the next
 reader finds a decision rather than four more sites to correct.
+
+#### What the second PR round found: the opt-out that was a spelling of absence
+
+Two comments, **both confirmed before they were believed**, and they are the
+**second consecutive PR round here to find a defect in its predecessor's own
+output**: the chain fix round 1 landed is what made `false` unexpressible, and
+the CSV example round 1 corrected in the demo is the one it left in the README.
+Which is the pattern this file records rather than a run of bad luck -- code
+written in answer to a review is code no review has seen, and the cheapest round
+to arrange is the one aimed at the last round's fixes.
+
+- **`format: false` could not opt a subcommand out of an ancestor's format, and
+  the error then blamed it for a declaration it had declined.** The severe one.
+  Options resolve across the chain and `registerFormats()` folded `false` into
+  absence, so a `dashboard` under a `db` that declares `format: true` took the
+  parent's `--json`. Measured on the reviewer's own input before anything was
+  changed: `mycli db dashboard --json` turned on quiet, **ran the dashboard**, and
+  then exited 1 with `The "dashboard" command returned nothing to present as
+  "json". A command that declares "format" has to return the data it presents.` --
+  a message naming the one declaration the command had explicitly refused. A
+  command that returned a value instead had it **serialized over its own
+  opt-out**, exit 0, with nothing saying so.
+
+  The cause is the entry above: the accepted set lived on the option, and `false`
+  adds no option. So the declaration is recorded on the **command** and
+  `detectFormat()` walks `state.contexts` innermost-first reading it, `false`
+  included -- which is the parser's own nearest-declaration rule applied to a
+  value that could not previously take part in it. Nothing about a positive
+  declaration moved: a command that declared `format` and did not throw has a
+  marked option in its own registry, so "the first context with a marked option"
+  and "the first context that declared" are the same context, measured.
+
+- **What `false` then does with a token is a **refusal** rather than silence**,
+  which is the reviewer's own second option taken over its first. Ignoring it
+  makes `--json` a token that parses and does nothing, which this file calls worse
+  than one that does not exist; `Unknown option` would be a lie, because the
+  option is declared by the ancestor, resolves, and is on its help screen. And a
+  name the command **cannot present** already throws, so presenting none is that
+  question with the empty answer and gets the same treatment -- which is one rule
+  rather than a second. One new key, since a user's argv provokes it: 108.
+
+  It names the command that **ran** rather than the one that declared the `false`,
+  and the two differ only for a tree whose middle declared it and whose leaf
+  declared nothing -- where the statement is still true of the leaf, because it
+  inherits the opt-out. Pinned, so the choice is a decision rather than an
+  accident.
+
+- **What is **not** stopped at the opt-out is the validation**, which is the half
+  a careless fix loses: every declaration in the chain is still checked, because a
+  command naming a format the schema does not provide is a mistake wherever in the
+  chain it sits and a child opting out does not excuse its parent. `should still
+  refuse a bad declaration above an opted-out command` is the pin, and the
+  sabotage that stops the walk fails exactly it.
+
+- **The README's CSV serializer wrote broken data, and it is the version round 1
+  had already corrected in the demo.** Three defects, each **silent**, and read
+  back through a real CSV parse rather than compared to a string: a row named
+  `charlie "big, loud"` came out as `['charlie "big', ' loud"', '31']` -- three
+  fields where the header names two -- because the name was interpolated
+  unescaped; the error message came out as `['cannot read \a', 'b\""']`, two
+  fields of nonsense, because `JSON.stringify` writes `\"` where CSV wants `""`;
+  and `'error' in value` is a `TypeError` for the `null` this very section says
+  the framework presents.
+
+  The example an app author copies being the naive one while the demo beside it
+  carries `csvCell()` with a comment explaining why is the
+  fixed-in-one-place-and-left-in-another shape, in the worse of the two places.
+
+- **And the reviewer's fix was itself incomplete, which a test is what found.**
+  Guarding the `in` moves the throw rather than closing it: `isError(null)` is
+  then `false` and the data branch reads `null.rows`. Measured -- `should not
+  throw for the null the framework presents` failed on the first run with `Cannot
+  read properties of null (reading 'rows')`. So both branches are guarded, and
+  the demo's own `toCsv` took the same `?.` so that the two agree; it was
+  unreachable there, because that demo's commands return `{ rows }` or throw.
+
+- **Nothing in this repository checked a block of the main README, which is how
+  it shipped.** The config README's own test closed that class for its page --
+  "a block quoted in a comment is a copy nothing compares" -- and the main one
+  had nothing. So `the README's CSV serializer` reads the fenced block **out of
+  the README**, evaluates it, registers it as a format, and runs it through a
+  real `main()`: the hostile name and the hostile message each have to read back
+  whole through an independent RFC 4180 parse, `null` and a primitive must not
+  throw, and the two escaping helpers have to be character for character the
+  demo's. Each of the five sabotages of the README's text fails exactly one of
+  them.
+
+- **`docs/parser.md` never learned `format` exists**, which is the gap this file
+  already records for `afterRun` one feature along: that document is the one the
+  README points a reader at for the parser's own semantics, and a reader of it
+  could not have discovered the option, let alone the opt-out. One row in the
+  command-property table and a section saying that the nearest declaration
+  governs.
+
+**What it costs is 118 B on the `load-command` chunk and nothing anywhere else.**
+The root entry is **11,991 B over seven modules**, `components.mjs` 245,744 B over
+29 and the `format` chunk 3,160 B -- all three unchanged to the byte, re-measured
+against the base commit in a forced build rather than inferred, because the
+opt-out is `detectFormat()`'s and that is behind the `await import()` every entry
+figure here is about. `parse-*.mjs` did not move either.
+
+**Eleven sabotages, eleven caught**, each by a small named set rather than by the
+suite at large -- the two halves of the recording, the refusal, the validation
+walk, the command the message names, the option's marker, and all five of the
+README's and the demo's escaping. Run again after `oxfmt` reflowed the test file,
+because a pattern that goes stale reads as a guard that is not load bearing.
 
 #### What is deliberately out
 

@@ -743,20 +743,41 @@ this command can present.
   format: ['json', 'csv'];
 } // these two, and --format yaml is refused here
 {
+  format: false;
+} // none, whatever an ancestor presents
+{
   /* nothing */
-} // no option at all
+} // no option of its own, inheriting an ancestor's
 ```
 
 An ancestor's declaration resolves for its subcommands the way any option does,
-and a nearer one narrows: a `db` that declares `format: true` gives `db list` the
-option, and a `db list` that declares `format: ['yaml']` presents only that. The
-narrowing holds wherever in the line the token sat, so `db --format json list`
+and the **nearest** one governs: a `db` that declares `format: true` gives `db
+list` the option, and a `db list` that declares `format: ['yaml']` presents only
+that. Which holds wherever in the line the token sat, so `db --format json list`
 and `db list --format json` are the same answer.
 
-On a command that declared nothing, `--format` is in no registry — so it is on no
-help screen, in no generated reference and in no completion script. What typing
-it anyway does is `allowUnknownOptions`' business rather than this feature's: on
-by default it is swallowed and nothing is serialized, and
+So `false` is how a subcommand declines that inheritance, which is the one thing
+absence cannot say: the dashboard under a `db` that presents data presents none,
+and `db dashboard --json` is refused rather than run and then complained about.
+
+```sh
+$ mycli db dashboard --json; echo "exit $?"
+Error: The "dashboard" command presents no output formats, so "json" cannot be asked for.
+exit 1
+```
+
+Refused rather than ignored, which is the same answer a name the command cannot
+present already gets — presenting none is that question with the empty answer.
+`Unknown option` would be a lie, because the option is declared by the ancestor,
+resolves, and is on its help screen. Where no ancestor declared anything the two
+spellings are indistinguishable, so absence is the one to write unless there is
+an inheritance to decline.
+
+On a command with no declaration of its own, `--format` is in no registry — so it
+is on no help screen, in no generated reference and in no completion script. With
+no ancestor that declared one either, there is no such option anywhere in the
+chain, and what typing it anyway does is `allowUnknownOptions`' business rather
+than this feature's: on by default it is swallowed and nothing is serialized, and
 `settings: { allowUnknownOptions: false }` makes it `Unknown option "--format"`.
 
 ### `json` ships; everything else is the app's
@@ -854,11 +875,35 @@ and nothing under it. Check for `error` first, and `SerializedError` is the type
 of what you find there:
 
 ```js
+// `null` is a value the framework presents, so a bare `'error' in value` is a
+// TypeError rather than a check
+const isError = (value) => value !== null && typeof value === 'object' && 'error' in value;
+
+// and one field, escaped the way RFC 4180 says: wrapped where it holds a comma,
+// a quote or a line break, with its own quotes doubled. The interpolation this
+// replaces is wrong in the direction that does not announce itself — a name
+// holding a comma becomes two columns, so a row of two values parses as three
+// and every consumer reads the wrong one
+const csvCell = (text) => (/[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text);
+
 const toCsv = (value) =>
-  'error' in value
-    ? `error\n${JSON.stringify(value.error.message)}`
-    : ['name,size', ...value.rows.map((r) => `${r.name},${r.size}`)].join('\n');
+  isError(value)
+    ? // the message goes through the same escaping, because it is a field too —
+      // and `JSON.stringify` is the *other* grammar: it writes `\"` where CSV
+      // wants `""`
+      `error\n${csvCell(value.error.message)}`
+    : // and `value?.rows` for the same reason the guard above is not a bare
+      // `in`: the serializer is handed whatever the command returned, `null`
+      // included, so a header with nothing under it is the answer rather than a
+      // throw from inside your own serializer
+      ['name,size', ...(value?.rows ?? []).map((r) => `${csvCell(r.name)},${r.size}`)].join('\n');
 ```
+
+Which is more than the shape, and deliberately: a serializer an app brings is the
+app's to get right, and each of those mistakes is **silent** — the row still
+writes, the error still writes, and a consumer reads a field that is not the one
+that went in. `demos/parser/12-formats.js` ships the same two escaping helpers,
+with a row named `charlie "big, loud"` to show them working.
 
 One seam is worth knowing. A value that failed **on the way in** — `--port
 eight` on an `int` — is reported as a plain message rather than as data, because

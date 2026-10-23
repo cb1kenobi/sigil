@@ -95,7 +95,9 @@ const toCsv = (value) =>
       // too -- and `JSON.stringify`, which this used, is the *other* grammar:
       // it writes `\"` where CSV wants `""`
       `error\n${csvCell(value.error.message)}`
-    : ['name,size', ...(value.rows ?? []).map((row) => `${csvCell(row.name)},${row.size}`)].join(
+    : // and `value?.rows` for the same reason `isError()` is not a bare `in`: a
+      // serializer is handed whatever the command returned, `null` included
+      ['name,size', ...(value?.rows ?? []).map((row) => `${csvCell(row.name)},${row.size}`)].join(
         '\n'
       );
 

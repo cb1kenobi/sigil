@@ -99,19 +99,33 @@ import type { OptionRegistry } from './option/option-registry.js';
  * `--json` costs it only the sugar -- because replacing a registry key is a
  * worse thing to do to an app than declining to add a spelling.
  *
+ * What it **returns** is the declaration, which `initCommand()` records on the
+ * command: the option says which tokens select a format and the command says
+ * what they may name, which are two questions and so two fields. It is also the
+ * only place an explicit `false` can be recorded, since that adds no option to
+ * hang it on -- and recording it is the whole of what makes it an opt-out rather
+ * than a spelling of absence. See {@link InternalCommandBase.formats}.
+ *
  * @param options - The command's option registry.
  * @param accepts - What the declaration said: `true` for every format the
- *   schema provides, a list of names, `false` or absent for no option.
+ *   schema provides, a list of names, `false` to opt out of an ancestor's, or
+ *   absent to inherit one.
  * @param name - The command's name, for the message.
+ * @returns What the declaration came to, for the command to record, or
+ *   `undefined` where it declared nothing.
  * @throws If `format` is neither a boolean nor a non-empty list of strings.
  */
 export async function registerFormats(
   options: OptionRegistry,
   accepts: unknown,
   name: string
-): Promise<void> {
+): Promise<true | readonly string[] | false | undefined> {
+  // absence and `false` add the same nothing here and are two different answers
+  // one layer along: absence inherits an ancestor's declaration, and `false`
+  // stops the walk. Which is why the second is returned rather than folded into
+  // the first -- the option it would have been marked on does not exist
   if (accepts === undefined || accepts === false) {
-    return;
+    return accepts;
   }
 
   // the call a non-boolean `hidden` already gets, and for its reason: a
@@ -141,7 +155,7 @@ export async function registerFormats(
     // required here rather than its value -- which would make every run of an
     // opted-in command fail for not having asked for a format
     await options.add({ desc: __`Present the result in this format`, format: '--format [name]' });
-    added = mark(options.find('--format'), list);
+    added = mark(options.find('--format'));
   }
 
   // only where `json` is one of the formats this command presents, or the sugar
@@ -152,7 +166,7 @@ export async function registerFormats(
 
   if (takesJson && !options.find('--json') && !options.has('json')) {
     await options.add({ desc: __`Present the result as JSON`, format: '--json' });
-    added = mark(options.find('--json'), list) || added;
+    added = mark(options.find('--json')) || added;
   }
 
   // a command that took both spellings for itself and still declares `format`
@@ -169,22 +183,23 @@ export async function registerFormats(
       `The "${name}" command declares "format" and also declares every spelling that would select one, so no format can be asked for. Drop "format", or free "--format"${takesJson ? ' or "--json"' : ''}.`
     );
   }
+
+  return list;
 }
 
 /**
- * Marks an option as one that selects an output format, and records what the
- * command accepts on the option itself.
+ * Marks an option as one that selects an output format.
  *
  * What the mark says is that this option **selects a format**, which is what
  * `detectFormat()` reads to tell a format token from any other option. What it
- * deliberately does *not* decide is what that token may name: the accepted set
- * is carried here as well, and it is read off the **chain** rather than off the
- * option argv bound to. The two part company whenever the token precedes the
+ * deliberately does *not* decide is what that token may name: that is the
+ * command's own declaration, read off the **chain** rather than off the option
+ * argv bound to. The two part company whenever the token precedes the
  * subcommand -- `db --format json list` binds to `db`'s option, because `list`
- * has not been seen yet -- so reading it here would make a narrowing on `list`
- * apply or not according to where in the line the token sat. See
- * `detectFormat()`; the set is on the option because that is where both
- * spellings can share one, and it is the nearest command's that governs.
+ * has not been seen yet -- so keeping the accepted set here would make a
+ * narrowing on `list` apply or not according to where in the line the token
+ * sat. Which it did: see {@link InternalCommandBase.formats}, where the set
+ * lives now, and `detectFormat()`.
  *
  * `parserOwned` keeps the value off `argv`, and what that is for is narrower
  * than "a command cannot branch on it" -- which is what this said and is false
@@ -197,11 +212,10 @@ export async function registerFormats(
  * was is a question about presentation. See the module doc.
  *
  * @param opt - The option, or `undefined` where the registry did not take it.
- * @param accepts - What the command accepts.
  * @returns Whether there was an option to mark, which is what the caller needs
  *   in order to tell a command that can select a format from one that cannot.
  */
-function mark(opt: InternalOption | undefined, accepts: true | readonly string[]): boolean {
+function mark(opt: InternalOption | undefined): boolean {
   // a **tripwire** rather than a guard, and the sabotage pass is what
   // established it: every caller looks the option up immediately after adding
   // it, and `OptionRegistry.add()` throws rather than declining, so there is no
@@ -212,7 +226,7 @@ function mark(opt: InternalOption | undefined, accepts: true | readonly string[]
     return false;
   }
 
-  opt[Internal].formats = accepts;
+  opt[Internal].selectsFormat = true;
   opt[Internal].parserOwned = true;
 
   return true;
@@ -267,35 +281,64 @@ function formatFromValue(parsed: ParsedOption): string | undefined {
  * because that is a question about what the command needs, and an invalid value
  * "failed on the way in, while argv was being read".
  *
+ * ## `false` is an opt-out, which absence is not
+ *
+ * The nearest declaration governs, and `false` is a declaration: a command that
+ * declares it presents no formats however much its ancestors present. Which is
+ * the half that was missing, because the accepted set used to live on the option
+ * and `false` adds none -- so a `dashboard` under a `db` that declares
+ * `format: true` still took the parent's `--json`, ran, and then failed with
+ * *"A command that declares 'format' has to return the data it presents"*,
+ * blaming it for a declaration it had explicitly declined. A dashboard that
+ * returned a value instead had it serialized over its own opt-out. Found by
+ * review.
+ *
+ * So a token that selected a format on an opted-out command is **refused**
+ * rather than ignored, which is the same answer a name the command cannot
+ * present already gets -- presenting none is that question with the empty
+ * answer. Ignoring it would make `--json` a token that parses and does nothing,
+ * which is what this repository calls worse than one that does not exist; and
+ * `Unknown option` would be a lie, because the option is declared, resolves, and
+ * is on the ancestor's help screen.
+ *
+ * What is **not** stopped at the opt-out is the validation: every declaration in
+ * the chain is checked whatever governs, because a command naming a format the
+ * schema does not provide is a mistake wherever in the chain it sits and a child
+ * opting out does not excuse its parent.
+ *
  * @param state - The parse state.
- * @throws If a declared format is not one the schema provides, or if the name
- *   argv selected is not one this command presents.
+ * @throws If a declared format is not one the schema provides, if the command
+ *   that ran presents none, or if the name argv selected is not one it presents.
  */
 export function detectFormat(state: ParseState): void {
   /**
-   * What the command that **ran** accepts, which is the nearest declaration in
+   * What the command that **ran** presents, which is the nearest declaration in
    * the chain. `state.contexts` is innermost-first, so the first one found is
-   * it -- and `undefined` afterwards means no command in the chain opted in at
-   * all, which is a declared fast path rather than a guard: without it the walk
-   * below finds nothing and `state.format` stays unset, which is the same
-   * answer. What it buys is not walking argv a second time for every app whose
-   * commands never declared `format`, which is most of them.
+   * it -- `false` included, which is what makes an explicit opt-out stop the
+   * walk rather than read as absence. `undefined` afterwards means no command in
+   * the chain said anything at all, which is a declared fast path rather than a
+   * guard: without it the walk below finds nothing and `state.format` stays
+   * unset, which is the same answer. What it buys is not walking argv a second
+   * time for every app whose commands never declared `format`, which is most of
+   * them.
    */
-  let governs: true | readonly string[] | undefined;
+  let governs: true | readonly string[] | false | undefined;
 
   for (const cmd of state.contexts) {
-    for (const opt of cmd[Internal].options.values()) {
-      const accepts = opt[Internal].formats;
+    const declared = cmd[Internal].formats;
 
-      if (accepts === undefined) {
-        continue;
-      }
-
-      // every declaration in the chain, because a command naming a format the
-      // schema does not provide is a mistake wherever in the chain it sits
-      assertDeclared(state, cmd, accepts);
-      governs ??= accepts;
+    if (declared === undefined) {
+      continue;
     }
+
+    // every declaration in the chain, because a command naming a format the
+    // schema does not provide is a mistake wherever in the chain it sits -- so
+    // this is not stopped by a nearer opt-out, and `false` has nothing to check
+    if (declared !== false) {
+      assertDeclared(state, cmd, declared);
+    }
+
+    governs ??= declared;
   }
 
   if (governs === undefined) {
@@ -317,7 +360,7 @@ export function detectFormat(state: ParseState): void {
     // that moment, which is `db` alone, so a narrowing on `list` was never
     // applied and `db list --format json` and `db --format json list` were two
     // different answers to one command line. Found by review
-    if (parsed.option[Internal].formats === undefined) {
+    if (!parsed.option[Internal].selectsFormat) {
       continue;
     }
 
@@ -329,6 +372,16 @@ export function detectFormat(state: ParseState): void {
   }
 
   if (selected !== undefined) {
+    if (governs === false) {
+      // the command that **ran** rather than the one that declared the `false`,
+      // because that is the one the user typed and the statement is true of it
+      // either way: a child that declared nothing under an opted-out parent
+      // inherits the opt-out, so it presents none too
+      throw new Error(
+        __`The "${state.contexts[0].name}" command presents no output formats, so "${selected}" cannot be asked for.`
+      );
+    }
+
     // resolved rather than merely looked up, and the answer is discarded: the
     // point is that the *same* function `main()` gets the serializer from is
     // what judged the name, so a parse that accepted a name cannot meet a
