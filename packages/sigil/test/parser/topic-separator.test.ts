@@ -277,6 +277,70 @@ describe('topicSeparator', () => {
         },
       });
       expect(result.cmd?.name).to.equal('db:migrate');
+      expect(await result.cmd?.run?.(result as never)).to.equal('named');
+    });
+
+    it('should let the whole token win at any depth', async () => {
+      // the lookup is the registry's, so the number of separators in the name
+      // is nothing it has an opinion about -- and a literally named command is
+      // the one spelling that works with the separator *off*, which is why it
+      // cannot be the loser
+      const result = await parse({
+        argv: ['db:migrate:up'],
+        schema: {
+          commands: {
+            'db:migrate:up': { run: () => 'named' },
+            db: { commands: { migrate: { commands: { up: { run: () => 'path' } } } } },
+          },
+          name: 'mycli',
+          topicSeparator: ':',
+        },
+      });
+      expect(result.cmd?.name).to.equal('db:migrate:up');
+      expect(result.contexts.map((c) => c.name)).to.deep.equal(['db:migrate:up', 'mycli']);
+
+      // and the path is still reachable the long way, which is what says the
+      // literal shadowed the *spelling* rather than the commands
+      const spaced = await parse({
+        argv: ['db', 'migrate', 'up'],
+        schema: {
+          commands: {
+            'db:migrate:up': { run: () => 'named' },
+            db: { commands: { migrate: { commands: { up: { run: () => 'path' } } } } },
+          },
+          name: 'mycli',
+          topicSeparator: ':',
+        },
+      });
+      expect(await spaced.cmd?.run?.(spaced as never)).to.equal('path');
+    });
+
+    it('should not read a literal name as the prefix of a longer path', async () => {
+      // whole-or-segments, with nothing in between: there is no walk over
+      // progressively shorter prefixes, so a literally named `db:migrate` is
+      // never the *first segment* of `db:migrate:up`. The token is tried
+      // whole, misses, and splits on every separator -- so `db`, `migrate` and
+      // `up` are what resolve. A longest-prefix rule is the plausible
+      // alternative and is refused: it would mean a lookup per prefix on every
+      // coloned token, to disambiguate a schema that declared one spelling
+      // twice
+      const schema = (): Schema => ({
+        commands: {
+          'db:migrate': { run: () => 'named' },
+          db: { commands: { migrate: { commands: { up: { run: () => 'path' } } } } },
+        },
+        name: 'mycli',
+        topicSeparator: ':',
+      });
+
+      const deeper = await parse({ argv: ['db:migrate:up'], schema: schema() });
+      expect(deeper.cmd?.name).to.equal('up');
+      expect(deeper.contexts.map((c) => c.name)).to.deep.equal(['up', 'migrate', 'db', 'mycli']);
+
+      // the literal is still what `db:migrate` itself reaches, so each token
+      // has one answer even in a schema that spelled one path two ways
+      const exact = await parse({ argv: ['db:migrate'], schema: schema() });
+      expect(exact.cmd?.name).to.equal('db:migrate');
     });
 
     it('should leave an option-like token to the option passes', async () => {

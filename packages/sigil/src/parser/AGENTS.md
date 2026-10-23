@@ -938,6 +938,21 @@ resolution.
   are not commands. Where the first segment is not one, which is the
   overwhelming case, it costs one `Map` lookup and reads nothing.
 
+  **Trying it whole first is what settles the precedence question, and it has to
+  be that way round.** A command literally named `db:migrate:up` wins over a
+  path spelled the same way, at any depth, because the registry is asked for the
+  whole token before anything is taken apart -- and a literally named command is
+  the one spelling that also works with the separator **off**, so it cannot be
+  the loser. There is nothing in between whole and segments: a literal
+  `db:migrate` is never read as the first _segment_ of `db:migrate:up`, since the
+  split is on every separator. A longest-prefix walk is the plausible
+  alternative and is refused -- a lookup per prefix on every coloned token, to
+  disambiguate a schema that declared one path two ways. Each token still has
+  one answer, `db:migrate` reaching the literal and `db:migrate:up` reaching the
+  path, and the path stays reachable in the space form. Pinned at three segments
+  as well as two, because "the registry has no opinion about how many
+  separators are in a name" is a claim rather than an observation.
+
   `db:bogus` is the sharp half and is what says the rule has to be _every_
   segment rather than the first: `db` really is a command, and taking it would
   leave `bogus` to land on whatever argument `db` declares -- a value eaten by

@@ -161,6 +161,21 @@ a time, a drive-relative Windows path — so the split is governed by one rule:
    as a command against successively inner contexts.
 3. Otherwise the token is left exactly as it was found.
 
+Step 1 is what decides the precedence question: a command **literally named**
+`db:migrate:up` wins over a `db` → `migrate` → `up` path spelled the same way,
+at any depth, because the registry is asked for the whole token first. That has
+to be the way round it is — a literally named command is the one spelling that
+also works with the separator off, so it cannot be the loser.
+
+There is nothing in between whole and segments. A literal `db:migrate` is never
+read as the _first segment_ of `db:migrate:up`: the whole token is tried, misses,
+and splits on every separator, so `db`, `migrate` and `up` are what resolve.
+A longest-prefix walk is the plausible alternative and is refused, since it
+would cost a lookup per prefix on every coloned token to disambiguate a schema
+that declared one path two ways. Each token still has exactly one answer —
+`db:migrate` reaches the literal and `db:migrate:up` reaches the path — and the
+path is reachable in the space form either way.
+
 So `mycli fetch http://example.com` is never touched, because `http` is not a
 command. Neither is `mycli db:bogus`, even though `db` is one: a path that
 resolves half way is not a path, and taking `db` would leave `bogus` to land on
