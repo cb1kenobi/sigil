@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 108 keys, which is what a catalog has to carry to translate sigil's own
+ * 109 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -29,10 +29,7 @@ export const SIGIL_KEYS: readonly string[] = [
   '(space to select, enter to confirm)',
   '({0} to submit)',
   '<command>',
-  'A line has to go in {0}',
-  'Add this line to the top of {0}:',
-  'Add this line to {0}, above your compinit line:',
-  'Add this line to {0}:',
+  'Added a block to {0}',
   'Alias:',
   'Arguments:',
   'Cancelled',
@@ -60,7 +57,8 @@ export const SIGIL_KEYS: readonly string[] = [
   'Invalid string: {0}',
   'Invalid value "{0}" for {1}',
   'Invalid value for "{0}" in {1}: {2}',
-  'It has to run before compinit, and that file has no compinit line.\nIf a framework runs one for you, put it above the line that sources it.\nIf nothing runs one, add this line as well:',
+  'It will add a block to {0}',
+  'It will remove the block from {0}',
   'It will remove {0}',
   'It will replace {0}',
   'It will write {0}',
@@ -79,9 +77,10 @@ export const SIGIL_KEYS: readonly string[] = [
   'Print the version',
   'Refusing to write {0}: {1} would be lost.\n  Pass lossy: true to write anyway, or use a store that can keep what is there.',
   'Remove it yourself:',
+  'Remove the line naming {0} from {1} yourself.',
   'Remove the script instead of writing one',
-  'Remove this line from {0}:',
   'Remove {0} completion for {1}?',
+  'Removed the block from {0}',
   'Removed {0}',
   'Replace it?',
   'Run a command',
@@ -119,12 +118,14 @@ export const SIGIL_KEYS: readonly string[] = [
   'setting "{0}"',
   'y/n',
   'yes',
+  '{0} already has the block',
   '{0} already names it',
   '{0} arguments:',
   '{0} cannot hold the value at "{1}": {2}',
   '{0} is already up to date',
   '{0} is not there',
   '{0} must hold an object',
+  '{0} names it, and sigil did not add that',
   '{0} options:',
   '{0} was not written by sigil',
 ];

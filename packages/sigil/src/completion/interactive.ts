@@ -9,21 +9,36 @@
  * command already had for the emitters, and what is left on the parse path is a
  * dispatcher.
  *
- * Measured rather than assumed, and the answer is better than "small": the body
- * written inline took the parse chunk from 21,291 bytes to 22,527, and moving
- * it here leaves **21,176** -- 115 bytes *below* where it started, because the
- * no-TTY fallback text that used to be inline came with it. So the installer
- * costs the parse path nothing at all, and the interactive graph it hangs off
- * is 258,740 bytes over 36 modules against the printer's 62,371 over 12: the
- * prompts are **+196,369**, paid by `app completion` on a terminal and by
- * nothing else.
+ * Measured rather than assumed, and the answer is better than "small". The
+ * before-and-after that decided the split is SIG-151's and is left as it was
+ * taken, because it is evidence for the decision rather than a description of
+ * the tree: the body written inline took the parse chunk from 21,291 bytes to
+ * 22,527, and moving it here left **21,176** -- 115 bytes *below* where it
+ * started, because the no-TTY fallback text that used to be inline came with
+ * it.
  *
- * Read it again rather than quoting it: the first version of this paragraph
- * said 256,906 and +194,587, which were right when they were taken and 1,218
- * bytes stale by the end of the first review round -- the fixes that round
- * produced landed in this file, and nobody re-ran the one measurement the
- * comment says to. Which is this repository's own rule about a figure nobody
- * re-derives, met in the sentence recording it. Found by the second round.
+ * As of SIG-155, re-derived with `staticGraph()` from `test/dist.test.ts`
+ * against a `main` worktree built beside this branch, so each figure is a
+ * difference between two builds rather than a figure carried forward. The
+ * interactive graph is **270,334 B over 41 modules** against the printer's
+ * **71,253 over 16**: the prompts are **+199,081**, paid by `app completion` on
+ * a terminal and by nothing else. Editing the startup file cost the printer
+ * **+497 B** -- `rcBlock()` and the two markers, which `install.ts` holds
+ * because the emitters' headers print them -- and the interactive graph
+ * **+1,145**, with the module count unchanged on both.
+ *
+ * And it cost the two graphs anybody else pays for **nothing at all**, byte for
+ * byte: `index.mjs` is 12,009 B over 7 modules and the parse chunk 50,566 over
+ * 14, identical on both builds. Which is the whole packaging argument holding
+ * after the feature grew a second writer.
+ *
+ * Read it again rather than quoting it, which is this repository's own rule and
+ * is why the figures above are stated as of a ticket. The first version of this
+ * paragraph said 256,906 and +194,587, right when they were taken and 1,218
+ * bytes stale by the end of SIG-151's first review round; the version after it
+ * said 258,740 and 62,371, which were two tickets stale by the time this one
+ * re-ran them -- the printer had grown 8,385 B and the interactive graph 10,449
+ * since, none of it this feature's.
  *
  * The three modules are one job each, which is also what makes the middle one
  * testable: `./install.ts` is the table of where a completion goes and touches
@@ -39,11 +54,13 @@ import { completionScript, programOf } from './index.js';
 import { detectShell, instructions, shQuote } from './install.js';
 import {
   applyInstall,
+  applyRc,
   applyUninstall,
   installTarget,
   planInstall,
   planLines,
   planUninstall,
+  removeRc,
   resultLines,
   type Action,
   type InstallPlan,
@@ -60,6 +77,15 @@ export interface InstallRequest {
 }
 
 /**
+ * Neither file touched, which is what both early returns report.
+ *
+ * Named rather than written out twice, because it is the same claim in two
+ * places: there was nothing outstanding, or there was and nothing was allowed to
+ * write it.
+ */
+const NOTHING = { file: false, rc: false } as const;
+
+/**
  * Says how to do it by hand, which is what there is to say with nobody to ask.
  *
  * The same block the command printed before an installer existed. It names the
@@ -71,8 +97,8 @@ export interface InstallRequest {
  * zsh --uninstall` in a pipe printed the plan and then the whole *install*
  * recipe, which is the opposite of what was asked for. There is nothing to
  * recite for an uninstall -- the plan has already named the file -- so what it
- * prints is the `rm`, and the line to take out is `resultLines()`'s where it
- * always was. Found by review.
+ * prints is the `rm`, and the block to take out is `resultLines()`'s. Found by
+ * review.
  *
  * @param program - The program's name.
  * @param shell - The shell, where one is known.
@@ -248,41 +274,47 @@ export async function runInstaller(state: ParseState, request: InstallRequest): 
     process.stderr.write(`${planLines(plan, action).join('\n')}\n\n`);
 
     if (!plan.changes) {
-      // a re-run, which has to say so rather than looking like it did
-      // something. `resultLines()` still prints the rc line where one is
-      // outstanding, because a script that is current and a startup file that
-      // never got its line is not "nothing to do"
-      process.stderr.write(`${resultLines(plan, action, false).join('\n')}\n`);
+      // a re-run, which has to say so rather than looking like it did something
+      process.stderr.write(`${resultLines(plan, action, NOTHING).join('\n')}\n`);
       return 0;
     }
 
-    // asked only where there is a file to write or remove. Where the only thing
-    // outstanding is the line this *prints*, a confirm would be asking
-    // permission to do nothing -- and then saying "nothing to do" to a yes,
-    // which is what it did until the command was driven by hand
+    // asked where there is anything to write or remove in **either** file,
+    // which is what `writes` counts now that the block is written rather than
+    // printed. Under SIG-151 a plan whose only outstanding item was the rc line
+    // did not ask, because asking permission to print is asking permission to do
+    // nothing -- and it said "nothing to do" to a yes for one commit before
+    // that gate existed. There is something to do now, so it asks, and the
+    // question covers both files because the plan above named both
     if (plan.writes && !(await confirm({ ...question(plan, action, program), terminal }))) {
       process.stderr.write(`${__`Cancelled`}\n`);
       return 1;
     }
 
-    // gated on `writes` for the same reason the question is, and the sabotage
-    // pass then measured which direction it decides: `applyInstall()` answers
-    // `false` for a `current` plan itself, so for an install the gate is
-    // redundant and reading `changes` here changes no answer. The **uninstall**
-    // is the whole of it, and this is the half that was missing: a plan with something outstanding and nothing to
-    // write reached the writer anyway, and for a **foreign uninstall** -- whose
-    // `changes` counts the rc line and whose `writes` is false by design -- the
-    // writer's own refusal then threw out to the generic error handler. Two
-    // fixes each right alone, composed into a crash, and which one you got
-    // depended on a line in a file this does not write. Found by review
+    // gated on `writes` for the same reason the question is, and what that gate
+    // is load bearing for is still the **uninstall**: a plan with something
+    // outstanding and nothing to write used to reach the writer anyway, and for a
+    // **foreign uninstall** -- whose `changes` counts a line this does not edit
+    // and whose `writes` is false by design -- the writer's own refusal threw out
+    // to the generic error handler. Found by review of SIG-151, and the state it
+    // was about is `theirs` now, which is still exactly that: nothing to write
+    // and something to say
+    // two files and one answer, which is what the one confirm above bought: the
+    // plan named both before the question, so a yes is an answer about both and
+    // there is no second prompt for the half the user does not own. Each writer
+    // re-reads and may decline on its own, which is why what is reported is what
+    // they *did* rather than what the plan said they would
     const did = plan.writes
       ? request.uninstall
-        ? applyUninstall(plan)
-        : // `replace` is the answer carried into the writer, which refuses a
-          // `foreign` plan without it: the refusal is the module's own rather
-          // than this function's discipline
-          await applyInstall(plan, script, { replace: plan.file === 'foreign' })
-      : false;
+        ? { file: applyUninstall(plan), rc: await removeRc(plan) }
+        : {
+            // `replace` is the answer carried into the writer, which refuses a
+            // `foreign` plan without it: the refusal is the module's own rather
+            // than this function's discipline
+            file: await applyInstall(plan, script, { replace: plan.file === 'foreign' }),
+            rc: await applyRc(plan),
+          }
+      : NOTHING;
 
     process.stderr.write(`${resultLines(plan, action, did).join('\n')}\n`);
     return 0;

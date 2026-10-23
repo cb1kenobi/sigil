@@ -39,10 +39,16 @@
  * -- a `select()` with what `$SHELL` named already highlighted, so the detected
  * answer is one Enter away and the override is an arrow key, which is where
  * `select()` earns its place over a `confirm()` -- then shows the exact path it
- * will write and the exact line to add, asks, writes the file and prints the
- * line. The line is printed rather than appended, because a `.zshrc` is a file
- * the user has an opinion about and very often has under version control.
- * `--uninstall` is the same thing backwards.
+ * will write and the startup file it will add a block to, asks once, and writes
+ * both. `--uninstall` is the same thing backwards, and takes the block back out.
+ *
+ * One question for two files, because it is one install: the plan names both
+ * paths before anything is asked, so a yes is an answer about both. SIG-151
+ * printed the line instead of writing it, on the grounds that a `.zshrc` is a
+ * file the user has an opinion about and very often has under version control --
+ * which is a reason to ask rather than a reason never to, and it was already
+ * asking. What that version could not do was take a line back out, and a
+ * **marker** is what answers that: see `rcBlock()` in `../completion/install.ts`.
  *
  * With nobody to ask it prints the instructions and exits non-zero, which is
  * what it did before an installer existed -- and that falls out of one

@@ -54,49 +54,48 @@ import type { ShellName } from './shells.js';
 export type RouteId = 'bash-completion' | 'eval' | 'fpath' | 'system' | 'user';
 
 /**
- * A line the reader has to place themselves, because no append can put it where
- * it goes.
+ * The block that goes in a startup file, with the two comments that mark it.
  *
- * `fpath=(dir $fpath)` has to run **above** `compinit`: that call is what scans
- * `$fpath` and builds the autoload table, so a directory added after it is one
- * nothing ever reads -- and `>>` lands at the end of the file, which is below
- * every `compinit` there is. Measured in zsh 5.9 against a `.zshrc` of the
- * ordinary shape, `autoload -Uz compinit && compinit` with the line appended
- * after it: `whence -w _mycli` is `none`. Moved one line above the `compinit`,
- * it is `function` and `$_comps[mycli]` names it. So the recipe that shipped
- * could not work for anybody who followed it -- while carrying `# above
- * compinit` as a comment on the very command that puts it below, which is the
- * broken-if-followed prose this repository calls the worst kind, in a header
- * every generated script repeats.
+ * SIG-151 printed a line for the reader to place and SIG-155 appends it, which
+ * is the one decision this module's shape turned on: the whole reason the line
+ * was printed rather than written is that `fpath=(dir $fpath)` has to run
+ * **above** `compinit` -- that call is what scans `$fpath` and builds the
+ * autoload table, so a directory added after it is one nothing ever reads, and
+ * `>>` lands at the end of the file, which is below every `compinit` there is.
+ * Measured in zsh 5.9 against a `.zshrc` of the ordinary shape: appended after
+ * the `compinit`, `whence -w _mycli` is `none`; moved one line above it,
+ * `function`.
  *
- * It is the table saying what `installer.ts` already says -- it writes the file
- * and *prints* the rc line -- rather than a new rule. That module declines to
- * touch a startup file at all, because a `.zshrc` is under version control as
- * often as not and a line we appended cannot be told from a line the user wrote
- * when an uninstall comes to take it out; these recipes were the one place left
- * offering the append it refuses, and the one place the append does not even
- * work.
+ * So the route that is **installed** is the one whose line an append can place,
+ * which is the other one zsh has: the script is `source`d rather than
+ * autoloaded, it registers with `compdef`, and the end of the file is exactly
+ * where that has to be. One file serves both modes already -- see the
+ * `$funcstack[1]` test in `../zsh.ts` -- so nothing about the script or its path
+ * moved. What was given up is lazy autoloading, and it was measured before it
+ * was given up: sourcing sigil's own 11.5 kB script is **0.20 ms** and a 115 kB
+ * one **1.88 ms**, in zsh 5.9 over 200 iterations with three runs agreeing. A
+ * shell startup does not notice either.
  *
- * **Which line it has to precede is not always a `compinit` line**, and this is
- * the machine-independent half, so it says the general thing. A framework runs
- * `compinit` for the reader: Oh My Zsh does it from `oh-my-zsh.sh`, so a
- * `.zshrc` that sources it holds no `compinit` at all -- measured -- and a
- * recipe naming "your compinit line" there names a line that is not in the
- * file. The *resolved* half can do better, because it reads the startup file
- * anyway: `installer.ts`'s `RcAnchor` is that, and it is the one place this
- * knowledge is allowed to be specific, because it is the one place it is known.
+ * ## Both marker comments, because removal needs an extent
  *
- * Which is why it is not every append: what stays a command is every one that
- * **lands where it has to**, and both were measured rather than reasoned about.
- * `source <(app completion zsh)` must be below `compinit`, because the script's
- * sourced branch calls `compdef`, and the end of the file is exactly that --
- * `$_comps[sigil]` is `_sigil` after it. A bash `source` line has no ordering at
- * all, since it runs `complete -F`, and `complete -p sigil` reads it back in
- * bash 3.2. So an append is refused here only where no append can be right.
+ * A `.zshrc` is under version control as often as not, which is a reason to
+ * **ask** rather than a reason never to -- and the other half of SIG-151's
+ * refusal, that "a line we added and a line they added look identical
+ * afterwards", is what the markers answer. They are the same distinction
+ * `generatedBy()` draws one file along: a block carrying ours is ours and comes
+ * back out, and anything else is somebody's and is described instead.
+ *
+ * The **end** marker is what makes that a fact rather than a guess. Without it
+ * the extent of a block is "as many lines as the block we would write today",
+ * which is a claim about a *past* version of this function -- so a block whose
+ * shape changed between releases would be removed by the line count of the new
+ * one. With it, an uninstall either finds both markers and knows exactly what to
+ * cut or finds one and refuses, which is the direction every other guess in this
+ * area is resolved in.
  */
-export interface InstallLine {
-  /** The line, verbatim. */
-  readonly line: string;
+export interface InstallBlock {
+  /** The block, one string per line, markers included. */
+  readonly lines: readonly string[];
   /** Where it goes, as a sentence that names the file and ends in a colon. */
   readonly where: string;
 }
@@ -112,11 +111,12 @@ export interface InstallLine {
  */
 export interface InstallRoute {
   /**
-   * A line to put in a startup file by hand, where no command can do it. Absent
-   * on every route an append really can finish, which is the asymmetry
-   * `InstallLine` is written about.
+   * The block that goes in a startup file, where the route needs one. Absent on
+   * `bash-completion`'s own user directory, which loads a completion with
+   * nothing added anywhere -- which is why that route is offered first for bash
+   * and is the one route an install finishes outright.
    */
-  readonly add?: InstallLine;
+  readonly add?: InstallBlock;
   /** Which route this is, which is what `installTargets()` resolves. */
   readonly id: RouteId;
   /** What distinguishes this route from the others. */
@@ -153,6 +153,36 @@ export interface InstallHint {
  */
 const SHOWN_BASE = '~/.local/share';
 
+/**
+ * The same base as `$HOME`, for the one place a `~` cannot be written.
+ *
+ * `rcBlock()` **quotes** the path it is given, because a path out of
+ * `homedir()` may hold a space -- `~/Library/Application Support` is the obvious
+ * one -- and an unquoted line in a file that runs on every login is a shell
+ * injection. A `~` does not expand inside quotes of either kind, so the shown
+ * block cannot spell its path the way the shown *commands* do: `mkdir -p
+ * ~/.local/share/completions` is a command whose tilde must stay bare, and
+ * `source '~/.local/share/completions/_mycli'` is a line that names a directory
+ * called `~`. Which is this file's own rule about prose that breaks if followed,
+ * met in the one place where the two spellings of one path genuinely differ.
+ *
+ * Which also fixes the quote **style** rather than only the spelling, and the
+ * first version of this got it half right: the shown block is written with
+ * **double** quotes, because `$HOME` no more expands inside single quotes than a
+ * `~` does, so `'$HOME/.local/share/completions/_mycli'` is a path with a dollar
+ * sign in it and the block would have been exactly as unfollowable as the tilde
+ * it replaced. Double quotes expand the variable and still hold a path with a
+ * space in it, which is the whole of what the quoting is for. `installer.ts`
+ * quotes with `shQuote()` instead, because what it writes is an absolute path
+ * with nothing in it to expand -- so the two callers of `rcBlock()` really do
+ * spell the path differently, which is why that function takes it already
+ * quoted rather than quoting it itself.
+ *
+ * `$HOME` rather than `${HOME}` because it is followed by a `/`, and both are in
+ * the spellings `installer.ts` recognises anyway.
+ */
+const SHOWN_HOME_BASE = '$HOME/.local/share';
+
 /** The directory of ours that holds every sigil app's completions. */
 const SHOWN_USER_DIR = `${SHOWN_BASE}/completions`;
 
@@ -181,6 +211,113 @@ const SHOWN_BC_DIR = `${SHOWN_BASE}/bash-completion/completions`;
  */
 export function generatedBy(shell: ShellName, program: string): string {
   return `${shell} completion for \`${program}\`, generated by sigil.`;
+}
+
+/**
+ * The comment that opens a block of ours in a startup file.
+ *
+ * `generatedBy()` with one word changed, deliberately: the two markers are
+ * siblings and answer the same question about two different files, so a reader
+ * who has met one recognises the other. The shell is in it for that function's
+ * own reason -- a zsh block in a `.bashrc` is not a block we would have written,
+ * and the right answer to a file we did not predict is to leave it alone.
+ *
+ * @param shell - The shell the block is for.
+ * @param program - The program's name.
+ * @returns The sentence, with no `#` and no newline.
+ */
+export function addedBy(shell: ShellName, program: string): string {
+  return `${shell} completion for \`${program}\`, added by sigil.`;
+}
+
+/**
+ * The comment that closes it, which is what gives the block an extent.
+ *
+ * See `InstallBlock` for why an end marker rather than a line count: the count
+ * is a claim about the version of `rcBlock()` that wrote the block, and an
+ * uninstall is reading one written by some other version of it.
+ *
+ * @param shell - The shell the block is for.
+ * @param program - The program's name.
+ * @returns The sentence, with no `#` and no newline.
+ */
+export function blockEnd(shell: ShellName, program: string): string {
+  return `end of ${shell} completion for \`${program}\`.`;
+}
+
+/**
+ * The block to put in a startup file, built once for both readers.
+ *
+ * Two callers spell the path differently and neither spells the block: this
+ * table passes `$HOME/...` because what it renders goes into a generated
+ * script's header and into the instructions, where it has to be
+ * machine-independent, and `installer.ts` passes an absolute path because what
+ * it writes has to be this machine's. The *shape* has one author, which is the
+ * rule this module opens with -- a block the installer wrote and a block the
+ * instructions told somebody to paste must be the same block, or an uninstall
+ * finds a hand-pasted one it does not recognise.
+ *
+ * ## What each line is for, because none of them is decoration
+ *
+ * The `-s` test is Bun's, and it is what keeps a removed script from being an
+ * error on every shell startup: `npm rm -g mycli` takes the program away and
+ * leaves the block, and an unguarded `source` of a file that is not there
+ * writes a line to the terminal every time a shell opens. It tests for a
+ * non-empty file rather than for existence, because a half-written one is the
+ * other thing a shell cannot source -- and `writeAtomic()` is what makes that
+ * case not ours.
+ *
+ * `(( $+functions[compdef] ))` is the zsh half and it replaces a static read
+ * that could not be right. The sourced script calls `compdef`, which exists
+ * only after `compinit` has run, and whether anything runs one is the question
+ * `installer.ts` used to answer by grepping the startup file for the word --
+ * which conflates three states a framework puts a reader in. Oh My Zsh runs
+ * `compinit` from `oh-my-zsh.sh`, so such a `.zshrc` holds no `compinit` at all
+ * while the completion system is fully set up, and a table of what runs one was
+ * built and refused for having exactly one measurable entry. The parameter
+ * subscript asks the shell instead, at the moment it matters. Verified in all
+ * three shapes with a counter on the guarded branch, because a redundant
+ * `compinit` is ~12 ms of someone's shell startup rather than nothing: a bare
+ * `.zshrc` runs it and registers, a `.zshrc` with its own `compinit` above skips
+ * it and registers, and the Oh My Zsh shape skips it and registers.
+ *
+ * bash gets neither of those and two of its own. There is no ordering to
+ * respect -- the script runs `complete -F`, which `complete -p mycli` reads back
+ * in bash 3.2 -- so the block is the guard and the source. It is written in
+ * POSIX `sh` with `[` and `.` rather than `[[` and `source`, and it tests
+ * `BASH_VERSION`, because `firstExisting()` can land it in `.profile`: that file
+ * is read by `/bin/sh` as well as by bash, where `[[` is a syntax error and a
+ * bash completion script is not something to source at all. The two
+ * conventional targets cannot see the difference, so the cost is nothing and
+ * the third one stops being a hole.
+ *
+ * @param shell - The shell.
+ * @param program - The program's name.
+ * @param quoted - The script's path, **already quoted** as one shell word.
+ * @returns The lines, markers included, with no trailing newline.
+ */
+export function rcBlock(shell: ShellName, program: string, quoted: string): readonly string[] {
+  const open = `# ${addedBy(shell, program)}`;
+  const close = `# ${blockEnd(shell, program)}`;
+
+  if (shell === 'zsh') {
+    return [
+      open,
+      `if [[ -s ${quoted} ]]; then`,
+      '  (( $+functions[compdef] )) || { autoload -Uz compinit && compinit }',
+      `  source ${quoted}`,
+      'fi',
+      close,
+    ];
+  }
+
+  return [
+    open,
+    `if [ -n "\${BASH_VERSION-}" ] && [ -s ${quoted} ]; then`,
+    `  . ${quoted}`,
+    'fi',
+    close,
+  ];
 }
 
 /**
@@ -252,16 +389,15 @@ function routesFor(shell: ShellName, program: string): readonly InstallRoute[] {
     return [
       {
         add: {
-          line: `fpath=(${SHOWN_USER_DIR} $fpath)`,
-          where:
-            "then add this line to ~/.zshrc, above whatever runs compinit -- yours or your framework's:",
+          lines: rcBlock('zsh', program, `"${SHOWN_HOME_BASE}/completions/_${program}"`),
+          where: 'then add this block to the end of ~/.zshrc:',
         },
         commands: [
           `mkdir -p ${SHOWN_USER_DIR}`,
           `${program} completion zsh > ${SHOWN_USER_DIR}/_${program}`,
         ],
         id: 'user',
-        label: 'in a directory of your own on $fpath, which compinit autoloads',
+        label: 'in a directory of your own, sourced from .zshrc',
       },
       {
         commands: [`${program} completion zsh > "\${fpath[1]}/_${program}"`],
@@ -286,10 +422,20 @@ function routesFor(shell: ShellName, program: string): readonly InstallRoute[] {
       label: 'with bash-completion 2.8 or newer, which loads it with nothing added',
     },
     {
+      add: {
+        lines: rcBlock('bash', program, `"${SHOWN_HOME_BASE}/completions/${program}.bash"`),
+        where: 'then add this block to the end of ~/.bashrc:',
+      },
+      // the `echo ... >>` that used to be the third command is the block now, and
+      // that is the one place this table changed shape rather than wording: an
+      // append the installer performs and an append the instructions recite have
+      // to be the same bytes, or an uninstall meets a hand-pasted line it does not
+      // recognise. So there is one author for it and `add` is where it lives --
+      // which is also what makes the bash and the zsh recipe read the same way,
+      // where before one of them ended in a command and the other in a sentence
       commands: [
         `mkdir -p ${SHOWN_USER_DIR}`,
         `${program} completion bash > ${SHOWN_USER_DIR}/${program}.bash`,
-        `echo 'source ${SHOWN_USER_DIR}/${program}.bash' >> ~/.bashrc`,
       ],
       id: 'user',
       label: 'or from your own .bashrc, on any bash',
@@ -336,8 +482,11 @@ export function installComment(shell: ShellName, program: string): string {
     if (route.add !== undefined) {
       // the sentence takes the inner `#` the label takes, because it is prose
       // rather than a command -- so what a reader copies out of the block is
-      // the line beneath it and nothing else
-      out.push(`#   # ${route.add.where}`, `#   ${route.add.line}`);
+      // the lines beneath it and nothing else. Which now includes the block's
+      // own `#` comments, so a line of it reads `#   # zsh completion for ...`:
+      // two levels of comment, and that is correct rather than untidy, because
+      // the outer one is this header and the inner one is what gets pasted
+      out.push(`#   # ${route.add.where}`, ...route.add.lines.map((line) => `#   ${line}`));
     }
   }
 
@@ -398,8 +547,8 @@ export function instructions(shell: ShellName, program: string): string {
     }
     if (route.add !== undefined) {
       // at the label's indent and the command's, so the sentence reads as the
-      // route's own and the line reads as the thing to take away
-      out.push(`  ${route.add.where}`, `    ${route.add.line}`);
+      // route's own and the block reads as the thing to take away
+      out.push(`  ${route.add.where}`, ...route.add.lines.map((line) => `    ${line}`));
     }
     out.push('');
   }

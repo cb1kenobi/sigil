@@ -427,3 +427,109 @@ review is code no review has seen.
   satisfy now, since one names a compinit line and the other says there is none.
   A test that cannot tell them apart would have passed over the message being
   wrong for everybody with a framework.
+
+##### SIG-155: appending the block, and the three guards the sabotage pass had no test for
+
+SIG-151 printed the rc line and listed "editing a dotfile" as deliberately out.
+This reverses that on the user's say-so, prompted by Bun's installer, and the
+reversal is narrower than it sounds: what is appended is a marked block, and the
+two reasons SIG-151 gave each got an answer rather than being overruled.
+
+**The decision the design turned on, and the measurement that settled it.** The
+`fpath=(dir $fpath)` line SIG-151 printed is the one line no append can place --
+it has to run above `compinit` and `>>` lands below every `compinit` there is,
+which is the first PR round's own finding one section above. So the route the
+installer takes is the other one zsh has: the script is `source`d and registers
+with `compdef`, for which the end of the file is exactly right, and one file has
+served both modes since SIG-139 through the `$funcstack[1]` test.
+
+The only argument against that was lazy autoloading, and it was measured before
+it was given up. zsh 5.9, 200 iterations per figure, three runs agreeing within
+0.01 ms: sourcing sigil's own 11.5 kB script is **0.20 ms** and a 115 kB one --
+the pathological 123-path tree the `what a big tree costs` entry records -- is
+**1.88 ms**, so the cost is linear and a shell startup notices neither. The
+`fpath` route stays in the table as a recipe to follow by hand.
+
+**A runtime guard dissolved `RcAnchor`.** That type's own doc recorded two things
+about itself: that its interesting value conflates three states a framework puts
+a reader in, and that naming the framework's own line "was built and refused" for
+needing a table of which exactly one entry is measurable here. Neither is a
+question any more. `(( $+functions[compdef] ))` asks the shell, at startup, what
+the static read had to guess -- `compdef` is a function only after `compinit` has
+run, which is precisely what the block needs to know.
+
+Verified in zsh 5.9 in all three shapes, with a counter on the guarded branch
+rather than only an outcome, because a redundant `compinit` is not free:
+measured, a first call is 172 ms on a cold `.zcompdump` and 17.6 ms warm, and a
+second is 11.6-12.2 ms whatever the dump. A bare `.zshrc` runs it and registers
+`_mycli`; a `.zshrc` with its own `compinit` above skips it and registers; a
+framework sourced above with no literal `compinit` in the file -- the Oh My Zsh
+shape, which is the row the table could not previously answer -- skips it and
+registers. `COMPINIT_LINE`, `addLines()`'s three sentences and four i18n keys
+went with the type.
+
+**What the sabotage pass found: three guards with no test, out of twenty.** The
+pass broke each guard this ticket added and ran the two completion suites. 17 of
+20 were caught on the first run and each survivor was a real gap rather than a
+redundant guard.
+
+`applyRc()`'s **block guard** -- the one that stops a second block being appended
+over one already there -- had no assertion at all, because every test called that
+function once. The test for it is deliberately the _stale plan_ rather than a
+second call over a fresh one: the plan is taken while the file is empty, applied,
+and applied again, which is the window a dotfile manager rewriting the file lives
+in.
+
+`removeRc()`'s **re-read** likewise. The sabotage replaced it with a fallback
+span of `{ start: 0, end: 0 }`, which writes an **empty `.zshrc` where the user
+had none at all**, and nothing noticed. Two tests now: the file gone in the
+window, and -- the one with teeth -- the file still there with the block replaced
+by three lines of somebody's own, where a plan trusted for its line numbers would
+cut the wrong three.
+
+The third is the one worth recording at length, because the fix took two goes and
+the second was still wrong. `blockSpan()` matches a **whole trimmed line**, and
+the test for it wrote both markers inside prose -- prose that happened not to
+contain the `#` prefix, so no substring match was possible and the sabotage was
+vacuous rather than the guard being untested. Rewritten with both markers
+embedded in `echo "..."` lines, it was _still_ vacuous against a sabotage of the
+`begin` finder alone: with both embedded, `end` refuses the line it is on and
+`blockSpan` returns nothing whatever `begin` did. So a fixture that embeds both
+markers can only ever test whichever finder runs second. It is one fixture per
+marker now, each with the other on a line of its own, and each of the two
+`===`-to-`includes()` sabotages fails it. The destructive direction is asserted
+alongside, since what a substring match costs is lines of somebody's own file.
+
+**Two bugs in this branch's own work, both caught by writing the thing down.**
+The shown block interpolates a machine-independent path, and `rcBlock()` quotes
+what it is given -- so the first version produced
+`'~/.local/share/completions/_mycli'`, a quoted tilde, which names a directory
+called `~`. That is the exact defect the `InstallLine` doc was written about, in
+the entry replacing it. Changed to `$HOME` and it was still wrong, because
+`$HOME` does not expand inside single quotes either; **double** quotes expand the
+variable and still hold a path with a space in it, and the resolved block keeps
+`shQuote()` because an absolute path has nothing in it to expand. Which is why
+`rcBlock()` takes its path **already quoted** rather than quoting it: the two
+callers genuinely differ. `should spell the shown path so that it expands, which
+a quoted ~ would not` is the pin, and the single-quote spelling fails it.
+
+**What was measured about the cost, with a `main` worktree built beside the
+branch** so that each figure is a difference between two builds rather than one
+carried forward. The root entry is **12,009 B over 7 modules** and the parse chunk
+**50,566 over 14** on _both_ -- byte for byte, so the second writer costs the
+graphs anybody else pays for nothing at all. The printer grew **+497 B**, which
+is `rcBlock()` and the two markers sitting in `install.ts` because the emitters'
+headers print them, and the interactive graph **+1,145**, module counts unchanged
+on both. It also found the figures in the entry stale by two tickets: 258,740 and
+62,371 had become 269,189 and 70,756 on `main`, none of it this feature's.
+
+**The three probe recipes were run before the text claiming them was written**,
+which is the rule `--completion` exists for. The sourced route answers
+`comp=_sigil`, the `fpath` route answers `comp=_sigil`, and bash answers
+`complete -o default -F _sigil sigil`. The step about the `compinit` cache is no
+longer about the installed route at all -- nothing goes on `$fpath`, so there is
+no dump to go stale -- and it says so rather than being deleted, because the
+recipe it still applies to is one a reader may follow. What is genuinely open
+moved with it: the guard was never run against a real prezto, zinit or zplug, and
+a framework that initialises completion lazily is the finding that step now asks
+for.

@@ -1201,10 +1201,12 @@ async function clipboard() {
  * in `test/completion-install.test.ts` with a faked home, and the command's own
  * asking and its no-terminal fallback are in
  * `packages/cli/test/completion-install-tty.test.ts` with a faked terminal. And
- * two of the routes were driven for real on the machine this was written on: a
- * file on `$fpath` before `compinit` registers in zsh 5.9 and completes with
- * descriptions, and a `source` line registers `complete -o default -F` in bash
- * 3.2. Neither is what this mode is about.
+ * three of the routes were driven for real on the machine this was written on:
+ * a file on `$fpath` before `compinit` registers in zsh 5.9 and completes with
+ * descriptions, a `source` line registers `complete -o default -F` in bash 3.2,
+ * and -- since SIG-155, which is the route the installer now takes -- the
+ * appended block registers `_mycli` in zsh 5.9 in all three shapes a startup
+ * file can be in. None of that is what this mode is about.
  *
  * What it is about is the three things that need *your* machine:
  *
@@ -1214,13 +1216,20 @@ async function clipboard() {
  *   that route is the one claim here whose author has never executed it -- the
  *   installer offers it only where the directory already exists, which is a
  *   signal rather than a version check.
- * - whether your **`compinit` cache** picks a new file up. zsh writes a
- *   `.zcompdump` and rebuilds it when `fpath` changes, mostly -- "restart your
- *   shell" is what the hint says, and a stale dump is what would make that a lie.
- * - whether the **startup file** the installer names is the one your shell
+ * - whether the block's **`compinit` guard** reads your framework right. The
+ *   block ends by calling `compdef`, which exists only after `compinit` has run,
+ *   so it runs one itself behind `(( $+functions[compdef] ))` -- and what it is
+ *   asking is whether *your* `.zshrc` has already set the completion system up
+ *   by the time it is reached. Verified here against a bare `.zshrc`, one with
+ *   its own `compinit`, and a framework sourced above with no literal
+ *   `compinit` in the file, which is the Oh My Zsh shape; what it was never run
+ *   against is a real prezto, zinit or zplug, and a framework that initialises
+ *   completion **lazily** or after its own `.zshrc` hook would be the finding.
+ * - whether the **startup file** the installer appends to is the one your shell
  *   reads. macOS starts bash as a login shell, which reads `.bash_profile` and
  *   not `.bashrc`, so it names the one that is there -- and which that is, is a
- *   fact about your home directory.
+ *   fact about your home directory. This one has teeth now that the file is
+ *   written rather than named.
  *
  * It reads `process.env` and this function imports nothing from `dist/`, which
  * is deliberate rather than a limitation: the *paths* are what `app completion`
@@ -1348,17 +1357,25 @@ async function completionProbe() {
       '    written on -- zsh 5.9 and bash 3.2 -- and what they say here is about\r\n' +
       '    yours. Use any sigil app in place of mycli.\r\n\r\n' +
       '      d=$(mktemp -d) && mkdir -p "$d/completions"\r\n\r\n' +
-      '    zsh, which is the fpath route the installer takes:\r\n' +
+      '    zsh, which is the sourced route the installer takes -- the block it\r\n' +
+      '    appends, with nothing having run compinit, so the guard fires:\r\n' +
       '      mycli completion zsh > "$d/completions/_mycli"\r\n' +
+      "      zsh -c '(( $+functions[compdef] )) || {\r\n" +
+      '                autoload -Uz compinit && compinit -u -d "\'"$d"\'/dump"\r\n' +
+      '              }\r\n' +
+      '              source "\'"$d"\'/completions/_mycli"\r\n' +
+      '              print -r -- "comp=${_comps[mycli]}"\'\r\n\r\n' +
+      '    zsh again, the fpath route, which is still a recipe it prints for you\r\n' +
+      '    to follow by hand and is why both are here:\r\n' +
       '      zsh -c \'fpath=("\'"$d"\'/completions" $fpath)\r\n' +
-      '              autoload -Uz compinit && compinit -u -d "\'"$d"\'/dump"\r\n' +
+      '              autoload -Uz compinit && compinit -u -d "\'"$d"\'/dump2"\r\n' +
       '              print -r -- "comp=${_comps[mycli]}"\'\r\n\r\n' +
       '    bash, which is the source route:\r\n' +
       '      mycli completion bash > "$d/completions/mycli.bash"\r\n' +
       '      bash -c \'source "\'"$d"\'/completions/mycli.bash"; complete -p mycli\'\r\n\r\n' +
-      '    Expect comp=_mycli from the first and\r\n' +
-      '    complete -o default -F _mycli mycli from the second -- both measured\r\n' +
-      '    here. For the real thing, interactively: zsh -i, then mycli and a tab.\r\n'
+      '    Expect comp=_mycli from the first two and\r\n' +
+      '    complete -o default -F _mycli mycli from the third -- all three\r\n' +
+      '    measured here. For the real thing, interactively: zsh -i, mycli, tab.\r\n'
   );
   if (!(await next())) {
     return;
@@ -1366,17 +1383,22 @@ async function completionProbe() {
 
   // --------------------------------------------------------- the compinit cache
   heading(
-    'the compinit cache',
-    'after the install, one restart is enough -- a second one being needed is a ' +
-      'stale .zcompdump and makes the hint a lie'
+    'the compinit cache, which the installed route no longer touches',
+    'one restart is enough, and for the sourced route it is enough by ' +
+      'construction rather than because a cache was rebuilt'
   );
   write(
-    '    zsh caches what it found on $fpath in a .zcompdump and rebuilds it when\r\n' +
-      '    fpath changes. "Then restart your shell" is what the installer prints,\r\n' +
-      '    and a dump that survives the change is the one thing that would make\r\n' +
-      '    that wrong. If a restart is not enough here:\r\n\r\n' +
+    '    This step used to be a real open question and SIG-155 closed it, which\r\n' +
+      '    is worth knowing rather than deleting. zsh caches what it found on\r\n' +
+      '    $fpath in a .zcompdump, and a dump that survived an fpath change was\r\n' +
+      '    the one thing that would have made "Then restart your shell" a lie.\r\n\r\n' +
+      '    The block the installer appends puts nothing on $fpath: it sources the\r\n' +
+      '    script, which registers with compdef at startup, so there is no cache\r\n' +
+      '    in the path at all and no dump that can go stale.\r\n\r\n' +
+      '    It still applies to the fpath recipe it prints for you to follow. If a\r\n' +
+      '    restart is not enough after taking that one:\r\n\r\n' +
       '      rm -f ~/.zcompdump* && exec zsh\r\n\r\n' +
-      '    and say so, because the hint should then say it too.\r\n'
+      '    and say so, because that recipe should then say it too.\r\n'
   );
   if (!(await next())) {
     return;
@@ -1384,17 +1406,29 @@ async function completionProbe() {
 
   // ------------------------------------------------------------- the rc caveat
   heading(
-    'what it will not do',
-    'it printed the line and did not add it, which is the one decision you may ' + 'disagree with'
+    'what it does to your startup file, and what it will not do',
+    'it appends one marked block after asking, and --uninstall takes exactly ' +
+      'that block back out'
   );
   write(
-    '    A .zshrc is very often under version control and is routinely written\r\n' +
-      '    by a dotfile manager, so this does not append to one. It reads it, to\r\n' +
-      '    find out whether the line is already there -- so re-running says\r\n' +
-      '    "already names it" rather than printing the line twice.\r\n\r\n' +
-      '    Which is also why there is no line to un-add: --uninstall removes the\r\n' +
-      '    file it wrote and prints the line to take out.\r\n\r\n' +
-      '    The startup file it names for bash is the first of ~/.bashrc,\r\n' +
+    '    SIG-151 printed the line and left it to you; SIG-155 appends it. Both\r\n' +
+      "    of that refusal's reasons have an answer rather than being overruled.\r\n\r\n" +
+      '    A .zshrc is often under version control -- which is a reason to ask,\r\n' +
+      '    and it was already asking: the plan names both files before the one\r\n' +
+      '    question, so a no leaves everything as it was. And a line we added\r\n' +
+      '    could not be told from a line you wrote -- which is what the two\r\n' +
+      '    marker comments answer, so the block has an extent and comes out.\r\n\r\n' +
+      '    What it will not do, in either direction, is edit a line you wrote.\r\n' +
+      '    A startup file naming the script with no block of ours around it is\r\n' +
+      '    reported and left alone: there is nothing in a .zshrc to upgrade, and\r\n' +
+      '    a SIG-151 fpath line is read as the file already being handled rather\r\n' +
+      '    than having a second registration appended underneath it.\r\n\r\n' +
+      '    Through writeAtomic(), which is why this is safe to do at all: a\r\n' +
+      '    .zshrc is the file people keep in a dotfiles repository, so the path\r\n' +
+      '    is very often a symlink -- and that call resolves the chain and writes\r\n' +
+      '    **through** rather than replacing the link. If yours is a link into a\r\n' +
+      '    repository, check that `git -C <repo> status` sees the edit.\r\n\r\n' +
+      '    The startup file it writes for bash is the first of ~/.bashrc,\r\n' +
       '    ~/.bash_profile and ~/.profile that is a **file**, and for zsh it is\r\n' +
       '    $ZDOTDIR/.zshrc through the same paths.baseDir() rule as step 1 --\r\n' +
       '    a leading ~ expanded, then absolute or it falls back. On this\r\n' +

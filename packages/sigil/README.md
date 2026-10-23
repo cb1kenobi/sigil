@@ -1126,49 +1126,53 @@ no shell, on a terminal, and it installs one:
 $ mycli completion
 ? Which shell? zsh
   It will write /Users/you/.local/share/completions/_mycli
-  A line has to go in /Users/you/.zshrc
+  It will add a block to /Users/you/.zshrc
 
 ? Install zsh completion for mycli? yes
 Wrote /Users/you/.local/share/completions/_mycli
-
-Add this line to /Users/you/.zshrc, above your compinit line:
-
-    fpath=('/Users/you/.local/share/completions' $fpath)
+Added a block to /Users/you/.zshrc
 
 Then restart your shell.
 ```
 
-The two questions are a `select()` with what `$SHELL` named already highlighted
-— so the detected answer is one Enter and the other shell is an arrow key — and
-a `confirm()` over the plan. They draw on **stderr**, because this command's
-stdout is the script.
+Two questions and no more: a `select()` with what `$SHELL` named already
+highlighted — so the detected answer is one Enter and the other shell is an
+arrow key — and a `confirm()` over the plan. One confirm for two files, because
+it is one install and the plan named both paths before asking. They draw on
+**stderr**, because this command's stdout is the script.
 
-On zsh the last part depends on what your `.zshrc` holds, because the `fpath`
-line has to run before `compinit` — the call that scans `$fpath` and builds the
-completion table. The block above is what a file with its own `compinit` line
-gets. A file with **no** such line gets this instead, which is most people with
-a framework: Oh My Zsh runs `compinit` from `oh-my-zsh.sh`, so a `.zshrc` that
-sources it has no `compinit` in it anywhere.
+This is the block it appends:
 
-```
-Add this line to the top of /Users/you/.zshrc:
-
-    fpath=('/Users/you/.local/share/completions' $fpath)
-
-It has to run before compinit, and that file has no compinit line.
-If a framework runs one for you, put it above the line that sources it.
-If nothing runs one, add this line as well:
-
-    autoload -Uz compinit && compinit
-
-Then restart your shell.
+```zsh
+# zsh completion for `mycli`, added by sigil.
+if [[ -s '/Users/you/.local/share/completions/_mycli' ]]; then
+  (( $+functions[compdef] )) || { autoload -Uz compinit && compinit }
+  source '/Users/you/.local/share/completions/_mycli'
+fi
+# end of zsh completion for `mycli`.
 ```
 
-It writes the file and **prints** the line rather than editing a dotfile: a
-`.zshrc` is very often under version control and is routinely written by a
-dotfile manager, so appending to one is not this command's to do. On bash with
-`bash-completion` 2.8 or newer there is no line at all — the file goes in its
-user directory and it loads it.
+Every line of it is doing something. The `-s` test keeps a script you have since
+deleted — `npm rm -g mycli`, say — from being an error on every shell startup.
+The `compdef` test is there because a sourced zsh completion registers with
+`compdef`, which exists only once `compinit` has run, and whether anything has
+run one is a question about your `.zshrc` that only your shell can answer: with a
+framework there is often no `compinit` in that file at all, since Oh My Zsh runs
+one from `oh-my-zsh.sh`. So the block asks at startup instead of guessing, and
+does not run a second `compinit` where something already has. bash's block is
+the same shape without that line, written in POSIX `sh` and guarded on
+`BASH_VERSION`, because the file it lands in may be a `.profile` that `/bin/sh`
+reads too.
+
+It goes at the **end** of the file, which is where it has to be: `compdef` needs
+`compinit` to have run already. That is also why the block is a `source` rather
+than the `fpath=(...)` line earlier versions printed — that one has to run
+_above_ `compinit`, so no append can place it, and one script serves both ways of
+being loaded. Sourcing rather than autoloading costs 0.20 ms of shell startup per
+installed app, measured in zsh 5.9.
+
+On bash with `bash-completion` 2.8 or newer there is no block at all — the file
+goes in its user directory and it loads it.
 
 That is where a **new** install goes. Where one is already there, it is the one
 that gets updated, whichever route it is on: the marker in a script's own header
@@ -1183,22 +1187,60 @@ Re-running is a no-op that says so, and it reads the startup file to decide:
 $ mycli completion
 ? Which shell? zsh
   /Users/you/.local/share/completions/_mycli is already up to date
+  /Users/you/.zshrc already has the block
+
+Nothing to do.
+```
+
+It does not ask there, because there is nothing to write in either file. The
+script is replaced without ceremony when your app's commands change — it is
+generated output, and the marker in its own header is how the installer knows one
+of its own from a file you wrote. A file without the marker is one it will not
+replace silently: it says whose it is, asks, and defaults to no.
+
+`--uninstall` is the same thing backwards: it removes the script and cuts the
+block out of your startup file, leaving it byte for byte what it was before the
+install, the blank line included. It asks once, and never about a file that is
+not its own.
+
+### What it will not touch
+
+What makes editing your startup file safe is that it only ever edits a block it
+wrote. Both marker comments have to be there for it to recognise one, which is
+what gives the block an extent — a count of lines would be a guess about which
+version of sigil wrote it.
+
+So a line **you** wrote is reported and left exactly where it is, in both
+directions. A `.zshrc` that already names the script some other way is one it
+adds nothing to:
+
+```
+$ mycli completion
+? Which shell? zsh
+  /Users/you/.local/share/completions/_mycli is already up to date
   /Users/you/.zshrc already names it
 
 Nothing to do.
 ```
 
-It does not ask there, because there is nothing to write: where the script is
-already right and only the line is outstanding it prints the line and asks
-nothing at all. The script is replaced without ceremony when your app's commands
-change — it is generated output, and the marker in its own header is how the
-installer knows one of its own from a file you wrote. A file without the marker
-is one it will not replace silently: it says whose it is, asks, and defaults to
-no.
+and on the way out it tells you rather than editing:
 
-`--uninstall` is the same thing backwards. It asks once, and never about a file
-that is not its own: the marker is what decides, and a file without it is
-refused outright rather than offered. Then it prints the line to take out.
+```
+Removed /Users/you/.local/share/completions/_mycli
+
+Remove the line naming /Users/you/.local/share/completions/_mycli from /Users/you/.zshrc yourself.
+```
+
+That includes the `fpath=(...)` line sigil itself used to print, so a machine set
+up by an earlier version reads as already handled rather than getting a second
+registration appended underneath a setup that works.
+
+The write goes through the same atomic write the config stores use, which matters
+most here: a `.zshrc` is the file people keep in a dotfiles repository, so its
+path is very often a symlink — and that writes _through_ the link rather than
+replacing it with a plain file.
+
+### Printing it instead
 
 Name the shell and it prints the script instead, which is the form to redirect
 and is what `gh`, `kubectl`, `rustup` and `deno` all do:

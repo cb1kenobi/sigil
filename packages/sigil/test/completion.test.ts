@@ -948,13 +948,13 @@ describe('the completion command', () => {
           expect(instructions(shell, 'mycli')).toContain(command);
         }
 
-        // the line a reader has to place by hand goes through the same
-        // differential, because it is the second thing the two renderers print
-        // and a field rendered twice with nothing comparing the two is exactly
-        // the drift this module's own opening is about. The sentence as well as
-        // the line: a line with no `above your compinit line` over it is a line
-        // somebody appends
-        for (const text of route.add === undefined ? [] : [route.add.where, route.add.line]) {
+        // the block a reader pastes goes through the same differential,
+        // because it is the second thing the two renderers print and a field
+        // rendered twice with nothing comparing the two is exactly the drift
+        // this module's own opening is about. The sentence as well as every
+        // line of the block, markers included -- which is what catches a
+        // renderer that printed one of the two comments and not the other
+        for (const text of route.add === undefined ? [] : [route.add.where, ...route.add.lines]) {
           expect(script).toContain(text);
           expect(instructions(shell, 'mycli')).toContain(text);
         }
