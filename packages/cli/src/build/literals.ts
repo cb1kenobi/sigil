@@ -180,15 +180,57 @@ export function literalBoolean(node: Expression): boolean | undefined {
  * subcommand whoever asked will reach anyway. The same is true of any property
  * a schema and a command both have.
  *
- * One walk for two readers: `readAppCommands()` asks about `commands` and
- * `readAppCatalogs()` asks about `locales`, and two implementations of
- * "which object is the schema" is two answers to one question.
+ * One walk for three readers: `readAppCommands()` asks about `commands` and
+ * about `run`, and `readAppCatalogs()` asks about `locales`, and two
+ * implementations of "which object is the schema" is two answers to one
+ * question.
  *
  * @param program - The module's tree.
  * @param name - The property to look for.
  * @returns The outermost such objects, in source order.
  */
 export function outermostWith(program: Node, name: string): ObjectExpression[] {
+  return outermost(program, (object) => plainProperty(object, name) !== undefined);
+}
+
+/**
+ * The same walk, asking only whether the property is *there*.
+ *
+ * `plainProperty()` answers with a value, so it leaves out a method, an
+ * accessor and a computed key -- right for reading a `desc` or a `commands`,
+ * and wrong for `run`, whose commonest spelling by a long way is the method
+ * `run({ argv }) { ... }`. Nothing is read out of it: what the caller decides
+ * is whether a schema with no `commands` is a single-command app or an app
+ * that forgot them, which is a question about presence.
+ *
+ * A **spread** still does not count, which is the recorded rule for a `desc`
+ * read from the other side: `{ ...base }` may well carry a `run` and nothing
+ * here can see it, so such an entry is reported as declaring no commands
+ * rather than taken for a single-command app.
+ *
+ * @param program - The module's tree.
+ * @param name - The property to look for.
+ * @returns The outermost objects declaring it, in source order.
+ */
+export function outermostDeclaring(program: Node, name: string): ObjectExpression[] {
+  return outermost(program, (object) =>
+    object.properties.some(
+      (property) => property.type !== 'SpreadElement' && propertyKey(property) === name
+    )
+  );
+}
+
+/**
+ * The walk both of the two above are.
+ *
+ * @param program - The module's tree.
+ * @param claims - Whether an object is one the caller is looking for.
+ * @returns The outermost claimed objects, in source order.
+ */
+function outermost(
+  program: Node,
+  claims: (object: ObjectExpression) => boolean
+): ObjectExpression[] {
   const found: ObjectExpression[] = [];
 
   walk(program, (node) => {
@@ -197,7 +239,7 @@ export function outermostWith(program: Node, name: string): ObjectExpression[] {
     }
 
     const object = node as unknown as ObjectExpression;
-    if (!plainProperty(object, name)) {
+    if (!claims(object)) {
       return true;
     }
 

@@ -463,7 +463,24 @@ function appTest(opts: ScaffoldOptions): string {
     expect(ran.argv.who).toBe('everyone');
   });
 `
-      : `  it('describes itself', async () => {
+      : `  it('greets', async () => {
+    // the schema *is* the command in this layout, so there is no subcommand to
+    // name: \`main()\` dispatches the \`run\` on the schema itself
+    const ran = await runCommand({ argv: ['world'], schema });
+
+    expect(ran.code).toBe(0);
+    expect(ran.out).toBe('hello world\\n');
+  });
+
+  it('parses what the schema declared', async () => {
+    const ran = await runCommand({ argv: ['everyone'], schema });
+
+    // the values the \`run()\` was handed, which is usually what a test about an
+    // option really wants to assert
+    expect(ran.argv.who).toBe('everyone');
+  });
+
+  it('describes itself', async () => {
     const ran = await runCommand({ argv: ['--help'], schema });
 
     expect(ran.code).toBe(0);

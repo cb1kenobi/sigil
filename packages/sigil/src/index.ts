@@ -142,7 +142,26 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
       return state;
     }
 
-    const { cmd } = state;
+    // the command argv matched, or the **root** when argv matched none. The
+    // schema *is* the root command -- `parse()` builds `contexts[0]` from
+    // `initCommand({ ...schema, ... })`, and `copyDeclaration()` carries `run`
+    // across with everything else -- so a `run` on the schema is the root
+    // command's `run`, and a run that named no command is the one it answers
+    // for. Without this it answered for nothing: a single-command app, which is
+    // exactly what `sigil new --single` scaffolds, parsed argv and then did
+    // nothing at all.
+    //
+    // It cannot change what a working app does, which is what makes it a fix
+    // rather than a semantic change: a root `run` was **unreachable**, so
+    // nothing can have depended on it running. What moves is an app carrying
+    // one, and only in the direction of doing what it said.
+    //
+    // A `default` command still wins, because dispatching one sets `state.cmd`
+    // -- which is the right way round. Declaring a command `default` is a
+    // statement about a command with its own name, args and help entry, and an
+    // explicit declaration outranks the root answering by position.
+    const cmd = state.cmd ?? state.contexts.at(-1);
+
     if (cmd?.run) {
       log(`Executing command "${cmd.name}"`);
 
@@ -220,7 +239,8 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
     // never empty, so the declaration is what has to be asked about. Help is
     // not turned off, since `help: false` means this app answers for what
     // help means. And nothing already answered: a command with a `run`, a
-    // `default` command, `--help` and `--version` all leave before here.
+    // `default` command, a `run` on the schema, `--help` and `--version` all
+    // leave before here.
     const declaredCommands = state.schema.commands !== undefined;
 
     if (declaredCommands && state.schema.help !== false && state.version === undefined) {

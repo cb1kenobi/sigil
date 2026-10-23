@@ -45,6 +45,7 @@ import {
   literalString,
   loaderSpecifier,
   objectLiteral,
+  outermostDeclaring,
   outermostWith,
   plainProperty,
   propertyKey,
@@ -375,6 +376,23 @@ export function readAppCommands(app: DiscoveredApp): {
    * saying one problem twice and getting the second one wrong.
    */
   found: boolean;
+  /**
+   * Whether the schema is itself the command: a `run` and no `commands`.
+   *
+   * Which is a single-command app, and is the `--single` layout `sigil new`
+   * scaffolds. There is nothing to walk and nothing to bake, so the absence of
+   * `commands` is the answer rather than a thing to report -- without this the
+   * build refused such an app outright with `no "commands" found in this
+   * module`, so `--single` scaffolded an app that ran from source and could
+   * not be built, which is the works-unbundled-fails-built divergence the
+   * shared route rules exist to prevent.
+   *
+   * Asked only where this read the entry's own `commands`, so a `--commands`
+   * directory leaves it `false`: that flag is an instruction about where the
+   * app's commands are, and the summary should then speak about that directory
+   * rather than about the root.
+   */
+  root: boolean;
 } {
   const parsed = parseModule(app.entry, readFileSync(app.entry, 'utf-8'));
   const diagnostics: Diagnostic[] = [];
@@ -382,7 +400,19 @@ export function readAppCommands(app: DiscoveredApp): {
   const schemas = outermostWith(parsed.program as never, 'commands');
 
   if (!schemas.length) {
-    return { diagnostics, found: false };
+    // a `run` with no `commands` beside it is a single-command app, where
+    // `main()` dispatches the root. `outermostDeclaring()` rather than
+    // `outermostWith()`, because a `run` is written as a **method** far more
+    // often than as a property and `plainProperty()` leaves a method out --
+    // the scaffold's own `run({ argv }) { ... }` is one.
+    //
+    // Asked as a presence rather than as a single unambiguous literal, because
+    // nothing is *read* out of it: the runtime reads `schema.run` off the
+    // module's own export, and what this decides is only whether a missing
+    // `commands` is a problem. So a module with two run-bearing literals needs
+    // no rule of its own here.
+    const root = outermostDeclaring(parsed.program as never, 'run').length > 0;
+    return { diagnostics, found: false, root };
   }
 
   if (schemas.length > 1) {
@@ -393,7 +423,7 @@ export function readAppCommands(app: DiscoveredApp): {
       message: `found ${schemas.length} schemas in this module; pass --commands to say which command directory to check`,
       severity: 'warning',
     });
-    return { diagnostics, found: true };
+    return { diagnostics, found: true, root: false };
   }
 
   const declared = plainProperty(schemas[0]!, 'commands')!;
@@ -427,6 +457,7 @@ export function readAppCommands(app: DiscoveredApp): {
       commands: { dir: resolve(entryDir, asPath), kind: 'directory' },
       diagnostics,
       found: true,
+      root: false,
     };
   }
 
@@ -438,13 +469,14 @@ export function readAppCommands(app: DiscoveredApp): {
         '"commands" is computed rather than a path or an object literal, so it cannot be read at build time; pass --commands to name a command directory',
       severity: 'error',
     });
-    return { diagnostics, found: true };
+    return { diagnostics, found: true, root: false };
   }
 
   return {
     commands: { commands: readInline(written, entryDir, parsed, diagnostics), kind: 'inline' },
     diagnostics,
     found: true,
+    root: false,
   };
 }
 

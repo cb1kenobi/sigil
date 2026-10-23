@@ -52,7 +52,7 @@ import { readSigilConfig } from '../config.ts';
 import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
   appRuns,
-  countCommands,
+  commandsFound,
   failure,
   inspect,
   reportDiagnostics,
@@ -164,12 +164,10 @@ const build: AnyCommand = command({
     }
     warnEmptyShake(result.styles);
 
-    const total = countCommands(found.commands);
-
     writeSummary(
       [
         ...appRuns(found.app),
-        `${total} command${total === 1 ? '' : 's'}${
+        `${commandsFound(found)}${
           result.templates
             ? ` and ${result.templates} template${result.templates === 1 ? '' : 's'}`
             : ''

@@ -150,6 +150,38 @@ describe('sigil check', () => {
       expect(err).not.toContain('no "commands" found');
       expect(process.exitCode).toBe(1);
     });
+
+    it('should take a schema that is itself the command', async () => {
+      // a `run` and no `commands` is a single-command app -- the `--single`
+      // layout -- where `main()` dispatches the root. It used to be refused
+      // outright, so that layout scaffolded an app which ran from source and
+      // could not be built
+      const { err } = await sigil('check', join(fixtures, 'discover', 'single-app'));
+
+      expect(err).not.toContain('no "commands" found');
+      expect(err).toContain('no problems found');
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    it('should call it the root command rather than 0 commands', async () => {
+      // `0 commands` is what a tree this failed to read says, and telling the
+      // two apart is the whole of what the count is for
+      const { err } = await sigil('check', join(fixtures, 'discover', 'single-app'));
+
+      expect(err).toContain('the root command');
+      expect(err).not.toContain('0 commands');
+    });
+
+    it('should still refuse a schema with neither commands nor a run', async () => {
+      // the other half: without the `run` test an app that simply forgot its
+      // `commands` would check out in silence. This is the only positive
+      // assertion of that message there is -- it was asserted nowhere before,
+      // only as the `not.toContain` above
+      const { err } = await sigil('check', join(fixtures, 'discover', 'no-run'));
+
+      expect(err).toContain('no "commands" found');
+      expect(process.exitCode).toBe(1);
+    });
   });
 
   describe('an app that checks out', () => {

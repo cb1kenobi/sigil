@@ -32,7 +32,7 @@
 import { writeSummary } from '../report.ts';
 import {
   appRuns,
-  countCommands,
+  commandsFound,
   failure,
   inspect,
   printTree,
@@ -83,12 +83,10 @@ const check: AnyCommand = command({
       throw failure(found, counts);
     }
 
-    const total = countCommands(found.commands);
-
     writeSummary(
       [
         ...appRuns(found.app),
-        `${total} command${total === 1 ? '' : 's'},`,
+        `${commandsFound(found)},`,
         // the verdict is the one run whose colour says something: a warning count
         // is the same yellow a warning line carries, and a clean app is green,
         // so the last word of a build log reads at a glance
