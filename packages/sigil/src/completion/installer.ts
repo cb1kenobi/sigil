@@ -664,6 +664,57 @@ function readOr(path: string): string | undefined {
 }
 
 /**
+ * What may follow a path in a startup file for the match to be that path.
+ *
+ * A shell delimiter, and the set is enumerated from the other side on purpose:
+ * what may *precede* a path is unbounded, and what may *continue* one is every
+ * character a program name can hold -- which `registerable()` leaves wide, so
+ * `-`, `.`, `+` and `@` are all in it. So the question asked is "did the path
+ * end here", and the answer is the characters a shell writes after one.
+ *
+ * Drawn from the lines this has to recognise: `source '<path>'`,
+ * `source "<path>"`, a bare `source <path>` at end of line, `fpath=(<dir>
+ * $fpath)`, `fpath+=(<dir>)` and `FPATH=<dir>:$FPATH`.
+ */
+const AFTER_PATH = new Set(' \t\n\r\'"):;,');
+
+/**
+ * Whether the file names this exact path, rather than one it is a prefix of.
+ *
+ * A plain `includes()` was the first version and it is the defect PR #191
+ * reported: every block of ours names `<dir>/_<program>`, which **contains**
+ * `<dir>` -- so the directory needle hit inside the first installed app's block
+ * and every app after it read as `theirs`. The plan said "already names it",
+ * the script was written, and nothing ever sourced it. Silently, which is what
+ * makes it the worse half: the install reported success.
+ *
+ * It is a rule about a **path** rather than a special case for the directory,
+ * because the file needle has the same defect one name along: `_one` is a prefix
+ * of `_onetwo`, so app `one` read app `onetwo`'s block as naming its own script.
+ * Both are the same question -- did the needle end where the path ended -- so
+ * there is one answer.
+ *
+ * Asked by walking the occurrences rather than with a regex, because a path is
+ * full of characters a pattern would have to escape -- `.`, `+`, `(`, `[` -- and
+ * an escaping bug here reads as a needle that never matches, which is the silent
+ * direction again.
+ *
+ * @param held - What the startup file holds.
+ * @param needle - One spelling of the path.
+ * @returns Whether the file names it.
+ */
+function namesPath(held: string, needle: string): boolean {
+  for (let at = held.indexOf(needle); at !== -1; at = held.indexOf(needle, at + 1)) {
+    const after = held[at + needle.length];
+    if (after === undefined || AFTER_PATH.has(after)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Every spelling of one path that counts as the startup file naming it.
  *
  * The absolute path, and the two home-relative forms. Which matters because the
@@ -781,7 +832,7 @@ function rcStateOf(rc: RcAddition | undefined): RcState {
 
   return rc.needles
     .flatMap((needle) => spellings(needle))
-    .some((spelling) => held.includes(spelling))
+    .some((spelling) => namesPath(held, spelling))
     ? 'theirs'
     : 'absent';
 }
@@ -1060,7 +1111,7 @@ export function applyUninstall(plan: InstallPlan): boolean {
  * @returns Whether to leave the file alone.
  */
 function named(held: string, rc: RcAddition): boolean {
-  return rc.needles.flatMap((needle) => spellings(needle)).some((it) => held.includes(it));
+  return rc.needles.flatMap((needle) => spellings(needle)).some((it) => namesPath(held, it));
 }
 
 /**

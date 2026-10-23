@@ -129,12 +129,17 @@ afterEach(() => {
  */
 function run(
   args: readonly string[],
-  opts: { keys?: readonly string[]; shell?: string; tty?: boolean } = {}
+  opts: { keys?: readonly string[]; program?: string; shell?: string; tty?: boolean } = {}
 ): Promise<Ran> {
   const tty = opts.tty ?? true;
+  // a second program name, for the one test that needs **two** sigil apps
+  // installing into one startup file. A replacement in the source rather than a
+  // second `APP`, so the two apps differ in their name and in nothing else --
+  // which is what makes the directory they share the subject
+  const app = opts.program === undefined ? APP : APP.replace("'probecli'", `'${opts.program}'`);
   const node = tty
-    ? ['--import', TTY_PRELOAD, '--input-type=module', '-e', APP]
-    : ['--input-type=module', '-e', APP];
+    ? ['--import', TTY_PRELOAD, '--input-type=module', '-e', app]
+    : ['--input-type=module', '-e', app];
 
   return new Promise((settle, fail) => {
     const child = spawn(process.execPath, [...node, 'completion', ...args], {
@@ -441,6 +446,77 @@ describe('what the sabotage pass found', () => {
     expect(readFileSync(zshScript(), 'utf8')).toBe('# mine, hands off\n');
     expect(ran.code).toBe(0);
   }, 30_000);
+
+  it('should take its own block out beside a script it did not write, without crashing', async () => {
+    // the round-2 crash shape reintroduced by SIG-155, and reported on PR #191.
+    // `writes` counts the block now, so a **foreign script with our block in
+    // the startup file** is `writes: true` -- and the apply built an object
+    // literal whose `file` property called `applyUninstall()` first, which
+    // throws for a foreign plan. So the refusal reached the generic error
+    // handler as a crash and `removeRc()` never ran: the block stayed.
+    //
+    // The unit test for the pair calls `removeRc()` first, the opposite of the
+    // production order, so it could not see this. A real run is what does
+    const rc = join(box, 'home', '.zshrc');
+
+    // install properly first, so the block in the startup file is genuinely
+    // ours rather than a fixture pretending to be
+    expect((await run([], { keys: [CR, CR] })).code).toBe(0);
+    expect(readFileSync(rc, 'utf8')).toContain('added by sigil');
+
+    // and then somebody overwrites the script
+    writeFileSync(zshScript(), '# mine, hands off\n');
+
+    const ran = await run(['zsh', '--uninstall'], { keys: [CR] });
+
+    // the plan says whose the script is and that the block will go
+    expect(ran.stderr).toContain('not written by sigil');
+    expect(ran.stderr).toContain('Removed the block from');
+    // and no stack and no raw refusal reached the reader
+    expect(ran.stderr).not.toMatch(/Refusing to remove/);
+    expect(ran.stderr).not.toMatch(/\bat .*:\d+:\d+/u);
+    // the script is theirs and stays; the block was ours and went
+    expect(readFileSync(zshScript(), 'utf8')).toBe('# mine, hands off\n');
+    expect(readFileSync(rc, 'utf8')).not.toContain('added by sigil');
+    expect(ran.code).toBe(0);
+  }, 40_000);
+
+  it('should ask to remove rather than to replace, on an uninstall it can act on', async () => {
+    // the third defect in the same spot: `question()`'s `foreign` branch is
+    // about an **install** -- "Replace it?", defaulting to no -- and an
+    // uninstall could not reach it while `writes` was false for a foreign file.
+    // With the block counting, it did: a reader uninstalling was asked
+    // "Replace it?" about a removal, defaulting to no, so the block stayed
+    // unless they typed y
+    expect((await run([], { keys: [CR, CR] })).code).toBe(0);
+    writeFileSync(zshScript(), '# mine, hands off\n');
+
+    const ran = await run(['zsh', '--uninstall'], { keys: [CR] });
+
+    expect(ran.stderr).toMatch(/Remove zsh completion for probecli\?/);
+    expect(ran.stderr).not.toContain('Replace it?');
+    expect(ran.code).toBe(0);
+  }, 40_000);
+
+  it('should give a second app its own block in one startup file', async () => {
+    // the directory-needle defect from the other end, driven: app one's block
+    // names `<dir>/_one`, which contains `<dir>`, so app two read the startup
+    // file as already handling it and never got a block. Both scripts on disk
+    // and only one of them loadable, with nothing said
+    const rc = join(box, 'home', '.zshrc');
+
+    expect((await run([], { keys: [CR, CR] })).code).toBe(0);
+    const first = readFileSync(rc, 'utf8');
+    expect(first).toContain('# zsh completion for `probecli`, added by sigil.');
+
+    const again = await run([], { keys: [CR, CR], program: 'othercli' });
+    expect(again.code).toBe(0);
+
+    const held = readFileSync(rc, 'utf8');
+    expect(held).toContain('# zsh completion for `probecli`, added by sigil.');
+    expect(held).toContain('# zsh completion for `othercli`, added by sigil.');
+    expect(again.stderr).not.toContain('already names it');
+  }, 60_000);
 
   it('should replace a foreign file when the answer is yes', async () => {
     mkdirSync(join(box, 'data', 'completions'), { recursive: true });

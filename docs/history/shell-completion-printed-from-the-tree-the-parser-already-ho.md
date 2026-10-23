@@ -533,3 +533,65 @@ recipe it still applies to is one a reader may follow. What is genuinely open
 moved with it: the guard was never run against a real prezto, zinit or zplug, and
 a framework that initialises completion lazily is the finding that step now asks
 for.
+
+##### What PR #191's review found: three defects from one changed premise
+
+All three are the same root cause, which is the thing worth keeping: `writes`
+counting the startup file is a **premise change**, and two separate pieces of
+code were resting on the old premise as prose rather than as a condition.
+
+**A second sigil app on zsh never got its block.** `needles` was matched with a
+plain `includes()`, and every block of ours names `<dir>/_<program>` -- which
+contains `<dir>`. So installing `one` and then `two` had `two`'s directory needle
+hit inside `one`'s block: `rcStateOf()` answered `theirs`, the plan said "already
+names it", the script was written, and nothing ever sourced `_two`. An install
+that reported success and did not work. The file needle had it too, one name
+along, since `_one` is a prefix of `_onetwo`.
+
+The fix is `namesPath()`, and what makes it a rule rather than a patch is that
+both are one question -- did the needle end where the path ended. `AFTER_PATH`
+enumerates what may _follow_ rather than what may continue, because a program
+name may hold `-`, `.`, `+` or `@` and `registerable()` leaves that wide. The
+existing tests compared the needle **arrays**, which cannot see where a needle
+matches; that is the shape to look for.
+
+**The uninstall crashed, and the wrong question hid it.** `planUninstall()`
+returns `writes: true` for `rc === 'ours'` even when `file === 'foreign'`, and
+the apply is an object literal -- whose properties evaluate in order, so
+`applyUninstall()` ran first and threw for a foreign plan. The refusal reached
+the generic error handler and `removeRc()` never ran, so the block stayed. Which
+is round 2's crash exactly, reintroduced by the premise rather than by the code.
+
+The third defect is the one the review did not name and is why the second was
+latent: `question()`'s `foreign` branch carried the old premise as a comment --
+"an uninstall never reaches here, because a foreign file is not something to
+write" -- so a reader uninstalling was asked **"Replace it?"**, defaulting to no.
+Driven, that prints `? Replace it? no` and `Cancelled`; answer `y` and it prints
+`Error: Refusing to remove ..., which sigil did not write.` So the wrong question
+masked the crash behind an Enter, and a correct-looking default was doing the
+hiding.
+
+**Why the unit test could not see it, which is the transferable part.** `should
+take its own block out of a startup file beside a script it will not touch`
+calls `removeRc()` and _then_ asserts `applyUninstall()` throws -- the opposite
+of the production order. It asserted the right outcome of a sequence the command
+does not run. There is a test in the production order now, and a TTY test that
+drives the real command, which is what found all three: a comment claiming a
+branch is unreachable is only as good as the condition somewhere else that makes
+it so, and the cheapest check is to run the thing.
+
+**The sabotage pass needed one more fixture after the fixes.** Seven mutations
+over the three, six caught immediately; the survivor was `after === undefined`,
+end-of-string, which no fixture reached because every one of them wrote a
+trailing newline -- and the first attempt at covering it used `shQuote()`, so the
+quote was the delimiter and it passed either way. A **bare** path at the end of a
+file with no trailing newline is what reaches it, and that is a real `.zshrc`.
+The original 20 were re-run after the fixes and all 20 still fail, so none of
+them was blunted.
+
+**And the test count was phantom.** The suite read 7,586 where the real figure
+is **7,558**: `dist.test.ts` walks `dist/`, and a turbo cache hit skips the
+`rimraf`, so a day of branch-hopping and a `main` worktree build had left 95
+`.mjs` files where a forced build leaves 67. Checked rather than quoted, which is
+the rule this repository already keeps for every byte figure -- +7 over the 7,551
+before these fixes, matching the 7 tests added.

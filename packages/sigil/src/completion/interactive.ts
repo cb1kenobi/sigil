@@ -200,10 +200,15 @@ function question(
   const { shell } = plan.target;
 
   // the plan has already said whose the file is, so this is the question and
-  // not the statement -- which is also what keeps it to one key rather than one
-  // per direction: an uninstall never reaches here, because a foreign file is
-  // not something to write, so `writes` is false and the caller does not ask
-  if (plan.file === 'foreign') {
+  // not the statement. It is an **install's** question, and the condition says
+  // so rather than relying on an uninstall not reaching it: that reasoning held
+  // while a foreign file was nothing to write, and the block changed it -- a
+  // foreign script with a block of ours is `writes: true`, so a reader
+  // uninstalling was asked "Replace it?" about a removal, defaulting to no, and
+  // the block stayed unless they typed y. It also hid the crash below behind
+  // that default. Found by driving the command, which is how this file's
+  // sibling defects were each found
+  if (action === 'install' && plan.file === 'foreign') {
     return { default: false, message: __`Replace it?` };
   }
 
@@ -306,7 +311,24 @@ export async function runInstaller(state: ParseState, request: InstallRequest): 
     // they *did* rather than what the plan said they would
     const did = plan.writes
       ? request.uninstall
-        ? { file: applyUninstall(plan), rc: await removeRc(plan) }
+        ? {
+            // gated on the plan's reading of the **file** rather than on
+            // `plan.writes`, which now counts the block as well: a foreign
+            // script with a block of ours in the startup file is `writes: true`,
+            // and `applyUninstall()` throws for a foreign plan. An object
+            // literal evaluates its properties in order, so that throw reached
+            // the generic error handler as a crash and `removeRc()` never ran --
+            // the block stayed. Which is SIG-151's round-2 shape exactly,
+            // reintroduced by the premise that `writes` changed. Reported on
+            // PR #191, and the unit test for the pair could not see it because
+            // it called the two in the opposite order.
+            //
+            // The writer's own refusal stays where it is: this is the caller's
+            // discipline and that is the module's rule, which is the division
+            // `applyInstall()` already records
+            file: plan.file === 'update' ? applyUninstall(plan) : false,
+            rc: await removeRc(plan),
+          }
         : {
             // `replace` is the answer carried into the writer, which refuses a
             // `foreign` plan without it: the refusal is the module's own rather

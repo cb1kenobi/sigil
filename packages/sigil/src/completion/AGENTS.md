@@ -1084,6 +1084,26 @@ dispatches between the printer and the installer.
   `applyInstall()` answers `false` for a `current` plan itself, so for an install
   it is redundant and the uninstall is the whole of it.
 
+  **And moving that boundary brought the round-2 crash back twice over, which is
+  what a changed premise costs.** Two things rested on "a foreign file is nothing
+  to write, so `writes` is false and an uninstall does not ask", and the block
+  counting made both false. `runInstaller()`'s apply is an object literal, whose
+  properties evaluate in order, so `applyUninstall()` ran before `removeRc()` and
+  its refusal for a foreign plan reached the generic error handler as a crash
+  with the block left behind -- the gate is `plan.file === 'update'` now, so the
+  script is left and the block still goes. And `question()`'s `foreign` branch
+  carried that reasoning as a comment: a reader uninstalling was asked "Replace
+  it?" about a removal, defaulting to no, which both read wrong and **hid the
+  crash** behind an Enter that cancelled. It is `action === 'install'` now rather
+  than relying on a condition elsewhere. Both reported on PR #191.
+
+  What made them invisible is worth more than either fix. The unit test for the
+  pair calls `removeRc()` first and `applyUninstall()` second, which is the
+  **opposite** of the production order -- so it asserted the right outcome of the
+  wrong sequence. `should take its own block out in the order the command applies
+  them` is written in the production order for that reason, and the TTY test
+  beside it drives the real command, which is what found all three.
+
 - **One name, one program, and the shared predicate was the half that was
   already shared.** `registerable()` was asked by both readers and
   `completionSpec()` asked it of `oneLine(name)` while the installer asked it of
@@ -1118,6 +1138,32 @@ dispatches between the printer and the installer.
   property the single needle was originally written for. bash gets the script
   alone, because nothing bash does reads a directory off a variable and its own
   SIG-151 recipe was a `source` of exactly this path.
+
+- **A needle matches only where the path **ends**, and a plain substring search
+  was a silent install failure.** Every block of ours names `<dir>/_<program>`,
+  which _contains_ `<dir>` -- so the directory needle hit inside the first
+  installed app's block and every app after it read as `theirs`: the plan said
+  "already names it", the script was written, and nothing ever sourced it. An
+  install that reported success and did not work, which is the worse half. The
+  file needle had the same defect one name along, since `_one` is a prefix of
+  `_onetwo`. Reported on PR #191, where the tests only compared the needle
+  _arrays_ and so could not see where a needle matched.
+
+  `namesPath()` is the rule and it is a rule about a **path** rather than a
+  special case for the directory, because both are the same question: did the
+  needle end where the path ended. What may follow is enumerated from the other
+  side on purpose -- what may _continue_ a path is every character a program name
+  can hold, and `registerable()` leaves that wide, so `-`, `.`, `+` and `@` are
+  all in it. So `AFTER_PATH` is the shell delimiters instead: whitespace, a
+  quote of either kind, `)`, `:`, `;`, `,`, and the **end of the file**, which is
+  the one that is an absence rather than a character and is the one the first
+  sabotage pass walked past, because every fixture ended in a newline. Walked
+  with `indexOf` rather than a regex, since a path is full of characters a
+  pattern would have to escape and an escaping bug reads as a needle that never
+  matches -- which is the silent direction again.
+
+  It keeps both answers it has to: `fpath=(<dir> $fpath)` still counts, because
+  a space follows, and `<dir>/_one` does not, because a `/` does.
 
 - **An rc line is recognised by the **path** rather than by the line, in four
   spellings.** Somebody who added it themselves wrote their own quoting and their

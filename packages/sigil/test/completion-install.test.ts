@@ -1846,6 +1846,116 @@ describe('the block, and the compinit question it answers at run time', () => {
     expect(readFileSync(rcFile, 'utf8')).toBe(held);
   });
 
+  it('should give a second app its own block, where the first one named the directory', async () => {
+    // the directory needle is matched in the file, and every block names
+    // `<dir>/_<program>` -- which **contains** the directory. So app two's
+    // needle hit inside app one's block, two read as `theirs`, the plan said
+    // "already names it", and nothing ever sourced `_two`. Silently: the script
+    // was written and the completion simply never loaded.
+    //
+    // Reported on PR #191. The tests this had only compared the needle arrays,
+    // which cannot see where a needle matches
+    const st = await state();
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    const [one] = installTargets('zsh', 'one', envFor());
+    const [two] = installTargets('zsh', 'two', envFor());
+    const first = one as InstallTarget;
+    const second = two as InstallTarget;
+
+    await applyInstall(planInstall(first, await completionScript(st, 'zsh'), 'one'), 'x');
+    expect(await applyRc(planInstall(first, 'x', 'one'))).toBe(true);
+
+    // the second app, whose block is not there and whose directory is
+    const plan = planInstall(second, 'y', 'two');
+    expect(plan.rc).toBe('absent');
+    expect(await applyRc(plan)).toBe(true);
+
+    const held = readFileSync(rcFile, 'utf8');
+    expect(held).toContain(first.rc?.begin ?? '!');
+    expect(held).toContain(second.rc?.begin ?? '!');
+  });
+
+  it('should still read a SIG-151 fpath line as handled, which is what the needle is for', async () => {
+    // the other side of the same boundary, so the fix cannot be a deletion: the
+    // directory followed by a quote or a space is the `fpath` line and counts,
+    // and the directory followed by a `/` is a path inside somebody's block and
+    // does not
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+
+    for (const line of [
+      `fpath=(${shQuote(target.dir)} $fpath)`,
+      `fpath=("${target.dir}" $fpath)`,
+      `fpath+=(${target.dir})`,
+      `FPATH=${target.dir}:$FPATH`,
+      `fpath=(${target.dir}`,
+    ]) {
+      writeFileSync(rcFile, `${line}\n`);
+      expect(planInstall(target, '', 'mycli').rc, line).toBe('theirs');
+    }
+
+    // and the path at the very **end of the file**, with no trailing newline,
+    // which is the one delimiter that is an absence rather than a character.
+    // Every fixture above ends in a `\n`, so `after === undefined` was
+    // unreachable and the sabotage pass walked straight through it -- and this
+    // is a `.zshrc` somebody really has, which is the same no-trailing-newline
+    // case `applyRc()` is written for from the other side
+    // unquoted, so that nothing but the end of the file terminates the path --
+    // quoted, the `'` is the delimiter and this would pass either way, which is
+    // how the first version of this fixture also walked past the sabotage
+    writeFileSync(rcFile, `source ${target.file}`);
+    expect(planInstall(target, '', 'mycli').rc).toBe('theirs');
+  });
+
+  it('should not read one app-s script path as another-s, where one name prefixes the other', async () => {
+    // the same defect at the file needle rather than the directory one, and it
+    // is why the boundary is a rule about a path rather than a special case for
+    // the directory: `_one` is a prefix of `_onetwo`, so app one's needle hit
+    // inside app onetwo's block
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    const [a] = installTargets('zsh', 'one', envFor());
+    const [b] = installTargets('zsh', 'onetwo', envFor());
+
+    writeFileSync(rcFile, `${(b?.rc?.lines ?? []).join('\n')}\n`);
+
+    expect(planInstall(a as InstallTarget, '', 'one').rc).toBe('absent');
+    expect(planInstall(b as InstallTarget, '', 'onetwo').rc).toBe('ours');
+  });
+
+  it('should take its own block out in the order the command applies them', async () => {
+    // the unit test for this below calls `removeRc()` first and
+    // `applyUninstall()` second, which is the **opposite** of what
+    // `runInstaller()` does -- an object literal evaluates its properties in
+    // order, so the real flow reached the throw before the block was removed
+    // and the refusal came out of the generic error handler as a crash. Which
+    // is SIG-151's round-2 shape exactly, reintroduced by `writes` counting the
+    // block. Reported on PR #191.
+    //
+    // So this asserts the production order rather than a convenient one
+    const st = await state();
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    await install(target, await completionScript(st, 'zsh'));
+    writeFileSync(rcFile, blockText(target));
+    writeFileSync(target.file, '# somebody else wrote this\n');
+
+    const plan = planUninstall(target, 'mycli');
+    expect(plan.file).toBe('foreign');
+    expect(plan.rc).toBe('ours');
+    expect(plan.writes).toBe(true);
+
+    // the script is not ours to remove and the block is, so the gate is on the
+    // **plan's** reading of the file rather than on a `try` around the writer
+    const did = {
+      file: plan.file === 'update' ? applyUninstall(plan) : false,
+      rc: await removeRc(plan),
+    };
+
+    expect(did).toEqual({ file: false, rc: true });
+    expect(readFileSync(rcFile, 'utf8')).toBe('');
+    expect(existsSync(target.file)).toBe(true);
+  });
+
   it('should leave bash alone, which has no compinit at all', async () => {
     const script = await completionScript(await state(), 'bash');
     const target = pick('bash');
