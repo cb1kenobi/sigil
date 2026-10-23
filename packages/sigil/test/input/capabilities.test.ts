@@ -129,10 +129,10 @@ describe('isCapabilityResponse', () => {
    * The table that is the feature.
    *
    * Claiming one of these loses a key the user pressed, which is the direction
-   * that costs more than a wrong colour level does -- so every shape AGENTS.md
-   * already records as having bitten is here: a CSI whose terminator has not
-   * arrived, a mouse report's `<`, a key pressed while a sequence was half
-   * arrived, and Ctrl-C above all.
+   * that costs more than a wrong colour level does -- so every shape
+   * src/components/AGENTS.md already records as having bitten is here: a CSI
+   * whose terminator has not arrived, a mouse report's `<`, a key pressed while
+   * a sequence was half arrived, and Ctrl-C above all.
    */
   const KEYS: readonly [string, string][] = [
     ['Ctrl-C', '\u0003'],

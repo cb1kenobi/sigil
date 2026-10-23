@@ -252,9 +252,9 @@ describe('what importing the package costs', () => {
       // as of the merge rather than as a standing fact, which is what the
       // instruction further down means. `testing.mjs` is 48,740 B
       // over fifteen modules and is paid only by a module that asks for it,
-      // which is a test file -- the same figure AGENTS.md records, because two
-      // comments disagreeing about one measurement leave a later reader with no
-      // way to tell which was measured.
+      // which is a test file -- the same figure src/testing/AGENTS.md records,
+      // because two comments disagreeing about one measurement leave a later
+      // reader with no way to tell which was measured.
       //
       // An exported name and a string literal, which survive minification where
       // a name that is only ever called does not
@@ -379,15 +379,15 @@ describe('what importing the package costs', () => {
     // again after every change that moves it -- a figure only a re-run can
     // confirm is the stale snapshot this file warns about, and review round 2
     // caught this one carrying the pre-store-kit number while the line below
-    // said it must agree with AGENTS.md. A running tally of how many times is
-    // a second such figure, and the two copies of it had drifted to five here
-    // and six in AGENTS.md, so what is kept is the instruction and not the
+    // said it must agree with src/config/AGENTS.md. A running tally of how many
+    // times is a second such figure, and the two copies of it had drifted to
+    // five here and six there, so what is kept is the instruction and not the
     // count.
     //
     // A ceiling rather than a measurement, about 2.4x over what it is, so that
     // ordinary growth never touches it and pulling the parser or the renderer
-    // onto it does. The **measured** figure is here and in AGENTS.md and
-    // nowhere else, for the reason the root entry's is: two comments
+    // onto it does. The **measured** figure is here and in src/config/AGENTS.md
+    // and nowhere else, for the reason the root entry's is: two comments
     // disagreeing about one measurement leave a later reader with no way to
     // tell which was measured. The README carries a rounded "about 38 kB over
     // eight modules" for an app author deciding whether to import it, which is
@@ -403,8 +403,9 @@ describe('what importing the package costs', () => {
     // this is today, so ordinary growth never touches it and pulling a
     // rendering path onto the entry blows straight through it. It said 7.5 KB
     // and 2.7x until `afterRun` added 459 B of hook walk and firing to the
-    // entry, which a review round caught here as readily as in AGENTS.md --
-    // which is the argument for the figure living in two places and no more.
+    // entry, which a review round caught here as readily as in
+    // src/parser/AGENTS.md -- which is the argument for the figure living in
+    // two places and no more.
     //
     // 3,825 B of it is SIG-142's output formats, and it is on the entry for one
     // reason: `errorHandler()` serializes an error in the selected format, so

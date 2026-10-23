@@ -1210,11 +1210,12 @@ describe('a windowed list whose viewport changed height', () => {
       .map((e) => e.id as string);
 
   it('should rebuild the window when the viewport grew, which writes no offset', () => {
-    // the defect SIG-132 is filed for, in the shape AGENTS.md recorded it: a list
-    // bounded by its parent, laid out at ten rows and scrolled -- which narrows the
-    // window to ten -- and then laid out at forty, where it held ten and left
-    // thirty rows of the viewport blank until something scrolled. A resize writes
-    // no offset, so `onScroll` never fires and the window had nothing to tell it
+    // the defect SIG-132 is filed for, in the shape src/components/AGENTS.md
+    // recorded it: a list bounded by its parent, laid out at ten rows and
+    // scrolled -- which narrows the window to ten -- and then laid out at forty,
+    // where it held ten and left thirty rows of the viewport blank until something
+    // scrolled. A resize writes no offset, so `onScroll` never fires and the
+    // window had nothing to tell it
     const host = loose(500);
     const root = box({ 'flex-direction': 'column' }, host);
     lines(root, 10);
