@@ -4,7 +4,11 @@ import {
   assertToolchain,
   binaryName,
   canBuildSea,
+  compileWithBun,
+  compileWithNode,
   hostTarget,
+  identityOf,
+  isIdentity,
   label,
   parseTarget,
   PLATFORMS,
@@ -12,6 +16,7 @@ import {
   targets,
   type Target,
 } from '../src/build/compile.ts';
+import { candidates } from '@ttylabs/sigil/which';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -203,7 +208,19 @@ describe('what gets code-signed', () => {
   beforeEach(() => {
     path = process.env.PATH;
     fakebin = mkdtempSync(join(tmpdir(), 'sigil-fakebin-'));
-    writeFileSync(join(fakebin, 'bun'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+
+    // the name is asked of `candidates()` rather than spelled `bun`, which is
+    // this repository's own rule about platform-dependent fixtures: a fixture
+    // for behaviour that varies by platform is written with the same function
+    // the subject uses. Spelled by hand it was broken on Windows by
+    // construction -- `candidates()` returns the `PATHEXT` list for a dotless
+    // name there and **no empty extension**, which the root AGENTS.md `which`
+    // entry states outright, so an extensionless `bun` is never a candidate and
+    // three of these tests failed on every windows job.
+    const first = [...candidates('bun', { path: fakebin })].find((one) => one.startsWith(fakebin));
+
+    expect(first, 'candidates() offered nothing inside the fixture directory').toBeDefined();
+    writeFileSync(first as string, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     process.env.PATH = fakebin;
   });
 
@@ -254,5 +271,65 @@ describe('what gets code-signed', () => {
     expect(() =>
       assertToolchain('node', [parseTarget('linux-x64'), parseTarget('darwin-arm64')], undefined)
     ).toThrow(/codesign is not installed/);
+  });
+});
+
+describe('an identity', () => {
+  it('should read a blank one as none, however it is spelled', () => {
+    for (const blank of ['', ' ', '   ', '\t', '\n']) {
+      expect(isIdentity(blank)).toBe(false);
+      expect(identityOf(blank)).toBeUndefined();
+    }
+
+    expect(isIdentity(undefined)).toBe(false);
+    expect(identityOf(undefined)).toBeUndefined();
+  });
+
+  it('should trim the value, not only the emptiness test', () => {
+    // `codesign` does an exact lookup, so a padded identity is not one to the
+    // only consumer that matters: `--sign ' - '` reached it as
+    // ` - : no identity found`, after the bundle and an 85 MB compile. The trim
+    // used to be spent entirely on deciding whether the string was blank.
+    //
+    // `' - '` is the sharpest spelling, because `-` is this code's own ad-hoc
+    // sentinel: a caller quoting it has asked for exactly the default.
+    expect(identityOf(' - ')).toBe('-');
+    expect(identityOf('  Developer ID Application: X  ')).toBe('Developer ID Application: X');
+    expect(isIdentity(' - ')).toBe(true);
+  });
+
+  it('should be refused by the exported compile functions when blank', () => {
+    // these are exported, so they are their own entry point -- the command's
+    // pre-flight is not in the way. A blank identity cannot be honoured by any
+    // target, so it is the one identity question that is scope-free.
+    for (const one of [compileWithBun, compileWithNode]) {
+      expect(() =>
+        one({ entry: 'unused', out: 'unused', sign: '   ', target: hostTarget() })
+      ).toThrow(/identity cannot be blank/);
+    }
+  });
+
+  it('should not be refused by them for a target that cannot use it', () => {
+    // the severe regression this is written for: refusing per-target turned a
+    // per-SET decision into a per-target one, so a mixed
+    // `--target darwin-arm64 --target linux-x64 --sign -` release built the
+    // darwin binary, signed it, refused the linux one, and deleted the darwin
+    // binary on the way out. The command's own guard is set-level and refuses
+    // only when NO target is darwin.
+    //
+    // What makes the per-target refusal unnecessary is that nothing is silent:
+    // `CompileResult.signed` is absent when nothing was signed. Asserted here
+    // as "does not throw for *this* reason" -- it will still fail further in,
+    // on a bundle that does not exist, which is not what is under test.
+    for (const one of [compileWithBun, compileWithNode]) {
+      expect(() =>
+        one({
+          entry: 'unused',
+          out: 'unused',
+          sign: 'Developer ID Application: X',
+          target: parseTarget('linux-x64'),
+        })
+      ).not.toThrow(/identity/);
+    }
   });
 });

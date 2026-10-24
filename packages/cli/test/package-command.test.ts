@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -571,6 +572,78 @@ describe('sigil package', () => {
       },
       300_000
     );
+
+    it.skipIf(!hasBun)(
+      'should sign the darwin member of a mixed set and build the rest unsigned',
+      async () => {
+        // The severe regression round 3 found. Moving the identity refusal down
+        // to the per-target compile layer turned a per-SET decision into a
+        // per-target one: this invocation built the darwin binary, signed it,
+        // refused `linux-x64`, and **deleted the darwin binary** on the way
+        // out -- where the commit before produced both correctly.
+        const { out: stdout } = await sigil(
+          'package',
+          join(fixtures, 'buildable'),
+          '--out',
+          out,
+          '--runtime',
+          'bun',
+          '--target',
+          'darwin-arm64',
+          '--target',
+          'linux-x64',
+          '--sign',
+          '-'
+        );
+
+        expect(existsSync(join(out, 'buildable-darwin-arm64'))).toBe(true);
+        expect(existsSync(join(out, 'buildable-linux-x64'))).toBe(true);
+
+        // and the table says which of them was signed, since only one could be
+        expect(stdout).toMatch(/buildable-darwin-arm64.*ad-hoc/);
+        expect(stdout).toMatch(/buildable-linux-x64\s+linux-x64\s+\S+ MB\s*$/m);
+      },
+      300_000
+    );
+
+    it('should leave a previous release alone when it refuses, under --no-clean', async () => {
+      // This is the case that found the bug -- the cleanup removed the failing
+      // target's path unconditionally, so a refused rerun destroyed the
+      // previous release's binary sitting there under `--no-clean`, whose
+      // documented promise is to keep what is already there.
+      //
+      // What it pins *now* is the pre-flight, not the cleanup, and the
+      // distinction is worth stating: once every pre-write failure site moved
+      // into the pre-flight over all targets, this invocation stopped reaching
+      // the compile loop at all. So this asserts the outer guarantee -- a
+      // refusal leaves the directory as it found it -- and the `stamp()` guard
+      // inside the loop is defensive against a race, which its own comment
+      // says rather than implying a test covers it.
+      rmSync(out, { force: true, recursive: true });
+      mkdirSync(out, { recursive: true });
+      writeFileSync(join(out, 'buildable-linux-x64'), 'PREVIOUS GOOD RELEASE', 'utf-8');
+      writeFileSync(join(out, 'keepme.txt'), 'bystander', 'utf-8');
+
+      // `windows-arm64` is refused by `assertCompilable()` inside the compile
+      // function, which is a failure site reached before anything is written
+      const { err } = await sigil(
+        'package',
+        join(fixtures, 'buildable'),
+        '--out',
+        out,
+        '--no-clean',
+        '--runtime',
+        'bun',
+        '--target',
+        'linux-x64',
+        '--target',
+        'windows-arm64'
+      );
+
+      expect(err).toContain('Bun cannot build windows-arm64');
+      expect(readFileSync(join(out, 'buildable-linux-x64'), 'utf-8')).toBe('PREVIOUS GOOD RELEASE');
+      expect(readFileSync(join(out, 'keepme.txt'), 'utf-8')).toBe('bystander');
+    }, 120_000);
 
     it.skipIf(!hasBun)(
       'should build one binary per target named once, however often it was named',

@@ -15,8 +15,13 @@
  * There is no default. Picking one silently would decide what every user's app
  * runs on, which is a bigger decision than packaging and not one to infer from
  * what happens to be installed. `"package": { "runtime": ... }` in `sigil.json`
- * is how an app says it once; `--runtime` is how an invocation says it. With
- * neither, the error names both and what each costs.
+ * is how an app says it once; `--runtime` is how an invocation says it.
+ *
+ * With neither, somebody at a terminal is **asked**, and a caller with nobody
+ * to ask gets an error naming both runtimes and what each costs. Those are the
+ * same decision reached two ways rather than two policies: the question is
+ * always the app's to answer, and a prompt is simply the form it takes when
+ * there is a person there.
  *
  * What that trade is, measured, is in AGENTS.md. The short version: Bun is
  * faster to start, smaller, cross-compiles to every target from one host and
@@ -57,9 +62,30 @@ import {
   resolveOut,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
-import { table } from '@ttylabs/sigil/components';
-import { rmSync } from 'node:fs';
+import { PromptError, select, table } from '@ttylabs/sigil/components';
+import { rmSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
+
+/**
+ * A cheap fingerprint of whatever is at a path, for telling "changed" from not.
+ *
+ * Size and mtime rather than a hash: the question is only whether this run
+ * wrote the file, the two writers are a bundler and a blob injector that change
+ * the size every time, and hashing 100 MB on a failure path to decide whether
+ * to delete it would cost more than the delete.
+ *
+ * @param file - The path.
+ * @returns A string that differs when the file does, and `''` when it is absent.
+ */
+function stamp(file: string): string {
+  try {
+    const stats = statSync(file);
+
+    return `${stats.size}:${stats.mtimeMs}`;
+  } catch {
+    return '';
+  }
+}
 
 /** One binary that was produced, as the summary and the table read it. */
 type Built = CompileResult & { readonly file: string; readonly target: Target };
@@ -128,7 +154,7 @@ const pkg: AnyCommand = command({
     const config = sigilConfig.package ?? {};
     const build = sigilConfig.build ?? {};
 
-    const runtime = chooseRuntime(argv.runtime as string | undefined, config.runtime);
+    const runtime = await chooseRuntime(argv.runtime as string | undefined, config.runtime);
     const targets = chooseTargets(argv.target as string[] | undefined, config.target);
     const external = (argv.external as string[] | undefined) ?? build.external ?? [];
     const out = resolveOut(
@@ -261,21 +287,14 @@ function assertSelfContained(external: readonly string[]): void {
  * @returns The runtime.
  * @throws If neither named one.
  */
-function chooseRuntime(flag: string | undefined, declared: string | undefined): Runtime {
+async function chooseRuntime(
+  flag: string | undefined,
+  declared: string | undefined
+): Promise<Runtime> {
   const named = flag ?? declared;
 
   if (!named) {
-    // the version is read from the constant rather than spelled, because this
-    // is the message somebody reads while *deciding* and the one they would
-    // check it against is `assertBuildSea()`'s. And "almost every target"
-    // rather than "every target": `windows-arm64` is exactly the one Bun has
-    // no runtime for, so the sentence used to contradict the error a user gets
-    // the moment they act on it
-    const [major, minor] = NODE_BUILD_SEA;
-
-    throw new Error(
-      `--runtime is required: a packaged binary embeds a runtime, and which one decides what the app runs on.\n  --runtime bun starts faster, is a smaller binary, cross-compiles to almost every target from one machine, and runs the app on Bun.\n  --runtime node runs the app on what its "engines" already names, builds only for the machine it runs on, and needs Node ${major}.${minor} or newer.\n  Declare it once as "package": { "runtime": ... } in sigil.json.`
-    );
+    return askRuntime();
   }
 
   // the parser's `choices` already refuses anything else off the flag, so what
@@ -287,6 +306,70 @@ function chooseRuntime(flag: string | undefined, declared: string | undefined): 
   }
 
   return named as Runtime;
+}
+
+/**
+ * Asks which runtime to embed, where there is somebody to ask.
+ *
+ * The decision itself is still the app's and still has no default -- see the
+ * entry above for why inferring one would answer a question about the app with
+ * a fact about the builder's laptop. What changes with a terminal in front of
+ * it is only *how* the question gets asked: a person running `sigil package`
+ * by hand can be asked, and a CI job cannot.
+ *
+ * The TTY rule is deliberately **not** spelled here. `select()` already refuses
+ * where there is nobody to answer -- waiting on a stdin that will never produce
+ * a keystroke is a hung build -- so this asks and translates that one
+ * rejection into the message a non-interactive caller actually needs, which
+ * names both runtimes and where to declare one. Two readers of "is this a
+ * terminal" is how they come to disagree, and the prompt's is the one that
+ * matters because it is the one that would hang.
+ *
+ * An **aborted** prompt travels untouched: Ctrl-C is an answer, and turning it
+ * into "--runtime is required" would tell somebody who just cancelled that they
+ * had forgotten a flag. The other `PromptError` a `select()` can raise is
+ * having no choices, which `RUNTIMES` cannot be.
+ *
+ * @returns The runtime the person picked.
+ * @throws If there is nobody to ask, with the message that lists the trade.
+ */
+async function askRuntime(): Promise<Runtime> {
+  try {
+    return (await select({
+      choices: [
+        { label: 'bun -- faster to start, smaller, cross-compiles', value: 'bun' },
+        { label: 'node -- what the app\'s "engines" already names', value: 'node' },
+      ],
+      message: 'Which runtime should the binary embed?',
+    })) as Runtime;
+  } catch (e) {
+    if (e instanceof PromptError && !e.aborted) {
+      throw required();
+    }
+
+    throw e;
+  }
+}
+
+/**
+ * The message for a caller that cannot be asked.
+ *
+ * @returns The error.
+ */
+function required(): Error {
+  {
+    // the version is read from the constant rather than spelled, because this
+    // is the message somebody reads while *deciding* and the one they would
+    // check it against is `assertBuildSea()`'s. And "almost every target"
+    // rather than "every target": `windows-arm64` is exactly the one Bun has
+    // no runtime for, so the sentence used to contradict the error a user gets
+    // the moment they act on it
+    const [major, minor] = NODE_BUILD_SEA;
+
+    return new Error(
+      `--runtime is required: a packaged binary embeds a runtime, and which one decides what the app runs on.\n  --runtime bun starts faster, is a smaller binary, cross-compiles to almost every target from one machine, and runs the app on Bun.\n  --runtime node runs the app on what its "engines" already names, builds only for the machine it runs on, and needs Node ${major}.${minor} or newer.\n  Declare it once as "package": { "runtime": ... } in sigil.json.`
+    );
+  }
 }
 
 /**
@@ -390,6 +473,27 @@ function compileAll(
   for (const target of targets) {
     const file = outputName(name, target, targets);
 
+    // what was at this path before the attempt, so the cleanup can tell a file
+    // this run wrote from one it never touched. Under `--no-clean` -- whose
+    // documented promise is to keep what is already there -- the difference is
+    // a previous release's binary, and the first version of this cleanup
+    // removed the path unconditionally, so a refused rerun destroyed it.
+    //
+    // Worth being exact about what can still reach that, because the answer is
+    // "less than when the bug was found" and a guard should not read as more
+    // load-bearing than it is. Every *pre-write* failure site inside the `try`
+    // -- `assertCompilable()`, a blank identity, a missing `bun` -- is now
+    // asked by the pre-flight over **all** targets first, so no ordinary
+    // invocation reaches here having written nothing: measured, the sentinel
+    // case that found this is now refused before the loop is entered. What is
+    // left is a mid-write compiler failure, where the stamp differs and the
+    // truncated file is correctly removed, and the race where `bun` leaves
+    // `PATH` between the pre-flight and target three of five. It is kept for
+    // the race, and for the reason `assertCompilable()` is asked twice: the
+    // cost is three lines and the failure it prevents is destroying somebody's
+    // last good release.
+    const before = stamp(join(out, file));
+
     try {
       const one = runtime === 'bun' ? compileWithBun : compileWithNode;
 
@@ -406,7 +510,11 @@ function compileAll(
       // scaffolded release workflow attaches by, which is the
       // indistinguishability this cleanup exists to prevent. It was true of the
       // earlier targets and not of the failing one.
-      for (const written of [file, ...compiled.map((one) => one.file)]) {
+      // the failing target's file only if this run changed it, then the ones
+      // before it -- which this run certainly wrote, since they are successes
+      const ours = stamp(join(out, file)) === before ? [] : [file];
+
+      for (const written of [...ours, ...compiled.map((one) => one.file)]) {
         try {
           rmSync(join(out, written), { force: true });
         } catch {

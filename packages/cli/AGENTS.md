@@ -2676,9 +2676,35 @@ the same `_inspect.ts` read, the same refusal to package an app that does not
 check out -- rather than a pass of its own, because two commands that disagree
 about what a valid app is would be the worse half of the feature.
 
-- **The runtime has no default, and the error is the feature.** `--runtime` is
-  required, from the flag or from `"package": { "runtime": ... }` in
-  `sigil.json`, and with neither the message names both and what each costs.
+- **The runtime has no default, and with nobody to ask the error is the
+  feature.** `--runtime` comes from the flag or from
+  `"package": { "runtime": ... }` in `sigil.json`. With neither, somebody at a
+  terminal is **asked**, and a caller with nobody to ask gets a message naming
+  both runtimes and what each costs.
+
+  Those are one decision reached two ways rather than two policies: the question
+  is always the app's to answer, and a prompt is the form it takes when there is
+  a person there. What is still refused is _inferring_ -- which is the thing the
+  rest of this entry is about.
+
+  The TTY rule is deliberately **not** spelled in `package.ts`. `select()`
+  already refuses where there is nobody to answer, because waiting on a stdin
+  that will never produce a keystroke is a hung build -- so `askRuntime()` asks
+  and translates that one rejection into the better message. Two readers of "is
+  this a terminal" is how they come to disagree, and the prompt's is the one
+  that matters because it is the one that would hang. An **aborted** prompt
+  travels untouched: Ctrl-C is an answer, and turning it into
+  `--runtime is required` would tell somebody who had just cancelled that they
+  had forgotten a flag.
+
+  It needs a spawned test, for the reason the completion install does: a vitest
+  worker's streams are pipes, so an in-process run can only ever reach the
+  branch that cannot prompt -- the one case that cannot fail. The faked-terminal
+  preload fakes **all three** streams, since `prompt.ts` refuses unless both the
+  terminal and stdin claim to be one. And the test asserts the **binary**, not
+  only the question: a prompt whose answer is collected and dropped would
+  satisfy any assertion about what appeared on screen. Both sabotages are
+  caught -- never prompting, and prompting and ignoring the answer.
   Picking one silently would decide what every user's app runs on, which is a
   bigger decision than packaging and not one to infer from what happens to be
   installed on the builder's laptop. It is also not inferrable in either

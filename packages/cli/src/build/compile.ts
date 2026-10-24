@@ -247,9 +247,8 @@ export function assertCompilable(runtime: Runtime, target: Target): void {
  * Refuses a package whose compiler or signer is not installed.
  *
  * Separate from `assertCompilable()` and deliberately not folded into it: that
- * one is pure -- no disk, no spawn -- and `compile.test.ts` asserts so in its
- * header, because it is asked for every target before anything happens. This
- * one touches `PATH`, so it is its own step.
+ * one is pure -- no disk, no spawn -- because it is asked for every target
+ * before anything happens. This one walks `PATH`, so it is its own step.
  *
  * It exists because the AGENTS.md rule says *every* refusal happens before the
  * bundle and two of them did not. Measured: with `bun` off `PATH`,
@@ -290,34 +289,31 @@ export function assertToolchain(
 }
 
 /**
- * Refuses an identity this target cannot use.
+ * Refuses an identity that is not one.
  *
- * `sigil package` refuses the same thing in its pre-flight, over the whole set
- * of targets. This is the per-target form, and it exists for the reason the
- * entry above gives for asking `assertCompilable()` twice: these functions are
- * **exported**, so a caller that is not the command would otherwise pass
- * `{ sign: 'Developer ID Application: ...', target: linux-x64 }`, get success,
- * get no signing, and get no signal -- which is round 1's silent-drop defect
- * one layer down from where it was fixed.
+ * Blank only, and deliberately **not** "this target cannot use it". That was
+ * the first version and it was a severe regression: `assertSignable()` in the
+ * command is *set-level* -- it refuses an identity only when **no** target is
+ * darwin, because in a mixed set the identity signs the darwin member and the
+ * others are simply not signed -- and moving the refusal down to a per-target
+ * layer turned a per-set decision into a per-target one. Measured: a
+ * `--target darwin-arm64 --target linux-x64 --sign -` release built the darwin
+ * binary, signed it, then refused the linux target and **deleted the darwin
+ * binary on the way out**, where the commit before produced both correctly.
+ *
+ * What makes the per-target refusal unnecessary is that nothing is silent here:
+ * `CompileResult.signed` is absent when nothing was signed, so an exported
+ * caller passing an identity with a non-darwin target is told, by the result,
+ * that it was not used. Round 1's silent-drop defect was that the **table** and
+ * the user saw nothing; the programmatic surface always reported it.
  *
  * @param identity - What the caller asked for, if anything.
- * @param target - What is being built.
- * @throws If an identity was named and this target cannot be signed.
+ * @throws If an identity was given and is blank.
  */
-function assertSignUsable(identity: string | undefined, target: Target): void {
-  if (identity === undefined) {
-    return;
-  }
-
-  if (!isIdentity(identity)) {
+function assertSignUsable(identity: string | undefined): void {
+  if (identity !== undefined && !isIdentity(identity)) {
     throw new Error(
-      `A codesigning identity cannot be empty. Pass a real identity, or none at all.`
-    );
-  }
-
-  if (target.platform !== 'darwin') {
-    throw new Error(
-      `A codesigning identity only applies to a macOS binary, and ${label(target)} is not one.`
+      `A codesigning identity cannot be blank. Pass a real identity, or none at all.`
     );
   }
 }
@@ -338,7 +334,28 @@ function assertSignUsable(identity: string | undefined, target: Target): void {
  * @returns Whether it names one.
  */
 export function isIdentity(identity: string | undefined): boolean {
-  return identity !== undefined && identity.trim() !== '';
+  return identityOf(identity) !== undefined;
+}
+
+/**
+ * A codesigning identity as `codesign` should receive it, or `undefined`.
+ *
+ * Trims, and reads a blank as none. The trimming used to be spent entirely on
+ * the *emptiness* question and none of it on the **value**: `isIdentity()`
+ * asked `identity.trim() !== ''` while `signed()` passed the string verbatim,
+ * so `--sign ' - '` named an identity to every guard and then reached
+ * `codesign`, which does an exact lookup, as ` - : no identity found` -- after
+ * the bundle and an 85 MB compile. `' - '` is the sharpest spelling of it,
+ * because `-` is this code's own ad-hoc sentinel: a caller quoting it has asked
+ * for exactly the default and is refused nothing up front.
+ *
+ * @param identity - What the caller asked for, if anything.
+ * @returns The identity to use, or `undefined` for none.
+ */
+export function identityOf(identity: string | undefined): string | undefined {
+  const trimmed = identity?.trim();
+
+  return trimmed ? trimmed : undefined;
 }
 
 /**
@@ -374,7 +391,11 @@ export interface CompileOptions {
   /**
    * A codesigning identity, or `-` for ad-hoc.
    *
-   * Only read on darwin, where it is not optional: see `sign()`.
+   * Used where the target can be signed, which is darwin only. Elsewhere it is
+   * **not** an error -- a release names it once for a set of targets and only
+   * the darwin members use it -- and the result says what happened:
+   * `CompileResult.signed` is absent when nothing was signed. A *blank*
+   * identity is refused, because it is not one.
    */
   readonly sign?: string;
   /** What to build for. */
@@ -400,7 +421,7 @@ export function compileWithBun(options: CompileOptions): CompileResult {
   const { entry, out, sign: identity, target } = options;
 
   assertCompilable('bun', target);
-  assertSignUsable(identity, target);
+  assertSignUsable(identity);
 
   const bun = locate('bun', '--runtime bun needs it to compile the binary.');
   const run = spawnSync(
@@ -452,7 +473,7 @@ export function compileWithNode(options: CompileOptions): CompileResult {
   const { entry, out, sign: identity, target } = options;
 
   assertCompilable('node', target);
-  assertSignUsable(identity, target);
+  assertSignUsable(identity);
 
   // the config is the interface `--build-sea` takes, and it is written to a
   // temporary directory rather than beside the output: it names an absolute
@@ -536,7 +557,7 @@ function signed(
 
   // what was actually used rather than what was passed, so the table cannot
   // report `ad-hoc` over a Developer ID or an empty column over a real signing
-  const used = isIdentity(identity) ? (identity as string) : '-';
+  const used = identityOf(identity) ?? '-';
 
   try {
     sign(file, used);

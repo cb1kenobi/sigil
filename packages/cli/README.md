@@ -42,8 +42,14 @@ sigil package --runtime node                    # this machine, on Node
 
 **You have to pick the runtime.** There is no default, because which one a
 binary embeds decides what your app runs on, and that is not something to infer
-from whatever happens to be installed where the build ran. Say it once in
-`sigil.json` and every invocation and CI step agrees.
+from whatever happens to be installed where the build ran. Run `sigil package`
+at a terminal without saying and it asks; in CI, or through a pipe, it stops and
+tells you to choose. Say it once in `sigil.json` and every invocation and CI
+step agrees:
+
+```jsonc
+{ "package": { "runtime": "bun" } }
+```
 
 |                  | `--runtime bun`                     | `--runtime node`                                   |
 | ---------------- | ----------------------------------- | -------------------------------------------------- |

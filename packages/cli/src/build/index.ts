@@ -62,6 +62,7 @@ export {
   compileWithBun,
   compileWithNode,
   hostTarget,
+  identityOf,
   isIdentity,
   label,
   NODE_BUILD_SEA,
