@@ -883,28 +883,38 @@ dispatches between the printer and the installer.
   `deno` all do -- so nothing that worked stopped working, and what changed is
   the spelling that did nothing useful.
 
-- **It writes the script file and prints the rc line, and it does not edit a
-  dotfile.** A `.zshrc` is very often under version control and is routinely
-  written by a dotfile manager, so appending to one is a decision this is not
-  entitled to take. It _reads_ it, which is what makes a re-run say "already
-  names it" rather than printing the line a second time -- and that read is the
-  whole of what the rc half of the plan is.
+- **It writes the script file and, since SIG-155, a marked block in the startup
+  file -- and the two reasons it used not to each have an answer rather than
+  being overruled.** SIG-151 printed the line, on two grounds. A `.zshrc` is very
+  often under version control and routinely written by a dotfile manager, which
+  is a reason to **ask** and not a reason never to -- and it was already asking:
+  the plan names both files before the one question, so a yes is an answer about
+  both and a no leaves everything as it was. And "a line we added and a line they
+  added look identical afterwards, so an uninstall would have to edit a file it
+  did not write", which is what a **marker** answers. `addedBy()` and
+  `blockEnd()` are that, and they are the asymmetry this module already draws
+  over the script file, one file along: a block carrying both is ours and comes
+  out, and a line carrying neither is somebody's and is described instead. It is
+  also the shape every installer that edits a dotfile uses, Bun's `# bun` comment
+  included, which is where the ticket came from.
 
   The printed **recipes** say the same thing now, and for one commit they did
   not: the zsh `fpath` route offered an `echo ... >> ~/.zshrc`, which is the
-  append this declines and is also the one that cannot work, because `>>`
+  append SIG-151 declined and is also the one that cannot work, because `>>`
   lands below `compinit`. See "What the first PR review round found" in
   `docs/history/shell-completion-printed-from-the-tree-the-parser-already-ho.md`
-  -- which until this branch's second round sat a thousand lines away inside
+  -- which until that branch's second round sat a thousand lines away inside
   the multiline field's section, a `#####` heading landing in the wrong `####`
   block, so this very "see below" pointed _above_. The sixth instance of the
   collision this file already records, and the reason the two rounds are
   numbered now.
 
-  Which is also why there is no line to take back out: `--uninstall` removes the
-  file it wrote and prints the line to remove. The asymmetry is the same one
-  `ConfigStore` draws between a write and a reprint -- what the tool owns it
-  changes, and what the user owns it describes.
+  What stays asymmetric is which file each direction may destroy, and it is
+  **stricter** on the file the user owns. A foreign _script_ at our path is
+  offered for replacement on a default-no question, because a generated file
+  somebody edited is the ordinary upgrade case; a foreign _line_ in a startup
+  file is never edited in either direction and no answer makes it so. There is
+  nothing to upgrade there and a `.zshrc` is not a file to take a guess in.
 
 - **Three questions decide the route, and the one table has three readers
   now.** `installHint()` already said where each shell looks, because the
@@ -932,10 +942,27 @@ dispatches between the printer and the installer.
   else: a second reader of "which directory does this variable name" is how two
   halves of one tool come to disagree about `XDG_DATA_HOME=./data`.
 
-- **zsh goes on `$fpath` and bash is sourced, because those are the two things
-  the shells do.** A zsh completion is a file called `_app` that `compinit`
-  autoloads off `$fpath`; a bash one is a file something sources. So the zsh
-  route needs a line and the bash one needs a line, and
+- **Both shells are sourced now, because the sourced line is the one an append
+  can place.** A zsh completion is conventionally a file called `_app` that
+  `compinit` autoloads off `$fpath`, and that is the route SIG-151 printed -- and
+  it is the one line no append can put where it goes: `fpath=(dir $fpath)` has to
+  run **above** `compinit`, and `>>` lands below every `compinit` there is.
+  Measured in zsh 5.9 against a `.zshrc` of the ordinary shape: appended after
+  the `compinit`, `whence -w _mycli` is `none`; moved one line above it,
+  `function`. So the route the installer **takes** is the other one zsh has --
+  the script is sourced and registers with `compdef`, for which the end of the
+  file is exactly right -- and one file has served both modes since SIG-139
+  through the `$funcstack[1]` test, so neither the script nor its path moved.
+
+  What that gives up is lazy autoloading, and it was measured before it was given
+  up: in zsh 5.9 over 200 iterations with three runs agreeing, sourcing sigil's
+  own 11.5 kB script is **0.20 ms** and a 115 kB one **1.88 ms**. A shell startup
+  does not notice either, which is what makes the robust install the cheap one
+  too. The `fpath` route stays in the table as a recipe to follow by hand, since
+  it is a perfectly good way to load a completion and is still what
+  `"${fpath[1]}"` is for.
+
+  So both shells' `user` routes need a block, and
   **bash-completion's user directory needs none at all** -- which is why it is
   offered first for bash where it is there, and is the one route whose author has
   never run it. Offered first rather than _acted on_ first, which is the
@@ -975,6 +1002,19 @@ dispatches between the printer and the installer.
   replaced. `mkdirOwnerSync()` comes with it, so the directory is free. Both are
   published for this caller, which is the second time the store kit has earned
   being public.
+
+- **There are three markers now, and the two new ones are what let a block be
+  taken back out.** `addedBy()` is `generatedBy()` with one word changed, and
+  deliberately: the two answer the same question about two different files, so a
+  reader who has met one recognises the other. `blockEnd()` is the half that
+  makes an extent a fact rather than a guess -- without it the span of a block is
+  "as many lines as `rcBlock()` would write today", which is a claim about the
+  version that wrote the block rather than the version reading it, so a block
+  whose shape changed between releases would be cut by the new one's line count.
+  With it, `blockSpan()` either finds both and knows exactly what to remove or
+  finds one and refuses, which is the direction every other guess here resolves
+  in. A file holding the opening comment and no closing one is `theirs` and is
+  described.
 
 - **The marker in the script's own header is how it knows one of its own, and it
   is a whole header line rather than a substring of the file.** `# zsh
@@ -1017,22 +1057,52 @@ dispatches between the printer and the installer.
   exactly the case the user said yes to. Pinned so that it is checked rather than
   declared.
 
-- **`writes` and `changes` are two questions, and asking one of them twice was
-  two defects.** `writes` is whether there is a file to write or remove;
-  `changes` is whether anything at all is outstanding, which counts the rc line
-  the installer only ever **prints**. The confirm is gated on `writes`, because
-  where the only thing outstanding is a line this prints, a question is asking
-  permission to do nothing -- and then saying "nothing to do" to a yes, which is
-  what it did until the command was driven by hand. And the writer is gated on
-  `writes` too, which was the half that was missing: a **foreign uninstall**,
-  whose `changes` counts the rc line and whose `writes` is false by design,
-  reached the writer anyway and its refusal came out of the generic error handler
-  as a crash. Two fixes each right alone, composed into one, and which one you
-  got depended on a line in a file this does not write. Found by review round 2.
+- **`writes` and `changes` are two questions, and SIG-155 moved the gap between
+  them to the other direction.** `writes` is whether there is anything to write
+  or remove; `changes` is whether anything at all is outstanding. Under SIG-151
+  the gap was on the **install** side: a script already current with a startup
+  file that never got its line was `changes` and not `writes`, because a question
+  about something this only ever **printed** is asking permission to do nothing --
+  and then saying "nothing to do" to a yes, which is what it did until the
+  command was driven by hand. The block is written now, so that case is a write
+  and the two agree there: it asks, and `should ask, and write only the block,
+  where only the block is outstanding` is that driven end to end.
+
+  What is left is the **uninstall**, and the state that keeps the pair apart is
+  `theirs`: a line the user wrote is still only ever printed, so a script already
+  gone with such a line still in the file is `changes` and not `writes`. Which is
+  exactly the shape the original defect had -- a **foreign uninstall** whose
+  `changes` counted the rc line and whose `writes` was false by design reached
+  the writer anyway, and its refusal came out of the generic error handler as a
+  crash. Two fixes each right alone, composed into one, and which one you got
+  depended on a line in a file this does not write. Found by SIG-151's review
+  round 2, and its fixture is a `theirs` line now rather than a block of ours,
+  because a block of ours **is** a write and the old fixture would no longer
+  reproduce what it is named for.
 
   The sabotage pass then measured which direction the writer's gate decides:
   `applyInstall()` answers `false` for a `current` plan itself, so for an install
   it is redundant and the uninstall is the whole of it.
+
+  **And moving that boundary brought the round-2 crash back twice over, which is
+  what a changed premise costs.** Two things rested on "a foreign file is nothing
+  to write, so `writes` is false and an uninstall does not ask", and the block
+  counting made both false. `runInstaller()`'s apply is an object literal, whose
+  properties evaluate in order, so `applyUninstall()` ran before `removeRc()` and
+  its refusal for a foreign plan reached the generic error handler as a crash
+  with the block left behind -- the gate is `plan.file === 'update'` now, so the
+  script is left and the block still goes. And `question()`'s `foreign` branch
+  carried that reasoning as a comment: a reader uninstalling was asked "Replace
+  it?" about a removal, defaulting to no, which both read wrong and **hid the
+  crash** behind an Enter that cancelled. It is `action === 'install'` now rather
+  than relying on a condition elsewhere. Both reported on PR #191.
+
+  What made them invisible is worth more than either fix. The unit test for the
+  pair calls `removeRc()` first and `applyUninstall()` second, which is the
+  **opposite** of the production order -- so it asserted the right outcome of the
+  wrong sequence. `should take its own block out in the order the command applies
+  them` is written in the production order for that reason, and the TTY test
+  beside it drives the real command, which is what found all three.
 
 - **One name, one program, and the shared predicate was the half that was
   already shared.** `registerable()` was asked by both readers and
@@ -1050,6 +1120,50 @@ dispatches between the printer and the installer.
   a nameless app reaching the **uninstall** direction, which builds no script and
   so met no other guard, was looking for a file called `_app`. Found by review
   round 3, which is the shared-predicate-unshared-subject shape.
+
+- **The markers are asked before the needles, and asking in the other order
+  answered `theirs` about our own block.** A block of ours holds the script's
+  path, so it satisfies the needles too -- which would have left `--uninstall`
+  with nothing it was allowed to remove. The narrower question, whose yes is the
+  only one that permits an edit, goes first.
+
+- **And there are two needles, because SIG-151's own installs name a different
+  path.** That version's line named the completions **directory** and this one's
+  block names the **script**, so a needle of the script alone finds nothing in
+  such a file -- and a machine with a perfectly good `fpath` install would have
+  had a second registration appended underneath it, the completion loaded twice,
+  from a command that said it had added something the reader did not need. So the
+  directory is a needle too for zsh, and that install reads as handled. It is
+  also what makes a second sigil app on such a setup need nothing, which is the
+  property the single needle was originally written for. bash gets the script
+  alone, because nothing bash does reads a directory off a variable and its own
+  SIG-151 recipe was a `source` of exactly this path.
+
+- **A needle matches only where the path **ends**, and a plain substring search
+  was a silent install failure.** Every block of ours names `<dir>/_<program>`,
+  which _contains_ `<dir>` -- so the directory needle hit inside the first
+  installed app's block and every app after it read as `theirs`: the plan said
+  "already names it", the script was written, and nothing ever sourced it. An
+  install that reported success and did not work, which is the worse half. The
+  file needle had the same defect one name along, since `_one` is a prefix of
+  `_onetwo`. Reported on PR #191, where the tests only compared the needle
+  _arrays_ and so could not see where a needle matched.
+
+  `namesPath()` is the rule and it is a rule about a **path** rather than a
+  special case for the directory, because both are the same question: did the
+  needle end where the path ended. What may follow is enumerated from the other
+  side on purpose -- what may _continue_ a path is every character a program name
+  can hold, and `registerable()` leaves that wide, so `-`, `.`, `+` and `@` are
+  all in it. So `AFTER_PATH` is the shell delimiters instead: whitespace, a
+  quote of either kind, `)`, `:`, `;`, `,`, and the **end of the file**, which is
+  the one that is an absence rather than a character and is the one the first
+  sabotage pass walked past, because every fixture ended in a newline. Walked
+  with `indexOf` rather than a regex, since a path is full of characters a
+  pattern would have to escape and an escaping bug reads as a needle that never
+  matches -- which is the silent direction again.
+
+  It keeps both answers it has to: `fpath=(<dir> $fpath)` still counts, because
+  a space follows, and `<dir>/_one` does not, because a `/` does.
 
 - **An rc line is recognised by the **path** rather than by the line, in four
   spellings.** Somebody who added it themselves wrote their own quoting and their
@@ -1106,7 +1220,7 @@ dispatches between the printer and the installer.
   Found by review rounds 1 and 3, once each, which is the same hole refilled with
   new code.
 
-- **What it costs is `+196,369 B` over 24 modules on the one path that asks a
+- **What it costs is `+199,081 B` over 25 modules on the one path that asks a
   question, and nothing anywhere else.** Which is the whole packaging argument:
   `confirm()` and `select()` are the components barrel, so a statically imported
   one would put the prompt stack behind `app completion bash > file` -- the
@@ -1118,10 +1232,25 @@ dispatches between the printer and the installer.
   over 12 modules and the interactive one 258,740 over 36. The root entry was
   **7,518 B** then and unchanged by this.
 
+  Those two figures are **as of SIG-155**, re-derived with `staticGraph()`
+  against a `main` worktree built beside the branch, so each is a difference
+  between two builds rather than a figure carried forward: the interactive graph
+  is 270,334 B over 41 modules and the printer's 71,253 over 16. Editing the
+  startup file cost the printer **+497 B** -- `rcBlock()` and the two markers,
+  which `install.ts` holds because the emitters' headers print them -- and the
+  interactive graph **+1,145**, with the module count unchanged on both. The
+  graphs anybody else pays for moved by **nothing at all**, byte for byte:
+  `index.mjs` is 12,009 B over 7 modules and the parse chunk 50,566 over 14,
+  identical on both builds, which is the packaging argument holding after the
+  feature grew a second writer.
+
   The ticket's estimate was +180 kB and it held. Re-measure rather than quote:
-  these moved by 1,218 B when review round 1's fixes landed in `interactive.ts`
-  and nobody re-ran the one measurement the comment says to, which review round 2
-  caught -- and the same pass found AGENTS.md recording the components barrel at
+  these moved by 1,218 B when SIG-151's review round 1's fixes landed in
+  `interactive.ts` and nobody re-ran the one measurement the comment says to,
+  which review round 2 caught -- and then the pair it was corrected to, 258,740
+  and 62,371, was two tickets stale by the time SIG-155 re-ran them, the printer
+  having grown 8,385 B and the interactive graph 10,449 since, none of it either
+  feature's -- and the same pass found AGENTS.md recording the components barrel at
   **124 kB**, which was four themes and a smaller component set ago and was
   **240,792 B over 27** when this was measured. `components.mjs` grows with what is
   in it, so a figure in this file that only a re-run can confirm is the stale
@@ -1134,17 +1263,56 @@ dispatches between the printer and the installer.
   eight**, because `atomic.ts` is now shared with the installer: 138 bytes of
   preamble for the sharing, which is the honest form of what the store kit costs.
 
-- **No `install` is written into any dotfile and no `compinit` is run, which is
-  what the hint is for.** "Then restart your shell" is what it prints, and the one
-  thing that would make that a lie is a `.zcompdump` surviving an `fpath` change
-  -- which zsh rebuilds when `fpath` moves, and which `--completion`'s own step
-  asks a reader to falsify.
+- **The block runs a `compinit` only where nothing has, and the test for that is
+  a runtime one -- which is what deleted `RcAnchor`.** That type was a
+  three-valued answer to "which line does the `fpath` line have to go above", read
+  by grepping the startup file for the word, and its own doc records both that the
+  interesting value conflates three states a framework puts a reader in and that a
+  table of what runs `compinit` "was built and refused" for having exactly one
+  measurable entry. `(( $+functions[compdef] ))` asks the shell at startup instead
+  and needs no table: `compdef` is a function only after `compinit` has run, which
+  is precisely the question.
+
+  Verified in zsh 5.9 in all three shapes, with a counter on the guarded branch,
+  because a redundant `compinit` is **~12 ms** of somebody's shell startup rather
+  than nothing -- measured, 172 ms for a first call on a cold `.zcompdump`, 17.6
+  warm, and 11.6-12.2 for a second whatever the dump. A bare `.zshrc` runs it and
+  registers `_mycli`; a `.zshrc` with its own `compinit` above skips it and
+  registers; the Oh My Zsh shape -- a framework sourced above with no literal
+  `compinit` in the file -- skips it and registers. `should guard its own compinit
+  rather than reading the startup file for one` is that as one set of bytes over
+  three startup files, which is the sharpest form of the claim: three files that
+  used to produce three different messages now produce one block.
+
+  What went with it is the stale-`.zcompdump` worry "Then restart your shell" was
+  written against, and that is worth recording rather than deleting: the installed
+  route puts nothing on `$fpath`, so there is no dump in the path to go stale. It
+  still applies to the `fpath` recipe a reader may follow by hand, which is where
+  `--completion`'s own step now scopes it.
+
+  It is still the case that nothing here **runs** anything: the `compinit` is a
+  line in the user's own file, which they approved, rather than this process
+  reaching into a shell it does not own.
 
 - **`scripts/terminal-probe.mjs --completion` is where the claims only a
   terminal can settle went.** Five steps, each with its own `the claim:` line:
   what the installer reads and what `$SHELL` is, the bash-completion route whose
-  author has never run it, the two recipes run in a throwaway directory so that
-  nothing touches a home, the `compinit` cache, and what it will not do. It
+  author has never run it, the recipes run in a throwaway directory so that
+  nothing touches a home, the `compinit` cache, and what it does to a startup
+  file.
+
+  SIG-155 moved two of those and the open question moved with them. The third
+  step's zsh recipe is the **sourced** route now, which is what the installer
+  takes, with the `fpath` one kept beside it because that one is still a recipe a
+  reader may follow -- all three were run before the text was written, and
+  `comp=_mycli`, `comp=_mycli` and `complete -o default -F _sigil sigil` is what
+  they answer here. The fourth step is no longer about the installed route at all,
+  for the reason under the `compinit` guard, and says so rather than being
+  deleted. And what is genuinely open is now the **guard** rather than the cache:
+  it was verified against a bare `.zshrc`, one with its own `compinit`, and a
+  framework sourced above with no literal `compinit`, and never against a real
+  prezto, zinit or zplug -- a framework that initialises completion lazily or
+  after its own `.zshrc` hook is the finding that step asks for. It
   prints the **shell expression** for the bash-completion directory rather than a
   path it worked out, because a path worked out here is the second reader
   `install.ts` is written against -- and the two rules genuinely part company for
@@ -1209,14 +1377,15 @@ dispatches between the printer and the installer.
   Conventions states in its sharper form: compare a path against another path
   built the way the subject builds it, and never write the separator.
 
-> Moved: _What the three review rounds found, and what the sabotage pass found after them_, _What the first PR review round found: a recipe that could not work if followed_, _What the second PR review round found: the route that was not where the install was_, _What the third PR review round found: the compinit line that is not there_ — see [docs/history/shell-completion-printed-from-the-tree-the-parser-already-ho.md](../../../../docs/history/shell-completion-printed-from-the-tree-the-parser-already-ho.md).
+> Moved: _What the three review rounds found, and what the sabotage pass found after them_, _What the first PR review round found: a recipe that could not work if followed_, _What the second PR review round found: the route that was not where the install was_, _What the third PR review round found: the compinit line that is not there_, _SIG-155: appending the block, and the three guards the sabotage pass had no test for_ — see [docs/history/shell-completion-printed-from-the-tree-the-parser-already-ho.md](../../../../docs/history/shell-completion-printed-from-the-tree-the-parser-already-ho.md).
 
 ##### What is deliberately out
 
-- **Editing a dotfile**, for the reason above: it is very often under version
-  control and routinely written by a dotfile manager, and appending to one is a
-  decision this is not entitled to take. The line is printed and the read is what
-  makes a re-run quiet.
+- **Editing a line this did not write**, which is what is left of SIG-151's
+  refusal to edit a dotfile at all and is the half that stands: a `.zshrc` is
+  often under version control, there is nothing in one to upgrade, and a wrong
+  guess there is somebody's shell. So `theirs` is reported in both directions and
+  `removeRc()` cuts only a span `blockSpan()` found.
 - **An Oh My Zsh route, which would need no startup-file line at all and is the
   shape the bash side already has.** Oh My Zsh puts `$ZSH_CACHE_DIR/completions`
   on `$fpath` itself, at line 68 of `oh-my-zsh.sh`, so a `_app` dropped there is

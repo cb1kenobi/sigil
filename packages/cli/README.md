@@ -12,14 +12,14 @@ There is no `sigil dev`. This is a resolver and a compiler, not a server.
 
 ## Commands
 
-| Command                    | What it does                                                                                                                                                      |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sigil new`                | Scaffolds an app                                                                                                                                                  |
-| `sigil check`              | Reads an app and reports what is wrong, without building it                                                                                                       |
-| `sigil build`              | Bundles it into one executable plus a chunk per command                                                                                                           |
-| `sigil add`                | Copies a component's source into your app, so you own it                                                                                                          |
-| `sigil completion [shell]` | Prints a completion script for bash or zsh, or says how to install one for the shell you are in — this one is the framework's, and every app it builds has it too |
-| `sigil reference`          | Writes a markdown command reference, or a stable JSON snapshot of the command surface                                                                             |
+| Command                    | What it does                                                                                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sigil new`                | Scaffolds an app                                                                                                                                       |
+| `sigil check`              | Reads an app and reports what is wrong, without building it                                                                                            |
+| `sigil build`              | Bundles it into one executable plus a chunk per command                                                                                                |
+| `sigil add`                | Copies a component's source into your app, so you own it                                                                                               |
+| `sigil completion [shell]` | Prints a completion script for bash or zsh, or installs one for the shell you are in — this one is the framework's, and every app it builds has it too |
+| `sigil reference`          | Writes a markdown command reference, or a stable JSON snapshot of the command surface                                                                  |
 
 `build` runs `check`'s pass rather than replacing it, so an app that builds is
 one that checks out.

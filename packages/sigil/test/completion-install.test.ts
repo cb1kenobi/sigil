@@ -1,14 +1,24 @@
 import { completionScript, programOf } from '../src/completion/index.js';
-import { generatedBy, installHint, shQuote } from '../src/completion/install.js';
+import {
+  addedBy,
+  blockEnd,
+  generatedBy,
+  installHint,
+  rcBlock,
+  shQuote,
+} from '../src/completion/install.js';
 import {
   applyInstall,
+  applyRc,
   applyUninstall,
   installTarget,
   installTargets,
   planInstall,
   planLines,
   planUninstall,
+  removeRc,
   resultLines,
+  type Done,
   type InstallTarget,
   type RcState,
 } from '../src/completion/installer.js';
@@ -47,6 +57,31 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
  * here that needs a directory does.
  */
 const FAKE_HOME = join(tmpdir(), `sigil-completion-home-${process.pid}`);
+
+/**
+ * What `applyRc()` would have appended, as the bytes of a startup file.
+ *
+ * Through the target's own `lines` rather than spelled out, which is this
+ * repository's rule about a test never writing what it can ask the subject for:
+ * the block's shape has one author and a fixture that reproduced it would be a
+ * second one, so a reworded marker would leave the fixture asserting against a
+ * block nothing writes any more.
+ *
+ * @param target - The target whose block to write.
+ * @returns The block with a trailing newline, ready to pass to `writeFileSync`.
+ */
+function blockText(target: InstallTarget): string {
+  return `${(target.rc?.lines ?? []).join('\n')}\n`;
+}
+
+/** Neither file touched. */
+const DID_NOTHING: Done = { file: false, rc: false };
+
+/** The script written or removed and the startup file left alone. */
+const DID_FILE: Done = { file: true, rc: false };
+
+/** Both, which is what an ordinary install on a fresh machine does. */
+const DID_BOTH: Done = { file: true, rc: true };
 
 vi.mock('node:os', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:os')>()),
@@ -166,36 +201,42 @@ describe('installTargets()', () => {
     }
   });
 
-  it('should put a zsh completion in a directory of our own, with an fpath line', () => {
+  it('should put a zsh completion in a directory of our own, sourced from a marked block', () => {
     const target = pick('zsh');
 
     expect(target.id).toBe('user');
     expect(target.dir).toBe(join(box, 'data', 'completions'));
     expect(basename(target.file)).toBe('_mycli');
     expect(target.rc?.file).toBe(join(FAKE_HOME, '.zshrc'));
-    expect(target.rc?.line).toBe(`fpath=(${shQuote(target.dir)} $fpath)`);
-    expect(target.rc?.needle).toBe(target.dir);
+    expect(target.rc?.lines).toEqual(rcBlock('zsh', 'mycli', shQuote(target.file)));
+    expect(target.rc?.begin).toBe(`# ${addedBy('zsh', 'mycli')}`);
+    expect(target.rc?.end).toBe(`# ${blockEnd('zsh', 'mycli')}`);
   });
 
-  it('should name the directory rather than the file in the zsh line, so a second app needs none', () => {
-    // the payoff of one shared directory: the `fpath` line every sigil app
-    // would print is the same line, so the second one you install finds it
-    // already there. Asserted as the property rather than through two installs,
-    // because what makes it true is the needle being the directory
+  it('should name the script first and the directory second, so a SIG-151 fpath line still counts', () => {
+    // two needles, and the order says which question each answers: the script
+    // is what this version's block names, and the directory is what the
+    // previous one's `fpath` line named -- so a machine set up by SIG-151 reads
+    // as handled rather than having a second registration appended under it.
+    // The directory is also what makes a second sigil app on such a setup need
+    // nothing, which is the property the old needle was written for
+    const target = pick('zsh');
     const [one] = installTargets('zsh', 'one', envFor());
     const [two] = installTargets('zsh', 'two', envFor());
 
-    expect(one?.rc?.needle).toBe(two?.rc?.needle);
+    expect(target.rc?.needles).toEqual([target.file, target.dir]);
+    expect(one?.rc?.needles?.[1]).toBe(two?.rc?.needles?.[1]);
     expect(one?.file).not.toBe(two?.file);
   });
 
-  it('should put a bash completion in a directory of our own, with a source line', () => {
+  it('should put a bash completion in a directory of our own, sourced from a marked block', () => {
     const target = pick('bash');
 
     expect(target.id).toBe('user');
     expect(basename(target.file)).toBe('mycli.bash');
-    expect(target.rc?.line).toBe(`source ${shQuote(target.file)}`);
-    expect(target.rc?.needle).toBe(target.file);
+    expect(target.rc?.lines).toEqual(rcBlock('bash', 'mycli', shQuote(target.file)));
+    // the script alone: bash has no directory-shaped install to recognise
+    expect(target.rc?.needles).toEqual([target.file]);
   });
 
   it("should prefer bash-completion's own user directory where it is there", () => {
@@ -435,21 +476,28 @@ describe('what the round-1 review found', () => {
     const rcFile = join(FAKE_HOME, '.zshrc');
     const held = (): RcState => planInstall(target as InstallTarget, '', 'mycli').rc;
 
-    expect(target?.rc?.needle).toBe(join(FAKE_HOME, '.local', 'share', 'completions'));
+    expect(target?.rc?.needles).toContain(join(FAKE_HOME, '.local', 'share', 'completions'));
 
-    // `~`, which is what `installComment()` writes into every script's header
-    // and what `instructions()` prints -- so this is our own output not being
-    // recognised by our own check, which reprinted the line for ever
+    // `theirs` throughout, which is what a SIG-151 install reads as and is the
+    // whole of what moved here: these are the spellings of the `fpath` line
+    // that version printed, so the population is exactly the one this check was
+    // written for -- somebody who followed this package's own recipe, for whom
+    // an absolute-only needle reported `absent` for ever and reprinted the line
+    // on every run. What it now buys them is that nothing is appended
+    // underneath a setup that already works.
+    //
+    // `~` is the spelling `installComment()` wrote into every script's header
+    // and `instructions()` printed
     writeFileSync(rcFile, 'fpath=(~/.local/share/completions $fpath)\n');
-    expect(held()).toBe('present');
+    expect(held()).toBe('theirs');
 
     // and `$HOME`, for a writer who did not want the tilde
     writeFileSync(rcFile, 'fpath=($HOME/.local/share/completions $fpath)\n');
-    expect(held()).toBe('present');
+    expect(held()).toBe('theirs');
 
-    // and the absolute one, which is the spelling this prints
+    // and the absolute one, which is the spelling SIG-151 wrote
     writeFileSync(rcFile, `fpath=('${join(FAKE_HOME, '.local', 'share', 'completions')}')\n`);
-    expect(held()).toBe('present');
+    expect(held()).toBe('theirs');
 
     // while a path that is not the one is still absent, or the match is a
     // search for anything at all
@@ -498,7 +546,7 @@ describe('what the round-1 review found', () => {
     const st = await state();
     const target = pick('zsh');
     await install(target, await completionScript(st, 'zsh'));
-    writeFileSync(join(FAKE_HOME, '.zshrc'), `${target.rc?.line ?? ''}\n`);
+    writeFileSync(join(FAKE_HOME, '.zshrc'), blockText(target));
 
     // the script removed by hand, the line still there. `changes: false` said
     // "Nothing to do." while `resultLines()` printed "Remove this line from
@@ -508,10 +556,34 @@ describe('what the round-1 review found', () => {
 
     const plan = planUninstall(target, 'mycli');
     expect(plan.file).toBe('create');
-    expect(plan.rc).toBe('present');
+    expect(plan.rc).toBe('ours');
+    // the block is a thing to remove now, so this joins `writes` where under
+    // SIG-151 the line only ever joined `changes`. What still parts the two is
+    // a line **the user** wrote, which the test below this one is about
+    expect(plan.writes).toBe(true);
+    expect(plan.changes).toBe(true);
+    expect(resultLines(plan, 'uninstall', DID_NOTHING).join('\n')).not.toContain('Nothing to do');
+  });
+
+  it('should count a line the user wrote as outstanding and still not as a write', async () => {
+    const st = await state();
+    const target = pick('zsh');
+    await install(target, await completionScript(st, 'zsh'));
+
+    // their own spelling of the same path, with no marker anywhere -- so there
+    // is something to say and nothing this may edit, which is where the two
+    // booleans part company now that an install's agree
+    writeFileSync(join(FAKE_HOME, '.zshrc'), `source ${shQuote(target.file)}\n`);
+    rmSync(target.file);
+
+    const plan = planUninstall(target, 'mycli');
+    expect(plan.rc).toBe('theirs');
     expect(plan.writes).toBe(false);
     expect(plan.changes).toBe(true);
-    expect(resultLines(plan, 'uninstall', false).join('\n')).not.toContain('Nothing to do');
+
+    const said = resultLines(plan, 'uninstall', DID_NOTHING).join('\n');
+    expect(said).not.toContain('Nothing to do');
+    expect(said).toContain('yourself');
   });
 
   it('should raise an unreadable startup file as a sentence rather than as a node error', () => {
@@ -546,25 +618,40 @@ describe('planInstall()', () => {
     expect(plan.changes).toBe(true);
   });
 
-  it('should say present where the startup file already names the path', async () => {
+  it('should say ours where the startup file holds a block it wrote', async () => {
     const target = pick('zsh');
-    writeFileSync(join(FAKE_HOME, '.zshrc'), `# mine\n${target.rc?.line ?? ''}\n`);
+    writeFileSync(join(FAKE_HOME, '.zshrc'), `# mine\n${blockText(target)}`);
 
     expect(planInstall(target, await completionScript(await state(), 'zsh'), 'mycli').rc).toBe(
-      'present'
+      'ours'
     );
   });
 
-  it('should read the path rather than the line, so a hand-written spelling counts', async () => {
+  it('should read the path rather than the line, so a hand-written spelling counts as theirs', async () => {
     const target = pick('zsh');
     // double quotes and a different order, which is what somebody who added it
     // themselves is likely to have written -- the path is the granularity a
-    // human checks at
+    // human checks at. `theirs` rather than `ours`, which is the distinction
+    // SIG-155 needed and SIG-151's one `present` could not make: there is
+    // nothing to add and nothing this may ever take back out
     writeFileSync(join(FAKE_HOME, '.zshrc'), `fpath+=("${target.dir}")\n`);
 
     expect(planInstall(target, await completionScript(await state(), 'zsh'), 'mycli').rc).toBe(
-      'present'
+      'theirs'
     );
+  });
+
+  it('should ask the markers before the needles, or its own block reads as theirs', async () => {
+    // the ordering inside `rcStateOf()`, and it is load bearing: a block of
+    // ours holds the script's path, so it satisfies the needles too -- asking
+    // in the other order answers `theirs` about our own block and leaves
+    // `--uninstall` with nothing it is allowed to remove
+    const target = pick('zsh');
+    const block = blockText(target);
+
+    writeFileSync(join(FAKE_HOME, '.zshrc'), block);
+    expect(block).toContain(target.file);
+    expect(planUninstall(target, 'mycli').rc).toBe('ours');
   });
 
   it('should say none where the route needs no line at all', async () => {
@@ -658,26 +745,30 @@ describe('installing, and re-running', () => {
     expect(readFileSync(target.file, 'utf8')).toBe(after);
   });
 
-  it('should have nothing to write where only the line is outstanding, which is what decides whether to ask', async () => {
+  it('should have something to write where only the block is outstanding, which is what decides whether to ask', async () => {
     const st = await state();
     const script = await completionScript(st, 'zsh');
     const target = pick('zsh');
 
     await install(target, script);
 
-    // the two booleans part here, and this is the input that separates them: a
-    // confirm gated on `changes` would ask permission to write a file that is
-    // already right, and then be told "nothing to do" by the answer
+    // this is the input SIG-155 moved, and it is the only one: a script already
+    // current with no block in the startup file used to be `changes` and not
+    // `writes`, because the line was printed and asking permission to print is
+    // asking permission to do nothing. There is a file to edit now, so it asks
     const plan = planInstall(target, script, 'mycli');
     expect(plan.changes).toBe(true);
-    expect(plan.writes).toBe(false);
+    expect(plan.writes).toBe(true);
 
-    // and what it says is the line, without claiming it wrote or that there is
-    // nothing to do -- both of which shipped for a commit each
-    const said = resultLines(plan, 'install', false).join('\n');
+    // and the block really does go in, over the script that was left alone
+    expect(await applyInstall(plan, script)).toBe(false);
+    expect(await applyRc(plan)).toBe(true);
+
+    const said = resultLines(plan, 'install', { file: false, rc: true }).join('\n');
     expect(said).not.toContain('Nothing to do');
     expect(said).not.toContain('Wrote');
-    expect(said).toContain(target.rc?.line ?? '!');
+    expect(said).toContain(target.rc?.file ?? '!');
+    expect(readFileSync(target.rc?.file ?? '', 'utf8')).toContain(target.rc?.begin ?? '!');
   });
 
   it('should say nothing to do only where nothing at all is outstanding', async () => {
@@ -686,11 +777,11 @@ describe('installing, and re-running', () => {
     const target = pick('zsh');
 
     await install(target, script);
-    writeFileSync(join(FAKE_HOME, '.zshrc'), `${target.rc?.line ?? ''}\n`);
+    writeFileSync(join(FAKE_HOME, '.zshrc'), blockText(target));
 
     const plan = planInstall(target, script, 'mycli');
     expect(plan.changes).toBe(false);
-    expect(resultLines(plan, 'install', false).join('\n')).toContain('Nothing to do');
+    expect(resultLines(plan, 'install', DID_NOTHING).join('\n')).toContain('Nothing to do');
   });
 
   it('should still have something to do where the file is current and the line is not there', async () => {
@@ -715,7 +806,7 @@ describe('installing, and re-running', () => {
     const target = pick('zsh');
 
     await install(target, script);
-    writeFileSync(join(FAKE_HOME, '.zshrc'), `${target.rc?.line ?? ''}\n`);
+    writeFileSync(join(FAKE_HOME, '.zshrc'), blockText(target));
 
     expect(planInstall(target, script, 'mycli').changes).toBe(false);
   });
@@ -816,9 +907,9 @@ describe('uninstalling', () => {
     const st = await state();
     const target = pick('zsh');
     await install(target, await completionScript(st, 'zsh'));
-    writeFileSync(join(FAKE_HOME, '.zshrc'), `${target.rc?.line ?? ''}\n`);
+    writeFileSync(join(FAKE_HOME, '.zshrc'), blockText(target));
 
-    expect(planUninstall(target, 'mycli').rc).toBe('present');
+    expect(planUninstall(target, 'mycli').rc).toBe('ours');
   });
 });
 
@@ -860,7 +951,7 @@ describe('what it says', () => {
     );
   });
 
-  it('should print the line to add and never add it', async () => {
+  it('should append the block and leave every other byte of the file alone', async () => {
     const st = await state();
     const script = await completionScript(st, 'zsh');
     const target = pick('zsh');
@@ -869,30 +960,58 @@ describe('what it says', () => {
     writeFileSync(rcFile, '# mine\n');
     const plan = planInstall(target, script, 'mycli');
     await applyInstall(plan, script);
+    expect(await applyRc(plan)).toBe(true);
 
-    const said = resultLines(plan, 'install', true).join('\n');
-
-    expect(said).toContain(target.rc?.line ?? '!');
-    // the fixture holds no `compinit`, so this is the `none` branch -- named
-    // rather than left to a bare `toContain('compinit')`, which both branches
-    // satisfy now: one says "above your compinit line" and the other says there
-    // is no compinit line, and a test that cannot tell them apart would have
-    // passed over the message being wrong for everybody with a framework
-    expect(said).toContain('has no compinit line');
-    // the half that is the whole decision: the startup file is read and not
-    // written
-    expect(readFileSync(rcFile, 'utf8')).toBe('# mine\n');
+    // the file the user owns, byte for byte: what was there, a blank line, the
+    // block. Asserted as the whole contents rather than with `toContain`,
+    // because what is being promised is that nothing else moved
+    expect(readFileSync(rcFile, 'utf8')).toBe(`# mine\n\n${blockText(target)}`);
+    expect(resultLines(plan, 'install', DID_BOTH).join('\n')).toContain(rcFile);
   });
 
-  it('should quote the line it prints, so a home with a space in it is one word', () => {
+  it('should create a startup file that is not there rather than skipping it', async () => {
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+
+    // no `.zshrc` at all, which `rcStateOf()` reads as `absent` rather than as
+    // a case of its own: zsh reads one the moment it is there. And no leading
+    // blank line, which is the difference between creating and appending
+    expect(existsSync(rcFile)).toBe(false);
+    const plan = planInstall(target, script, 'mycli');
+    await applyInstall(plan, script);
+    expect(await applyRc(plan)).toBe(true);
+
+    expect(readFileSync(rcFile, 'utf8')).toBe(blockText(target));
+  });
+
+  it('should put a newline on a last line that had none, so the marker is its own line', async () => {
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+
+    // the one input that would otherwise **hide** rather than break something:
+    // our opening comment joined onto the end of somebody's last line comments
+    // that line out
+    writeFileSync(rcFile, 'export EDITOR=vim');
+    await applyRc(planInstall(target, script, 'mycli'));
+
+    const held = readFileSync(rcFile, 'utf8');
+    expect(held).toBe(`export EDITOR=vim\n\n${blockText(target)}`);
+    expect(held.split('\n')[0]).toBe('export EDITOR=vim');
+  });
+
+  it('should quote the path in the block, so a home with a space in it is one word', () => {
     // `homedir()` can answer anything, and `~/Library/Application Support` is
-    // the obvious one: an unquoted line is a shell injection into a file that
+    // the obvious one: an unquoted path is a shell injection into a file that
     // runs on every login
     const dir = join(box, 'a dir', "it's");
     expect(shQuote(dir)).toBe(`'${join(box, 'a dir', "it'\\''s")}'`);
-    expect(installTargets('zsh', 'mycli', { XDG_DATA_HOME: dir })[0]?.rc?.line).toContain(
-      shQuote(join(dir, 'completions'))
-    );
+    expect(
+      installTargets('zsh', 'mycli', { XDG_DATA_HOME: dir })[0]?.rc?.lines.join('\n')
+    ).toContain(shQuote(join(dir, 'completions', '_mycli')));
   });
 
   it('should say nothing to add where the route needs no line', async () => {
@@ -903,26 +1022,58 @@ describe('what it says', () => {
     const plan = planInstall(target, script, 'mycli');
 
     await applyInstall(plan, script);
-    const said = resultLines(plan, 'install', true).join('\n');
+    expect(await applyRc(plan)).toBe(false);
+    const said = resultLines(plan, 'install', DID_FILE).join('\n');
 
     expect(said).toContain(target.file);
     expect(said).not.toContain('source');
     expect(said).toContain('restart');
   });
 
-  it('should print the line to remove on the way out, and never remove it', async () => {
+  it('should cut the block back out on the way out, and nothing around it', async () => {
     const st = await state();
     const target = pick('zsh');
     const rcFile = join(FAKE_HOME, '.zshrc');
     await install(target, await completionScript(st, 'zsh'));
-    writeFileSync(rcFile, `${target.rc?.line ?? ''}\n`);
+
+    // somebody's own file, our block in the middle of it, and a line after --
+    // which is what says the splice reads an extent rather than truncating
+    writeFileSync(rcFile, `# mine\n\n${blockText(target)}\nexport X=1\n`);
 
     const plan = planUninstall(target, 'mycli');
+    expect(plan.rc).toBe('ours');
     applyUninstall(plan);
-    const said = resultLines(plan, 'uninstall', true).join('\n');
+    expect(await removeRc(plan)).toBe(true);
 
-    expect(said).toContain(target.rc?.line ?? '!');
-    expect(readFileSync(rcFile, 'utf8')).toBe(`${target.rc?.line ?? ''}\n`);
+    // byte for byte what it was before the install, which is `applyRc()` read
+    // backwards: the blank line it added goes with the block
+    expect(readFileSync(rcFile, 'utf8')).toBe('# mine\n\nexport X=1\n');
+    expect(resultLines(plan, 'uninstall', DID_BOTH).join('\n')).toContain(rcFile);
+  });
+
+  it('should leave a line the user wrote exactly where it is', async () => {
+    const st = await state();
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    await install(target, await completionScript(st, 'zsh'));
+
+    // their own spelling, no marker: the one direction SIG-155 did not change,
+    // because there is nothing in a startup file to upgrade and a `.zshrc` is
+    // not a file to take a guess in
+    const held = `# mine\nsource ${shQuote(target.file)}\n`;
+    writeFileSync(rcFile, held);
+
+    const plan = planUninstall(target, 'mycli');
+    expect(plan.rc).toBe('theirs');
+    applyUninstall(plan);
+    expect(await removeRc(plan)).toBe(false);
+
+    expect(readFileSync(rcFile, 'utf8')).toBe(held);
+    // and it is described instead, naming the script's path rather than
+    // reciting a block they have not got
+    const said = resultLines(plan, 'uninstall', DID_FILE).join('\n');
+    expect(said).toContain(target.file);
+    expect(said).toContain(rcFile);
   });
 });
 
@@ -931,22 +1082,51 @@ describe('what the round-2 review found', () => {
     const target = pick('zsh');
     mkdirSync(target.dir, { recursive: true });
     writeFileSync(target.file, '# somebody else wrote this\n');
-    // the rc line present as well, which is the composition the two round-1
-    // fixes had between them: `changes` was true because of the line, the
-    // confirm was asked, and `applyUninstall()` then refused outright -- so a
-    // refusal the plan had already printed came back out of the generic error
-    // handler as a stack-free crash. Neither fix is wrong alone
-    writeFileSync(join(FAKE_HOME, '.zshrc'), `${target.rc?.line ?? ''}\n`);
+    // a line the **user** wrote as well, which is the composition the two
+    // round-1 fixes had between them: `changes` was true because of the line,
+    // the confirm was asked, and `applyUninstall()` then refused outright -- so
+    // a refusal the plan had already printed came back out of the generic error
+    // handler as a stack-free crash. Neither fix is wrong alone.
+    //
+    // `theirs` rather than a block of ours, because that is the state that
+    // still parts the two booleans now that this writes the startup file: a
+    // block of ours *is* a write, so the pair would agree and the fixture would
+    // no longer reproduce what it is named for
+    writeFileSync(join(FAKE_HOME, '.zshrc'), `source ${shQuote(target.file)}\n`);
 
     const plan = planUninstall(target, 'mycli');
 
     expect(plan.file).toBe('foreign');
+    expect(plan.rc).toBe('theirs');
     expect(plan.writes).toBe(false);
     expect(plan.changes).toBe(true);
     expect(planLines(plan, 'uninstall').join('\n')).toContain('was not written by sigil');
     // and the apply layer still refuses outright if it is reached, which is
     // why the gate above it has to be `writes` rather than `changes`
     expect(() => applyUninstall(plan)).toThrow(/did not write/);
+  });
+
+  it('should take its own block out of a startup file beside a script it will not touch', async () => {
+    // the composition one step along, and the asymmetry stated as a pair: a
+    // stranger's **script** at our path is refused outright, while our own
+    // **block** in the startup file is still ours to remove. So this plan
+    // writes and does not write, which is what two `Done` flags are for
+    const st = await state();
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    await install(target, await completionScript(st, 'zsh'));
+    writeFileSync(rcFile, blockText(target));
+    writeFileSync(target.file, '# somebody else wrote this\n');
+
+    const plan = planUninstall(target, 'mycli');
+    expect(plan.file).toBe('foreign');
+    expect(plan.rc).toBe('ours');
+    expect(plan.writes).toBe(true);
+
+    expect(await removeRc(plan)).toBe(true);
+    expect(readFileSync(rcFile, 'utf8')).toBe('');
+    expect(() => applyUninstall(plan)).toThrow(/did not write/);
+    expect(existsSync(target.file)).toBe(true);
   });
 
   it('should refuse a foreign file against the file it is about to write, not against the plan it was handed', async () => {
@@ -1023,7 +1203,12 @@ describe('what the round-2 review found', () => {
     // dotfile because it survives concatenation
     for (const home of ['~', '$HOME', '${HOME}']) {
       writeFileSync(rcFile, `fpath+=("${home}${tail}")\n`);
-      expect(planInstall(target, script, 'mycli').rc, home).toBe('present');
+      // `theirs`, which is what a SIG-151 install reads as: the spellings
+      // mechanism is unchanged and what moved is only the name of the answer.
+      // It is the same population either way -- somebody who followed this
+      // package's own printed recipe, for whom an absolute-only needle reported
+      // `absent` for ever and reprinted the line on every run
+      expect(planInstall(target, script, 'mycli').rc, home).toBe('theirs');
     }
   });
 
@@ -1181,42 +1366,66 @@ describe('what the round-2 review found', () => {
   });
 });
 
-describe('what the PR review round found', () => {
-  it('should print the fpath line to place rather than appending it below compinit', () => {
-    // `>>` lands at the end of the file, which is below every `compinit` there
-    // is -- and `compinit` is the call that scans `$fpath` and builds the
-    // autoload table, so a directory added after it is one nothing ever reads.
-    // Measured in zsh 5.9 against a `.zshrc` of the ordinary shape,
-    // `autoload -Uz compinit && compinit` with the line appended after it:
-    // `whence -w _mycli` is `none`. Moved one line above the `compinit`, it is
-    // `function` and `$_comps[mycli]` names it. So the recipe that shipped
-    // could not work for anybody who followed it -- while carrying
-    // `# above compinit` as a comment on the very command that puts it below
+describe("SIG-151's fpath line, and why SIG-155 does not append it", () => {
+  it('should install through the route whose line an append can place', () => {
+    // the decision this whole ticket turns on. `>>` lands at the end of the
+    // file, which is below every `compinit` there is -- and `compinit` is the
+    // call that scans `$fpath` and builds the autoload table, so a directory
+    // added after it is one nothing ever reads. Measured in zsh 5.9 against a
+    // `.zshrc` of the ordinary shape: appended after the `compinit`,
+    // `whence -w _mycli` is `none`; moved one line above it, `function`.
+    //
+    // A `source` line is the opposite -- the script's sourced branch calls
+    // `compdef`, so the end of the file is exactly where it has to be -- so
+    // that is the route the installer takes, and the `fpath` line is gone from
+    // the table rather than being appended where it cannot work
     const route = installHint('zsh', 'mycli').routes.find((it) => it.id === 'user');
+    const block = (route?.add?.lines ?? []).join('\n');
 
-    expect(route?.add?.line).toBe('fpath=(~/.local/share/completions $fpath)');
-    expect(route?.add?.where).toContain('compinit');
+    expect(block).toContain('source "$HOME/.local/share/completions/_mycli"');
+    expect(block).not.toContain('fpath=(');
+    expect(route?.add?.where).toContain('end of');
+  });
 
-    // and no command of the route touches a startup file at all, which is what
-    // the append was: the file is ours to write and the line is the reader's to
-    // place, which is `installer.ts`'s own rule arriving in the table
-    for (const command of route?.commands ?? []) {
-      expect(command, command).not.toContain('zshrc');
+  it('should spell the shown path so that it expands, which a quoted ~ would not', () => {
+    // the half this got wrong twice while being written. The block **quotes**
+    // its path, because a path out of `homedir()` may hold a space -- and
+    // neither a `~` nor a `$HOME` expands inside *single* quotes, so the first
+    // two spellings of the shown block each named a directory that is not
+    // there. The commands beside it keep the bare `~`, which is correct
+    // unquoted and is what a reader pastes
+    const route = installHint('zsh', 'mycli').routes.find((it) => it.id === 'user');
+    const block = (route?.add?.lines ?? []).join('\n');
+
+    expect(block).toContain('"$HOME/.local/share');
+    expect(block).not.toContain("'~/");
+    expect(block).not.toContain("'$HOME");
+    expect(route?.commands.join('\n')).toContain('mkdir -p ~/.local/share/completions');
+  });
+
+  it('should say the same thing in the block it writes as in the one it prints', () => {
+    // the one rule this module opens with, met where it matters most: a block
+    // the installer appended and a block the instructions told somebody to
+    // paste have to be the same block, or an uninstall meets a hand-pasted one
+    // it does not recognise. Two callers of one builder, differing only in how
+    // each spells the path
+    for (const shell of SHELL_NAMES) {
+      const route = installHint(shell, 'mycli').routes.find((it) => it.id === 'user');
+      const shown = route?.add?.lines ?? [];
+      const written = installTargets(shell, 'mycli', envFor()).find((it) => it.id === 'user')?.rc
+        ?.lines;
+
+      expect(shown[0], shell).toBe(written?.[0]);
+      expect(shown.at(-1), shell).toBe(written?.at(-1));
+      expect(shown.length, shell).toBe(written?.length);
     }
   });
 
-  it('should leave every append that lands where it has to, which is the asymmetry', () => {
-    // not a dotfile principle applied unevenly -- an append is refused only
-    // where no append can be right, and both of these were measured rather than
-    // reasoned about. `source <(app completion zsh)` *must* be below
-    // `compinit`, because the script's sourced branch calls `compdef`, and the
-    // end of the file is exactly that: `$_comps[sigil]` is `_sigil` after it. A
-    // bash `source` line has no ordering at all, since it runs `complete -F`,
-    // and `complete -p sigil` reads it back in bash 3.2.
-    //
-    // An explicit list rather than a rule about which routes may append, so
-    // that a third one is a decision somebody makes -- which is the call the
-    // raw-control-character exceptions already get
+  it('should leave the two recipes that are a reader-s own alone', () => {
+    // the routes the installer cannot take are untouched by any of this: the
+    // `eval` one really is an append somebody types, and `fpath` writes
+    // straight onto a directory only a shell can resolve. An explicit list
+    // rather than a rule, so a third one is a decision somebody makes
     const appends = (shell: ShellName): readonly string[] =>
       installHint(shell, 'mycli').routes.flatMap((route) =>
         route.commands.filter((command) => command.includes('>>'))
@@ -1225,15 +1434,16 @@ describe('what the PR review round found', () => {
     expect(appends('zsh')).toEqual([
       "echo 'source <(mycli completion zsh)' >> ~/.zshrc  # below compinit",
     ]);
-    expect(appends('bash')).toEqual([
-      "echo 'source ~/.local/share/completions/mycli.bash' >> ~/.bashrc",
-    ]);
+
+    // and bash's `user` route no longer ends in one, because the append it used
+    // to recite is the block the installer writes
+    expect(appends('bash')).toEqual([]);
   });
 
-  it('should carry a line to place on no route an append can finish', () => {
+  it('should carry a block on no route whose commands already finish the job', () => {
     // the inverse, so the field cannot quietly spread: a route with both a
-    // working append and a line to place would be telling a reader to do the
-    // same thing twice
+    // working append in its commands and a block to add would be telling a
+    // reader to do the same thing twice
     for (const shell of SHELL_NAMES) {
       for (const route of installHint(shell, 'mycli').routes) {
         if (route.add !== undefined) {
@@ -1264,7 +1474,7 @@ describe('what the second PR review round found', () => {
     const first = pick('bash');
     expect(first.id).toBe('user');
     await install(first, script);
-    writeFileSync(join(FAKE_HOME, '.bashrc'), `${first.rc?.line ?? ''}\n`);
+    writeFileSync(join(FAKE_HOME, '.bashrc'), blockText(first));
 
     // and then bash-completion arrives, which makes its route resolve and puts
     // it at the head of the table. Reading an index there wrote a **second**
@@ -1284,7 +1494,7 @@ describe('what the second PR review round found', () => {
     // there, which is current, and the line it needs is already in place
     const plan = planInstall(again, script, 'mycli');
     expect(plan.file).toBe('current');
-    expect(plan.rc).toBe('present');
+    expect(plan.rc).toBe('ours');
     expect(plan.changes).toBe(false);
     expect(await applyInstall(plan, script)).toBe(false);
     expect(existsSync(join(box, 'data', 'bash-completion', 'completions', 'mycli'))).toBe(false);
@@ -1296,7 +1506,7 @@ describe('what the second PR review round found', () => {
     // its `source` line in place
     const first = pick('bash');
     await install(first, await completionScript(await state(), 'bash'));
-    writeFileSync(join(FAKE_HOME, '.bashrc'), `${first.rc?.line ?? ''}\n`);
+    writeFileSync(join(FAKE_HOME, '.bashrc'), blockText(first));
     bcDir();
 
     const target = pick('bash');
@@ -1305,15 +1515,17 @@ describe('what the second PR review round found', () => {
     const plan = planUninstall(target, 'mycli');
     expect(plan.file).toBe('update');
     // the premise the output assertion below rests on, named rather than left
-    // to it: with the line read as absent `resultLines()` prints nothing and
+    // to it: with the block read as absent `resultLines()` prints nothing and
     // the `toContain` would fail for the wrong reason
-    expect(plan.rc).toBe('present');
+    expect(plan.rc).toBe('ours');
     expect(applyUninstall(plan)).toBe(true);
     expect(existsSync(first.file)).toBe(false);
 
-    // and the line is named, which is the half an index could not reach: the
-    // route it picked has none, so it printed nothing for the reader to undo
-    expect(resultLines(plan, 'uninstall', true).join('\n')).toContain(join(FAKE_HOME, '.bashrc'));
+    // and the startup file is named, which is the half an index could not
+    // reach: the route it picked has no block, so there was nothing to undo
+    expect(resultLines(plan, 'uninstall', DID_BOTH).join('\n')).toContain(
+      join(FAKE_HOME, '.bashrc')
+    );
   });
 
   it('should still prefer the table on a machine with nothing of ours on it', () => {
@@ -1406,84 +1618,342 @@ describe('what the second PR review round found', () => {
   });
 });
 
-describe('what the second PR review round found', () => {
-  /**
-   * The message as `resultLines()` prints it for a fresh zsh install.
-   *
-   * @param rc - What the startup file holds, or nothing to leave it absent.
-   * @returns The lines, joined.
-   */
-  async function saidFor(rc: string | undefined): Promise<string> {
-    if (rc !== undefined) {
-      writeFileSync(join(FAKE_HOME, '.zshrc'), rc);
-    }
-
+describe('the block, and the compinit question it answers at run time', () => {
+  it('should guard its own compinit rather than reading the startup file for one', async () => {
+    // `RcAnchor` is what this deleted. It was a three-valued answer to "which
+    // line does the `fpath` line have to go above", read by grepping the
+    // startup file for `compinit` -- and its own doc recorded that the
+    // interesting value conflates three states a framework puts a reader in,
+    // and that a table of what runs `compinit` was built and refused for having
+    // exactly one measurable entry.
+    //
+    // The block asks the shell instead, at the moment it matters. Verified in
+    // zsh 5.9 in all three shapes with a counter on the guarded branch, because
+    // a redundant `compinit` is ~12 ms of somebody's shell startup rather than
+    // nothing: a bare `.zshrc` runs it and registers `_mycli`, a `.zshrc` with
+    // its own `compinit` above skips it and registers, and the Oh My Zsh shape
+    // -- a framework sourced above with no literal `compinit` in the file --
+    // skips it and registers
     const script = await completionScript(await state(), 'zsh');
     const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+
+    // the same block whatever the file holds, which is the whole of the claim:
+    // three startup files that used to produce three different messages now
+    // produce one set of bytes
+    const blocks = new Set<string>();
+    for (const held of [
+      '# mine\n',
+      'autoload -Uz compinit && compinit\n',
+      'export ZSH="$HOME/.oh-my-zsh"\nsource $ZSH/oh-my-zsh.sh\n',
+    ]) {
+      writeFileSync(rcFile, held);
+      const plan = planInstall(pick('zsh'), script, 'mycli');
+      expect(await applyRc(plan)).toBe(true);
+      blocks.add(readFileSync(rcFile, 'utf8').slice(held.length));
+    }
+
+    expect(blocks.size).toBe(1);
+    expect([...blocks][0]).toBe(`\n${blockText(target)}`);
+    expect([...blocks][0]).toContain('(( $+functions[compdef] ))');
+  });
+
+  it('should guard the source on the script being there, so a removed app is not an error', async () => {
+    // Bun's `[ -s ... ]`, and it is what keeps `npm rm -g mycli` from leaving a
+    // line that writes to the terminal every time a shell opens. Non-empty
+    // rather than merely present, because a half-written file is the other
+    // thing a shell cannot source
+    for (const shell of SHELL_NAMES) {
+      const target = installTargets(shell, 'mycli', envFor()).find((it) => it.id === 'user');
+      const block = (target?.rc?.lines ?? []).join('\n');
+
+      expect(block, shell).toContain(`-s ${shQuote(target?.file ?? '')}`);
+    }
+  });
+
+  it('should write bash-s block in POSIX sh, because .profile is read by sh too', async () => {
+    // `firstExisting()` can land the block in `.profile`, which `/bin/sh` reads
+    // as well as bash -- where `[[` is a syntax error and a bash completion
+    // script is not something to source at all. So the test is `BASH_VERSION`
+    // and the syntax is `[` and `.`, which the two conventional targets cannot
+    // tell apart from the other spelling
+    const block = (pick('bash').rc?.lines ?? []).join('\n');
+
+    expect(block).toContain('[ -n "${BASH_VERSION-}" ]');
+    expect(block).not.toContain('[[');
+    expect(block).not.toContain('source ');
+
+    // and zsh keeps its own, since a `.zshrc` is only ever read by zsh
+    expect((pick('zsh').rc?.lines ?? []).join('\n')).toContain('[[ -s ');
+  });
+
+  it('should need both markers to read a block as ours, so an edited one is left alone', async () => {
+    // the whole reason there are two. An extent read off one marker and a line
+    // count is a claim about the version of `rcBlock()` that wrote the block,
+    // and what is being read was written by some other version of it -- so a
+    // file holding the opening comment and no closing one is not found, and is
+    // described rather than having lines cut out of it on a guess
+    const st = await state();
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    await install(target, await completionScript(st, 'zsh'));
+
+    const lines = target.rc?.lines ?? [];
+    const held = `${lines.slice(0, -1).join('\n')}\n`;
+    writeFileSync(rcFile, held);
+
+    // the path is named, so it is `theirs` rather than `absent`: there is
+    // nothing to add and nothing this may remove
+    const plan = planUninstall(target, 'mycli');
+    expect(plan.rc).toBe('theirs');
+    expect(await removeRc(plan)).toBe(false);
+    expect(readFileSync(rcFile, 'utf8')).toBe(held);
+
+    // and the install direction leaves it alone too, rather than appending a
+    // second block over a half-edited one
+    expect(planInstall(target, '', 'mycli').rc).toBe('theirs');
+  });
+
+  it('should read a whole marker line rather than a file that merely mentions one', async () => {
+    // `ours()`'s rule one file along, and for its reason: the marker is a
+    // sentence, and a sentence is something a file can mention. A `.zshrc` with
+    // a note in it about what sigil writes is a file to leave alone.
+    //
+    // One fixture per marker, each with the **other** one on a line of its own,
+    // which is what makes each `===` answer for itself. Two earlier versions of
+    // this were weaker and the sabotage pass found both: the first wrote the
+    // markers inside prose that happened not to contain the `#` prefix, so no
+    // substring match was possible at all, and the second embedded **both** --
+    // which is only a test of whichever finder runs second, since breaking
+    // `begin` alone still left `end` refusing the line it was on
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    const begin = `# ${addedBy('zsh', 'mycli')}`;
+    const end = `# ${blockEnd('zsh', 'mycli')}`;
+
+    for (const held of [`echo "${begin}"\n${end}\n`, `${begin}\necho "${end}"\n`]) {
+      writeFileSync(rcFile, held);
+      expect(held).toContain(begin);
+      expect(held).toContain(end);
+
+      // the embedded marker is not a line of its own, so no block is found --
+      // and the script's path is nowhere in the file either, so there is
+      // nothing to add to and this reads as a fresh machine
+      expect(planInstall(target, '', 'mycli').rc, held).toBe('absent');
+
+      // and the destructive direction is what a substring match would have
+      // cost: lines of somebody's own, cut out of their `.zshrc`
+      const plan = planUninstall(target, 'mycli');
+      expect(plan.rc, held).toBe('absent');
+      expect(await removeRc(plan), held).toBe(false);
+      expect(readFileSync(rcFile, 'utf8'), held).toBe(held);
+    }
+  });
+
+  it('should append nothing over a block it has already written', async () => {
+    // the idempotency of the writer rather than of the plan, which is the one
+    // the plan's age makes necessary: `applyRc()` asks both leave-it-alone
+    // questions itself, because the plan was taken before a question went on
+    // screen and the file this edits is the file a dotfile manager rewrites. A
+    // plan that said `absent` over a `.zshrc` since regenerated **with** the
+    // block in it would otherwise get a second copy.
+    //
+    // Found by the sabotage pass: every other test calls `applyRc()` once, so
+    // the block guard had no assertion of its own at all
+    const st = await state();
+    const script = await completionScript(st, 'zsh');
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+
+    // the plan taken while the file is empty, which is what makes this the race
+    // rather than a second call over a fresh plan
     const plan = planInstall(target, script, 'mycli');
-    await applyInstall(plan, script);
+    expect(plan.rc).toBe('absent');
 
-    return resultLines(plan, 'install', true).join('\n');
-  }
+    expect(await applyRc(plan)).toBe(true);
+    const once = readFileSync(rcFile, 'utf8');
 
-  it('should name the compinit line only where the file has one', async () => {
-    // "above your compinit line" is precise where there is one and
-    // unfollowable where there is not, and most zsh users with a framework have
-    // not: Oh My Zsh runs `compinit` from `oh-my-zsh.sh`, so a `.zshrc` that
-    // sources it holds no such line while the completion system is fully set
-    // up -- measured by grepping one. Which is the broken-if-followed prose
-    // this repository calls the worst kind, one step along from the `>>` the
-    // first round took out: there the recipe named a command that could not
-    // work, here it names a line that is not in the file
-    const said = await saidFor('autoload -Uz compinit\ncompinit\n');
-
-    expect(said).toContain('above your compinit line');
-
-    // and it does not offer the call, which is the other half: a reader who
-    // already runs one does not need a second
-    expect(said).not.toContain('autoload -Uz compinit && compinit');
+    // the same plan again, now stale: nothing is written and nothing is
+    // duplicated
+    expect(await applyRc(plan)).toBe(false);
+    expect(readFileSync(rcFile, 'utf8')).toBe(once);
+    expect(once.split(target.rc?.begin ?? '!').length - 1).toBe(1);
   });
 
-  it('should say what to do where the file has no compinit line', async () => {
-    const said = await saidFor('export ZSH="$HOME/.oh-my-zsh"\nsource $ZSH/oh-my-zsh.sh\n');
+  it('should not write a startup file that went away after the plan was taken', async () => {
+    // `removeRc()`'s re-read, which is `applyUninstall()`'s reason carried one
+    // file along and with more force: a span is a set of line **numbers**, and
+    // line numbers are the most perishable thing a plan can carry. Found by the
+    // sabotage pass, which had the re-read replaced by a fallback span of
+    // `{ start: 0, end: 0 }` -- that writes an empty `.zshrc` where the user
+    // had no `.zshrc` at all, and nothing noticed
+    const st = await state();
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    await install(target, await completionScript(st, 'zsh'));
+    writeFileSync(rcFile, blockText(target));
 
-    // the top of the file, which is measured correct for Oh My Zsh: the
-    // `fpath` line as line 1 of a `.zshrc` sourcing `oh-my-zsh.sh` on line 5
-    // registers the completion, where the same line below the `source`
-    // registers nothing
-    expect(said).toContain('top of');
-    expect(said).not.toContain('above your compinit line');
+    const plan = planUninstall(target, 'mycli');
+    expect(plan.rc).toBe('ours');
 
-    // and the call to paste, because nothing here can tell a framework user
-    // from somebody with no completion system at all -- both read "there is no
-    // compinit line in this file" -- so the one message has to serve both. A
-    // redundant one after Oh My Zsh's own is measured harmless
-    expect(said).toContain('autoload -Uz compinit && compinit');
+    // gone in the window the question sits in, which is the race rather than a
+    // failure: what was asked for has happened
+    rmSync(rcFile);
+    expect(await removeRc(plan)).toBe(false);
+    expect(existsSync(rcFile)).toBe(false);
   });
 
-  it('should treat a startup file that is not there as having no compinit line', async () => {
-    // the case a fresh machine is in, and the one where the first branch's
-    // sentence is least followable: there is no file to find a line in
-    expect(existsSync(join(FAKE_HOME, '.zshrc'))).toBe(false);
+  it('should cut nothing where the block moved after the plan was taken', async () => {
+    // the other half of the same re-read, and the one with teeth: the file is
+    // still there and the block is not where the plan's line numbers said
+    const st = await state();
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    await install(target, await completionScript(st, 'zsh'));
+    writeFileSync(rcFile, blockText(target));
 
-    const said = await saidFor(undefined);
+    const plan = planUninstall(target, 'mycli');
+    expect(plan.rc).toBe('ours');
 
-    expect(said).toContain('top of');
-    expect(said).toContain('autoload -Uz compinit && compinit');
+    // somebody took it out by hand while the question was on screen, leaving
+    // lines of their own exactly where the block had been
+    const theirs = '# mine\nexport EDITOR=vim\nalias l=ls\n';
+    writeFileSync(rcFile, theirs);
+
+    expect(await removeRc(plan)).toBe(false);
+    expect(readFileSync(rcFile, 'utf8')).toBe(theirs);
   });
 
-  it('should read the anchor off the startup file, not off the route', async () => {
-    // `RcAddition` carried a dead `where` field for the whole of SIG-151 that
-    // this replaces, and it could never have answered: `resolveRoute()` builds
-    // that record and does no I/O on the startup file. So the anchor is
-    // discovered where the file is read, which is one read for both questions
-    const script = await completionScript(await state(), 'zsh');
+  it('should recognise a SIG-151 fpath line as the file already being handled', async () => {
+    // the compatibility case, and it is what the second needle is for: that
+    // version put `fpath=(<dir> $fpath)` in the startup file, which names the
+    // completions **directory**, where this one appends a block naming the
+    // **script**. Without the directory needle a machine with a perfectly good
+    // `fpath` install gets a second registration appended underneath it
+    const st = await state();
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    const script = await completionScript(st, 'zsh');
+    await install(target, script);
 
-    writeFileSync(join(FAKE_HOME, '.zshrc'), '# mine\n');
-    expect(planInstall(pick('zsh'), script, 'mycli').anchor).toBe('none');
+    const held = `fpath=(${shQuote(target.dir)} $fpath)\nautoload -Uz compinit && compinit\n`;
+    writeFileSync(rcFile, held);
 
-    writeFileSync(join(FAKE_HOME, '.zshrc'), '# mine\nautoload -Uz compinit && compinit\n');
-    expect(planInstall(pick('zsh'), script, 'mycli').anchor).toBe('compinit');
+    const plan = planInstall(target, script, 'mycli');
+    expect(plan.rc).toBe('theirs');
+    expect(plan.changes).toBe(false);
+    expect(await applyRc(plan)).toBe(false);
+    expect(readFileSync(rcFile, 'utf8')).toBe(held);
+  });
+
+  it('should give a second app its own block, where the first one named the directory', async () => {
+    // the directory needle is matched in the file, and every block names
+    // `<dir>/_<program>` -- which **contains** the directory. So app two's
+    // needle hit inside app one's block, two read as `theirs`, the plan said
+    // "already names it", and nothing ever sourced `_two`. Silently: the script
+    // was written and the completion simply never loaded.
+    //
+    // Reported on PR #191. The tests this had only compared the needle arrays,
+    // which cannot see where a needle matches
+    const st = await state();
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    const [one] = installTargets('zsh', 'one', envFor());
+    const [two] = installTargets('zsh', 'two', envFor());
+    const first = one as InstallTarget;
+    const second = two as InstallTarget;
+
+    await applyInstall(planInstall(first, await completionScript(st, 'zsh'), 'one'), 'x');
+    expect(await applyRc(planInstall(first, 'x', 'one'))).toBe(true);
+
+    // the second app, whose block is not there and whose directory is
+    const plan = planInstall(second, 'y', 'two');
+    expect(plan.rc).toBe('absent');
+    expect(await applyRc(plan)).toBe(true);
+
+    const held = readFileSync(rcFile, 'utf8');
+    expect(held).toContain(first.rc?.begin ?? '!');
+    expect(held).toContain(second.rc?.begin ?? '!');
+  });
+
+  it('should still read a SIG-151 fpath line as handled, which is what the needle is for', async () => {
+    // the other side of the same boundary, so the fix cannot be a deletion: the
+    // directory followed by a quote or a space is the `fpath` line and counts,
+    // and the directory followed by a `/` is a path inside somebody's block and
+    // does not
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+
+    for (const line of [
+      `fpath=(${shQuote(target.dir)} $fpath)`,
+      `fpath=("${target.dir}" $fpath)`,
+      `fpath+=(${target.dir})`,
+      `FPATH=${target.dir}:$FPATH`,
+      `fpath=(${target.dir}`,
+    ]) {
+      writeFileSync(rcFile, `${line}\n`);
+      expect(planInstall(target, '', 'mycli').rc, line).toBe('theirs');
+    }
+
+    // and the path at the very **end of the file**, with no trailing newline,
+    // which is the one delimiter that is an absence rather than a character.
+    // Every fixture above ends in a `\n`, so `after === undefined` was
+    // unreachable and the sabotage pass walked straight through it -- and this
+    // is a `.zshrc` somebody really has, which is the same no-trailing-newline
+    // case `applyRc()` is written for from the other side
+    // unquoted, so that nothing but the end of the file terminates the path --
+    // quoted, the `'` is the delimiter and this would pass either way, which is
+    // how the first version of this fixture also walked past the sabotage
+    writeFileSync(rcFile, `source ${target.file}`);
+    expect(planInstall(target, '', 'mycli').rc).toBe('theirs');
+  });
+
+  it('should not read one app-s script path as another-s, where one name prefixes the other', async () => {
+    // the same defect at the file needle rather than the directory one, and it
+    // is why the boundary is a rule about a path rather than a special case for
+    // the directory: `_one` is a prefix of `_onetwo`, so app one's needle hit
+    // inside app onetwo's block
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    const [a] = installTargets('zsh', 'one', envFor());
+    const [b] = installTargets('zsh', 'onetwo', envFor());
+
+    writeFileSync(rcFile, `${(b?.rc?.lines ?? []).join('\n')}\n`);
+
+    expect(planInstall(a as InstallTarget, '', 'one').rc).toBe('absent');
+    expect(planInstall(b as InstallTarget, '', 'onetwo').rc).toBe('ours');
+  });
+
+  it('should take its own block out in the order the command applies them', async () => {
+    // the unit test for this below calls `removeRc()` first and
+    // `applyUninstall()` second, which is the **opposite** of what
+    // `runInstaller()` does -- an object literal evaluates its properties in
+    // order, so the real flow reached the throw before the block was removed
+    // and the refusal came out of the generic error handler as a crash. Which
+    // is SIG-151's round-2 shape exactly, reintroduced by `writes` counting the
+    // block. Reported on PR #191.
+    //
+    // So this asserts the production order rather than a convenient one
+    const st = await state();
+    const target = pick('zsh');
+    const rcFile = join(FAKE_HOME, '.zshrc');
+    await install(target, await completionScript(st, 'zsh'));
+    writeFileSync(rcFile, blockText(target));
+    writeFileSync(target.file, '# somebody else wrote this\n');
+
+    const plan = planUninstall(target, 'mycli');
+    expect(plan.file).toBe('foreign');
+    expect(plan.rc).toBe('ours');
+    expect(plan.writes).toBe(true);
+
+    // the script is not ours to remove and the block is, so the gate is on the
+    // **plan's** reading of the file rather than on a `try` around the writer
+    const did = {
+      file: plan.file === 'update' ? applyUninstall(plan) : false,
+      rc: await removeRc(plan),
+    };
+
+    expect(did).toEqual({ file: false, rc: true });
+    expect(readFileSync(rcFile, 'utf8')).toBe('');
+    expect(existsSync(target.file)).toBe(true);
   });
 
   it('should leave bash alone, which has no compinit at all', async () => {
@@ -1491,25 +1961,14 @@ describe('what the second PR review round found', () => {
     const target = pick('bash');
     const plan = planInstall(target, script, 'mycli');
     await applyInstall(plan, script);
-    const said = resultLines(plan, 'install', true).join('\n');
+    expect(await applyRc(plan)).toBe(true);
 
-    expect(said).toContain(target.rc?.line ?? '!');
+    const said = resultLines(plan, 'install', DID_BOTH).join('\n');
+    expect(said).toContain(target.rc?.file ?? '!');
 
-    // the shell is asked before the anchor rather than the anchor carrying a
-    // third state, so there is nothing for bash's line to precede and the
-    // sentence names the file alone
+    // nothing of zsh's leaks into it: bash registers with `complete -F`, which
+    // has no ordering at all and nothing to initialise
+    expect((target.rc?.lines ?? []).join('\n')).not.toContain('compinit');
     expect(said).not.toContain('compinit');
-    expect(plan.anchor).toBe('none');
-  });
-
-  it('should not claim a compinit line exists in the machine-independent recipe', async () => {
-    // the header every generated script carries and the no-terminal
-    // instructions, which cannot read a startup file -- so they say the general
-    // thing. Naming "your compinit line" there is the same defect with no way
-    // to detect its way out
-    const route = installHint('zsh', 'mycli').routes.find((it) => it.id === 'user');
-
-    expect(route?.add?.where).toContain('compinit');
-    expect(route?.add?.where).not.toContain('your compinit line');
   });
 });
