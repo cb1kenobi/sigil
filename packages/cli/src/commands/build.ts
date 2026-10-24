@@ -52,16 +52,18 @@ import { readSigilConfig } from '../config.ts';
 import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
   appRuns,
+  binName,
+  clean,
   commandsFound,
   failure,
   inspect,
   reportDiagnostics,
+  resolveOut,
   type Inspection,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { table } from '@ttylabs/sigil/components';
-import { existsSync, rmSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { relative, resolve } from 'node:path';
 
 /** Where a build goes when nobody says otherwise. */
 const DEFAULT_OUT = 'dist';
@@ -239,45 +241,6 @@ function assertBuildable(found: Inspection, bin: string | undefined): void {
 }
 
 /**
- * What the built executable is called.
- *
- * The `bin` key an app already declares, since that is the name its users type.
- * A package name is the fallback, scope dropped -- `@ttylabs/cli` builds to
- * `cli.mjs` rather than to a directory called `@ttylabs`.
- *
- * @param found - What reading the app turned up.
- * @param named - What the caller said, if anything.
- * @returns The name, without an extension.
- */
-function binName(found: Inspection, named: string | undefined): string {
-  if (named) {
-    return named;
-  }
-
-  // what the manifest's `bin` says, before what it calls itself: a scoped
-  // package's name is not its executable's -- `@ttylabs/cli` publishes `sigil`,
-  // and naming the file after the package writes one the manifest does not
-  // point at
-  const { bin, name } = found.app.manifest;
-  if (bin) {
-    return bin;
-  }
-
-  return name ? (name.split('/').pop() ?? name) : 'cli';
-}
-
-/**
- * Where the bundle goes.
- *
- * @param root - The app's root.
- * @param out - What the caller said.
- * @returns The absolute directory.
- */
-function resolveOut(root: string, out: string): string {
-  return isAbsolute(out) ? out : resolve(root, out);
-}
-
-/**
  * Writes what the build produced and what each piece costs.
  *
  * Startup time is the metric the whole design is pointed at, so what loads on
@@ -373,40 +336,4 @@ function warnEmptyShake(styles: ShakenStyles | undefined): void {
     ],
     process.stderr
   );
-}
-
-/**
- * Empties the output directory before writing to it.
- *
- * A build that leaves the last one behind is a directory nobody can read: a
- * renamed command's chunk stays, a removed one's stays, and what is published
- * is the union of every build ever run there. Every bundler does this, and
- * doing it here rather than in a `rimraf` beside the call is what makes
- * `sigil build` the whole of the build.
- *
- * Refused for the app root itself or anything above it, which is the one way a
- * mistyped `--out` turns a build into data loss. `--no-clean` opts out for a
- * caller writing into a directory that holds something else.
- *
- * @param out - The output directory.
- * @param root - The app root, which bounds what may be removed.
- * @param wanted - Whether to clean at all.
- * @throws If the directory is one that must not be emptied.
- */
-function clean(out: string, root: string, wanted: boolean): void {
-  if (!wanted || !existsSync(out)) {
-    return;
-  }
-
-  const resolved = resolve(out);
-  const app = resolve(root);
-
-  if (resolved === app || app.startsWith(`${resolved}${sep}`)) {
-    throw new Error(
-      `Refusing to empty ${displayPath(resolved)}, which holds the app itself. ` +
-        `Name a directory inside it, or pass --no-clean.`
-    );
-  }
-
-  rmSync(resolved, { force: true, recursive: true });
 }

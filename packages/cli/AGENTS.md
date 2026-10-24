@@ -950,8 +950,35 @@ makes it testable with a fixture directory and no bundler at all.
   and split on, so `load: () => import('./commands/build.js')` becomes a chunk
   and rolldown rewrites the specifier. Measured on the fixture app: a 3.2 kB
   entry with the parser, the help renderer and every command body in chunks of
-  their own. Flattening to one file would undo the whole reason the tree is
-  lazy.
+  their own.
+- **...and the last sentence of that entry used to say flattening would undo the
+  whole reason the tree is lazy, which is measurably false.** SIG-138 had to
+  flatten -- a Node single executable cannot `import()` at all -- so the claim
+  finally got measured, and it is a wash. Interleaved, 40 spawns per figure,
+  comparing minima within a run: at 13 commands the chunked build answers
+  `--help` in 40.7ms and the flattened one in **37.1ms**; at 60 commands and
+  1.3 MB of command bodies it is 46.5ms against **46.2ms**, and one command is
+  26.9ms against 27.1ms. Flattening is never slower by anything measurable and
+  is faster where the file opens dominate.
+
+  Two things make that true, and neither was obvious. V8 **pre-parses** cheaply
+  and compiles a function body only when it is called, so the parse a chunk
+  defers was nearly free to begin with -- the dominant cost in every figure is
+  node's own startup, 19ms, which no bundle shape changes. And
+  `codeSplitting: false` keeps the `import()` itself: rolldown inlines the
+  module and the call still returns a promise, so a command body is still only
+  **executed** when its command is matched. The deferral that matters survives
+  flattening; the one that was being defended is the parse, and the parse was
+  not worth defending.
+
+  What the chunks are still right for is a build whose output is _read from
+  disk_, which is every `sigil build`, because there the entry is what `--help`
+  pays for and a chunk nobody loads is a file nobody opens. So nothing changed
+  about the default. What changed is that "the whole reason the tree is lazy" is
+  a claim about `load` being a deferral of **execution**, which is in `load`'s
+  own entry above, rather than about chunk boundaries -- and the `cjs` form is
+  not the compromise it looks like.
+
 - **`--bin` is refused beside a filesystem command directory.** An executable of
   the app's own is bundled as it stands, so whatever `commands` it declares is
   what it gets -- and a router bundled that way reads directories that are not
@@ -2635,6 +2662,200 @@ people's software and will move.
   `src/components/<name>.ts` with its imports rewritten and nothing else changed,
   so an entry that has quietly become a stale fork fails in
   `test/registry.test.ts` rather than shipping.
+
+### `sigil package`: a binary, and which runtime is inside it
+
+`sigil build` produces an app that still needs a runtime installed.
+`sigil package` is the step after it and is the whole of what oclif's installers
+buy: one file somebody downloads and runs. The probes, the timings and the
+sabotage pass are in
+[docs/history/sigil-package-a-binary-and-which-runtime-is-inside-it.md](../../docs/history/sigil-package-a-binary-and-which-runtime-is-inside-it.md).
+
+It is `build` plus a compile step --
+the same `_inspect.ts` read, the same refusal to package an app that does not
+check out -- rather than a pass of its own, because two commands that disagree
+about what a valid app is would be the worse half of the feature.
+
+- **The runtime has no default, and the error is the feature.** `--runtime` is
+  required, from the flag or from `"package": { "runtime": ... }` in
+  `sigil.json`, and with neither the message names both and what each costs.
+  Picking one silently would decide what every user's app runs on, which is a
+  bigger decision than packaging and not one to infer from what happens to be
+  installed on the builder's laptop. It is also not inferrable in either
+  direction: node is always present, since it is running the toolchain, so
+  defaulting to it would be defaulting to whatever is there rather than to
+  anything chosen -- and `--runtime node` needs node >= 25.5, which this
+  package's own `engines` does not require, so even that default would fail on a
+  supported machine.
+
+  The one place this question **is** answered for you is `sigil new`, which
+  writes `"runtime": "bun"`. That is not a contradiction: refusing is right when
+  the answer is unknowable, and an app with users that would be changing what it
+  runs on is exactly that, while a brand-new app has no users and needs a
+  release workflow that works on its first tag.
+
+- **Bun takes the bundle as it stands; Node needs a different one.** This is the
+  asymmetry everything else follows from, and the ticket guessed it as "SEA
+  wants a single file". It is much stronger than that.
+
+  A Node single executable runs its embedded main script as **CommonJS** --
+  `embedderRunCjs` in the stack -- and **cannot `import()` at all**. Measured
+  inside a SEA, every spelling fails `ERR_UNKNOWN_BUILTIN_MODULE`: a relative
+  specifier, an absolute `file://` URL built off `process.execPath`, and
+  `new Function('s', 'return import(s)')`. The injected loader resolves builtins
+  and nothing else. `createRequire()` **does** work and will even load a `.mjs`,
+  which is the one escape hatch and is not taken -- it would mean a bespoke
+  module loader in the generated entry, shipping chunks beside a binary whose
+  whole point is to be one file.
+
+  So the Node path asks `bundleApp()` for `form: 'cjs'`: one flat file, every
+  command inlined, and a generated entry whose `main()` call is wrapped in an
+  async IIFE. The wrap is not a style choice -- rolldown refuses the whole
+  bundle with `Top-level await is currently not supported with the 'cjs' output
+  format`, and `await main({ ... })` is the last line of every entry
+  `generateBin()` has ever written.
+
+  Bun needs none of it. `bun build --compile` reads the ESM entry and its chunks
+  unchanged, `import()` and all, which is why `form` has exactly two values and
+  only one consumer for the second.
+
+- **Flattening costs nothing, which is why the `cjs` form is not a compromise.**
+  The numbers are under "A command per chunk" above, along with the correction
+  to the entry that used to claim otherwise. The short version: `codeSplitting:
+  false` keeps the `import()` as a promise, so lazy **execution** survives; what
+  is lost is lazy **parsing**, and V8's pre-parse made that nearly free. At 60
+  commands and 1.3 MB of bodies the two forms are within noise of each other.
+
+- **Packaging does not cost startup. It saves a little, and on Bun a lot.** The
+  ticket's worry was that a packaged binary might answer `--version` in 200ms
+  and that this would be "a worse trade than it looks". Measured, 40 spawns per
+  figure, minima compared within one run, on the 13-command fixture:
+
+  |                            | `--version` | `--help`   | one command |
+  | -------------------------- | ----------- | ---------- | ----------- |
+  | unpackaged, node + chunks  | 24.0ms      | 39.9ms     | 24.7ms      |
+  | packaged, `--runtime node` | 23.0ms      | 36.6ms     | 23.3ms      |
+  | packaged, `--runtime bun`  | **15.4ms**  | **23.9ms** | **15.6ms**  |
+
+  The floors are what explain it: `node -e 0` is **18.7ms** and `bun -e 0` is
+  **3.8ms** on the same machine in the same run. Node's own startup is the
+  dominant cost of every sigil app, packaged or not, and the only thing in this
+  table that changes it is not being node. That 15ms is a bigger lever than
+  every bundle-shape decision in this file put together, and it is the real
+  argument for Bun -- not the cross-compilation, which is merely convenient.
+
+- **All three forms render byte-identical output, which is the correctness claim
+  the rest rests on.** The `styled` fixture draws a panel with utility classes,
+  so its output exercises the template compile, the stylesheet shake, the
+  layout engine and the SGR writer at once. Run at `COLUMNS=60`, the unpackaged
+  chunked ESM, the flattened CJS inside a Node SEA, and the Bun binary each
+  produce the **same 287 bytes** -- box-drawing characters and escape sequences
+  included. So neither the entry wrap, nor flattening, nor embedding a different
+  runtime changes what an app draws. The end-to-end tests assert the narrower
+  version of this per runtime: the binary's output against the bundle it
+  embeds, which isolates the compile step from the bundle.
+
+- **Bun cross-compiles and Node cannot, so the CI shape differs.** Verified from
+  this Mac: all five targets build in one invocation -- `file` reports a real
+  `ELF 64-bit LSB executable` for linux-x64 and a `PE32+ executable (console)
+  x86-64` for windows-x64. A Node SEA injects its blob into the **host's own
+  node**, so the binary embeds whatever runtime is running the toolchain and the
+  target has to be the host; `assertCompilable()` refuses anything else, naming
+  the mechanism rather than only saying no.
+
+  What could not be checked here is that the foreign binaries **run**: there is
+  no docker on this machine, and a Mac cannot execute an ELF. The darwin-x64 one
+  runs under Rosetta and does. So the cross-compiled outputs are proved to be
+  the right file format and no further, which is a thing CI has to close rather
+  than something to claim from a laptop.
+
+  Bun ships no `bun-windows-arm64`, and that is named in `BUN_UNSUPPORTED`
+  rather than discovered from a failed spawn: `bun build` answers an unknown
+  target with a usage dump, and the one thing the reader needs is which
+  combination is missing.
+
+- **On Apple Silicon, signing is not distribution polish -- it is whether the
+  file runs.** `node --build-sea` leaves the binary unsigned (`codesign -dv`:
+  `code object is not signed at all`) and an unsigned binary is **SIGKILLed
+  before it executes a line**: exit 137, no output, on the very machine that
+  produced it. So `sign()` runs on darwin and a failure there fails the package.
+  Ad-hoc (`codesign --sign -`) is enough and is the default.
+
+  Proved by removing it from a finished binary rather than by sabotaging the
+  code: the same file answers `--version` with `1.2.3` as `package` left it, and
+  after `codesign --remove-signature` the identical bytes-minus-signature exit 137. That is what makes the end-to-end test's "the binary runs" assertion a
+  test of the signing step.
+
+  Bun needs none of this -- its output is already `adhoc, linker-signed` -- which
+  is one more thing the Node path has to do and the Bun path does not.
+
+- **Notarization is explicitly a follow-up, and ad-hoc signing is not a
+  substitute for it.** Ad-hoc makes a binary runnable; it does **not** get it
+  past Gatekeeper on somebody else's machine, which needs an Apple Developer ID
+  and a `notarytool` step. `--sign <identity>` is where a real identity goes, so
+  the mechanism is in place and the secret is not this repository's to invent.
+  Windows is the same shape and worse: Authenticode needs a certificate and
+  `signtool`, and there is no ad-hoc equivalent at all, so nothing is done by
+  default there rather than something dishonest. The scaffolded release workflow
+  says all of this in a comment, because a workflow that only half works should
+  explain which half.
+
+- **Every refusal happens before the bundle.** `assertCompilable()` is asked for
+  each target in `package.ts` before `bundleApp()` is called, and asked again
+  inside each compile function. That is not belt-and-braces: the compile
+  functions are exported, so a caller that is not `sigil package` would
+  otherwise reach the spawn with an impossible pair, and one implementation
+  asked twice cannot come to disagree with itself the way two copies would. The
+  pre-flight is the rule `--bin` beside a routed directory already follows -- a
+  failure the build can see coming is a build error -- and it is asserted as the
+  **absence of an output directory**, because a refusal that arrives after the
+  bundle is one that charged for a type-check and a bundle first.
+
+- **A lone binary is not named after the machine it was built for.** One target
+  is the ordinary case and `myapp` is what its users type; several at once is a
+  release, where every one would otherwise be written to the same path and the
+  last would be the only survivor -- reported as several binaries, which is the
+  quiet version of that bug. `outputName()` is one function for both halves of
+  the name, the `.exe` included, and it is **exported** for a reason that is not
+  about `sigil package` at all: the scaffolded release workflow spells five of
+  these names as literal text, so nothing in a build connects it to the
+  convention. `the release workflow` in `new.test.ts` asserts the literals
+  against this function, which it can only do if the function is reachable.
+  Both sabotages are caught -- a target the command would not parse, and a
+  dropped `.exe`.
+
+- **`--out` and the clean rule are `build`'s own, shared rather than copied.**
+  `resolveOut()`, `binName()` and `clean()` moved into `_inspect.ts` when
+  `package` needed them, and the move paid for itself immediately: `package`
+  shipped a private copy of `clean()` for an afternoon that refused an `--out`
+  **outside** the app, because `relative()` starting with `..` reads as "outside"
+  and was treated as "above". Only the second is dangerous, and a sibling
+  directory is an ordinary place to build into. `build`'s rule -- refuse an
+  `--out` that is the app root or an ancestor of it -- is now the only rule.
+
+- **The intermediate bundle is left in place, and the extension is named once.**
+  `dist/` holds the binary and the bundle it was made from, which is honest
+  about what was embedded and invents no temp-directory dance. Naming the entry
+  file is one expression read by both the write and the `chmod`, because those
+  two came apart during development: the write took its extension from `form`
+  while the `chmod` spelled `.mjs` on its own, so a CommonJS bundle was written
+  perfectly and then failed with an `ENOENT` naming a file the build had never
+  been asked to produce.
+
+- **A sourcemap is not written for a packaged build.** It is embedded in nothing
+  and read by nobody once the bundle is inside a binary, so it is weight on the
+  way to being discarded. Not a flag: there is no reader to offer it to.
+
+- **The update check cannot work in a packaged binary, and that is SIG-156
+  rather than something this command works around.** Inside a single executable
+  `process.execPath` is the **app's own binary**, not the runtime, so the
+  worker's `spawn(process.execPath, ...)` would re-execute the app with a flag
+  it does not declare. Two further defects in the same mechanism were found
+  while measuring this and are in that ticket: the worker is read off
+  `import.meta.url`, so it is already `ENOENT` in any `sigil build` output, and
+  the `['--input-type', 'module']` spelling is one only node accepts -- bun
+  reads `module` as a script path. `['-']` works on both. None of it is caused
+  by packaging and none of it is fixed here.
 
 ### A markdown command reference, and a surface snapshot
 

@@ -20,6 +20,8 @@ import {
   type Language,
   type Layout,
   type Linter,
+  type Manager,
+  MANAGERS,
   nameProblem,
   scaffold,
   type ScaffoldFile,
@@ -40,16 +42,6 @@ function toolchainManifest(): { devDependencies: Record<string, string>; version
     version: string;
   };
 }
-
-/**
- * The package managers a scaffolded app can be set up with, best first.
- *
- * Three rather than every one there is, because each entry is a row in a prompt
- * somebody has to read. Adding one is this array.
- */
-const MANAGERS = ['pnpm', 'vlt', 'npm'] as const;
-
-type Manager = (typeof MANAGERS)[number];
 
 /**
  * Which package manager to use, asked only when there is something to ask.
@@ -169,6 +161,10 @@ const newApp: AnyCommand = command({
       language,
       layout,
       linter,
+      // the release workflow installs and runs the app's tests, and doing that
+      // with a manager the app was not set up with is how a scaffolded CI fails
+      // on its first tag
+      manager: pm,
       name,
       version: own.version,
       versions: own.devDependencies,

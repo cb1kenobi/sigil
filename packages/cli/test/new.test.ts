@@ -1,3 +1,4 @@
+import { label, outputName, parseTarget } from '../src/build/compile.ts';
 import { nameProblem, scaffold, type ScaffoldOptions } from '../src/scaffold/index.js';
 import { runCommand } from '@ttylabs/sigil/testing';
 import { spawnSync } from 'node:child_process';
@@ -31,6 +32,7 @@ const OPTIONS: ScaffoldOptions = {
   language: 'ts',
   layout: 'multi',
   linter: 'oxlint',
+  manager: 'pnpm',
   name: 'demo',
   version: '0.0.1',
   versions: { '@types/node': '26.6.2', typescript: '7.0.2', vitest: '5.0.3' },
@@ -202,7 +204,13 @@ describe('the scaffold', () => {
     // a comment in a `sigil.json` is read rather than reported, so the name an
     // app already had costs it nothing. `readSigilConfig()` reads a `.jsonc`
     // too, for an app that prefers to say so in the file name
-    expect(json('sigil.json')).toStrictEqual({ components: 'src/components' });
+    expect(json('sigil.json')).toStrictEqual({
+      components: 'src/components',
+      // the runtime the scaffolded release workflow needs: `sigil package`
+      // refuses to pick one for an existing app, and a new app has no users to
+      // have a decision made for them. See the comment in `scaffold/index.ts`
+      package: { runtime: 'bun' },
+    });
     expect([...files().keys()]).not.toContain('sigil.jsonc');
   });
 
@@ -469,5 +477,90 @@ describe('the command, end to end', () => {
       expect(spec).toBeDefined();
       expect(spec).not.toMatch(/^(file|link):/);
     }
+  });
+});
+
+/**
+ * The release workflow, which is the half of packaging a scaffold can supply.
+ *
+ * The drift guard is the one worth having. The workflow spells five targets and
+ * five binary names as literal text, so nothing in a build connects it to
+ * `parseTarget()` or `binaryName()` -- and a scaffolded CI that fails on an
+ * app's first tag is the worst possible place to find that out. These assert
+ * the literals against the functions that have to accept them.
+ */
+describe('the release workflow', () => {
+  /** The workflow, as the scaffold writes it. */
+  function workflow(overrides: Partial<ScaffoldOptions> = {}): string {
+    return files(overrides).get('.github/workflows/release.yml') as string;
+  }
+
+  it('should be written, because a release is every target at once', () => {
+    expect(workflow()).toBeDefined();
+  });
+
+  it('should name only targets sigil package accepts', () => {
+    // every `--target` in the file, read back out rather than listed again here
+    const named = [...workflow().matchAll(/--target (\S+)/g)].map((m) => m[1] as string);
+
+    expect(named.length).toBeGreaterThan(0);
+
+    for (const text of named) {
+      // the assertion: a target the workflow names has to be one the command
+      // reads, and `parseTarget()` throws on anything else
+      expect(label(parseTarget(text))).toBe(text);
+    }
+  });
+
+  it('should attach a file for each target, named the way package names it', () => {
+    const file = workflow();
+    const named = [...file.matchAll(/--target (\S+)/g)].map((m) => m[1] as string);
+
+    const all = named.map((text) => parseTarget(text));
+
+    for (const target of all) {
+      // through `outputName()` rather than spelled here, so this asserts the
+      // workflow's literals against the convention `sigil package` actually
+      // follows -- the target suffix a release gets, and the `.exe` that is
+      // easy to get wrong and impossible to notice from a Mac
+      expect(file).toContain(`dist/${outputName('demo', target, all)}`);
+    }
+
+    // and nothing it does not build, which is what catches a target removed
+    // from the package step and left in the release step
+    const attached = [...file.matchAll(/dist\/demo-(\S+)/g)].map((m) =>
+      (m[1] as string).replace(/\.exe$/, '')
+    );
+    expect([...attached].sort()).toEqual([...named].sort());
+  });
+
+  it('should run every target in one job, which is what bun buys', () => {
+    // a matrix would be the Node shape, and the comment says so -- this is the
+    // assertion that the scaffolded workflow is the single-job one
+    expect(workflow()).not.toContain('strategy:');
+    expect(workflow()).toContain('oven-sh/setup-bun');
+  });
+
+  it("should spell its commands with the app's own package manager", () => {
+    // a scaffolded CI that installs with a manager the app was not set up with
+    // fails on the first tag, which is the one run nobody gets to redo
+    expect(workflow({ manager: 'pnpm' })).toContain('pnpm install --frozen-lockfile');
+    expect(workflow({ manager: 'pnpm' })).toContain('pnpm exec sigil package');
+    expect(workflow({ manager: 'pnpm' })).not.toContain('npm ci');
+
+    expect(workflow({ manager: 'npm' })).toContain('npm ci');
+    expect(workflow({ manager: 'npm' })).toContain('npx sigil package');
+  });
+
+  it('should agree with the runtime sigil.json declares', () => {
+    // the workflow's comment explains itself in terms of `"runtime": "bun"`,
+    // and the file beside it has to actually say that -- two halves of one
+    // scaffold disagreeing is the defect this repo keeps recording
+    const config = JSON.parse(files().get('sigil.json') as string) as {
+      package?: { runtime?: string };
+    };
+
+    expect(config.package?.runtime).toBe('bun');
+    expect(workflow()).toContain('"runtime": "bun"');
   });
 });

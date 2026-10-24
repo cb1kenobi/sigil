@@ -49,6 +49,23 @@ export type Layout = 'multi' | 'single';
 export type Linter = 'biome' | 'eslint' | 'none' | 'oxlint';
 
 /** Everything `new` needs to decide before it writes anything. */
+/**
+ * The package managers a scaffolded app can be set up with, best first.
+ *
+ * Three rather than every one there is, because each entry is a row in a prompt
+ * somebody has to read. Adding one is this array.
+ *
+ * Declared here rather than in `new.ts`, which is where it started: the
+ * scaffold reads the value -- the release workflow spells its install and test
+ * commands with it -- and a vocabulary with two declarations is two answers to
+ * what a package manager is. `new.ts` prompts with this list and `--pm`'s
+ * `choices` is this list.
+ */
+export const MANAGERS = ['pnpm', 'vlt', 'npm'] as const;
+
+/** One of the package managers a scaffolded app can be set up with. */
+export type Manager = (typeof MANAGERS)[number];
+
 export interface ScaffoldOptions {
   /** The language. */
   readonly language: Language;
@@ -56,6 +73,14 @@ export interface ScaffoldOptions {
   readonly layout: Layout;
   /** The linter. */
   readonly linter: Linter;
+  /**
+   * The package manager the app is being set up with.
+   *
+   * Read by the release workflow and nothing else: every script in the manifest
+   * is manager-agnostic, and CI is the one place a command has to be spelled
+   * with the manager's own name.
+   */
+  readonly manager: Manager;
   /** The app's name, which is also its bin. */
   readonly name: string;
   /**
@@ -159,6 +184,9 @@ function manifest(opts: ScaffoldOptions): string {
     build: 'sigil build',
     check: 'sigil check',
     dev: `node dev.${ext(language)}`,
+    // the runtime it embeds lives in `sigil.json` rather than here, so this
+    // script and the release workflow cannot name different ones
+    package: 'sigil package',
   };
 
   const devDependencies: Record<string, string> = {
@@ -392,6 +420,100 @@ export default [
 }
 
 /**
+ * The release workflow, which is the half of packaging a scaffold can supply.
+ *
+ * `sigil package` produces binaries for a machine; a release is every target at
+ * once, attached to a tag, which is CI's job. It is scaffolded rather than
+ * documented because the app owns its own CI -- the same argument that puts the
+ * command tree in the app's directory rather than in a manifest -- and because
+ * the one-job shape is not obvious: it exists only because Bun cross-compiles,
+ * and the Node equivalent is a matrix.
+ *
+ * The runtime is named in `sigil.json` rather than on the command line, so
+ * there is one place an app says what it ships on and this file cannot come to
+ * disagree with the app's own `package` script. The comment block says what to change for
+ * Node, because a workflow that silently only works one way is worse than one
+ * that explains itself.
+ *
+ * @param name - The app's name, which is also its bin.
+ * @returns The workflow.
+ */
+function releaseWorkflow(name: string, manager: Manager): string {
+  const install = manager === 'npm' ? 'npm ci' : `${manager} install --frozen-lockfile`;
+  const test = `${manager} run test`;
+  const run = manager === 'npm' ? 'npx' : manager === 'pnpm' ? 'pnpm exec' : 'vlt exec';
+  const targets = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'windows-x64'];
+
+  return `# Build a binary for every target and attach them to a GitHub release.
+#
+# Triggered by a version tag, so a release is \`git tag v1.2.3 && git push --tags\`.
+#
+# This is one job because \`sigil.json\` says \`"runtime": "bun"\`, and Bun
+# cross-compiles: all five binaries are produced on one Linux runner. Switching
+# to \`"runtime": "node"\` means a matrix instead -- a Node single executable is
+# built by injecting a blob into the host's own node, so each target has to be
+# built on its own machine.
+#
+# What is deliberately not here: notarization. An unsigned macOS binary that
+# somebody downloads is blocked by Gatekeeper whatever this workflow does, and
+# getting past it needs an Apple Developer ID and a \`notarytool\` step with
+# secrets this scaffold cannot invent. \`sigil package --sign <identity>\` is
+# where the identity goes once you have one.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Use Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26
+
+      - name: Use Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: ${install}
+
+      # the tests before the binaries, because a release is the one build
+      # nobody gets to redo
+      - name: Test
+        run: ${test}
+
+      - name: Package
+        run: |
+          ${run} sigil package${targets.map((target) => ` \\\n            --target ${target}`).join('')}
+
+      - name: Create the release
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \\
+            --title "$GITHUB_REF_NAME" \\
+            --generate-notes${targets
+              .map(
+                (target) =>
+                  ` \\\n            dist/${name}-${target}${target.startsWith('windows') ? '.exe' : ''}`
+              )
+              .join('')}
+`;
+}
+
+/**
  * The vitest config, whose one option is the one an author hits on day one.
  *
  * `disableConsoleIntercept` is not taste. vitest replaces `console.log` and
@@ -581,13 +703,30 @@ export function scaffold(opts: ScaffoldOptions): ScaffoldFile[] {
     // a project's conventions should be explicit, and it is what stops
     // `sigil add` having to guess and print a guess
     {
-      contents: `${JSON.stringify({ components: 'src/components' }, undefined, 2)}\n`,
+      // `package.runtime` is written rather than left out, which is the one
+      // place this scaffold answers a question `sigil package` deliberately
+      // refuses to answer for an existing app. The reason the two are not in
+      // conflict: refusing is right when the answer is unknowable -- an app
+      // already has users, and changing what it runs on is a decision somebody
+      // has to make -- while a brand-new app has no users and needs a release
+      // workflow that works on the first tag. Bun because it cross-compiles,
+      // so the scaffolded workflow is one job rather than a matrix; the file is
+      // the app's and the comment in the workflow says what to change.
+      contents: `${JSON.stringify(
+        { components: 'src/components', package: { runtime: 'bun' } },
+        undefined,
+        2
+      )}\n`,
       path: 'sigil.json',
     },
     { contents: devRunner(opts), executable: true, path: `dev.${e}` },
     { contents: entry(opts), path: `src/index.${e}` },
     { contents: vitestConfig(), path: `vitest.config.${e}` },
     { contents: appTest(opts), path: `test/app.test.${e}` },
+    {
+      contents: releaseWorkflow(opts.name, opts.manager),
+      path: '.github/workflows/release.yml',
+    },
   ];
 
   if (opts.language === 'ts') {

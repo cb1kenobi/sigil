@@ -437,6 +437,164 @@
           "env": [],
           "hidden": false,
           "long": [
+            "--clean",
+            "--no-clean"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--commands"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--entry"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--external"
+          ],
+          "multiple": true,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--name"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--no-shake",
+            "--shake"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--out"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [
+            "bun",
+            "node"
+          ],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--runtime"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--sign"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--target"
+          ],
+          "multiple": true,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        }
+      ],
+      "path": [
+        "package"
+      ],
+      "runnable": true,
+      "tokens": [
+        "package"
+      ]
+    },
+    {
+      "args": [
+        {
+          "choices": [],
+          "env": [],
+          "multiple": false,
+          "name": "dir",
+          "required": false,
+          "type": "string"
+        }
+      ],
+      "default": false,
+      "hidden": false,
+      "options": [
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
             "--check"
           ],
           "multiple": false,

@@ -111,6 +111,24 @@ export interface BundleOptions {
    * any other.
    */
   readonly external?: readonly string[];
+  /**
+   * Which module form the bundle comes out as. `esm` by default.
+   *
+   * `esm` is what every app ships and the only thing `sigil build` produces:
+   * an entry plus a chunk per command, reached by the `import()` the generated
+   * tree carries.
+   *
+   * `cjs` exists for one consumer -- `sigil package --runtime node`, because a
+   * Node single executable runs its embedded main script as CommonJS and cannot
+   * `import()` anything at all. It is one file rather than an entry and chunks,
+   * since a SEA has nowhere to put a chunk, and its generated entry wraps the
+   * `main()` call because CommonJS cannot hold a top-level `await`.
+   *
+   * It is not offered as a build output, and that is deliberate: a `.cjs`
+   * written into `dist/` is a thing somebody would run directly, where the
+   * reason it exists is that something is about to embed it.
+   */
+  readonly form?: 'cjs' | 'esm';
   /** Where the bundle goes. */
   readonly out: string;
   /**
@@ -242,12 +260,33 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     binName,
     defaultLocale,
     external = [],
+    form = 'esm',
     out,
     safelist,
     shake = true,
     sourcemap = true,
     tree,
   } = options;
+
+  // CommonJS is one file by construction rather than by preference: a Node
+  // single executable embeds one script and cannot `import()` at all -- every
+  // spelling of it, relative, an absolute `file://` URL, and
+  // `new Function('s', 'return import(s)')`, fails `ERR_UNKNOWN_BUILTIN_MODULE`
+  // inside a SEA, because the injected loader resolves builtins and nothing
+  // else. So there is nowhere for a chunk to be and `codeSplitting` is off.
+  //
+  // What that costs is the lazy *parse* and not the lazy *execution*: rolldown
+  // inlines each `import()`ed module and leaves the `import()` itself, so a
+  // command body still runs only when its command is matched. Measured, the
+  // parse was worth nothing anyway -- see AGENTS.md.
+  const cjs = form === 'cjs';
+
+  // named once and read by both the write and the `chmod`, because the two
+  // really did come apart: the write took the extension from `form` while the
+  // `chmod` spelled `.mjs` on its own, so a CommonJS bundle was written
+  // correctly and then failed with an `ENOENT` naming a file the build had
+  // never been asked to produce
+  const entryFile = `${binName}.${cjs ? 'cjs' : 'mjs'}`;
 
   // imported here rather than at the top, the way the runtime defers its own
   // heavy modules: rolldown is a native binary, and `sigil check` has no use
@@ -511,14 +550,15 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
   // earlier, because it is `rolldown()`'s `input`; see `writeEntry()`.
   try {
     if (generated) {
-      writeEntry(generated, app, tree, defaultLocale);
+      writeEntry(generated, app, tree, defaultLocale, cjs);
     }
 
     const written = await bundle.write({
       chunkFileNames: 'chunks/[name]-[hash].mjs',
+      ...(cjs && { codeSplitting: false }),
       dir: out,
-      entryFileNames: `${binName}.mjs`,
-      format: 'esm',
+      entryFileNames: entryFile,
+      format: cjs ? 'cjs' : 'esm',
       minify: true,
       // the first thing anybody debugging a built app wants, and nothing to
       // whoever never opens one -- but several times the size of the code it
@@ -572,7 +612,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       }))
       .sort((one, other) => other.size - one.size);
 
-    const executable = join(out, `${binName}.mjs`);
+    const executable = join(out, entryFile);
 
     // the bit, because a shebang without it is a file nobody can run. `0o755`
     // rather than a mask off the umask: what a bin needs is the same everywhere
@@ -1177,7 +1217,8 @@ function writeEntry(
   at: GeneratedEntry,
   app: DiscoveredApp,
   tree: ResolvedTree,
-  defaultLocale: string | undefined
+  defaultLocale: string | undefined,
+  wrap: boolean
 ): void {
   mkdirSync(at.dir, { recursive: true });
 
@@ -1189,6 +1230,7 @@ function writeEntry(
       schemaModule: app.entry,
       tree,
       version: app.manifest.version,
+      wrap,
     }),
     'utf-8'
   );

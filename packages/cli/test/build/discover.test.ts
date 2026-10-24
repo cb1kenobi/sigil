@@ -231,7 +231,14 @@ describe("reading where an app's commands are", () => {
       const dir = commands?.kind === 'directory' ? commands.dir : '';
       const { commands: list } = resolveCommandTree(dir);
 
-      expect(list.map((c) => c.name)).toStrictEqual(['add', 'build', 'check', 'new', 'reference']);
+      expect(list.map((c) => c.name)).toStrictEqual([
+        'add',
+        'build',
+        'check',
+        'new',
+        'package',
+        'reference',
+      ]);
       expect(at(list, 'check').desc).toBe('Check an app without building it');
       expect(at(list, 'build').desc).toBe('Build an app into a bundle that depends on nothing');
       expect(at(list, 'check').module).toBe(

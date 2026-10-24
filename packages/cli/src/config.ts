@@ -29,6 +29,9 @@
  * `"sourcemap": true` in the file, and the file wins over the built-in default.
  */
 
+// the module rather than the barrel, which would pull the whole build -- and
+// `compile.ts` reads nothing from here, so the dependency runs one way
+import { RUNTIMES } from './build/compile.ts';
 import { createConfigSync, json, type ConfigLayer, type ConfigSchema } from '@ttylabs/sigil/config';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -89,6 +92,36 @@ export interface BuildConfig {
   readonly sourcemap?: boolean;
 }
 
+/** What `sigil package` reads from the config. */
+export interface PackageConfig {
+  /**
+   * Where the binaries go, relative to the app.
+   *
+   * Falls back to `build.out` and then to `dist`, because the package *is* the
+   * build plus a compile step: an app that said once where its build goes has
+   * said where its binaries go, and a second key answering the same question
+   * differently is the thing two readers of one file are warned about above.
+   */
+  readonly out?: string;
+  /**
+   * Which runtime the binary embeds.
+   *
+   * There is no default and this is the place to declare it: which runtime an
+   * app ships on is a fact about the app rather than about the invocation, so
+   * saying it here means every `sigil package` and every CI step agrees without
+   * repeating a flag. `--runtime` still beats it.
+   */
+  readonly runtime?: string;
+  /**
+   * The `<platform>-<arch>` targets to build for.
+   *
+   * Defaults to the machine the build runs on. Only Bun can honour more than
+   * one, because a Node single executable is built by injecting a blob into the
+   * host's own `node`.
+   */
+  readonly target?: readonly string[];
+}
+
 /** What `sigil reference` reads from the config. */
 export interface ReferenceConfig {
   /**
@@ -130,6 +163,15 @@ export interface SigilConfig {
    */
   readonly locale?: string;
   /**
+   * What `sigil package` embeds, and what it builds for.
+   *
+   * A section of its own rather than keys under `build`, because the one thing
+   * in it that has no default -- the runtime -- is a statement about what the
+   * app ships on rather than about how it is bundled. `out` is the exception
+   * and falls back to `build.out`, since the package is the build plus a step.
+   */
+  readonly package?: PackageConfig;
+  /**
    * Where `sigil reference` writes, when the invocation does not say.
    *
    * Top level rather than under `build`, for the reason `locale` is: `build` is
@@ -145,6 +187,7 @@ export interface SigilConfig {
 /** The fields each section may hold, as the one list `readSection()` picks by. */
 const FIELDS = {
   build: ['external', 'name', 'out', 'safelist', 'shake', 'sourcemap'],
+  package: ['out', 'runtime', 'target'],
   reference: ['out', 'snapshot'],
 } as const satisfies Record<string, readonly string[]>;
 
@@ -179,6 +222,13 @@ export const CONFIG_SCHEMA: ConfigSchema = {
   'build.sourcemap': { type: 'bool' },
   components: { type: 'string' },
   locale: { type: 'string' },
+  'package.out': { type: 'string' },
+  // the spellings rather than a free string, so a typo is refused here with
+  // the list rather than reaching `compile.ts` and being refused there: the
+  // vocabulary is the same one `--runtime`'s own `choices` uses, which is what
+  // keeps the flag and the file from meaning two different things
+  'package.runtime': { choices: [...RUNTIMES], type: 'string' },
+  'package.target': { multiple: true, type: 'string' },
   'reference.out': { type: 'string' },
   'reference.snapshot': { type: 'string' },
 };
@@ -251,6 +301,7 @@ export function readSigilConfig(root: string): SigilConfig {
   const build = readSection(config.get('build'), 'build');
   const components = readName(config.get('components'), 'components');
   const locale = readName(config.get('locale'), 'locale');
+  const packaging = readSection(config.get('package'), 'package');
   const reference = readSection(config.get('reference'), 'reference');
 
   // the keys are set only where the file said something, so that a directory
@@ -260,6 +311,7 @@ export function readSigilConfig(root: string): SigilConfig {
     ...(build && { build: readBuild(build as BuildConfig) }),
     ...(components !== undefined && { components: readRelative(components, 'components') }),
     ...(locale !== undefined && { locale }),
+    ...(packaging && { package: readPackage(packaging as PackageConfig) }),
     ...(reference && { reference: readReference(reference as ReferenceConfig) }),
   };
 }
@@ -381,6 +433,32 @@ function readReference(reference: ReferenceConfig): ReferenceConfig {
   }
 
   return reference;
+}
+
+/**
+ * The `package` section, with the two checks the schema's vocabulary cannot
+ * make.
+ *
+ * `runtime` is already narrowed by `choices` in the schema, so what is left is
+ * the same non-emptiness every name here needs, plus the targets being names
+ * rather than blanks. They are deliberately **not** parsed into targets here:
+ * `parseTarget()` is where that vocabulary lives and where the error naming
+ * every target is written, and a second reader of it in this file is a second
+ * answer to what a target is.
+ *
+ * @param packaging - What the merged view holds at `package`.
+ * @returns The section.
+ * @throws If a name in it is empty.
+ */
+function readPackage(packaging: PackageConfig): PackageConfig {
+  readName(packaging.out, 'package.out');
+  readName(packaging.runtime, 'package.runtime');
+
+  if (packaging.target?.some((target) => !target)) {
+    throw new Error(`${CONFIG_FILE}: "package.target" must be an array of targets`);
+  }
+
+  return packaging;
 }
 
 /**
