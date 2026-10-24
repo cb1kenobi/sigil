@@ -397,6 +397,29 @@ describe('sigil package', () => {
       }
     }, 60_000);
 
+    it('should refuse an empty signing identity before building', async () => {
+      // `--sign=` is how a value gets deliberately emptied, and it used to pass
+      // all three checks that read an identity -- reaching `codesign` as
+      // `: no identity found` after the bundle and an 85 MB compile had run
+      rmSync(out, { force: true, recursive: true });
+
+      const { err } = await sigil(
+        'package',
+        join(fixtures, 'buildable'),
+        '--out',
+        out,
+        '--runtime',
+        'bun',
+        '--target',
+        'darwin-arm64',
+        '--sign='
+      );
+
+      expect(err).toContain('empty identity');
+      expect(existsSync(out)).toBe(false);
+      expect(process.exitCode).toBeTruthy();
+    }, 60_000);
+
     it('should refuse an --out that holds the app itself', async () => {
       // the same refusal and the same message `build` carries, because it is
       // the same function: an `--out` that is the app root is the one way a
@@ -477,7 +500,14 @@ describe('sigil package', () => {
         // evaluate in order -- so every signed Node binary was reported about
         // 0.3 MB light: 138.6 MB printed for a 138.8 MB file.
         // to the printed precision rather than approximately: the defect was
-        // 0.28 MB, which a `toBeCloseTo(..., 0)` tolerance of 0.5 waves through
+        // 0.28 MB, which a `toBeCloseTo(..., 0)` tolerance of 0.5 waves through.
+        //
+        // Worth knowing what this can and cannot catch, because it is
+        // platform-scoped and the comment above used to imply otherwise. The
+        // figure matching the file is true everywhere and asserted everywhere;
+        // the **ordering** defect it was written for was a signing one, so only
+        // a platform that signs can see it -- reintroduce it on Linux and the
+        // bytes are identical either way. On this matrix that is the macOS legs.
         const printed = /(\d+\.\d) MB/.exec(stdout)?.[1];
         expect(printed).toBeDefined();
         expect(printed).toBe((statSync(binary).size / 1048576).toFixed(1));

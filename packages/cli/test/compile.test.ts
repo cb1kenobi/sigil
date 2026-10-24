@@ -12,16 +12,22 @@ import {
   targets,
   type Target,
 } from '../src/build/compile.ts';
-import { whichSync } from '@ttylabs/sigil/which';
-import { afterEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 /**
  * The target vocabulary, and what each runtime refuses.
  *
- * All of it is pure -- no disk, no spawn -- which is why it is a file of its
- * own: the two `compile*()` functions are a bundler and a blob injector away
- * from anything assertable, and everything that decides *whether they should
- * run at all* is here.
+ * Everything that decides *whether they should run at all* is here, which is
+ * why it is a file of its own: the two `compile*()` functions are a bundler and
+ * a blob injector away from anything assertable.
+ *
+ * `assertCompilable()` is pure -- no disk, no spawn -- and most of this file
+ * asserts it as such. `assertToolchain()` is not, and the last describe block
+ * says so: it walks `PATH` through `whichSync()`, and that walk is the
+ * mechanism under test rather than an implementation detail to mock away.
  *
  * `assertCompilable()` is the interesting half. It is asked twice on purpose --
  * once by `sigil package` before the bundle, once by the compile function
@@ -177,18 +183,38 @@ describe('what a runtime can build', () => {
 });
 
 describe('what gets code-signed', () => {
-  // `signsOn()` is private, so this asserts it through the two things that read
-  // it: the toolchain pre-flight asking for `codesign`, and nothing else
-  // asking. Both are pure except for a `PATH` lookup.
-  const path = process.env.PATH;
+  /**
+   * A `PATH` holding a stub `bun` and no `codesign`.
+   *
+   * Emptying `PATH` was the first version of this and made the Bun half of
+   * these tests **vacuous**: `assertToolchain()` locates `bun` first, so every
+   * Bun case exited at that check and the `codesign` branch -- the one
+   * `signsOn()` exists to decide, and the one on both tests' names -- was never
+   * reached. Measured: reintroducing the silent `--sign` drop by deleting
+   * `|| identity !== undefined` from `signsOn()` left all 38 tests passing.
+   *
+   * So `bun` has to be findable and `codesign` has to not be, which is one
+   * directory rather than a mock -- `whichSync()` walks `PATH`, and that walk
+   * is the mechanism under test.
+   */
+  let fakebin: string;
+  let path: string | undefined;
+
+  beforeEach(() => {
+    path = process.env.PATH;
+    fakebin = mkdtempSync(join(tmpdir(), 'sigil-fakebin-'));
+    writeFileSync(join(fakebin, 'bun'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    process.env.PATH = fakebin;
+  });
 
   afterEach(() => {
     process.env.PATH = path;
+    rmSync(fakebin, { force: true, recursive: true });
   });
 
   it('should want codesign for a darwin target on the node runtime', () => {
-    process.env.PATH = '';
-
+    // node's output is unsigned and unrunnable until it is signed, so this is
+    // unconditional
     expect(() => assertToolchain('node', [parseTarget('darwin-arm64')], undefined)).toThrow(
       /codesign is not installed/
     );
@@ -197,43 +223,36 @@ describe('what gets code-signed', () => {
   it('should not want codesign for a bun darwin target with no identity', () => {
     // Bun's output is already `adhoc, linker-signed`, so this path never runs
     // `codesign` -- and demanding a tool the run will not use would refuse a
-    // perfectly good cross-compile from a Linux host, where there is none
-    process.env.PATH = '';
-
-    expect(() => assertToolchain('bun', [parseTarget('darwin-arm64')], undefined)).toThrow(
-      /bun is not installed/
-    );
-    expect(() => assertToolchain('bun', [parseTarget('darwin-arm64')], undefined)).not.toThrow(
-      /codesign/
-    );
+    // perfectly good cross-compile from a Linux host, where there is none.
+    // `bun` is findable here, so reaching the end means the codesign branch was
+    // genuinely skipped rather than short-circuited
+    expect(() => assertToolchain('bun', [parseTarget('darwin-arm64')], undefined)).not.toThrow();
   });
 
   it('should want codesign for a bun darwin target when an identity was asked for', () => {
-    // the fix for `--sign` being silently discarded on the Bun path: if the
-    // identity is honoured, the tool it needs is part of the pre-flight
-    const bun = whichSync('bun');
-
-    if (!bun) {
-      return;
-    }
-
-    process.env.PATH = '';
-
+    // the assertion the silent-drop fix rests on: if `--sign` is honoured on
+    // the Bun path, the tool it needs is part of the pre-flight. Deleting the
+    // identity half of `signsOn()` fails exactly here
     expect(() =>
       assertToolchain('bun', [parseTarget('darwin-arm64')], 'Developer ID Application: X')
-    ).toThrow(/bun is not installed|codesign is not installed/);
+    ).toThrow(/codesign is not installed/);
   });
 
-  it('should want codesign for no non-darwin target, on either runtime', () => {
-    process.env.PATH = '';
-
+  it('should want codesign for no non-darwin target, whatever the identity', () => {
     for (const runtime of RUNTIMES) {
       for (const text of ['linux-x64', 'linux-arm64', 'windows-x64']) {
-        const asked = (): void => assertToolchain(runtime, [parseTarget(text)], undefined);
-
-        // bun is still wanted on its own path; codesign never is
-        expect(asked).not.toThrow(/codesign/);
+        for (const identity of [undefined, '-', 'Developer ID Application: X']) {
+          expect(() => assertToolchain(runtime, [parseTarget(text)], identity)).not.toThrow();
+        }
       }
     }
+  });
+
+  it('should want codesign when any one target of several needs it', () => {
+    // the pre-flight is over the whole set, so a release that includes one
+    // darwin target needs the tool even though four of its five do not
+    expect(() =>
+      assertToolchain('node', [parseTarget('linux-x64'), parseTarget('darwin-arm64')], undefined)
+    ).toThrow(/codesign is not installed/);
   });
 });

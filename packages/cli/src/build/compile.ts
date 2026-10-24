@@ -290,6 +290,58 @@ export function assertToolchain(
 }
 
 /**
+ * Refuses an identity this target cannot use.
+ *
+ * `sigil package` refuses the same thing in its pre-flight, over the whole set
+ * of targets. This is the per-target form, and it exists for the reason the
+ * entry above gives for asking `assertCompilable()` twice: these functions are
+ * **exported**, so a caller that is not the command would otherwise pass
+ * `{ sign: 'Developer ID Application: ...', target: linux-x64 }`, get success,
+ * get no signing, and get no signal -- which is round 1's silent-drop defect
+ * one layer down from where it was fixed.
+ *
+ * @param identity - What the caller asked for, if anything.
+ * @param target - What is being built.
+ * @throws If an identity was named and this target cannot be signed.
+ */
+function assertSignUsable(identity: string | undefined, target: Target): void {
+  if (identity === undefined) {
+    return;
+  }
+
+  if (!isIdentity(identity)) {
+    throw new Error(
+      `A codesigning identity cannot be empty. Pass a real identity, or none at all.`
+    );
+  }
+
+  if (target.platform !== 'darwin') {
+    throw new Error(
+      `A codesigning identity only applies to a macOS binary, and ${label(target)} is not one.`
+    );
+  }
+}
+
+/**
+ * Whether a string names a codesigning identity.
+ *
+ * `undefined` is "none given" and so is `''`: `--sign=` is how a value gets
+ * deliberately emptied, and an empty identity is not one `codesign` can use --
+ * measured, it answers `: no identity found` after the bundle and an 85 MB
+ * compile have already run. Whitespace is the same thing less mechanically.
+ *
+ * Asked in one place so that the pre-flight, `signsOn()` and the identity
+ * `signed()` passes to `codesign` cannot disagree about what counts: all three
+ * tested `!== undefined` and so all three took `''` for an identity.
+ *
+ * @param identity - What `--sign` said, if anything.
+ * @returns Whether it names one.
+ */
+export function isIdentity(identity: string | undefined): boolean {
+  return identity !== undefined && identity.trim() !== '';
+}
+
+/**
  * Whether a binary for this target will be code-signed.
  *
  * One function so that the pre-flight and the compile step cannot disagree
@@ -310,7 +362,7 @@ function signsOn(target: Target, runtime: Runtime, identity: string | undefined)
   // Node's output is unsigned and unrunnable until it is signed, so it is
   // always signed. Bun's is already `adhoc, linker-signed`, so it is signed
   // only when somebody asked for a particular identity
-  return runtime === 'node' || identity !== undefined;
+  return runtime === 'node' || isIdentity(identity);
 }
 
 /** What `compile()` was asked to do. */
@@ -348,6 +400,7 @@ export function compileWithBun(options: CompileOptions): CompileResult {
   const { entry, out, sign: identity, target } = options;
 
   assertCompilable('bun', target);
+  assertSignUsable(identity, target);
 
   const bun = locate('bun', '--runtime bun needs it to compile the binary.');
   const run = spawnSync(
@@ -399,6 +452,7 @@ export function compileWithNode(options: CompileOptions): CompileResult {
   const { entry, out, sign: identity, target } = options;
 
   assertCompilable('node', target);
+  assertSignUsable(identity, target);
 
   // the config is the interface `--build-sea` takes, and it is written to a
   // temporary directory rather than beside the output: it names an absolute
@@ -482,12 +536,21 @@ function signed(
 
   // what was actually used rather than what was passed, so the table cannot
   // report `ad-hoc` over a Developer ID or an empty column over a real signing
-  const used = identity ?? '-';
+  const used = isIdentity(identity) ? (identity as string) : '-';
 
   try {
     sign(file, used);
   } catch (e) {
-    rmSync(file, { force: true });
+    try {
+      rmSync(file, { force: true });
+    } catch {
+      // never over the error being unwound: a removal that fails would replace
+      // `codesign failed: no identity found` -- the actionable half -- with a
+      // sentence about the file system. `compileAll()`'s cleanup was guarded
+      // from the start and this one was not, which made the AGENTS.md
+      // sentence covering "neither removal" true of one of them
+    }
+
     throw e;
   }
 

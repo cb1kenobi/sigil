@@ -541,15 +541,38 @@ describe('the release workflow', () => {
     expect(workflow()).toContain('oven-sh/setup-bun');
   });
 
-  it("should spell its commands with the app's own package manager", () => {
-    // a scaffolded CI that installs with a manager the app was not set up with
-    // fails on the first tag, which is the one run nobody gets to redo
-    expect(workflow({ manager: 'pnpm' })).toContain('pnpm install --frozen-lockfile');
-    expect(workflow({ manager: 'pnpm' })).toContain('pnpm exec sigil package');
-    expect(workflow({ manager: 'pnpm' })).not.toContain('npm ci');
+  it.each([
+    ['pnpm', 'pnpm install --frozen-lockfile', 'pnpm exec sigil package', 'pnpm run test'],
+    ['npm', 'npm ci', 'npx sigil package', 'npm run test'],
+    // `vlt` is the ternary's fallthrough branch and was the one manager this
+    // test did not read -- which is also the one whose spellings nobody had
+    // verified when the workflow was written, so misspelling `vlt exec` as
+    // `vlt x` would have passed the suite. Checked against a real vlt 1.1.1:
+    // `install --frozen-lockfile`, `exec <executable>` and `run <script>` are
+    // all real.
+    ['vlt', 'vlt install --frozen-lockfile', 'vlt exec sigil package', 'vlt run test'],
+  ] as const)(
+    'should spell its commands with %s, the manager the app was set up with',
+    (manager, install, exec, test) => {
+      // a scaffolded CI that installs with a manager the app was not set up
+      // with fails on the first tag, which is the one run nobody gets to redo
+      const file = workflow({ manager });
 
-    expect(workflow({ manager: 'npm' })).toContain('npm ci');
-    expect(workflow({ manager: 'npm' })).toContain('npx sigil package');
+      expect(file).toContain(install);
+      expect(file).toContain(exec);
+      expect(file).toContain(test);
+    }
+  );
+
+  it('should install any manager the runner does not already have', () => {
+    // npm ships with Node and pnpm is on the GitHub runner images. `vlt` is
+    // neither, and the workflow ran `vlt install` on a runner where nothing had
+    // installed it -- so the release failed at its first step on the first tag.
+    expect(workflow({ manager: 'vlt' })).toContain('npm install --global vlt');
+
+    // and nothing superfluous for the two that are already there
+    expect(workflow({ manager: 'npm' })).not.toContain('--global');
+    expect(workflow({ manager: 'pnpm' })).not.toContain('--global');
   });
 
   it('should agree with the runtime sigil.json declares', () => {

@@ -2855,8 +2855,12 @@ about what a valid app is would be the worse half of the feature.
   cannot run, sitting under the name a release workflow attaches by.
 
   So `assertToolchain()` is a second pre-flight step, kept separate rather than
-  folded in because `assertCompilable()` is pure and `compile.test.ts` asserts
-  so in its header. It asks for `codesign` only where a binary will _actually_
+  folded in because `assertCompilable()` is pure -- no disk, no spawn -- and
+  most of `compile.test.ts` asserts it as such. The file's header used to claim
+  purity of the **whole file**, which stopped being true the moment
+  `assertToolchain()` got tests: those walk `PATH` through `whichSync()`, which
+  is the mechanism under test rather than a detail to mock away. The header says
+  which half is which now. It asks for `codesign` only where a binary will _actually_
   be signed, which `signsOn()` decides for both it and the compile step -- one
   function, because a pre-flight demanding a tool the run never uses would
   refuse a perfectly good cross-compile from a Linux host, where there is no
@@ -2872,6 +2876,72 @@ about what a valid app is would be the worse half of the feature.
   failure the build can see coming is a build error -- and it is asserted as the
   **absence of an output directory**, because a refusal that arrives after the
   bundle is one that charged for a type-check and a bundle first.
+
+- **A test that empties `PATH` to prove something about `codesign` proves
+  nothing, because `bun` is looked up first.** The first version of the
+  `signsOn()` tests did exactly that: `assertToolchain()` locates `bun` before
+  `codesign`, so every Bun case exited at the first check and the branch on both
+  tests' names was never reached. Measured, and this is the number that matters:
+  reintroducing the silent `--sign` drop by deleting `|| isIdentity(identity)`
+  from `signsOn()` -- one token, round 1's finding 3 back -- left **all 38 tests
+  passing**. A `PATH` holding a stub `bun` and no `codesign` is what actually
+  exercises it, which is one temporary directory rather than a mock, and the
+  same sabotage now fails exactly the test written for it.
+
+  The general shape, because it is not about `bun`: a guard that short-circuits
+  makes every test downstream of the short circuit vacuous, and emptying an
+  environment variable short-circuits _everything_ that reads it. Remove one
+  thing, not all of them.
+
+- **An empty identity is not an identity, and all three readers thought it was.**
+  `--sign=` is how a value gets deliberately emptied -- which is a documented
+  rule of this parser -- and `assertSignable()`, `signsOn()` and `signed()`'s
+  own `identity ?? '-'` each tested only for `undefined`. So it passed the
+  entire pre-flight and reached `codesign` as `: no identity found` **after** the
+  bundle and an 85 MB compile. `isIdentity()` is the one reader now, and it
+  trims, because whitespace is the same mistake one step less mechanical.
+
+- **The failing target's own binary is removed too, which the first cleanup
+  missed.** `compileAll()`'s `catch` iterated the targets already _pushed_ --
+  the successes -- so a compiler dying mid-write left a truncated file under
+  exactly the name the scaffolded release workflow attaches by. Only the
+  **sign** failure cleaned up after itself, inside `signed()`. So the sentence
+  "leaves nothing behind if one of them fails" was true of two of the three
+  failure sites. It removes the failing target's outfile first now.
+
+  And `signed()`'s own removal is guarded, which it was not: an `rmSync` that
+  threw would have replaced `codesign failed: no identity found` -- the
+  actionable half -- with a sentence about the file system, which is the thing
+  the entry above says neither removal may do. One of the two implemented it.
+
+- **The `Signed` column names the signer rather than asserting the signature.**
+  It printed `ad-hoc (linker)` for an untouched Bun binary, which is not an
+  observation: Bun's output being `adhoc, linker-signed` was measured **on a
+  Mac**, and the scaffolded workflow produces its darwin binaries on an Ubuntu
+  runner where that has never been checked. A cell that states a property of
+  bytes nobody looked at is worse than one that is vague, because the failure it
+  would hide -- a darwin binary that is not signed after all -- surfaces as
+  SIGKILL on a stranger's machine. It says `bun` now, which is a fact either
+  way and still answers what an empty cell got wrong.
+
+- **The exported compile functions refuse an identity they cannot use, for the
+  reason they already re-ask `assertCompilable()`.** That entry's own
+  justification is that an exported caller must not reach a spawn the command
+  would have refused -- and `--sign` with a non-darwin target was refused only
+  in `package.ts`, so `compileWithBun({ sign: 'Developer ID ...', target:
+  linux-x64 })` returned success, signed nothing, and said nothing. Round 1's
+  silent-drop defect, one layer below where it was fixed.
+
+- **A scaffolded workflow installs the package manager the runner does not
+  have.** npm ships with Node and pnpm is on the GitHub images; `vlt` is
+  neither, and the generated workflow ran `vlt install --frozen-lockfile` on a
+  runner where nothing had installed it -- so a vlt app's release failed at its
+  first step on its first tag. The drift guard beside it read `pnpm` and `npm`
+  only, and `vlt` is the ternary's fallthrough, so misspelling `vlt exec` as
+  `vlt x` would have passed the suite: the one manager whose spellings nobody
+  had verified was the one the test did not read. All three are asserted now,
+  and the spellings are verified against a real vlt 1.1.1 -- `install
+  --frozen-lockfile`, `exec <executable>` and `run <script>` are all real.
 
 - **The Node version threshold is one constant, and the tests that guard on it
   read it rather than spelling it.** `NODE_BUILD_SEA` is exported and

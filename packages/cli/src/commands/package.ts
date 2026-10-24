@@ -34,6 +34,7 @@ import {
   type CompileResult,
   displayPath,
   hostTarget,
+  isIdentity,
   label,
   NODE_BUILD_SEA,
   outputName,
@@ -331,7 +332,21 @@ function chooseTargets(
  * @returns What was produced.
  */
 function assertSignable(identity: string | undefined, targets: readonly Target[]): void {
-  if (identity === undefined || targets.some((target) => target.platform === 'darwin')) {
+  if (identity === undefined) {
+    return;
+  }
+
+  // `--sign=` is how a value gets deliberately emptied, and an empty identity
+  // is not one -- it reached `codesign` as `: no identity found` after the
+  // bundle and the compile had both run, which is the rule above with a hole
+  // the size of one string
+  if (!isIdentity(identity)) {
+    throw new Error(
+      `--sign was given an empty identity. Name a codesigning identity, or drop the flag -- "" is not one, and the only thing it can produce is a codesign failure after the binary has been built.`
+    );
+  }
+
+  if (targets.some((target) => target.platform === 'darwin')) {
     return;
   }
 
@@ -384,9 +399,16 @@ function compileAll(
         target,
       });
     } catch (e) {
-      for (const written of compiled) {
+      // the failing target's own file first, then the ones before it. Only the
+      // *sign* failure cleans up after itself inside `signed()`; a compiler
+      // that dies mid-write -- a full disk over five 85-110 MB binaries, a
+      // killed `bun` -- leaves a truncated file under exactly the name the
+      // scaffolded release workflow attaches by, which is the
+      // indistinguishability this cleanup exists to prevent. It was true of the
+      // earlier targets and not of the failing one.
+      for (const written of [file, ...compiled.map((one) => one.file)]) {
         try {
-          rmSync(join(out, written.file), { force: true });
+          rmSync(join(out, written), { force: true });
         } catch {
           // never over the error being unwound: see `undo()` in `bundle.ts`
         }
@@ -419,7 +441,14 @@ function describeSigning(identity: string | undefined, target: Target, runtime: 
     return identity === '-' ? 'ad-hoc' : identity;
   }
 
-  return target.platform === 'darwin' && runtime === 'bun' ? 'ad-hoc (linker)' : '';
+  // `bun` rather than `ad-hoc (linker)`, which is the one cell that was not an
+  // observation. Bun's output arrives ad-hoc signed by its linker -- measured,
+  // on a Mac -- and the scaffolded workflow produces darwin binaries on an
+  // Ubuntu runner, where that has never been checked. Printing `ad-hoc
+  // (linker)` there states a property of the bytes as though this command had
+  // looked; naming the signer is a fact either way, and it still answers the
+  // question an empty cell got wrong, which is "was anything signed at all".
+  return target.platform === 'darwin' && runtime === 'bun' ? 'bun' : '';
 }
 
 /**

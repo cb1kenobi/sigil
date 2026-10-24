@@ -440,6 +440,18 @@ export default [
  */
 function releaseWorkflow(name: string, manager: Manager): string {
   const install = manager === 'npm' ? 'npm ci' : `${manager} install --frozen-lockfile`;
+
+  // npm ships with Node and pnpm is on the GitHub runner images; `vlt` is
+  // neither, and the generated workflow ran `vlt install` on a runner where
+  // nothing had installed it -- so a vlt app's release failed at "Install
+  // dependencies" on its first tag. Spelled as a step rather than left to the
+  // reader, because this file is what a scaffold is for.
+  const setup =
+    manager === 'vlt'
+      ? `
+      - name: Install vlt
+        run: npm install --global vlt`
+      : '';
   const test = `${manager} run test`;
   const run = manager === 'npm' ? 'npx' : manager === 'pnpm' ? 'pnpm exec' : 'vlt exec';
   const targets = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'windows-x64'];
@@ -485,6 +497,7 @@ jobs:
 
       - name: Use Bun
         uses: oven-sh/setup-bun@v2
+${setup}
 
       - name: Install dependencies
         run: ${install}
