@@ -63,29 +63,8 @@ import {
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { PromptError, select, table } from '@ttylabs/sigil/components';
-import { rmSync, statSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
-
-/**
- * A cheap fingerprint of whatever is at a path, for telling "changed" from not.
- *
- * Size and mtime rather than a hash: the question is only whether this run
- * wrote the file, the two writers are a bundler and a blob injector that change
- * the size every time, and hashing 100 MB on a failure path to decide whether
- * to delete it would cost more than the delete.
- *
- * @param file - The path.
- * @returns A string that differs when the file does, and `''` when it is absent.
- */
-function stamp(file: string): string {
-  try {
-    const stats = statSync(file);
-
-    return `${stats.size}:${stats.mtimeMs}`;
-  } catch {
-    return '';
-  }
-}
 
 /** One binary that was produced, as the summary and the table read it. */
 type Built = CompileResult & { readonly file: string; readonly target: Target };
@@ -473,27 +452,6 @@ function compileAll(
   for (const target of targets) {
     const file = outputName(name, target, targets);
 
-    // what was at this path before the attempt, so the cleanup can tell a file
-    // this run wrote from one it never touched. Under `--no-clean` -- whose
-    // documented promise is to keep what is already there -- the difference is
-    // a previous release's binary, and the first version of this cleanup
-    // removed the path unconditionally, so a refused rerun destroyed it.
-    //
-    // Worth being exact about what can still reach that, because the answer is
-    // "less than when the bug was found" and a guard should not read as more
-    // load-bearing than it is. Every *pre-write* failure site inside the `try`
-    // -- `assertCompilable()`, a blank identity, a missing `bun` -- is now
-    // asked by the pre-flight over **all** targets first, so no ordinary
-    // invocation reaches here having written nothing: measured, the sentinel
-    // case that found this is now refused before the loop is entered. What is
-    // left is a mid-write compiler failure, where the stamp differs and the
-    // truncated file is correctly removed, and the race where `bun` leaves
-    // `PATH` between the pre-flight and target three of five. It is kept for
-    // the race, and for the reason `assertCompilable()` is asked twice: the
-    // cost is three lines and the failure it prevents is destroying somebody's
-    // last good release.
-    const before = stamp(join(out, file));
-
     try {
       const one = runtime === 'bun' ? compileWithBun : compileWithNode;
 
@@ -510,11 +468,19 @@ function compileAll(
       // scaffolded release workflow attaches by, which is the
       // indistinguishability this cleanup exists to prevent. It was true of the
       // earlier targets and not of the failing one.
-      // the failing target's file only if this run changed it, then the ones
-      // before it -- which this run certainly wrote, since they are successes
-      const ours = stamp(join(out, file)) === before ? [] : [file];
-
-      for (const written of [...ours, ...compiled.map((one) => one.file)]) {
+      // the targets built before this one, and only those. The failing
+      // target's own file is removed by whoever was writing it -- `written()`
+      // in `compile.ts` brackets exactly the part that writes -- which is both
+      // more precise and the only version that works for a direct caller of
+      // the exported compile functions.
+      //
+      // The precision matters under `--no-clean`, whose documented promise is
+      // to keep what is already there: an earlier attempt at this removed the
+      // failing target's path from here, unconditionally, so a refusal that
+      // happened *before any write* destroyed the previous release's binary
+      // sitting at it. Bracketing the write instead means a pre-write refusal
+      // has nothing to clean up, by construction rather than by a stat.
+      for (const written of compiled.map((one) => one.file)) {
         try {
           rmSync(join(out, written), { force: true });
         } catch {

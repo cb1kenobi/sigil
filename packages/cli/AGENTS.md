@@ -2927,13 +2927,40 @@ about what a valid app is would be the worse half of the feature.
   bundle and an 85 MB compile. `isIdentity()` is the one reader now, and it
   trims, because whitespace is the same mistake one step less mechanical.
 
-- **The failing target's own binary is removed too, which the first cleanup
-  missed.** `compileAll()`'s `catch` iterated the targets already _pushed_ --
-  the successes -- so a compiler dying mid-write left a truncated file under
-  exactly the name the scaffolded release workflow attaches by. Only the
-  **sign** failure cleaned up after itself, inside `signed()`. So the sentence
-  "leaves nothing behind if one of them fails" was true of two of the three
-  failure sites. It removes the failing target's outfile first now.
+- **Whoever writes the binary removes it, and the bracket starts after the
+  assertions.** This took three goes and the first two were each wrong in the
+  opposite direction, which is why the boundary is the thing pinned rather than
+  the removal.
+
+  `compileAll()`'s `catch` first iterated the targets already _pushed_ -- the
+  successes -- so a compiler dying mid-write left a truncated file under
+  exactly the name the scaffolded release workflow attaches by. Adding the
+  failing target's path to that loop fixed it and broke something else: several
+  failure sites fire **before any write**, so a refused rerun under
+  `--no-clean`, whose documented promise is to keep what is already there,
+  deleted the previous release's binary at that path. Reproduced with a
+  sentinel, through the real CLI.
+
+  So `written()` in `compile.ts` brackets exactly the part that writes --
+  after `assertCompilable()`, after `assertSignUsable()`, after the `PATH`
+  lookups -- and `compileAll()` cleans only the earlier successes. A pre-write
+  refusal then has nothing to clean up **by construction** rather than by a
+  stat, which is where a `stamp()` of size-and-mtime sat for one commit before
+  the bracket made it unnecessary.
+
+  It also has to be in `compile.ts` rather than in the command, because the
+  defect is reachable without the command: with `ulimit -f 2048` the real
+  `node --build-sea` dies mid-write, and the exported `compileWithNode()` left
+  **2,097,152 bytes** at the output path. Real `bun build --compile` unlinks its
+  own partial under the same limit, so for Bun this is a belt over Bun's braces;
+  for Node it is the only thing between a full disk and a truncated
+  `myapp-linux-x64` in a release directory.
+
+  Both directions are pinned, and a stub `bun` that writes a partial and exits
+  1 is the inducer two review rounds looked for and did not find -- a pre-made
+  _directory_ at the outfile does not work, because Bun replaces it and
+  succeeds. Removing the bracket fails one test; widening it to include the
+  assertions fails the other.
 
   And `signed()`'s own removal is guarded, which it was not: an `rmSync` that
   threw would have replaced `codesign failed: no identity found` -- the

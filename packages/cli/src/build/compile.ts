@@ -411,6 +411,46 @@ export interface CompileResult {
 }
 
 /**
+ * Runs the part of a compile that writes the binary, and removes it on failure.
+ *
+ * The bracket starts **after** the assertions and the `PATH` lookups, which is
+ * what makes it precise without a stat: nothing before it has written to `out`,
+ * so a failure inside it is a failure of something that was writing. That
+ * matters under `--no-clean`, where the path may hold a previous release's
+ * binary that a pre-write refusal must not touch.
+ *
+ * Reproduced before it existed, with `ulimit -f 2048` so the real compilers die
+ * mid-write: `compileWithNode()` threw `node --build-sea failed` and left
+ * **2,097,152 bytes** at the output path. `sigil package` was covered, because
+ * `compileAll()` cleans up in the command -- but these two functions are
+ * exported, and a direct caller got a truncated binary under the final name,
+ * which is the indistinguishability the whole cleanup exists to prevent. Real
+ * `bun build --compile` unlinks its own partial, so for that one this is a belt
+ * over Bun's braces; for Node it is the only thing between a full disk and a
+ * truncated `myapp-linux-x64` in a release directory.
+ *
+ * @param out - The binary's path.
+ * @param write - The compile, which may throw.
+ * @returns Whatever the compile returned.
+ * @throws Whatever the compile threw, never something about the removal.
+ */
+function written(out: string, write: () => CompileResult): CompileResult {
+  try {
+    return write();
+  } catch (e) {
+    try {
+      rmSync(out, { force: true });
+    } catch {
+      // never over the error being unwound: a removal that fails would replace
+      // `file too large` -- the actionable half -- with a sentence about the
+      // file system. The rule `undo()` records in `bundle.ts`
+    }
+
+    throw e;
+  }
+}
+
+/**
  * Compiles a bundle into a binary with Bun's runtime embedded.
  *
  * @param options - The bundle, the target, and where it goes.
@@ -418,12 +458,25 @@ export interface CompileResult {
  * @throws If Bun is not installed, cannot build that target, or fails.
  */
 export function compileWithBun(options: CompileOptions): CompileResult {
-  const { entry, out, sign: identity, target } = options;
+  const { out, sign: identity, target } = options;
 
   assertCompilable('bun', target);
   assertSignUsable(identity);
 
   const bun = locate('bun', '--runtime bun needs it to compile the binary.');
+
+  return written(out, () => compileBun(bun, options));
+}
+
+/**
+ * The writing half of a Bun compile, which `written()` brackets.
+ *
+ * @param bun - The resolved `bun` executable.
+ * @param options - What to compile and where it goes.
+ * @returns What was produced.
+ */
+function compileBun(bun: string, options: CompileOptions): CompileResult {
+  const { entry, out, sign: identity, target } = options;
   const run = spawnSync(
     bun,
     [
@@ -470,10 +523,22 @@ export function compileWithBun(options: CompileOptions): CompileResult {
  *   fails.
  */
 export function compileWithNode(options: CompileOptions): CompileResult {
-  const { entry, out, sign: identity, target } = options;
+  const { out, sign: identity, target } = options;
 
   assertCompilable('node', target);
   assertSignUsable(identity);
+
+  return written(out, () => compileSea(options));
+}
+
+/**
+ * The writing half of a Node single-executable build, which `written()` brackets.
+ *
+ * @param options - What to compile and where it goes.
+ * @returns What was produced.
+ */
+function compileSea(options: CompileOptions): CompileResult {
+  const { entry, out, sign: identity, target } = options;
 
   // the config is the interface `--build-sea` takes, and it is written to a
   // temporary directory rather than beside the output: it names an absolute

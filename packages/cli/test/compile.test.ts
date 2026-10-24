@@ -17,7 +17,7 @@ import {
   type Target,
 } from '../src/build/compile.ts';
 import { candidates } from '@ttylabs/sigil/which';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -332,4 +332,83 @@ describe('an identity', () => {
       ).not.toThrow(/identity/);
     }
   });
+});
+
+describe('a compile that fails partway', () => {
+  /**
+   * A stub `bun` that writes a partial binary and then fails.
+   *
+   * POSIX only, and `skipIf`'d rather than left to fail: the stub has to be an
+   * executable the real `spawnSync` runs, which on Windows means a `.cmd` or a
+   * `.exe` rather than a shebang -- and what is under test is this
+   * repository's cleanup, not its ability to write a batch file.
+   *
+   * The inducer matters because two review rounds failed to find one. A
+   * pre-made *directory* at the outfile does not work (Bun replaces it and
+   * succeeds); being Bun does. The same thing happens for real under
+   * `ulimit -f`, which is how the defect was first reproduced: the real
+   * `node --build-sea` left 2,097,152 bytes at the output path.
+   */
+  let fakebin: string;
+  let out: string;
+  let path: string | undefined;
+
+  beforeEach(() => {
+    path = process.env.PATH;
+    fakebin = mkdtempSync(join(tmpdir(), 'sigil-stubbun-'));
+    out = mkdtempSync(join(tmpdir(), 'sigil-stubout-'));
+
+    const name = [...candidates('bun', { path: fakebin })].find((one) => one.startsWith(fakebin));
+
+    writeFileSync(
+      name as string,
+      // the outfile is the argument after `--outfile`, which is how the real
+      // call is spelled -- a stub that guessed the position would stop
+      // reproducing the moment the arguments were reordered
+      '#!/bin/sh\nwhile [ "$1" != "--outfile" ]; do shift; done\nprintf PARTIAL > "$2"\nexit 1\n',
+      { mode: 0o755 }
+    );
+    process.env.PATH = fakebin;
+  });
+
+  afterEach(() => {
+    process.env.PATH = path;
+    rmSync(fakebin, { force: true, recursive: true });
+    rmSync(out, { force: true, recursive: true });
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'should leave no binary behind when the compiler writes one and then fails',
+    () => {
+      const binary = join(out, 'app');
+
+      expect(() => compileWithBun({ entry: 'unused', out: binary, target: hostTarget() })).toThrow(
+        /bun build --compile failed/
+      );
+
+      // the whole point: a truncated binary under the final name is
+      // indistinguishable from a good one, and the scaffolded release workflow
+      // attaches files by name
+      expect(existsSync(binary)).toBe(false);
+    }
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'should leave a file it never wrote, when it refuses before writing',
+    () => {
+      // the other half, and the one an earlier version of this cleanup got
+      // wrong: a refusal that happens before any write must not remove what is
+      // already at the path. Under `--no-clean` that is a previous release's
+      // binary.
+      const binary = join(out, 'app');
+      writeFileSync(binary, 'PREVIOUS GOOD RELEASE', 'utf-8');
+
+      // refused by `assertCompilable()`, which is before the write bracket
+      expect(() =>
+        compileWithBun({ entry: 'unused', out: binary, target: parseTarget('windows-arm64') })
+      ).toThrow(/Bun cannot build/);
+
+      expect(readFileSync(binary, 'utf-8')).toBe('PREVIOUS GOOD RELEASE');
+    }
+  );
 });
