@@ -2789,6 +2789,50 @@ about what a valid app is would be the worse half of the feature.
   Bun needs none of this -- its output is already `adhoc, linker-signed` -- which
   is one more thing the Node path has to do and the Bun path does not.
 
+- **`--sign` means one thing on both runtimes, and used to be silently dropped
+  on one of them.** `compileWithBun()` destructured `{ entry, out, target }` and
+  never read `sign`, so
+  `sigil package --runtime bun --sign "Developer ID Application: ..."` exited
+  **0**, printed an empty `Signed` column, and produced
+  `Signature=adhoc, TeamIdentifier=not set`. The caller asked for Developer ID
+  signing, was told nothing, and got a binary that fails Gatekeeper -- the exact
+  failure `--sign` exists to avoid. The scaffolded release workflow makes it the
+  default trap, since `sigil new` writes `"runtime": "bun"` and that workflow's
+  own comment points at this flag.
+
+  Honoured rather than refused, because a Bun binary is an ordinary Mach-O and
+  `codesign --force` re-signs it perfectly well -- so the useful answer and the
+  honest one are the same. `signsOn()` is the rule: a darwin target is signed by
+  the Node path always, because its output is unsigned and unrunnable, and by
+  the Bun path only when an identity was named, because Bun already ad-hoc
+  signed it. A non-darwin target is never signed, and an identity named with no
+  darwin target among the targets is **refused** in the pre-flight rather than
+  dropped -- which is the same defect one platform along.
+
+  The `Signed` column says `ad-hoc (linker)` for an untouched Bun binary rather
+  than nothing, because an empty cell there read as unsigned about a binary that
+  runs. Empty is reserved for a target where signing is not a thing.
+
+- **A failed signing removes the binary, and a failed target removes the ones
+  before it.** Both are `undo()`'s rule in `bundle.ts` -- a refused build must
+  leave nothing -- applied where it was missing. The first matters most on
+  darwin, where the unsigned binary is the one that cannot run. The second is
+  about a release: the compile loop was a bare `targets.map()`, so a failure on
+  target three of five threw with the first two fully written and nothing saying
+  the set was incomplete, and the scaffolded workflow attaches files **by name**.
+  Neither removal may fail the run over the error it is unwinding, for the
+  reason `undo()` records.
+
+- **The reported size is taken after signing, because signing changes it.** It
+  was one object literal with `sizeOf(out)` written before `sign(...)`, and
+  properties evaluate in order -- so every signed Node binary's headline figure
+  was the pre-signature one: **138.6 MB printed for a 138.8 MB file**, ad-hoc
+  signing adding about 0.28 MB. The test asserts the printed figure against the
+  file to the **printed precision** rather than approximately, because a
+  `toBeCloseTo(..., 0)` tolerance of 0.5 MB waves a 0.28 MB defect straight
+  through -- measured, that version of the test passed with the bug
+  reintroduced.
+
 - **Notarization is explicitly a follow-up, and ad-hoc signing is not a
   substitute for it.** Ad-hoc makes a binary runnable; it does **not** get it
   past Gatekeeper on somebody else's machine, which needs an Apple Developer ID
@@ -2800,7 +2844,25 @@ about what a valid app is would be the worse half of the feature.
   says all of this in a comment, because a workflow that only half works should
   explain which half.
 
-- **Every refusal happens before the bundle.** `assertCompilable()` is asked for
+- **Every refusal happens before the bundle, and for two of them it did not
+  until a review round said so.** `assertCompilable()` covers the runtime, the
+  target and the Node version -- all pure. What it did not cover is whether the
+  **tools** are installed, and those are equally knowable from `PATH`: measured,
+  with `bun` off `PATH` the command bundled the whole app, entry and seventeen
+  chunks, and _then_ said `bun is not installed`; with `codesign` off `PATH` the
+  Node path bundled, spent 2.1s building a 145 MB SEA, failed, and **left the
+  unsigned binary behind** -- which on darwin is precisely the artifact that
+  cannot run, sitting under the name a release workflow attaches by.
+
+  So `assertToolchain()` is a second pre-flight step, kept separate rather than
+  folded in because `assertCompilable()` is pure and `compile.test.ts` asserts
+  so in its header. It asks for `codesign` only where a binary will _actually_
+  be signed, which `signsOn()` decides for both it and the compile step -- one
+  function, because a pre-flight demanding a tool the run never uses would
+  refuse a perfectly good cross-compile from a Linux host, where there is no
+  `codesign` at all.
+
+- **`assertCompilable()` is asked for
   each target in `package.ts` before `bundleApp()` is called, and asked again
   inside each compile function. That is not belt-and-braces: the compile
   functions are exported, so a caller that is not `sigil package` would
@@ -2810,6 +2872,36 @@ about what a valid app is would be the worse half of the feature.
   failure the build can see coming is a build error -- and it is asserted as the
   **absence of an output directory**, because a refusal that arrives after the
   bundle is one that charged for a type-check and a bundle first.
+
+- **The Node version threshold is one constant, and the tests that guard on it
+  read it rather than spelling it.** `NODE_BUILD_SEA` is exported and
+  `canBuildSea()` is what both the check and the test predicate ask. Three
+  copies of `25.5` existed at one point -- the constant, a hand-rolled predicate
+  in `package-command.test.ts`, and a regex with the version baked in -- plus a
+  fourth in the `--runtime is required` message, written as the genuinely odd
+  `${'25.5'}`. Raising the constant would have left the tests guarding on the
+  old number and asserting against the new one.
+
+  **What that cost, before a review round found it: six of CI's nine jobs.**
+  `assertCompilable('node', ...)` asks `assertBuildSea()` _first_, so on Node 22
+  and 24 every Node assertion answers `Node 25.5 or newer is needed` rather than
+  the message under test -- and four assertions across the two new test files
+  had no `hasBuildSea` guard, in files that already defined one for exactly this.
+  The branch was measured on Node 26.10.0 and the tests encoded that Node's
+  answers as though they were everyone's, which is this repository's own rule
+  about platform-specific fixtures in **version** form. Verified by raising the
+  constant to simulate an old Node: four failures became none, with three
+  properly skipped.
+
+- **An app whose own source uses top-level await cannot be packaged for Node,
+  and the refusal comes from rolldown.** `form: 'cjs'` refuses TLA in **every**
+  module, not only in the generated entry the `wrap` option is about. So an app
+  with `const x = await something()` at module scope in a lazy command builds
+  fine with `sigil build`, packages fine with Bun, and fails
+  `--runtime node` with `Top-level await is currently not supported with the
+  'cjs' output format` naming generated output. Loud and correct rather than
+  silent, so it is a documentation point rather than a defect -- but the entry
+  above frames the entry wrap as _the_ TLA story and it is only half of it.
 
 - **An app with an `external` cannot be packaged, and it is a refusal because
   Node happily produced a binary that could not work.** Found by dogfooding --

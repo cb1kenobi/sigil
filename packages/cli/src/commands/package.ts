@@ -27,6 +27,7 @@
 
 import {
   assertCompilable,
+  assertToolchain,
   bundleApp,
   compileWithBun,
   compileWithNode,
@@ -34,6 +35,7 @@ import {
   displayPath,
   hostTarget,
   label,
+  NODE_BUILD_SEA,
   outputName,
   parseTarget,
   type ResolvedTree,
@@ -55,7 +57,11 @@ import {
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { table } from '@ttylabs/sigil/components';
+import { rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
+
+/** One binary that was produced, as the summary and the table read it. */
+type Built = CompileResult & { readonly file: string; readonly target: Target };
 
 /** Where a package goes when nobody says otherwise, which is where a build goes. */
 const DEFAULT_OUT = 'dist';
@@ -133,10 +139,14 @@ const pkg: AnyCommand = command({
     // reading a byte of the app and none of them gets better for having a
     // type-check and a bundle run first. The same rule `--bin` beside a routed
     // directory follows: a failure the build can see coming is a build error
+    const identity = argv.sign as string | undefined;
+
     assertSelfContained(external);
+    assertSignable(identity, targets);
     for (const target of targets) {
       assertCompilable(runtime, target);
     }
+    assertToolchain(runtime, targets, identity);
 
     clean(out, found.app.root, argv.clean !== false);
 
@@ -160,19 +170,16 @@ const pkg: AnyCommand = command({
       tree: { commands: found.commands, diagnostics: [] } satisfies ResolvedTree,
     });
 
-    const compiled = targets.map((target) => ({
-      ...compile(runtime, {
-        entry: result.bin,
-        out: join(out, outputName(name, target, targets)),
-        sign: argv.sign as string | undefined,
-        target,
-      }),
-      file: outputName(name, target, targets),
-      target,
-    }));
+    const compiled = compileAll(runtime, {
+      entry: result.bin,
+      identity,
+      name,
+      out,
+      targets,
+    });
 
     if (!isQuiet()) {
-      printBinaries(compiled);
+      printBinaries(compiled, runtime);
     }
 
     writeSummary(
@@ -257,8 +264,16 @@ function chooseRuntime(flag: string | undefined, declared: string | undefined): 
   const named = flag ?? declared;
 
   if (!named) {
+    // the version is read from the constant rather than spelled, because this
+    // is the message somebody reads while *deciding* and the one they would
+    // check it against is `assertBuildSea()`'s. And "almost every target"
+    // rather than "every target": `windows-arm64` is exactly the one Bun has
+    // no runtime for, so the sentence used to contradict the error a user gets
+    // the moment they act on it
+    const [major, minor] = NODE_BUILD_SEA;
+
     throw new Error(
-      `--runtime is required: a packaged binary embeds a runtime, and which one decides what the app runs on.\n  --runtime bun starts faster, is a smaller binary, cross-compiles to every target from one machine, and runs the app on Bun.\n  --runtime node runs the app on what its "engines" already names, builds only for the machine it runs on, and needs Node ${'25.5'} or newer.\n  Declare it once as "package": { "runtime": ... } in sigil.json.`
+      `--runtime is required: a packaged binary embeds a runtime, and which one decides what the app runs on.\n  --runtime bun starts faster, is a smaller binary, cross-compiles to almost every target from one machine, and runs the app on Bun.\n  --runtime node runs the app on what its "engines" already names, builds only for the machine it runs on, and needs Node ${major}.${minor} or newer.\n  Declare it once as "package": { "runtime": ... } in sigil.json.`
     );
   }
 
@@ -315,8 +330,96 @@ function chooseTargets(
  * @param options - What to compile and where it goes.
  * @returns What was produced.
  */
-function compile(runtime: Runtime, options: Parameters<typeof compileWithBun>[0]): CompileResult {
-  return runtime === 'bun' ? compileWithBun(options) : compileWithNode(options);
+function assertSignable(identity: string | undefined, targets: readonly Target[]): void {
+  if (identity === undefined || targets.some((target) => target.platform === 'darwin')) {
+    return;
+  }
+
+  throw new Error(
+    `--sign names a codesigning identity, which only applies to a macOS binary, and none of the targets is one: ${targets.map((target) => label(target)).join(', ')}.\n  Drop --sign, or add a darwin target.`
+  );
+}
+
+/**
+ * Compiles every target, and leaves nothing behind if one of them fails.
+ *
+ * The loop used to be a bare `targets.map()`, so a failure on target three of
+ * five threw with the first two fully written and nothing saying the set was
+ * incomplete -- and the scaffolded release workflow attaches files *by name*,
+ * so a truncated release is indistinguishable from a finished one except by
+ * the exit code of a step that has already scrolled past.
+ *
+ * This is `undo()`'s rule in `bundle.ts` applied one layer out: a refused build
+ * must leave nothing. The removal cannot itself fail the run, for the reason
+ * `undo()` records -- swapping the real diagnostic for one about a file system
+ * is how the actual cause gets lost -- and the message names which target
+ * failed, since "it failed" over five targets is four questions.
+ *
+ * @param runtime - Which runtime to embed.
+ * @param options - The bundle, the targets, and where they go.
+ * @returns What was produced, in the order the targets were named.
+ */
+function compileAll(
+  runtime: Runtime,
+  options: {
+    readonly entry: string;
+    readonly identity: string | undefined;
+    readonly name: string;
+    readonly out: string;
+    readonly targets: readonly Target[];
+  }
+): Built[] {
+  const { entry, identity, name, out, targets } = options;
+  const compiled: Built[] = [];
+
+  for (const target of targets) {
+    const file = outputName(name, target, targets);
+
+    try {
+      const one = runtime === 'bun' ? compileWithBun : compileWithNode;
+
+      compiled.push({
+        ...one({ entry, out: join(out, file), sign: identity, target }),
+        file,
+        target,
+      });
+    } catch (e) {
+      for (const written of compiled) {
+        try {
+          rmSync(join(out, written.file), { force: true });
+        } catch {
+          // never over the error being unwound: see `undo()` in `bundle.ts`
+        }
+      }
+
+      throw new Error(
+        `Could not package ${label(target)}${compiled.length ? `, and the ${compiled.length} binar${compiled.length === 1 ? 'y' : 'ies'} built before it have been removed` : ''}.\n${(e as Error).message}`
+      );
+    }
+  }
+
+  return compiled;
+}
+
+/**
+ * What the Signed column says.
+ *
+ * `linker` is Bun's own: its output arrives `adhoc, linker-signed` whether or
+ * not this command touched it, so an empty cell there would read as unsigned
+ * when the binary is in fact runnable. An empty cell is reserved for a target
+ * where signing is not a thing at all, which is every non-darwin one.
+ *
+ * @param identity - What `sign()` used, if it ran.
+ * @param target - What the binary was built for.
+ * @param runtime - Which runtime is embedded.
+ * @returns The cell.
+ */
+function describeSigning(identity: string | undefined, target: Target, runtime: Runtime): string {
+  if (identity !== undefined) {
+    return identity === '-' ? 'ad-hoc' : identity;
+  }
+
+  return target.platform === 'darwin' && runtime === 'bun' ? 'ad-hoc (linker)' : '';
 }
 
 /**
@@ -328,14 +431,12 @@ function compile(runtime: Runtime, options: Parameters<typeof compileWithBun>[0]
  *
  * @param compiled - What was built, in the order it was named.
  */
-function printBinaries(
-  compiled: readonly (CompileResult & { readonly file: string; readonly target: Target })[]
-): void {
+function printBinaries(compiled: readonly Built[], runtime: Runtime): void {
   const rows = compiled.map((one) => [
     one.file,
     label(one.target),
     `${(one.size / 1048576).toFixed(1)} MB`,
-    one.signed === undefined ? '' : one.signed === '-' ? 'ad-hoc' : one.signed,
+    describeSigning(one.signed, one.target, runtime),
   ]);
 
   if (rows.length) {

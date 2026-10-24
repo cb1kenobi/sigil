@@ -59,6 +59,11 @@ takes ~19ms to start before your code runs and Bun takes ~4ms. Packaging never
 costs startup either way — both binaries answer slightly faster than the
 unpackaged app, because there are no module files to find.
 
+Top-level `await` anywhere in your own modules rules out `--runtime node`: a
+Node binary embeds one CommonJS script, and CommonJS cannot express a top-level
+`await`. The build says so rather than producing something broken. Bun is
+unaffected.
+
 Targets are `<platform>-<arch>`: `darwin-arm64`, `darwin-x64`, `linux-arm64`,
 `linux-x64`, `windows-x64`, `windows-arm64`. Bun has no runtime for
 `windows-arm64`; Node builds only the machine it is running on. A single target

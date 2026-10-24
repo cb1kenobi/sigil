@@ -1,4 +1,4 @@
-import { hostTarget, label } from '../src/build/compile.ts';
+import { canBuildSea, hostTarget, label } from '../src/build/compile.ts';
 import { run } from '../src/index.js';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
@@ -9,6 +9,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,11 +22,15 @@ const fixtures = resolve(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 /** Whether Bun is installed, which decides whether its half can be proved. */
 const hasBun = Boolean(whichSync('bun'));
 
-/** Whether this node can build a single executable in one step. */
-const hasBuildSea = (() => {
-  const [major = 0, minor = 0] = process.versions.node.split('.').map(Number);
-  return major > 25 || (major === 25 && minor >= 5);
-})();
+/**
+ * Whether this node can build a single executable in one step.
+ *
+ * `canBuildSea()` rather than a copy of its arithmetic, which is what this was
+ * for a while: the threshold lives in `compile.ts`, so spelling it again here
+ * meant raising it would leave these tests guarding on the old number and
+ * asserting against the new one.
+ */
+const hasBuildSea = canBuildSea();
 
 /** Runs the CLI with both streams captured, the way `build-command.test.ts` does. */
 async function sigil(...argv: string[]) {
@@ -144,7 +149,13 @@ describe('sigil package', () => {
         const foreign = 'linux-arm64';
 
         const declared = await sigil('package', app, '--out', out, '--target', foreign);
-        expect(declared.err).toContain('Node cannot cross-compile');
+        // on a Node without `--build-sea` the refusal is the version one, which
+        // is still the *node* path refusing and so still proves the config was
+        // read -- what must not happen is this asserting one Node's answer as
+        // though it were every Node's
+        expect(declared.err).toMatch(
+          hasBuildSea ? /Node cannot cross-compile/ : /Node .* or newer is needed/
+        );
 
         const overridden = await sigil(
           'package',
@@ -188,9 +199,17 @@ describe('sigil package', () => {
       );
 
       if (!hasBuildSea) {
-        expect(err).toMatch(/Node 25\.5 or newer/);
+        expect(err).toMatch(/Node .* or newer is needed/);
         return;
       }
+
+      // the command has to have *succeeded*, which this did not check: `err`
+      // was read only in the branch above and `process.exitCode` never, so a
+      // failure in the compile step after the bundle -- a missing `codesign`,
+      // say -- left this test fully green. The `.cjs` exists, has no chunks and
+      // runs, which is everything it went on to assert.
+      expect(err).not.toMatch(/^Error:/m);
+      expect(process.exitCode).toBeFalsy();
 
       const bundle = join(out, 'buildable.cjs');
       expect(existsSync(bundle)).toBe(true);
@@ -320,6 +339,64 @@ describe('sigil package', () => {
       }
     }, 60_000);
 
+    it('should refuse a signing identity nothing could use, before building', async () => {
+      // `codesign` is macOS's, so an identity with no darwin target is a
+      // request that cannot be honoured -- and it used to be accepted and
+      // dropped in silence, which is the half that matters
+      rmSync(out, { force: true, recursive: true });
+
+      const { err } = await sigil(
+        'package',
+        join(fixtures, 'buildable'),
+        '--out',
+        out,
+        '--runtime',
+        'bun',
+        '--target',
+        'linux-x64',
+        '--sign',
+        'Developer ID Application: Example (TEAM123)'
+      );
+
+      expect(err).toContain('--sign names a codesigning identity');
+      expect(err).toContain('linux-x64');
+      expect(existsSync(out)).toBe(false);
+      expect(process.exitCode).toBeTruthy();
+    }, 60_000);
+
+    it('should refuse a missing compiler before the bundle, not after it', async () => {
+      // AGENTS.md says *every* refusal happens before the bundle, and this one
+      // did not: measured with `bun` off PATH, the command bundled the whole
+      // app -- entry and seventeen chunks -- and then said `bun is not
+      // installed`. The output directory whose absence that rule is asserted by
+      // existed, fully populated.
+      //
+      // `PATH` is emptied rather than the tool mocked, because `whichSync()`
+      // reads it per call and that is the real mechanism -- a mocked `locate()`
+      // would prove the test could stub a function.
+      const path = process.env.PATH;
+      rmSync(out, { force: true, recursive: true });
+
+      try {
+        process.env.PATH = '';
+
+        const { err } = await sigil(
+          'package',
+          join(fixtures, 'buildable'),
+          '--out',
+          out,
+          '--runtime',
+          'bun'
+        );
+
+        expect(err).toContain('bun is not installed');
+        expect(existsSync(out)).toBe(false);
+        expect(process.exitCode).toBeTruthy();
+      } finally {
+        process.env.PATH = path;
+      }
+    }, 60_000);
+
     it('should refuse an --out that holds the app itself', async () => {
       // the same refusal and the same message `build` carries, because it is
       // the same function: an `--out` that is the app root is the one way a
@@ -393,6 +470,17 @@ describe('sigil package', () => {
 
         const binary = join(out, 'buildable');
         expect(existsSync(binary)).toBe(true);
+
+        // the reported size against the file on disk, which is what pins the
+        // figure being taken **after** signing. It used to be one object
+        // literal with `sizeOf(out)` written before `sign(...)`, and properties
+        // evaluate in order -- so every signed Node binary was reported about
+        // 0.3 MB light: 138.6 MB printed for a 138.8 MB file.
+        // to the printed precision rather than approximately: the defect was
+        // 0.28 MB, which a `toBeCloseTo(..., 0)` tolerance of 0.5 waves through
+        const printed = /(\d+\.\d) MB/.exec(stdout)?.[1];
+        expect(printed).toBeDefined();
+        expect(printed).toBe((statSync(binary).size / 1048576).toFixed(1));
 
         // on Apple Silicon this is not a finishing touch: `--build-sea` strips
         // the signature node ships with, and an unsigned binary is killed with

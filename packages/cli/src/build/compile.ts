@@ -76,8 +76,31 @@ export interface Target {
  */
 const BUN_UNSUPPORTED: readonly string[] = ['windows-arm64'];
 
-/** The lowest Node that can build a single executable in one step. */
-const NODE_BUILD_SEA = [25, 5] as const;
+/**
+ * The lowest Node that can build a single executable in one step.
+ *
+ * Exported because a test has to guard on it, and the guard and the check have
+ * to read the same number: `package-command.test.ts` spelled `25` and `5` of
+ * its own for a while, so raising this constant would have left the tests
+ * guarding on the old threshold and asserting against the new one.
+ */
+export const NODE_BUILD_SEA: readonly [number, number] = [25, 5];
+
+/**
+ * Whether the running Node can build a single executable in one step.
+ *
+ * Read off `process.versions` rather than probed by spawning, because the node
+ * that builds the blob is the node running this: there is no second runtime
+ * whose capabilities could differ from what this process reports.
+ *
+ * @returns Whether `--build-sea` is available.
+ */
+export function canBuildSea(): boolean {
+  const [major = 0, minor = 0] = process.versions.node.split('.').map(Number);
+  const [wantMajor, wantMinor] = NODE_BUILD_SEA;
+
+  return major > wantMajor || (major === wantMajor && minor >= wantMinor);
+}
 
 /**
  * The target the toolchain is running on.
@@ -220,6 +243,76 @@ export function assertCompilable(runtime: Runtime, target: Target): void {
   }
 }
 
+/**
+ * Refuses a package whose compiler or signer is not installed.
+ *
+ * Separate from `assertCompilable()` and deliberately not folded into it: that
+ * one is pure -- no disk, no spawn -- and `compile.test.ts` asserts so in its
+ * header, because it is asked for every target before anything happens. This
+ * one touches `PATH`, so it is its own step.
+ *
+ * It exists because the AGENTS.md rule says *every* refusal happens before the
+ * bundle and two of them did not. Measured: with `bun` off `PATH`,
+ * `sigil package --runtime bun` bundled the whole app -- entry and seventeen
+ * chunks written -- and then said `bun is not installed`. With `codesign` off
+ * `PATH`, `--runtime node` bundled, spent 2.1s building a 145 MB SEA, and then
+ * failed, **leaving the unsigned binary behind** -- which is the one artifact
+ * that cannot run, sitting under the name a release workflow attaches by.
+ *
+ * Both are knowable from `PATH` before a byte of the app is read, which is what
+ * makes them the same class as the target checks rather than a new one.
+ *
+ * @param runtime - Which runtime would be embedded.
+ * @param targets - Everything that would be built.
+ * @param identity - A codesigning identity, if one was asked for.
+ * @throws If a tool the run will need is not installed.
+ */
+export function assertToolchain(
+  runtime: Runtime,
+  targets: readonly Target[],
+  identity: string | undefined
+): void {
+  if (runtime === 'bun') {
+    locate('bun', '--runtime bun needs it to compile the binary.');
+  }
+
+  // `codesign` is wanted wherever a darwin binary will actually be signed,
+  // which is not the same as "a darwin target exists": Bun's output is already
+  // ad-hoc signed, so the Bun path only reaches `codesign` when an identity was
+  // asked for. Asking for the tool a run will not use would refuse a perfectly
+  // good cross-compile from Linux, where there is no `codesign` at all
+  if (targets.some((target) => signsOn(target, runtime, identity))) {
+    locate(
+      'codesign',
+      'A macOS binary has to be signed to run at all -- an unsigned one is killed before it starts -- so this is not something to skip.'
+    );
+  }
+}
+
+/**
+ * Whether a binary for this target will be code-signed.
+ *
+ * One function so that the pre-flight and the compile step cannot disagree
+ * about whether `codesign` is going to be run -- a pre-flight that demanded a
+ * tool the compile never used, or skipped one it did, would be worse than no
+ * pre-flight.
+ *
+ * @param target - What is being built.
+ * @param runtime - Which runtime is embedded.
+ * @param identity - A codesigning identity, if one was asked for.
+ * @returns Whether `sign()` will do anything.
+ */
+function signsOn(target: Target, runtime: Runtime, identity: string | undefined): boolean {
+  if (target.platform !== 'darwin') {
+    return false;
+  }
+
+  // Node's output is unsigned and unrunnable until it is signed, so it is
+  // always signed. Bun's is already `adhoc, linker-signed`, so it is signed
+  // only when somebody asked for a particular identity
+  return runtime === 'node' || identity !== undefined;
+}
+
 /** What `compile()` was asked to do. */
 export interface CompileOptions {
   /** The bundle to embed -- ESM for Bun, the flat `.cjs` for Node. */
@@ -252,11 +345,11 @@ export interface CompileResult {
  * @throws If Bun is not installed, cannot build that target, or fails.
  */
 export function compileWithBun(options: CompileOptions): CompileResult {
-  const { entry, out, target } = options;
+  const { entry, out, sign: identity, target } = options;
 
   assertCompilable('bun', target);
 
-  const bun = locate('bun');
+  const bun = locate('bun', '--runtime bun needs it to compile the binary.');
   const run = spawnSync(
     bun,
     [
@@ -283,10 +376,15 @@ export function compileWithBun(options: CompileOptions): CompileResult {
   }
 
   // Bun ad-hoc signs what it writes -- `adhoc, linker-signed` on a darwin
-  // target -- so there is nothing to do here and nothing to claim either. A
-  // real identity is a separate step somebody runs over the output, which is
-  // why `--sign` is a Node-path option rather than one this ignores.
-  return { size: sizeOf(out) };
+  // target -- so there is nothing to do for the default case. An **explicit**
+  // identity is still honoured here, and that is a fix rather than a flourish:
+  // `--sign` used to be accepted and silently discarded on this path, so
+  // `sigil package --runtime bun --sign "Developer ID Application: ..."` exited
+  // 0 and produced `Signature=adhoc, TeamIdentifier=not set`. The caller asked
+  // for Developer ID signing, was told nothing, and got a binary that fails
+  // Gatekeeper -- which is the exact failure `--sign` exists to avoid, and the
+  // scaffolded workflow's own comment points at this flag.
+  return signed(out, target, identity, 'bun');
 }
 
 /**
@@ -298,7 +396,7 @@ export function compileWithBun(options: CompileOptions): CompileResult {
  *   fails.
  */
 export function compileWithNode(options: CompileOptions): CompileResult {
-  const { entry, out, sign: identity = '-', target } = options;
+  const { entry, out, sign: identity, target } = options;
 
   assertCompilable('node', target);
 
@@ -341,7 +439,59 @@ export function compileWithNode(options: CompileOptions): CompileResult {
     rmSync(dir, { force: true, recursive: true });
   }
 
-  return { size: sizeOf(out), ...(sign(out, target, identity) && { signed: identity }) };
+  // signed first, then measured. The two used to be one object literal with
+  // `sizeOf(out)` written before `sign(...)`, and properties evaluate in order
+  // -- so every signed Node binary's headline figure was the pre-signature
+  // size: 138.6 MB reported for a file that was 138.8 MB on disk, because
+  // ad-hoc signing adds about 0.3 MB.
+  return signed(out, target, identity, 'node');
+}
+
+/**
+ * Signs a binary where the platform and runtime need it, and reports its size.
+ *
+ * One function for both runtimes, which is what stops `--sign` meaning two
+ * things. The size is taken **after** signing, because signing changes it.
+ *
+ * A failure here **removes the binary**, which is the rule `undo()` in
+ * `bundle.ts` already follows: a refused build must not leave the thing it
+ * refused. It matters more here than anywhere else in the build, because on
+ * darwin the unsigned binary is precisely the artifact that cannot run -- exit
+ * 137, killed before it executes a line -- and it would be sitting under the
+ * name a release workflow attaches by, indistinguishable from a good one.
+ *
+ * @param file - The binary.
+ * @param target - What it was built for.
+ * @param identity - A signing identity, or undefined for the runtime's default.
+ * @param runtime - Which runtime is embedded.
+ * @returns The binary's size in bytes, after any signing.
+ * @throws If signing was needed and failed.
+ */
+function signed(
+  file: string,
+  target: Target,
+  identity: string | undefined,
+  runtime: Runtime
+): CompileResult {
+  if (!signsOn(target, runtime, identity)) {
+    // nothing was signed *here*, which is not the same as unsigned: Bun's own
+    // output is already ad-hoc signed, and saying so is the table's job rather
+    // than this function's
+    return { size: sizeOf(file) };
+  }
+
+  // what was actually used rather than what was passed, so the table cannot
+  // report `ad-hoc` over a Developer ID or an empty column over a real signing
+  const used = identity ?? '-';
+
+  try {
+    sign(file, used);
+  } catch (e) {
+    rmSync(file, { force: true });
+    throw e;
+  }
+
+  return { signed: used, size: sizeOf(file) };
 }
 
 /**
@@ -369,11 +519,7 @@ export function compileWithNode(options: CompileOptions): CompileResult {
  * @returns Whether it was signed.
  * @throws If signing was needed and failed.
  */
-function sign(file: string, target: Target, identity: string): boolean {
-  if (target.platform !== 'darwin') {
-    return false;
-  }
-
+function sign(file: string, identity: string): void {
   const run = spawnSync('codesign', ['--sign', identity, '--force', file], { encoding: 'utf-8' });
 
   if (run.error) {
@@ -385,8 +531,6 @@ function sign(file: string, target: Target, identity: string): boolean {
   if (run.status !== 0) {
     throw new Error(`codesign failed for ${file}:\n${said(run)}`);
   }
-
-  return true;
 }
 
 /**
@@ -405,12 +549,11 @@ function sign(file: string, target: Target, identity: string): boolean {
  * @throws If this Node has no `--build-sea`.
  */
 function assertBuildSea(): void {
-  const [major = 0, minor = 0] = process.versions.node.split('.').map(Number);
-  const [wantMajor, wantMinor] = NODE_BUILD_SEA;
-
-  if (major > wantMajor || (major === wantMajor && minor >= wantMinor)) {
+  if (canBuildSea()) {
     return;
   }
+
+  const [wantMajor, wantMinor] = NODE_BUILD_SEA;
 
   throw new Error(
     `Node ${wantMajor}.${wantMinor} or newer is needed to package with --runtime node, and this is ${process.versions.node}. Earlier versions build a single executable through postject, an external tool this toolchain will not install for you. Use --runtime bun, or upgrade Node.`
@@ -418,19 +561,23 @@ function assertBuildSea(): void {
 }
 
 /**
- * Finds an executable, or says what to install.
+ * Finds an executable, or says what to install and what wanted it.
+ *
+ * The reason is the caller's rather than built from the name, which is what the
+ * first version did: it wrote `--runtime ${name} needs it`, so a missing
+ * `codesign` was reported as `--runtime codesign needs it to compile the
+ * binary` -- a flag nobody can pass, about a tool that is not a runtime.
  *
  * @param name - The executable.
+ * @param why - What wanted it, as a sentence.
  * @returns Its path.
  * @throws If it is not on `PATH`.
  */
-function locate(name: string): string {
+function locate(name: string, why: string): string {
   const found = whichSync(name);
 
   if (!found) {
-    throw new Error(
-      `${name} is not installed, or is not on PATH. --runtime ${name} needs it to compile the binary.`
-    );
+    throw new Error(`${name} is not installed, or is not on PATH. ${why}`);
   }
 
   return found;
