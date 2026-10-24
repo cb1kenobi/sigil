@@ -65,6 +65,14 @@ Targets are `<platform>-<arch>`: `darwin-arm64`, `darwin-x64`, `linux-arm64`,
 is named after your app, and several at once get the target in the file name, so
 a release is `mycli-linux-x64` and `mycli-windows-x64.exe`.
 
+An app that declares `external` packages **cannot** be packaged, and
+`sigil package` refuses rather than producing a binary that would die on first
+use. An external says that package must be installed where the app runs, and a
+binary says nothing has to be — a package carrying a native binding cannot be
+inlined at all, so such an app ships as `sigil build` output plus its
+`node_modules`. This is why the `sigil` CLI itself cannot be packaged: it
+depends on two native bindings.
+
 ### Signing, and what is not done for you
 
 On macOS a binary has to be signed to run **at all** — an unsigned one is killed

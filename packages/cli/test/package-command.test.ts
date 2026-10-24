@@ -261,6 +261,65 @@ describe('sigil package', () => {
       expect(process.exitCode).toBeTruthy();
     }, 60_000);
 
+    it('should refuse an app that declared it is not self-contained', async () => {
+      // Found by packaging this toolchain, which declares three externals --
+      // two of them native bindings nothing can inline. An external means
+      // "this must be installed where the app runs" and a binary means
+      // "nothing has to be installed", so the two cannot both be true.
+      //
+      // It is a refusal rather than a warning because of what Node did with
+      // it: a 138 MB binary, reported successfully, that died on the first
+      // thing anybody typed with `No such built-in module`. That is the
+      // build-reported-success-executable-dies class three other gates in this
+      // package already exist for.
+      rmSync(out, { force: true, recursive: true });
+
+      const { err } = await sigil(
+        'package',
+        join(fixtures, 'buildable'),
+        '--out',
+        out,
+        '--runtime',
+        'bun',
+        '--external',
+        'some-native-package'
+      );
+
+      expect(err).toContain('Cannot package an app with external packages');
+      expect(err).toContain('some-native-package');
+      // and it says what to do instead, which is the half a refusal owes
+      expect(err).toContain('sigil build');
+      // before the bundle, like every other pre-flight here
+      expect(existsSync(out)).toBe(false);
+      expect(process.exitCode).toBeTruthy();
+    }, 60_000);
+
+    it('should refuse an app that declared one in sigil.json', async () => {
+      // the flag and the file reach the same check, because `build.external`
+      // is where an app with a native dependency actually says so
+      const app = mkdtempSync(join(tmpdir(), 'sigil-pkg-app-'));
+
+      try {
+        cpSync(join(fixtures, 'buildable'), app, { recursive: true });
+        writeFileSync(
+          join(app, 'sigil.json'),
+          `${JSON.stringify(
+            { build: { external: ['oxc-parser'] }, package: { runtime: 'bun' } },
+            undefined,
+            2
+          )}\n`,
+          'utf-8'
+        );
+
+        const { err } = await sigil('package', app, '--out', out);
+
+        expect(err).toContain('Cannot package an app with external packages');
+        expect(err).toContain('oxc-parser');
+      } finally {
+        rmSync(app, { force: true, recursive: true });
+      }
+    }, 60_000);
+
     it('should refuse an --out that holds the app itself', async () => {
       // the same refusal and the same message `build` carries, because it is
       // the same function: an `--out` that is the app root is the one way a

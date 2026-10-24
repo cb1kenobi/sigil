@@ -265,6 +265,42 @@ versions.node: 26.3.0
 so spawning it re-executes the app. That one is not a spelling fix and needs a
 decision, which is why it is in the ticket rather than worked around here.
 
+## The defect dogfooding found, which is why the acceptance test is the toolchain
+
+`sigil package .` in `packages/cli` was run out of curiosity, on the assumption
+it would fail cleanly because the toolchain has native dependencies. The two
+runtimes failed differently and only one of them failed:
+
+```
+$ sigil package . --runtime bun
+Error: bun build --compile failed for darwin-arm64:
+  error: Could not resolve: "@ttylabs/sigil". Maybe you need to "bun install"?
+
+$ sigil package . --runtime node
+Binary  Target            Size  Signed
+sigil   darwin-arm64  138.4 MB  ad-hoc
+@ttylabs/cli (src/index.ts): 6 commands into 1 node binary, ...
+
+$ ./sigil --version
+Error [ERR_UNKNOWN_BUILTIN_MODULE]: No such built-in module: @ttylabs/sigil
+```
+
+A 138 MB binary, reported successfully, dead on the first thing anybody types.
+Bun's message is merely misleading -- it names `bun install` as the fix for
+something no install can fix -- while Node's is the failure this repository
+refuses in three other places by name.
+
+It is unreachable rather than merely absent, which is worth being precise about:
+a SEA's injected `require` resolves builtins and nothing else, so there is no
+`node_modules` anybody could put beside the binary to rescue it. The externals
+are not late-bound, they are impossible.
+
+So `assertSelfContained()` is the fourth gate of that class, with no override,
+and `sigil package` on a toolchain-shaped app now says what to do instead. The
+entry about `rolldown` being a devDependency already said the toolchain cannot
+_build_ itself into a standalone bundle; this is the same sentence one step
+along, and nobody had followed it there.
+
 ## Sabotage pass
 
 Five, four by code mutation and one by artifact mutation.

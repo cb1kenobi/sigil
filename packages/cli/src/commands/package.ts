@@ -123,6 +123,7 @@ const pkg: AnyCommand = command({
 
     const runtime = chooseRuntime(argv.runtime as string | undefined, config.runtime);
     const targets = chooseTargets(argv.target as string[] | undefined, config.target);
+    const external = (argv.external as string[] | undefined) ?? build.external ?? [];
     const out = resolveOut(
       found.app.root,
       String(argv.out === DEFAULT_OUT ? (config.out ?? build.out ?? DEFAULT_OUT) : argv.out)
@@ -132,6 +133,7 @@ const pkg: AnyCommand = command({
     // reading a byte of the app and none of them gets better for having a
     // type-check and a bundle run first. The same rule `--bin` beside a routed
     // directory follows: a failure the build can see coming is a build error
+    assertSelfContained(external);
     for (const target of targets) {
       assertCompilable(runtime, target);
     }
@@ -147,7 +149,7 @@ const pkg: AnyCommand = command({
       app: found.app,
       binName: name,
       defaultLocale: sigilConfig.locale,
-      external: (argv.external as string[] | undefined) ?? build.external ?? [],
+      external,
       form: runtime === 'node' ? 'cjs' : 'esm',
       out,
       safelist: build.safelist,
@@ -194,6 +196,48 @@ const pkg: AnyCommand = command({
 });
 
 export default pkg;
+
+/**
+ * Refuses an app that has declared it is not self-contained.
+ *
+ * `external` means "this package must be installed where the app runs" and a
+ * single binary means "nothing has to be installed". They are contradictory
+ * claims about one app, so an app with externals cannot be packaged and the
+ * contradiction is the message.
+ *
+ * It is a refusal rather than a warning because of what each runtime does with
+ * it, found by packaging this toolchain -- which declares three externals,
+ * two of them native bindings nothing can inline. Bun fails to compile and
+ * says `Could not resolve: "@ttylabs/sigil". Maybe you need to "bun install"?`,
+ * which points at the wrong fix. **Node succeeds**: it wrote a 138 MB binary,
+ * reported success, and died on the first thing anybody typed with
+ * `ERR_UNKNOWN_BUILTIN_MODULE: No such built-in module: @ttylabs/sigil` --
+ * because a SEA's injected `require` resolves builtins and nothing else, so an
+ * external is not merely absent, it is unreachable.
+ *
+ * That is the same failure class as `--external` itself, the JSX gate and the
+ * unresolved-import gate: a build that reported success and an executable that
+ * dies the first time it is used. Three gates exist for it already and this is
+ * the fourth.
+ *
+ * What an app with a native binding should do is `sigil build` and ship the
+ * bundle with its `node_modules`, which is what externals are for. There is no
+ * flag to override this: the binary it would produce cannot work.
+ *
+ * @param external - The packages the build was told to leave as imports.
+ * @throws If there are any.
+ */
+function assertSelfContained(external: readonly string[]): void {
+  if (!external.length) {
+    return;
+  }
+
+  const named = external.map((pkg) => `"${pkg}"`).join(', ');
+
+  throw new Error(
+    `Cannot package an app with external packages: ${named}.\n  An external is the app saying that package must be installed where it runs, and a single binary is the app saying nothing has to be installed -- so the binary could not work. On the node runtime it would be built and reported successfully and then fail on first use, because a single executable cannot resolve anything outside itself.\n  A package carrying a native binding cannot be inlined at all, so an app with one is a "sigil build" plus its node_modules rather than a binary.`
+  );
+}
 
 /**
  * Which runtime to embed.

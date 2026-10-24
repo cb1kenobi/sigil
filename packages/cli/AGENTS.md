@@ -2811,6 +2811,32 @@ about what a valid app is would be the worse half of the feature.
   **absence of an output directory**, because a refusal that arrives after the
   bundle is one that charged for a type-check and a bundle first.
 
+- **An app with an `external` cannot be packaged, and it is a refusal because
+  Node happily produced a binary that could not work.** Found by dogfooding --
+  `sigil package .` in `packages/cli`, which declares `@ttylabs/sigil`,
+  `oxc-parser` and `rolldown` external, two of them native bindings nothing can
+  inline. `external` means "this package must be installed where the app runs"
+  and a single binary means "nothing has to be installed": contradictory claims
+  about one app, so the contradiction is the message.
+
+  The two runtimes failed differently, and the worse one is why this is a gate
+  rather than a warning. Bun refuses to compile and says
+  `Could not resolve: "@ttylabs/sigil". Maybe you need to "bun install"?`, which
+  points at the wrong fix. **Node wrote a 138 MB binary and reported success**,
+  and the first thing typed at it answered
+  `ERR_UNKNOWN_BUILTIN_MODULE: No such built-in module: @ttylabs/sigil` -- a
+  SEA's injected `require` resolves builtins and nothing else, so an external is
+  not merely missing, it is unreachable. That is the same
+  build-reported-success-and-the-executable-dies class as `--external` itself,
+  the JSX gate and the unresolved-import gate; three gates already exist for it
+  and this is the fourth.
+
+  There is no flag to override it, because the binary it would produce cannot
+  work. An app with a native dependency is a `sigil build` plus its
+  `node_modules`, which is what externals are for -- and it is why **this
+  toolchain cannot package itself**, exactly as the entry under "rolldown is a
+  devDependency of the app" already says about building itself.
+
 - **A lone binary is not named after the machine it was built for.** One target
   is the ordinary case and `myapp` is what its users type; several at once is a
   release, where every one would otherwise be written to the same path and the
