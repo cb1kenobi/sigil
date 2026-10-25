@@ -58,7 +58,42 @@ const CACHE = 'sigil/runtimes';
 /** Where Bun keeps the target runtimes it downloads for `--compile`. */
 const BUN_CACHE = '.bun/install/cache';
 
-/** How long to wait for a registry listing or a download. */
+/**
+ * How long to wait for a **listing**, which blocks the picker.
+ *
+ * Short on purpose, and the number came from measuring the bad case rather than
+ * from taste: with the registries black-holed this answers in **5015ms**, where
+ * the OS connect timeout alone was 10.5s and a connection that established and
+ * then stalled would have waited the download's two minutes. Somebody at a
+ * terminal waiting ten seconds for a prompt assumes it has hung.
+ *
+ * The first measurement of that was **wrong** and is worth recording, because
+ * the mistake is easy: timing the *process* said 10.5s both before and after,
+ * which read as the timeout having no effect. The abort was working the whole
+ * time -- an isolated probe threw at 2002ms for a 2000ms signal -- and what
+ * takes 10.5s is the process *exiting*, because the dead socket keeps the event
+ * loop alive after the promise has settled. Time the answer, not the exit.
+ *
+ * That lingering socket is a real if minor wart: offline, a run that consulted
+ * a registry can sit for a few seconds after printing its summary. It is
+ * bounded by this timeout, `fetch` gives no handle to close, and the window is
+ * narrow -- nothing consults a registry unless the picker ran or a runtime had
+ * to be resolved from one.
+ *
+ * Giving up is cheap here, which is what lets it be short: `latest()` answers
+ * with an empty list and the picker falls back to what is local, which is
+ * verified rather than assumed -- with both registries unreachable it still
+ * offers every installed and cached version plus the two custom rows.
+ */
+const LIST_TIMEOUT = 5_000;
+
+/**
+ * How long to wait for a **download**, which is tens of megabytes.
+ *
+ * Long, because the alternative to waiting is failing a package that was going
+ * to work. Nothing is blocked on it that the user did not ask for: a fetch only
+ * happens once a runtime has been chosen, and it says so while it runs.
+ */
 const TIMEOUT = 120_000;
 
 /**
@@ -358,7 +393,7 @@ async function latestBun(): Promise<Release[]> {
  * @throws If it could not be read in time.
  */
 async function fetchJson(url: string): Promise<unknown> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT) });
+  const response = await fetch(url, { signal: AbortSignal.timeout(LIST_TIMEOUT) });
 
   if (!response.ok) {
     throw new Error(`${url} answered ${response.status}`);
