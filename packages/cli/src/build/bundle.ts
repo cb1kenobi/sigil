@@ -63,7 +63,7 @@ import type { Plugin } from 'rolldown';
  * so the depth is derived rather than assumed and a deeper directory costs
  * nothing there.
  */
-const WORK_DIR = join('node_modules', '.sigil');
+export const WORK_DIR: string = join('node_modules', '.sigil');
 
 /**
  * A generated entry and the directory made for it.
@@ -1262,7 +1262,7 @@ function writeEntry(
  * @param value - The path to name.
  * @returns Sixteen hex characters.
  */
-function hash(value: string): string {
+export function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 16);
 }
 

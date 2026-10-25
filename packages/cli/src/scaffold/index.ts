@@ -523,7 +523,7 @@ ${setup}
             --generate-notes${targets
               .map(
                 (target) =>
-                  ` \\\n            dist/${name}-${target}${target.startsWith('windows') ? '.exe' : ''}`
+                  ` \\\n            release/${name}-${target}${target.startsWith('windows') ? '.exe' : ''}`
               )
               .join('')}
 `;
@@ -714,7 +714,7 @@ export function scaffold(opts: ScaffoldOptions): ScaffoldFile[] {
   const files: ScaffoldFile[] = [
     { contents: manifest(opts), path: 'package.json' },
     { contents: readme(opts), path: 'README.md' },
-    { contents: 'node_modules\ndist\n', path: '.gitignore' },
+    { contents: 'node_modules\ndist\nrelease\n', path: '.gitignore' },
     // written rather than left to the convention: a scaffold is exactly where
     // a project's conventions should be explicit, and it is what stops
     // `sigil add` having to guess and print a guess

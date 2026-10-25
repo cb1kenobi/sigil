@@ -45,6 +45,8 @@ export {
 } from './diagnostic.ts';
 export {
   bundleApp,
+  hash,
+  WORK_DIR,
   type BuiltChunk,
   type BundleOptions,
   type BundleResult,

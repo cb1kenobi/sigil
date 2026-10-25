@@ -517,12 +517,12 @@ describe('the release workflow', () => {
       // workflow's literals against the convention `sigil package` actually
       // follows -- the target suffix a release gets, and the `.exe` that is
       // easy to get wrong and impossible to notice from a Mac
-      expect(file).toContain(`dist/${outputName('demo', target, all)}`);
+      expect(file).toContain(`release/${outputName('demo', target, all)}`);
     }
 
     // and nothing it does not build, which is what catches a target removed
     // from the package step and left in the release step
-    const attached = [...file.matchAll(/dist\/demo-(\S+)/g)].map((m) =>
+    const attached = [...file.matchAll(/release\/demo-(\S+)/g)].map((m) =>
       (m[1] as string).replace(/\.exe$/, '')
     );
     expect([...attached].sort()).toEqual([...named].sort());

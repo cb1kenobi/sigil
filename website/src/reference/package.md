@@ -30,7 +30,7 @@ sigil package [options] [dir]
 | `--name [name]` | `string` | What the binary is called. Defaults to the name in package.json |
 | `--no-clean` | `bool` | Keep what is already in the output directory |
 | `--no-shake` | `bool` | Keep every utility rule, rather than only the ones the source can name |
-| `--out [dir]` | `string` | Where the binary goes, relative to the app (default: dist) |
+| `--out [dir]` | `string` | Where the binaries go, relative to the app. Not where the build goes (default: release) |
 | `--runtime [runtime]` | `string` | Which runtime the binary embeds, as bun or node, optionally bun@1.3.14 |
 | `--sign [identity]` | `string` | A codesigning identity for macOS. Ad-hoc by default, which is what makes it run |
 | `--target [target]` | `string` | A <platform>-<arch> to build for, repeatable. Defaults to this machine (may be repeated) |

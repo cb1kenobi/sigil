@@ -49,7 +49,9 @@ import {
   type Target,
   canBuildSea,
   choices,
+  hash,
   installed,
+  WORK_DIR,
   latest,
   local,
   parseSpec,
@@ -70,14 +72,30 @@ import {
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { PromptError, select, table, text } from '@ttylabs/sigil/components';
-import { rmSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 /** One binary that was produced, as the summary and the table read it. */
 type Built = CompileResult & { readonly file: string; readonly target: Target };
 
-/** Where a package goes when nobody says otherwise, which is where a build goes. */
-const DEFAULT_OUT = 'dist';
+/**
+ * Where the binaries go when nobody says otherwise.
+ *
+ * **Not** `dist`, which is where a build goes, and the two sharing it was a
+ * defect rather than a tidy default: `clean()` empties the directory, so
+ * `sigil build` followed by `sigil package` destroyed the build output and
+ * `sigil package` followed by `sigil build` destroyed an 89 MB binary --
+ * measured, in both orders. `pnpm build && pnpm package` lost something
+ * whichever way round it ran.
+ *
+ * `dist` is also what `files` in a manifest usually publishes, so a binary
+ * sitting there is one `npm publish` away from being shipped.
+ *
+ * `release` rather than `out`, because it says what the contents are -- the
+ * artifacts you attach to a release -- and cannot be read as a source or build
+ * directory. It also avoids `--out out`.
+ */
+const DEFAULT_OUT = 'release';
 
 /** See `check.ts` for why this is annotated, and why `AnyCommand`. */
 const pkg: AnyCommand = command({
@@ -105,7 +123,7 @@ const pkg: AnyCommand = command({
     },
     '--out [dir]': {
       default: DEFAULT_OUT,
-      desc: 'Where the binary goes, relative to the app',
+      desc: 'Where the binaries go, relative to the app. Not where the build goes',
     },
     '--runtime [runtime]': {
       desc: 'Which runtime the binary embeds, as bun or node, optionally bun@1.3.14',
@@ -149,7 +167,10 @@ const pkg: AnyCommand = command({
     const external = (argv.external as string[] | undefined) ?? build.external ?? [];
     const out = resolveOut(
       found.app.root,
-      String(argv.out === DEFAULT_OUT ? (config.out ?? build.out ?? DEFAULT_OUT) : argv.out)
+      // `package.out` only, never `build.out`: falling back to the build's
+      // destination is what put the binaries in `dist` beside the bundle they
+      // were made from, which is the whole of what this default moved away from
+      String(argv.out === DEFAULT_OUT ? (config.out ?? DEFAULT_OUT) : argv.out)
     );
 
     // before the bundle, because every one of these is knowable without
@@ -171,58 +192,97 @@ const pkg: AnyCommand = command({
     // before `clean()`, so a failed download leaves the output directory alone
     const exec = await resolveExec(spec, targets[0] as Target);
 
+    const name = binName(found, (argv.name as string | undefined) ?? build.name);
+
+    // the bundle is an intermediate, so it does not land beside the binaries.
+    // Under `node_modules/.sigil/`, which is where `writeEntry()` already puts
+    // the generated entry -- a convention this repo has rather than a temp
+    // directory dance invented here. Kept rather than removed afterwards,
+    // because "what was actually embedded" is the first thing anybody debugging
+    // a packaged binary wants.
+    // Keyed by the **resolved output**, not by the app and the name, which is
+    // the rule `entryLocation()` already follows one file along and for the
+    // same reason: two packages of one app at once otherwise share one scratch
+    // directory and overwrite each other's bundle. Found immediately -- two
+    // test files packaging one fixture collided, and each passed alone while
+    // one failed in the suite.
+    //
+    // Removed on the way out, which is also `entryLocation()`'s rule and was
+    // the second thing this got wrong. It was kept at first, on the reading
+    // that "what was actually embedded" is worth having -- and a hash per
+    // output means one directory per distinct `--out` anybody ever uses, so
+    // they accumulate forever: **51** of them had piled up in one test fixture
+    // before anybody looked. If you want the bundle, `sigil build` writes one.
+    const staging = join(found.app.root, WORK_DIR, `${hash(out)}-package`);
+
     clean(out, found.app.root, argv.clean !== false);
 
-    const name = binName(found, (argv.name as string | undefined) ?? build.name);
+    // and the staging directory, always: it is this command's own scratch space
+    // rather than anything the user asked to keep, so a stale chunk from a
+    // previous run has no business surviving into the next binary. `--no-clean`
+    // is about the *output*, which is now a different directory entirely.
+    rmSync(staging, { force: true, recursive: true });
+
+    // nothing else creates the output directory any more. It used to appear
+    // because the bundle was written into it; now the bundle is elsewhere and
+    // the first thing to touch it is a compiler writing an `--outfile`, which
+    // does not make parents.
+    mkdirSync(out, { recursive: true });
 
     // Node embeds one CommonJS script and cannot `import()` at all, so its
     // bundle is a different shape rather than the same one compiled
     // differently -- see `compile.ts`
-    const result = await bundleApp({
-      app: found.app,
-      binName: name,
-      defaultLocale: sigilConfig.locale,
-      external,
-      form: runtime === 'node' ? 'cjs' : 'esm',
-      out,
-      safelist: build.safelist,
-      shake: argv.shake !== false && build.shake !== false,
-      // a sourcemap is embedded in nothing and read by nobody once the bundle
-      // is inside a binary, so it is weight on the way to being discarded
-      sourcemap: false,
-      tree: { commands: found.commands, diagnostics: [] } satisfies ResolvedTree,
-    });
+    // everything from here is bracketed so the staging directory goes whatever
+    // happens, which is `entryLocation()`'s rule for the generated entry
+    try {
+      const result = await bundleApp({
+        app: found.app,
+        binName: name,
+        defaultLocale: sigilConfig.locale,
+        external,
+        form: runtime === 'node' ? 'cjs' : 'esm',
+        out: staging,
+        safelist: build.safelist,
+        shake: argv.shake !== false && build.shake !== false,
+        // a sourcemap is embedded in nothing and read by nobody once the bundle
+        // is inside a binary, so it is weight on the way to being discarded
+        sourcemap: false,
+        tree: { commands: found.commands, diagnostics: [] } satisfies ResolvedTree,
+      });
 
-    const compiled = compileAll(runtime, {
-      entry: result.bin,
-      exec,
-      identity,
-      name,
-      out,
-      targets,
-    });
+      const compiled = compileAll(runtime, {
+        entry: result.bin,
+        exec,
+        identity,
+        name,
+        out,
+        targets,
+      });
 
-    if (!isQuiet()) {
-      printBinaries(compiled);
+      if (!isQuiet()) {
+        printBinaries(compiled);
+      }
+
+      writeSummary(
+        [
+          ...appRuns(found.app),
+          `${commandsFound(found)} into`,
+          `${compiled.length} ${runtime} binar${compiled.length === 1 ? 'y' : 'ies'},`,
+          `${displayPath(relative(found.app.root, out) || out)}${counts.warnings ? ',' : ''}`,
+          ...(counts.warnings
+            ? [
+                {
+                  class: 'cli-warning sigil-warn',
+                  text: `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
+                },
+              ]
+            : []),
+        ],
+        process.stderr
+      );
+    } finally {
+      rmSync(staging, { force: true, recursive: true });
     }
-
-    writeSummary(
-      [
-        ...appRuns(found.app),
-        `${commandsFound(found)} into`,
-        `${compiled.length} ${runtime} binar${compiled.length === 1 ? 'y' : 'ies'},`,
-        `${displayPath(relative(found.app.root, out) || out)}${counts.warnings ? ',' : ''}`,
-        ...(counts.warnings
-          ? [
-              {
-                class: 'cli-warning sigil-warn',
-                text: `${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
-              },
-            ]
-          : []),
-      ],
-      process.stderr
-    );
   },
 });
 

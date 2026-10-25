@@ -3150,12 +3150,40 @@ about what a valid app is would be the worse half of the feature.
   directory is an ordinary place to build into. `build`'s rule -- refuse an
   `--out` that is the app root or an ancestor of it -- is now the only rule.
 
-- **The intermediate bundle is left in place, and the extension is named once.**
-  `dist/` holds the binary and the bundle it was made from, which is honest
-  about what was embedded and invents no temp-directory dance. Naming the entry
-  file is one expression read by both the write and the `chmod`, because those
-  two came apart during development: the write took its extension from `form`
-  while the `chmod` spelled `.mjs` on its own, so a CommonJS bundle was written
+- **The binaries go to `release/` and the bundle does not go with them, because
+  sharing `dist/` meant the two commands destroyed each other's output.**
+  `sigil package` defaulted to `dist/`, which is where `sigil build` writes, and
+  `clean()` empties whichever directory it is given -- so measured, in both
+  orders: `build` then `package` wiped the bundle and its 23 chunks, and
+  `package` then `build` deleted an **89 MB binary**. `pnpm build && pnpm
+  package` lost something whichever way round it ran. `dist` is also what
+  `files` in a manifest usually publishes, so a binary sitting there is one
+  `npm publish` away from being shipped.
+
+  `release` rather than `out`: it says what the contents are, cannot be read as
+  a source or build directory, and avoids `--out out`. `package.out` does
+  **not** fall back to `build.out` any more, which is what put them together in
+  the first place -- a binary and a bundle are different artifacts with
+  different lifetimes.
+
+  The bundle is staged under `node_modules/.sigil/` instead, which is where
+  `writeEntry()` already puts the generated entry -- a convention this repo has
+  rather than a temp-directory dance invented here. The first version keyed that
+  directory by the app and the binary's name, and that collided immediately:
+  two test files packaging one fixture shared one scratch directory, and each
+  passed alone while one failed in the suite. It is keyed by the resolved
+  **output** now, which is `entryLocation()`'s own rule one file along and for
+  exactly the same reason. Verified with two concurrent packages of one app to
+  two outputs: two staging directories, two correct binaries, different
+  runtimes.
+
+  Nothing else creates the output directory any more, which is worth saying
+  because it used to appear for free: the bundle was written into it. The first
+  thing to touch it now is a compiler writing an `--outfile`, which does not
+  make parents.
+
+- **The entry's extension is named once.** The write took it from `form` while
+  the `chmod` spelled `.mjs` on its own, so a CommonJS bundle was written
   perfectly and then failed with an `ENOENT` naming a file the build had never
   been asked to produce.
 

@@ -32,6 +32,10 @@ cannot disagree about what a valid app is.
 `sigil package` embeds one, so what you ship is a file somebody downloads and
 runs.
 
+Binaries go to `release/`, not `dist/` — a build and a package are different
+artifacts, and sharing one directory meant each command deleted the other's
+output.
+
 ```sh
 sigil package --runtime bun                     # this machine
 sigil package --runtime bun \
@@ -227,7 +231,7 @@ to say so in the name; both at once is an error.
     "sourcemap": true,
   },
   "package": {
-    "out": "dist",
+    "out": "release",
     "runtime": "bun",
     "target": ["darwin-arm64", "linux-x64", "windows-x64"],
   },
@@ -243,10 +247,12 @@ so when it finishes.
 `name` is only needed when your `package.json` publishes more than one `bin`;
 otherwise the executable is named after the one it publishes.
 
-`package.runtime` is the one field with no default, and `sigil package` refuses
-to run without it — see "Packaging a binary" above for why. `package.out` falls
-back to `build.out` and then to `dist`, since the package is the build plus a
-step. `package.target` defaults to the machine the build runs on.
+`package.runtime` is the one field with no default — at a terminal
+`sigil package` asks, and otherwise it stops and tells you to choose.
+`package.out` defaults to `release` and deliberately does **not** follow
+`build.out`: a binary and a bundle are different artifacts, and putting them in
+one directory meant each command deleted the other's output.
+`package.target` defaults to the machine the build runs on.
 
 `locale` is the locale your app falls back on, written into the schema the build
 generates. It sits at the **bottom** of the locale chain — `SIGIL_LOCALE`,

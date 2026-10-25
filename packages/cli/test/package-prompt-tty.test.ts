@@ -1,6 +1,6 @@
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -153,10 +153,9 @@ describe('sigil package with no runtime named', () => {
       expect(ran.code, ran.stderr).toBe(0);
       expect(existsSync(join(out, 'buildable'))).toBe(true);
 
-      // and it is the bun binary, not the node one: the answer was used. The
-      // `.cjs` is the shape only `--runtime node` produces.
-      expect(existsSync(join(out, 'buildable.mjs'))).toBe(true);
-      expect(existsSync(join(out, 'buildable.cjs'))).toBe(false);
+      // and the output holds the binary alone -- no bundle, no chunks, which is
+      // what `release/` being separate from `dist/` is for
+      expect(readdirSync(out)).toEqual(['buildable']);
     },
     200_000
   );

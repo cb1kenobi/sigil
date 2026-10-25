@@ -94,10 +94,12 @@ export interface PackageConfig {
   /**
    * Where the binaries go, relative to the app.
    *
-   * Falls back to `build.out` and then to `dist`, because the package *is* the
-   * build plus a compile step: an app that said once where its build goes has
-   * said where its binaries go, and a second key answering the same question
-   * differently is the thing two readers of one file are warned about above.
+   * Defaults to `release`, and deliberately does **not** fall back to
+   * `build.out`. It did, on the reading that a package is the build plus a
+   * step -- and that put the binaries in `dist` beside the bundle, where the
+   * two commands destroyed each other's output, because `clean()` empties the
+   * directory each one is given. A binary and a bundle are different artifacts
+   * with different lifetimes, and `dist` is also what `files` usually ships.
    */
   readonly out?: string;
   /**

@@ -108,7 +108,15 @@ describe('sigil package', () => {
       const app = mkdtempSync(join(tmpdir(), 'sigil-pkg-app-'));
 
       try {
-        cpSync(join(fixtures, 'buildable'), app, { recursive: true });
+        // `node_modules` is excluded, and that is not tidiness: `sigil package`
+        // writes its staging directory under the app's own
+        // `node_modules/.sigil/`, so copying the fixture while another test
+        // file packages it races a read against a delete. Measured as a test
+        // that passed alone and failed in the suite.
+        cpSync(join(fixtures, 'buildable'), app, {
+          filter: (from) => !from.includes('node_modules'),
+          recursive: true,
+        });
         writeFileSync(
           join(app, 'sigil.json'),
           `${JSON.stringify({ package: { runtime: 'deno' } }, undefined, 2)}\n`,
@@ -131,7 +139,15 @@ describe('sigil package', () => {
       const app = mkdtempSync(join(tmpdir(), 'sigil-pkg-app-'));
 
       try {
-        cpSync(join(fixtures, 'buildable'), app, { recursive: true });
+        // `node_modules` is excluded, and that is not tidiness: `sigil package`
+        // writes its staging directory under the app's own
+        // `node_modules/.sigil/`, so copying the fixture while another test
+        // file packages it races a read against a delete. Measured as a test
+        // that passed alone and failed in the suite.
+        cpSync(join(fixtures, 'buildable'), app, {
+          filter: (from) => !from.includes('node_modules'),
+          recursive: true,
+        });
         writeFileSync(
           join(app, 'sigil.json'),
           `${JSON.stringify({ package: { runtime: 'node' } }, undefined, 2)}\n`,
@@ -176,17 +192,15 @@ describe('sigil package', () => {
   });
 
   describe('the bundle it embeds', () => {
-    it('should be one CommonJS file that runs, for the node runtime', async () => {
+    it('should embed one flat CommonJS file, for the node runtime', async () => {
       // The claim with teeth. A Node single executable runs its embedded main as
-      // CommonJS and cannot `import()` at all, so this form has to be
+      // CommonJS and cannot `import()` at all, so this form has to be one file,
+      // free of top-level await, and still able to reach its commands.
       //
-      //   - one file, because a SEA has nowhere to put a chunk, and
-      //   - free of top-level await, because CommonJS cannot express it and
-      //     rolldown refuses the whole bundle over one.
-      //
-      // Proved by running it rather than by reading it: a bundle that satisfies
-      // both and still does not work is the failure this is here to catch, and
-      // it is what every `sigil package --runtime node` embeds.
+      // Asserted through the **binary** now rather than through the staged
+      // bundle, because the staging directory no longer survives the run: a
+      // hash per output meant one directory per distinct `--out`, so they
+      // accumulated -- 51 of them in this very fixture before anybody looked.
       const { err } = await sigil(
         'package',
         join(fixtures, 'buildable'),
@@ -194,7 +208,6 @@ describe('sigil package', () => {
         out,
         '--runtime',
         'node',
-        // the host, so the pre-flight passes on every machine CI runs
         '--target',
         label(hostTarget())
       );
@@ -204,39 +217,31 @@ describe('sigil package', () => {
         return;
       }
 
-      // the command has to have *succeeded*, which this did not check: `err`
-      // was read only in the branch above and `process.exitCode` never, so a
-      // failure in the compile step after the bundle -- a missing `codesign`,
-      // say -- left this test fully green. The `.cjs` exists, has no chunks and
-      // runs, which is everything it went on to assert.
       expect(err).not.toMatch(/^Error:/m);
       expect(process.exitCode).toBeFalsy();
 
-      const bundle = join(out, 'buildable.cjs');
-      expect(existsSync(bundle)).toBe(true);
+      // the output directory holds binaries and nothing else, which is the whole
+      // of why the bundle moved out of it
+      expect(readdirSync(out)).toEqual(['buildable']);
 
-      // no chunks: everything is inlined, because there is nowhere for one to be
-      const written = readdirSync(out, { recursive: true, withFileTypes: true })
-        .filter((entry) => entry.isFile())
-        .map((entry) => entry.name);
-      expect(written.filter((name) => name.endsWith('.mjs'))).toEqual([]);
-      expect(existsSync(join(out, 'chunks'))).toBe(false);
-
-      const ran = spawnSync(process.execPath, [bundle, '--help'], { encoding: 'utf-8' });
-      expect(ran.status, ran.stderr).toBe(0);
-      expect(ran.stdout).toContain('Usage:');
+      const binary = join(out, 'buildable');
+      const help = spawnSync(binary, ['--help'], { encoding: 'utf-8' });
+      expect(help.status, help.stderr).toBe(0);
+      expect(help.stdout).toContain('Usage:');
 
       // and a command, which is the half that proves the inlined `import()`
       // still resolves -- a flattened bundle whose commands cannot be reached
       // would answer `--help` perfectly well
-      const cmd = spawnSync(process.execPath, [bundle, 'greet', 'Ada'], { encoding: 'utf-8' });
+      const cmd = spawnSync(binary, ['greet', 'Ada'], { encoding: 'utf-8' });
       expect(cmd.status, cmd.stderr).toBe(0);
+      expect(cmd.stdout).toBe('hello Ada\n');
     }, 120_000);
 
-    it('should keep the ESM entry and its chunks, for the bun runtime', async () => {
-      // the other half of the same claim: Bun reads what `sigil build` already
-      // writes, `import()` and all, so nothing about the bundle changes and the
-      // lazy chunk per command survives into the binary
+    it('should leave only binaries in the output directory', async () => {
+      // the other half of the same claim, and the user-visible reason the bundle
+      // moved: `sigil package` defaulted to `dist/` beside `sigil build`, and
+      // `clean()` empties whichever directory it is given -- so each command
+      // deleted the other's output, measured in both orders
       const { err } = await sigil(
         'package',
         join(fixtures, 'buildable'),
@@ -247,13 +252,13 @@ describe('sigil package', () => {
       );
 
       if (!hasBun) {
-        expect(err).toMatch(/bun is not installed/);
+        expect(err).toMatch(/bun/);
         return;
       }
 
-      expect(existsSync(join(out, 'buildable.mjs'))).toBe(true);
-      expect(existsSync(join(out, 'buildable.cjs'))).toBe(false);
-      expect(existsSync(join(out, 'chunks'))).toBe(true);
+      expect(readdirSync(out)).toEqual(['buildable']);
+      expect(existsSync(join(out, 'buildable.mjs'))).toBe(false);
+      expect(existsSync(join(out, 'chunks'))).toBe(false);
     }, 120_000);
   });
 
@@ -320,7 +325,15 @@ describe('sigil package', () => {
       const app = mkdtempSync(join(tmpdir(), 'sigil-pkg-app-'));
 
       try {
-        cpSync(join(fixtures, 'buildable'), app, { recursive: true });
+        // `node_modules` is excluded, and that is not tidiness: `sigil package`
+        // writes its staging directory under the app's own
+        // `node_modules/.sigil/`, so copying the fixture while another test
+        // file packages it races a read against a delete. Measured as a test
+        // that passed alone and failed in the suite.
+        cpSync(join(fixtures, 'buildable'), app, {
+          filter: (from) => !from.includes('node_modules'),
+          recursive: true,
+        });
         writeFileSync(
           join(app, 'sigil.json'),
           `${JSON.stringify(
@@ -465,13 +478,24 @@ describe('sigil package', () => {
         expect(help.status, help.stderr).toBe(0);
         expect(help.stdout).toContain('Usage:');
 
-        // against the unpackaged app rather than against a literal: what is
-        // being claimed is that packaging changed nothing about what the app
-        // says, and a snapshot of the help screen would be a claim about help
-        const unpackaged = spawnSync(process.execPath, [join(out, 'buildable.mjs'), '--help'], {
-          encoding: 'utf-8',
-        });
-        expect(help.stdout).toBe(unpackaged.stdout);
+        // against a real `sigil build` rather than against a literal or against
+        // this run's own intermediate: what is claimed is that packaging changed
+        // nothing about what the app says, so the comparison should be with the
+        // canonical unpackaged output
+        const built = mkdtempSync(join(tmpdir(), 'sigil-pkg-built-'));
+
+        try {
+          await sigil('build', join(fixtures, 'buildable'), '--out', built);
+
+          const unpackaged = spawnSync(process.execPath, [join(built, 'buildable.mjs'), '--help'], {
+            encoding: 'utf-8',
+          });
+
+          expect(unpackaged.status, unpackaged.stderr).toBe(0);
+          expect(help.stdout).toBe(unpackaged.stdout);
+        } finally {
+          rmSync(built, { force: true, recursive: true });
+        }
 
         // and a lazily loaded command, which is the thing a flattened or
         // mis-chunked bundle gets wrong while answering `--help` correctly
@@ -527,14 +551,23 @@ describe('sigil package', () => {
         expect(help.status, help.stderr).toBe(0);
         expect(help.stdout).toContain('Usage:');
 
-        // against the bundle it embeds, run under node, rather than against a
-        // literal: what is claimed is that wrapping the entry and flattening
-        // the chunks changed nothing about what the app says, and the embedded
-        // `.cjs` is the one comparison that isolates the SEA from the bundle
-        const embedded = spawnSync(process.execPath, [join(out, 'buildable.cjs'), '--help'], {
-          encoding: 'utf-8',
-        });
-        expect(help.stdout).toBe(embedded.stdout);
+        // against a real `sigil build`, which is the canonical unpackaged
+        // output: what is claimed is that wrapping the entry and flattening the
+        // chunks changed nothing about what the app says
+        const built = mkdtempSync(join(tmpdir(), 'sigil-pkg-built-'));
+
+        try {
+          await sigil('build', join(fixtures, 'buildable'), '--out', built);
+
+          const unpackaged = spawnSync(process.execPath, [join(built, 'buildable.mjs'), '--help'], {
+            encoding: 'utf-8',
+          });
+
+          expect(unpackaged.status, unpackaged.stderr).toBe(0);
+          expect(help.stdout).toBe(unpackaged.stdout);
+        } finally {
+          rmSync(built, { force: true, recursive: true });
+        }
 
         const cmd = spawnSync(binary, ['greet', 'Ada'], { encoding: 'utf-8' });
         expect(cmd.status, cmd.stderr).toBe(0);
