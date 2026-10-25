@@ -2731,6 +2731,24 @@ about what a valid app is would be the worse half of the feature.
   check would fire, and the target is one Bun has no runtime for -- so the run
   still refuses, for a reason about the target rather than about `PATH`.
 
+- **When the runtime came from the file, the run says so.** The precedence is
+  the ordinary one -- flag, then `sigil.json`, then ask -- and a declared value
+  correctly suppresses the prompt. What was missing is that nothing said which
+  of the three had happened, and "why doesn't it prompt me?" was asked **twice**,
+  both times by somebody whose `sigil.json` was deciding it silently.
+
+  So the note fires for the file and only for the file: a flag is the caller's
+  own immediate act and needs no echo, and an answered prompt is already on
+  screen. It names the override and the way back to being asked, because the
+  question behind "why didn't it ask" is "how do I make it ask". Both halves are
+  pinned -- firing when the file supplied it, and _not_ firing when a flag did --
+  and the second is the one a careless edit loses.
+
+  Worth recording as a shape rather than an incident: a value with three
+  possible sources and no statement of which one won is a value somebody will
+  be surprised by, and the surprise arrives as a bug report about the feature
+  rather than about the silence.
+
 - **The runtime has no default, and with nobody to ask the error is the
   feature.** `--runtime` comes from the flag or from
   `"package": { "runtime": ... }` in `sigil.json`. With neither, somebody at a

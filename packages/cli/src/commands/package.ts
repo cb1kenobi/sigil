@@ -58,7 +58,7 @@ import {
   resolve,
   type Spec,
 } from '../build/index.ts';
-import { readSigilConfig } from '../config.ts';
+import { CONFIG_FILE, readSigilConfig } from '../config.ts';
 import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
   appRuns,
@@ -164,6 +164,21 @@ const pkg: AnyCommand = command({
       targets[0] as Target
     );
     const runtime = spec.runtime;
+
+    // said when the answer came from the **file**, and only then. A flag is the
+    // caller's own immediate act and needs no echo; an answered prompt is on
+    // screen already. What was invisible is a `sigil.json` deciding this
+    // silently -- asked twice as "why doesn't it prompt me?", which is the
+    // question a line of output answers once and a doc page never does.
+    if (argv.runtime === undefined && config.runtime !== undefined) {
+      writeNote(
+        [
+          `Using ${config.runtime} from ${CONFIG_FILE}.`,
+          'Pass --runtime to override, or remove "package.runtime" to be asked.',
+        ],
+        process.stderr
+      );
+    }
     const external = (argv.external as string[] | undefined) ?? build.external ?? [];
     const out = resolveOut(
       found.app.root,

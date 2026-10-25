@@ -1,4 +1,5 @@
 import { canBuildSea, hostTarget, label } from '../src/build/compile.ts';
+import { CONFIG_FILE } from '../src/config.ts';
 import { run } from '../src/index.js';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
@@ -102,6 +103,56 @@ describe('sigil package', () => {
       // and where to say it once, which is the thing a reader wants next
       expect(err).toContain('sigil.json');
       expect(process.exitCode).toBeTruthy();
+    }, 60_000);
+
+    it('should say when the runtime came from the file, and only then', async () => {
+      // Asked twice as "why doesn't it prompt me?", both times because a
+      // `sigil.json` was deciding this silently. A flag is the caller's own
+      // immediate act and needs no echo; an answered prompt is on screen
+      // already. The file is the one source that was invisible.
+      const app = mkdtempSync(join(tmpdir(), 'sigil-pkg-app-'));
+
+      try {
+        cpSync(join(fixtures, 'buildable'), app, {
+          filter: (from) => !from.includes('node_modules'),
+          recursive: true,
+        });
+        writeFileSync(
+          join(app, 'sigil.json'),
+          `${JSON.stringify({ package: { runtime: 'bun' } }, undefined, 2)}\n`,
+          'utf-8'
+        );
+
+        // a target Bun cannot build, so the run refuses in the pre-flight and
+        // this needs no compiler and no download
+        const declared = await sigil(
+          app ? 'package' : 'package',
+          app,
+          '--out',
+          out,
+          '--target',
+          'windows-arm64'
+        );
+
+        expect(declared.err).toContain(`Using bun from ${CONFIG_FILE}`);
+        expect(declared.err).toContain('--runtime');
+
+        // and nothing is said when the flag supplied it
+        const flagged = await sigil(
+          'package',
+          app,
+          '--out',
+          out,
+          '--runtime',
+          'bun',
+          '--target',
+          'windows-arm64'
+        );
+
+        expect(flagged.err).not.toContain('Using bun from');
+      } finally {
+        rmSync(app, { force: true, recursive: true });
+      }
     }, 60_000);
 
     it('should refuse a spelling the config invented', async () => {
