@@ -1,7 +1,7 @@
 import { binaryName, canBuildSea, hostTarget, label } from '../src/build/compile.ts';
 import { CONFIG_FILE } from '../src/config.ts';
 import { run } from '../src/index.js';
-import { whichSync } from '@ttylabs/sigil/which';
+import { candidates, whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import {
   cpSync,
@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -238,6 +238,77 @@ describe('sigil package', () => {
         rmSync(app, { force: true, recursive: true });
       }
     }, 120_000);
+  });
+
+  describe('which executable compiles', () => {
+    /**
+     * A `PATH` whose first entry holds a stub `node`.
+     *
+     * Prepended rather than replacing `PATH`, which is what makes the test
+     * reach the compile step at all: `assertToolchain()` locates `codesign` for
+     * a darwin target, so an emptied `PATH` would refuse before any of this --
+     * the vacuity `compile.test.ts` records for its own stub.
+     *
+     * The stub answers `--version` above the `--build-sea` floor so that the
+     * check it has to pass passes, and fails loudly for `--build-sea` so that
+     * **which binary compiled** is visible in the output. Named through
+     * `candidates()` rather than spelled, which is this repository's rule about
+     * platform-dependent fixtures.
+     */
+    let fakebin: string;
+    let path: string | undefined;
+
+    beforeEach(() => {
+      path = process.env.PATH;
+      fakebin = mkdtempSync(join(tmpdir(), 'sigil-stubnode-'));
+
+      const name = [...candidates('node', { path: fakebin })].find((one) =>
+        one.startsWith(fakebin)
+      );
+
+      expect(name, 'candidates() offered nothing inside the fixture directory').toBeDefined();
+      writeFileSync(
+        name as string,
+        '#!/bin/sh\ncase "$1" in\n  --version) echo v99.0.0 ;;\n  --build-sea=*) echo STUB-NODE-RAN >&2; exit 1 ;;\n  *) exit 1 ;;\nesac\n',
+        { mode: 0o755 }
+      );
+      process.env.PATH = `${fakebin}${delimiter}${path ?? ''}`;
+    });
+
+    afterEach(() => {
+      process.env.PATH = path;
+      rmSync(fakebin, { force: true, recursive: true });
+    });
+
+    it.skipIf(process.platform === 'win32')(
+      'should compile with the node it checked, not with the one running sigil',
+      async () => {
+        const { err } = await sigil(
+          'package',
+          join(fixtures, 'buildable'),
+          '--out',
+          out,
+          '--runtime',
+          'node',
+          '--target',
+          label(hostTarget())
+        );
+
+        // the marker only the stub can print, and the whole of the assertion:
+        // `resolveExec()` answered `undefined` for a bare runtime, whose
+        // fallback is `process.execPath`, so the node whose `--version` passed
+        // the check was not the node handed `--build-sea`. Measured as a wrong
+        // `Node 25.5 or newer is needed` on a sigil older than the `PATH` node,
+        // and as an unnecessary download the other way round.
+        //
+        // It needs no `hasBuildSea` guard, which is the other thing the stub
+        // buys: what this machine's own node can do no longer decides whether
+        // the claim is reachable.
+        expect(err).toContain('STUB-NODE-RAN');
+        expect(process.exitCode).toBeTruthy();
+      },
+      120_000
+    );
   });
 
   describe('the bundle it embeds', () => {

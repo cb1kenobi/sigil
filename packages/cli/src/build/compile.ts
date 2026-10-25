@@ -24,9 +24,10 @@
  * flat file whose `main()` call is wrapped because CommonJS cannot hold a
  * top-level `await`.
  *
- * It also cannot cross-compile, because the blob is injected into the host's
- * own `node`: the binary this produces embeds whatever runtime is running the
- * toolchain. And `--build-sea` leaves the result **unsigned**, which on Apple
+ * It also cannot cross-compile, because the blob is injected into a `node` of
+ * the host's own platform: the binary this produces embeds the node whose
+ * `--build-sea` ran, which is `exec` -- not necessarily the one running the
+ * toolchain, which is what this used to say. And `--build-sea` leaves the result **unsigned**, which on Apple
  * Silicon is not a distribution concern but an execution one -- an unsigned
  * binary is killed with SIGKILL before it runs a line. So `sign()` runs on
  * darwin and is not optional there.
@@ -87,12 +88,23 @@ const BUN_UNSUPPORTED: readonly string[] = ['windows-arm64'];
 export const NODE_BUILD_SEA: readonly [number, number] = [25, 5];
 
 /**
- * Whether the running Node can build a single executable in one step.
+ * Whether a Node version can build a single executable in one step.
  *
- * Read off `process.versions` rather than probed by spawning, because the node
- * that builds the blob is the node running this: there is no second runtime
- * whose capabilities could differ from what this process reports.
+ * Arithmetic over a version string, so it answers for **any** node rather than
+ * only this one: the callers ask it about the `node` on `PATH`, about a version
+ * the registry listed, and about a version somebody typed. `process.versions`
+ * is the default and nothing more.
  *
+ * Both this and `assertBuildSea()` used to carry a paragraph saying the opposite
+ * -- that it is read off `process.versions` rather than probed, because "the
+ * node that builds the blob is the node running this: there is no second runtime
+ * whose capabilities could differ from what this process reports". That was true
+ * when there was no way to name a runtime, and the version parameter and
+ * `--runtime node@<version>` each made it false while it sat here in two
+ * identical copies. It is the premise the defect `resolveExec()` records grew
+ * out of, so it is written out rather than deleted.
+ *
+ * @param version - The version to judge, defaulting to this process's.
  * @returns Whether `--build-sea` is available.
  */
 export function canBuildSea(version: string = process.versions.node): boolean {
@@ -433,7 +445,11 @@ export interface CompileOptions {
    * the host inject into some other node, and it silently produces a broken
    * binary across a version boundary -- see `runtimes.ts`.
    *
-   * Defaults to whatever the host has: `bun` on `PATH`, or this process.
+   * Defaults to whatever the host has: `bun` on `PATH`, or this process. That
+   * default is for an exported caller only -- `sigil package` always names one,
+   * for the reason `resolveExec()` records: the Node default is
+   * `process.execPath` while everything that *decides* reads `PATH`, so leaving
+   * it unset there checked one binary and compiled with another.
    */
   readonly exec?: string;
   /** What to build for. */
@@ -606,7 +622,11 @@ function compileSea(options: CompileOptions): CompileResult {
 
     // the **target's** own `--build-sea`, not the host's. Producer and consumer
     // are then the same binary, so there is no cross-version blob format to get
-    // wrong -- which the `executable` field route does get wrong, silently
+    // wrong -- which the `executable` field route does get wrong, silently.
+    //
+    // The fallback is unreachable from `sigil package`, which always names one:
+    // it was reachable, and it was the defect, because what that command checks
+    // is the `node` on `PATH` and this is whatever is running sigil
     const node = options.exec ?? process.execPath;
 
     assertBuildSea(node);
@@ -736,11 +756,14 @@ function sign(file: string, identity: string): void {
  * toolchain's own `engines` does not require anybody to be on -- so the answer
  * is to say which Node is needed, naming the one in hand.
  *
- * Read off `process.versions` rather than probed by spawning, because the node
- * that builds the blob is the node running this: there is no second runtime
- * whose capabilities could differ from what this process reports.
+ * Probed by spawning `--version`, because the node being asked about is the one
+ * named in `exec` rather than this process: `sigil package` resolves it off
+ * `PATH` or out of a cache, so its capabilities are a thing to find out rather
+ * than to report. The paragraph that used to sit here said the reverse, in the
+ * words `canBuildSea()` now carries.
  *
- * @throws If this Node has no `--build-sea`.
+ * @param node - The node that would run `--build-sea`.
+ * @throws If that Node has no `--build-sea`.
  */
 function assertBuildSea(node: string): void {
   const run = spawnSync(node, ['--version'], { encoding: 'utf-8' });

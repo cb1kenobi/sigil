@@ -215,6 +215,122 @@ platform-specific fixtures is written about.
 rather than discovered: `bun build --target=bun-windows-arm64` answers with a
 usage dump.
 
+## The node that passed the check was not the node that compiled
+
+The second finding from the cross-model review on the pull request, after the
+release-workflow one and from the same place: two facts each written down, with
+nothing putting them together.
+
+- `resolveExec()` answers `undefined` for a bare `--runtime node`, meaning
+  "whatever the host has", and what it checked to decide that is
+  `installed('node')` — which is `whichSync('node')`, the node on `PATH`.
+- `compileSea()`'s fallback for a missing `exec` is `process.execPath` — whatever
+  is running sigil.
+
+So the capability question was asked of one executable and `--build-sea` handed
+to another.
+
+### Measured, under bun
+
+The probe needs a `process.execPath` that cannot build a SEA while `PATH` has a
+node that can, and bun is the one of those this machine has — which is also the
+realistic case, since running a TypeScript toolchain under bun is a thing people
+do. Node 26.10.0 first on `PATH`:
+
+```
+$ PATH=~/.nvm/versions/node/v26.10.0/bin:/usr/bin:/bin \
+    bun packages/cli/src/sigil.ts package test/fixtures/buildable \
+    --out /tmp/sig-b --runtime node --target darwin-arm64
+
+Error: Could not package darwin-arm64.
+Node 25.5 or newer is needed to package with Node, and
+/Users/chris/.bun/bin/bun is 1.4.4. Earlier versions build a single executable
+through postject ...
+```
+
+A refusal about a runtime nobody named, on a machine with a perfectly good Node
+26 that had just passed the check — and it is the refusal "A missing runtime is
+resolved, never refused" exists to have removed. The same invocation after the
+fix:
+
+```
+Binary     Target            Size  Signed
+buildable  darwin-arm64  138.9 MB  ad-hoc
+```
+
+which answers `--help` and `greet Ada`.
+
+### The fix, and the shape of it
+
+`return here.path` — the executable that was checked. Two details are worth more
+than the line:
+
+`here.path` is asked in the **condition** rather than only used in the body, so
+one expression decides and supplies and the two cannot come apart again. (The
+type forced the question: `Found.path` is optional, because a version the
+registry offered is a `Found` too.)
+
+And it makes a bare runtime agree with its **pinned** spelling, which is why it
+is right rather than merely sufficient: `--runtime node@<whatever PATH has>`
+already resolved through `local()` to that same path, so one instruction written
+two ways had been compiling with two different binaries.
+
+`exec` is a `string` through `compileAll()` now rather than `string | undefined`,
+so the type says the command always decides; the fallbacks in `compile.ts` stay
+for the exported callers they were written for.
+
+### What this does not fix
+
+Node 24 on `PATH` under a sigil on 26 fails the check and resolves from the
+registry — a download on a cold machine. That is unchanged, before and after,
+because what fails there is the check rather than the hand-off. Closing it means
+offering `process.execPath` as a candidate, and that is declined for a reason
+worth more than the saved download: `installed()` and `local()` are what the
+**picker** lists, so a resolution reaching for a runtime the picker never offered
+is the same disagreement pointing the other way. The honest version of that fix
+teaches `installed()` about the running runtime so the picker offers it too,
+which is a change to what the command shows rather than to one branch of a
+private resolver.
+
+Measured in passing, with no `node` on `PATH` at all: the command resolves the
+cached 26.12.1 and builds. The right binary, by a route that costs a download on
+a machine without one.
+
+### The guard
+
+`should compile with the node it checked, not with the one running sigil`, in
+`package-command.test.ts`. No network, and no `hasBuildSea` skip — what this
+machine's own node can do no longer decides whether the claim is reachable.
+
+A stub `node` is **prepended** to `PATH` rather than replacing it, because
+`assertToolchain()` locates `codesign` for a darwin target and an emptied `PATH`
+refuses before the compile — the vacuity `compile.test.ts` already records for
+its own stub. It answers `--version` with `v99.0.0`, so the check passes, and
+fails loudly for `--build-sea`, so which binary compiled is visible in the
+output.
+
+Sabotaged by putting `undefined` back: this machine's real node then built the
+binary **successfully**, which is a third outcome and the reason the assertion is
+the stub's marker rather than a message.
+
+### Two identical comments that had become false
+
+`canBuildSea()` and `assertBuildSea()` each carried, verbatim:
+
+> Read off `process.versions` rather than probed by spawning, because the node
+> that builds the blob is the node running this: there is no second runtime whose
+> capabilities could differ from what this process reports.
+
+True when neither a version parameter nor `--runtime node@<version>` existed, and
+each of those made it false while it sat in two places: `canBuildSea()` takes a
+version precisely so it can answer for another node, and `assertBuildSea()`
+**spawns** `--version` because the node it is asked about is the one `exec`
+names. It is the premise the defect grew out of, so it is written out in the
+code rather than deleted. The module header said the same thing in its own words
+— that the binary "embeds whatever runtime is running the toolchain" — and
+`CompileOptions.exec`'s "defaults to whatever the host has" now says who that
+default is for.
+
 ## The scaffolded release workflow could not have worked, and only review saw it
 
 Found by the cross-model review on the pull request, after everything above had

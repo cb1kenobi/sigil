@@ -2802,6 +2802,92 @@ about what a valid app is would be the worse half of the feature.
   check would fire, and the target is one Bun has no runtime for -- so the run
   still refuses, for a reason about the target rather than about `PATH`.
 
+- **...and the node that passed that check has to be the node that compiles,
+  which for a bare `--runtime node` it was not.** `resolveExec()` answered
+  `undefined` for an unnamed version, meaning "whatever the host has", which is
+  what the compile functions default to -- and for Node those are **two
+  different binaries**. The check reads `installed('node')`, which is
+  `whichSync('node')`, while `compileSea()`'s fallback is `process.execPath`,
+  whatever is running sigil. So the capability question was asked of one
+  executable and `--build-sea` was handed to another.
+
+  What that costs is a refused build over a machine that has everything it
+  needs, and it is **measured** rather than reasoned. With Node 26.10.0 first on
+  `PATH` and sigil running under `bun` -- `bun packages/cli/src/sigil.ts package
+  ... --runtime node`, which is how anybody who has bun runs a TypeScript
+  toolchain -- the check passes on the Node 26 and `assertBuildSea()` then
+  refuses: `Node 25.5 or newer is needed to package with Node, and
+  /Users/chris/.bun/bin/bun is 1.4.4`. That is the refusal the entry above exists
+  to have removed, arriving anyway, about a runtime nobody named. The same
+  invocation after the fix writes a 138.9 MB `darwin-arm64` binary, ad-hoc
+  signed, which answers `--help` and `greet Ada`. A sigil on Node 24 with a Node
+  26 on `PATH` is the same divergence with a plainer cause, and this was measured
+  with `bun` because the two nodes it needs are not both on this machine --
+  what the probe has to produce is a `process.execPath` that cannot build a SEA,
+  and bun is one.
+
+  **The other direction is not fixed by this, and saying otherwise would be the
+  easy mistake.** Node 24 on `PATH` under a sigil on 26 fails the check and
+  resolves from the registry -- a download on a cold machine, a cached runtime on
+  a warm one -- and it does that both before and after, because what fails is the
+  check itself rather than the hand-off. Only the paragraph below would close it.
+
+  The fix is to return the executable that was checked, and the shape of it is
+  that `here.path` is asked in the **condition** rather than only used in the
+  body: one expression decides and supplies, so the two cannot come apart again.
+  It also makes a bare runtime agree with its pinned spelling, which is the
+  deeper reason it is right rather than merely sufficient --
+  `--runtime node@<whatever PATH has>` already resolved through `local()` to that
+  same path, so one instruction written two ways had been compiling with two
+  different binaries. `exec` is a `string` now rather than `string | undefined`
+  through `compileAll()`, so the type says that the command always decides; the
+  fallbacks in `compile.ts` stay for the exported callers they were written for.
+
+  **Offering `process.execPath` as a candidate at all is deliberately not done**,
+  and it is the fix for the direction above rather than a tidy-up this declines:
+  a sigil whose own runtime can build a SEA could use it when `PATH` has no
+  usable `node`, and would then neither download nor refuse. What rules it out is
+  that `installed()` and `local()` are what the **picker** lists, so a resolution
+  reaching for a runtime the picker never offered is this same disagreement
+  pointing the other way -- a row nobody was shown deciding what the binary
+  embeds. Measured in passing, with no `node` on `PATH` at all: the command
+  resolves the cached 26.12.1 and builds, which is the right binary by a route
+  that costs a download on a machine without one. The honest way to close it is
+  to teach `installed()` about the running runtime, so the picker offers it too,
+  and that is a change to what the command _shows_ rather than to one branch of
+  a private resolver.
+
+  The guard is `should compile with the node it checked, not with the one
+  running sigil`, and it needs no network and no `hasBuildSea` skip. A stub
+  `node` is **prepended** to `PATH` -- prepended rather than replacing it,
+  because `assertToolchain()` locates `codesign` for a darwin target and an
+  emptied `PATH` would refuse before the compile -- the vacuity recorded below
+  under "A test that empties `PATH` to prove something about `codesign` proves
+  nothing". It answers `--version` with
+  `v99.0.0`, so the check passes, and fails loudly for `--build-sea`, so which
+  binary compiled is visible: under the fix the run carries the stub's marker,
+  and under the defect this machine's real node built the binary **successfully**
+  -- a third outcome, and the reason the assertion is a marker rather than a
+  message.
+
+- **Two identical comments said the node that builds the blob cannot differ from
+  the one running this, and both were false.** `canBuildSea()` and
+  `assertBuildSea()` each carried the paragraph verbatim -- "Read off
+  `process.versions` rather than probed by spawning, because the node that builds
+  the blob is the node running this: there is no second runtime whose
+  capabilities could differ from what this process reports." It was true when
+  neither a version parameter nor `--runtime node@<version>` existed, and each of
+  those made it false while it sat in two places: `canBuildSea()` takes a version
+  precisely so it can answer for another node, and `assertBuildSea()` **spawns**
+  `--version` because the node it is asked about is the one `exec` names.
+
+  It is the premise the defect above grew out of, which is why it is written out
+  rather than deleted -- and it is the shape this file keeps recording from the
+  other side, a correct sentence left behind by the tree moving under it. The
+  module header had the same claim in its own words, that the binary "embeds
+  whatever runtime is running the toolchain", and `CompileOptions.exec`'s
+  "defaults to whatever the host has" now says who that default is for.
+
 - **When the runtime came from the file, the run says so.** The precedence is
   the ordinary one -- flag, then `sigil.json`, then ask -- and a declared value
   correctly suppresses the prompt. What was missing is that nothing said which

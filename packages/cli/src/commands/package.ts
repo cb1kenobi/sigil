@@ -446,15 +446,34 @@ async function askRuntime(target: Target): Promise<Spec> {
  * ordinary case and costs nothing. A pinned version resolves to that version,
  * from `PATH` or either cache, and is downloaded only if it is nowhere.
  *
- * `undefined` means "whatever the host has", which is what the compile
- * functions already default to -- so an unpinned run behaves exactly as it did
- * before any of this existed.
+ * It always names one, and that is the fix for a defect rather than tidiness.
+ * It used to answer `undefined` for an unpinned run, meaning "whatever the host
+ * has", which the compile functions default to -- and for Node those are two
+ * different binaries: the check below reads `installed('node')`, which is the
+ * `node` on `PATH`, while `compileSea()`'s fallback is `process.execPath`,
+ * whatever is running sigil. So the node that passed the check was not the node
+ * that compiled. Measured both ways round: sigil on Node 24 with Node 26 first
+ * on `PATH` passed the check and was then refused by `assertBuildSea()` with
+ * `Node 25.5 or newer is needed` -- the very refusal fetch-on-demand exists to
+ * remove -- and under `bun --bun` it is refused as `.../bun is 1.x`, while Node
+ * 24 on `PATH` under a sigil on 26 downloaded a runtime it was already running.
+ *
+ * Naming the checked executable also makes a bare runtime agree with its pinned
+ * spelling: `--runtime node@<whatever PATH has>` resolves through `local()` to
+ * that same path, so the two forms of one instruction no longer compile with two
+ * different binaries.
+ *
+ * What is deliberately not done is offering `process.execPath` as a candidate
+ * when `PATH` has no `node`. Such a run downloads, exactly as it did before, and
+ * the reason to leave it is that `installed()` and `local()` are what the picker
+ * lists: a resolution reaching for a runtime the picker never offered is the same
+ * disagreement this fixes, pointing the other way.
  *
  * @param spec - The runtime and any version.
  * @param target - What is being built, for naming Bun's cached runtimes.
- * @returns The executable, or `undefined` to use the host's.
+ * @returns The executable to compile with.
  */
-async function resolveExec(spec: Spec, target: Target): Promise<string | undefined> {
+async function resolveExec(spec: Spec, target: Target): Promise<string> {
   if (spec.version !== undefined) {
     return fetchIfAbsent(spec.runtime, spec.version, target);
   }
@@ -466,8 +485,13 @@ async function resolveExec(spec: Spec, target: Target): Promise<string | undefin
   // should get a working binary, not a lecture about 25.5.
   const here = installed(spec.runtime);
 
-  if (here && (spec.runtime === 'bun' || canBuildSea(here.version))) {
-    return undefined;
+  // `here.path` is asked in the **condition** rather than only used in the body,
+  // which is the shape of the fix: the executable that is checked is the one
+  // that is returned, so the two cannot come apart again. It is always set for
+  // something found on `PATH`; the type permits its absence because a version
+  // the registry offered is a `Found` too.
+  if (here?.path && (spec.runtime === 'bun' || canBuildSea(here.version))) {
+    return here.path;
   }
 
   // nothing usable here, so pick the newest the registry offers. This is the
@@ -612,7 +636,7 @@ function compileAll(
   runtime: Runtime,
   options: {
     readonly entry: string;
-    readonly exec: string | undefined;
+    readonly exec: string;
     readonly identity: string | undefined;
     readonly name: string;
     readonly out: string;
