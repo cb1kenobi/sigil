@@ -44,6 +44,10 @@ sigil package --runtime bun \
 sigil package --runtime node                    # this machine, on Node
 ```
 
+The version lists come from `nodejs.org/dist/index.json` and
+`registry.npmjs.org/bun`, cached for a day under your XDG cache directory.
+Nothing is fetched when you name a runtime that is already installed.
+
 **You do not need the runtime installed.** `--runtime bun` on a machine with no
 Bun fetches one; `--runtime node` on a Node too old to package itself fetches a
 newer one. Either way it lands in your XDG cache and a second run reuses it.

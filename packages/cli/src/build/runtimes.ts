@@ -48,9 +48,18 @@ import { NODE_BUILD_SEA, RUNTIMES, type Runtime, type Target } from './compile.t
 import { cache } from '@ttylabs/sigil/paths';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 /** Where a fetched runtime is kept, under the XDG cache. */
 const CACHE = 'sigil/runtimes';
@@ -315,12 +324,109 @@ export function canEmbed(version: string): boolean {
  *   network could not be reached.
  */
 export async function latest(runtime: Runtime): Promise<Release[]> {
+  const fresh = cached(runtime, LISTING_TTL);
+
+  if (fresh) {
+    return fresh;
+  }
+
   try {
-    return runtime === 'node' ? await latestNode() : await latestBun();
+    const releases = runtime === 'node' ? await latestNode() : await latestBun();
+
+    remember(runtime, releases);
+
+    return releases;
   } catch {
-    // a listing nobody could fetch is not an error: the picker falls back to
-    // what is local, and an explicit `--runtime-version` still resolves
-    return [];
+    // a listing nobody could fetch is not an error: a **stale** cache beats
+    // nothing, because last week's version list is still mostly right and the
+    // picker's job is to offer something. Falling all the way back to what is
+    // local is the last resort, and an explicit `runtime@version` resolves
+    // whatever happens.
+    return cached(runtime, Infinity) ?? [];
+  }
+}
+
+/**
+ * How long a version listing is reused before it is fetched again.
+ *
+ * A day, which is `src/updates/`'s own interval for its npm check and is
+ * chosen for the same reason: a new release is interesting within a day and
+ * never within a minute. Without it the picker hit **both** registries on
+ * every interactive run, which is a request per prompt for a list that moves
+ * every few weeks.
+ *
+ * It is deliberately not configurable. The thing a caller wants when it wants
+ * a different answer is a *specific version*, which `runtime@version` gives
+ * without consulting a listing at all.
+ */
+const LISTING_TTL = 86_400_000;
+
+/** Where a runtime's cached listing lives. */
+function listingFile(runtime: Runtime): string | undefined {
+  const root = cache(CACHE);
+
+  return root ? join(root, `${runtime}-versions.json`) : undefined;
+}
+
+/**
+ * A listing from the cache, if it is young enough.
+ *
+ * `within` is a parameter rather than the constant so that the failure path can
+ * ask for one at any age: a stale listing is worth more than no listing when
+ * the network is gone, and that is the same file read with a different
+ * question.
+ *
+ * @param runtime - Which runtime.
+ * @param within - The oldest acceptable age in milliseconds.
+ * @returns The releases, or `undefined`.
+ */
+function cached(runtime: Runtime, within: number): Release[] | undefined {
+  const at = listingFile(runtime);
+
+  if (!at) {
+    return undefined;
+  }
+
+  try {
+    const held = JSON.parse(readFileSync(at, 'utf-8')) as {
+      releases?: Release[];
+      ts?: number;
+    };
+
+    if (!held.ts || !Array.isArray(held.releases) || held.ts + within < Date.now()) {
+      return undefined;
+    }
+
+    return held.releases;
+  } catch {
+    // unreadable, absent, or not the shape this wrote: all the same answer,
+    // which is to go and ask. A cache that throws is worse than no cache
+    return undefined;
+  }
+}
+
+/**
+ * Writes a listing to the cache, and never fails over it.
+ *
+ * A listing that could not be saved costs a request next time and nothing
+ * else, so it must not fail a package -- which is the rule the removals in
+ * `compileAll()` and `signed()` already follow for the same reason.
+ *
+ * @param runtime - Which runtime.
+ * @param releases - What the registry said.
+ */
+function remember(runtime: Runtime, releases: readonly Release[]): void {
+  const at = listingFile(runtime);
+
+  if (!at) {
+    return;
+  }
+
+  try {
+    mkdirSync(dirname(at), { recursive: true });
+    writeFileSync(at, `${JSON.stringify({ releases, ts: Date.now() })}\n`, 'utf-8');
+  } catch {
+    // see above
   }
 }
 

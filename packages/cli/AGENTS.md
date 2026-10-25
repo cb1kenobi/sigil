@@ -2676,6 +2676,45 @@ the same `_inspect.ts` read, the same refusal to package an app that does not
 check out -- rather than a pass of its own, because two commands that disagree
 about what a valid app is would be the worse half of the feature.
 
+- **A version listing is cached for a day, and nothing is fetched on the
+  ordinary path at all.** Measured before anything was added, which is what says
+  how narrow the problem was: `--runtime bun`, `--runtime bun@1.4.4` and
+  `--runtime node` each make **zero** requests when the runtime is present.
+  Nothing consults a registry unless the picker runs, or a version has to be
+  resolved and no usable runtime is local.
+
+  What was wrong is that the picker hit **both** registries every interactive
+  run. A day is `src/updates/`'s own interval for its npm check and is chosen
+  for the same reason: a release is interesting within a day and never within a
+  minute. Verified as 2 requests on the first call and **0** on the next two.
+
+  Deliberately not configurable: the thing a caller wants when it wants a
+  different answer is a _specific version_, which `runtime@version` gives
+  without consulting a listing at all.
+
+  A **stale** listing beats nothing when the fetch fails, so the failure path
+  re-reads the same file with no age limit -- last week's list is mostly right
+  and the picker's job is to offer something. Measured offline with a cache aged
+  to 1970: 34 releases rather than an empty list. An unreadable cache is the
+  same answer as an absent one, and a listing that cannot be _saved_ costs a
+  request next time and never fails the run, which is the rule the removals in
+  `compileAll()` and `signed()` already follow.
+
+  Two things about testing it are worth recording. The cache location cannot be
+  redirected with `XDG_CACHE_HOME`, because `paths.ts` has a platform table and
+  `~/Library/Caches` wins on macOS -- so the first version of those tests was
+  reading and writing the developer's real cache, and passed for the wrong
+  reason before it failed. They mock `cache()` instead, in a file of their own,
+  which is the answer `bundle-close.test.ts` and `shake-walk.test.ts` already
+  record.
+
+  And the fresh-read test counts **requests** rather than checking the value,
+  because the stale fallback reads the same file and returns the same releases:
+  asserting only the value passed with the fresh read deleted. Two mechanisms
+  masking each other, which is the shape this file records for the JSX gate.
+  All four parts are sabotage-checked -- the read, the age limit, the stale
+  fallback and the write.
+
 - **One picker for the runtime and its version, because it is one choice.**
   `--runtime` takes `bun`, `node`, or either with an `@version`, and there is no
   second `--runtime-version` beside it: two flags for one row is two ways to say
