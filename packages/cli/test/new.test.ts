@@ -204,13 +204,7 @@ describe('the scaffold', () => {
     // a comment in a `sigil.json` is read rather than reported, so the name an
     // app already had costs it nothing. `readSigilConfig()` reads a `.jsonc`
     // too, for an app that prefers to say so in the file name
-    expect(json('sigil.json')).toStrictEqual({
-      components: 'src/components',
-      // the runtime the scaffolded release workflow needs: `sigil package`
-      // refuses to pick one for an existing app, and a new app has no users to
-      // have a decision made for them. See the comment in `scaffold/index.ts`
-      package: { runtime: 'bun' },
-    });
+    expect(json('sigil.json')).toStrictEqual({ components: 'src/components' });
     expect([...files().keys()]).not.toContain('sigil.jsonc');
   });
 
@@ -575,15 +569,21 @@ describe('the release workflow', () => {
     expect(workflow({ manager: 'pnpm' })).not.toContain('--global');
   });
 
-  it('should agree with the runtime sigil.json declares', () => {
-    // the workflow's comment explains itself in terms of `"runtime": "bun"`,
-    // and the file beside it has to actually say that -- two halves of one
-    // scaffold disagreeing is the defect this repo keeps recording
+  it('should name the runtime itself, and leave sigil.json out of it', () => {
+    // This asserted the opposite and the opposite was a bug: the scaffold
+    // pinned `"runtime": "bun"` in `sigil.json`, so `sigil package` arrived with
+    // the question already answered, the picker never fired, and an author with
+    // no Bun got `bun is not installed` for an app they had never been asked
+    // about.
+    //
+    // CI cannot be asked, so the workflow names it on its own command line --
+    // which is also where it belongs, since that file installs Bun itself and
+    // so is right whatever the author's machine has.
     const config = JSON.parse(files().get('sigil.json') as string) as {
       package?: { runtime?: string };
     };
 
-    expect(config.package?.runtime).toBe('bun');
-    expect(workflow()).toContain('"runtime": "bun"');
+    expect(config.package).toBeUndefined();
+    expect(workflow()).toContain('--runtime bun');
   });
 });

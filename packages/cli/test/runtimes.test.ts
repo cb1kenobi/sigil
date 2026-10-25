@@ -1,5 +1,13 @@
 import { NODE_BUILD_SEA } from '../src/build/compile.ts';
-import { bunTriple, canEmbed, compare, installed, local } from '../src/build/runtimes.ts';
+import {
+  bunTriple,
+  canEmbed,
+  choices,
+  compare,
+  installed,
+  local,
+  parseSpec,
+} from '../src/build/runtimes.ts';
 import { whichSync } from '@ttylabs/sigil/which';
 import { describe, expect, it } from 'vitest';
 
@@ -127,5 +135,144 @@ describe('what is on this machine', () => {
     const same = all.filter((one) => one.version === onPath?.version);
     expect(same).toHaveLength(1);
     expect(same[0]?.how).toBe('path');
+  });
+});
+
+describe('a runtime spec', () => {
+  it('should read a bare runtime as "whichever version resolves"', () => {
+    // pinning is for an app that cares, and most do not -- so a bare runtime is
+    // not an error and carries no version
+    expect(parseSpec('bun')).toEqual({ runtime: 'bun' });
+    expect(parseSpec('node')).toEqual({ runtime: 'node' });
+  });
+
+  it('should read a pinned version', () => {
+    expect(parseSpec('bun@1.3.14')).toEqual({ runtime: 'bun', version: '1.3.14' });
+    expect(parseSpec('node@26.12.1')).toEqual({ runtime: 'node', version: '26.12.1' });
+  });
+
+  it.each(['deno', 'deno@2.0.0', '', '@1.2.3', 'Bun', 'bun '])(
+    'should refuse %o as a runtime',
+    (text) => {
+      expect(() => parseSpec(text)).toThrow(/is not a runtime/);
+    }
+  );
+
+  it.each(['bun@', 'bun@latest', 'bun@1', 'bun@1.3', 'node@v26.12.1'])(
+    'should refuse %o as a version',
+    (text) => {
+      expect(() => parseSpec(text)).toThrow(/is not a version/);
+    }
+  );
+
+  it('should refuse a Node that cannot package itself, and say what to use', () => {
+    // the whole reason the floor exists, in the one message somebody will read
+    // while typing the thing that cannot work
+    expect(() => parseSpec('node@24.22.1')).toThrow(/cannot package itself/);
+    expect(() => parseSpec('node@24.22.1')).toThrow(/bun@1\.3 is node-compat 24/);
+    expect(() => parseSpec('node@22.23.4')).toThrow(/cannot package itself/);
+  });
+
+  it('should not apply that floor to bun, whose versions are unrelated', () => {
+    // `canEmbed` is about Node's `--build-sea`; a bun 1.2.0 is not a node 1.2.0
+    expect(() => parseSpec('bun@1.2.0')).not.toThrow();
+  });
+});
+
+describe('what the picker offers', () => {
+  const release = (version: string, lts?: string) => ({
+    major: Number(version.split('.')[0]),
+    version,
+    ...(lts ? { lts } : {}),
+  });
+  const found = (version: string, how: 'cache' | 'path') => ({ how, path: '/x', version });
+
+  it('should offer both runtimes whatever is installed', () => {
+    // the bug this replaced: with no Bun on the machine the command refused
+    // rather than offering to fetch one, which is refusing on a fact about the
+    // laptop rather than about the app
+    const rows = choices(
+      { bun: [], node: [found('26.10.0', 'path')] },
+      { bun: [release('1.4.4')], node: [release('26.12.1')] }
+    );
+
+    expect(rows.some((row) => row.value === 'bun@1.4.4')).toBe(true);
+    expect(rows.some((row) => row.value === 'node@26.12.1')).toBe(true);
+  });
+
+  it('should flag what is already here, and how', () => {
+    const rows = choices(
+      { bun: [found('1.3.0', 'cache')], node: [found('26.10.0', 'path')] },
+      { bun: [], node: [] }
+    );
+
+    expect(rows.find((row) => row.value === 'bun@1.3.0')?.label).toContain('cached');
+    expect(rows.find((row) => row.value === 'node@26.10.0')?.label).toContain('installed');
+  });
+
+  it('should carry an LTS codename where the runtime has one', () => {
+    const rows = choices({ bun: [], node: [] }, { bun: [], node: [release('26.12.1', 'Krypton')] });
+
+    expect(rows.find((row) => row.value === 'node@26.12.1')?.label).toContain('Krypton');
+  });
+
+  it('should leave out a Node that cannot package itself', () => {
+    // a row somebody cannot pick should not be there. Naming it explicitly
+    // still explains itself, which is `parseSpec()`'s job
+    const rows = choices(
+      { bun: [], node: [] },
+      { bun: [], node: [release('26.12.1'), release('24.22.1', 'Krypton'), release('22.23.4')] }
+    );
+
+    expect(rows.some((row) => row.value === 'node@26.12.1')).toBe(true);
+    expect(rows.some((row) => row.value.startsWith('node@24'))).toBe(false);
+    expect(rows.some((row) => row.value.startsWith('node@22'))).toBe(false);
+  });
+
+  it('should list newest first across both sources, not local then remote', () => {
+    // a cached 1.3.0 sorted above a released 1.4.4 for a while, so the first row
+    // was not the newest thing on offer
+    const rows = choices(
+      { bun: [found('1.3.0', 'cache')], node: [] },
+      { bun: [release('1.4.4'), release('1.2.23')], node: [] }
+    );
+
+    const bun = rows.filter((row) => row.value.startsWith('bun@')).map((row) => row.value);
+    expect(bun).toEqual(['bun@1.4.4', 'bun@1.3.0', 'bun@1.2.23']);
+  });
+
+  it('should cap how far back it offers, but still offer what is local', () => {
+    // both registries list every line they ever published, and for Bun that
+    // reaches 0.0.12 -- a runtime from before Bun could do any of this
+    const old = ['1.4.4', '1.3.14', '1.2.23', '1.1.45', '1.0.36', '0.8.1', '0.0.12'];
+    const rows = choices(
+      { bun: [found('0.5.9', 'cache')], node: [] },
+      { bun: old.map((one) => release(one)), node: [] }
+    );
+    const bun = rows.filter((row) => row.value.startsWith('bun@')).map((row) => row.value);
+
+    expect(bun).not.toContain('bun@0.0.12');
+    expect(bun).toContain('bun@1.4.4');
+    // a local one is offered however old, because somebody put it there
+    expect(bun).toContain('bun@0.5.9');
+  });
+
+  it('should end with one custom entry per runtime', () => {
+    // the newest of each line cannot express "the exact version our other
+    // service pins", which is the ordinary reason to care about a version
+    const rows = choices({ bun: [], node: [] }, { bun: [], node: [] });
+
+    expect(rows.map((row) => row.value)).toEqual(['custom:bun', 'custom:node']);
+  });
+
+  it('should offer no duplicate row, when a version is both local and released', () => {
+    const rows = choices(
+      { bun: [found('1.4.4', 'path')], node: [] },
+      { bun: [release('1.4.4')], node: [] }
+    );
+    const bun = rows.filter((row) => row.value === 'bun@1.4.4');
+
+    expect(bun).toHaveLength(1);
+    expect(bun[0]?.label).toContain('installed');
   });
 });

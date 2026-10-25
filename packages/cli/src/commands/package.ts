@@ -45,12 +45,17 @@ import {
   outputName,
   parseTarget,
   type ResolvedTree,
-  RUNTIMES,
   type Runtime,
   type Target,
+  choices,
+  latest,
+  local,
+  parseSpec,
+  resolve,
+  type Spec,
 } from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
-import { isQuiet, reportLevel, writeSummary } from '../report.ts';
+import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
   appRuns,
   binName,
@@ -62,7 +67,7 @@ import {
   resolveOut,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
-import { PromptError, select, table } from '@ttylabs/sigil/components';
+import { PromptError, select, table, text } from '@ttylabs/sigil/components';
 import { rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
@@ -101,8 +106,7 @@ const pkg: AnyCommand = command({
       desc: 'Where the binary goes, relative to the app',
     },
     '--runtime [runtime]': {
-      choices: [...RUNTIMES],
-      desc: 'Which runtime the binary embeds. Required, here or in sigil.json',
+      desc: 'Which runtime the binary embeds, as bun or node, optionally bun@1.3.14',
     },
     '--sign [identity]': {
       desc: 'A codesigning identity for macOS. Ad-hoc by default, which is what makes it run',
@@ -133,8 +137,13 @@ const pkg: AnyCommand = command({
     const config = sigilConfig.package ?? {};
     const build = sigilConfig.build ?? {};
 
-    const runtime = await chooseRuntime(argv.runtime as string | undefined, config.runtime);
     const targets = chooseTargets(argv.target as string[] | undefined, config.target);
+    const spec = await chooseRuntime(
+      argv.runtime as string | undefined,
+      config.runtime,
+      targets[0] as Target
+    );
+    const runtime = spec.runtime;
     const external = (argv.external as string[] | undefined) ?? build.external ?? [];
     const out = resolveOut(
       found.app.root,
@@ -152,7 +161,13 @@ const pkg: AnyCommand = command({
     for (const target of targets) {
       assertCompilable(runtime, target);
     }
-    assertToolchain(runtime, targets, identity);
+    assertToolchain(runtime, targets, identity, spec.version !== undefined);
+
+    // the executable that will do the work, fetched if this machine has not got
+    // it. After the pre-flight, because downloading 100 MB for a package that
+    // was going to be refused is the one order that wastes the user's time, and
+    // before `clean()`, so a failed download leaves the output directory alone
+    const exec = await resolveExec(spec, targets[0] as Target);
 
     clean(out, found.app.root, argv.clean !== false);
 
@@ -178,6 +193,7 @@ const pkg: AnyCommand = command({
 
     const compiled = compileAll(runtime, {
       entry: result.bin,
+      exec,
       identity,
       name,
       out,
@@ -268,59 +284,56 @@ function assertSelfContained(external: readonly string[]): void {
  */
 async function chooseRuntime(
   flag: string | undefined,
-  declared: string | undefined
-): Promise<Runtime> {
+  declared: string | undefined,
+  target: Target
+): Promise<Spec> {
   const named = flag ?? declared;
 
-  if (!named) {
-    return askRuntime();
+  if (named) {
+    return parseSpec(named);
   }
 
-  // the parser's `choices` already refuses anything else off the flag, so what
-  // is left to check is the config file, which is the app's own source
-  if (!(RUNTIMES as readonly string[]).includes(named)) {
-    throw new Error(
-      `"${named}" is not a runtime. Set "package": { "runtime": ... } in sigil.json to one of ${RUNTIMES.join(' or ')}.`
-    );
-  }
-
-  return named as Runtime;
+  return askRuntime(target);
 }
 
 /**
- * Asks which runtime to embed, where there is somebody to ask.
+ * Asks which runtime and version to embed, where there is somebody to ask.
  *
- * The decision itself is still the app's and still has no default -- see the
- * entry above for why inferring one would answer a question about the app with
- * a fact about the builder's laptop. What changes with a terminal in front of
- * it is only *how* the question gets asked: a person running `sigil package`
- * by hand can be asked, and a CI job cannot.
+ * One picker for both halves, because it is one choice. It offers **both**
+ * runtimes whatever is installed, which is the whole point of being able to
+ * fetch one -- an author with no Bun can still ship a Bun binary, and refusing
+ * to offer it would be refusing on a fact about the laptop rather than about
+ * the app.
  *
- * The TTY rule is deliberately **not** spelled here. `select()` already refuses
- * where there is nobody to answer -- waiting on a stdin that will never produce
- * a keystroke is a hung build -- so this asks and translates that one
- * rejection into the message a non-interactive caller actually needs, which
- * names both runtimes and where to declare one. Two readers of "is this a
- * terminal" is how they come to disagree, and the prompt's is the one that
- * matters because it is the one that would hang.
+ * That was the bug this replaced. `sigil new` pinned `"runtime": "bun"` into
+ * `sigil.json`, so the question arrived already answered, the picker never
+ * fired, and a machine without Bun got `bun is not installed` for an app whose
+ * author had never been asked. The scaffold stopped writing it; the question
+ * stays open until somebody answers it.
  *
- * An **aborted** prompt travels untouched: Ctrl-C is an answer, and turning it
- * into "--runtime is required" would tell somebody who just cancelled that they
- * had forgotten a flag. The other `PromptError` a `select()` can raise is
- * having no choices, which `RUNTIMES` cannot be.
+ * The TTY rule is still not spelled here, for the reason it never was:
+ * `select()` refuses where there is nobody to answer, so this asks and
+ * translates that one rejection into the message a non-interactive caller
+ * needs. An aborted prompt travels untouched.
  *
- * @returns The runtime the person picked.
- * @throws If there is nobody to ask, with the message that lists the trade.
+ * @param target - What is being built, for naming Bun's cached runtimes.
+ * @returns The runtime and version to embed.
+ * @throws If there is nobody to ask.
  */
-async function askRuntime(): Promise<Runtime> {
+async function askRuntime(target: Target): Promise<Spec> {
+  const [bunReleases, nodeReleases] = await Promise.all([latest('bun'), latest('node')]);
+  const rows = choices(
+    { bun: local('bun', target), node: local('node', target) },
+    { bun: bunReleases, node: nodeReleases }
+  );
+
+  let picked: string;
+
   try {
-    return (await select({
-      choices: [
-        { label: 'bun -- faster to start, smaller, cross-compiles', value: 'bun' },
-        { label: 'node -- what the app\'s "engines" already names', value: 'node' },
-      ],
+    picked = (await select({
+      choices: rows.map((row) => ({ label: row.label, value: row.value })),
       message: 'Which runtime should the binary embed?',
-    })) as Runtime;
+    })) as string;
   } catch (e) {
     if (e instanceof PromptError && !e.aborted) {
       throw required();
@@ -328,6 +341,51 @@ async function askRuntime(): Promise<Runtime> {
 
     throw e;
   }
+
+  if (!picked.startsWith('custom:')) {
+    return parseSpec(picked);
+  }
+
+  // the escape hatch: a picker offering the newest of each line cannot express
+  // "the exact version our other service pins", which is the ordinary reason to
+  // care about a version at all
+  const runtime = picked.slice('custom:'.length);
+  const typed = await text({
+    message: `Which ${runtime} version?`,
+    placeholder: runtime === 'bun' ? '1.3.14' : '26.12.1',
+  });
+
+  return parseSpec(`${runtime}@${String(typed).trim()}`);
+}
+
+/**
+ * The executable that will compile, fetched into sigil's cache if need be.
+ *
+ * A bare `bun` or `node` resolves to whatever is installed, which is the
+ * ordinary case and costs nothing. A pinned version resolves to that version,
+ * from `PATH` or either cache, and is downloaded only if it is nowhere.
+ *
+ * `undefined` means "whatever the host has", which is what the compile
+ * functions already default to -- so an unpinned run behaves exactly as it did
+ * before any of this existed.
+ *
+ * @param spec - The runtime and any version.
+ * @param target - What is being built, for naming Bun's cached runtimes.
+ * @returns The executable, or `undefined` to use the host's.
+ */
+async function resolveExec(spec: Spec, target: Target): Promise<string | undefined> {
+  if (spec.version === undefined) {
+    return undefined;
+  }
+
+  return resolve(spec.runtime, spec.version, target, (version) => {
+    // said rather than left silent: fetching a runtime is tens of megabytes and
+    // several seconds, and a build that appears to hang is worse than a slow one
+    writeNote(
+      [`Fetching ${spec.runtime} ${version}, which is not on this machine...`],
+      process.stderr
+    );
+  });
 }
 
 /**
@@ -336,19 +394,17 @@ async function askRuntime(): Promise<Runtime> {
  * @returns The error.
  */
 function required(): Error {
-  {
-    // the version is read from the constant rather than spelled, because this
-    // is the message somebody reads while *deciding* and the one they would
-    // check it against is `assertBuildSea()`'s. And "almost every target"
-    // rather than "every target": `windows-arm64` is exactly the one Bun has
-    // no runtime for, so the sentence used to contradict the error a user gets
-    // the moment they act on it
-    const [major, minor] = NODE_BUILD_SEA;
+  // the version floor is read from the constant rather than spelled, because
+  // this is the message somebody reads while *deciding* and the one they would
+  // check it against is `assertBuildSea()`'s. And "almost every target" rather
+  // than "every target": `windows-arm64` is exactly the one Bun has no runtime
+  // for, so the sentence used to contradict the error a user gets the moment
+  // they act on it
+  const [major, minor] = NODE_BUILD_SEA;
 
-    return new Error(
-      `--runtime is required: a packaged binary embeds a runtime, and which one decides what the app runs on.\n  --runtime bun starts faster, is a smaller binary, cross-compiles to almost every target from one machine, and runs the app on Bun.\n  --runtime node runs the app on what its "engines" already names, builds only for the machine it runs on, and needs Node ${major}.${minor} or newer.\n  Declare it once as "package": { "runtime": ... } in sigil.json.`
-    );
-  }
+  return new Error(
+    `--runtime is required where there is nobody to ask: a packaged binary embeds a runtime, and which one decides what the app runs on.\n  --runtime bun starts faster, is a smaller binary, cross-compiles to almost every target from one machine, and runs the app on Bun.\n  --runtime node runs the app on what its "engines" already names, builds only for the machine it runs on, and needs Node ${major}.${minor} or newer.\n  A version can be pinned -- bun@1.3.14, node@${major}.${minor}.0 -- and is fetched if this machine has not got it.\n  Declare it once as "package": { "runtime": ... } in sigil.json, or run this at a terminal and it will ask.`
+  );
 }
 
 /**
@@ -440,13 +496,14 @@ function compileAll(
   runtime: Runtime,
   options: {
     readonly entry: string;
+    readonly exec: string | undefined;
     readonly identity: string | undefined;
     readonly name: string;
     readonly out: string;
     readonly targets: readonly Target[];
   }
 ): Built[] {
-  const { entry, identity, name, out, targets } = options;
+  const { entry, exec, identity, name, out, targets } = options;
   const compiled: Built[] = [];
 
   for (const target of targets) {
@@ -456,7 +513,7 @@ function compileAll(
       const one = runtime === 'bun' ? compileWithBun : compileWithNode;
 
       compiled.push({
-        ...one({ entry, out: join(out, file), sign: identity, target }),
+        ...one({ entry, exec, out: join(out, file), sign: identity, target }),
         file,
         target,
       });

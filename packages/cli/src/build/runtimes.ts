@@ -44,7 +44,7 @@
  * is the first place to look before fetching anything.
  */
 
-import { NODE_BUILD_SEA, type Runtime, type Target } from './compile.ts';
+import { NODE_BUILD_SEA, RUNTIMES, type Runtime, type Target } from './compile.ts';
 import { cache } from '@ttylabs/sigil/paths';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
@@ -60,6 +60,20 @@ const BUN_CACHE = '.bun/install/cache';
 
 /** How long to wait for a registry listing or a download. */
 const TIMEOUT = 120_000;
+
+/**
+ * How many version lines back the picker offers.
+ *
+ * Both registries list every line they ever published, and for Bun that reaches
+ * `0.0.12`. A picker offering it would be offering a runtime from before Bun
+ * could do any of this -- so the listing is capped, and a version older than the
+ * cap is still reachable by typing it, where the failure is at least specific.
+ *
+ * Four, because that is what covers Bun's useful span: 1.4, 1.3 and 1.2 are
+ * node-compat 26, 24 and 22, which is the range somebody choosing a runtime for
+ * its Node behaviour is choosing between.
+ */
+const LINES = 4;
 
 /** A runtime version that can be embedded, and where it was found. */
 export interface Found {
@@ -497,4 +511,131 @@ function findBinary(dir: string, runtime: Runtime): string | undefined {
   }
 
   return undefined;
+}
+
+/** A runtime and, optionally, the version of it to embed. */
+export interface Spec {
+  /** Which runtime. */
+  readonly runtime: Runtime;
+  /** The version, when one was named. */
+  readonly version?: string;
+}
+
+/**
+ * Reads a `bun`, `node`, `bun@1.3.14` or `node@26.12.1` spec.
+ *
+ * One flag rather than a `--runtime` and a `--runtime-version` beside it,
+ * because it is one choice: the picker offers runtime-and-version rows, and two
+ * flags for one row is two ways to say the same thing and a third way to say
+ * something incoherent -- `--runtime node --runtime-version 1.3.14`.
+ *
+ * A bare runtime means "whichever version resolves", which is the installed one
+ * if there is one. It is not an error, because pinning a version is a thing an
+ * app does when it cares and most do not.
+ *
+ * @param text - What was typed, from the flag or from `sigil.json`.
+ * @returns The runtime and any version.
+ * @throws If the runtime is not one, or the version is not a version.
+ */
+export function parseSpec(text: string): Spec {
+  const at = text.indexOf('@');
+  const runtime = at === -1 ? text : text.slice(0, at);
+  const version = at === -1 ? undefined : text.slice(at + 1);
+
+  if (!(RUNTIMES as readonly string[]).includes(runtime)) {
+    throw new Error(
+      `"${runtime}" is not a runtime. Use ${RUNTIMES.join(' or ')}, optionally with a version -- ${RUNTIMES.map((one) => `${one}@<version>`).join(' or ')}.`
+    );
+  }
+
+  if (version !== undefined && !/^\d+\.\d+\.\d+/.test(version)) {
+    throw new Error(
+      `"${version}" is not a version. Name one as <major>.<minor>.<patch>, for example ${runtime === 'bun' ? 'bun@1.3.14' : 'node@26.12.1'}.`
+    );
+  }
+
+  if (runtime === 'node' && version !== undefined && !canEmbed(version)) {
+    const [major, minor] = NODE_BUILD_SEA;
+
+    throw new Error(
+      `Node ${version} cannot package itself: a single executable is built by injecting a blob into a node binary, and Node only gained the ability to do that for itself in ${major}.${minor}. Below that it can write the blob and nothing can inject it.\n  Use node@${major}.${minor}.0 or newer. If you want Node ${version.split('.')[0]}'s behaviour, bun@1.3 is node-compat 24 and bun@1.2 is node-compat 22, measured -- and needs no injection.`
+    );
+  }
+
+  return { runtime: runtime as Runtime, ...(version !== undefined && { version }) };
+}
+
+/** One row the runtime picker offers. */
+export interface Choice {
+  /** What it says, already laid out. */
+  readonly label: string;
+  /** What picking it means: a spec, or a prompt for a custom version. */
+  readonly value: string;
+}
+
+/**
+ * The rows the picker offers: both runtimes, newest first, local ones flagged.
+ *
+ * **Both** runtimes, whatever is installed, which is the whole point of being
+ * able to fetch one: an app whose author has no Bun can still ship a Bun binary,
+ * and refusing to offer it would be refusing on the grounds of a fact about the
+ * laptop rather than about the app. That was the bug this replaced -- a
+ * scaffolded app pinned `bun` in `sigil.json`, so the question never reached a
+ * picker, and a machine without Bun got `bun is not installed` for an app whose
+ * author had never been asked.
+ *
+ * Node below the `--build-sea` floor is left out rather than listed and refused:
+ * a row somebody cannot pick is a row that should not be there. Naming such a
+ * version explicitly still explains itself, in `parseSpec()`.
+ *
+ * @param local - What is on this machine, per runtime.
+ * @param releases - What each registry offers, per runtime.
+ * @returns The rows, Bun first and newest first within each runtime.
+ */
+export function choices(
+  local: Readonly<Record<Runtime, readonly Found[]>>,
+  releases: Readonly<Record<Runtime, readonly Release[]>>
+): Choice[] {
+  const rows: Choice[] = [];
+
+  for (const runtime of RUNTIMES) {
+    const here = new Map(local[runtime].map((one) => [one.version, one]));
+
+    // merged and sorted newest-first across both sources rather than
+    // local-then-registry, which put a cached 1.3.0 above a released 1.4.4 --
+    // a picker's first row should be the newest thing it offers
+    const offered = [
+      ...new Set([
+        ...local[runtime].map((one) => one.version),
+        ...releases[runtime].slice(0, LINES).map((one) => one.version),
+      ]),
+    ].sort((one, other) => compare(other, one));
+
+    for (const version of offered) {
+      if (runtime === 'node' && !canEmbed(version)) {
+        continue;
+      }
+
+      const lts = releases[runtime].find((one) => one.version === version)?.lts;
+      const how = here.get(version)?.how;
+      const notes = [
+        lts ? `LTS ${lts}` : undefined,
+        how === 'path' ? 'installed' : how === 'cache' ? 'cached' : undefined,
+      ].filter((one): one is string => one !== undefined);
+
+      rows.push({
+        label: `${runtime} ${version}${notes.length ? `  (${notes.join(', ')})` : ''}`,
+        value: `${runtime}@${version}`,
+      });
+    }
+  }
+
+  // the escape hatch, one per runtime, because a picker that only offers the
+  // newest of each line cannot express "the exact version our other service
+  // pins" -- and that is the ordinary reason to care about a version at all
+  for (const runtime of RUNTIMES) {
+    rows.push({ label: `${runtime}: enter a version…`, value: `custom:${runtime}` });
+  }
+
+  return rows;
 }

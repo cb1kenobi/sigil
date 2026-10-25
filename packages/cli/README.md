@@ -40,11 +40,27 @@ sigil package --runtime bun \
 sigil package --runtime node                    # this machine, on Node
 ```
 
+**Pinning a version.** `--runtime` takes a version too, and sigil fetches it if
+this machine has not got it, caching it under your XDG cache directory:
+
+```sh
+sigil package --runtime bun@1.3.14      # fetched if absent
+sigil package --runtime node@26.12.1
+```
+
+Which also answers "I need Node 24": a Bun version implies a node-compat level,
+measured on the binaries — **bun@1.2 is node 22.6, bun@1.3 is node 24.3, bun@1.4
+is node 26.3** — and Bun needs no injection step. Node itself can only package
+versions **25.5 and newer**: below that a `node` can write a SEA blob and has no
+way to inject it, so `node@24` is refused with that reason rather than failing
+later.
+
 **You have to pick the runtime.** There is no default, because which one a
 binary embeds decides what your app runs on, and that is not something to infer
-from whatever happens to be installed where the build ran. Run `sigil package`
-at a terminal without saying and it asks; in CI, or through a pipe, it stops and
-tells you to choose. Say it once in `sigil.json` and every invocation and CI
+from whatever happens to be installed where the build ran. Run `sigil package` at a terminal
+without saying and it asks — one list of both runtimes with their versions,
+flagging which are already here; in CI, or through a pipe, it stops and tells you
+to choose. Say it once in `sigil.json` and every invocation and CI
 step agrees:
 
 ```jsonc

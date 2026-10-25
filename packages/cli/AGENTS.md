@@ -2676,6 +2676,44 @@ the same `_inspect.ts` read, the same refusal to package an app that does not
 check out -- rather than a pass of its own, because two commands that disagree
 about what a valid app is would be the worse half of the feature.
 
+- **One picker for the runtime and its version, because it is one choice.**
+  `--runtime` takes `bun`, `node`, or either with an `@version`, and there is no
+  second `--runtime-version` beside it: two flags for one row is two ways to say
+  the same thing and a third way to say something incoherent
+  (`--runtime node --runtime-version 1.3.14`). A bare runtime means whichever
+  version resolves, which is the installed one if there is one -- pinning is for
+  an app that cares and most do not.
+
+  The picker offers **both** runtimes whatever is installed, and that is the
+  correction rather than a nicety. `sigil new` pinned `"runtime": "bun"` into
+  `sigil.json` for one release, so `sigil package` arrived with the question
+  already answered, the picker never fired, and an author with no Bun got
+  `bun is not installed` for an app they had never been asked about. The scaffold
+  writes no runtime now and the release workflow names it on its own command
+  line -- which is where it has to live anyway, since CI cannot be asked and that
+  file installs Bun itself.
+
+  Offering a runtime that is absent is only honest because sigil can **fetch**
+  one: refusing on the grounds that the author's laptop lacks Bun is refusing on
+  a fact about the laptop rather than about the app. What is left out is a Node
+  below the `--build-sea` floor, because a row nobody can pick should not be
+  there; naming such a version explicitly still explains itself in
+  `parseSpec()`, which points at `bun@1.3` being node-compat 24.
+
+- **A pinned version is not looked for on `PATH`, which took two goes.** The
+  tool pre-flight demands `bun` before the bundle, and that is right for a bare
+  `--runtime bun`, where the host's `bun` is what compiles. For
+  `--runtime bun@1.3.14` it was **wrong**: measured, a machine with no Bun
+  answered `bun is not installed` for a build that was about to download exactly
+  what it needed. So `assertToolchain()` takes whether a version was pinned, and
+  the message now names the way out -- install it, or pin a version and let
+  sigil fetch it.
+
+  Both halves are pinned by one test with an empty `PATH`, and the control is
+  load-bearing: the first version of it lived in the describe whose fixture
+  _provides_ a stub `bun`, so the "does not throw" half was vacuous and the
+  "still throws" half failed outright.
+
 - **The runtime has no default, and with nobody to ask the error is the
   feature.** `--runtime` comes from the flag or from
   `"package": { "runtime": ... }` in `sigil.json`. With neither, somebody at a

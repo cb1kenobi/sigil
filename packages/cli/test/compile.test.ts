@@ -416,3 +416,45 @@ describe('a compile that fails partway', () => {
     }
   );
 });
+
+describe('finding the runtime itself', () => {
+  /**
+   * An empty `PATH`, so nothing is findable.
+   *
+   * Its own describe rather than sharing the signing fixture, which deliberately
+   * puts a stub `bun` on `PATH` -- these assertions are about **not** finding
+   * one, so they were vacuous there and the control assertion failed outright.
+   */
+  let path: string | undefined;
+
+  beforeEach(() => {
+    path = process.env.PATH;
+    process.env.PATH = '';
+  });
+
+  afterEach(() => {
+    process.env.PATH = path;
+  });
+
+  it('should not demand the runtime on PATH when a version was pinned', () => {
+    // The second bug reported against this. `--runtime bun@1.3.14` on a machine
+    // with no Bun answered `bun is not installed` -- refusing a build that was
+    // about to fetch exactly what it needed. A pinned version is resolved from
+    // PATH, from either cache, or by downloading, so PATH is not the question.
+    //
+    // `PATH` is empty here (see the fixture), so the unpinned call is the
+    // control: it must still refuse, or this would pass with the check gone.
+    expect(() => assertToolchain('bun', [parseTarget('linux-x64')], undefined, true)).not.toThrow();
+    expect(() => assertToolchain('bun', [parseTarget('linux-x64')], undefined, false)).toThrow(
+      /bun is not installed/
+    );
+  });
+
+  it('should say how to get a runtime it could not find', () => {
+    // the message has to name the way out, which is the half that makes it
+    // actionable: install it, or pin a version and let sigil fetch it
+    expect(() => assertToolchain('bun', [parseTarget('linux-x64')], undefined)).toThrow(
+      /--runtime bun@/
+    );
+  });
+});

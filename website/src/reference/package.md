@@ -31,6 +31,6 @@ sigil package [options] [dir]
 | `--no-clean` | `bool` | Keep what is already in the output directory |
 | `--no-shake` | `bool` | Keep every utility rule, rather than only the ones the source can name |
 | `--out [dir]` | `string` | Where the binary goes, relative to the app (default: dist) |
-| `--runtime [bun\|node]` | `string` | Which runtime the binary embeds. Required, here or in sigil.json |
+| `--runtime [runtime]` | `string` | Which runtime the binary embeds, as bun or node, optionally bun@1.3.14 |
 | `--sign [identity]` | `string` | A codesigning identity for macOS. Ad-hoc by default, which is what makes it run |
 | `--target [target]` | `string` | A <platform>-<arch> to build for, repeatable. Defaults to this machine (may be repeated) |

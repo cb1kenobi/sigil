@@ -29,9 +29,6 @@
  * `"sourcemap": true` in the file, and the file wins over the built-in default.
  */
 
-// the module rather than the barrel, which would pull the whole build -- and
-// `compile.ts` reads nothing from here, so the dependency runs one way
-import { RUNTIMES } from './build/compile.ts';
 import { createConfigSync, json, type ConfigLayer, type ConfigSchema } from '@ttylabs/sigil/config';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -223,11 +220,11 @@ export const CONFIG_SCHEMA: ConfigSchema = {
   components: { type: 'string' },
   locale: { type: 'string' },
   'package.out': { type: 'string' },
-  // the spellings rather than a free string, so a typo is refused here with
-  // the list rather than reaching `compile.ts` and being refused there: the
-  // vocabulary is the same one `--runtime`'s own `choices` uses, which is what
-  // keeps the flag and the file from meaning two different things
-  'package.runtime': { choices: [...RUNTIMES], type: 'string' },
+  // a free string rather than `choices`, because the value is a *spec* --
+  // `bun`, `node`, or either with an `@version` -- and a choice list cannot
+  // express that. `parseSpec()` is the one reader, so the flag and the file are
+  // still validated by the same code rather than by two lists
+  'package.runtime': { type: 'string' },
   'package.target': { multiple: true, type: 'string' },
   'reference.out': { type: 'string' },
   'reference.snapshot': { type: 'string' },

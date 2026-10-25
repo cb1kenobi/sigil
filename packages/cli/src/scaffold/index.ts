@@ -460,11 +460,14 @@ function releaseWorkflow(name: string, manager: Manager): string {
 #
 # Triggered by a version tag, so a release is \`git tag v1.2.3 && git push --tags\`.
 #
-# This is one job because \`sigil.json\` says \`"runtime": "bun"\`, and Bun
-# cross-compiles: all five binaries are produced on one Linux runner. Switching
-# to \`"runtime": "node"\` means a matrix instead -- a Node single executable is
-# built by injecting a blob into the host's own node, so each target has to be
-# built on its own machine.
+# This is one job because it packages with Bun, which cross-compiles: all five
+# binaries are produced on one Linux runner. Switching to \`--runtime node\`
+# means a matrix instead -- a Node single executable is built by the node it
+# embeds, so each target has to be built on its own machine.
+#
+# A version can be pinned -- \`--runtime bun@1.3.14\` -- and sigil fetches it if
+# the runner has not got it, which is what makes a release reproducible. Left
+# unpinned it uses whatever \`setup-bun\` installed.
 #
 # What is deliberately not here: notarization. An unsigned macOS binary that
 # somebody downloads is blocked by Gatekeeper whatever this workflow does, and
@@ -509,7 +512,7 @@ ${setup}
 
       - name: Package
         run: |
-          ${run} sigil package${targets.map((target) => ` \\\n            --target ${target}`).join('')}
+          ${run} sigil package --runtime bun${targets.map((target) => ` \\\n            --target ${target}`).join('')}
 
       - name: Create the release
         env:
@@ -716,20 +719,16 @@ export function scaffold(opts: ScaffoldOptions): ScaffoldFile[] {
     // a project's conventions should be explicit, and it is what stops
     // `sigil add` having to guess and print a guess
     {
-      // `package.runtime` is written rather than left out, which is the one
-      // place this scaffold answers a question `sigil package` deliberately
-      // refuses to answer for an existing app. The reason the two are not in
-      // conflict: refusing is right when the answer is unknowable -- an app
-      // already has users, and changing what it runs on is a decision somebody
-      // has to make -- while a brand-new app has no users and needs a release
-      // workflow that works on the first tag. Bun because it cross-compiles,
-      // so the scaffolded workflow is one job rather than a matrix; the file is
-      // the app's and the comment in the workflow says what to change.
-      contents: `${JSON.stringify(
-        { components: 'src/components', package: { runtime: 'bun' } },
-        undefined,
-        2
-      )}\n`,
+      // **No** `package.runtime` here, deliberately, and it was written for one
+      // release and was a bug. `sigil package` asks when nothing has named a
+      // runtime -- so writing one meant the question arrived already answered,
+      // the picker never fired, and an author with no Bun on their machine got
+      // `bun is not installed` for an app they had never been asked about.
+      //
+      // The release workflow names it on its own command line instead, which is
+      // where it has to live anyway: CI cannot be asked, and that file installs
+      // Bun itself so the answer is correct there whatever the laptop has.
+      contents: `${JSON.stringify({ components: 'src/components' }, undefined, 2)}\n`,
       path: 'sigil.json',
     },
     { contents: devRunner(opts), executable: true, path: `dev.${e}` },

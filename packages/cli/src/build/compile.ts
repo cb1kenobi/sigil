@@ -95,8 +95,8 @@ export const NODE_BUILD_SEA: readonly [number, number] = [25, 5];
  *
  * @returns Whether `--build-sea` is available.
  */
-export function canBuildSea(): boolean {
-  const [major = 0, minor = 0] = process.versions.node.split('.').map(Number);
+export function canBuildSea(version: string = process.versions.node): boolean {
+  const [major = 0, minor = 0] = version.replace(/^v/, '').split('.').map(Number);
   const [wantMajor, wantMinor] = NODE_BUILD_SEA;
 
   return major > wantMajor || (major === wantMajor && minor >= wantMinor);
@@ -219,6 +219,11 @@ export function outputName(name: string, target: Target, among: readonly Target[
  * spawn with an impossible pair -- and one implementation asked twice cannot
  * come to disagree with itself the way two copies would.
  *
+ * It says nothing about **versions**, and that is the point: the host's Node
+ * version used to be checked here, which would have stopped somebody on Node 24
+ * choosing `node@26.12.1` for sigil to fetch. Whether a given Node can package
+ * itself is `canBuildSea()`, asked of the node that will actually run.
+ *
  * @param runtime - Which runtime would be embedded.
  * @param target - What it would be built for.
  * @throws If that runtime cannot produce that target here.
@@ -232,8 +237,6 @@ export function assertCompilable(runtime: Runtime, target: Target): void {
     }
     return;
   }
-
-  assertBuildSea();
 
   const host = hostTarget();
   if (label(target) !== label(host)) {
@@ -269,10 +272,19 @@ export function assertCompilable(runtime: Runtime, target: Target): void {
 export function assertToolchain(
   runtime: Runtime,
   targets: readonly Target[],
-  identity: string | undefined
+  identity: string | undefined,
+  pinned = false
 ): void {
-  if (runtime === 'bun') {
-    locate('bun', '--runtime bun needs it to compile the binary.');
+  // only when the compile will use whatever is on `PATH`. A **pinned** version
+  // is resolved -- from `PATH`, from either cache, or by downloading it -- so
+  // demanding it here refused a build that was about to fetch exactly what it
+  // needed: measured, `--runtime bun@1.3.14` on a machine with no Bun answered
+  // `bun is not installed` without trying
+  if (runtime === 'bun' && !pinned) {
+    locate(
+      'bun',
+      'Packaging with Bun needs it to compile the binary. Either install Bun, or pin a version -- --runtime bun@1.4.4 -- and sigil will fetch it.'
+    );
   }
 
   // `codesign` is wanted wherever a darwin binary will actually be signed,
@@ -410,6 +422,23 @@ export interface CompileOptions {
    * identity is refused, because it is not one.
    */
   readonly sign?: string;
+  /**
+   * The runtime executable to compile with.
+   *
+   * For Bun it is the `bun` that does the **bundling**, and that is the whole
+   * of why this option exists: `--target=bun-...-v<version>` downloads the
+   * runtime but leaves the bundler as whatever is on `PATH`, and a 1.4.4
+   * bundler writing into a 1.3.0 runtime produces a binary that prints Bun's
+   * usage text instead of the app -- exit 0 at compile time and at run time.
+   *
+   * For Node it is the node whose `--build-sea` runs, which is the node the
+   * binary embeds. Node's SEA config has an `executable` field that would let
+   * the host inject into some other node, and it silently produces a broken
+   * binary across a version boundary -- see `runtimes.ts`.
+   *
+   * Defaults to whatever the host has: `bun` on `PATH`, or this process.
+   */
+  readonly exec?: string;
   /** What to build for. */
   readonly target: Target;
 }
@@ -475,7 +504,7 @@ export function compileWithBun(options: CompileOptions): CompileResult {
   assertCompilable('bun', target);
   assertSignUsable(identity);
 
-  const bun = locate('bun', '--runtime bun needs it to compile the binary.');
+  const bun = options.exec ?? locate('bun', 'Packaging with Bun needs it to compile the binary.');
 
   return written(out, () => compileBun(bun, options));
 }
@@ -578,10 +607,17 @@ function compileSea(options: CompileOptions): CompileResult {
       'utf-8'
     );
 
-    const run = spawnSync(process.execPath, [`--build-sea=${config}`], { encoding: 'utf-8' });
+    // the **target's** own `--build-sea`, not the host's. Producer and consumer
+    // are then the same binary, so there is no cross-version blob format to get
+    // wrong -- which the `executable` field route does get wrong, silently
+    const node = options.exec ?? process.execPath;
+
+    assertBuildSea(node);
+
+    const run = spawnSync(node, [`--build-sea=${config}`], { encoding: 'utf-8' });
 
     if (run.error) {
-      throw new Error(`Failed to run node at ${process.execPath}: ${run.error.message}`);
+      throw new Error(`Failed to run node at ${node}: ${run.error.message}`);
     }
 
     if (run.status !== 0) {
@@ -709,15 +745,18 @@ function sign(file: string, identity: string): void {
  *
  * @throws If this Node has no `--build-sea`.
  */
-function assertBuildSea(): void {
-  if (canBuildSea()) {
+function assertBuildSea(node: string): void {
+  const run = spawnSync(node, ['--version'], { encoding: 'utf-8' });
+  const version = (run.stdout ?? '').trim().replace(/^v/, '');
+
+  if (version && canBuildSea(version)) {
     return;
   }
 
   const [wantMajor, wantMinor] = NODE_BUILD_SEA;
 
   throw new Error(
-    `Node ${wantMajor}.${wantMinor} or newer is needed to package with --runtime node, and this is ${process.versions.node}. Earlier versions build a single executable through postject, an external tool this toolchain will not install for you. Use --runtime bun, or upgrade Node.`
+    `Node ${wantMajor}.${wantMinor} or newer is needed to package with Node, and ${node} is ${version || 'not a node'}. Earlier versions build a single executable through postject, an external tool this toolchain will not install for you. Use --runtime bun, or upgrade Node.`
   );
 }
 

@@ -143,3 +143,18 @@ export {
   type ResolveOptions,
 } from './tree.ts';
 export { typeCheck, type TypeCheckOptions, type TypeCheckResult } from './typecheck.ts';
+export {
+  bunTriple,
+  canEmbed,
+  choices,
+  compare,
+  installed,
+  latest,
+  local,
+  parseSpec,
+  resolve,
+  type Choice,
+  type Found,
+  type Release,
+  type Spec,
+} from './runtimes.ts';

@@ -526,10 +526,7 @@
           "type": "string"
         },
         {
-          "choices": [
-            "bun",
-            "node"
-          ],
+          "choices": [],
           "env": [],
           "hidden": false,
           "long": [
