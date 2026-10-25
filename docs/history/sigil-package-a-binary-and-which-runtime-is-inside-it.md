@@ -215,6 +215,81 @@ platform-specific fixtures is written about.
 rather than discovered: `bun build --target=bun-windows-arm64` answers with a
 usage dump.
 
+## The scaffolded release workflow could not have worked, and only review saw it
+
+Found by the cross-model review on the pull request, after everything above had
+been measured and the suite was green on all twelve checks. The two facts were
+each written down in this file and nobody had put them together:
+
+- `signsOn()` is a function of the **target** alone, so the pre-flight asks for
+  `codesign` whenever a darwin target is named — the finding under "Signing" is
+  what forced that, since Bun's own `adhoc, linker-signed` output is SIGKILLed
+  anyway.
+- `codesign` ships only with macOS.
+
+The workflow `sigil new` scaffolds ran on `ubuntu-latest` and packaged
+`darwin-arm64` and `darwin-x64`. So every app made by `sigil new` would have
+failed its release at the **Package** step on its first tag, with
+`codesign is not installed, or is not on PATH` — in the one file whose whole
+purpose is to work without being debugged, on the one run nobody gets to redo.
+
+Nothing in the suite could see it. No test runs a generated workflow, and
+`should want codesign for a bun darwin target too` asserts the exact behaviour
+that breaks it, so the suite was as green as it could be while being wrong.
+
+### Why the runner moved rather than the rule
+
+The other available fix was one line: re-sign Bun's darwin output only when the
+**host** is darwin, leaving Bun's linker signature in place for a cross-build.
+It keeps the scaffold on Linux, it is cheaper, and it is refused by the
+measurement in "Signing, which is an execution requirement rather than a
+distribution one" — that signature is present and not valid, and the binary is
+killed with exit 137 on the machine that produced it. Taking that fix means CI
+attaching, to a GitHub release, the exact artifact already measured as
+unrunnable.
+
+A release that attaches a binary nobody can run is worse than a build that
+refuses, because the author sees the refusal and the users see the SIGKILL. So
+`runs-on: macos-latest`, which costs nothing else: Bun cross-compiles to Linux
+and Windows from a Mac — the table under "Cross-compilation" is five targets
+from one Mac — so one job still produces all five.
+
+### The guard, and both of its sabotages
+
+`should run where a darwin binary can be signed, which is a Mac` in
+`new.test.ts` reads the `--target` literals out of the generated file and asks
+**`assertToolchain()`** about them, with `codesign` off `PATH`. Asking that
+rather than looking for `darwin` in the text is the point: the rule about which
+targets get signed belongs to `signsOn()`, and a test that spelled it again
+would be a second copy free to go on agreeing while the real one moved.
+
+Both halves are load-bearing and both were sabotaged:
+
+| sabotage                                    | what fails                                  |
+| ------------------------------------------- | ------------------------------------------- |
+| `runs-on: macos-latest` back to `ubuntu`    | the `runs-on` assertion                     |
+| the two darwin targets dropped from the job | the refusal, as `.toMatch()` on `undefined` |
+
+The second is the one that matters for a guard of this shape: without it a
+workflow that stopped naming a darwin target would satisfy the implication
+vacuously.
+
+### Two comments that had become false
+
+Both said the opposite of what the code now does, in the same words, which is
+how one sentence copied into a second place goes stale twice. `assertToolchain()`
+explained that it asks for `codesign` only where it is needed because asking
+otherwise "would refuse a perfectly good cross-compile from Linux, where there
+is no `codesign` at all" — and after `signsOn()` became a function of the target,
+that is exactly what it does, deliberately, because such a cross-compile is not
+perfectly good. The AGENTS.md entry carried the same clause. Both now say what
+is true: the refusal is real, and it is the honest form of a binary that would
+not run.
+
+A third was stale for an unrelated reason and is corrected while here: an entry
+still said `sigil new` writes `"runtime": "bun"` into `sigil.json`, which the
+entry above it records as the defect that stopped the picker ever firing.
+
 ## The update check, which turned out to be three defects
 
 The ticket flagged "the spawned worker behind the update check, which is the one

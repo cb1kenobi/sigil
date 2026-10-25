@@ -461,9 +461,16 @@ function releaseWorkflow(name: string, manager: Manager): string {
 # Triggered by a version tag, so a release is \`git tag v1.2.3 && git push --tags\`.
 #
 # This is one job because it packages with Bun, which cross-compiles: all five
-# binaries are produced on one Linux runner. Switching to \`--runtime node\`
-# means a matrix instead -- a Node single executable is built by the node it
-# embeds, so each target has to be built on its own machine.
+# binaries are produced on one runner. That runner is a **Mac**, and it is the
+# one line here that is not a free choice: \`sigil package\` signs every darwin
+# binary it writes, because an unsigned -- or invalidly signed -- one is killed
+# before it runs a line on Apple Silicon, and \`codesign\` ships only with
+# macOS. Bun cross-compiles to Linux and Windows from a Mac just as happily, so
+# macOS builds all five where Ubuntu could not build two of them.
+#
+# Switching to \`--runtime node\` means a matrix instead -- a Node single
+# executable is built by the node it embeds, so each target has to be built on
+# its own machine.
 #
 # A version can be pinned -- \`--runtime bun@1.3.14\` -- and sigil fetches it if
 # the runner has not got it, which is what makes a release reproducible. Left
@@ -487,7 +494,7 @@ permissions:
 jobs:
   release:
     name: Release
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
 
     steps:
       - name: Checkout repository

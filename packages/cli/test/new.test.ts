@@ -1,4 +1,4 @@
-import { label, outputName, parseTarget } from '../src/build/compile.ts';
+import { assertToolchain, label, outputName, parseTarget } from '../src/build/compile.ts';
 import { nameProblem, scaffold, type ScaffoldOptions } from '../src/scaffold/index.js';
 import { runCommand } from '@ttylabs/sigil/testing';
 import { spawnSync } from 'node:child_process';
@@ -526,6 +526,47 @@ describe('the release workflow', () => {
       (m[1] as string).replace(/\.exe$/, '')
     );
     expect([...attached].sort()).toEqual([...named].sort());
+  });
+
+  it('should run where a darwin binary can be signed, which is a Mac', () => {
+    // The workflow ran on `ubuntu-latest` and packaged two darwin targets, so
+    // every app `sigil new` made failed its release at the Package step on its
+    // first tag: `sigil package` signs every darwin binary it writes, and
+    // `codesign` ships only with macOS. Nothing in CI runs a generated
+    // workflow, so the suite could not see it -- which is what this is for.
+    //
+    // The runner was the fix rather than skipping the signature on a non-Mac
+    // host, because `signsOn()` records the measurement that rules the second
+    // one out: Bun's darwin output reports `adhoc, linker-signed` and is
+    // SIGKILLed anyway, so a Linux cross-build would attach a binary nobody can
+    // run -- a broken release in place of a failed build.
+    const file = workflow();
+    const named = [...file.matchAll(/--target (\S+)/g)].map((m) => parseTarget(m[1] as string));
+    const nowhere = mkdtempSync(join(tmpdir(), 'sigil-nocodesign-'));
+    const path = process.env.PATH;
+
+    // whether these targets need `codesign` is asked of the command's own
+    // pre-flight over a `PATH` that has none, rather than by looking for
+    // `darwin` in the text: which targets get signed is `signsOn()`'s rule, and
+    // spelling it here would be a second copy free to agree while the real one
+    // moves
+    let refused: Error | undefined;
+    try {
+      process.env.PATH = nowhere;
+      assertToolchain('bun', named, undefined);
+    } catch (e) {
+      refused = e as Error;
+    } finally {
+      process.env.PATH = path;
+      rmSync(nowhere, { force: true, recursive: true });
+    }
+
+    // asserted rather than used as a condition: a workflow that stopped naming
+    // a darwin target would make the implication below vacuously true, and this
+    // is the line that fails instead
+    expect(refused?.message).toMatch(/codesign is not installed/);
+    expect(file).toContain('runs-on: macos-latest');
+    expect(file).not.toContain('ubuntu');
   });
 
   it('should run every target in one job, which is what bun buys', () => {

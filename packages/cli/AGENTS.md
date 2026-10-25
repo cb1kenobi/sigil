@@ -2858,11 +2858,14 @@ about what a valid app is would be the worse half of the feature.
   package's own `engines` does not require, so even that default would fail on a
   supported machine.
 
-  The one place this question **is** answered for you is `sigil new`, which
-  writes `"runtime": "bun"`. That is not a contradiction: refusing is right when
-  the answer is unknowable, and an app with users that would be changing what it
-  runs on is exactly that, while a brand-new app has no users and needs a
-  release workflow that works on its first tag.
+  The one place this question **is** answered for you is the release workflow
+  `sigil new` writes, which says `--runtime bun` on its own command line. That
+  is not a contradiction: refusing is right when the answer is unknowable, and
+  an app with users that would be changing what it runs on is exactly that,
+  while a brand-new app has no users and needs a release workflow that works on
+  its first tag. Where it is **not** answered is `sigil.json`, which is the
+  correction the entry above records -- answering it there answered it for the
+  author's own machine too, and that is the one place the author can be asked.
 
 - **Bun takes the bundle as it stands; Node needs a different one.** This is the
   asymmetry everything else follows from, and the ticket guessed it as "SEA
@@ -3032,9 +3035,17 @@ about what a valid app is would be the worse half of the feature.
   is the mechanism under test rather than a detail to mock away. The header says
   which half is which now. It asks for `codesign` only where a binary will _actually_
   be signed, which `signsOn()` decides for both it and the compile step -- one
-  function, because a pre-flight demanding a tool the run never uses would
-  refuse a perfectly good cross-compile from a Linux host, where there is no
-  `codesign` at all.
+  function, because a pre-flight demanding a tool the run never uses and one
+  skipping a tool the run does use are the same defect from two sides.
+
+  What that comes to, after `signsOn()` became a function of the target alone,
+  is **every darwin target** -- so this refuses a cross-compile to darwin from a
+  machine with no `codesign`, which is every Linux and every Windows one. Both
+  this entry and the comment on the function used to call that outcome the
+  reason not to ask, in the words "a perfectly good cross-compile from a Linux
+  host", and the measurement two entries down is what makes those words false:
+  such a cross-compile writes a binary that is SIGKILLed. It is not perfectly
+  good, and refusing up front is the honest form of saying so.
 
 - **`assertCompilable()` is asked for
   each target in `package.ts` before `bundleApp()` is called, and asked again
@@ -3130,6 +3141,37 @@ about what a valid app is would be the worse half of the feature.
   It also retires the `Signed` column's `bun` cell, which existed to avoid
   claiming credit for Bun's own signature -- there is no longer a case where
   this command leaves a darwin binary to somebody else's signing.
+
+- **...and the first thing that rule broke was the release workflow `sigil new`
+  scaffolds, which packaged two darwin targets on `ubuntu-latest`.** The two
+  halves were right separately and could not both be: `signsOn()` had become a
+  function of the target alone, so the pre-flight asks for `codesign` whenever a
+  darwin target is named, and `codesign` ships only with macOS. So every app
+  made by `sigil new` would have failed its release at the **Package** step on
+  its first tag -- the one run nobody gets to redo, in a file whose whole reason
+  for existing is to work without being debugged. Found by review rather than by
+  the suite, and the suite could not have found it: nothing in CI runs a
+  generated workflow, and `should want codesign for a bun darwin target too`
+  asserts the very behaviour that breaks it.
+
+  The runner moved rather than the rule, and the measurement above is the whole
+  of why. The alternative was to re-sign Bun's darwin output only on a darwin
+  **host**, leaving Bun's own linker signature in place for a cross-build -- a
+  one-line change that keeps the scaffold on Linux and ships, from CI, exactly
+  the binary that was measured as SIGKILLed on the machine that produced it. A
+  release that attaches a binary nobody can run is worse than a build that
+  refuses, because the refusal is seen by the author while the SIGKILL is seen
+  by the users. Bun cross-compiles to Linux and Windows from a Mac just as
+  happily, so `macos-latest` still builds all five in one job and nothing else
+  about the file moves.
+
+  The guard is `should run where a darwin binary can be signed, which is a Mac`
+  in `new.test.ts`, and what it asks is `assertToolchain()` over the targets the
+  **file itself names**, with `codesign` off `PATH` -- rather than looking for
+  `darwin` in the text, which would be a second copy of `signsOn()`'s rule, free
+  to go on agreeing while the real one moved. Both halves fail under sabotage:
+  putting the runner back fails the `runs-on` assertion, and dropping the darwin
+  targets fails the refusal that makes the rest of it mean anything.
 
 - **The `Signed` column named the signer rather than asserting the signature,
   and then stopped needing to.**

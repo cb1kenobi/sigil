@@ -3,7 +3,6 @@ import {
   assertCompilable,
   assertToolchain,
   binaryName,
-  canBuildSea,
   compileWithBun,
   compileWithNode,
   hostTarget,

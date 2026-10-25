@@ -277,10 +277,18 @@ export function assertToolchain(
   identity: string | undefined
 ): void {
   // `codesign` is wanted wherever a darwin binary will actually be signed,
-  // which is not the same as "a darwin target exists": Bun's output is already
-  // ad-hoc signed, so the Bun path only reaches `codesign` when an identity was
-  // asked for. Asking for the tool a run will not use would refuse a perfectly
-  // good cross-compile from Linux, where there is no `codesign` at all
+  // which `signsOn()` decides and is asked rather than restated here.
+  //
+  // What that comes to is every darwin target, whatever the runtime -- so this
+  // really does refuse a cross-compile to darwin from a machine with no
+  // `codesign`, which is every Linux and every Windows one. An earlier version
+  // of this comment called that outcome the reason *not* to ask, on the reading
+  // that Bun's output is already ad-hoc signed and so needs nothing; `signsOn()`
+  // records the measurement that overturned it -- Bun 1.3.0's output reports
+  // `adhoc, linker-signed` and is SIGKILLed anyway. A cross-compile to darwin
+  // from Linux is therefore not a perfectly good one: it writes a binary that
+  // cannot run. Refusing up front is the honest form of that, which is why the
+  // workflow `sigil new` scaffolds runs on macOS
   if (targets.some((target) => signsOn(target, runtime, identity))) {
     locate(
       'codesign',
