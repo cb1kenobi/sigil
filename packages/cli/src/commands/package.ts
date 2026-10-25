@@ -62,6 +62,7 @@ import { CONFIG_FILE, readSigilConfig } from '../config.ts';
 import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
   appRuns,
+  assertCleanable,
   binName,
   clean,
   commandsFound,
@@ -196,6 +197,9 @@ const pkg: AnyCommand = command({
 
     assertSelfContained(external);
     assertSignable(identity, targets);
+    // before `resolveExec()`, because it is pure path arithmetic and a run
+    // doomed by its own `--out` should not fetch a 90 MB runtime first
+    assertCleanable(out, found.app.root, argv.clean !== false);
     for (const target of targets) {
       assertCompilable(runtime, target);
     }

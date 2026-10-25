@@ -2676,6 +2676,38 @@ the same `_inspect.ts` read, the same refusal to package an app that does not
 check out -- rather than a pass of its own, because two commands that disagree
 about what a valid app is would be the worse half of the feature.
 
+- **`tar` is two different programs, and a `.zip` only works on two of the three
+  platforms.** Bun publishes its releases on GitHub as a `.zip`, and the first
+  download used `tar -xf` on one -- on the reading, written down at the time,
+  that "Windows 10 and newer ship bsdtar as `tar.exe`, which reads the `.zip` Bun
+  publishes". That is true of macOS and Windows and **false of Linux**, which
+  ships GNU tar and cannot read a zip at all: every ubuntu job failed with
+  `tar: This does not look like a tar archive`, for a download that had worked
+  perfectly on the machine it was written on.
+
+  Bun's own platform packages on npm -- `@oven/bun-<platform>-<arch>` -- are
+  `.tgz`, which is one format every platform's `tar` reads, and they carry the
+  same binary at `package/bin/bun`. Verified for all five targets and by
+  fetching one end to end. So there is one archive format and one tool, rather
+  than a tool that happens to be two different programs. Node's Windows archive
+  is still a zip, and that is the one platform whose `tar` is bsdtar.
+
+- **A cached executable keeps its `.exe`, which it did not.** A fetched
+  `node.exe` was renamed to `node`, and on Windows that is not an executable --
+  so the download would have succeeded and nothing could be spawned from it.
+  Found by auditing for the class rather than by a failing job, because no
+  Windows job had reached a download. One `executable()` so the write and the
+  lookup cannot disagree.
+
+- **`--out` is refused before a runtime is fetched, not after.** The check is
+  pure path arithmetic and sat inside `clean()`, which runs after
+  `resolveExec()` -- so on CI `sigil package --out <the app root>` **downloaded a
+  90 MB runtime** and then refused. `assertCleanable()` is the pre-flight half,
+  and it deliberately does not take `clean()`'s `existsSync` guard with it: a
+  directory that is not there cannot be destroyed, but an `--out` naming the app
+  root is a mistake whether or not it exists yet, and reporting it only
+  sometimes is worse than either.
+
 - **A version listing is cached for a day, and nothing is fetched on the
   ordinary path at all.** Measured before anything was added, which is what says
   how narrow the problem was: `--runtime bun`, `--runtime bun@1.4.4` and

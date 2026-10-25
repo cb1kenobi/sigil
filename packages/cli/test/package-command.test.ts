@@ -1,4 +1,4 @@
-import { canBuildSea, hostTarget, label } from '../src/build/compile.ts';
+import { binaryName, canBuildSea, hostTarget, label } from '../src/build/compile.ts';
 import { CONFIG_FILE } from '../src/config.ts';
 import { run } from '../src/index.js';
 import { whichSync } from '@ttylabs/sigil/which';
@@ -33,6 +33,16 @@ const hasBun = Boolean(whichSync('bun'));
  * asserting against the new one.
  */
 const hasBuildSea = canBuildSea();
+
+/**
+ * What the fixture's binary is called on this platform.
+ *
+ * `binaryName()` rather than `'buildable'`, which is the repository's own rule
+ * about platform-dependent fixtures: a test never spells a value the subject
+ * can be asked for. Spelled by hand it failed every Windows job, where the
+ * binary is `buildable.exe`.
+ */
+const BINARY = binaryName('buildable', hostTarget());
 
 /** Runs the CLI with both streams captured, the way `build-command.test.ts` does. */
 async function sigil(...argv: string[]) {
@@ -205,37 +215,25 @@ describe('sigil package', () => {
           'utf-8'
         );
 
-        // Asserted through the **pre-flight** rather than through a binary, and
-        // that is what makes it cheap enough to always run: a foreign target is
-        // refused by whichever runtime was chosen, with a different message
-        // each, before anything is bundled. So the message names which runtime
-        // the chooser picked -- which is the thing under test -- without a
-        // compiler, a `node_modules` or 138 MB of output.
+        // Asserted through the **pre-flight**, which is what makes it cheap
+        // enough to always run: no compiler, no `node_modules`, no 138 MB of
+        // output. The message names which runtime the chooser picked, which is
+        // the thing under test.
         //
-        // `linux-arm64` rather than the host, because the claim needs a target
-        // node refuses and bun does not.
-        const foreign = 'linux-arm64';
+        // The target has to be one the *node* path refuses on every platform,
+        // and a foreign **platform** is not that: this used `linux-arm64`,
+        // which is foreign on a Mac and the host on a Linux runner, so the
+        // assertion held on the machine it was written on and failed on every
+        // ubuntu job. A pinned Node below the `--build-sea` floor is
+        // platform-independent -- no Node packages 24 anywhere.
+        const declared = await sigil('package', app, '--out', out, '--runtime', 'node@24.22.1');
+        expect(declared.err).toMatch(/cannot package itself/);
 
-        const declared = await sigil('package', app, '--out', out, '--target', foreign);
-        // on a Node without `--build-sea` the refusal is the version one, which
-        // is still the *node* path refusing and so still proves the config was
-        // read -- what must not happen is this asserting one Node's answer as
-        // though it were every Node's
-        expect(declared.err).toMatch(
-          hasBuildSea ? /Node cannot cross-compile/ : /Node .* or newer is needed/
-        );
-
-        const overridden = await sigil(
-          'package',
-          app,
-          '--out',
-          out,
-          '--target',
-          foreign,
-          '--runtime',
-          'bun'
-        );
-        expect(overridden.err).not.toContain('Node cannot cross-compile');
+        // and the file's own `node` is what answers when nothing overrides it,
+        // which is the other half: a target Bun cannot build would be refused
+        // by the *bun* message if the file had been ignored
+        const fromFile = await sigil('package', app, '--out', out, '--target', 'windows-arm64');
+        expect(fromFile.err).not.toContain('Bun cannot build');
       } finally {
         rmSync(app, { force: true, recursive: true });
       }
@@ -243,50 +241,57 @@ describe('sigil package', () => {
   });
 
   describe('the bundle it embeds', () => {
-    it('should embed one flat CommonJS file, for the node runtime', async () => {
-      // The claim with teeth. A Node single executable runs its embedded main as
-      // CommonJS and cannot `import()` at all, so this form has to be one file,
-      // free of top-level await, and still able to reach its commands.
-      //
-      // Asserted through the **binary** now rather than through the staged
-      // bundle, because the staging directory no longer survives the run: a
-      // hash per output meant one directory per distinct `--out`, so they
-      // accumulated -- 51 of them in this very fixture before anybody looked.
-      const { err } = await sigil(
-        'package',
-        join(fixtures, 'buildable'),
-        '--out',
-        out,
-        '--runtime',
-        'node',
-        '--target',
-        label(hostTarget())
-      );
+    it.skipIf(!hasBuildSea)(
+      'should embed one flat CommonJS file, for the node runtime',
+      async () => {
+        // The claim with teeth. A Node single executable runs its embedded main as
+        // CommonJS and cannot `import()` at all, so this form has to be one file,
+        // free of top-level await, and still able to reach its commands.
+        //
+        // Asserted through the **binary** now rather than through the staged
+        // bundle, because the staging directory no longer survives the run: a
+        // hash per output meant one directory per distinct `--out`, so they
+        // accumulated -- 51 of them in this very fixture before anybody looked.
+        const { err } = await sigil(
+          'package',
+          join(fixtures, 'buildable'),
+          '--out',
+          out,
+          '--runtime',
+          'node',
+          '--target',
+          label(hostTarget())
+        );
 
-      if (!hasBuildSea) {
-        expect(err).toMatch(/Node .* or newer is needed/);
-        return;
-      }
+        // Skipped rather than branched on an old host, and the branch is what
+        // was wrong: it asserted a refusal or a fetch, and on a Node 24 machine
+        // with a cached Node 26 the command simply **worked** -- correct
+        // behaviour, and a third outcome the branch did not allow for. On CI it
+        // would download ~50 MB instead, which makes a unit test a network test.
+        //
+        // Where the host can build a SEA there is nothing to fetch and nothing
+        // to skip, so this is deterministic on exactly the jobs that run it.
+        expect(err).not.toMatch(/^Error:/m);
+        expect(process.exitCode).toBeFalsy();
 
-      expect(err).not.toMatch(/^Error:/m);
-      expect(process.exitCode).toBeFalsy();
+        // the output directory holds binaries and nothing else, which is the whole
+        // of why the bundle moved out of it
+        expect(readdirSync(out)).toEqual([BINARY]);
 
-      // the output directory holds binaries and nothing else, which is the whole
-      // of why the bundle moved out of it
-      expect(readdirSync(out)).toEqual(['buildable']);
+        const binary = join(out, BINARY);
+        const help = spawnSync(binary, ['--help'], { encoding: 'utf-8' });
+        expect(help.status, help.stderr).toBe(0);
+        expect(help.stdout).toContain('Usage:');
 
-      const binary = join(out, 'buildable');
-      const help = spawnSync(binary, ['--help'], { encoding: 'utf-8' });
-      expect(help.status, help.stderr).toBe(0);
-      expect(help.stdout).toContain('Usage:');
-
-      // and a command, which is the half that proves the inlined `import()`
-      // still resolves -- a flattened bundle whose commands cannot be reached
-      // would answer `--help` perfectly well
-      const cmd = spawnSync(binary, ['greet', 'Ada'], { encoding: 'utf-8' });
-      expect(cmd.status, cmd.stderr).toBe(0);
-      expect(cmd.stdout).toBe('hello Ada\n');
-    }, 120_000);
+        // and a command, which is the half that proves the inlined `import()`
+        // still resolves -- a flattened bundle whose commands cannot be reached
+        // would answer `--help` perfectly well
+        const cmd = spawnSync(binary, ['greet', 'Ada'], { encoding: 'utf-8' });
+        expect(cmd.status, cmd.stderr).toBe(0);
+        expect(cmd.stdout).toBe('hello Ada\n');
+      },
+      120_000
+    );
 
     it('should leave only binaries in the output directory', async () => {
       // the other half of the same claim, and the user-visible reason the bundle
@@ -307,7 +312,7 @@ describe('sigil package', () => {
         return;
       }
 
-      expect(readdirSync(out)).toEqual(['buildable']);
+      expect(readdirSync(out)).toEqual([BINARY]);
       expect(existsSync(join(out, 'buildable.mjs'))).toBe(false);
       expect(existsSync(join(out, 'chunks'))).toBe(false);
     }, 120_000);
@@ -522,7 +527,7 @@ describe('sigil package', () => {
         expect(stdout).toContain(label(hostTarget()));
         expect(stdout).toMatch(/\d+\.\d MB/);
 
-        const binary = join(out, 'buildable');
+        const binary = join(out, BINARY);
         expect(existsSync(binary)).toBe(true);
 
         const help = spawnSync(binary, ['--help'], { encoding: 'utf-8' });
@@ -569,7 +574,7 @@ describe('sigil package', () => {
           'node'
         );
 
-        const binary = join(out, 'buildable');
+        const binary = join(out, BINARY);
         expect(existsSync(binary)).toBe(true);
 
         // the reported size against the file on disk, which is what pins the
@@ -649,7 +654,7 @@ describe('sigil package', () => {
 
         expect(existsSync(join(out, 'buildable-linux-x64'))).toBe(true);
         expect(existsSync(join(out, 'buildable-windows-x64.exe'))).toBe(true);
-        expect(existsSync(join(out, 'buildable'))).toBe(false);
+        expect(existsSync(join(out, BINARY))).toBe(false);
 
         // and they really are different files rather than one written twice
         const linux = readFileSync(join(out, 'buildable-linux-x64'));
@@ -751,7 +756,7 @@ describe('sigil package', () => {
 
         expect(stdout.match(/linux-x64/g)).toHaveLength(1);
         // one target after deduplication, so it keeps the unsuffixed name
-        expect(existsSync(join(out, 'buildable'))).toBe(true);
+        expect(existsSync(join(out, BINARY))).toBe(true);
       },
       300_000
     );

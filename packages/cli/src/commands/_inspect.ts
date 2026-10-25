@@ -452,7 +452,36 @@ export function binName(found: Inspection, named: string | undefined): string {
  * @throws If the directory holds the app itself.
  */
 export function clean(out: string, root: string, wanted: boolean): void {
+  assertCleanable(out, root, wanted);
+
   if (!wanted || !existsSync(out)) {
+    return;
+  }
+
+  rmSync(resolve(out), { force: true, recursive: true });
+}
+
+/**
+ * Refuses an output directory that must not be emptied, without emptying any.
+ *
+ * Split out of `clean()` so it can be asked in a pre-flight, which is where it
+ * belongs: it is pure path arithmetic and needs no disk, and leaving it until
+ * the removal meant a run doomed by its own `--out` did all the expensive work
+ * first. Measured on CI, where `sigil package --out <the app root>` **fetched a
+ * 90 MB runtime** before refusing.
+ *
+ * The `existsSync` that guards the removal deliberately does not guard this. A
+ * directory that is not there cannot be destroyed, so `clean()` skips it -- but
+ * an `--out` naming the app root is a mistake whether or not the directory
+ * exists yet, and reporting it only sometimes is worse than either.
+ *
+ * @param out - The output directory.
+ * @param root - The app's root.
+ * @param wanted - Whether cleaning was asked for at all.
+ * @throws If the directory holds the app itself.
+ */
+export function assertCleanable(out: string, root: string, wanted: boolean): void {
+  if (!wanted) {
     return;
   }
 
@@ -465,6 +494,4 @@ export function clean(out: string, root: string, wanted: boolean): void {
         `Name a directory inside it, or pass --no-clean.`
     );
   }
-
-  rmSync(resolved, { force: true, recursive: true });
 }

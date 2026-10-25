@@ -64,6 +64,21 @@ import { dirname, join } from 'node:path';
 /** Where a fetched runtime is kept, under the XDG cache. */
 const CACHE = 'sigil/runtimes';
 
+/**
+ * What a cached runtime's executable is called on this platform.
+ *
+ * The `.exe` matters and was missing: a fetched `node.exe` was renamed to
+ * `node`, which on Windows is not an executable at all -- so the download
+ * succeeded and nothing could be spawned from it. One function so the write and
+ * the lookup cannot disagree, which is how the two would have drifted.
+ *
+ * @param runtime - Which runtime.
+ * @returns The file name.
+ */
+function executable(runtime: Runtime): string {
+  return process.platform === 'win32' ? `${runtime}.exe` : runtime;
+}
+
 /** Where Bun keeps the target runtimes it downloads for `--compile`. */
 const BUN_CACHE = '.bun/install/cache';
 
@@ -183,7 +198,7 @@ export function local(runtime: Runtime, target: Target): Found[] {
   const own = cache(CACHE, runtime);
   if (own && existsSync(own)) {
     for (const entry of readdirSync(own)) {
-      const at = join(own, entry, runtime);
+      const at = join(own, entry, executable(runtime));
 
       if (!found.has(entry) && existsSync(at)) {
         found.set(entry, { how: 'cache', path: at, version: entry });
@@ -544,8 +559,10 @@ export async function resolve(
  *
  * Extracted with `tar`, which is not a dependency on any platform this
  * supports: macOS and Linux ship it, and Windows 10 and newer ship bsdtar as
- * `tar.exe`, which reads the `.zip` Bun publishes as well as the `.tar.gz` Node
- * does. Writing an unzip here would be writing an unzip.
+ * `tar.exe`. What it must **not** be handed is a `.zip` on Linux, where `tar`
+ * is GNU tar and cannot read one -- which is why Bun comes from npm as a
+ * `.tgz` rather than from GitHub as a `.zip`. Node's Windows archive is a zip,
+ * and that is the one platform whose `tar` is bsdtar and reads it.
  *
  * The extraction goes to a sibling directory and is **renamed into place**, so
  * a download that dies half way leaves no directory that looks like a cached
@@ -567,7 +584,7 @@ async function download(runtime: Runtime, version: string): Promise<string> {
   }
 
   const into = join(root, version);
-  const binary = join(into, runtime);
+  const binary = join(into, executable(runtime));
   const partial = `${into}.partial-${process.pid}`;
 
   mkdirSync(partial, { recursive: true });
@@ -582,7 +599,7 @@ async function download(runtime: Runtime, version: string): Promise<string> {
       );
     }
 
-    const archive = join(partial, runtime === 'node' ? 'node.tar.gz' : 'bun.zip');
+    const archive = join(partial, runtime === 'node' ? 'node.tar.gz' : 'bun.tgz');
     const { writeFileSync } = await import('node:fs');
     writeFileSync(archive, Buffer.from(await response.arrayBuffer()));
 
@@ -624,10 +641,20 @@ function downloadUrl(runtime: Runtime, version: string): string {
     return `https://nodejs.org/dist/v${version}/node-v${version}-${os}-${arch}.${ext}`;
   }
 
-  return `https://github.com/oven-sh/bun/releases/download/bun-v${version}/${bunTriple({
-    arch,
-    platform,
-  }).replace(/^bun-/, 'bun-')}.zip`;
+  // npm rather than GitHub's releases, and the reason is `tar`. Bun publishes a
+  // `.zip` on GitHub, and `tar -xf` reads one only where `tar` is **bsdtar** --
+  // macOS and Windows. Linux ships GNU tar, which cannot read a zip at all, so
+  // the download failed there with `This does not look like a tar archive`:
+  // every ubuntu job, for a runtime that had downloaded fine on the machine
+  // this was written on.
+  //
+  // Bun's own platform packages on npm are `.tgz`, which is one format every
+  // platform's `tar` reads, and they carry the same binary -- `package/bin/bun`,
+  // verified. So there is one archive format and one tool rather than a tool
+  // that happens to be two different programs.
+  const triple = bunTriple({ arch, platform }).replace(/^bun-/, '');
+
+  return `https://registry.npmjs.org/@oven/bun-${triple}/-/bun-${triple}-${version}.tgz`;
 }
 
 /**
@@ -643,7 +670,7 @@ function downloadUrl(runtime: Runtime, version: string): string {
  * @returns Its path, or `undefined`.
  */
 function findBinary(dir: string, runtime: Runtime): string | undefined {
-  const wanted = process.platform === 'win32' ? `${runtime}.exe` : runtime;
+  const wanted = executable(runtime);
 
   for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
     if (entry.isFile() && entry.name === wanted) {

@@ -103,20 +103,13 @@ describe('what a runtime can build', () => {
   const host = hostTarget();
 
   /**
-   * Whether this Node can build a single executable at all.
-   *
-   * Every `node` assertion below has to be guarded by it, and for a while none
-   * of them was: `assertCompilable('node', ...)` asks `assertBuildSea()`
-   * *first*, so on Node 22 and 24 -- six of CI's nine jobs -- all three
-   * answered `Node 25.5 or newer is needed` rather than the message under test,
-   * and the suite went red on a branch whose feature is inert there.
-   *
-   * It is the same shape as this repository's rule about platform-specific
-   * fixtures, in version form: the branch was measured on one Node, and the
-   * tests encoded that Node's answers as though they were everyone's.
+   * Nothing here is version-dependent any more, and that is the fix rather than
+   * a simplification. `assertCompilable()` used to check the host's Node
+   * version, so every assertion below needed a guard; the check moved to the
+   * node that will actually run, which is both more correct -- somebody on Node
+   * 24 can choose a newer one -- and what makes these answers the same on all
+   * nine of CI's jobs.
    */
-  const hasBuildSea = canBuildSea();
-
   it('should offer exactly the two runtimes', () => {
     // asserted as the set rather than the length, because a third would need a
     // decision recorded in AGENTS.md and a `compile*()` of its own -- this is
@@ -139,18 +132,17 @@ describe('what a runtime can build', () => {
     }
   });
 
-  it('should let node build the host', () => {
-    if (!hasBuildSea) {
-      // the honest assertion on an old Node: it refuses, and says which
-      // version is wanted rather than anything about the target
-      expect(() => assertCompilable('node', host)).toThrow(/Node .* or newer is needed/);
-      return;
-    }
-
+  it('should let node build the host whatever this node is', () => {
+    // version-independent on purpose, and it was not: this asserted a refusal
+    // on an old Node, from back when `assertCompilable()` checked the **host's**
+    // version. That check moved to the node actually being used -- so that
+    // somebody on Node 24 can choose `node@26` for sigil to fetch -- and this
+    // test went on asserting the old behaviour, failing every node 22 and 24
+    // job while passing on the machine it was written on.
     expect(() => assertCompilable('node', host)).not.toThrow();
   });
 
-  it.skipIf(!hasBuildSea)('should refuse every target but the host for node, saying why', () => {
+  it('should refuse every target but the host for node, saying why', () => {
     const foreign = targets()
       .map((text) => parseTarget(text))
       .filter((target) => label(target) !== label(host));
@@ -167,7 +159,7 @@ describe('what a runtime can build', () => {
     }
   });
 
-  it.skipIf(!hasBuildSea)('should tell bun and node apart for the same target', () => {
+  it('should tell bun and node apart for the same target', () => {
     // the one assertion that would fail if `assertCompilable()` ignored its
     // runtime argument, which is the shape a refactor of two checks into one
     // function can quietly produce

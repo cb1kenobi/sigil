@@ -1,3 +1,4 @@
+import { binaryName, hostTarget } from '../src/build/compile.ts';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
@@ -32,6 +33,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = resolve(here, '../src/sigil.ts');
 const fixture = resolve(here, 'fixtures/buildable');
+
+/**
+ * What the fixture's binary is called here.
+ *
+ * Asked of `binaryName()` rather than spelled, which is this repository's rule
+ * about platform-dependent fixtures: on Windows it is `buildable.exe`, and the
+ * literal failed every Windows job.
+ */
+const BINARY = binaryName('buildable', hostTarget());
 
 /** Whether Bun is installed, which decides whether the answer can be acted on. */
 const hasBun = Boolean(whichSync('bun'));
@@ -151,11 +161,11 @@ describe('sigil package with no runtime named', () => {
       expect(ran.stdout + ran.stderr).toMatch(/node/);
 
       expect(ran.code, ran.stderr).toBe(0);
-      expect(existsSync(join(out, 'buildable'))).toBe(true);
+      expect(existsSync(join(out, BINARY))).toBe(true);
 
       // and the output holds the binary alone -- no bundle, no chunks, which is
       // what `release/` being separate from `dist/` is for
-      expect(readdirSync(out)).toEqual(['buildable']);
+      expect(readdirSync(out)).toEqual([BINARY]);
     },
     200_000
   );
@@ -163,12 +173,18 @@ describe('sigil package with no runtime named', () => {
   it('should not ask when the flag already said, on a terminal', async () => {
     // the prompt is for the question nobody answered. Asked anyway, it would
     // hang every scripted run that happens to have a terminal attached --
-    // which is most of them, interactively
-    const ran = await run(out, ['--runtime', 'node', '--target', 'linux-x64']);
+    // which is most of them, interactively.
+    //
+    // `node@24.22.1` rather than a foreign target, which is what this had and
+    // what made it host-dependent: `--target linux-x64` is foreign on a Mac and
+    // the **host** on a Linux runner, so the refusal it asserted never happened
+    // on ubuntu. A Node below the `--build-sea` floor is refused on every
+    // platform, which is what a cross-platform assertion needs.
+    const ran = await run(out, ['--runtime', 'node@24.22.1']);
 
     expect(ran.stdout + ran.stderr).not.toContain('Which runtime');
-    // and it got as far as the Node cross-compile refusal, which is proof the
-    // runtime was taken from the flag rather than waited for
-    expect(ran.stderr).toMatch(/cannot cross-compile|or newer is needed/);
+    // and it got as far as refusing that version, which is proof the runtime
+    // was taken from the flag rather than waited for
+    expect(ran.stderr).toMatch(/cannot package itself/);
   }, 200_000);
 });
