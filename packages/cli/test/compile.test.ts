@@ -237,19 +237,23 @@ describe('what gets code-signed', () => {
     );
   });
 
-  it('should not want codesign for a bun darwin target with no identity', () => {
-    // Bun's output is already `adhoc, linker-signed`, so this path never runs
-    // `codesign` -- and demanding a tool the run will not use would refuse a
-    // perfectly good cross-compile from a Linux host, where there is none.
-    // `bun` is findable here, so reaching the end means the codesign branch was
-    // genuinely skipped rather than short-circuited
-    expect(() => assertToolchain('bun', [parseTarget('darwin-arm64')], undefined)).not.toThrow();
+  it('should want codesign for a bun darwin target too, identity or not', () => {
+    // This asserted the opposite until Bun's own signature turned out not to be
+    // trustworthy: a binary compiled by Bun 1.3.0 reports
+    // `adhoc, linker-signed` and is still SIGKILLed, and a re-sign fixes it. So
+    // the rule is the target rather than the producer -- see `signsOn()`.
+    //
+    // `bun` is findable here, so reaching the `codesign` check means it was
+    // genuinely asked rather than short-circuited by a missing `bun`
+    expect(() => assertToolchain('bun', [parseTarget('darwin-arm64')], undefined)).toThrow(
+      /codesign is not installed/
+    );
   });
 
   it('should want codesign for a bun darwin target when an identity was asked for', () => {
-    // the assertion the silent-drop fix rests on: if `--sign` is honoured on
-    // the Bun path, the tool it needs is part of the pre-flight. Deleting the
-    // identity half of `signsOn()` fails exactly here
+    // the same answer as without one, now that the rule is the target -- kept
+    // as its own case because `--sign` on the Bun path was silently discarded
+    // once, and this is the assertion that the identity reaches the signer
     expect(() =>
       assertToolchain('bun', [parseTarget('darwin-arm64')], 'Developer ID Application: X')
     ).toThrow(/codesign is not installed/);

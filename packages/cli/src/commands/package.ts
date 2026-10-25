@@ -185,7 +185,7 @@ const pkg: AnyCommand = command({
     });
 
     if (!isQuiet()) {
-      printBinaries(compiled, runtime);
+      printBinaries(compiled);
     }
 
     writeSummary(
@@ -500,29 +500,21 @@ function compileAll(
 /**
  * What the Signed column says.
  *
- * `linker` is Bun's own: its output arrives `adhoc, linker-signed` whether or
- * not this command touched it, so an empty cell there would read as unsigned
- * when the binary is in fact runnable. An empty cell is reserved for a target
- * where signing is not a thing at all, which is every non-darwin one.
+ * Every darwin binary is signed by this command now, so the cell is the
+ * identity that was used and an empty cell means a target where signing is not
+ * a thing. It said `bun` for a while, on the reading that Bun signs its own
+ * output and this should not claim the credit -- which was retired by measuring
+ * a Bun-signed binary that would not run. See `signsOn()`.
  *
  * @param identity - What `sign()` used, if it ran.
- * @param target - What the binary was built for.
- * @param runtime - Which runtime is embedded.
  * @returns The cell.
  */
-function describeSigning(identity: string | undefined, target: Target, runtime: Runtime): string {
-  if (identity !== undefined) {
-    return identity === '-' ? 'ad-hoc' : identity;
+function describeSigning(identity: string | undefined): string {
+  if (identity === undefined) {
+    return '';
   }
 
-  // `bun` rather than `ad-hoc (linker)`, which is the one cell that was not an
-  // observation. Bun's output arrives ad-hoc signed by its linker -- measured,
-  // on a Mac -- and the scaffolded workflow produces darwin binaries on an
-  // Ubuntu runner, where that has never been checked. Printing `ad-hoc
-  // (linker)` there states a property of the bytes as though this command had
-  // looked; naming the signer is a fact either way, and it still answers the
-  // question an empty cell got wrong, which is "was anything signed at all".
-  return target.platform === 'darwin' && runtime === 'bun' ? 'bun' : '';
+  return identity === '-' ? 'ad-hoc' : identity;
 }
 
 /**
@@ -534,12 +526,12 @@ function describeSigning(identity: string | undefined, target: Target, runtime: 
  *
  * @param compiled - What was built, in the order it was named.
  */
-function printBinaries(compiled: readonly Built[], runtime: Runtime): void {
+function printBinaries(compiled: readonly Built[]): void {
   const rows = compiled.map((one) => [
     one.file,
     label(one.target),
     `${(one.size / 1048576).toFixed(1)} MB`,
-    describeSigning(one.signed, one.target, runtime),
+    describeSigning(one.signed),
   ]);
 
   if (rows.length) {

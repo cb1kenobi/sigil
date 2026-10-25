@@ -372,14 +372,26 @@ export function identityOf(identity: string | undefined): string | undefined {
  * @returns Whether `sign()` will do anything.
  */
 function signsOn(target: Target, runtime: Runtime, identity: string | undefined): boolean {
-  if (target.platform !== 'darwin') {
-    return false;
-  }
+  // the target, and nothing about the producer. This used to read
+  // `runtime === 'node' || isIdentity(identity)` on the ground that Bun's
+  // output is already `adhoc, linker-signed` and so needs nothing -- which is
+  // true of what Bun writes and **not** true of whether it runs.
+  //
+  // Measured: a binary compiled by Bun 1.3.0 reports
+  // `flags=0x20002(adhoc,linker-signed)` and is still **SIGKILLed**, exit 137,
+  // on the machine that produced it. `codesign --sign - --force` over the same
+  // file makes it run. So a signature being present is not a signature being
+  // valid, and "the producer signed it" is not a fact this can act on -- which
+  // matters the moment `--runtime-version` lets somebody target a Bun other
+  // than the one on their PATH.
+  //
+  // Re-signing a binary that was already fine is harmless, measured on Bun
+  // 1.4.4's output, so the cheap answer is also the correct one: on darwin,
+  // always ensure a signature.
+  void runtime;
+  void identity;
 
-  // Node's output is unsigned and unrunnable until it is signed, so it is
-  // always signed. Bun's is already `adhoc, linker-signed`, so it is signed
-  // only when somebody asked for a particular identity
-  return runtime === 'node' || isIdentity(identity);
+  return target.platform === 'darwin';
 }
 
 /** What `compile()` was asked to do. */

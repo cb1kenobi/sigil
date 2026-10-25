@@ -2967,7 +2967,28 @@ about what a valid app is would be the worse half of the feature.
   actionable half -- with a sentence about the file system, which is the thing
   the entry above says neither removal may do. One of the two implemented it.
 
-- **The `Signed` column names the signer rather than asserting the signature.**
+- **A signature being present is not a signature being valid, so darwin is
+  always signed and the producer is not trusted.** `signsOn()` read
+  `runtime === 'node' || isIdentity(identity)` on the ground that Bun's output
+  arrives `adhoc, linker-signed` and needs nothing. That is true of what Bun
+  **writes** and not of whether it **runs**: measured, a binary compiled by Bun
+  1.3.0 reports `flags=0x20002(adhoc,linker-signed)` and is still **SIGKILLed**,
+  exit 137, on the machine that produced it -- and `codesign --sign - --force`
+  over the same bytes makes it run.
+
+  Which matters the moment `--runtime-version` lets somebody target a Bun other
+  than the one on their `PATH`, and would otherwise have been a binary that
+  built, reported success, and died for every user. Re-signing a binary that was
+  already fine is harmless, measured on Bun 1.4.4's output, so the cheap answer
+  and the correct one are the same: on a darwin target, always ensure a
+  signature. `signsOn()` is a function of the target alone now.
+
+  It also retires the `Signed` column's `bun` cell, which existed to avoid
+  claiming credit for Bun's own signature -- there is no longer a case where
+  this command leaves a darwin binary to somebody else's signing.
+
+- **The `Signed` column named the signer rather than asserting the signature,
+  and then stopped needing to.**
   It printed `ad-hoc (linker)` for an untouched Bun binary, which is not an
   observation: Bun's output being `adhoc, linker-signed` was measured **on a
   Mac**, and the scaffolded workflow produces its darwin binaries on an Ubuntu
