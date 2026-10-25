@@ -3203,6 +3203,42 @@ about what a valid app is would be the worse half of the feature.
   succeeds. Removing the bracket fails one test; widening it to include the
   assertions fails the other.
 
+  **...and "after the assertions" was true of Bun and false of Node, for three
+  releases, in the one direction that destroys data.** `locate('bun')` has always
+  sat above `compileWithBun()`'s bracket; `assertBuildSea()` sat **inside**
+  `compileSea()`, which is inside `compileWithNode()`'s. So the refusal that
+  writes nothing at all ran through `written()`'s `catch`: an exported caller
+  doing `compileWithNode({ out: 'release/myapp', ... })` under a node below 25.5
+  -- or handing over an `exec` that is not a node, which is what a pinned version
+  nobody installed looks like -- was told `Node 25.5 or newer is needed` and
+  **deleted the good `release/myapp` that was already there**. `sigil package`
+  itself was never exposed, because `resolveExec()` has already picked a node
+  that can do the job, and that is exactly why nothing found it: these functions
+  are exported so a direct caller gets the same guarantees, and the paragraph
+  above says so while the Bun half had the test and the Node half had none.
+
+  The fix is the two lines moved above the bracket, which makes `compileSea()`
+  the shape `compileBun()` already had -- an already-resolved tool handed in, so
+  the bracket holds the spawn and the signing and nothing else. The temporary
+  config went with them, one step further than the finding asked: `mkdtempSync()`
+  and the config write have not touched `out` either, so leaving them inside
+  would have left the promise a little bit false in the place nobody would look.
+  Its `finally` sits where the directory exists, which is `bundleApp()`'s own
+  rule about where a bracket begins.
+
+  Each half has its own test and each sabotage fails exactly one of them.
+  `should leave a file it never wrote, when the node it was given cannot build
+  one` needs no stub and no `skipIf`, unlike its Bun siblings -- an `exec` that
+  does not exist is a node that cannot build a SEA on every platform -- and it
+  asserts the message's own tail rather than spelling the version floor. `should
+  leave a file it never wrote, when the temporary config cannot be made` points
+  `TMPDIR`, `TEMP` and `TMP` at nothing, all three because `os.tmpdir()` reads a
+  different one per platform. That one is `skipIf(!canBuildSea())`, and the skip
+  is precision rather than caution: on a host below the floor `assertBuildSea()`
+  throws first and the file survives for a reason the test is not about, which is
+  two guards masking each other -- so it also asserts that the throw is **not**
+  the version refusal.
+
   And `signed()`'s own removal is guarded, which it was not: an `rmSync` that
   threw would have replaced `codesign failed: no identity found` -- the
   actionable half -- with a sentence about the file system, which is the thing

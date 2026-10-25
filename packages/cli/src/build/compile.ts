@@ -473,6 +473,18 @@ export interface CompileResult {
  * matters under `--no-clean`, where the path may hold a previous release's
  * binary that a pre-write refusal must not touch.
  *
+ * It was true of the Bun path and **false of the Node one**, which is the way
+ * round that hurts: `locate('bun')` has always sat above `compileWithBun()`'s
+ * bracket, while `assertBuildSea()` sat inside `compileSea()` -- so
+ * `compileWithNode({ out: 'release/myapp', ... })` under a node below 25.5, or
+ * given an `exec` that is not a node, refused before writing a byte and deleted
+ * the good `release/myapp` that was already there on its way out. `sigil
+ * package` was not exposed, because `resolveExec()` has already picked a node
+ * that can do the job -- but these functions are exported precisely so that a
+ * direct caller gets the same guarantees, and the Bun half of this cleanup had a
+ * test for exactly that case while the Node half had none. Both halves of both
+ * runtimes are pinned now.
+ *
  * Reproduced before it existed, with `ulimit -f 2048` so the real compilers die
  * mid-write: `compileWithNode()` threw `node --build-sea failed` and left
  * **2,097,152 bytes** at the output path. `sigil package` was covered, because
@@ -582,66 +594,100 @@ export function compileWithNode(options: CompileOptions): CompileResult {
   assertCompilable('node', target);
   assertSignUsable(identity);
 
-  return written(out, () => compileSea(options));
+  // the **target's** own `--build-sea`, not the host's. Producer and consumer
+  // are then the same binary, so there is no cross-version blob format to get
+  // wrong -- which the `executable` field route does get wrong, silently.
+  //
+  // The fallback is unreachable from `sigil package`, which always names one:
+  // it was reachable, and it was the defect, because what that command checks
+  // is the `node` on `PATH` and this is whatever is running sigil.
+  //
+  // Resolved and checked **here** rather than inside the bracket, which is the
+  // half that cost an existing binary: `assertBuildSea()` sat inside
+  // `compileSea()`, so a refusal that had written nothing at all ran through
+  // `written()`'s `catch` and **deleted** whatever was at `out` -- under
+  // `--no-clean`, a previous release's binary. That is the asymmetry the Bun
+  // path never had, since `locate('bun')` has always been above its own
+  // `written()`, and it is what makes that function's own promise -- the bracket
+  // starts after the assertions -- true of both runtimes rather than one.
+  const node = options.exec ?? process.execPath;
+
+  assertBuildSea(node);
+
+  // the config is the interface `--build-sea` takes, and it is written to a
+  // temporary directory rather than beside the output: it names an absolute
+  // input and an absolute output, so nothing resolves against where it sits,
+  // and a build artifact nobody asked for should not survive the build.
+  //
+  // Also above the bracket, and for the same reason one step further out: a
+  // `mkdtempSync` or a config write that fails has not touched `out` either, so
+  // leaving them inside would have left the promise a little bit false in a way
+  // nobody would have found. The `finally` sits where the directory exists,
+  // which is `bundleApp()`'s own rule about where a bracket begins.
+  const dir = mkdtempSync(join(tmpdir(), 'sigil-sea-'));
+
+  try {
+    const config = seaConfig(dir, options);
+
+    return written(out, () => compileSea(node, config, options));
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+}
+
+/**
+ * Writes the config `--build-sea` reads, and answers with its path.
+ *
+ * @param dir - The temporary directory it goes in.
+ * @param options - The bundle to embed and where the binary goes.
+ * @returns The config's path.
+ */
+function seaConfig(dir: string, options: CompileOptions): string {
+  const config = join(dir, 'sea-config.json');
+
+  writeFileSync(
+    config,
+    `${JSON.stringify(
+      {
+        disableExperimentalSEAWarning: true,
+        main: options.entry,
+        output: options.out,
+        // the V8 code cache for the embedded script, which is sound here for
+        // the reason cross-compiling is not: the cache is specific to this
+        // node on this platform, and this is the node being embedded
+        useCodeCache: true,
+      },
+      undefined,
+      2
+    )}\n`,
+    'utf-8'
+  );
+
+  return config;
 }
 
 /**
  * The writing half of a Node single-executable build, which `written()` brackets.
  *
- * @param options - What to compile and where it goes.
+ * Everything it needs is resolved before it is called, which is what keeps the
+ * bracket over the write alone -- the same shape as `compileBun()`, which takes
+ * its already-located `bun`.
+ *
+ * @param node - The node whose `--build-sea` runs, already checked.
+ * @param config - The config it reads, already written.
+ * @param options - Where the binary goes and how it is signed.
  * @returns What was produced.
  */
-function compileSea(options: CompileOptions): CompileResult {
-  const { entry, out, sign: identity, target } = options;
+function compileSea(node: string, config: string, options: CompileOptions): CompileResult {
+  const { out, sign: identity, target } = options;
+  const run = spawnSync(node, [`--build-sea=${config}`], { encoding: 'utf-8' });
 
-  // the config is the interface `--build-sea` takes, and it is written to a
-  // temporary directory rather than beside the output: it names an absolute
-  // input and an absolute output, so nothing resolves against where it sits,
-  // and a build artifact nobody asked for should not survive the build
-  const dir = mkdtempSync(join(tmpdir(), 'sigil-sea-'));
+  if (run.error) {
+    throw new Error(`Failed to run node at ${node}: ${run.error.message}`);
+  }
 
-  try {
-    const config = join(dir, 'sea-config.json');
-    writeFileSync(
-      config,
-      `${JSON.stringify(
-        {
-          disableExperimentalSEAWarning: true,
-          main: entry,
-          output: out,
-          // the V8 code cache for the embedded script, which is sound here for
-          // the reason cross-compiling is not: the cache is specific to this
-          // node on this platform, and this is the node being embedded
-          useCodeCache: true,
-        },
-        undefined,
-        2
-      )}\n`,
-      'utf-8'
-    );
-
-    // the **target's** own `--build-sea`, not the host's. Producer and consumer
-    // are then the same binary, so there is no cross-version blob format to get
-    // wrong -- which the `executable` field route does get wrong, silently.
-    //
-    // The fallback is unreachable from `sigil package`, which always names one:
-    // it was reachable, and it was the defect, because what that command checks
-    // is the `node` on `PATH` and this is whatever is running sigil
-    const node = options.exec ?? process.execPath;
-
-    assertBuildSea(node);
-
-    const run = spawnSync(node, [`--build-sea=${config}`], { encoding: 'utf-8' });
-
-    if (run.error) {
-      throw new Error(`Failed to run node at ${node}: ${run.error.message}`);
-    }
-
-    if (run.status !== 0) {
-      throw new Error(`node --build-sea failed:\n${said(run)}`);
-    }
-  } finally {
-    rmSync(dir, { force: true, recursive: true });
+  if (run.status !== 0) {
+    throw new Error(`node --build-sea failed:\n${said(run)}`);
   }
 
   // signed first, then measured. The two used to be one object literal with

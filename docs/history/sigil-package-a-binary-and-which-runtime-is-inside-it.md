@@ -215,6 +215,63 @@ platform-specific fixtures is written about.
 rather than discovered: `bun build --target=bun-windows-arm64` answers with a
 usage dump.
 
+## A refusal that wrote nothing deleted the binary that was already there
+
+The third finding from the cross-model review, and the one with data loss in it.
+`written()`'s own doc has said from the start that the bracket begins _after_ the
+assertions, "so a failure inside it is a failure of something that was writing".
+That was true of one runtime:
+
+| runtime | tool resolved and checked             | relative to `written()` |
+| ------- | ------------------------------------- | ----------------------- |
+| Bun     | `locate('bun')` in `compileWithBun()` | **above** it            |
+| Node    | `assertBuildSea()` in `compileSea()`  | **inside** it           |
+
+So `compileWithNode({ entry, out: 'release/myapp', target: hostTarget() })` under
+a node below 25.5 — or given an `exec` that is not a node, which is what a
+pinned version nobody installed looks like — refused before writing a byte, and
+`written()`'s `catch` then deleted the good `release/myapp` that was already
+there. Under `--no-clean`, whose documented promise is to keep what is already
+at the path, that is a previous release's binary.
+
+`sigil package` was never exposed, because `resolveExec()` has already picked a
+node that can do the job. That is also why nothing found it: these functions are
+exported precisely so a direct caller gets the same guarantees, the entry above
+says so in as many words, and the Bun half of the cleanup had a test for exactly
+this case while the Node half had none.
+
+### The fix, and one step past the finding
+
+Two lines moved above the bracket. What that leaves is `compileSea()` in the
+shape `compileBun()` already had — an already-resolved tool handed in, with the
+bracket over the spawn and the signing and nothing else.
+
+The temporary SEA config moved with them, which the finding did not ask for:
+`mkdtempSync()` and the config write have not touched `out` either, so leaving
+them inside would have left the promise a little bit false in the one place
+nobody would look. `seaConfig()` is that write, and the `finally` that removes
+the directory sits where the directory exists — `bundleApp()`'s own rule about
+where a bracket begins, met again.
+
+### Two tests, two sabotages, one each
+
+| sabotage                                   | fails                                            |
+| ------------------------------------------ | ------------------------------------------------ |
+| `assertBuildSea()` back inside the bracket | `...when the node it was given cannot build one` |
+| the temp dir back inside the bracket       | `...when the temporary config cannot be made`    |
+
+The first needs no stub and no `skipIf`, unlike its Bun siblings: an `exec` that
+does not exist is a node that cannot build a single executable on every platform.
+It asserts the message's own tail — `is not a node` — rather than spelling the
+version floor, which this repository has already been wrong about once.
+
+The second points `TMPDIR`, `TEMP` and `TMP` at nothing, all three because
+`os.tmpdir()` reads a different one per platform. It is
+`skipIf(!canBuildSea())`, and the skip is precision rather than caution: on a
+host below the floor `assertBuildSea()` throws first and the file survives for a
+reason the test is not about, which is two guards masking each other. So it also
+asserts that what was thrown is **not** the version refusal.
+
 ## The node that passed the check was not the node that compiled
 
 The second finding from the cross-model review on the pull request, after the

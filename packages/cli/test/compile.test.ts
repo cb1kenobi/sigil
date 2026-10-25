@@ -1,6 +1,7 @@
 import {
   ARCHES,
   assertCompilable,
+  canBuildSea,
   assertToolchain,
   binaryName,
   compileWithBun,
@@ -402,6 +403,88 @@ describe('a compile that fails partway', () => {
       expect(() =>
         compileWithBun({ entry: 'unused', out: binary, target: parseTarget('windows-arm64') })
       ).toThrow(/Bun cannot build/);
+
+      expect(readFileSync(binary, 'utf-8')).toBe('PREVIOUS GOOD RELEASE');
+    }
+  );
+
+  it('should leave a file it never wrote, when the node it was given cannot build one', () => {
+    // The Node half of the test above, which did not exist -- and the half that
+    // was broken. `assertBuildSea()` sat *inside* `compileSea()`, which is
+    // inside the `written()` bracket, so this refusal ran through the cleanup
+    // and deleted a binary the call had not touched. The Bun path never could:
+    // `locate('bun')` is above its own bracket.
+    //
+    // No stub and no `skipIf`, unlike its Bun siblings: an `exec` that does not
+    // exist is a node that cannot build a single executable on every platform,
+    // and it is what a caller pinning a version that was never installed would
+    // hand over. The floor is deliberately not spelled -- the message's own
+    // tail is what proves which refusal this was.
+    const binary = join(out, 'app');
+    writeFileSync(binary, 'PREVIOUS GOOD RELEASE', 'utf-8');
+
+    const refuse = (): void => {
+      compileWithNode({
+        entry: 'unused',
+        exec: join(out, 'not-a-node'),
+        out: binary,
+        target: hostTarget(),
+      });
+    };
+
+    expect(refuse).toThrow(/or newer is needed to package with Node/);
+    expect(refuse).toThrow(/is not a node/);
+
+    expect(readFileSync(binary, 'utf-8')).toBe('PREVIOUS GOOD RELEASE');
+  });
+
+  it.skipIf(!canBuildSea())(
+    'should leave a file it never wrote, when the temporary config cannot be made',
+    () => {
+      // The other thing moved above the bracket in the same change, and the one
+      // a careless edit would put back silently: `mkdtempSync()` and the config
+      // write have not touched `out` either, so a failure in them must not take
+      // a previous release's binary with it.
+      //
+      // Skipped where this node cannot build a SEA, which is not caution but
+      // the opposite -- `assertBuildSea()` would throw *first* on such a host
+      // and the file would survive for a reason this test is not about, which
+      // is two guards masking each other. The spelling of the failure says the
+      // same thing: it must not be the version refusal.
+      const binary = join(out, 'app');
+      writeFileSync(binary, 'PREVIOUS GOOD RELEASE', 'utf-8');
+
+      // all three, because `os.tmpdir()` reads `TMPDIR` on POSIX and `TEMP` or
+      // `TMP` on Windows -- a fixture for platform-dependent behaviour has to
+      // cover the platform it is not running on
+      const vars = ['TMPDIR', 'TEMP', 'TMP'] as const;
+      const saved = vars.map((name) => [name, process.env[name]] as const);
+
+      try {
+        for (const name of vars) {
+          process.env[name] = join(out, 'nowhere');
+        }
+
+        const refuse = (): void => {
+          compileWithNode({
+            entry: 'unused',
+            exec: process.execPath,
+            out: binary,
+            target: hostTarget(),
+          });
+        };
+
+        expect(refuse).toThrow();
+        expect(refuse).not.toThrow(/or newer is needed to package with Node/);
+      } finally {
+        for (const [name, was] of saved) {
+          if (was === undefined) {
+            delete process.env[name];
+          } else {
+            process.env[name] = was;
+          }
+        }
+      }
 
       expect(readFileSync(binary, 'utf-8')).toBe('PREVIOUS GOOD RELEASE');
     }
