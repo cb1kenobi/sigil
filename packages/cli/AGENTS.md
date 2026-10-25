@@ -2700,19 +2700,36 @@ about what a valid app is would be the worse half of the feature.
   there; naming such a version explicitly still explains itself in
   `parseSpec()`, which points at `bun@1.3` being node-compat 24.
 
-- **A pinned version is not looked for on `PATH`, which took two goes.** The
-  tool pre-flight demands `bun` before the bundle, and that is right for a bare
-  `--runtime bun`, where the host's `bun` is what compiles. For
-  `--runtime bun@1.3.14` it was **wrong**: measured, a machine with no Bun
-  answered `bun is not installed` for a build that was about to download exactly
-  what it needed. So `assertToolchain()` takes whether a version was pinned, and
-  the message now names the way out -- install it, or pin a version and let
-  sigil fetch it.
+- **A missing runtime is resolved, never refused, and getting there took three
+  goes.** The tool pre-flight asked `locate('bun')` before the bundle. First
+  that was wrong for a **pinned** version -- `--runtime bun@1.3.14` on a machine
+  with no Bun refused a build that was about to download exactly what it needed
+  -- so it learned to skip the check when a version was named. Reported again,
+  and the second report was right about the principle the first fix had missed:
+  it is wrong for a **bare** `--runtime bun` too.
 
-  Both halves are pinned by one test with an empty `PATH`, and the control is
-  load-bearing: the first version of it lived in the describe whose fixture
-  _provides_ a stub `bun`, so the "does not throw" half was vacuous and the
-  "still throws" half failed outright.
+  "Package with Bun" is a complete instruction. Sigil can satisfy it by fetching
+  a Bun, so `bun is not installed` was an error about the machine for an
+  instruction that was about the app. Looking on `PATH` is an optimisation and
+  never a reason to stop, so the check is **gone** rather than conditional --
+  which took the `pinned` parameter away with it.
+
+  `resolveExec()` is where that lands: a named version is fetched if absent, and
+  an unnamed one uses the host's runtime _if it can do the job_. For Bun that is
+  simply whether there is one; for Node it is also whether it is new enough to
+  build a single executable, which is the symmetric case and equally worth
+  fetching past. Measured, the toolchain running on **Node 24.22.1** -- which
+  cannot build a SEA at all -- answers a bare `--runtime node` by fetching
+  26.12.1 and embedding it, where it used to lecture the user about 25.5.
+
+  What is still a refusal is `codesign`, and the asymmetry is the point: it is
+  Apple's, it is not downloadable, and a darwin binary that is not signed cannot
+  run. A tool that can be fetched is not a reason to fail; one that cannot is.
+
+  The command-level test asserts this **without a download**, which is what
+  keeps it a test rather than a network call: `PATH` is emptied, so the old
+  check would fire, and the target is one Bun has no runtime for -- so the run
+  still refuses, for a reason about the target rather than about `PATH`.
 
 - **The runtime has no default, and with nobody to ask the error is the
   feature.** `--runtime` comes from the flag or from

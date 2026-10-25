@@ -365,16 +365,16 @@ describe('sigil package', () => {
       expect(process.exitCode).toBeTruthy();
     }, 60_000);
 
-    it('should refuse a missing compiler before the bundle, not after it', async () => {
-      // AGENTS.md says *every* refusal happens before the bundle, and this one
-      // did not: measured with `bun` off PATH, the command bundled the whole
-      // app -- entry and seventeen chunks -- and then said `bun is not
-      // installed`. The output directory whose absence that rule is asserted by
-      // existed, fully populated.
+    it('should not refuse over a missing runtime, but fetch one', async () => {
+      // This asserted the opposite, and the opposite was reported as a bug
+      // twice: `bun is not installed` is an error about the machine for an
+      // instruction that was about the app. Sigil can fetch a runtime, so a
+      // missing one is a thing to resolve.
       //
-      // `PATH` is emptied rather than the tool mocked, because `whichSync()`
-      // reads it per call and that is the real mechanism -- a mocked `locate()`
-      // would prove the test could stub a function.
+      // Asserted without a download, which is what makes it a test rather than
+      // a network call: `PATH` is emptied, so the old check would fire, and the
+      // target is one Bun has no runtime for at all -- so the run still refuses,
+      // for a reason that is about the target rather than about `PATH`.
       const path = process.env.PATH;
       rmSync(out, { force: true, recursive: true });
 
@@ -387,12 +387,14 @@ describe('sigil package', () => {
           '--out',
           out,
           '--runtime',
-          'bun'
+          'bun',
+          '--target',
+          'windows-arm64'
         );
 
-        expect(err).toContain('bun is not installed');
+        expect(err).not.toContain('bun is not installed');
+        expect(err).toContain('Bun cannot build windows-arm64');
         expect(existsSync(out)).toBe(false);
-        expect(process.exitCode).toBeTruthy();
       } finally {
         process.env.PATH = path;
       }

@@ -47,7 +47,9 @@ import {
   type ResolvedTree,
   type Runtime,
   type Target,
+  canBuildSea,
   choices,
+  installed,
   latest,
   local,
   parseSpec,
@@ -161,7 +163,7 @@ const pkg: AnyCommand = command({
     for (const target of targets) {
       assertCompilable(runtime, target);
     }
-    assertToolchain(runtime, targets, identity, spec.version !== undefined);
+    assertToolchain(runtime, targets, identity);
 
     // the executable that will do the work, fetched if this machine has not got
     // it. After the pre-flight, because downloading 100 MB for a package that
@@ -374,17 +376,52 @@ async function askRuntime(target: Target): Promise<Spec> {
  * @returns The executable, or `undefined` to use the host's.
  */
 async function resolveExec(spec: Spec, target: Target): Promise<string | undefined> {
-  if (spec.version === undefined) {
+  if (spec.version !== undefined) {
+    return fetchIfAbsent(spec.runtime, spec.version, target);
+  }
+
+  // no version named, so the host's is the one to use -- if it can do the job.
+  // For Bun that is simply "is there one"; for Node it is also whether it is
+  // new enough to build a single executable, which is the symmetric case and
+  // equally worth fetching past: somebody on Node 24 who says `--runtime node`
+  // should get a working binary, not a lecture about 25.5.
+  const here = installed(spec.runtime);
+
+  if (here && (spec.runtime === 'bun' || canBuildSea(here.version))) {
     return undefined;
   }
 
-  return resolve(spec.runtime, spec.version, target, (version) => {
+  // nothing usable here, so pick the newest the registry offers. This is the
+  // reported bug's real fix: a missing runtime is a thing to resolve, not to
+  // refuse -- `bun is not installed` was an error about the machine for an
+  // instruction that was about the app.
+  const offered = (await latest(spec.runtime)).filter(
+    (one) => spec.runtime === 'bun' || canBuildSea(one.version)
+  );
+  const newest = offered[0]?.version;
+
+  if (!newest) {
+    throw new Error(
+      `${spec.runtime} is not installed${here ? ` in a version that can package itself -- this is ${here.version}` : ''}, and the list of available versions could not be fetched.\n  Pin one with --runtime ${spec.runtime}@<version> and sigil will download it, or install ${spec.runtime} and run this again.`
+    );
+  }
+
+  return fetchIfAbsent(spec.runtime, newest, target);
+}
+
+/**
+ * The executable for a version, downloaded into sigil's cache if need be.
+ *
+ * @param runtime - Which runtime.
+ * @param version - The version to use.
+ * @param target - What is being built.
+ * @returns The executable.
+ */
+async function fetchIfAbsent(runtime: Runtime, version: string, target: Target): Promise<string> {
+  return resolve(runtime, version, target, (which) => {
     // said rather than left silent: fetching a runtime is tens of megabytes and
     // several seconds, and a build that appears to hang is worse than a slow one
-    writeNote(
-      [`Fetching ${spec.runtime} ${version}, which is not on this machine...`],
-      process.stderr
-    );
+    writeNote([`Fetching ${runtime} ${which}, which is not on this machine...`], process.stderr);
   });
 }
 

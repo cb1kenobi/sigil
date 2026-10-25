@@ -40,8 +40,11 @@ sigil package --runtime bun \
 sigil package --runtime node                    # this machine, on Node
 ```
 
-**Pinning a version.** `--runtime` takes a version too, and sigil fetches it if
-this machine has not got it, caching it under your XDG cache directory:
+**You do not need the runtime installed.** `--runtime bun` on a machine with no
+Bun fetches one; `--runtime node` on a Node too old to package itself fetches a
+newer one. Either way it lands in your XDG cache and a second run reuses it.
+
+**Pinning a version.** `--runtime` takes a version too:
 
 ```sh
 sigil package --runtime bun@1.3.14      # fetched if absent
@@ -67,14 +70,14 @@ step agrees:
 { "package": { "runtime": "bun" } }
 ```
 
-|                  | `--runtime bun`                     | `--runtime node`                                   |
-| ---------------- | ----------------------------------- | -------------------------------------------------- |
-| Your app runs on | Bun                                 | Node, which is what `engines` already says         |
-| Startup          | ~16ms                               | ~23ms                                              |
-| Binary size      | 85–110 MB                           | ~139 MB                                            |
-| Cross-compiles   | Yes, all five targets from any host | No — each target builds on its own machine         |
-| macOS signing    | Done for you                        | Ad-hoc automatically; `--sign` for a real identity |
-| Needs            | `bun` on `PATH`                     | Node 25.5 or newer                                 |
+|                  | `--runtime bun`                                | `--runtime node`                                     |
+| ---------------- | ---------------------------------------------- | ---------------------------------------------------- |
+| Your app runs on | Bun                                            | Node, which is what `engines` already says           |
+| Startup          | ~16ms                                          | ~23ms                                                |
+| Binary size      | 85–110 MB                                      | ~139 MB                                              |
+| Cross-compiles   | Yes, five of six targets from any host         | No — each target builds on its own machine           |
+| macOS signing    | Ad-hoc automatically; `--sign` for an identity | Ad-hoc automatically; `--sign` for an identity       |
+| Needs            | nothing — fetched if absent                    | nothing — a host older than 25.5 fetches a newer one |
 
 Startup is the number worth knowing and it is almost all runtime, not app: Node
 takes ~19ms to start before your code runs and Bun takes ~4ms. Packaging never

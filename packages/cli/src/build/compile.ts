@@ -254,39 +254,28 @@ export function assertCompilable(runtime: Runtime, target: Target): void {
  * before anything happens. This one walks `PATH`, so it is its own step.
  *
  * It exists because the AGENTS.md rule says *every* refusal happens before the
- * bundle and two of them did not. Measured: with `bun` off `PATH`,
- * `sigil package --runtime bun` bundled the whole app -- entry and seventeen
- * chunks written -- and then said `bun is not installed`. With `codesign` off
- * `PATH`, `--runtime node` bundled, spent 2.1s building a 145 MB SEA, and then
- * failed, **leaving the unsigned binary behind** -- which is the one artifact
- * that cannot run, sitting under the name a release workflow attaches by.
+ * bundle and one of them did not: with `codesign` off `PATH`, the Node path
+ * bundled, spent 2.1s building a 145 MB SEA, and then failed, **leaving the
+ * unsigned binary behind** -- the one artifact that cannot run, sitting under
+ * the name a release workflow attaches by.
  *
- * Both are knowable from `PATH` before a byte of the app is read, which is what
- * makes them the same class as the target checks rather than a new one.
+ * What it deliberately does **not** check is whether the *runtime* is
+ * installed. It did, and that was wrong twice over: "package with Bun" is a
+ * complete instruction, and sigil can satisfy it by fetching a Bun -- so a
+ * missing one is a thing to resolve rather than refuse. Looking on `PATH` is an
+ * optimisation and never a reason to stop. See `resolveExec()` in
+ * `package.ts`.
  *
  * @param runtime - Which runtime would be embedded.
  * @param targets - Everything that would be built.
  * @param identity - A codesigning identity, if one was asked for.
- * @throws If a tool the run will need is not installed.
+ * @throws If `codesign` is needed and is not installed.
  */
 export function assertToolchain(
   runtime: Runtime,
   targets: readonly Target[],
-  identity: string | undefined,
-  pinned = false
+  identity: string | undefined
 ): void {
-  // only when the compile will use whatever is on `PATH`. A **pinned** version
-  // is resolved -- from `PATH`, from either cache, or by downloading it -- so
-  // demanding it here refused a build that was about to fetch exactly what it
-  // needed: measured, `--runtime bun@1.3.14` on a machine with no Bun answered
-  // `bun is not installed` without trying
-  if (runtime === 'bun' && !pinned) {
-    locate(
-      'bun',
-      'Packaging with Bun needs it to compile the binary. Either install Bun, or pin a version -- --runtime bun@1.4.4 -- and sigil will fetch it.'
-    );
-  }
-
   // `codesign` is wanted wherever a darwin binary will actually be signed,
   // which is not the same as "a darwin target exists": Bun's output is already
   // ad-hoc signed, so the Bun path only reaches `codesign` when an identity was
