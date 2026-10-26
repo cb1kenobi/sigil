@@ -85,7 +85,7 @@ describe('@ttylabs/cli', () => {
       const dir = join(root, 'src', 'commands');
       const names = (readRoutes(dir)?.routes ?? []).map((route) => route.name).sort();
 
-      expect(names).toEqual(['add', 'build', 'check', 'new', 'reference']);
+      expect(names).toEqual(['add', 'build', 'check', 'new', 'package', 'reference']);
     });
 
     it('should keep the shared pass out of the command list', () => {

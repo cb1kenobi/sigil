@@ -22,6 +22,9 @@
  *   because a build that says an app is fine and then fails the app's `tsc` has
  *   been wrong about the one thing it was asked.
  * - `bundleApp()` feeds all of that to rolldown and writes the executable.
+ * - `compileWithBun()` and `compileWithNode()` embed a runtime in that
+ *   executable, which is the step `sigil package` adds and the only one here
+ *   that produces something runnable on a machine with no runtime installed.
  *
  * The split between the read passes and that last one is the useful one, and it
  * is why this doc comment said for a while that the bundler was "deliberately
@@ -42,6 +45,8 @@ export {
 } from './diagnostic.ts';
 export {
   bundleApp,
+  hash,
+  WORK_DIR,
   type BuiltChunk,
   type BundleOptions,
   type BundleResult,
@@ -50,6 +55,29 @@ export {
   type ShakenStyles,
 } from './bundle.ts';
 export { bindingName, importBindings, reachable, unwrap, type ImportBindings } from './bindings.ts';
+export {
+  ARCHES,
+  assertCompilable,
+  assertToolchain,
+  binaryName,
+  canBuildSea,
+  compileWithBun,
+  compileWithNode,
+  hostTarget,
+  identityOf,
+  isIdentity,
+  label,
+  NODE_BUILD_SEA,
+  outputName,
+  parseTarget,
+  PLATFORMS,
+  RUNTIMES,
+  targets,
+  type CompileOptions,
+  type CompileResult,
+  type Runtime,
+  type Target,
+} from './compile.ts';
 export {
   appKeys,
   checkCatalogs,
@@ -117,3 +145,18 @@ export {
   type ResolveOptions,
 } from './tree.ts';
 export { typeCheck, type TypeCheckOptions, type TypeCheckResult } from './typecheck.ts';
+export {
+  bunTriple,
+  canEmbed,
+  choices,
+  compare,
+  installed,
+  latest,
+  local,
+  parseSpec,
+  resolve,
+  type Choice,
+  type Found,
+  type Release,
+  type Spec,
+} from './runtimes.ts';

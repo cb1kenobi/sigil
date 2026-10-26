@@ -1,3 +1,4 @@
+import { assertToolchain, label, outputName, parseTarget } from '../src/build/compile.ts';
 import { nameProblem, scaffold, type ScaffoldOptions } from '../src/scaffold/index.js';
 import { runCommand } from '@ttylabs/sigil/testing';
 import { spawnSync } from 'node:child_process';
@@ -31,6 +32,7 @@ const OPTIONS: ScaffoldOptions = {
   language: 'ts',
   layout: 'multi',
   linter: 'oxlint',
+  manager: 'pnpm',
   name: 'demo',
   version: '0.0.1',
   versions: { '@types/node': '26.6.2', typescript: '7.0.2', vitest: '5.0.3' },
@@ -469,5 +471,160 @@ describe('the command, end to end', () => {
       expect(spec).toBeDefined();
       expect(spec).not.toMatch(/^(file|link):/);
     }
+  });
+});
+
+/**
+ * The release workflow, which is the half of packaging a scaffold can supply.
+ *
+ * The drift guard is the one worth having. The workflow spells five targets and
+ * five binary names as literal text, so nothing in a build connects it to
+ * `parseTarget()` or `binaryName()` -- and a scaffolded CI that fails on an
+ * app's first tag is the worst possible place to find that out. These assert
+ * the literals against the functions that have to accept them.
+ */
+describe('the release workflow', () => {
+  /** The workflow, as the scaffold writes it. */
+  function workflow(overrides: Partial<ScaffoldOptions> = {}): string {
+    return files(overrides).get('.github/workflows/release.yml') as string;
+  }
+
+  it('should be written, because a release is every target at once', () => {
+    expect(workflow()).toBeDefined();
+  });
+
+  it('should name only targets sigil package accepts', () => {
+    // every `--target` in the file, read back out rather than listed again here
+    const named = [...workflow().matchAll(/--target (\S+)/g)].map((m) => m[1] as string);
+
+    expect(named.length).toBeGreaterThan(0);
+
+    for (const text of named) {
+      // the assertion: a target the workflow names has to be one the command
+      // reads, and `parseTarget()` throws on anything else
+      expect(label(parseTarget(text))).toBe(text);
+    }
+  });
+
+  it('should attach a file for each target, named the way package names it', () => {
+    const file = workflow();
+    const named = [...file.matchAll(/--target (\S+)/g)].map((m) => m[1] as string);
+
+    const all = named.map((text) => parseTarget(text));
+
+    for (const target of all) {
+      // through `outputName()` rather than spelled here, so this asserts the
+      // workflow's literals against the convention `sigil package` actually
+      // follows -- the target suffix a release gets, and the `.exe` that is
+      // easy to get wrong and impossible to notice from a Mac
+      expect(file).toContain(`release/${outputName('demo', target, all)}`);
+    }
+
+    // and nothing it does not build, which is what catches a target removed
+    // from the package step and left in the release step
+    const attached = [...file.matchAll(/release\/demo-(\S+)/g)].map((m) =>
+      (m[1] as string).replace(/\.exe$/, '')
+    );
+    expect([...attached].sort()).toEqual([...named].sort());
+  });
+
+  it('should run where a darwin binary can be signed, which is a Mac', () => {
+    // The workflow ran on `ubuntu-latest` and packaged two darwin targets, so
+    // every app `sigil new` made failed its release at the Package step on its
+    // first tag: `sigil package` signs every darwin binary it writes, and
+    // `codesign` ships only with macOS. Nothing in CI runs a generated
+    // workflow, so the suite could not see it -- which is what this is for.
+    //
+    // The runner was the fix rather than skipping the signature on a non-Mac
+    // host, because `signsOn()` records the measurement that rules the second
+    // one out: Bun's darwin output reports `adhoc, linker-signed` and is
+    // SIGKILLed anyway, so a Linux cross-build would attach a binary nobody can
+    // run -- a broken release in place of a failed build.
+    const file = workflow();
+    const named = [...file.matchAll(/--target (\S+)/g)].map((m) => parseTarget(m[1] as string));
+    const nowhere = mkdtempSync(join(tmpdir(), 'sigil-nocodesign-'));
+    const path = process.env.PATH;
+
+    // whether these targets need `codesign` is asked of the command's own
+    // pre-flight over a `PATH` that has none, rather than by looking for
+    // `darwin` in the text: which targets get signed is `signsOn()`'s rule, and
+    // spelling it here would be a second copy free to agree while the real one
+    // moves
+    let refused: Error | undefined;
+    try {
+      process.env.PATH = nowhere;
+      assertToolchain('bun', named, undefined);
+    } catch (e) {
+      refused = e as Error;
+    } finally {
+      process.env.PATH = path;
+      rmSync(nowhere, { force: true, recursive: true });
+    }
+
+    // asserted rather than used as a condition: a workflow that stopped naming
+    // a darwin target would make the implication below vacuously true, and this
+    // is the line that fails instead
+    expect(refused?.message).toMatch(/codesign is not installed/);
+    expect(file).toContain('runs-on: macos-latest');
+    expect(file).not.toContain('ubuntu');
+  });
+
+  it('should run every target in one job, which is what bun buys', () => {
+    // a matrix would be the Node shape, and the comment says so -- this is the
+    // assertion that the scaffolded workflow is the single-job one
+    expect(workflow()).not.toContain('strategy:');
+    expect(workflow()).toContain('oven-sh/setup-bun');
+  });
+
+  it.each([
+    ['pnpm', 'pnpm install --frozen-lockfile', 'pnpm exec sigil package', 'pnpm run test'],
+    ['npm', 'npm ci', 'npx sigil package', 'npm run test'],
+    // `vlt` is the ternary's fallthrough branch and was the one manager this
+    // test did not read -- which is also the one whose spellings nobody had
+    // verified when the workflow was written, so misspelling `vlt exec` as
+    // `vlt x` would have passed the suite. Checked against a real vlt 1.1.1:
+    // `install --frozen-lockfile`, `exec <executable>` and `run <script>` are
+    // all real.
+    ['vlt', 'vlt install --frozen-lockfile', 'vlt exec sigil package', 'vlt run test'],
+  ] as const)(
+    'should spell its commands with %s, the manager the app was set up with',
+    (manager, install, exec, test) => {
+      // a scaffolded CI that installs with a manager the app was not set up
+      // with fails on the first tag, which is the one run nobody gets to redo
+      const file = workflow({ manager });
+
+      expect(file).toContain(install);
+      expect(file).toContain(exec);
+      expect(file).toContain(test);
+    }
+  );
+
+  it('should install any manager the runner does not already have', () => {
+    // npm ships with Node and pnpm is on the GitHub runner images. `vlt` is
+    // neither, and the workflow ran `vlt install` on a runner where nothing had
+    // installed it -- so the release failed at its first step on the first tag.
+    expect(workflow({ manager: 'vlt' })).toContain('npm install --global vlt');
+
+    // and nothing superfluous for the two that are already there
+    expect(workflow({ manager: 'npm' })).not.toContain('--global');
+    expect(workflow({ manager: 'pnpm' })).not.toContain('--global');
+  });
+
+  it('should name the runtime itself, and leave sigil.json out of it', () => {
+    // This asserted the opposite and the opposite was a bug: the scaffold
+    // pinned `"runtime": "bun"` in `sigil.json`, so `sigil package` arrived with
+    // the question already answered, the picker never fired, and an author with
+    // no Bun got `bun is not installed` for an app they had never been asked
+    // about.
+    //
+    // CI cannot be asked, so the workflow names it on its own command line --
+    // which is also where it belongs, since that file installs Bun itself and
+    // so is right whatever the author's machine has.
+    const config = JSON.parse(files().get('sigil.json') as string) as {
+      package?: { runtime?: string };
+    };
+
+    expect(config.package).toBeUndefined();
+    expect(workflow()).toContain('--runtime bun');
   });
 });

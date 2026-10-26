@@ -950,8 +950,35 @@ makes it testable with a fixture directory and no bundler at all.
   and split on, so `load: () => import('./commands/build.js')` becomes a chunk
   and rolldown rewrites the specifier. Measured on the fixture app: a 3.2 kB
   entry with the parser, the help renderer and every command body in chunks of
-  their own. Flattening to one file would undo the whole reason the tree is
-  lazy.
+  their own.
+- **...and the last sentence of that entry used to say flattening would undo the
+  whole reason the tree is lazy, which is measurably false.** SIG-138 had to
+  flatten -- a Node single executable cannot `import()` at all -- so the claim
+  finally got measured, and it is a wash. Interleaved, 40 spawns per figure,
+  comparing minima within a run: at 13 commands the chunked build answers
+  `--help` in 40.7ms and the flattened one in **37.1ms**; at 60 commands and
+  1.3 MB of command bodies it is 46.5ms against **46.2ms**, and one command is
+  26.9ms against 27.1ms. Flattening is never slower by anything measurable and
+  is faster where the file opens dominate.
+
+  Two things make that true, and neither was obvious. V8 **pre-parses** cheaply
+  and compiles a function body only when it is called, so the parse a chunk
+  defers was nearly free to begin with -- the dominant cost in every figure is
+  node's own startup, 19ms, which no bundle shape changes. And
+  `codeSplitting: false` keeps the `import()` itself: rolldown inlines the
+  module and the call still returns a promise, so a command body is still only
+  **executed** when its command is matched. The deferral that matters survives
+  flattening; the one that was being defended is the parse, and the parse was
+  not worth defending.
+
+  What the chunks are still right for is a build whose output is _read from
+  disk_, which is every `sigil build`, because there the entry is what `--help`
+  pays for and a chunk nobody loads is a file nobody opens. So nothing changed
+  about the default. What changed is that "the whole reason the tree is lazy" is
+  a claim about `load` being a deferral of **execution**, which is in `load`'s
+  own entry above, rather than about chunk boundaries -- and the `cjs` form is
+  not the compromise it looks like.
+
 - **`--bin` is refused beside a filesystem command directory.** An executable of
   the app's own is bundled as it stands, so whatever `commands` it declares is
   what it gets -- and a router bundled that way reads directories that are not
@@ -2635,6 +2662,798 @@ people's software and will move.
   `src/components/<name>.ts` with its imports rewritten and nothing else changed,
   so an entry that has quietly become a stale fork fails in
   `test/registry.test.ts` rather than shipping.
+
+### `sigil package`: a binary, and which runtime is inside it
+
+`sigil build` produces an app that still needs a runtime installed.
+`sigil package` is the step after it and is the whole of what oclif's installers
+buy: one file somebody downloads and runs. The probes, the timings and the
+sabotage pass are in
+[docs/history/sigil-package-a-binary-and-which-runtime-is-inside-it.md](../../docs/history/sigil-package-a-binary-and-which-runtime-is-inside-it.md).
+
+It is `build` plus a compile step --
+the same `_inspect.ts` read, the same refusal to package an app that does not
+check out -- rather than a pass of its own, because two commands that disagree
+about what a valid app is would be the worse half of the feature.
+
+- **`tar` is two different programs, and a `.zip` only works on two of the three
+  platforms.** Bun publishes its releases on GitHub as a `.zip`, and the first
+  download used `tar -xf` on one -- on the reading, written down at the time,
+  that "Windows 10 and newer ship bsdtar as `tar.exe`, which reads the `.zip` Bun
+  publishes". That is true of macOS and Windows and **false of Linux**, which
+  ships GNU tar and cannot read a zip at all: every ubuntu job failed with
+  `tar: This does not look like a tar archive`, for a download that had worked
+  perfectly on the machine it was written on.
+
+  Bun's own platform packages on npm -- `@oven/bun-<platform>-<arch>` -- are
+  `.tgz`, which is one format every platform's `tar` reads, and they carry the
+  same binary at `package/bin/bun`. Verified for all five targets and by
+  fetching one end to end. So there is one archive format and one tool, rather
+  than a tool that happens to be two different programs. Node's Windows archive
+  is still a zip, and that is the one platform whose `tar` is bsdtar.
+
+- **A cached executable keeps its `.exe`, which it did not.** A fetched
+  `node.exe` was renamed to `node`, and on Windows that is not an executable --
+  so the download would have succeeded and nothing could be spawned from it.
+  Found by auditing for the class rather than by a failing job, because no
+  Windows job had reached a download. One `executable()` so the write and the
+  lookup cannot disagree.
+
+- **`--out` is refused before a runtime is fetched, not after.** The check is
+  pure path arithmetic and sat inside `clean()`, which runs after
+  `resolveExec()` -- so on CI `sigil package --out <the app root>` **downloaded a
+  90 MB runtime** and then refused. `assertCleanable()` is the pre-flight half,
+  and it deliberately does not take `clean()`'s `existsSync` guard with it: a
+  directory that is not there cannot be destroyed, but an `--out` naming the app
+  root is a mistake whether or not it exists yet, and reporting it only
+  sometimes is worse than either.
+
+- **A version listing is cached for a day, and nothing is fetched on the
+  ordinary path at all.** Measured before anything was added, which is what says
+  how narrow the problem was: `--runtime bun`, `--runtime bun@1.4.4` and
+  `--runtime node` each make **zero** requests when the runtime is present.
+  Nothing consults a registry unless the picker runs, or a version has to be
+  resolved and no usable runtime is local.
+
+  What was wrong is that the picker hit **both** registries every interactive
+  run. A day is `src/updates/`'s own interval for its npm check and is chosen
+  for the same reason: a release is interesting within a day and never within a
+  minute. Verified as 2 requests on the first call and **0** on the next two.
+
+  Deliberately not configurable: the thing a caller wants when it wants a
+  different answer is a _specific version_, which `runtime@version` gives
+  without consulting a listing at all.
+
+  A **stale** listing beats nothing when the fetch fails, so the failure path
+  re-reads the same file with no age limit -- last week's list is mostly right
+  and the picker's job is to offer something. Measured offline with a cache aged
+  to 1970: 34 releases rather than an empty list. An unreadable cache is the
+  same answer as an absent one, and a listing that cannot be _saved_ costs a
+  request next time and never fails the run, which is the rule the removals in
+  `compileAll()` and `signed()` already follow.
+
+  Two things about testing it are worth recording. The cache location cannot be
+  redirected with `XDG_CACHE_HOME`, because `paths.ts` has a platform table and
+  `~/Library/Caches` wins on macOS -- so the first version of those tests was
+  reading and writing the developer's real cache, and passed for the wrong
+  reason before it failed. They mock `cache()` instead, in a file of their own,
+  which is the answer `bundle-close.test.ts` and `shake-walk.test.ts` already
+  record.
+
+  And the fresh-read test counts **requests** rather than checking the value,
+  because the stale fallback reads the same file and returns the same releases:
+  asserting only the value passed with the fresh read deleted. Two mechanisms
+  masking each other, which is the shape this file records for the JSX gate.
+  All four parts are sabotage-checked -- the read, the age limit, the stale
+  fallback and the write.
+
+- **One picker for the runtime and its version, because it is one choice.**
+  `--runtime` takes `bun`, `node`, or either with an `@version`, and there is no
+  second `--runtime-version` beside it: two flags for one row is two ways to say
+  the same thing and a third way to say something incoherent
+  (`--runtime node --runtime-version 1.3.14`). A bare runtime means whichever
+  version resolves, which is the installed one if there is one -- pinning is for
+  an app that cares and most do not.
+
+  The picker offers **both** runtimes whatever is installed, and that is the
+  correction rather than a nicety. `sigil new` pinned `"runtime": "bun"` into
+  `sigil.json` for one release, so `sigil package` arrived with the question
+  already answered, the picker never fired, and an author with no Bun got
+  `bun is not installed` for an app they had never been asked about. The scaffold
+  writes no runtime now and the release workflow names it on its own command
+  line -- which is where it has to live anyway, since CI cannot be asked and that
+  file installs Bun itself.
+
+  Offering a runtime that is absent is only honest because sigil can **fetch**
+  one: refusing on the grounds that the author's laptop lacks Bun is refusing on
+  a fact about the laptop rather than about the app. What is left out is a Node
+  below the `--build-sea` floor, because a row nobody can pick should not be
+  there; naming such a version explicitly still explains itself in
+  `parseSpec()`, which points at `bun@1.3` being node-compat 24.
+
+- **A missing runtime is resolved, never refused, and getting there took three
+  goes.** The tool pre-flight asked `locate('bun')` before the bundle. First
+  that was wrong for a **pinned** version -- `--runtime bun@1.3.14` on a machine
+  with no Bun refused a build that was about to download exactly what it needed
+  -- so it learned to skip the check when a version was named. Reported again,
+  and the second report was right about the principle the first fix had missed:
+  it is wrong for a **bare** `--runtime bun` too.
+
+  "Package with Bun" is a complete instruction. Sigil can satisfy it by fetching
+  a Bun, so `bun is not installed` was an error about the machine for an
+  instruction that was about the app. Looking on `PATH` is an optimisation and
+  never a reason to stop, so the check is **gone** rather than conditional --
+  which took the `pinned` parameter away with it.
+
+  `resolveExec()` is where that lands: a named version is fetched if absent, and
+  an unnamed one uses the host's runtime _if it can do the job_. For Bun that is
+  simply whether there is one; for Node it is also whether it is new enough to
+  build a single executable, which is the symmetric case and equally worth
+  fetching past. Measured, the toolchain running on **Node 24.22.1** -- which
+  cannot build a SEA at all -- answers a bare `--runtime node` by fetching
+  26.12.1 and embedding it, where it used to lecture the user about 25.5.
+
+  What is still a refusal is `codesign`, and the asymmetry is the point: it is
+  Apple's, it is not downloadable, and a darwin binary that is not signed cannot
+  run. A tool that can be fetched is not a reason to fail; one that cannot is.
+
+  The command-level test asserts this **without a download**, which is what
+  keeps it a test rather than a network call: `PATH` is emptied, so the old
+  check would fire, and the target is one Bun has no runtime for -- so the run
+  still refuses, for a reason about the target rather than about `PATH`.
+
+- **...and the node that passed that check has to be the node that compiles,
+  which for a bare `--runtime node` it was not.** `resolveExec()` answered
+  `undefined` for an unnamed version, meaning "whatever the host has", which is
+  what the compile functions default to -- and for Node those are **two
+  different binaries**. The check reads `installed('node')`, which is
+  `whichSync('node')`, while `compileSea()`'s fallback is `process.execPath`,
+  whatever is running sigil. So the capability question was asked of one
+  executable and `--build-sea` was handed to another.
+
+  What that costs is a refused build over a machine that has everything it
+  needs, and it is **measured** rather than reasoned. With Node 26.10.0 first on
+  `PATH` and sigil running under `bun` -- `bun packages/cli/src/sigil.ts package
+  ... --runtime node`, which is how anybody who has bun runs a TypeScript
+  toolchain -- the check passes on the Node 26 and `assertBuildSea()` then
+  refuses: `Node 25.5 or newer is needed to package with Node, and
+  /Users/chris/.bun/bin/bun is 1.4.4`. That is the refusal the entry above exists
+  to have removed, arriving anyway, about a runtime nobody named. The same
+  invocation after the fix writes a 138.9 MB `darwin-arm64` binary, ad-hoc
+  signed, which answers `--help` and `greet Ada`. A sigil on Node 24 with a Node
+  26 on `PATH` is the same divergence with a plainer cause, and this was measured
+  with `bun` because the two nodes it needs are not both on this machine --
+  what the probe has to produce is a `process.execPath` that cannot build a SEA,
+  and bun is one.
+
+  **The other direction is not fixed by this, and saying otherwise would be the
+  easy mistake.** Node 24 on `PATH` under a sigil on 26 fails the check and
+  resolves from the registry -- a download on a cold machine, a cached runtime on
+  a warm one -- and it does that both before and after, because what fails is the
+  check itself rather than the hand-off. Only the paragraph below would close it.
+
+  The fix is to return the executable that was checked, and the shape of it is
+  that `here.path` is asked in the **condition** rather than only used in the
+  body: one expression decides and supplies, so the two cannot come apart again.
+  It also makes a bare runtime agree with its pinned spelling, which is the
+  deeper reason it is right rather than merely sufficient --
+  `--runtime node@<whatever PATH has>` already resolved through `local()` to that
+  same path, so one instruction written two ways had been compiling with two
+  different binaries. `exec` is a `string` now rather than `string | undefined`
+  through `compileAll()`, so the type says that the command always decides; the
+  fallbacks in `compile.ts` stay for the exported callers they were written for.
+
+  **Offering `process.execPath` as a candidate at all is deliberately not done**,
+  and it is the fix for the direction above rather than a tidy-up this declines:
+  a sigil whose own runtime can build a SEA could use it when `PATH` has no
+  usable `node`, and would then neither download nor refuse. What rules it out is
+  that `installed()` and `local()` are what the **picker** lists, so a resolution
+  reaching for a runtime the picker never offered is this same disagreement
+  pointing the other way -- a row nobody was shown deciding what the binary
+  embeds. Measured in passing, with no `node` on `PATH` at all: the command
+  resolves the cached 26.12.1 and builds, which is the right binary by a route
+  that costs a download on a machine without one. The honest way to close it is
+  to teach `installed()` about the running runtime, so the picker offers it too,
+  and that is a change to what the command _shows_ rather than to one branch of
+  a private resolver.
+
+  The guard is `should compile with the node it checked, not with the one
+  running sigil`, and it needs no network and no `hasBuildSea` skip. A stub
+  `node` is **prepended** to `PATH` -- prepended rather than replacing it,
+  because `assertToolchain()` locates `codesign` for a darwin target and an
+  emptied `PATH` would refuse before the compile -- the vacuity recorded below
+  under "A test that empties `PATH` to prove something about `codesign` proves
+  nothing". It answers `--version` with
+  `v99.0.0`, so the check passes, and fails loudly for `--build-sea`, so which
+  binary compiled is visible: under the fix the run carries the stub's marker,
+  and under the defect this machine's real node built the binary **successfully**
+  -- a third outcome, and the reason the assertion is a marker rather than a
+  message.
+
+- **Two identical comments said the node that builds the blob cannot differ from
+  the one running this, and both were false.** `canBuildSea()` and
+  `assertBuildSea()` each carried the paragraph verbatim -- "Read off
+  `process.versions` rather than probed by spawning, because the node that builds
+  the blob is the node running this: there is no second runtime whose
+  capabilities could differ from what this process reports." It was true when
+  neither a version parameter nor `--runtime node@<version>` existed, and each of
+  those made it false while it sat in two places: `canBuildSea()` takes a version
+  precisely so it can answer for another node, and `assertBuildSea()` **spawns**
+  `--version` because the node it is asked about is the one `exec` names.
+
+  It is the premise the defect above grew out of, which is why it is written out
+  rather than deleted -- and it is the shape this file keeps recording from the
+  other side, a correct sentence left behind by the tree moving under it. The
+  module header had the same claim in its own words, that the binary "embeds
+  whatever runtime is running the toolchain", and `CompileOptions.exec`'s
+  "defaults to whatever the host has" now says who that default is for.
+
+- **When the runtime came from the file, the run says so.** The precedence is
+  the ordinary one -- flag, then `sigil.json`, then ask -- and a declared value
+  correctly suppresses the prompt. What was missing is that nothing said which
+  of the three had happened, and "why doesn't it prompt me?" was asked **twice**,
+  both times by somebody whose `sigil.json` was deciding it silently.
+
+  So the note fires for the file and only for the file: a flag is the caller's
+  own immediate act and needs no echo, and an answered prompt is already on
+  screen. It names the override and the way back to being asked, because the
+  question behind "why didn't it ask" is "how do I make it ask". Both halves are
+  pinned -- firing when the file supplied it, and _not_ firing when a flag did --
+  and the second is the one a careless edit loses.
+
+  Worth recording as a shape rather than an incident: a value with three
+  possible sources and no statement of which one won is a value somebody will
+  be surprised by, and the surprise arrives as a bug report about the feature
+  rather than about the silence.
+
+- **The runtime has no default, and with nobody to ask the error is the
+  feature.** `--runtime` comes from the flag or from
+  `"package": { "runtime": ... }` in `sigil.json`. With neither, somebody at a
+  terminal is **asked**, and a caller with nobody to ask gets a message naming
+  both runtimes and what each costs.
+
+  Those are one decision reached two ways rather than two policies: the question
+  is always the app's to answer, and a prompt is the form it takes when there is
+  a person there. What is still refused is _inferring_ -- which is the thing the
+  rest of this entry is about.
+
+  The TTY rule is deliberately **not** spelled in `package.ts`. `select()`
+  already refuses where there is nobody to answer, because waiting on a stdin
+  that will never produce a keystroke is a hung build -- so `askRuntime()` asks
+  and translates that one rejection into the better message. Two readers of "is
+  this a terminal" is how they come to disagree, and the prompt's is the one
+  that matters because it is the one that would hang. An **aborted** prompt
+  travels untouched: Ctrl-C is an answer, and turning it into
+  `--runtime is required` would tell somebody who had just cancelled that they
+  had forgotten a flag.
+
+  It needs a spawned test, for the reason the completion install does: a vitest
+  worker's streams are pipes, so an in-process run can only ever reach the
+  branch that cannot prompt -- the one case that cannot fail. The faked-terminal
+  preload fakes **all three** streams, since `prompt.ts` refuses unless both the
+  terminal and stdin claim to be one. And the test asserts the **binary**, not
+  only the question: a prompt whose answer is collected and dropped would
+  satisfy any assertion about what appeared on screen. Both sabotages are
+  caught -- never prompting, and prompting and ignoring the answer.
+  Picking one silently would decide what every user's app runs on, which is a
+  bigger decision than packaging and not one to infer from what happens to be
+  installed on the builder's laptop. It is also not inferrable in either
+  direction: node is always present, since it is running the toolchain, so
+  defaulting to it would be defaulting to whatever is there rather than to
+  anything chosen -- and `--runtime node` needs node >= 25.5, which this
+  package's own `engines` does not require, so even that default would fail on a
+  supported machine.
+
+  The one place this question **is** answered for you is the release workflow
+  `sigil new` writes, which says `--runtime bun` on its own command line. That
+  is not a contradiction: refusing is right when the answer is unknowable, and
+  an app with users that would be changing what it runs on is exactly that,
+  while a brand-new app has no users and needs a release workflow that works on
+  its first tag. Where it is **not** answered is `sigil.json`, which is the
+  correction the entry above records -- answering it there answered it for the
+  author's own machine too, and that is the one place the author can be asked.
+
+- **Bun takes the bundle as it stands; Node needs a different one.** This is the
+  asymmetry everything else follows from, and the ticket guessed it as "SEA
+  wants a single file". It is much stronger than that.
+
+  A Node single executable runs its embedded main script as **CommonJS** --
+  `embedderRunCjs` in the stack -- and **cannot `import()` at all**. Measured
+  inside a SEA, every spelling fails `ERR_UNKNOWN_BUILTIN_MODULE`: a relative
+  specifier, an absolute `file://` URL built off `process.execPath`, and
+  `new Function('s', 'return import(s)')`. The injected loader resolves builtins
+  and nothing else. `createRequire()` **does** work and will even load a `.mjs`,
+  which is the one escape hatch and is not taken -- it would mean a bespoke
+  module loader in the generated entry, shipping chunks beside a binary whose
+  whole point is to be one file.
+
+  So the Node path asks `bundleApp()` for `form: 'cjs'`: one flat file, every
+  command inlined, and a generated entry whose `main()` call is wrapped in an
+  async IIFE. The wrap is not a style choice -- rolldown refuses the whole
+  bundle with `Top-level await is currently not supported with the 'cjs' output
+  format`, and `await main({ ... })` is the last line of every entry
+  `generateBin()` has ever written.
+
+  Bun needs none of it. `bun build --compile` reads the ESM entry and its chunks
+  unchanged, `import()` and all, which is why `form` has exactly two values and
+  only one consumer for the second.
+
+- **Flattening costs nothing, which is why the `cjs` form is not a compromise.**
+  The numbers are under "A command per chunk" above, along with the correction
+  to the entry that used to claim otherwise. The short version: `codeSplitting:
+  false` keeps the `import()` as a promise, so lazy **execution** survives; what
+  is lost is lazy **parsing**, and V8's pre-parse made that nearly free. At 60
+  commands and 1.3 MB of bodies the two forms are within noise of each other.
+
+- **Packaging does not cost startup. It saves a little, and on Bun a lot.** The
+  ticket's worry was that a packaged binary might answer `--version` in 200ms
+  and that this would be "a worse trade than it looks". Measured, 40 spawns per
+  figure, minima compared within one run, on the 13-command fixture:
+
+  |                            | `--version` | `--help`   | one command |
+  | -------------------------- | ----------- | ---------- | ----------- |
+  | unpackaged, node + chunks  | 24.0ms      | 39.9ms     | 24.7ms      |
+  | packaged, `--runtime node` | 23.0ms      | 36.6ms     | 23.3ms      |
+  | packaged, `--runtime bun`  | **15.4ms**  | **23.9ms** | **15.6ms**  |
+
+  The floors are what explain it: `node -e 0` is **18.7ms** and `bun -e 0` is
+  **3.8ms** on the same machine in the same run. Node's own startup is the
+  dominant cost of every sigil app, packaged or not, and the only thing in this
+  table that changes it is not being node. That 15ms is a bigger lever than
+  every bundle-shape decision in this file put together, and it is the real
+  argument for Bun -- not the cross-compilation, which is merely convenient.
+
+- **All three forms render byte-identical output, which is the correctness claim
+  the rest rests on.** The `styled` fixture draws a panel with utility classes,
+  so its output exercises the template compile, the stylesheet shake, the
+  layout engine and the SGR writer at once. Run at `COLUMNS=60`, the unpackaged
+  chunked ESM, the flattened CJS inside a Node SEA, and the Bun binary each
+  produce the **same 287 bytes** -- box-drawing characters and escape sequences
+  included. So neither the entry wrap, nor flattening, nor embedding a different
+  runtime changes what an app draws. The end-to-end tests assert the narrower
+  version of this per runtime: the binary's output against the bundle it
+  embeds, which isolates the compile step from the bundle.
+
+- **Bun cross-compiles and Node cannot, so the CI shape differs.** Verified from
+  this Mac: all five targets build in one invocation -- `file` reports a real
+  `ELF 64-bit LSB executable` for linux-x64 and a `PE32+ executable (console)
+  x86-64` for windows-x64. A Node SEA injects its blob into the **host's own
+  node**, so the binary embeds whatever runtime is running the toolchain and the
+  target has to be the host; `assertCompilable()` refuses anything else, naming
+  the mechanism rather than only saying no.
+
+  What could not be checked here is that the foreign binaries **run**: there is
+  no docker on this machine, and a Mac cannot execute an ELF. The darwin-x64 one
+  runs under Rosetta and does. So the cross-compiled outputs are proved to be
+  the right file format and no further, which is a thing CI has to close rather
+  than something to claim from a laptop.
+
+  Bun ships no `bun-windows-arm64`, and that is named in `BUN_UNSUPPORTED`
+  rather than discovered from a failed spawn: `bun build` answers an unknown
+  target with a usage dump, and the one thing the reader needs is which
+  combination is missing.
+
+- **On Apple Silicon, signing is not distribution polish -- it is whether the
+  file runs.** `node --build-sea` leaves the binary unsigned (`codesign -dv`:
+  `code object is not signed at all`) and an unsigned binary is **SIGKILLed
+  before it executes a line**: exit 137, no output, on the very machine that
+  produced it. So `sign()` runs on darwin and a failure there fails the package.
+  Ad-hoc (`codesign --sign -`) is enough and is the default.
+
+  Proved by removing it from a finished binary rather than by sabotaging the
+  code: the same file answers `--version` with `1.2.3` as `package` left it, and
+  after `codesign --remove-signature` the identical bytes-minus-signature exit 137. That is what makes the end-to-end test's "the binary runs" assertion a
+  test of the signing step.
+
+  Bun needs none of this -- its output is already `adhoc, linker-signed` -- which
+  is one more thing the Node path has to do and the Bun path does not.
+
+- **`--sign` means one thing on both runtimes, and used to be silently dropped
+  on one of them.** `compileWithBun()` destructured `{ entry, out, target }` and
+  never read `sign`, so
+  `sigil package --runtime bun --sign "Developer ID Application: ..."` exited
+  **0**, printed an empty `Signed` column, and produced
+  `Signature=adhoc, TeamIdentifier=not set`. The caller asked for Developer ID
+  signing, was told nothing, and got a binary that fails Gatekeeper -- the exact
+  failure `--sign` exists to avoid. The scaffolded release workflow makes it the
+  default trap, since `sigil new` writes `"runtime": "bun"` and that workflow's
+  own comment points at this flag.
+
+  Honoured rather than refused, because a Bun binary is an ordinary Mach-O and
+  `codesign --force` re-signs it perfectly well -- so the useful answer and the
+  honest one are the same. `signsOn()` is the rule: a darwin target is signed by
+  the Node path always, because its output is unsigned and unrunnable, and by
+  the Bun path only when an identity was named, because Bun already ad-hoc
+  signed it. A non-darwin target is never signed, and an identity named with no
+  darwin target among the targets is **refused** in the pre-flight rather than
+  dropped -- which is the same defect one platform along.
+
+  The `Signed` column says `ad-hoc (linker)` for an untouched Bun binary rather
+  than nothing, because an empty cell there read as unsigned about a binary that
+  runs. Empty is reserved for a target where signing is not a thing.
+
+- **A failed signing removes the binary, and a failed target removes the ones
+  before it.** Both are `undo()`'s rule in `bundle.ts` -- a refused build must
+  leave nothing -- applied where it was missing. The first matters most on
+  darwin, where the unsigned binary is the one that cannot run. The second is
+  about a release: the compile loop was a bare `targets.map()`, so a failure on
+  target three of five threw with the first two fully written and nothing saying
+  the set was incomplete, and the scaffolded workflow attaches files **by name**.
+  Neither removal may fail the run over the error it is unwinding, for the
+  reason `undo()` records.
+
+- **The reported size is taken after signing, because signing changes it.** It
+  was one object literal with `sizeOf(out)` written before `sign(...)`, and
+  properties evaluate in order -- so every signed Node binary's headline figure
+  was the pre-signature one: **138.6 MB printed for a 138.8 MB file**, ad-hoc
+  signing adding about 0.28 MB. The test asserts the printed figure against the
+  file to the **printed precision** rather than approximately, because a
+  `toBeCloseTo(..., 0)` tolerance of 0.5 MB waves a 0.28 MB defect straight
+  through -- measured, that version of the test passed with the bug
+  reintroduced.
+
+- **Notarization is explicitly a follow-up, and ad-hoc signing is not a
+  substitute for it.** Ad-hoc makes a binary runnable; it does **not** get it
+  past Gatekeeper on somebody else's machine, which needs an Apple Developer ID
+  and a `notarytool` step. `--sign <identity>` is where a real identity goes, so
+  the mechanism is in place and the secret is not this repository's to invent.
+  Windows is the same shape and worse: Authenticode needs a certificate and
+  `signtool`, and there is no ad-hoc equivalent at all, so nothing is done by
+  default there rather than something dishonest. The scaffolded release workflow
+  says all of this in a comment, because a workflow that only half works should
+  explain which half.
+
+- **Every refusal happens before the bundle, and for two of them it did not
+  until a review round said so.** `assertCompilable()` covers the runtime, the
+  target and the Node version -- all pure. What it did not cover is whether the
+  **tools** are installed, and those are equally knowable from `PATH`: measured,
+  with `bun` off `PATH` the command bundled the whole app, entry and seventeen
+  chunks, and _then_ said `bun is not installed`; with `codesign` off `PATH` the
+  Node path bundled, spent 2.1s building a 145 MB SEA, failed, and **left the
+  unsigned binary behind** -- which on darwin is precisely the artifact that
+  cannot run, sitting under the name a release workflow attaches by.
+
+  So `assertToolchain()` is a second pre-flight step, kept separate rather than
+  folded in because `assertCompilable()` is pure -- no disk, no spawn -- and
+  most of `compile.test.ts` asserts it as such. The file's header used to claim
+  purity of the **whole file**, which stopped being true the moment
+  `assertToolchain()` got tests: those walk `PATH` through `whichSync()`, which
+  is the mechanism under test rather than a detail to mock away. The header says
+  which half is which now. It asks for `codesign` only where a binary will _actually_
+  be signed, which `signsOn()` decides for both it and the compile step -- one
+  function, because a pre-flight demanding a tool the run never uses and one
+  skipping a tool the run does use are the same defect from two sides.
+
+  What that comes to, after `signsOn()` became a function of the target alone,
+  is **every darwin target** -- so this refuses a cross-compile to darwin from a
+  machine with no `codesign`, which is every Linux and every Windows one. Both
+  this entry and the comment on the function used to call that outcome the
+  reason not to ask, in the words "a perfectly good cross-compile from a Linux
+  host", and the measurement two entries down is what makes those words false:
+  such a cross-compile writes a binary that is SIGKILLed. It is not perfectly
+  good, and refusing up front is the honest form of saying so.
+
+- **`assertCompilable()` is asked for
+  each target in `package.ts` before `bundleApp()` is called, and asked again
+  inside each compile function. That is not belt-and-braces: the compile
+  functions are exported, so a caller that is not `sigil package` would
+  otherwise reach the spawn with an impossible pair, and one implementation
+  asked twice cannot come to disagree with itself the way two copies would. The
+  pre-flight is the rule `--bin` beside a routed directory already follows -- a
+  failure the build can see coming is a build error -- and it is asserted as the
+  **absence of an output directory**, because a refusal that arrives after the
+  bundle is one that charged for a type-check and a bundle first.
+
+- **A test that empties `PATH` to prove something about `codesign` proves
+  nothing, because `bun` is looked up first.** The first version of the
+  `signsOn()` tests did exactly that: `assertToolchain()` locates `bun` before
+  `codesign`, so every Bun case exited at the first check and the branch on both
+  tests' names was never reached. Measured, and this is the number that matters:
+  reintroducing the silent `--sign` drop by deleting `|| isIdentity(identity)`
+  from `signsOn()` -- one token, round 1's finding 3 back -- left **all 38 tests
+  passing**. A `PATH` holding a stub `bun` and no `codesign` is what actually
+  exercises it, which is one temporary directory rather than a mock, and the
+  same sabotage now fails exactly the test written for it.
+
+  The general shape, because it is not about `bun`: a guard that short-circuits
+  makes every test downstream of the short circuit vacuous, and emptying an
+  environment variable short-circuits _everything_ that reads it. Remove one
+  thing, not all of them.
+
+- **An empty identity is not an identity, and all three readers thought it was.**
+  `--sign=` is how a value gets deliberately emptied -- which is a documented
+  rule of this parser -- and `assertSignable()`, `signsOn()` and `signed()`'s
+  own `identity ?? '-'` each tested only for `undefined`. So it passed the
+  entire pre-flight and reached `codesign` as `: no identity found` **after** the
+  bundle and an 85 MB compile. `isIdentity()` is the one reader now, and it
+  trims, because whitespace is the same mistake one step less mechanical.
+
+- **Whoever writes the binary removes it, and the bracket starts after the
+  assertions.** This took three goes and the first two were each wrong in the
+  opposite direction, which is why the boundary is the thing pinned rather than
+  the removal.
+
+  `compileAll()`'s `catch` first iterated the targets already _pushed_ -- the
+  successes -- so a compiler dying mid-write left a truncated file under
+  exactly the name the scaffolded release workflow attaches by. Adding the
+  failing target's path to that loop fixed it and broke something else: several
+  failure sites fire **before any write**, so a refused rerun under
+  `--no-clean`, whose documented promise is to keep what is already there,
+  deleted the previous release's binary at that path. Reproduced with a
+  sentinel, through the real CLI.
+
+  So `written()` in `compile.ts` brackets exactly the part that writes --
+  after `assertCompilable()`, after `assertSignUsable()`, after the `PATH`
+  lookups -- and `compileAll()` cleans only the earlier successes. A pre-write
+  refusal then has nothing to clean up **by construction** rather than by a
+  stat, which is where a `stamp()` of size-and-mtime sat for one commit before
+  the bracket made it unnecessary.
+
+  It also has to be in `compile.ts` rather than in the command, because the
+  defect is reachable without the command: with `ulimit -f 2048` the real
+  `node --build-sea` dies mid-write, and the exported `compileWithNode()` left
+  **2,097,152 bytes** at the output path. Real `bun build --compile` unlinks its
+  own partial under the same limit, so for Bun this is a belt over Bun's braces;
+  for Node it is the only thing between a full disk and a truncated
+  `myapp-linux-x64` in a release directory.
+
+  Both directions are pinned, and a stub `bun` that writes a partial and exits
+  1 is the inducer two review rounds looked for and did not find -- a pre-made
+  _directory_ at the outfile does not work, because Bun replaces it and
+  succeeds. Removing the bracket fails one test; widening it to include the
+  assertions fails the other.
+
+  **...and "after the assertions" was true of Bun and false of Node, for three
+  releases, in the one direction that destroys data.** `locate('bun')` has always
+  sat above `compileWithBun()`'s bracket; `assertBuildSea()` sat **inside**
+  `compileSea()`, which is inside `compileWithNode()`'s. So the refusal that
+  writes nothing at all ran through `written()`'s `catch`: an exported caller
+  doing `compileWithNode({ out: 'release/myapp', ... })` under a node below 25.5
+  -- or handing over an `exec` that is not a node, which is what a pinned version
+  nobody installed looks like -- was told `Node 25.5 or newer is needed` and
+  **deleted the good `release/myapp` that was already there**. `sigil package`
+  itself was never exposed, because `resolveExec()` has already picked a node
+  that can do the job, and that is exactly why nothing found it: these functions
+  are exported so a direct caller gets the same guarantees, and the paragraph
+  above says so while the Bun half had the test and the Node half had none.
+
+  The fix is the two lines moved above the bracket, which makes `compileSea()`
+  the shape `compileBun()` already had -- an already-resolved tool handed in, so
+  the bracket holds the spawn and the signing and nothing else. The temporary
+  config went with them, one step further than the finding asked: `mkdtempSync()`
+  and the config write have not touched `out` either, so leaving them inside
+  would have left the promise a little bit false in the place nobody would look.
+  Its `finally` sits where the directory exists, which is `bundleApp()`'s own
+  rule about where a bracket begins.
+
+  Each half has its own test and each sabotage fails exactly one of them.
+  `should leave a file it never wrote, when the node it was given cannot build
+  one` needs no stub and no `skipIf`, unlike its Bun siblings -- an `exec` that
+  does not exist is a node that cannot build a SEA on every platform -- and it
+  asserts the message's own tail rather than spelling the version floor. `should
+  leave a file it never wrote, when the temporary config cannot be made` points
+  `TMPDIR`, `TEMP` and `TMP` at nothing, all three because `os.tmpdir()` reads a
+  different one per platform. That one is `skipIf(!canBuildSea())`, and the skip
+  is precision rather than caution: on a host below the floor `assertBuildSea()`
+  throws first and the file survives for a reason the test is not about, which is
+  two guards masking each other -- so it also asserts that the throw is **not**
+  the version refusal.
+
+  And `signed()`'s own removal is guarded, which it was not: an `rmSync` that
+  threw would have replaced `codesign failed: no identity found` -- the
+  actionable half -- with a sentence about the file system, which is the thing
+  the entry above says neither removal may do. One of the two implemented it.
+
+- **A signature being present is not a signature being valid, so darwin is
+  always signed and the producer is not trusted.** `signsOn()` read
+  `runtime === 'node' || isIdentity(identity)` on the ground that Bun's output
+  arrives `adhoc, linker-signed` and needs nothing. That is true of what Bun
+  **writes** and not of whether it **runs**: measured, a binary compiled by Bun
+  1.3.0 reports `flags=0x20002(adhoc,linker-signed)` and is still **SIGKILLed**,
+  exit 137, on the machine that produced it -- and `codesign --sign - --force`
+  over the same bytes makes it run.
+
+  Which matters the moment `--runtime-version` lets somebody target a Bun other
+  than the one on their `PATH`, and would otherwise have been a binary that
+  built, reported success, and died for every user. Re-signing a binary that was
+  already fine is harmless, measured on Bun 1.4.4's output, so the cheap answer
+  and the correct one are the same: on a darwin target, always ensure a
+  signature. `signsOn()` is a function of the target alone now.
+
+  It also retires the `Signed` column's `bun` cell, which existed to avoid
+  claiming credit for Bun's own signature -- there is no longer a case where
+  this command leaves a darwin binary to somebody else's signing.
+
+- **...and the first thing that rule broke was the release workflow `sigil new`
+  scaffolds, which packaged two darwin targets on `ubuntu-latest`.** The two
+  halves were right separately and could not both be: `signsOn()` had become a
+  function of the target alone, so the pre-flight asks for `codesign` whenever a
+  darwin target is named, and `codesign` ships only with macOS. So every app
+  made by `sigil new` would have failed its release at the **Package** step on
+  its first tag -- the one run nobody gets to redo, in a file whose whole reason
+  for existing is to work without being debugged. Found by review rather than by
+  the suite, and the suite could not have found it: nothing in CI runs a
+  generated workflow, and `should want codesign for a bun darwin target too`
+  asserts the very behaviour that breaks it.
+
+  The runner moved rather than the rule, and the measurement above is the whole
+  of why. The alternative was to re-sign Bun's darwin output only on a darwin
+  **host**, leaving Bun's own linker signature in place for a cross-build -- a
+  one-line change that keeps the scaffold on Linux and ships, from CI, exactly
+  the binary that was measured as SIGKILLed on the machine that produced it. A
+  release that attaches a binary nobody can run is worse than a build that
+  refuses, because the refusal is seen by the author while the SIGKILL is seen
+  by the users. Bun cross-compiles to Linux and Windows from a Mac just as
+  happily, so `macos-latest` still builds all five in one job and nothing else
+  about the file moves.
+
+  The guard is `should run where a darwin binary can be signed, which is a Mac`
+  in `new.test.ts`, and what it asks is `assertToolchain()` over the targets the
+  **file itself names**, with `codesign` off `PATH` -- rather than looking for
+  `darwin` in the text, which would be a second copy of `signsOn()`'s rule, free
+  to go on agreeing while the real one moved. Both halves fail under sabotage:
+  putting the runner back fails the `runs-on` assertion, and dropping the darwin
+  targets fails the refusal that makes the rest of it mean anything.
+
+- **The `Signed` column named the signer rather than asserting the signature,
+  and then stopped needing to.**
+  It printed `ad-hoc (linker)` for an untouched Bun binary, which is not an
+  observation: Bun's output being `adhoc, linker-signed` was measured **on a
+  Mac**, and the scaffolded workflow produces its darwin binaries on an Ubuntu
+  runner where that has never been checked. A cell that states a property of
+  bytes nobody looked at is worse than one that is vague, because the failure it
+  would hide -- a darwin binary that is not signed after all -- surfaces as
+  SIGKILL on a stranger's machine. It says `bun` now, which is a fact either
+  way and still answers what an empty cell got wrong.
+
+- **The exported compile functions refuse an identity they cannot use, for the
+  reason they already re-ask `assertCompilable()`.** That entry's own
+  justification is that an exported caller must not reach a spawn the command
+  would have refused -- and `--sign` with a non-darwin target was refused only
+  in `package.ts`, so `compileWithBun({ sign: 'Developer ID ...', target:
+  linux-x64 })` returned success, signed nothing, and said nothing. Round 1's
+  silent-drop defect, one layer below where it was fixed.
+
+- **A scaffolded workflow installs the package manager the runner does not
+  have.** npm ships with Node and pnpm is on the GitHub images; `vlt` is
+  neither, and the generated workflow ran `vlt install --frozen-lockfile` on a
+  runner where nothing had installed it -- so a vlt app's release failed at its
+  first step on its first tag. The drift guard beside it read `pnpm` and `npm`
+  only, and `vlt` is the ternary's fallthrough, so misspelling `vlt exec` as
+  `vlt x` would have passed the suite: the one manager whose spellings nobody
+  had verified was the one the test did not read. All three are asserted now,
+  and the spellings are verified against a real vlt 1.1.1 -- `install
+  --frozen-lockfile`, `exec <executable>` and `run <script>` are all real.
+
+- **The Node version threshold is one constant, and the tests that guard on it
+  read it rather than spelling it.** `NODE_BUILD_SEA` is exported and
+  `canBuildSea()` is what both the check and the test predicate ask. Three
+  copies of `25.5` existed at one point -- the constant, a hand-rolled predicate
+  in `package-command.test.ts`, and a regex with the version baked in -- plus a
+  fourth in the `--runtime is required` message, written as the genuinely odd
+  `${'25.5'}`. Raising the constant would have left the tests guarding on the
+  old number and asserting against the new one.
+
+  **What that cost, before a review round found it: six of CI's nine jobs.**
+  `assertCompilable('node', ...)` asks `assertBuildSea()` _first_, so on Node 22
+  and 24 every Node assertion answers `Node 25.5 or newer is needed` rather than
+  the message under test -- and four assertions across the two new test files
+  had no `hasBuildSea` guard, in files that already defined one for exactly this.
+  The branch was measured on Node 26.10.0 and the tests encoded that Node's
+  answers as though they were everyone's, which is this repository's own rule
+  about platform-specific fixtures in **version** form. Verified by raising the
+  constant to simulate an old Node: four failures became none, with three
+  properly skipped.
+
+- **An app whose own source uses top-level await cannot be packaged for Node,
+  and the refusal comes from rolldown.** `form: 'cjs'` refuses TLA in **every**
+  module, not only in the generated entry the `wrap` option is about. So an app
+  with `const x = await something()` at module scope in a lazy command builds
+  fine with `sigil build`, packages fine with Bun, and fails
+  `--runtime node` with `Top-level await is currently not supported with the
+  'cjs' output format` naming generated output. Loud and correct rather than
+  silent, so it is a documentation point rather than a defect -- but the entry
+  above frames the entry wrap as _the_ TLA story and it is only half of it.
+
+- **An app with an `external` cannot be packaged, and it is a refusal because
+  Node happily produced a binary that could not work.** Found by dogfooding --
+  `sigil package .` in `packages/cli`, which declares `@ttylabs/sigil`,
+  `oxc-parser` and `rolldown` external, two of them native bindings nothing can
+  inline. `external` means "this package must be installed where the app runs"
+  and a single binary means "nothing has to be installed": contradictory claims
+  about one app, so the contradiction is the message.
+
+  The two runtimes failed differently, and the worse one is why this is a gate
+  rather than a warning. Bun refuses to compile and says
+  `Could not resolve: "@ttylabs/sigil". Maybe you need to "bun install"?`, which
+  points at the wrong fix. **Node wrote a 138 MB binary and reported success**,
+  and the first thing typed at it answered
+  `ERR_UNKNOWN_BUILTIN_MODULE: No such built-in module: @ttylabs/sigil` -- a
+  SEA's injected `require` resolves builtins and nothing else, so an external is
+  not merely missing, it is unreachable. That is the same
+  build-reported-success-and-the-executable-dies class as `--external` itself,
+  the JSX gate and the unresolved-import gate; three gates already exist for it
+  and this is the fourth.
+
+  There is no flag to override it, because the binary it would produce cannot
+  work. An app with a native dependency is a `sigil build` plus its
+  `node_modules`, which is what externals are for -- and it is why **this
+  toolchain cannot package itself**, exactly as the entry under "rolldown is a
+  devDependency of the app" already says about building itself.
+
+- **A lone binary is not named after the machine it was built for.** One target
+  is the ordinary case and `myapp` is what its users type; several at once is a
+  release, where every one would otherwise be written to the same path and the
+  last would be the only survivor -- reported as several binaries, which is the
+  quiet version of that bug. `outputName()` is one function for both halves of
+  the name, the `.exe` included, and it is **exported** for a reason that is not
+  about `sigil package` at all: the scaffolded release workflow spells five of
+  these names as literal text, so nothing in a build connects it to the
+  convention. `the release workflow` in `new.test.ts` asserts the literals
+  against this function, which it can only do if the function is reachable.
+  Both sabotages are caught -- a target the command would not parse, and a
+  dropped `.exe`.
+
+- **`--out` and the clean rule are `build`'s own, shared rather than copied.**
+  `resolveOut()`, `binName()` and `clean()` moved into `_inspect.ts` when
+  `package` needed them, and the move paid for itself immediately: `package`
+  shipped a private copy of `clean()` for an afternoon that refused an `--out`
+  **outside** the app, because `relative()` starting with `..` reads as "outside"
+  and was treated as "above". Only the second is dangerous, and a sibling
+  directory is an ordinary place to build into. `build`'s rule -- refuse an
+  `--out` that is the app root or an ancestor of it -- is now the only rule.
+
+- **The binaries go to `release/` and the bundle does not go with them, because
+  sharing `dist/` meant the two commands destroyed each other's output.**
+  `sigil package` defaulted to `dist/`, which is where `sigil build` writes, and
+  `clean()` empties whichever directory it is given -- so measured, in both
+  orders: `build` then `package` wiped the bundle and its 23 chunks, and
+  `package` then `build` deleted an **89 MB binary**. `pnpm build && pnpm
+  package` lost something whichever way round it ran. `dist` is also what
+  `files` in a manifest usually publishes, so a binary sitting there is one
+  `npm publish` away from being shipped.
+
+  `release` rather than `out`: it says what the contents are, cannot be read as
+  a source or build directory, and avoids `--out out`. `package.out` does
+  **not** fall back to `build.out` any more, which is what put them together in
+  the first place -- a binary and a bundle are different artifacts with
+  different lifetimes.
+
+  The bundle is staged under `node_modules/.sigil/` instead, which is where
+  `writeEntry()` already puts the generated entry -- a convention this repo has
+  rather than a temp-directory dance invented here. The first version keyed that
+  directory by the app and the binary's name, and that collided immediately:
+  two test files packaging one fixture shared one scratch directory, and each
+  passed alone while one failed in the suite. It is keyed by the resolved
+  **output** now, which is `entryLocation()`'s own rule one file along and for
+  exactly the same reason. Verified with two concurrent packages of one app to
+  two outputs: two staging directories, two correct binaries, different
+  runtimes.
+
+  Nothing else creates the output directory any more, which is worth saying
+  because it used to appear for free: the bundle was written into it. The first
+  thing to touch it now is a compiler writing an `--outfile`, which does not
+  make parents.
+
+- **The entry's extension is named once.** The write took it from `form` while
+  the `chmod` spelled `.mjs` on its own, so a CommonJS bundle was written
+  perfectly and then failed with an `ENOENT` naming a file the build had never
+  been asked to produce.
+
+- **A sourcemap is not written for a packaged build.** It is embedded in nothing
+  and read by nobody once the bundle is inside a binary, so it is weight on the
+  way to being discarded. Not a flag: there is no reader to offer it to.
+
+- **The update check cannot work in a packaged binary, and that is SIG-156
+  rather than something this command works around.** Inside a single executable
+  `process.execPath` is the **app's own binary**, not the runtime, so the
+  worker's `spawn(process.execPath, ...)` would re-execute the app with a flag
+  it does not declare. Two further defects in the same mechanism were found
+  while measuring this and are in that ticket: the worker is read off
+  `import.meta.url`, so it is already `ENOENT` in any `sigil build` output, and
+  the `['--input-type', 'module']` spelling is one only node accepts -- bun
+  reads `module` as a script path. `['-']` works on both. None of it is caused
+  by packaging and none of it is fixed here.
 
 ### A markdown command reference, and a surface snapshot
 

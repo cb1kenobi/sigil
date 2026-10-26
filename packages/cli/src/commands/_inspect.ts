@@ -1,11 +1,18 @@
 /**
- * Reading an app, for the two commands that both have to.
+ * Reading an app, for the commands that all have to.
  *
  * `check` is this and a report. `build` is this, the same report, and then a
- * bundle -- which is why it is one module rather than two implementations that
- * agree for now: a failure in `check` has to be a failure in `build`, or the
- * two come to disagree about what a valid app is and the fast one stops meaning
- * anything.
+ * bundle. `package` is `build` and then a compiler -- which is why it is one
+ * module rather than implementations that agree for now: a failure in `check`
+ * has to be a failure in both the others, or they come to disagree about what a
+ * valid app is and the fast one stops meaning anything.
+ *
+ * What is here beyond the read is what those commands have to answer
+ * *identically* rather than merely similarly: where the output goes, what the
+ * executable is called, and which directory must not be emptied. The last of
+ * those is the one with teeth, and it is why they are shared rather than
+ * written twice -- `package` had its own copy for an afternoon and the copy was
+ * wrong in a way that only showed up on an `--out` outside the app.
  *
  * The `_` prefix is this repo's own rule, read from the inside: an entry in a
  * commands directory that starts with one is not a route. Nothing walks
@@ -34,8 +41,8 @@ import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components';
 import type { TextRun } from '@ttylabs/sigil/element';
 import { SIGIL_KEYS } from '@ttylabs/sigil/i18n-keys';
-import { existsSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { existsSync, rmSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 /** What reading an app turned up. */
 export interface Inspection {
@@ -384,4 +391,107 @@ export function commandsFound(found: Inspection): string {
 
   const total = countCommands(found.commands);
   return `${total} command${total === 1 ? '' : 's'}`;
+}
+
+/**
+ * Where a build or a package writes.
+ *
+ * @param root - The app's root.
+ * @param out - What the caller said.
+ * @returns The absolute directory.
+ */
+export function resolveOut(root: string, out: string): string {
+  return isAbsolute(out) ? out : resolve(root, out);
+}
+
+/**
+ * What the built executable is called.
+ *
+ * The `bin` key an app already declares, since that is the name its users type.
+ * A package name is the fallback, scope dropped -- `@ttylabs/cli` builds to
+ * `cli.mjs` rather than to a directory called `@ttylabs`.
+ *
+ * @param found - What reading the app turned up.
+ * @param named - What the caller said, if anything.
+ * @returns The name, without an extension.
+ */
+export function binName(found: Inspection, named: string | undefined): string {
+  if (named) {
+    return named;
+  }
+
+  // what the manifest's `bin` says, before what it calls itself: a scoped
+  // package's name is not its executable's -- `@ttylabs/cli` publishes `sigil`,
+  // and naming the file after the package writes one the manifest does not
+  // point at
+  const { bin, name } = found.app.manifest;
+  if (bin) {
+    return bin;
+  }
+
+  return name ? (name.split('/').pop() ?? name) : 'cli';
+}
+
+/**
+ * Empties the output directory, refusing the one that would hurt.
+ *
+ * A build that leaves the last one behind publishes the union of every build
+ * ever run there -- a renamed command's chunk stays, a removed one's stays. And
+ * an `--out` that is the app root, or sits above it, is the one way a mistyped
+ * path turns a build into data loss.
+ *
+ * What it deliberately does **not** refuse is an `--out` outside the app
+ * altogether: a sibling directory is an ordinary place to build into, and
+ * `package` shipped a copy of this that refused one -- `relative()` starting
+ * with `..` reads as "outside" and was treated as "above", which are different
+ * things and only the second is dangerous.
+ *
+ * @param out - The output directory.
+ * @param root - The app's root.
+ * @param wanted - Whether to clean at all.
+ * @throws If the directory holds the app itself.
+ */
+export function clean(out: string, root: string, wanted: boolean): void {
+  assertCleanable(out, root, wanted);
+
+  if (!wanted || !existsSync(out)) {
+    return;
+  }
+
+  rmSync(resolve(out), { force: true, recursive: true });
+}
+
+/**
+ * Refuses an output directory that must not be emptied, without emptying any.
+ *
+ * Split out of `clean()` so it can be asked in a pre-flight, which is where it
+ * belongs: it is pure path arithmetic and needs no disk, and leaving it until
+ * the removal meant a run doomed by its own `--out` did all the expensive work
+ * first. Measured on CI, where `sigil package --out <the app root>` **fetched a
+ * 90 MB runtime** before refusing.
+ *
+ * The `existsSync` that guards the removal deliberately does not guard this. A
+ * directory that is not there cannot be destroyed, so `clean()` skips it -- but
+ * an `--out` naming the app root is a mistake whether or not the directory
+ * exists yet, and reporting it only sometimes is worse than either.
+ *
+ * @param out - The output directory.
+ * @param root - The app's root.
+ * @param wanted - Whether cleaning was asked for at all.
+ * @throws If the directory holds the app itself.
+ */
+export function assertCleanable(out: string, root: string, wanted: boolean): void {
+  if (!wanted) {
+    return;
+  }
+
+  const resolved = resolve(out);
+  const app = resolve(root);
+
+  if (resolved === app || app.startsWith(`${resolved}${sep}`)) {
+    throw new Error(
+      `Refusing to empty ${displayPath(resolved)}, which holds the app itself. ` +
+        `Name a directory inside it, or pass --no-clean.`
+    );
+  }
 }

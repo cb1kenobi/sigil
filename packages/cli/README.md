@@ -17,12 +17,117 @@ There is no `sigil dev`. This is a resolver and a compiler, not a server.
 | `sigil new`                | Scaffolds an app                                                                                                                                       |
 | `sigil check`              | Reads an app and reports what is wrong, without building it                                                                                            |
 | `sigil build`              | Bundles it into one executable plus a chunk per command                                                                                                |
+| `sigil package`            | Builds it and compiles the result into a single binary with a runtime embedded, for users who have no Node                                             |
 | `sigil add`                | Copies a component's source into your app, so you own it                                                                                               |
 | `sigil completion [shell]` | Prints a completion script for bash or zsh, or installs one for the shell you are in — this one is the framework's, and every app it builds has it too |
 | `sigil reference`          | Writes a markdown command reference, or a stable JSON snapshot of the command surface                                                                  |
 
 `build` runs `check`'s pass rather than replacing it, so an app that builds is
-one that checks out.
+one that checks out, and `package` runs `build`. One pass, three commands that
+cannot disagree about what a valid app is.
+
+## Packaging a binary
+
+`sigil build` leaves you an app that still needs a runtime installed.
+`sigil package` embeds one, so what you ship is a file somebody downloads and
+runs.
+
+Binaries go to `release/`, not `dist/` — a build and a package are different
+artifacts, and sharing one directory meant each command deleted the other's
+output.
+
+```sh
+sigil package --runtime bun                     # this machine
+sigil package --runtime bun \
+  --target darwin-arm64 --target linux-x64 \
+  --target windows-x64                          # a release, from one machine
+sigil package --runtime node                    # this machine, on Node
+```
+
+The version lists come from `nodejs.org/dist/index.json` and
+`registry.npmjs.org/bun`, cached for a day under your XDG cache directory.
+Nothing is fetched when you name a runtime that is already installed.
+
+**You do not need the runtime installed.** `--runtime bun` on a machine with no
+Bun fetches one; `--runtime node` on a Node too old to package itself fetches a
+newer one. Either way it lands in your XDG cache and a second run reuses it.
+
+**Pinning a version.** `--runtime` takes a version too:
+
+```sh
+sigil package --runtime bun@1.3.14      # fetched if absent
+sigil package --runtime node@26.12.1
+```
+
+Which also answers "I need Node 24": a Bun version implies a node-compat level,
+measured on the binaries — **bun@1.2 is node 22.6, bun@1.3 is node 24.3, bun@1.4
+is node 26.3** — and Bun needs no injection step. Node itself can only package
+versions **25.5 and newer**: below that a `node` can write a SEA blob and has no
+way to inject it, so `node@24` is refused with that reason rather than failing
+later.
+
+**You have to pick the runtime.** There is no default, because which one a
+binary embeds decides what your app runs on, and that is not something to infer
+from whatever happens to be installed where the build ran. Run `sigil package` at a terminal
+without saying and it asks — one list of both runtimes with their versions,
+flagging which are already here; in CI, or through a pipe, it stops and tells you
+to choose. Say it once in `sigil.json` and every invocation and CI
+step agrees:
+
+```jsonc
+{ "package": { "runtime": "bun" } }
+```
+
+|                  | `--runtime bun`                                | `--runtime node`                                     |
+| ---------------- | ---------------------------------------------- | ---------------------------------------------------- |
+| Your app runs on | Bun                                            | Node, which is what `engines` already says           |
+| Startup          | ~16ms                                          | ~23ms                                                |
+| Binary size      | 85–110 MB                                      | ~139 MB                                              |
+| Cross-compiles   | Yes, five of six targets from any host         | No — each target builds on its own machine           |
+| macOS signing    | Ad-hoc automatically; `--sign` for an identity | Ad-hoc automatically; `--sign` for an identity       |
+| Needs            | nothing — fetched if absent                    | nothing — a host older than 25.5 fetches a newer one |
+
+Startup is the number worth knowing and it is almost all runtime, not app: Node
+takes ~19ms to start before your code runs and Bun takes ~4ms. Packaging never
+costs startup either way — both binaries answer slightly faster than the
+unpackaged app, because there are no module files to find.
+
+Top-level `await` anywhere in your own modules rules out `--runtime node`: a
+Node binary embeds one CommonJS script, and CommonJS cannot express a top-level
+`await`. The build says so rather than producing something broken. Bun is
+unaffected.
+
+Targets are `<platform>-<arch>`: `darwin-arm64`, `darwin-x64`, `linux-arm64`,
+`linux-x64`, `windows-x64`, `windows-arm64`. Bun has no runtime for
+`windows-arm64`; Node builds only the machine it is running on. A single target
+is named after your app, and several at once get the target in the file name, so
+a release is `mycli-linux-x64` and `mycli-windows-x64.exe`.
+
+An app that declares `external` packages **cannot** be packaged, and
+`sigil package` refuses rather than producing a binary that would die on first
+use. An external says that package must be installed where the app runs, and a
+binary says nothing has to be — a package carrying a native binding cannot be
+inlined at all, so such an app ships as `sigil build` output plus its
+`node_modules`. This is why the `sigil` CLI itself cannot be packaged: it
+depends on two native bindings.
+
+### Signing, and what is not done for you
+
+On macOS a binary has to be signed to run **at all** — an unsigned one is killed
+before it starts, not merely warned about — so `sigil package` ad-hoc signs
+what it produces. That is enough for a binary you built to run on the machine
+you built it on, and on your CI.
+
+It is **not** enough for a binary somebody downloads. Getting past Gatekeeper
+needs an Apple Developer ID and notarization: pass the identity with
+`--sign "Developer ID Application: ..."` and run `notarytool` over the result
+yourself. Windows is the same shape — Authenticode needs a certificate and
+`signtool`, and there is no ad-hoc equivalent, so nothing is signed there by
+default.
+
+`sigil new` scaffolds `.github/workflows/release.yml`, which builds every target
+on a version tag and attaches them to a GitHub release. It is one job because
+Bun cross-compiles; the comment at the top says what to change for Node.
 
 ## The command reference, and the surface snapshot
 
@@ -129,6 +234,11 @@ to say so in the name; both at once is an error.
     "shake": true,
     "sourcemap": true,
   },
+  "package": {
+    "out": "release",
+    "runtime": "bun",
+    "target": ["darwin-arm64", "linux-x64", "windows-x64"],
+  },
 }
 ```
 
@@ -140,6 +250,13 @@ so when it finishes.
 
 `name` is only needed when your `package.json` publishes more than one `bin`;
 otherwise the executable is named after the one it publishes.
+
+`package.runtime` is the one field with no default — at a terminal
+`sigil package` asks, and otherwise it stops and tells you to choose.
+`package.out` defaults to `release` and deliberately does **not** follow
+`build.out`: a binary and a bundle are different artifacts, and putting them in
+one directory meant each command deleted the other's output.
+`package.target` defaults to the machine the build runs on.
 
 `locale` is the locale your app falls back on, written into the schema the build
 generates. It sits at the **bottom** of the locale chain — `SIGIL_LOCALE`,

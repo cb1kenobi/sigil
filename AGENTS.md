@@ -339,8 +339,14 @@ analysis pass and the build emitter -- spliced back into an app's modules by
 `src/build/compile-templates.ts` -- and `src/build/`, which reads an app off
 disk: the app discovered from its manifest and entry, the command tree resolved
 ahead of time, the static `desc`/`hidden` lift, the `ui` templates found in a
-module, the schema literal all of that is printed as, and the type check. Its commands are not written yet, and neither is the bundling stage
-that feeds `src/build/`'s output to rolldown.
+module, the schema literal all of that is printed as, and the type check — and
+`src/build/compile.ts`, which embeds a runtime in what rolldown wrote. Its
+commands are `src/commands/`: `add`, `build`, `check`, `new`, `package` and
+`reference`. That sentence used to end "its commands are not written yet, and
+neither is the bundling stage that feeds `src/build`'s output to rolldown",
+which was true when it was written and had been false for a long time — the
+shape this file records under `route-info.ts`, where a correct sentence becomes
+a wrong one as the tree moves underneath it and nothing in a build reads prose.
 
 `src/i18n/keys.ts` is generated. Regenerate it with
 `node scripts/generate-sigil-keys.mjs` from inside `packages/cli`, then
@@ -1299,7 +1305,7 @@ decision being re-litigated or "fixed".
 
 | decisions for                                                              | entries                                                                                                                                                                                                                                                                                                                                                 |
 | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`packages/cli`](packages/cli/AGENTS.md)                                   | The build: reading an app off disk · Writing the CLI in sigil · `sigil new` · The registry: what `sigil add` copies · A markdown command reference, and a surface snapshot                                                                                                                                                                              |
+| [`packages/cli`](packages/cli/AGENTS.md)                                   | The build: reading an app off disk · Writing the CLI in sigil · `sigil new` · The registry: what `sigil add` copies · `sigil package`: a binary, and which runtime is inside it · A markdown command reference, and a surface snapshot                                                                                                                  |
 | [`packages/config-xml`](packages/config-xml/AGENTS.md)                     | An XML config store, in a package of its own                                                                                                                                                                                                                                                                                                            |
 | [`packages/config-yaml`](packages/config-yaml/AGENTS.md)                   | A YAML config store, and the second time an outsider implemented `ConfigStore`                                                                                                                                                                                                                                                                          |
 | [`packages/sigil/src/canvas`](packages/sigil/src/canvas/AGENTS.md)         | Canvas · Layers and masks: compositing, and the transition it buys                                                                                                                                                                                                                                                                                      |
