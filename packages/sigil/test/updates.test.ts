@@ -122,7 +122,10 @@ describe('updates', () => {
 
       // and it has no relative import, because a piped script cannot resolve
       // one. A type-only import erases, so it does not count.
-      for (const line of source.split('\n')) {
+      // split on either ending: `.gitattributes` forces LF for a `.js` and
+      // says nothing about a `.ts`, so this file is CRLF on Windows and a
+      // `$` anchor after a `\r` matches nothing
+      for (const line of source.split(/\r?\n/)) {
         if (/^import\s/.test(line) && !/^import type\s/.test(line)) {
           expect(line).to.match(/from 'node:[a-z]+';$/);
         }

@@ -621,11 +621,29 @@ describe('the update worker, baked in', () => {
   });
 
   it('should carry the whole worker, not a truncated one', () => {
-    // both ends of the file, because the failure a bake can have that the
-    // check above cannot see is a partial one. Substrings without a backtick
-    // or a `${`, since the minifier stores the bake as a template literal and
-    // escapes those two
-    expect(bundle).toContain('// The fetch, in the one place both paths reach it.');
-    expect(bundle).toContain('    console.error(err);\n    process.exit(1);');
+    // one **line** from each end rather than a span across lines, because a
+    // line ending is the one thing that differs between checkouts and there
+    // are three forms of it to get wrong: `.gitattributes` forces LF for a
+    // `.js` and says nothing about a `.ts`, so `worker.ts` is CRLF on
+    // Windows -- and the minifier stores the bake as a template literal with
+    // the CR escaped to a two-character `\r`, so normalizing the file's own
+    // `\r\n` is not enough either. Matching within a line cannot care.
+    //
+    // That is the platform-specific-fixture rule in the root AGENTS.md, met
+    // through a line ending rather than a path separator, and found by
+    // converting the file to CRLF and watching the first two attempts fail.
+    const lines = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'updates', 'worker.ts'),
+      'utf-8'
+    )
+      .split(/\r?\n/)
+      .map((line) => line.trimEnd())
+      .filter((line) => line.trim().length >= 15);
+
+    // and taken from the source rather than written out, so the two cannot
+    // come apart the way a quoted literal does
+    expect(lines.length).toBeGreaterThan(20);
+    expect(bundle, 'the first line of the worker').toContain(lines[0]);
+    expect(bundle, 'the last line of the worker').toContain(lines.at(-1));
   });
 });
