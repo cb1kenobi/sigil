@@ -1,0 +1,4 @@
+# variants a test writes: one app built against several `sigil.json`
+# declarations, rather than a fixture per declaration. `out/` is where
+# `cli.test.ts` allows a fixture tree to hold something git does not track
+/out/

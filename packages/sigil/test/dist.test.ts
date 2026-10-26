@@ -596,3 +596,36 @@ describe('what importing the package costs', () => {
     }
   );
 });
+
+// `src/updates/worker.ts` is piped into a runtime rather than imported on the
+// spawned path, and a file nothing imports is a file no bundler can see -- so
+// `workerSource()` read it off a path relative to its own module URL, which
+// points wherever the bundle was written. Every app `sigil build` produced
+// died on `ENOENT` the first time it checked for an update, with the build
+// reporting complete success. `tsdown.config.ts` bakes the worker in as a
+// string instead, and a build that quietly stops doing that looks exactly like
+// one that does.
+describe('the update worker, baked in', () => {
+  const bundle = readFileSync(join(dist, 'updates.mjs'), 'utf-8');
+
+  it('should carry the worker rather than a path to it', () => {
+    // a string the minifier keeps, from the worker and from nowhere else
+    expect(bundle).toContain('CHECK_URL is not set');
+  });
+
+  it('should not ship a worker file for anything to read', () => {
+    // the read is gone, so the file has no reason to be copied -- and leaving
+    // it there would let a build that stopped baking go on working from
+    // `node_modules` while every bundled app failed, which is this defect
+    expect(readdirSync(dist).filter((name) => name.includes('worker'))).toEqual([]);
+  });
+
+  it('should carry the whole worker, not a truncated one', () => {
+    // both ends of the file, because the failure a bake can have that the
+    // check above cannot see is a partial one. Substrings without a backtick
+    // or a `${`, since the minifier stores the bake as a template literal and
+    // escapes those two
+    expect(bundle).toContain('// The fetch, in the one place both paths reach it.');
+    expect(bundle).toContain('    console.error(err);\n    process.exit(1);');
+  });
+});

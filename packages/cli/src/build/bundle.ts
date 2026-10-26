@@ -38,7 +38,9 @@ import { MODULE_RE, parses, parseTree } from './parse-module.ts';
 import { createShaker, STYLE_MODULE, shakeStyles, type ShakenSheet, type Shaker } from './shake.ts';
 import { TAG_MODULE } from './templates.ts';
 import type { ResolvedTree } from './tree.ts';
+import { updateCheckDefine, UPDATE_CHECK_SPECIFIER } from './update-check.ts';
 import { walk } from './walk.ts';
+import type { BakedUpdateConfig } from '@ttylabs/sigil/updates';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
@@ -158,6 +160,16 @@ export interface BundleOptions {
   readonly sourcemap?: boolean;
   /** The tree to bake into the generated entry. */
   readonly tree: ResolvedTree;
+  /**
+   * What the app's update check looks at, and whether it has a runtime to
+   * spawn.
+   *
+   * Reaches `check()` as a `define` rather than through the generated entry,
+   * because `check()` is a library function an app calls wherever it likes
+   * and has no schema in its hand -- which is where the version and the
+   * default locale go. See `update-check.ts`.
+   */
+  readonly updateCheck?: BakedUpdateConfig;
 }
 
 /** One file the build wrote. */
@@ -208,6 +220,20 @@ export interface BundleResult {
    * is the only per-package figure there is.
    */
   readonly inlined: readonly InlinedPackage[];
+  /**
+   * Whether anything in the graph imported `@ttylabs/sigil/updates`.
+   *
+   * Asked so `sigil package` can refuse a binary whose update check would
+   * silently never report anything -- a compiled app has no runtime to spawn
+   * and no npm default, so one that imports the check and declares nothing
+   * for it to look at is an app with a feature that does not work.
+   *
+   * It watches the **specifier** rather than a resolved path, because the
+   * path is a different string in a monorepo, in an install and under a
+   * link, while the specifier is what an app writes -- and a re-export
+   * through a barrel still writes it somewhere in the graph.
+   */
+  readonly usesUpdateCheck: boolean;
   // there is no `generated` here any more. It handed back the path of the
   // generated entry, nothing in either package ever read it, and the per-build
   // directory is removed before this result is returned -- so keeping it would
@@ -266,6 +292,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     shake = true,
     sourcemap = true,
     tree,
+    updateCheck,
   } = options;
 
   // CommonJS is one file by construction rather than by preference: a Node
@@ -298,6 +325,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 
   const unresolved: string[] = [];
   let templates = 0;
+  let usesUpdateCheck = false;
 
   // worked out on the first module that turns out to call `utilitySheet()`,
   // and never for an app that does not: the scan walks the app's source tree
@@ -359,6 +387,22 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     },
     platform: 'node',
     plugins: [
+      {
+        name: 'sigil:update-check',
+        /**
+         * Records whether the update check is in this graph at all.
+         *
+         * A `resolveId` that answers `null` and only watches, which is the
+         * cheapest honest way to ask: the question is about the module
+         * graph, so it is asked of the thing that builds one.
+         */
+        resolveId(source: string) {
+          if (source === UPDATE_CHECK_SPECIFIER) {
+            usesUpdateCheck = true;
+          }
+          return null;
+        },
+      },
       {
         name: 'sigil:templates',
         /**
@@ -523,7 +567,13 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     // measured, `compilerOptions.jsxImportSource` does not reach a `.jsx` at
     // all, so a `.jsx` has never been configurable that way with a tsconfig
     // or without one.
-    transform: { jsx: { importSource: RUNTIME } },
+    transform: {
+      // the one value the runtime cannot read for itself and the schema has
+      // nowhere to carry; absent, `check()` finds a free identifier and
+      // behaves exactly as it does unbuilt
+      ...(updateCheck && { define: updateCheckDefine(updateCheck) }),
+      jsx: { importSource: RUNTIME },
+    },
   });
 
   // there is one leak and it is a `write()` that rejects: `close()` used to be
@@ -627,6 +677,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       inlined: inlinedPackages(app.root, input, written.output),
       styles: styleReport(shaker),
       templates,
+      usesUpdateCheck,
     };
   } finally {
     // this build's own directory, so removing it cannot disturb a build running

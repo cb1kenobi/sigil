@@ -3819,3 +3819,107 @@ that has tests, because a front matter the site cannot read is the failure mode 
 renderer alone would not catch.
 
 > Moved: _What the sabotage pass found, and the litter it left twice_, _What review round 1 found, and the two it was right about by the wrong reason_, _What review round 2 found, pointed at round 1's fixes and round 1's skipped list_, _What review round 3 found, pointed at round 2's fixes and round 2's skipped list_, _What review round 4 found, and the pattern across four of them_, _What CI found that four review rounds and five sabotage passes did not_, _What the PR review round found: the one string never cleaned_ — see [docs/history/a-markdown-command-reference-and-a-surface-snapshot.md](../../docs/history/a-markdown-command-reference-and-a-surface-snapshot.md).
+
+### What the build tells an app's update check to look at
+
+`src/build/update-check.ts`, `updateCheck` in `sigil.json`, and the refusal in
+`sigil package`. The runtime half, and why the worker could not reach a built
+app at all, is under "What the update check can and cannot survive" in
+[`packages/sigil/src/updates`](../sigil/src/updates/AGENTS.md); the
+measurements are in
+[docs/history/the-update-check-cannot-survive-a-build-a-bun-or-a-binary.md](../../docs/history/the-update-check-cannot-survive-a-build-a-bun-or-a-binary.md).
+
+- **Two facts go across, and the second is the one that is not about the
+  app.** **What** to check comes from `sigil.json`. **Whether there is a
+  runtime to spawn** comes from which command is running: `sigil build`
+  produces an app that still needs node or bun installed, and
+  `sigil package` produces one that _is_ its runtime, where `process.execPath`
+  is the app's own binary. The build knows which it is making, so the answer
+  is baked rather than sniffed -- and the runtime keeps probes underneath it
+  anyway, for a binary something else compiled, because getting that wrong is
+  not a check that fails but an app that re-executes itself.
+
+- **It reaches the runtime as a `define`, which is the one place this parts
+  company with the version and the default locale.** Those are baked into the
+  schema literal `generateBin()` writes, because that is what `main()` is
+  handed. `check()` is a library function an app calls wherever it likes and
+  has no schema in its hand, so `transform.define` is the mechanism --
+  verified against rolldown 1.2.15 reaching a module inside `node_modules`,
+  which is what it has to do, since the app imports `@ttylabs/sigil/updates`
+  rather than containing it. Note that `define` is under `transform` in
+  rolldown 1.2.15 and is not a top-level input option; passing it at the top
+  level warns `Invalid key` and silently does nothing.
+
+- **The checkers are built with the runtime's own builders.**
+  `checkerFor()` calls `npmChecker()` and `githubChecker()` rather than
+  writing object literals, so a URL the build bakes and a URL an app builds in
+  its own source are the same URL. Same rule `readRoutes()` records for the
+  two route walks, in a smaller place.
+
+- **A field that does not belong to the declared kind is refused by name.**
+  The schema types the values and `choices` narrows `type`; what a flat,
+  dotted vocabulary cannot say is which fields go with which kind. A `repo`
+  under `"type": "npm"` is almost always somebody who changed the kind and
+  left the old field behind, and taking it silently bakes a check that looks
+  at something the author stopped meaning. `type` is required for the same
+  reason read backwards: the one thing a half-written declaration must not
+  quietly become is the npm check, which is what an app gets for declaring
+  nothing at all.
+
+  `updateCheck.prefix` is the one name in the file not run through
+  `readName()`, because `""` is a real answer there -- it is how a repository
+  whose tags are already versions says so.
+
+- **`sigil package` refuses a binary whose check could never report
+  anything, and it is deliberately not a pre-flight.** `assertCleanable()` is
+  refused before a runtime is fetched because it is pure path arithmetic -- it
+  can be asked at any time, so it is asked first. This cannot: whether the
+  check is in the app is a question about the **module graph**, and there is
+  no graph until the bundle is built. So it is asked at the first moment there
+  is an answer, which is still before `compileAll()` -- the download is a
+  cache fill and the compile is the expensive, signing, binary-writing half.
+
+  Guessing earlier was the alternative and is refused: a scan of the app's
+  source for the specifier reports a mention in a comment as a use and misses
+  one re-exported through a barrel, and a **false** refusal stops a build that
+  is correct. This file already records what a warning that fires on correct
+  code teaches people to do, and an error is the louder version of it.
+
+- **It watches the specifier, not a resolved path.** `@ttylabs/sigil/updates`
+  resolves to a different string in a monorepo, in an install and under a
+  link, while the specifier is what an app writes -- and a re-export through a
+  barrel still writes it somewhere in the graph. A `resolveId` hook that
+  answers `null` and only records is the cheapest honest way to ask a question
+  about a module graph.
+
+  The **negative** is the assertion that matters and is tested as such: a
+  detector that always answers yes refuses every packaged app. `buildable` is
+  bundled beside the `updates` fixture for exactly that.
+
+- **The error names the way out, because it cannot see the app that is
+  already right.** A `checker` passed to `check()` in the app's own source
+  beats whatever is baked in, and nothing in a module graph says which
+  argument a call was given. So `"updateCheck": { "type": "none" }` is both
+  "this app checks nothing" and "I have handled it in code", and the message
+  says so rather than leaving the author to find out that the only way past a
+  refusal is to declare something they do not want.
+
+- **One fixture, several `sigil.json` declarations.** `test/fixtures/updates`
+  is copied into `test/fixtures/.variants/<name>` with a config written beside
+  it, rather than a fixture per declaration -- and inside the repository
+  rather than in a temp directory, because the app imports `@ttylabs/sigil` by
+  name and node resolves that by walking up from the file. A re-export was
+  tried first and cannot work: the build **reads** an app's entry rather than
+  importing it, so `export { default } from '../../updates/src/index.js'` has
+  no object literal for `outermostDeclaring()` to find and the build refuses
+  it with `no "commands" found in this module`.
+
+- **Every one of those tests is offline, and the first version of one was
+  not.** The app is pointed at a port nothing is listening on, so the failure
+  says which half ran: `ECONNREFUSED` comes from the worker and proves it was
+  found, where `ENOENT` is the defect. The baked-checker test names a
+  **second** port for the same reason -- it proves which address the check
+  reached for, and the declaration beating the app's own `registryURL`, with
+  nothing leaving the machine. It first named a real GitHub repository and
+  went to the network to find out it did not exist, which is a test that
+  fails on a plane.

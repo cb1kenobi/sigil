@@ -121,6 +121,37 @@ export interface PackageConfig {
   readonly target?: readonly string[];
 }
 
+/** What the update check looks at, as `sigil.json` declares it. */
+export interface UpdateCheckConfig {
+  /** `npm`: the dist tag to read. Defaults to `latest`. */
+  readonly distTag?: string;
+  /** `npm`: the package to ask about. Defaults to the app's manifest name. */
+  readonly package?: string;
+  /** `custom`: where the version sits in the JSON response, as a list of keys. */
+  readonly path?: readonly string[];
+  /** `github`: the release tag prefix to strip. Defaults to `v`. */
+  readonly prefix?: string;
+  /** `npm`: the registry to ask. Defaults to npm's. */
+  readonly registry?: string;
+  /** `github`: the repository, as `owner/name`. */
+  readonly repo?: string;
+  /**
+   * Which kind of check this is.
+   *
+   * `none` is a declaration rather than an absence, and that distinction is
+   * the whole of why this key is required: `sigil package` refuses a binary
+   * that imports the update check and declares nothing, because an app
+   * distributed as a download is one npm cannot answer for and guessing npm
+   * would be a check that silently never reports anything. `none` is how an
+   * app says it has thought about it -- because it checks nothing, or
+   * because it passes a `checker` to `check()` in its own source, which
+   * beats whatever is baked in.
+   */
+  readonly type?: string;
+  /** `custom`: the `https` URL to GET. */
+  readonly url?: string;
+}
+
 /** What `sigil reference` reads from the config. */
 export interface ReferenceConfig {
   /**
@@ -181,6 +212,23 @@ export interface SigilConfig {
    * already has.
    */
   readonly reference?: ReferenceConfig;
+  /**
+   * Where this app's update check looks, baked into what the build emits.
+   *
+   * Top level rather than under `build`, for the reason `locale` is: `build`
+   * holds the bundler knobs, and this is a fact about the app that both
+   * `sigil build` and `sigil package` carry into what they produce. It is
+   * baked for the reason the version and the default locale are -- the
+   * runtime cannot read this file -- and it reaches `check()` through a
+   * `define` rather than through the schema, because `check()` is a function
+   * an app calls wherever it likes and has no schema in its hand.
+   *
+   * Left out, an app that still needs a runtime installed asks npm about its
+   * own package and a single-file executable checks nothing. That asymmetry
+   * is the point: npm is the right answer for something somebody installed
+   * and a guess for a binary somebody downloaded.
+   */
+  readonly updateCheck?: UpdateCheckConfig;
 }
 
 /** The fields each section may hold, as the one list `readSection()` picks by. */
@@ -188,6 +236,7 @@ const FIELDS = {
   build: ['external', 'name', 'out', 'safelist', 'shake', 'sourcemap'],
   package: ['out', 'runtime', 'target'],
   reference: ['out', 'snapshot'],
+  updateCheck: ['distTag', 'package', 'path', 'prefix', 'registry', 'repo', 'type', 'url'],
 } as const satisfies Record<string, readonly string[]>;
 
 /**
@@ -230,6 +279,17 @@ export const CONFIG_SCHEMA: ConfigSchema = {
   'package.target': { multiple: true, type: 'string' },
   'reference.out': { type: 'string' },
   'reference.snapshot': { type: 'string' },
+  'updateCheck.distTag': { type: 'string' },
+  'updateCheck.package': { type: 'string' },
+  'updateCheck.path': { multiple: true, type: 'string' },
+  // `""` is a real answer here and the one `githubChecker()` documents for
+  // "the tag is the version", so this is the one name in the file that is not
+  // run through `readName()`
+  'updateCheck.prefix': { type: 'string' },
+  'updateCheck.registry': { type: 'string' },
+  'updateCheck.repo': { type: 'string' },
+  'updateCheck.type': { choices: ['custom', 'github', 'none', 'npm'], type: 'string' },
+  'updateCheck.url': { type: 'string' },
 };
 
 /**
@@ -302,6 +362,7 @@ export function readSigilConfig(root: string): SigilConfig {
   const locale = readName(config.get('locale'), 'locale');
   const packaging = readSection(config.get('package'), 'package');
   const reference = readSection(config.get('reference'), 'reference');
+  const updateCheck = readSection(config.get('updateCheck'), 'updateCheck');
 
   // the keys are set only where the file said something, so that a directory
   // with no file in it and a file holding `{}` are the same answer -- which they
@@ -312,6 +373,7 @@ export function readSigilConfig(root: string): SigilConfig {
     ...(locale !== undefined && { locale }),
     ...(packaging && { package: readPackage(packaging as PackageConfig) }),
     ...(reference && { reference: readReference(reference as ReferenceConfig) }),
+    ...(updateCheck && { updateCheck: readUpdateCheck(updateCheck as UpdateCheckConfig) }),
   };
 }
 
@@ -486,3 +548,87 @@ function readBuild(build: BuildConfig): BuildConfig {
 
   return build;
 }
+
+/**
+ * The `updateCheck` section, whose fields each belong to one kind of check.
+ *
+ * The schema types the values and `choices` narrows the kind; what is left for
+ * here is the thing a flat vocabulary cannot say -- which fields go with which
+ * kind. A `repo` under `"type": "npm"` is almost always somebody who changed
+ * the kind and left the old field behind, and taking it silently would bake a
+ * check that looks at something the author stopped meaning. So a field that
+ * does not belong to the declared kind is refused by name rather than ignored.
+ *
+ * `type` is required because the four kinds have no sensible default between
+ * them: a section with fields and no kind is a half-written declaration, and
+ * the one thing it must not quietly become is the npm check, which is what an
+ * app gets for declaring nothing at all.
+ *
+ * @param updateCheck - What the merged view holds at `updateCheck`.
+ * @returns The section.
+ * @throws If the kind is missing, or a field does not belong to it.
+ */
+function readUpdateCheck(updateCheck: UpdateCheckConfig): UpdateCheckConfig {
+  const { type } = updateCheck;
+
+  if (!type) {
+    throw new Error(
+      `${CONFIG_FILE}: "updateCheck.type" is required; it is one of ${UPDATE_CHECK_FIELDS.map(
+        ([name]) => `"${name}"`
+      ).join(', ')}`
+    );
+  }
+
+  const allowed = UPDATE_CHECK_FIELDS.find(([name]) => name === type)?.[1];
+  // unreachable through the schema, whose `choices` has already refused
+  // anything else -- kept because this list and that one are two places and
+  // the failure of them disagreeing is a field silently going unchecked
+  if (!allowed) {
+    throw new Error(`${CONFIG_FILE}: "updateCheck.type" must be a known kind, got "${type}"`);
+  }
+
+  for (const field of FIELDS.updateCheck) {
+    if (field === 'type' || updateCheck[field as keyof UpdateCheckConfig] === undefined) {
+      continue;
+    }
+    if (!allowed.includes(field)) {
+      throw new Error(
+        `${CONFIG_FILE}: "updateCheck.${field}" does not belong to a "${type}" check`
+      );
+    }
+    // `prefix` is left out on purpose: an empty one is how a GitHub check
+    // says the tag is already the version
+    if (field !== 'prefix' && field !== 'path') {
+      readName(updateCheck[field as keyof UpdateCheckConfig], `updateCheck.${field}`);
+    }
+  }
+
+  if (type === 'github' && !updateCheck.repo) {
+    throw new Error(`${CONFIG_FILE}: a "github" check needs "updateCheck.repo"`);
+  }
+
+  if (type === 'custom' && (!updateCheck.url || !updateCheck.path?.length)) {
+    throw new Error(
+      `${CONFIG_FILE}: a "custom" check needs "updateCheck.url" and "updateCheck.path"`
+    );
+  }
+
+  if (updateCheck.path?.some((key) => !key)) {
+    throw new Error(`${CONFIG_FILE}: "updateCheck.path" must be an array of keys`);
+  }
+
+  return updateCheck;
+}
+
+/**
+ * Which fields each kind of check declares.
+ *
+ * One list rather than a branch per kind, so that adding a field to a kind is
+ * an edit in one place and a field belonging to no kind cannot exist.
+ */
+const UPDATE_CHECK_FIELDS: readonly (readonly [string, readonly string[]])[] = [
+  ['custom', ['path', 'url']],
+  ['github', ['prefix', 'repo']],
+  ['none', []],
+  ['npm', ['distTag', 'package', 'registry']],
+];

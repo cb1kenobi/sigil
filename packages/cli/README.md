@@ -239,6 +239,10 @@ to say so in the name; both at once is an error.
     "runtime": "bun",
     "target": ["darwin-arm64", "linux-x64", "windows-x64"],
   },
+  "updateCheck": {
+    "type": "github",
+    "repo": "acme/mycli",
+  },
 }
 ```
 
@@ -273,6 +277,21 @@ naming a destination here is how you say it once instead of in every invocation
 and every CI step. Both are relative to the app — a reference is a committed
 artifact, so an absolute path would be one machine's answer written into a file
 every machine reads.
+
+`updateCheck` says where `@ttylabs/sigil/updates` looks, baked into what the
+build emits. An app that still needs a runtime installed asks npm about its own
+package without being told to; a **binary** has no such default, because npm is
+the right answer for something somebody installed and a guess for something
+somebody downloaded. So `sigil package` refuses to build a binary out of an app
+that imports the update check and has not said what it should look at.
+
+`type` is required and is one of `npm` (with `package`, `distTag`, `registry`),
+`github` (with `repo` and an optional tag `prefix`, which defaults to `v` and is
+stripped), `custom` (with a `url` and the `path` of keys the version sits under
+in the JSON it returns), or `none`. `none` is a declaration rather than an
+absence: it is how an app says it checks nothing, and also how one that passes
+its own `checker` to `check()` says it has handled it, since a checker passed in
+code beats whatever is declared here.
 
 `shake` decides whether the utility stylesheet is cut down to the classes your
 source can actually name. It is on by default, it only affects an app that

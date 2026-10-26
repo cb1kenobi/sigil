@@ -52,14 +52,19 @@ describe('package exports', () => {
     expect(pkg.types).toBe(pkg.exports['.'].types);
   });
 
-  it('should copy the update worker next to the updates entry', () => {
-    // updates/index.ts reads the worker off disk relative to its own module
-    // URL, so it has to ship alongside dist/updates.mjs
-    const copy = config.copy as { from: string }[];
-    const from = copy.map((c) => c.from);
-    expect(from).toContain('./src/updates/get-version-worker.js');
-    for (const file of from) {
-      expect(existsSync(resolve(root, file))).toBe(true);
+  it('should copy nothing it cannot find', () => {
+    // this used to assert that the update worker was copied next to
+    // `dist/updates.mjs`, because `updates/index.ts` read it off disk
+    // relative to its own module URL -- which is the defect: that path points
+    // wherever the *bundle* was written, so it worked from `node_modules` and
+    // every app `sigil build` produced died on `ENOENT`. The worker is baked
+    // into the bundle as a string now and there is nothing to copy, which
+    // `test/dist.test.ts` asserts from the other end.
+    //
+    // The general half is kept: a `copy` naming a file that is not there is a
+    // build quietly shipping less than it says it does
+    for (const { from } of (config.copy ?? []) as { from: string }[]) {
+      expect(existsSync(resolve(root, from)), from).toBe(true);
     }
   });
 });

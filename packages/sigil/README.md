@@ -3797,8 +3797,8 @@ environment.
 
 ### `sigil/updates`
 
-Checks npm for a newer version in a spawned worker, so the check never blocks
-the CLI.
+Checks for a newer version in a spawned worker, so the check never blocks the
+CLI.
 
 ```js
 import { check } from '@ttylabs/sigil/updates';
@@ -3815,6 +3815,69 @@ const { current, latest } = await check({
 
 By default it returns immediately with whatever the cache already had and lets
 the worker refresh it for next time.
+
+#### What it checks
+
+An app that is installed — from npm, run by a runtime you have — asks npm
+about `packageName`, which needs no configuration. A **single-file executable**
+built by `sigil package` has no default: npm is the right answer for something
+somebody installed and a guess for a binary somebody downloaded, which may well
+not be published anywhere. So a binary checks nothing until you say what to
+check, and `sigil package` refuses to build one that imports this module and
+has not.
+
+Say it in `sigil.json`, where the build bakes it into what it emits and your
+`check()` call stays the same:
+
+```jsonc
+{
+  "updateCheck": { "type": "github", "repo": "acme/mycli" },
+}
+```
+
+| `type`     | what it asks                  | fields                           |
+| ---------- | ----------------------------- | -------------------------------- |
+| `"npm"`    | a registry's dist-tags        | `package`, `distTag`, `registry` |
+| `"github"` | a repository's latest release | `repo`, `prefix`                 |
+| `"custom"` | any URL returning JSON        | `url`, `path`                    |
+| `"none"`   | nothing                       | —                                |
+
+`prefix` defaults to `v` and is stripped off the release tag, because `v1.2.3`
+against an app version of `1.2.3` would report an update forever. `path` is the
+sequence of keys the version sits under in the response, as a list rather than
+a dotted string so a key may contain a dot.
+
+Or pass one in code, which beats whatever is baked in:
+
+```js
+import { check, githubChecker } from '@ttylabs/sigil/updates';
+
+await check({
+  packageName: 'mycli',
+  packageVersion: VERSION,
+  checker: githubChecker({ repo: 'acme/mycli' }),
+});
+```
+
+`npmChecker()`, `githubChecker()` and a plain `{ type, url, path, headers,
+prefix }` object are all a checker is — data, not a function, because the
+ordinary path hands it to another process.
+
+#### In a compiled binary
+
+There is no runtime to spawn, so the check runs in the app's own process and
+cannot outlive it. By default its socket is unreffed, so it costs the run
+nothing and finishes only if the app does not exit first — which a fast CLI
+will not. Two options say that is not good enough:
+
+- `linger: true` keeps the process alive until the check settles, after the
+  CLI's own work is done.
+- `wait: true` awaits it at the call, so `latest` is fresh on the run that
+  fetched.
+
+Both cost up to `timeout` on the one run per `checkInterval` where the check
+actually fires, and neither does anything outside a binary — a spawned worker
+already outlives the CLI.
 
 ---
 
