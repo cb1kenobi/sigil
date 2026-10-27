@@ -2768,6 +2768,83 @@ async — return a string to reject the answer with that message. Editing keys
 are the usual ones: arrows, Home/End, Ctrl-A/E/U, Backspace, Delete. A paste
 arrives as one chunk and is read as the keys it carries, not just the first.
 
+#### A date
+
+```js
+import { date } from '@ttylabs/sigil/components';
+
+const due = await date({
+  message: 'Due date',
+  min: new Date(),
+  max: new Date(2030, 11, 31),
+});
+
+const start = await date({ message: 'Starts at', time: true });
+```
+
+Returns a `Date`. The field is segments in ISO order, always -- year, month, day,
+then hour and minute with `time: true` and the second with `seconds: true` -- and
+the order does not follow the locale. Left, Right, Tab and Shift-Tab move between
+segments, Up and Down step the one you are on, and digits fill it in, moving on
+when it is full. A segment takes digits only; Backspace drops the digits typed
+into it so far.
+
+Stepping wraps inside the segment and **never carries**: December up is January
+of the same year, and 23:59 up is 23:00 on the same day. The day is pulled back
+to the last day of a shorter month when the month or the year changes, so January
+31st stepped to February is the 28th, or the 29th in a leap year.
+
+The value is built as a **local** date-time and handed to the same reader the
+parser's `date` data type uses, so the prompt and `--when` cannot disagree about
+what a date is. `min` and `max` are inclusive at the precision shown (a `max` of
+the afternoon of the 20th allows the 20th when only the date is shown): a step or
+typed entry that would leave the range lands on the nearest bound, and an
+`initial` given outside it is kept as it is and refused on Enter with an error
+line. `validate` is the same as `text()`'s. `initial` defaults to now, truncated
+to what is shown and pulled into the range.
+
+#### Choices that say more
+
+```js
+import { multiselect, select, separator } from '@ttylabs/sigil/components';
+
+const target = await select({
+  message: 'Deploy to',
+  choices: [
+    separator('Cloud'),
+    { label: 'Production (us-east-1)', short: 'prod', value: 'prod', description: 'The real one.' },
+    separator('Local'),
+    { label: 'Docker', value: 'docker', disabled: 'Docker is not running' },
+    { label: 'This machine', value: 'local' },
+  ],
+  loop: false,
+});
+
+const checks = await multiselect({
+  message: 'Checks',
+  choices: ['Type check', 'Unit tests', { label: 'Security scan', disabled: true }],
+  min: 1,
+  max: 2,
+});
+```
+
+A `Choice` takes `disabled` (`true`, or a string that is the reason and is drawn
+where a hint would be), `description` (a line under the list while the choice is
+highlighted), `short` (what the answered line says, when the label is longer) and
+`selected`. A `separator(label)` in `choices` is a heading and not a choice.
+
+The cursor **steps over** a heading and a disabled choice rather than landing on
+one and refusing, `initial` moves to the next choice on offer, and Home and End go
+to the first and last. It wraps at the ends unless `loop: false`. A list with
+nothing on offer is refused the way an empty one is. A disabled choice is never
+ticked, whatever its `selected` says.
+
+In `multiselect()`, `a` ticks every choice on offer (or clears them if they all
+already are), `i` flips each one, and Ctrl-A is `a` still. Enter checks `min` and
+`max` — `required` is `min: 1` — and says how many it wanted: `Choose at least 2`.
+Neither is checked while ticking, so a `max` of 3 does not stop the fourth Space,
+only the Enter.
+
 #### A multiline answer
 
 ```js
