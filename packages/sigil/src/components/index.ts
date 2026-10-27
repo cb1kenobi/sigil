@@ -24,6 +24,7 @@ export {
 export { date, type DateOptions } from './date.js';
 export {
   type Choice,
+  type ChoiceEntry,
   confirm,
   type ConfirmOptions,
   ESCAPE_TIMEOUT,
@@ -36,6 +37,8 @@ export {
   type PromptOptions,
   select,
   type SelectOptions,
+  separator,
+  type Separator,
   type SubmitKey,
   text,
   type TextOptions,

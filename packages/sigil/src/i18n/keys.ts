@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 114 keys, which is what a catalog has to carry to translate sigil's own
+ * 117 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -37,6 +37,8 @@ export const SIGIL_KEYS: readonly string[] = [
   'Cannot delete "{0}": it is set in {1}, which is read-only.\n  Set it in {2} to override the value, or\n  remove it from {3}.',
   'Cannot prompt for "{0}" because the input is not a terminal',
   'Choose at least one',
+  'Choose at least {0}',
+  'Choose at most {0}',
   'Commands:',
   'Count is too large to be exact: {0}',
   'Date must not be after {0}',
@@ -116,6 +118,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'argument <{0}>',
   'ctrl-alt-{0}',
   'ctrl-{0}',
+  'disabled',
   'from $SHELL',
   'no',
   'none',

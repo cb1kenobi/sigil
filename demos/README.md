@@ -325,19 +325,20 @@ waits for it rather than reporting a silence that is not one.
 
 ## Components
 
-|                                                                    |                                                         |
-| ------------------------------------------------------------------ | ------------------------------------------------------- |
-| [`components/01-spinner.js`](components/01-spinner.js)             | Work whose length is not known                          |
-| [`components/02-progress.js`](components/02-progress.js)           | Work whose length is                                    |
-| [`components/03-table.js`](components/03-table.js)                 | Columns that line up, whatever is in them               |
-| [`components/04-prompts.js`](components/04-prompts.js)             | Text, password, select, multiselect, confirm, multiline |
-| [`components/05-live-region.js`](components/05-live-region.js)     | A string frame repainted in place, on its own           |
-| [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js) | Styling, wrapping, and display width                    |
-| [`components/07-typewriter.js`](components/07-typewriter.js)       | Text that arrives rather than appears                   |
-| [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it            |
-| [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself            |
-| [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells             |
-| [`components/19-date.js`](components/19-date.js)                   | A date prompt: segments you step or type into           |
+|                                                                    |                                                           |
+| ------------------------------------------------------------------ | --------------------------------------------------------- |
+| [`components/01-spinner.js`](components/01-spinner.js)             | Work whose length is not known                            |
+| [`components/02-progress.js`](components/02-progress.js)           | Work whose length is                                      |
+| [`components/03-table.js`](components/03-table.js)                 | Columns that line up, whatever is in them                 |
+| [`components/04-prompts.js`](components/04-prompts.js)             | Text, password, select, multiselect, confirm, multiline   |
+| [`components/05-live-region.js`](components/05-live-region.js)     | A string frame repainted in place, on its own             |
+| [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js) | Styling, wrapping, and display width                      |
+| [`components/07-typewriter.js`](components/07-typewriter.js)       | Text that arrives rather than appears                     |
+| [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it              |
+| [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself              |
+| [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells               |
+| [`components/11-choices.js`](components/11-choices.js)             | Headings, disabled choices, descriptions, and `min`/`max` |
+| [`components/19-date.js`](components/19-date.js)                   | A date prompt: segments you step or type into             |
 
 ### Try them without a terminal
 
@@ -401,6 +402,14 @@ needs a terminal on both sides.
 What it cannot tell you is whether the code **scans**, which is the only thing
 about a QR code that matters and is the one claim nothing in a process can make.
 `node packages/sigil/scripts/terminal-probe.mjs --qrcode` is that, with a camera.
+
+`11-choices.js` is the only prompt demo that runs piped, and it does so by not
+being piped: with no terminal to read it drives the same two prompts with
+`createTestTerminal()` and prints the screen after each key, so the arrows
+stepping over a heading and a disabled row are something you can read in a log.
+On a terminal it is two ordinary prompts. That is the deliberate difference from
+`04-prompts.js`, which proves a prompt with nobody to answer it fails rather than
+waits -- this one never reaches that rule, because it always has somebody.
 
 `08-large-text.js` is the one where the answer is that nothing changes: a banner
 is static text, so there is no cursor to move and a pipe gets byte for byte what
