@@ -13,7 +13,7 @@ const { log } = debug('sigil:updates');
 const oneDay = 86400000;
 
 export type { GithubCheckerOptions, NpmCheckerOptions, UpdateChecker } from './checker.js';
-export { githubChecker, npmChecker, versionFrom } from './checker.js';
+export { githubChecker, isNewer, npmChecker, versionFrom } from './checker.js';
 export type { BakedUpdateConfig } from './host.js';
 
 export interface CheckOptions {
@@ -48,6 +48,49 @@ export interface CheckOptions {
   registryURL?: string;
   timeout?: number;
   wait?: boolean;
+}
+
+/** What an app is told when there is a newer version. */
+export interface UpdateNotice {
+  /** The version that is running. */
+  readonly current: string;
+  /** The newer one. */
+  readonly latest: string;
+  /** What the app calls itself. */
+  readonly name: string;
+}
+
+/**
+ * What `Schema.updateCheck` takes when `true` is not enough.
+ *
+ * The same options `check()` takes, minus the two the schema already knows --
+ * the version and, unless the npm package is not named for the program, the
+ * name -- plus the one thing only an automatic check has: what to say.
+ */
+export interface UpdateCheckOptions extends Partial<
+  Pick<
+    CheckOptions,
+    | 'cacheDir'
+    | 'checkInterval'
+    | 'checker'
+    | 'distTag'
+    | 'linger'
+    | 'packageName'
+    | 'registryURL'
+    | 'timeout'
+  >
+> {
+  /**
+   * The notice to print, in place of the default.
+   *
+   * The default says a newer version exists and nothing about how to get it,
+   * because it cannot know: an npm package, a downloaded binary and a Homebrew
+   * formula are each updated differently, and a command that is right for one
+   * is a wrong instruction for the other two. An app that knows says so here.
+   *
+   * Return an empty string, or nothing, to print nothing.
+   */
+  message?: (notice: UpdateNotice) => string | undefined;
 }
 
 export async function check(

@@ -29,6 +29,15 @@ export interface BakedUpdateConfig {
   readonly checker?: UpdateChecker | null;
   /** Whether the app is a single-file executable. */
   readonly compiled: boolean;
+  /**
+   * What the app's manifest calls the package.
+   *
+   * Baked because the program's name and its package's name are different
+   * facts -- `@ttylabs/cli` publishes `sigil` -- and an automatic check has
+   * only the first in its hand. The runtime cannot read a `package.json` of
+   * its own: a bundle has no manifest beside it.
+   */
+  readonly packageName?: string;
 }
 
 /**

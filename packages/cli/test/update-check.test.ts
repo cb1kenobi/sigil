@@ -3,6 +3,8 @@ import {
   bakedUpdateCheck,
   bundleApp,
   discoverApp,
+  readSchemaUpdateCheck,
+  schemaWantsUpdateCheck,
   resolveCommandTree,
   updateCheckDefine,
   UPDATE_CHECK_DEFINE,
@@ -66,16 +68,31 @@ afterAll(() => {
  * because the app imports `@ttylabs/sigil` by name and node resolves that by
  * walking up from the file.
  */
-function variant(name: string, config?: unknown): string {
+function variant(name: string, config?: unknown, entry?: string): string {
   const root = join(variants, name);
   rmSync(root, { force: true, recursive: true });
   mkdirSync(root, { recursive: true });
   cpSync(join(app, 'package.json'), join(root, 'package.json'));
   cpSync(join(app, 'src'), join(root, 'src'), { recursive: true });
+  if (entry !== undefined) {
+    writeFileSync(join(root, 'src', 'index.js'), entry);
+  }
   if (config !== undefined) {
     writeFileSync(join(root, 'sigil.json'), JSON.stringify(config, null, 2));
   }
   return root;
+}
+
+/** An entry module holding a schema with `schemaBody` in it, written into a variant of its own. */
+function entryOf(schemaBody: string, preamble = ''): string {
+  const root = variant(
+    `schema-${Math.random().toString(36).slice(2, 8)}`,
+    undefined,
+    [preamble, `export default { name: 'x', commands: './commands', ${schemaBody} };`, ''].join(
+      '\n'
+    )
+  );
+  return join(root, 'src', 'index.js');
 }
 
 /**
@@ -184,7 +201,7 @@ describe('what the build bakes in', () => {
     // absent rather than `null`: an app that said nothing falls through to
     // `check()`'s own default, and `null` is the app saying it checks nothing
     const baked = bakedUpdateCheck({ compiled: false, config: {}, packageName: 'mycli' });
-    expect(baked).toEqual({ compiled: false });
+    expect(baked).toEqual({ compiled: false, packageName: 'mycli' });
     expect('checker' in baked).toBe(false);
   });
 
@@ -270,6 +287,20 @@ describe('what the build bakes in', () => {
     // goes and the bundle does not parse.
     const define = updateCheckDefine({ compiled: true });
     expect(JSON.parse(JSON.parse(define[UPDATE_CHECK_DEFINE]!))).toEqual({ compiled: true });
+  });
+
+  it('should carry the package name even when nothing was declared', () => {
+    // the program is `sigil` and the package is `@ttylabs/cli`, and an
+    // automatic check has only the first in hand
+    for (const config of [{}, { updateCheck: { type: 'none' } }] satisfies SigilConfig[]) {
+      expect(
+        bakedUpdateCheck({ compiled: false, config, packageName: '@ttylabs/cli' }).packageName
+      ).toBe('@ttylabs/cli');
+    }
+  });
+
+  it('should leave the name out where the manifest has none', () => {
+    expect('packageName' in bakedUpdateCheck({ compiled: false, config: {} })).toBe(false);
   });
 });
 
@@ -455,6 +486,260 @@ describe('a packaged binary', () => {
       // and the binary ran once: re-executing itself would print this twice,
       // which is what spawning `process.execPath` inside an executable does
       expect(text.match(/FAILED/g) ?? []).toHaveLength(1);
+    },
+    180000
+  );
+});
+
+// `updateCheck: true` on the schema is the app asking for a check without ever
+// importing `@ttylabs/sigil/updates`, so the bundler's watch on that specifier
+// cannot see it. The schema is read instead -- and it errs towards **not**
+// refusing, because a false refusal stops a correct build while a missed one
+// costs a notice that never appears
+describe('whether the schema asks for an update check', () => {
+  /** Read the way `sigil package` reads it. */
+  function wants(schemaBody: string, preamble = ''): boolean {
+    return schemaWantsUpdateCheck(entryOf(schemaBody, preamble));
+  }
+
+  it.each([
+    ['true', 'updateCheck: true'],
+    ['an options object', "updateCheck: { distTag: 'next' }"],
+    ['a message and no checker of its own', 'updateCheck: { message: () => "update" }'],
+    ['a computed value', 'updateCheck: process.env.CHECK === "1"'],
+    ['a quoted key', '"updateCheck": true'],
+  ])('should see %s', (_what, body) => {
+    expect(wants(body)).toBe(true);
+  });
+
+  it.each([
+    ['nothing', ''],
+    ['false', 'updateCheck: false'],
+    [
+      'a checker of its own',
+      "updateCheck: { checker: { type: 'x', path: ['v'], url: 'https://e.com' } }",
+    ],
+    ['a call building its own checker', "updateCheck: { checker: githubChecker({ repo: 'a/b' }) }"],
+    // the shorthand: where to look is all there is to say
+    [
+      'a checker written out and given bare',
+      "updateCheck: { type: 'x', path: ['v'], url: 'https://e.com' }",
+    ],
+    // a key this cannot read is a key it will not refuse over
+    ['a computed key', "['updateCheck']: true"],
+    ['a method', 'updateCheck() { return true; }'],
+  ])('should not refuse over %s', (_what, body) => {
+    expect(wants(body)).toBe(false);
+  });
+});
+
+// `updateCheck: githubChecker({ repo })` is `{ checker: githubChecker({ repo }) }`
+// said shorter, and the build has to read it as the same thing: the call is a
+// binding of the import rather than a spelling, and `objectLiteral()` looks
+// through a call with one object argument, so a reader that asked it first
+// would take `{ repo }` for the options and refuse a correct build
+describe('whether the schema names its own checker', () => {
+  const builders = "import { githubChecker, npmChecker } from '@ttylabs/sigil/updates';";
+
+  function reads(
+    schemaBody: string,
+    preamble = builders
+  ): ReturnType<typeof readSchemaUpdateCheck> {
+    return readSchemaUpdateCheck(entryOf(schemaBody, preamble));
+  }
+
+  it.each([
+    ['a github checker given bare', "updateCheck: githubChecker({ repo: 'a/b' })"],
+    ['an npm checker given bare', "updateCheck: npmChecker({ packageName: 'x' })"],
+    ['one inside the options', "updateCheck: { checker: githubChecker({ repo: 'a/b' }) }"],
+    ['one in parentheses', "updateCheck: (githubChecker({ repo: 'a/b' }))"],
+    ['one written out', "updateCheck: { type: 'x', path: ['v'], url: 'https://e.com' }"],
+  ])('should see %s', (_what, body) => {
+    expect(reads(body)).toBe('names');
+  });
+
+  it('should see a builder imported under another name', () => {
+    expect(
+      reads(
+        "updateCheck: gh({ repo: 'a/b' })",
+        "import { githubChecker as gh } from '@ttylabs/sigil/updates';"
+      )
+    ).toBe('names');
+    expect(
+      reads(
+        "updateCheck: updates.githubChecker({ repo: 'a/b' })",
+        "import * as updates from '@ttylabs/sigil/updates';"
+      )
+    ).toBe('names');
+  });
+
+  it.each([
+    ['true', 'updateCheck: true'],
+    ['options with no checker', "updateCheck: { distTag: 'next' }"],
+    // not the builder: a local of that name, or one from somewhere else, is
+    // not a statement about where to look
+    ['a call that is not the builder', "updateCheck: somethingElse({ repo: 'a/b' })"],
+  ])('should see %s as asking without saying where', (_what, body) => {
+    expect(reads(body)).toBe('asks');
+  });
+
+  it('should not take a local of the same name for the builder', () => {
+    expect(
+      reads(
+        "updateCheck: githubChecker({ repo: 'a/b' })",
+        'const githubChecker = (options) => options;'
+      )
+    ).toBe('asks');
+  });
+
+  it('should say nothing for a schema that does not ask', () => {
+    expect(reads('')).toBe(undefined);
+    expect(reads('updateCheck: false')).toBe(undefined);
+  });
+});
+
+describe('what the refusal says', () => {
+  it('should name the schema when that is how the app asked', () => {
+    expect(() => assertUpdateCheckDeclared({}, 'schema')).toThrow(/sets updateCheck in its schema/);
+    expect(() => assertUpdateCheckDeclared({}, 'schema')).toThrow(/"none"/);
+  });
+
+  it('should name the import when that is how the app asked', () => {
+    expect(() => assertUpdateCheckDeclared({}, 'import')).toThrow(
+      /imports @ttylabs\/sigil\/updates/
+    );
+  });
+
+  it('should be satisfied by a declaration whichever way the app asked', () => {
+    for (const use of ['import', 'schema'] as const) {
+      expect(() => assertUpdateCheckDeclared({ updateCheck: { type: 'none' } }, use)).not.toThrow();
+    }
+  });
+});
+
+describe('a packaged binary that asks in its schema', () => {
+  const source = [
+    'export default {',
+    "  name: 'fixture-auto',",
+    "  version: '1.0.0',",
+    '  updateCheck: true,',
+    "  run() { process.stdout.write('ran\\n'); },",
+    '};',
+    '',
+  ].join('\n');
+
+  it.skipIf(!hasBun)(
+    'should be refused without ever importing the update check',
+    async () => {
+      const root = variant('auto-refused', undefined, source);
+      const out = mkdtempSync(join(tmpdir(), 'sigil-upd-pkg-'));
+      try {
+        const { code, err } = await sigil('package', root, '--runtime', 'bun', '--out', out);
+        expect(code).toBeTruthy();
+        expect(err).toContain('sets updateCheck in its schema');
+        expect(readdirSync(out)).toEqual([]);
+      } finally {
+        rmSync(out, { force: true, recursive: true });
+      }
+    },
+    180000
+  );
+
+  // the checker is where to look, so an app that gives one in its schema has
+  // said it -- and importing the builder to do so is what puts the update check
+  // in the graph, which used to be refused as a second thing to declare
+  it.skipIf(!hasBun)(
+    'should package with a checker given bare in the schema, and no sigil.json',
+    async () => {
+      const root = variant(
+        'auto-bare',
+        undefined,
+        [
+          "import { githubChecker } from '@ttylabs/sigil/updates';",
+          'export default {',
+          "  name: 'fixture-bare',",
+          "  version: '1.0.0',",
+          "  updateCheck: githubChecker({ repo: 'acme/mycli' }),",
+          "  run() { process.stdout.write('ran\\n'); },",
+          '};',
+          '',
+        ].join('\n')
+      );
+      const out = mkdtempSync(join(tmpdir(), 'sigil-upd-pkg-'));
+      try {
+        const { code, err } = await sigil('package', root, '--runtime', 'bun', '--out', out);
+        expect(code, err).toBeFalsy();
+
+        const result = spawnSync(join(out, binaryName('fixture-updates', hostTarget())), [], {
+          encoding: 'utf-8',
+        });
+        expect(result.stdout).toBe('ran\n');
+        expect(result.stderr).toBe('');
+      } finally {
+        rmSync(out, { force: true, recursive: true });
+      }
+    },
+    180000
+  );
+
+  // the other direction, because relaxing a refusal is only safe if the one
+  // case it was written for still gets it: switching the check on, importing
+  // the builder, and naming no place to look
+  it.skipIf(!hasBun)(
+    'should still be refused when it imports a builder and never gives it to updateCheck',
+    async () => {
+      const root = variant(
+        'auto-unused-builder',
+        undefined,
+        [
+          "import { githubChecker } from '@ttylabs/sigil/updates';",
+          'void githubChecker;',
+          'export default {',
+          "  name: 'fixture-unused',",
+          "  version: '1.0.0',",
+          '  updateCheck: true,',
+          "  run() { process.stdout.write('ran\\n'); },",
+          '};',
+          '',
+        ].join('\n')
+      );
+      const out = mkdtempSync(join(tmpdir(), 'sigil-upd-pkg-'));
+      try {
+        const { code, err } = await sigil('package', root, '--runtime', 'bun', '--out', out);
+        expect(code).toBeTruthy();
+        expect(err).toContain('"none"');
+        expect(readdirSync(out)).toEqual([]);
+      } finally {
+        rmSync(out, { force: true, recursive: true });
+      }
+    },
+    180000
+  );
+
+  it.skipIf(!hasBun)(
+    'should package once it says where to look, and run',
+    async () => {
+      const root = variant(
+        'auto-declared',
+        { updateCheck: { repo: 'acme/mycli', type: 'github' } },
+        source
+      );
+      const out = mkdtempSync(join(tmpdir(), 'sigil-upd-pkg-'));
+      try {
+        const { code, err } = await sigil('package', root, '--runtime', 'bun', '--out', out);
+        expect(code, err).toBeFalsy();
+
+        const result = spawnSync(join(out, binaryName('fixture-updates', hostTarget())), [], {
+          encoding: 'utf-8',
+        });
+        // stderr is not a terminal here, so the check never starts and the
+        // command is unaffected -- which is the half of the contract a script
+        // depends on
+        expect(result.stdout).toBe('ran\n');
+        expect(result.stderr).toBe('');
+      } finally {
+        rmSync(out, { force: true, recursive: true });
+      }
     },
     180000
   );

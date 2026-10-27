@@ -3816,6 +3816,66 @@ const { current, latest } = await check({
 By default it returns immediately with whatever the cache already had and lets
 the worker refresh it for next time.
 
+#### Turning it on for the whole app
+
+Calling `check()` yourself is the mechanism. Most apps want the policy, and it
+is one line on the schema:
+
+```js
+export default {
+  name: 'mycli',
+  version: '1.2.3',
+  updateCheck: true,
+  commands: './commands',
+};
+```
+
+`main()` starts the check when a command begins and, once the command has
+succeeded, prints one line to stderr if the last look found something newer:
+
+```
+A new version of mycli is available: 1.2.3 → 1.3.0
+```
+
+The first run says nothing, because nothing is cached yet; the next one does.
+It is quiet in every case where there is nobody to tell, and **nothing is
+fetched** in those cases either: stderr is not a terminal, `--quiet` or a
+`--format` was asked for, `CI` is set, or `NO_UPDATE_NOTIFIER` is. It also says
+nothing after `--help`, `--version`, a parse error, or a command that failed or
+set a failing exit code.
+
+Pass an object when `true` is not enough. It takes everything `check()` does,
+less the version, which the schema supplies, plus `message`:
+
+```js
+updateCheck: {
+  packageName: '@acme/mycli',   // when the npm package is not named for the program
+  message: ({ name, current, latest }) => `${name} ${latest} is out: brew upgrade ${name}`,
+},
+```
+
+When where to look is the only thing to say, give the checker on its own. This
+is `{ checker }` written shorter, and it is the usual shape for a binary:
+
+```js
+import { githubChecker } from '@ttylabs/sigil/updates';
+
+export default {
+  name: 'mycli',
+  version: '1.2.3',
+  updateCheck: githubChecker({ repo: 'acme/mycli' }),
+  commands: './commands',
+};
+```
+
+The default text says a newer version exists and not how to get it, because
+sigil cannot know: an npm package, a downloaded binary and a Homebrew formula
+are each updated differently. `message` is how an app that knows says so; return
+an empty string to print nothing. "Newer" is semver order, so a build ahead of
+the published one — a release candidate, a checkout of `main` — is never told it
+is out of date. A version that is not semver is never called newer; write a
+`message` for those.
+
 #### What it checks
 
 An app that is installed — from npm, run by a runtime you have — asks npm
@@ -3826,7 +3886,11 @@ not be published anywhere. So a binary checks nothing until you say what to
 check, and `sigil package` refuses to build one that imports this module and
 has not.
 
-Say it in `sigil.json`, where the build bakes it into what it emits and your
+Say it in the schema, where it sits beside the `updateCheck` that switches the
+check on -- `updateCheck: githubChecker({ repo: 'acme/mycli' })` -- and
+`sigil package` needs nothing more, because the app has said where to look.
+
+Or say it in `sigil.json`, where the build bakes it into what it emits and your
 `check()` call stays the same:
 
 ```jsonc
@@ -3859,6 +3923,70 @@ await check({
 });
 ```
 
+`npmChecker()` is the same shape for a registry. It is what an installed app
+uses when nothing is said, so you reach for it to change something about that
+default — follow a prerelease tag, or ask a private registry — or to give a
+binary an npm answer on purpose:
+
+```js
+import { check, npmChecker } from '@ttylabs/sigil/updates';
+
+await check({
+  packageName: '@acme/mycli',
+  packageVersion: VERSION,
+  checker: npmChecker({
+    packageName: '@acme/mycli',
+    distTag: 'next', // defaults to `latest`
+    registryURL: 'https://npm.acme.example', // defaults to npm's
+  }),
+});
+```
+
+To word the notice yourself, put the checker in the options object beside
+`message`. A checker given on its own has nowhere to carry one:
+
+```js
+import { npmChecker } from '@ttylabs/sigil/updates';
+
+export default {
+  name: 'mycli',
+  version: '1.2.3',
+  updateCheck: {
+    checker: npmChecker({ packageName: '@acme/mycli', distTag: 'next' }),
+    message: ({ name, current, latest }) =>
+      `${name} ${latest} is out (you have ${current}). Run: npm i -g @acme/mycli@next`,
+  },
+  commands: './commands',
+};
+```
+
+A schema written as a bare `export default { ... }` has no type for `message`'s
+parameter to come from, so under `strict` it is an implicit `any` and `tsc`
+(and so `sigil build`) refuses it. End the literal with `satisfies Schema`
+(`import type { Schema } from '@ttylabs/sigil'`), or annotate the parameter with
+`UpdateNotice` from `@ttylabs/sigil/updates`.
+
+`message` is the same whichever checker is behind it. It is given the program's
+`name` and the `current` and `latest` versions, and what it returns is written to
+stderr after a blank line. An empty string or `undefined` prints nothing, which is
+also how to skip the notice for a version you do not want to announce. It is only
+for the automatic check; with `check()` you get `latest` back and word it
+yourself.
+
+The checker alone can also live in `sigil.json`, where the build bakes it in (a
+`message` is a function, so it stays in the schema):
+
+```jsonc
+{
+  "updateCheck": {
+    "type": "npm",
+    "package": "@acme/mycli",
+    "distTag": "next",
+    "registry": "https://npm.acme.example",
+  },
+}
+```
+
 `npmChecker()`, `githubChecker()` and a plain `{ type, url, path, headers,
 prefix }` object are all a checker is — data, not a function, because the
 ordinary path hands it to another process.
@@ -3878,6 +4006,12 @@ will not. Two options say that is not good enough:
 Both cost up to `timeout` on the one run per `checkInterval` where the check
 actually fires, and neither does anything outside a binary — a spawned worker
 already outlives the CLI.
+
+This matters for `updateCheck: true`: **a binary whose commands finish in
+milliseconds needs `linger: true`**, or the fetch never completes and no notice
+ever appears. Measured on a packaged Bun binary, the default left the cache
+empty after every run; `linger: true` cost about 0.4 s on the one run that
+looked and nothing on the rest.
 
 ---
 

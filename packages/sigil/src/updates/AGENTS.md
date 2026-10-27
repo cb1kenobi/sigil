@@ -214,3 +214,123 @@ runtime, through a spelling only Node accepts. The measurements are in
   checks **nothing**, and the key **absent** is the app having said nothing at
   all. Only the third falls through to the npm default, and collapsing the
   first two would make `"type": "none"` mean "use npm" in an installed app.
+
+### An update check that is switched on rather than called
+
+`Schema.updateCheck` and `src/updates/auto.ts`. `check()` is the mechanism and
+this is the policy around it -- when a person is there to be told, what to look
+up, and when to say it -- so that an app writes one line instead of a call it has
+to place, a result it has to compare and a message it has to word. The probes
+and the pty runs are in
+[docs/history/an-update-check-that-is-switched-on-not-called.md](../../../../docs/history/an-update-check-that-is-switched-on-not-called.md).
+
+- **It is the schema's, and `sigil.json`'s `updateCheck` is a different thing
+  with the same name on purpose.** The schema says _whether_: it is where an app
+  already declares its `name`, its `version` and its hooks, and a switch for
+  something `main()` does belongs beside them. `sigil.json` says _where to look_,
+  and exists because a binary has no default and a bundle cannot read that file
+  at run time. Neither implies the other: declaring a checker enables nothing,
+  because `check()` called by hand has always worked that way, and switching the
+  check on declares nothing, because an installed app needs no declaration. A
+  binary needs both, and `sigil package` refuses one that has only the first.
+
+- **Nothing is fetched where nothing can be shown.** The notice is for a person
+  at a terminal, so `skipReason()` is asked _before_ the check starts rather than
+  before it prints: stderr is not a terminal, `--quiet` or a `--format` was asked
+  for, `CI` is set, or `NO_UPDATE_NOTIFIER` is. A script that runs a CLI two
+  hundred times a day should not spawn a worker, write a cache and make a request
+  on each to learn something nobody will read. The two environment variables are
+  the conventions that exist -- `CI` is set by every CI system, and
+  `NO_UPDATE_NOTIFIER` is what update-notifier has taught a decade of tools to
+  honour, so a user who set it once has set it for everything -- and `''`, `0` and
+  `false` read as _off_, because `CI=false` is how a variable is turned off and
+  honouring it literally would silence the check for somebody who said no.
+
+- **It is started before the command and reported after it, and each half has a
+  reason.** In an app with a runtime the worker outlives the CLI either way. In a
+  single-file executable the fetch happens in this process and can only finish
+  while it is alive, so the command's own running time is the window it gets, and
+  a check begun after the work is a check begun on the way out of the door. It is
+  _reported_ after the work and only after work that succeeded: a notice
+  following an error is a second thing to read at the worst moment, `--help` and
+  `--version` return before a command runs, and a command that set a failing exit
+  code has said it did not succeed. Last, so it is the final thing on the
+  terminal rather than something the command's own output scrolls past.
+
+- **What it reports is the previous run's answer, and the first run says
+  nothing.** That is `check()`'s own contract -- it returns what the cache held
+  and refreshes it for next time -- and the alternative is a command that waits
+  on a registry before it starts. A fresh install is told on its second run.
+
+- **`isNewer()` is semver order, and a version it cannot read is never newer.**
+  `latest !== current` tells somebody running a build _ahead_ of the published
+  one -- a developer on `main`, a release candidate -- that they are out of date,
+  on every run, forever. Pre-releases follow semver: a release outranks any
+  pre-release of it, numeric identifiers compare as numbers and rank below
+  words, and the shorter set is the smaller. A calendar version or a git sha is
+  not semver and is never called newer: a check that cannot tell says nothing,
+  and the alternative is a notice on every run for a scheme nobody declared a
+  comparison for. An app whose versions are not semver writes its own `message`.
+
+- **The default text says a newer version exists and not how to get it.** An npm
+  package, a downloaded binary and a Homebrew formula are each updated
+  differently, and a command that is right for one is a wrong instruction for the
+  other two. `message` is how an app that knows says so; an empty string prints
+  nothing. It goes through `__`, so it is translatable, and
+  `src/i18n/keys.ts` carries its key.
+
+- **The package name is baked from the manifest, because the program and its
+  package are different facts.** `@ttylabs/cli` publishes `sigil`, and an
+  automatic check has the schema's `name` in hand and not the package's. The
+  build writes the manifest name into the baked config whether or not anything
+  was declared, and the order is `packageName` option, then the baked name, then
+  `schema.name` -- the last being right for the unscoped, same-named package that
+  is most apps and wrong for the rest, which is what the first two are for.
+
+- **No cache directory means no check, not a check that never reports.** The
+  fire-and-forget path leaves its answer in the cache, so without one it would
+  spawn a worker on every run and never tell anyone anything -- which is worse
+  than not checking. The directory defaults to `cache(<program name>)`, encoded,
+  since a scoped name would otherwise make its scope a directory.
+
+- **A binary needs `linger: true`, and the default is the one that was chosen,
+  not the one that works.** Measured on a packaged Bun binary at a terminal, with
+  a cold cache: the default left the cache **empty** after the run, so no notice
+  ever appeared for a CLI that exits in milliseconds; `linger: true` took about
+  0.4 s on that one run, wrote the cache, and the next run cost 47 ms against a
+  42 ms baseline. The default stays best-effort because that was decided for
+  `check()` -- it costs the run nothing, which is the promise the unreffed socket
+  exists to keep -- and because flipping it for the automatic path has a cost
+  that is not obvious: with `linger`, a network that _never answers_ costs
+  `timeout` on **every** run, since a failed fetch writes no cache and so the
+  next run is stale too. A refused connection or a DNS failure returns at once,
+  so the common offline case is cheap and a blackholed one is not. That trade
+  belongs to the app, so it is documented on the property rather than chosen for
+  everyone.
+
+- **Nothing in it can fail the command.** An update notice is the least
+  important thing the program prints. `beginUpdates()` in `main()` cannot reject,
+  `beginUpdateCheck()` catches everything it does including a `version` function
+  that throws, and the finisher catches a `message` that throws -- each tested,
+  because a bug in a notice is not an excuse for a non-zero exit.
+
+- **`updateCheck` takes a checker on its own, and tells it from the options by
+  shape.** A binary has one thing to say -- where to look -- and `{ checker: x }`
+  was a level of nesting around exactly that. `isChecker()` is a `type` and a
+  `url` that are strings and a `path` that is a list, and the options cannot
+  satisfy it: the ones that name a place do it through `checker`, so none of
+  them is called `type` or `url`. The bare form is `{ checker }` and nothing else,
+  normalized in one function (`updateCheckOptions()`) so the schema's value is
+  read in one place. A half-written checker is _options_ -- its `type` and `url` are
+  ignored, so in plain JavaScript it checks npm, silently -- and the types are
+  what catch it, since the options have no such properties and a literal with
+  them is an excess-property error. Refusing it at run time was left alone: the
+  check cannot fail the command, so the refusal would be a log line.
+
+- **The graph stays clean for an app that did not ask.** `auto.ts` is reached by
+  one dynamic `import()`, inside `main()`, behind `schema.updateCheck`. The worker
+  string, the cache and the spawn are in chunks `index.mjs` reaches only through
+  it -- checked by reading `dist/`, since a static `import` added to the wrong
+  module would put the 8.9 kB worker string -- a 14.7 kB chunk with the check around
+  it, as of this change -- into every app, and no test of the feature would notice. The worker's chunk is shared with `updates.mjs` now, so the dist guard
+  reads `staticGraph('updates.mjs')` rather than the entry alone.

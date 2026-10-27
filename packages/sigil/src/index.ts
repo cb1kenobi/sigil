@@ -175,6 +175,12 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
       const started = performance.now();
       let result: RunResult;
 
+      // begun before the command and not after it: in a single-file executable
+      // the fetch happens in this process and can only finish while it is
+      // alive, so the command's own running time is the window it gets. Not
+      // awaited, so the command starts when it would have
+      const updates = state.schema.updateCheck ? beginUpdates(state.schema) : undefined;
+
       try {
         result = { ok: true, value: await cmd.run(state) };
       } catch (err) {
@@ -211,6 +217,15 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
       // presenting the framework's bookkeeping as the command's answer
       if (state.format !== undefined) {
         writeFormatted(state, cmd, result.value);
+      }
+
+      // after the work, and only after work that succeeded: a notice following
+      // an error is a second thing to read at the worst moment, and `--help`
+      // and `--version` never get here. Last, so it is the final thing on the
+      // terminal rather than something the command's own output scrolls past
+      const announce = await updates;
+      if (announce && !process.exitCode) {
+        await announce();
       }
 
       // the `?? state` substitution is `main()`'s return value and not the
@@ -254,6 +269,29 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
     return await handleError(err, state ?? stateFromError(err), opts, hooksFired);
   } finally {
     restoreQuiet?.();
+  }
+}
+
+/**
+ * Starts the update check for a schema that asked for one.
+ *
+ * Imported here and nowhere else, which is what keeps the worker, the cache and
+ * the spawn out of an app that did not ask: this is the only door to them and
+ * it opens for `updateCheck` alone. Cannot reject -- an update notice is the
+ * least important thing the program prints, and nothing it does is a reason for
+ * a command to fail.
+ *
+ * @param schema - The schema.
+ * @returns What to call once the command has succeeded, if there is anything to
+ *   say.
+ */
+async function beginUpdates(schema: Schema): Promise<(() => Promise<void>) | undefined> {
+  try {
+    const { beginUpdateCheck } = await import('./updates/auto.js');
+    return await beginUpdateCheck(schema);
+  } catch (err) {
+    log(`Update check failed to start: ${(err as Error).message}`);
+    return undefined;
   }
 }
 

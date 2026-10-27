@@ -28,6 +28,26 @@ export interface UpdateChecker {
   readonly url: string;
 }
 
+/**
+ * Whether a value is a checker rather than a set of options.
+ *
+ * `Schema.updateCheck` takes either, and the two cannot be confused: a checker
+ * always says what it is and where to look, and the options never carry a
+ * `type` or a `url` -- the options that name a place do it through `checker`.
+ * Asked by shape because a checker is data, not a class, for the reason the
+ * interface above gives.
+ *
+ * @param value - Whatever `updateCheck` held.
+ * @returns Whether it is a checker.
+ */
+export function isChecker(value: unknown): value is UpdateChecker {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const { path, type, url } = value as Record<string, unknown>;
+  return typeof type === 'string' && typeof url === 'string' && Array.isArray(path);
+}
+
 /** What `npmChecker()` is given. */
 export interface NpmCheckerOptions {
   /** The dist tag to read, which defaults to `latest`. */
@@ -148,4 +168,93 @@ export function versionFrom(body: unknown, checker: UpdateChecker): string | und
 
   const { prefix } = checker;
   return prefix && value.startsWith(prefix) ? value.slice(prefix.length) : value;
+}
+
+const VERSION_RE = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/** A version, as far as this reads one. */
+interface ParsedVersion {
+  readonly core: readonly [number, number, number];
+  readonly pre: readonly string[] | undefined;
+}
+
+function parseVersion(text: string): ParsedVersion | undefined {
+  const match = VERSION_RE.exec(text.trim());
+  if (!match) {
+    return undefined;
+  }
+
+  return {
+    core: [Number(match[1]), Number(match[2] ?? 0), Number(match[3] ?? 0)],
+    pre: match[4]?.split('.'),
+  };
+}
+
+/** Semver's rule for the pre-release part: numbers compare as numbers, and rank below words. */
+function comparePre(a: readonly string[], b: readonly string[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i];
+    const y = b[i];
+
+    // a set that runs out first is the smaller one: `1.0.0-rc` < `1.0.0-rc.1`
+    if (x === undefined || y === undefined) {
+      return x === undefined ? -1 : 1;
+    }
+
+    const xn = /^\d+$/.test(x);
+    const yn = /^\d+$/.test(y);
+
+    if (xn && yn && Number(x) !== Number(y)) {
+      return Number(x) - Number(y);
+    }
+
+    if (xn !== yn) {
+      return xn ? -1 : 1;
+    }
+
+    if (!xn && x !== y) {
+      return x < y ? -1 : 1;
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * Whether `latest` is a later version than `current`.
+ *
+ * Ordered by semver rather than compared for difference, and that is the
+ * point of having it: `latest !== current` tells somebody running a build
+ * **newer** than the published one -- a developer on `main`, a release
+ * candidate -- that they are out of date, on every run, forever.
+ *
+ * A version this cannot read is never newer. A check that cannot tell is a
+ * check that says nothing, and the alternative is a notice on every run for a
+ * scheme (`2026.10.1`, a git sha) nobody declared a comparison for. An app
+ * whose versions are not semver writes its own `message`.
+ *
+ * @param latest - What the check found.
+ * @param current - What is running.
+ * @returns Whether there is something newer to say.
+ */
+export function isNewer(latest: string, current: string): boolean {
+  const a = parseVersion(latest);
+  const b = parseVersion(current);
+  if (!a || !b) {
+    return false;
+  }
+
+  for (let i = 0; i < 3; i++) {
+    if (a.core[i] !== b.core[i]) {
+      return a.core[i]! > b.core[i]!;
+    }
+  }
+
+  // an equal core: a release outranks any pre-release of it, so `1.0.0` is
+  // newer than `1.0.0-rc.1` and `1.0.0-rc.1` is not newer than `1.0.0`
+  if (!a.pre || !b.pre) {
+    return !a.pre && !!b.pre;
+  }
+
+  return comparePre(a.pre, b.pre) > 0;
 }

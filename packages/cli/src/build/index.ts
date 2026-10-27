@@ -148,10 +148,13 @@ export { typeCheck, type TypeCheckOptions, type TypeCheckResult } from './typech
 export {
   assertUpdateCheckDeclared,
   bakedUpdateCheck,
+  readSchemaUpdateCheck,
+  schemaWantsUpdateCheck,
   updateCheckDefine,
   UPDATE_CHECK_DEFINE,
   UPDATE_CHECK_SPECIFIER,
   type BakedUpdateCheckOptions,
+  type UpdateCheckUse,
 } from './update-check.ts';
 export {
   bunTriple,

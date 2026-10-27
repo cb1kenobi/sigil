@@ -36,6 +36,7 @@ import {
   assertUpdateCheckDeclared,
   bakedUpdateCheck,
   bundleApp,
+  readSchemaUpdateCheck,
   compileWithBun,
   compileWithNode,
   type CompileResult,
@@ -284,7 +285,16 @@ const pkg: AnyCommand = command({
       // the app is a question about the module graph, and there is no graph
       // until now. Before `compileAll()`, which is the expensive half -- a
       // binary written and signed for an app whose update check cannot work
-      assertUpdateCheckDeclared(sigilConfig, result.usesUpdateCheck);
+      //
+      // A schema that names its own checker has said where to look, and
+      // importing the builder it names it with is what put the specifier in
+      // the graph -- so that import is not a second thing to declare
+      const schemaCheck = readSchemaUpdateCheck(found.app.entry);
+      assertUpdateCheckDeclared(
+        sigilConfig,
+        (result.usesUpdateCheck && schemaCheck !== 'names' && 'import') ||
+          (schemaCheck === 'asks' && 'schema')
+      );
 
       const compiled = compileAll(runtime, {
         entry: result.bin,

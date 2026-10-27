@@ -3923,3 +3923,54 @@ measurements are in
   nothing leaving the machine. It first named a real GitHub repository and
   went to the network to find out it did not exist, which is a test that
   fails on a plane.
+
+- **A schema can switch the check on without importing it, so the refusal reads
+  the schema as well as the graph.** `updateCheck: true` never writes
+  `@ttylabs/sigil/updates`, so the bundler's watch on that specifier cannot see
+  it, and a binary that asked and declared nothing is exactly the failure
+  `assertUpdateCheckDeclared()` exists for. `schemaWantsUpdateCheck()` reads the
+  entry's schema literal -- read rather than run, for the reason every pass here
+  reads -- and `sigil package` refuses on either signal, naming which one in the
+  message.
+
+  It errs towards **not** refusing, because a false refusal stops a correct build
+  and a missed one costs a notice that never appears. A key it cannot read
+  (computed, an accessor, a method), a value that is literally `false`, and a
+  value that names its own checker all read as nothing to say: that last one
+  beats whatever `sigil.json` declares, so the app has already said where to
+  look. A schema defined in another module is invisible to it, which is the same
+  boundary the command tree has.
+
+  **Naming a checker has three spellings, and the bare one is the reason the
+  import half of the refusal had to learn about the schema.** `{ checker }`,
+  a literal with a `type` and a `url`, and a call to `githubChecker()` or
+  `npmChecker()` given as the whole value. The call is matched as a **binding**
+  of `@ttylabs/sigil/updates` rather than as a spelling, and it is asked
+  _before_ `objectLiteral()`, which looks through a call with one object
+  argument: asked the other way round, `githubChecker({ repo })` reads as the
+  options `{ repo }` and a correct build is refused. Any other call, or a
+  checker held in a variable, reads as asking without saying where -- the
+  refusal's message says how to declare it, and a false refusal there is a
+  `sigil.json` entry rather than a lost build.
+
+  The import half had to change with it. Writing the builder is what puts
+  `@ttylabs/sigil/updates` in the graph, so an app that named its checker in the
+  schema was refused for the import that named it -- and a refusal that fires on
+  the way of saying it is the false refusal this entry exists to avoid.
+  `sigil package` therefore lets `readSchemaUpdateCheck() === 'names'` satisfy
+  the import signal too. What stays refused is the app that imports a builder and
+  never gives it to `updateCheck`, which is pinned.
+
+- **The manifest's package name goes across whether or not anything was
+  declared.** `bakedUpdateCheck()` used to write only `{ compiled }` for an app
+  that declared nothing. An automatic check has the program's name in hand and
+  not the package's, and the two differ for any scoped package -- `@ttylabs/cli`
+  publishes `sigil` -- so the name is baked unconditionally and the runtime
+  prefers it to `schema.name`.
+
+- **A build's `--out` is relative to the app, not to the working directory.**
+  Found by the pty check for this, and worth writing down because it looks like a
+  bug and is the documented rule: `sigil build ./app --out ./built` writes under
+  `./app/built`, and a relative path that happens to exist from where you stand
+  builds somewhere you were not looking. The tests use absolute paths, which is
+  why nothing noticed.

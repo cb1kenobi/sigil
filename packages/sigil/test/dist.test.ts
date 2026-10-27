@@ -606,7 +606,14 @@ describe('what importing the package costs', () => {
 // string instead, and a build that quietly stops doing that looks exactly like
 // one that does.
 describe('the update worker, baked in', () => {
-  const bundle = readFileSync(join(dist, 'updates.mjs'), 'utf-8');
+  // everything `updates.mjs` loads rather than the entry alone: the worker
+  // lives in a chunk shared with the automatic check, so the entry is a few
+  // re-exports and the bytes are one import away. `staticGraph()` is the
+  // answer to "which modules does this pull in" and a second implementation
+  // of it is how two figures for one entry come to disagree
+  const bundle = [...staticGraph('updates.mjs')]
+    .map((name) => readFileSync(join(dist, name), 'utf-8'))
+    .join('\n');
 
   it('should carry the worker rather than a path to it', () => {
     // a string the minifier keeps, from the worker and from nowhere else

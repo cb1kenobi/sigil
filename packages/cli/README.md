@@ -285,6 +285,15 @@ the right answer for something somebody installed and a guess for something
 somebody downloaded. So `sigil package` refuses to build a binary out of an app
 that imports the update check and has not said what it should look at.
 
+`updateCheck` here says where to look. Whether to look at all is
+`updateCheck: true` on the app's schema, and a binary needs both: this tells it
+where, that switches it on. `sigil package` refuses an app that switches the
+check on, in its schema or by importing the module, and has declared nothing
+here — unless the schema's `updateCheck` names a checker of its own, either as
+`{ checker }` or bare (`updateCheck: githubChecker({ repo })`), which beats this.
+The build reads that from the schema's source, so it has to be written there: a
+checker built elsewhere and passed in by name is not seen.
+
 `type` is required and is one of `npm` (with `package`, `distTag`, `registry`),
 `github` (with `repo` and an optional tag `prefix`, which defaults to `v` and is
 stripped), `custom` (with a `url` and the `path` of keys the version sits under
