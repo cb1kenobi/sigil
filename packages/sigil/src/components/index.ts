@@ -21,6 +21,7 @@ export {
   type PaletteOptions,
   type PaletteResult,
 } from './palette.js';
+export { number, type NumberOptions } from './number.js';
 export {
   type Choice,
   confirm,

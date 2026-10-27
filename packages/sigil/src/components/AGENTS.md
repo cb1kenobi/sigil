@@ -4343,3 +4343,82 @@ how the two come to disagree." It is decided, and the answer is no.
   ECMA-48's 0x30-0x3f at the same time, because only `[\d;]` was read: the `<`
   a mouse report leads with was taken for the terminator, and `0;1;1M` was typed
   a character at a time after it.
+
+### A number prompt: the parser's reading of a number, in a text field
+
+SIG-159. `src/components/number.ts` is `number(opts): Promise<number>`, and nearly
+everything in it is a decision about what it does _not_ own.
+
+- **The prompt asks `transformValue()` what a number is, and has no opinion of its
+  own.** The text goes through the parser's `int` -- or `number` with `float` --
+  at Enter, so what is refused is what `--port 9007199254740993` is refused for,
+  in the parser's own sentence: nothing past 2^53-1, a lone `-` is `Invalid
+  integer`, a lone `.` is `Invalid number`. A second reader of the coercion rule
+  is how a prompt comes to accept a value the command line then rejects. The
+  rules this relies on (whitespace is not empty, empty is rejected for a
+  non-string type) never fire for typed text, because the field cannot hold
+  whitespace; they are there for a state the filter let through, such as `-`.
+- **A key that cannot be part of a number is ignored as it is typed, and nothing
+  is shown.** Digits (ASCII only: a fullwidth digit is a digit to a human and a
+  `NaN` to `Number()`), a `-` at offset 0 and only when `min` is unset or
+  negative, and a `.` only with `float` and only once. No `e`, so `1e3` and
+  `Infinity` cannot be written and the field never holds text the prompt would not
+  have accepted. The rule runs a character at a time against the value as it
+  stands, so a paste is held to the same rule as a keystroke (`1.2.3` pasted into
+  a float field is `1.23`). The sign check is `cursor === 0 &&
+  !value.startsWith('-')`, and the second half is reachable only by moving Home
+  and typing again, which is the test that pins it. A paste is flattened through
+  `pastedLine()` first, like `text()`'s.
+- **Enter outside `[min, max]` is an error line naming the bound, never a clamp.**
+  The arrows clamp because they produce a value; Enter judges one somebody typed,
+  and handing back a different number from the one on screen is the silent change
+  this repository refuses everywhere. The range is checked before `validate`,
+  which therefore only ever sees an in-range number. A `default` outside the range
+  is held to it as well: an empty answer is an answer.
+- **An empty answer is `default`, or `Enter a number` and the prompt asks again.**
+  Not a throw, for `text()`'s reason: the person is there.
+- **Stepping lands before it steps.** From an empty field (or a lone `-`) the first
+  Up or Down puts `default`, else `min`, else `0` in the field, clamped, and the
+  presses after it add `step`. Stepping _from_ that base instead turns an empty
+  field with `min: 1` into `2` on the first press, which skips the one value the
+  person was looking for. A half-written number (`.`) is left alone rather than
+  guessed at; the complaint belongs to Enter.
+- **Float arithmetic is rounded to the finer of the step's places and the value's.**
+  `0.2 + 0.1` is `0.30000000000000004`, and rounding to the step's places is what
+  fixes it; rounding to the step's alone also turns `0.125 + 0.1` into `0.23` and
+  deletes a digit somebody typed, on an arrow press. Steps are not aligned to a
+  grid anchored at `min` (HTML's step base): `min: 1, step: 5` goes 1, 6, 11, and
+  a value typed as `4` goes to `9`.
+- **A number is written without an exponent or not at all.** `String(1e-7)` is
+  `1e-7` and the field refuses an `e`, so a value the prompt wrote itself would be
+  text the prompt would not accept; `format()` uses `toFixed()` for those. Past
+  1e21 there is no plain spelling, and stepping there does nothing. An `int` that
+  would step past `MAX_SAFE_INTEGER` does nothing either.
+- **`-0` is `0`.** `Number('-0')` is `-0`, and an answer a caller prints or
+  `Object.is`es should not carry a sign nobody asked for.
+- **An unusable option rejects the prompt with a `PromptError` instead of asking
+  it.** A `step` of zero or less, `min > max`, a non-finite value anywhere, and --
+  without `float` -- a fractional `min`, `max`, `step`, `default` or `initial`:
+  each is a prompt that could only misbehave later, the way `multiline()` refuses
+  a `submit` with no name.
+- **The field is `multiline()`'s, not a second one.** `layoutField()` and
+  `fieldLayers()` draw it, so the caret, grapheme handling and cursor keys are the
+  shared ones; the only editing logic here is which characters may be typed. It
+  sits on the question's line like `text()`'s, in a `position: relative` box that
+  the caret layer resolves against, with the window kept on the caret's row for an
+  answer wider than the room. The caret is drawn at colour level 1 and above, as
+  everywhere.
+- **It is not a registry entry, and that is structural.** `generate-registry.mjs`
+  only knows the published subpaths, and `../util/transform.js` has none -- the
+  same refusal the command palette records, for the same reason: the one thing
+  this must share with the parser is the function that says what a valid value is,
+  and an ejected copy would carry a second reader of the coercion rule. Publishing
+  `transformValue()` is a new public surface taken inside a prompt ticket, and is
+  refused here as it was there. `layoutField()` and `fieldLayers()` are likewise
+  not barrel-exported (see the note above them in `prompt.ts`), which would have
+  blocked it independently. The ticket's "registry entry" is therefore not done.
+- **Deliberately not done:** thousands separators and units, an `e` for scientific
+  notation, hex or other bases (`transformValue()` reads `0x10` as an `int`; the
+  field cannot type an `x`), Page Up/Down for a larger step, a held key
+  accelerating, `round`, and a range hint on the question line -- the bound is
+  named when it is broken, which is when a person needs it.
