@@ -2959,9 +2959,63 @@ characters would not, and `maxWidth` truncates on grapheme clusters rather
 than slicing a surrogate pair in half. No borders — a table in a build log
 sits next to everything else that was printed, and rules around it are noise.
 
+#### Note
+
+```js
+import { note } from '@ttylabs/sigil/components';
+
+console.log(
+  note('Your project is ready.\n\n  $ cd my-app\n  $ npm install', {
+    title: 'Next steps',
+  })
+);
+```
+
+```
+╭─ Next steps ───────────╮
+│ Your project is ready. │
+│                        │
+│   $ cd my-app          │
+│   $ npm install        │
+╰────────────────────────╯
+```
+
+A framed message, for the "next steps" panel or the warning that has to be seen.
+It shrinks to its message and is wrapped at the terminal's width (or `width`), so
+a short note is a short box. Line breaks, blank lines and indentation are kept;
+wide characters and emoji are measured in columns, so the border stays straight.
+Escape sequences in the message are dropped -- colour is the variant's, not the
+text's.
+
+| Option       | Meaning                                                                   |
+| ------------ | ------------------------------------------------------------------------- |
+| `title`      | A heading set into the top border                                         |
+| `titleAlign` | `left` (default), `center` or `right`                                     |
+| `variant`    | `note` (default), `info`, `success`, `warning` or `error`                 |
+| `border`     | `round` (default), `single`, `double`, `bold` or `ascii`                  |
+| `width`      | The widest the block may be, never under 5. Defaults to `terminalWidth()` |
+| `indent`     | How far the block is indented                                             |
+
+The variants colour the border, the title and the message through the theme's
+roles -- `.sigil-info`, `.sigil-success`, `.sigil-warn` and `.sigil-error`, which
+now set `border-color` beside `color` -- so a theme restyles them like anything
+else, and `.sigil-note-error` and its siblings are the narrower hook for one
+variant. A plain `note` takes no role at all. Nothing is coloured at colour
+level 0, so a variant is then told apart by its title, which is worth setting.
+
+Unless `border` is given the border is rounded, and falls back to ASCII where
+`unicodeSupported()` says the terminal cannot be trusted with box drawing -- the
+Linux console, `TERM=dumb`, and Windows consoles not known to cope. `env` and
+`platform` override what it reads.
+
+Like `table()` it returns a string and the caller does the writing, which also
+puts it on the result side of `--quiet`. `noteView()` is the element tree behind
+it, for an app that wants one inside its own tree. There is no live form: a note
+is static, so `console.log(note(...))` already is one.
+
 `sigil/components` also exports `decodeKeys()` and `renderBar()`, and the state
 and the element tree behind each component -- `spinnerView()`, `progressView()`
-and `tableView()`, with `spinnerState()` and `progressState()` driving the two
+`tableView()` and `noteView()`, with `spinnerState()` and `progressState()` driving the two
 that animate -- so a component tree can use them directly rather than through
 the imperative facade. Cutting a line to a width is
 `truncate()` in [`sigil/wrap`](#sigilwrap); padding one is a declared width and

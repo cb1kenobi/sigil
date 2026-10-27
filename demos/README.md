@@ -338,6 +338,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself              |
 | [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells               |
 | [`components/11-choices.js`](components/11-choices.js)             | Headings, disabled choices, descriptions, and `min`/`max` |
+| [`components/17-note.js`](components/17-note.js)                   | A titled, bordered block in a state's colour              |
 | [`components/19-date.js`](components/19-date.js)                   | A date prompt: segments you step or type into             |
 
 ### Try them without a terminal
@@ -419,6 +420,14 @@ reads its font from `components/fonts/blocks.flf`, written for these demos --
 no third-party `.flf` is committed here and none is bundled in the runtime,
 because the look of a banner is the app's choice and there are hundreds of fonts
 already written.
+
+`17-note.js` is the same kind of demo as the banner: a note is a string and the
+caller does the writing, so a pipe gets what a terminal gets and `--quiet` does
+not reach it. It passes a `width` so that it prints the same blocks wherever it
+is run, and its last two blocks show the ASCII border -- asked for by name, and
+chosen because `TERM=linux` was read out of the `env` it was handed. The state
+colours are the theme's roles, so `NO_COLOR=1` leaves the box and the words and
+takes the colour.
 
 The typewriter and the decrypt answer the same way to a preference rather than to
 a pipe, so a terminal whose user has asked for less motion gets the text in one go

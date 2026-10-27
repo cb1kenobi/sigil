@@ -4398,6 +4398,77 @@ how the two come to disagree." It is decided, and the answer is no.
   a mouse report leads with was taken for the terminator, and `0;1;1M` was typed
   a character at a time after it.
 
+### A note: a titled, bordered block
+
+SIG-163 asked for what Clack's `note`/`box` and Ink UI's `Alert` do: frame a
+message so it stands out. `src/components/note.ts` is `note()` and `noteView()`,
+and the split is `table()` and `tableView()`'s.
+
+- **One component with a `variant`, and `box` and `alert` are not exported.** They
+  would be the same function under two more names, and a second spelling of one
+  function is how the two come to disagree. `note` was free in the barrel --
+  `prompt.ts` has an internal `note` helper and exports `promptNote`, neither of
+  which collides -- so the component takes the name the ticket opened with.
+- **It shrinks to its message and wraps at the room it is given.** Clack's shape,
+  and the one a "next steps" panel wants: a filled line is a box mostly made of
+  blanks. The message is a plain `text` that wraps itself, inside a bordered box
+  with a `max-width` of the room and a wrapper that does not stretch it. Nothing
+  here counts a column of the message. `white-space: pre` was tried first and is
+  not needed: this engine wraps every text but a `nowrap` one with `wrap()`, which
+  keeps newlines, blank lines and indentation, so a command inside a note keeps
+  its indent. The width has a floor of 5 -- a border and a column of padding each
+  side and one column inside -- because under it the message has no cell to be in
+  and vanished rather than wrapping a letter to a row.
+- **The title is an out-of-flow text one row up, because the border has no notion
+  of one.** `paintBorder()` draws a border as a whole, so a title is a `position:
+  absolute` text at `top: -1` over a `position: relative` box, which resolves
+  against the padding box and so lands on the border row. It takes no space, and
+  `left`, `right`, or both insets with `text-align: center` are the three
+  alignments. A `min-width` is what stops a short message clipping a long title,
+  and a title is cut with `truncate()` to what the room leaves. Where the room
+  cannot hold the corners, a rule on each side and one column of title, the title
+  is left out rather than drawn over a corner.
+- **A title ends in a no-break space, and `note()` turns it back into a space.**
+  A text drops the whitespace at the end of its last line, so " Title " lost the
+  space that keeps the rule off the word. U+00A0 is not whitespace to the wrapper
+  and takes one column. It is replaced on the way out of `note()`, so nothing in
+  what is printed or copied is a no-break space -- and so is one in a message,
+  which prints as the ordinary space it looks like. `noteView()` hands back the
+  tree with the character still in it.
+- **Colour is the four state roles, and that needed `border-color` on them.** A
+  border colour does not inherit, and `should declare on a role, bar four
+  exceptions that say why` allows a declaration only on a role selector, so a
+  `.sigil-note.sigil-error` rule was never available. The roles now set
+  `border-color` beside `color`, which is also the right statement of what an
+  error is. The cost is that the message inherits the role's `color` as well, so
+  an `error` note is red all through; a plain `note` carries no role and is the
+  terminal's own foreground. A message in the default colour inside a coloured
+  border would need a `color` in props, which is the thing built-ins do not do.
+  `warning` maps to `.sigil-warn`, for the reason `SpinnerOutcome` does.
+- **The ASCII fallback is read off the environment by `unicodeSupported()`.**
+  Nothing in the repository decided this before: colour level says nothing about
+  box drawing, and the spinner's `LINE` frames are opt-in. It is the
+  `is-unicode-supported` heuristic -- off Windows everything but `TERM=linux` and
+  `dumb`; on Windows only the terminals known to cope -- taking `env` and
+  `platform` the way `terminalWidth()` does, so a test names the terminal it is
+  about instead of inheriting the developer's. An explicit `border` always wins.
+  `NO_COLOR` does not select ASCII: it is about colour.
+- **Escape sequences are dropped from the message and the title.** `text` strips
+  control characters and does not interpret them, so a styled string put in
+  unmodified printed its `ESC` removed and the rest -- `[31m` -- as literal
+  text. Colour is the variant's, so stripping loses nothing a note was meant to
+  carry; styled runs inside a message would be a `paragraph()` of runs, and that
+  is a different API.
+- **String form only, and it ignores `--quiet`.** A note is a result, on
+  `table()`'s side of the line the quiet axis draws, and the caller does the
+  writing. A live form would be a `mountLive()` of a tree that never changes, which
+  is `console.log(note(...))` with a renderer in the way.
+
+What is deliberately not done: vertical padding (a caller adds a blank line, and
+Clack's extra rows are most of why its notes look tall); a symbol per variant
+(the title is where an app says what kind it is, and at colour level 0 it is all
+that does); styled runs in a message; and a title on a side other than the top.
+
 ### A date prompt: segments, ISO order, and the parser's own reader
 
 SIG-165. `src/components/date.ts` is the whole of it: `date()` returns a `Date`
