@@ -33,7 +33,10 @@
 import {
   assertCompilable,
   assertToolchain,
+  assertUpdateCheckDeclared,
+  bakedUpdateCheck,
   bundleApp,
+  readSchemaUpdateCheck,
   compileWithBun,
   compileWithNode,
   type CompileResult,
@@ -267,7 +270,31 @@ const pkg: AnyCommand = command({
         // is inside a binary, so it is weight on the way to being discarded
         sourcemap: false,
         tree: { commands: found.commands, diagnostics: [] } satisfies ResolvedTree,
+        // compiled: there is no runtime to spawn, because `process.execPath`
+        // is about to be this binary. `assertUpdateCheckDeclared()` above has
+        // already refused an app that imports the check and has not said
+        // what it should look at
+        updateCheck: bakedUpdateCheck({
+          compiled: true,
+          config: sigilConfig,
+          packageName: found.app.manifest.name,
+        }),
       });
+
+      // the first moment there is an answer: whether the update check is in
+      // the app is a question about the module graph, and there is no graph
+      // until now. Before `compileAll()`, which is the expensive half -- a
+      // binary written and signed for an app whose update check cannot work
+      //
+      // A schema that names its own checker has said where to look, and
+      // importing the builder it names it with is what put the specifier in
+      // the graph -- so that import is not a second thing to declare
+      const schemaCheck = readSchemaUpdateCheck(found.app.entry);
+      assertUpdateCheckDeclared(
+        sigilConfig,
+        (result.usesUpdateCheck && schemaCheck !== 'names' && 'import') ||
+          (schemaCheck === 'asks' && 'schema')
+      );
 
       const compiled = compileAll(runtime, {
         entry: result.bin,

@@ -146,6 +146,17 @@ export {
 } from './tree.ts';
 export { typeCheck, type TypeCheckOptions, type TypeCheckResult } from './typecheck.ts';
 export {
+  assertUpdateCheckDeclared,
+  bakedUpdateCheck,
+  readSchemaUpdateCheck,
+  schemaWantsUpdateCheck,
+  updateCheckDefine,
+  UPDATE_CHECK_DEFINE,
+  UPDATE_CHECK_SPECIFIER,
+  type BakedUpdateCheckOptions,
+  type UpdateCheckUse,
+} from './update-check.ts';
+export {
   bunTriple,
   canEmbed,
   choices,

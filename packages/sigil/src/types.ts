@@ -2,6 +2,7 @@ import type { Locales } from './i18n/index.js';
 import type { InferArgv } from './infer.js';
 import { CommandRegistry } from './parser/command/command-registry.js';
 import { OptionRegistry } from './parser/option/option-registry.js';
+import type { UpdateCheckOptions, UpdateChecker } from './updates/index.js';
 
 export type AppOptions = {
   argv?: string[];
@@ -903,6 +904,45 @@ export interface Schema {
    * that help can name them without importing anything. See `RouteInfo`.
    */
   routeInfo?: Record<string, RouteInfo>;
+  /**
+   * Whether to check for a newer version of the program and say so.
+   *
+   * ```js
+   * export default { name: 'mycli', version: '1.2.3', updateCheck: true, commands: './commands' };
+   * ```
+   *
+   * That is the whole of it: `main()` starts the check when a command begins,
+   * and prints one line to stderr when it ends if the last check found a newer
+   * version. The check is `@ttylabs/sigil/updates`' -- a spawned worker, a
+   * cache, a day between looks -- so it costs the run nothing, and it needs
+   * the schema's `name` and `version` and nothing else. The first run has
+   * nothing cached to report, so it says nothing; the next one does.
+   *
+   * It stays out of the way of anything that is not a person at a terminal,
+   * and says nothing in those cases because there is nobody to say it to:
+   * stderr is not a terminal, `--quiet` or a `--format` was asked for, `CI` is
+   * set, or `NO_UPDATE_NOTIFIER` is. Nothing is fetched in those cases either.
+   * It also says nothing for `--help`, `--version`, a parse error or a command
+   * that failed -- it speaks after work that succeeded.
+   *
+   * Pass an object to name the npm package when it is not the program's name,
+   * to choose a different checker, or to write the notice yourself. Pass a
+   * checker alone -- `updateCheck: githubChecker({ repo: 'acme/mycli' })` -- when
+   * where to look is the only thing to say; it is `{ checker }` written shorter.
+   * Where a single-file executable looks can also be `updateCheck` in
+   * `sigil.json`, which a binary has no default for.
+   *
+   * **A binary needs `linger: true` unless it runs for a while.** There is no
+   * runtime to spawn, so the fetch happens inside the process and finishes only
+   * if the process is still alive -- and a CLI that exits in a few milliseconds
+   * never lets it. Measured on a packaged Bun binary, the default left the cache
+   * empty after every run, so no notice ever appeared. `linger: true` holds the
+   * process open until the fetch settles: about 0.4s, on the one run in
+   * `checkInterval` that actually looks, and nothing on the others. It is not
+   * the default because a network that never answers would then cost `timeout`
+   * on every run, and that is a decision for the app rather than the framework.
+   */
+  updateCheck?: boolean | UpdateChecker | UpdateCheckOptions;
   hooks?: {
     beforeParse?: SchemaHook;
     afterParse?: SchemaHook;

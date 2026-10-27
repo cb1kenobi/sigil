@@ -41,6 +41,7 @@
  */
 
 import {
+  bakedUpdateCheck,
   bundleApp,
   type BuiltChunk,
   displayPath,
@@ -154,6 +155,14 @@ const build: AnyCommand = command({
       shake: argv.shake !== false && config.shake !== false,
       sourcemap: argv.sourcemap !== false && config.sourcemap !== false,
       tree: { commands: found.commands, diagnostics: [] } satisfies ResolvedTree,
+      // not compiled: what this produces still needs a runtime installed, so
+      // its update check can spawn one and outlive the CLI the way the
+      // default path always has
+      updateCheck: bakedUpdateCheck({
+        compiled: false,
+        config: sigilConfig,
+        packageName: found.app.manifest.name,
+      }),
     });
 
     // the two tables are what the summary says at greater length -- what was

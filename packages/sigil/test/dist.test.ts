@@ -596,3 +596,61 @@ describe('what importing the package costs', () => {
     }
   );
 });
+
+// `src/updates/worker.ts` is piped into a runtime rather than imported on the
+// spawned path, and a file nothing imports is a file no bundler can see -- so
+// `workerSource()` read it off a path relative to its own module URL, which
+// points wherever the bundle was written. Every app `sigil build` produced
+// died on `ENOENT` the first time it checked for an update, with the build
+// reporting complete success. `tsdown.config.ts` bakes the worker in as a
+// string instead, and a build that quietly stops doing that looks exactly like
+// one that does.
+describe('the update worker, baked in', () => {
+  // everything `updates.mjs` loads rather than the entry alone: the worker
+  // lives in a chunk shared with the automatic check, so the entry is a few
+  // re-exports and the bytes are one import away. `staticGraph()` is the
+  // answer to "which modules does this pull in" and a second implementation
+  // of it is how two figures for one entry come to disagree
+  const bundle = [...staticGraph('updates.mjs')]
+    .map((name) => readFileSync(join(dist, name), 'utf-8'))
+    .join('\n');
+
+  it('should carry the worker rather than a path to it', () => {
+    // a string the minifier keeps, from the worker and from nowhere else
+    expect(bundle).toContain('CHECK_URL is not set');
+  });
+
+  it('should not ship a worker file for anything to read', () => {
+    // the read is gone, so the file has no reason to be copied -- and leaving
+    // it there would let a build that stopped baking go on working from
+    // `node_modules` while every bundled app failed, which is this defect
+    expect(readdirSync(dist).filter((name) => name.includes('worker'))).toEqual([]);
+  });
+
+  it('should carry the whole worker, not a truncated one', () => {
+    // one **line** from each end rather than a span across lines, because a
+    // line ending is the one thing that differs between checkouts and there
+    // are three forms of it to get wrong: `.gitattributes` forces LF for a
+    // `.js` and says nothing about a `.ts`, so `worker.ts` is CRLF on
+    // Windows -- and the minifier stores the bake as a template literal with
+    // the CR escaped to a two-character `\r`, so normalizing the file's own
+    // `\r\n` is not enough either. Matching within a line cannot care.
+    //
+    // That is the platform-specific-fixture rule in the root AGENTS.md, met
+    // through a line ending rather than a path separator, and found by
+    // converting the file to CRLF and watching the first two attempts fail.
+    const lines = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'updates', 'worker.ts'),
+      'utf-8'
+    )
+      .split(/\r?\n/)
+      .map((line) => line.trimEnd())
+      .filter((line) => line.trim().length >= 15);
+
+    // and taken from the source rather than written out, so the two cannot
+    // come apart the way a quoted literal does
+    expect(lines.length).toBeGreaterThan(20);
+    expect(bundle, 'the first line of the worker').toContain(lines[0]);
+    expect(bundle, 'the last line of the worker').toContain(lines.at(-1));
+  });
+});

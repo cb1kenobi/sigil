@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig, type UserConfig } from 'tsdown';
 
 /**
@@ -57,6 +58,48 @@ const escapeControls = {
   name: 'escape-control-characters',
 };
 
+/**
+ * The update worker, baked into `dist/updates.mjs` as a string.
+ *
+ * `src/updates/worker.ts` is piped into a runtime rather than imported on the
+ * spawned path, and a file nothing imports is a file no bundler can see -- so
+ * `workerSource()` read it off a path relative to its own module URL, which
+ * points wherever the bundle was written. Every app `sigil build` produced
+ * died on `ENOENT` the first time it checked for an update, with the build
+ * reporting complete success, and the framework's own module was the one
+ * reading a file it could not reach.
+ *
+ * So the read is replaced with the bytes. The module keeps its disk read from
+ * source, which is what lets the worker stay an ordinary type-checked module
+ * and what keeps both paths piping the same text; here there is nothing to
+ * read from. `test/dist.test.ts` asserts the result, because a build that
+ * quietly stops doing this looks exactly like one that does.
+ */
+const inlineWorker = {
+  name: 'inline-update-worker',
+  transform: {
+    filter: { id: /src[/\\]updates[/\\]worker-source\.ts$/ },
+    handler(code: string) {
+      // the module is replaced whole, so an export added to it would work
+      // from source and be gone once bundled -- which is the same shape as
+      // the defect this plugin exists for. Refused here rather than left to
+      // a comment, because it already happened once.
+      const exports = code.match(/^export /gm) ?? [];
+      if (exports.length !== 1) {
+        throw new Error(
+          `worker-source.ts must export workerSource() and nothing else; found ${exports.length} exports`
+        );
+      }
+
+      const source = readFileSync(new URL('./src/updates/worker.ts', import.meta.url), 'utf-8');
+      return {
+        code: `export function workerSource() {\n  return ${JSON.stringify(source)};\n}\n`,
+        map: null,
+      };
+    },
+  },
+};
+
 const config: UserConfig = defineConfig({
   // Every entry here must have a matching subpath in the package's `exports`
   // map, and vice versa; `test/exports.test.ts` asserts they stay in sync.
@@ -94,11 +137,8 @@ const config: UserConfig = defineConfig({
   format: ['es'],
   minify: true,
   platform: 'node',
-  plugins: [escapeControls],
+  plugins: [inlineWorker, escapeControls],
   tsconfig: './tsconfig.build.json',
-  // `updates` spawns the worker by reading it off disk relative to its own
-  // module URL, so it has to land next to dist/updates.mjs
-  copy: [{ from: './src/updates/get-version-worker.js' }],
 });
 
 export default config;
