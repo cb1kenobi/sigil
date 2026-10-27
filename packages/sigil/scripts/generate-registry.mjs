@@ -99,6 +99,10 @@ const ENTRIES = [
     name: 'debug-overlay',
   },
   {
+    desc: "tasks() and taskLog(): a list of work under spinners, and a subprocess's output in a window",
+    name: 'tasks',
+  },
+  {
     desc: 'A QR code, encoded here and drawn in half blocks or in full cells',
     name: 'qrcode',
   },

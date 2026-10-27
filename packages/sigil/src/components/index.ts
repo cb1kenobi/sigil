@@ -84,6 +84,18 @@ export {
   spinnerState,
   spinnerView,
 } from './spinner.js';
+export {
+  skip,
+  type Skip,
+  type Task,
+  type TaskContext,
+  type TaskLog,
+  taskLog,
+  type TaskLogOptions,
+  type TaskOutcome,
+  tasks,
+  type TaskResultValue,
+} from './tasks.js';
 export { decodeKeys, isAbort, type Key, pendingLength } from './keys.js';
 export {
   encodeQr,

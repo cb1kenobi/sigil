@@ -337,6 +337,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it            |
 | [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself            |
 | [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells             |
+| [`components/15-tasks.js`](components/15-tasks.js)                 | A list of work, and a subprocess's output in a window   |
 
 ### Try them without a terminal
 
@@ -375,6 +376,15 @@ because the cipher cells and the resolved ones are two elements over one
 rectangle and each resolves its own style. The sixth is `text-overflow` on a path
 too long for its box: a decrypt is cut and marked the way any other text is, in
 `ellipsis-middle`, which keeps the project at one end and the file at the other.
+
+`15-tasks.js` runs a list under spinners and then a build under a window of its
+own output, spawning real node subprocesses so the lines arrive over time. The
+window shows the last six and collapses to one line when the build succeeds; the
+type check after it fails on purpose and keeps everything it printed, and the demo
+catches that one rejection by message so any other throw still fails it. Piped
+there is no window: each title, each line of output and each settled line is
+written once, so the success has all ten lines in the log and the failure has them
+plus the error.
 
 `10-qrcode.js` is the one where a pipe and a terminal get the **same bytes**. A
 scanner wants dark modules on a light background and a terminal already has a light

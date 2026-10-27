@@ -2856,6 +2856,58 @@ Copying 50%
 Copying 100%
 ```
 
+#### Tasks
+
+```js
+import { skip, taskLog, tasks } from '@ttylabs/sigil/components';
+
+await tasks([
+  {
+    title: 'Installing',
+    async task({ message }) {
+      message('Fetching 12 packages');
+      await install();
+      return 'Installed 12 packages'; // replaces the title on the settled line
+    },
+  },
+  { title: 'Linking', task: () => skip('already linked') },
+  { title: 'Seeding', enabled: false, task: seed }, // no line, never run
+  {
+    title: 'Building',
+    async task({ log }) {
+      // a window of the subprocess's output in place of the spinner
+      const window = log({ limit: 6 });
+      await window.stream(spawn('tsc').stdout);
+    },
+  },
+]);
+```
+
+`tasks()` runs the list **in order**, each under a spinner, and resolves with how
+each task ended. A task that returns a string settles on it in place of its
+title; one that returns `skip(reason?)` settles as `ℹ title (skipped: reason)`;
+one that throws leaves `✖ title` on screen, runs nothing after it, and rethrows
+to the caller. Tasks do not run concurrently and do not nest.
+
+`taskLog()` is the window a task writes a subprocess's output to, and works on
+its own:
+
+```js
+const log = taskLog({ title: 'Building', limit: 6 });
+
+child.stdout.on('data', (chunk) => log.message(String(chunk)));
+child.on('close', (code) => (code === 0 ? log.success('Built') : log.error('Build failed')));
+```
+
+While it runs, the title is shown with the most recent `limit` lines under it
+(6 by default). `success()` collapses all of it to one `✔` line. `error()` marks
+the title `✖` and leaves **everything** the process printed below it, up to
+`retain` lines (1000 by default). `stream()` feeds it from an async iterable —
+a child's `stdout` is one — joining a line that arrives split across chunks.
+
+Piped, there is no window to repaint, so the title is written once, each line as
+it arrives, and a settled line at the end. A quiet run writes nothing.
+
 #### Table
 
 ```js
