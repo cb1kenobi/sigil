@@ -21,6 +21,7 @@ export {
   type PaletteOptions,
   type PaletteResult,
 } from './palette.js';
+export { path, type PathOptions } from './path.js';
 export {
   type Choice,
   confirm,

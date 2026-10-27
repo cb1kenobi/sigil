@@ -4343,3 +4343,87 @@ how the two come to disagree." It is decided, and the answer is no.
   ECMA-48's 0x30-0x3f at the same time, because only `[\d;]` was read: the `<`
   a mouse report leads with was taken for the terminator, and `0;1;1M` was typed
   a character at a time after it.
+
+### A path prompt: a text field that completes against the file system
+
+SIG-164 asked for the thing Clack's `path`, Bubbles' filepicker and `gum file`
+all answer, and observed that there are two widgets in it: a field you type a
+path into and a tree you browse. `src/components/path.ts` is the first, and only
+the first.
+
+- **The field, and not the tree, and not one component with both modes.** They
+  share a question and nothing else: the field's state is a string and a cursor,
+  the tree's is a directory and a selection, and a mode flag would make every key
+  mean two things. The field is a prompt in the sense `prompt.ts` is about -- a
+  value comes back, typed -- so it borrows that file's plumbing the way the
+  palette does. A browsing picker is a follow-up with its own ticket.
+- **The answer is the path as typed, with `~` expanded, and resolved only when a
+  `root` was given.** Returning a resolved absolute path unasked would take
+  something away from the caller who wants a relative one, and handing back `~/x`
+  would hand them a path `readFile()` cannot open, because nothing downstream
+  honours `~`. `root` is the one option that says "I want to be told where this
+  is", so it is the one that resolves. `validate` is given the string that will be
+  returned rather than the raw field, so a check like "must exist" is a `stat` of
+  what it was handed. A resolved answer loses a trailing separator -- `resolve()`
+  does -- while an unresolved one keeps what was typed.
+- **Nothing checks that the answer exists, or that it is a directory.**
+  `directory` and `extensions` narrow the _candidates_. A prompt for where to
+  write wants a path that is not there yet, and whether one has to exist is the
+  app's rule, which is what `validate` is for.
+- **`~` goes through `paths.ts`, and a `~` that expands to nothing names nothing.**
+  `baseDir()` is the one rule for "expand, then require absolute", so `~user/`
+  (which `expand()` does not implement) and a `~` with no home both have no
+  directory and therefore no candidates, rather than a directory literally called
+  `~`. A bare `~` or `C:` is offered as a candidate of its own on Tab, because
+  `readdir` cannot list them from where the prompt is and Tab would otherwise find
+  nothing at the one place a person types a path and is told there is nowhere to
+  go.
+- **Candidates are for the whole field, and completing moves the cursor to the
+  end.** Completing against the text before the cursor, and keeping what follows
+  it, is a second rule for a field a person types left to right.
+- **Tab is "the longest prefix everything shares", and only ever longer than what
+  was typed.** On a caseless file system the candidates agree with the typed
+  segment but not in case, and a shorter shared prefix would undo the person's own
+  characters. A single candidate is completed whole, with a separator if it is a
+  directory. A highlighted candidate beats the prefix.
+- **Enter means the field until a candidate has been highlighted.** Up and Down
+  walk the list through a position with nothing highlighted, so there is a way
+  back that is not typing. Enter on a highlighted _file_ takes it and submits; on a
+  highlighted _directory_ it fills it in and carries on, because a directory is a
+  place to go on from far more often than it is an answer -- and in `directory`
+  mode a second Enter submits it. Tab never submits.
+- **A directory is completed in the separator the person is using.** `C:/Users/`
+  is not answered with a backslash. Windows takes both separators and POSIX one: a
+  backslash on POSIX is a file name character. The platform is read from
+  `node:path`'s own `sep`, and the pure helpers (`splitTyped`, `candidatesOf`,
+  `commonPrefix`, `answerOf`) take that as an argument so a test hands them
+  `win32` rather than forcing `process.platform`. Case is ignored in matching on
+  Windows only; macOS is case-insensitive by default and case-sensitive if
+  somebody formatted it so, and a prompt cannot know which.
+- **Dotfiles are skipped, and a segment that starts with `.` asks for them.**
+  `hidden: true` shows them from the start. Directories sort first and then by
+  code unit rather than `localeCompare()`, so the order does not depend on the
+  machine's language.
+- **One read per directory, cached for the life of the prompt, and that stands in
+  for a debounce.** The cost of typing is a `readdir` per directory _level_, and
+  the characters between are a filter over what is already in memory. A read that
+  fails -- missing, not a directory, no permission -- is cached as empty rather
+  than raised. A directory created while the prompt is open is not seen, which is
+  the price of the cache.
+- **A late read can never be drawn.** Each key awaits the read for the directory
+  _its own_ value names before it draws, and keys are handled one at a time, so a
+  read cannot answer for a different keystroke; what a read that finishes late
+  does is fill the cache, and `draw()` takes the candidates from the cache for the
+  value as it is _now_. A paste cannot wait, so it starts the read and the list
+  catches up when it lands -- the one place this matters, and the test holds a
+  read open across a keystroke to show it.
+- **"No matches" is only said about a directory that has been read.** Before the
+  read returns there is no answer, and saying so would be a claim about a list
+  nobody has seen.
+- **Symlinks are followed to decide whether they are directories**, with one
+  `stat` each; a dangling link is a file.
+
+What is deliberately not done: the browsing picker; completing mid-value;
+checking that the answer exists; refreshing a cached directory; fuzzy matching
+(a prefix is what a shell does and what a person typing a path expects); showing
+file sizes or types in the list.

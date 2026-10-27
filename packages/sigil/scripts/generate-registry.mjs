@@ -83,6 +83,10 @@ const ENTRIES = [
     name: 'prompt',
   },
   {
+    desc: 'A path prompt: a text field that completes against the file system',
+    name: 'path',
+  },
+  {
     desc: 'A scrolling viewport with a scrollbar, keyboard, wheel and a draggable thumb',
     name: 'scroll-box',
   },

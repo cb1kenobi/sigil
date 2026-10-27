@@ -337,6 +337,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it            |
 | [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself            |
 | [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells             |
+| [`components/18-path.js`](components/18-path.js)                   | A text field that completes against the file system     |
 
 ### Try them without a terminal
 
@@ -418,6 +419,14 @@ that will never produce a keystroke:
 node demos/components/04-prompts.js < /dev/null
 # Cannot prompt for "Project name" because the input is not a terminal
 ```
+
+`18-path.js` is a prompt, and a prompt has nobody to ask when piped, so it does
+what the rest of this section does a different way: it drives the same `path()`
+calls with a scripted keyboard over a throwaway directory made under the OS temp
+directory (`createTestTerminal()` from `@ttylabs/sigil/testing`) and prints the
+screen after each step, so a pipe shows Tab completing a shared prefix, a lone
+directory taking its separator, and the highlight walking the list. On a terminal
+it asks for a config file and an output directory instead.
 
 And `NO_COLOR=1` turns the styling off everywhere:
 
