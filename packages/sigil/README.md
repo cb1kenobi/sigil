@@ -2882,6 +2882,43 @@ characters would not, and `maxWidth` truncates on grapheme clusters rather
 than slicing a surrogate pair in half. No borders — a table in a build log
 sits next to everything else that was printed, and rules around it are noise.
 
+#### A key-help footer
+
+```js
+import { keyHelp } from '@ttylabs/sigil/components';
+
+input.bind('up', moveUp, { description: 'move', priority: 6 });
+input.bind('down', moveDown, { description: 'move', priority: 6 });
+input.bind('q', quit, { description: 'quit', priority: 9 });
+input.describe('enter', { description: 'open', scope: list }); // list's own onKey
+
+root.append(keyHelp(input, { expanded }));
+```
+
+```
+↑/↓ move · enter open · q quit
+```
+
+The footer is `input.bindings()` read inside an effect, so the line cannot drift
+from the keys that handle them: it follows the focus, follows a binding being
+added or removed, and lists nothing that has no description. Bindings that share
+a description are one line (`↑/↓`). `bind()` takes the description as a third
+argument; a key an element handles in its own `onKey` is a function the router
+cannot read, so `input.describe(keys, { description, scope })` declares it, and it
+is listed while the scope element or anything inside it holds the focus. That is
+the one half that can drift from its handler.
+
+Wider than the terminal, the short form drops whole bindings, lowest `priority`
+first and the later of two equals, and ends in `…`; it never wraps and never cuts
+a binding in half. Pass `width: () => n` if the terminal resizes. `expanded` is a
+boolean or a `State<boolean>`: set it true and the footer lists every binding
+under its `group`, one to a line. Binding `?` to that signal is the app's job.
+
+Key names that are words (`enter`, `esc`, `tab`, ...) and the `ctrl-`/`alt-`/
+`shift-` prefixes go through the catalog; arrows are glyphs. Descriptions are
+whatever the app passes, so it translates them where it writes them. The built-in
+prompts keep their own hint lines.
+
 `sigil/components` also exports `decodeKeys()` and `renderBar()`, and the state
 and the element tree behind each component -- `spinnerView()`, `progressView()`
 and `tableView()`, with `spinnerState()` and `progressState()` driving the two
@@ -3086,6 +3123,22 @@ by stopping the event rather than by asking to be left out of the focus ring.
 A router refuses to exist where stdin is not a terminal. It exists to read keys,
 so one that never can is a bug in the app rather than a state to carry through
 every dispatch as a branch.
+
+#### Describing a binding
+
+```js
+input.bind('ctrl+s', save, { description: 'save', group: 'file', priority: 5 });
+input.describe('enter', { description: 'open', scope: list });
+input.bindings(); // what applies to the focus right now, in dispatch order
+```
+
+A description is read by a listing and by nothing in dispatch: a binding without
+one behaves as it always did and is simply not listed. `bindings()` returns
+app-wide entries first, then the scoped ones from the focused element outwards,
+and subscribes whatever effect reads it to the focus and to the set changing.
+`describe()` is for a key an element's `onKey` handles, which the router cannot
+read; `scope` is the element whose focus -- or whose descendants' -- makes it
+apply. [`keyHelp()`](#a-key-help-footer) is the footer built on it.
 
 #### The mouse
 

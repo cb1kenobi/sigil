@@ -102,6 +102,10 @@ const ENTRIES = [
     desc: 'A QR code, encoded here and drawn in half blocks or in full cells',
     name: 'qrcode',
   },
+  {
+    desc: 'A key-help footer generated from the key bindings that are live',
+    name: 'key-help',
+  },
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */

@@ -346,6 +346,44 @@ export interface MouseOptions {
   surface: MouseSurface;
 }
 
+/**
+ * What a binding says about itself, for a screen that lists keys.
+ *
+ * All optional and none of it read by dispatch: a binding with no description
+ * behaves exactly as before and is simply not listed, which is what keeps a
+ * quit key an app would rather not advertise out of a footer.
+ */
+export interface BindingHelp {
+  /** What the key does, as the reader should see it. A binding without one is not listed. */
+  description: string;
+  /** A heading to list it under in an expanded view. */
+  group?: string;
+  /** How much it matters when there is not room for all of them. Higher survives. Defaults to 0. */
+  priority?: number;
+}
+
+/** A {@link BindingHelp} for a key an element's `onKey` handles, and where it applies. */
+export interface DescribeOptions extends BindingHelp {
+  /**
+   * The element whose focus makes this apply.
+   *
+   * Listed while that element, or anything inside it, holds the focus -- which is
+   * the set of elements an `onKey` on it is offered a key by, so the list and the
+   * dispatch walk the same ancestry. Omitted means always.
+   */
+  scope?: Element;
+}
+
+/** One listed binding, as {@link InputRouter.bindings} reports it. */
+export interface BindingInfo {
+  readonly description: string;
+  readonly group: string | undefined;
+  /** The canonical spelling of the whole sequence, as `formatKeys()` prints it. */
+  readonly keys: string;
+  readonly priority: number;
+  readonly scope: Element | undefined;
+}
+
 export interface FocusRing {
   /**
    * The focused element, as a signal.
@@ -380,9 +418,10 @@ export interface LeaderBindings {
    *
    * @param keys - What follows it, as a spec.
    * @param handler - What to run.
+   * @param help - What to list it as; listed under the whole sequence, leader included.
    * @returns Removes that one binding.
    */
-  bind(keys: string, handler: SequenceHandler): () => void;
+  bind(keys: string, handler: SequenceHandler, help?: BindingHelp): () => void;
   /**
    * Removes every binding made through this.
    *
@@ -426,9 +465,35 @@ export interface InputRouter {
    *
    * @param keys - The sequence, as a spec.
    * @param handler - What to run once all of it has been pressed.
-   * @returns Removes the binding.
+   * @param help - What to list it as. Read by `bindings()` and by nothing in dispatch.
+   * @returns Removes the binding, and its listing with it.
    */
-  bind(keys: string, handler: SequenceHandler): () => void;
+  bind(keys: string, handler: SequenceHandler, help?: BindingHelp): () => void;
+  /**
+   * The described bindings that apply to the focus as it is now.
+   *
+   * Dispatch order: app-wide ones first, then the scoped ones from the focused
+   * element outwards, each group in the order it was registered. A binding with no
+   * description is not here. Reading it inside an effect or a computed subscribes
+   * to the focus and to bindings being added or removed, which is what lets a
+   * footer follow both without a second mechanism.
+   *
+   * @returns A fresh array of frozen records.
+   */
+  bindings(): readonly BindingInfo[];
+  /**
+   * Describes a key that an element's `onKey` handles.
+   *
+   * An `onKey` is a function and says nothing about which keys it is for, so this
+   * is the declaration that does -- documentation, not dispatch, which is the cost
+   * of an element owning its own keys. A key bound through `bind()` is described
+   * there instead and cannot drift from what it does.
+   *
+   * @param keys - The key or sequence, as a spec.
+   * @param opts - The description, and the element it applies within.
+   * @returns Removes the listing.
+   */
+  describe(keys: string, opts: DescribeOptions): () => void;
   readonly focus: FocusRing;
   /** Feeds bytes as though the terminal had sent them. */
   feed(chunk: string): void;
@@ -658,6 +723,38 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   const bindings = new Set<KeyHandler>();
   const pasters = new Set<PasteHandler>();
   const current = new State<Element | undefined>(undefined);
+
+  // -- described bindings ---------------------------------------------------
+
+  const described = new Set<BindingInfo>();
+  /** Bumped whenever the set changes, so a reader inside an effect re-runs. */
+  const describedRev = new State(0);
+
+  /**
+   * Lists a binding, and hands back the way to unlist it.
+   *
+   * Validated where it is written: a description that is not a string would
+   * otherwise reach a footer as `undefined`, a long way from the line that wrote it.
+   */
+  function describe(patterns: readonly KeyPattern[], opts: DescribeOptions): () => void {
+    if (typeof opts?.description !== 'string' || opts.description === '') {
+      throw new TypeError('A binding description has to be a non-empty string');
+    }
+    const info: BindingInfo = Object.freeze({
+      description: opts.description,
+      group: opts.group,
+      keys: patterns.map((pattern) => formatKey(pattern)).join(' '),
+      priority: Number.isFinite(opts.priority) ? (opts.priority as number) : 0,
+      scope: opts.scope,
+    });
+    described.add(info);
+    describedRev.set(describedRev.get() + 1);
+    return () => {
+      if (described.delete(info)) {
+        describedRev.set(describedRev.get() + 1);
+      }
+    };
+  }
 
   /** Where the focused element sat in the ring, for when it is unmounted. */
   let lastIndex = 0;
@@ -1932,7 +2029,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   let stopped = false;
 
   const router: InputRouter = {
-    bind(first: KeyHandler | string, second?: SequenceHandler): () => void {
+    bind(first: KeyHandler | string, second?: SequenceHandler, help?: BindingHelp): () => void {
       if (typeof first !== 'string') {
         bindings.add(first);
         return () => void bindings.delete(first);
@@ -1945,7 +2042,51 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         throw new TypeError(`A key-sequence binding needs a handler: bind("${first}", fn)`);
       }
 
-      return addBinding(trie, parseKeys(first), second);
+      const patterns = parseKeys(first);
+      const off = addBinding(trie, patterns, second);
+      if (help === undefined) {
+        return off;
+      }
+      // after the binding, so a spec or a description that throws leaves nothing
+      // half registered: the binding is taken back off before it is rethrown
+      let unlist: () => void;
+      try {
+        unlist = describe(patterns, help);
+      } catch (error) {
+        off();
+        throw error;
+      }
+      return () => {
+        off();
+        unlist();
+      };
+    },
+
+    bindings(): readonly BindingInfo[] {
+      describedRev.get();
+      // distance up from the focused element, which is the order `onKey` is offered
+      // a key in -- so an entry scoped to something outside the focus is not here
+      const depth = new Map<Element, number>();
+      let up = 0;
+      for (let at = current.get(); at; at = at.parent) {
+        depth.set(at, up++);
+      }
+      const global: BindingInfo[] = [];
+      const scoped: { at: number; info: BindingInfo }[] = [];
+      for (const info of described) {
+        if (!info.scope) {
+          global.push(info);
+        } else if (depth.has(info.scope)) {
+          scoped.push({ at: depth.get(info.scope) as number, info });
+        }
+      }
+      // `sort` is stable, so registration order holds within one element
+      scoped.sort((a, b) => a.at - b.at);
+      return [...global, ...scoped.map((it) => it.info)];
+    },
+
+    describe(keys: string, opts: DescribeOptions): () => void {
+      return describe(parseKeys(keys), opts);
     },
 
     feed(chunk: string): void {
@@ -1973,7 +2114,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       const offs = new Set<() => void>();
 
       return {
-        bind(keys: string, handler: SequenceHandler): () => void {
+        bind(keys: string, handler: SequenceHandler, help?: BindingHelp): () => void {
           if (typeof handler !== 'function') {
             throw new TypeError(`A key-sequence binding needs a handler: bind("${keys}", fn)`);
           }
@@ -1982,10 +2123,19 @@ export function createInput(opts: InputOptions = {}): InputRouter {
           // stops `bind('')` binding the leader by itself: `parseKeys('')`
           // refuses an empty spec, and `"space "` does not reach that refusal
           // because the blank token is dropped and one key is left
-          const off = addBinding(trie, [first, ...parseKeys(keys)], handler);
+          const patterns = [first, ...parseKeys(keys)];
+          const off = addBinding(trie, patterns, handler);
+          let unlist: (() => void) | undefined;
+          try {
+            unlist = help === undefined ? undefined : describe(patterns, help);
+          } catch (error) {
+            off();
+            throw error;
+          }
           const remove = (): void => {
             offs.delete(remove);
             off();
+            unlist?.();
           };
           offs.add(remove);
           return remove;
