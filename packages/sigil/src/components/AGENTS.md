@@ -4343,3 +4343,73 @@ how the two come to disagree." It is decided, and the answer is no.
   ECMA-48's 0x30-0x3f at the same time, because only `[\d;]` was read: the `<`
   a mouse report leads with was taken for the terminator, and `0;1;1M` was typed
   a character at a time after it.
+
+### An autocomplete prompt: type to filter, or search a source
+
+SIG-158. `src/components/autocomplete.ts` is a filter field over a ranked list,
+which is what the palette already is, so it is modelled on `palette.ts` and
+borrows `runPrompt()` and the field helpers rather than reading a key itself.
+`select()` and `multiselect()` are untouched.
+
+- **One entry point, `choices` or `source`, and both is an error.** The two ways
+  to supply a list differ in who filters it: a static list is ranked here with
+  `rankBy()`, and a source _is_ the filter, so what it returns is drawn as it
+  comes -- re-ranking it would hide a result the source matched on something the
+  label does not show (an id, a description). Taking both would need a rule for
+  whose filter wins, which is a rule with no caller; it rejects with a
+  `PromptError` naming the question, as does neither and an empty list, in plain
+  English like `select()`'s own.
+- **A lookup is superseded, not outdated, and the signal is what says which.** The
+  previous call is aborted _before_ the next is started, and a result is written
+  only if its **own** signal is still live. Comparing the term it was asked about
+  with the current one answers a different question -- backspace `ab` to `a` and
+  type `b` again and the old `ab` lookup has the right term and the wrong
+  lifetime. The rule holds for a rejection as well as a result, and for a result
+  that arrives after the prompt ended (`closed`, set by an `onCleanup`, which is
+  also what aborts the call in flight when the prompt is cancelled -- `settle()`
+  never runs for a Ctrl-C).
+- **Enter waits for a lookup in flight.** The list on screen belongs to an
+  earlier term while one is out; it is left drawn because blanking it per
+  keystroke flickers on a fast source, but answering from it would hand back a row
+  for a question no longer being asked. The cost is a source that never settles
+  blocks Enter, and Ctrl-C is how out of that.
+- **A failed lookup empties the list and says why on the line under it; the next
+  keystroke asks again.** That is `validate`'s own channel (one reserved line,
+  `sigil-prompt-error`), shared with the status and empty messages because the
+  three are never true together. The prompt stays alive, which is the only useful
+  answer to a network that may be back by the next key. A source that throws
+  synchronously is the same as one that rejects.
+- **Only a key that changes the term asks the source.** Arrows, Home, Tab on a
+  label already in the field and a backspace at the start of an empty field leave
+  it where it was, and each of those calling out would be a request per arrow
+  press.
+- **Tab completes the label, and Enter answers the value.** Tab writes the
+  highlighted _label_ into the field and, for a static list, keeps that same
+  choice highlighted: ranking its own label usually puts it first, but two
+  choices may share one, and a highlight that jumped to the other would make Tab
+  and Enter disagree. For a source the completed label is a new term and is
+  looked up as one.
+- **No debounce, and the README holds the recipe.** Whether a lookup is worth
+  waiting for is the caller's trade, and `signal` is what makes the wait
+  cancellable. The prompt calls the source on the opening empty term so that there
+  is a list before anything is typed.
+- **Rows are rebuilt per draw for the window and not kept per choice.** The
+  palette keeps a row per catalog entry because its catalog is fixed; a source
+  hands back a different list each time, so there is nothing stable to keep, and a
+  window of ten is cheap. A frame is requested by the `setText()`/`append()` the
+  draw does, so an answer that arrives with no key behind it is painted by the
+  renderer's next paced frame -- which is why the tests wait for one.
+- **`toChoice()` and `valueOf()` are exported from the bottom block of
+  `prompt.ts`** (as `promptChoice` and `promptValue`) rather than copied, so a
+  change to what a `Choice` is made in one place.
+
+What is deliberately not done:
+
+- **`disabled` and separators on `Choice`.** PR #196 adds them to `select()`; this
+  prompt reads `Choice` as it was on `main` and honouring them here is a
+  follow-up once that lands.
+- **The multi-select variant**, which is its own ticket.
+- **Highlighting source results.** A source's match is its own, and marking the
+  term inside a label it did not match on would be marking nothing.
+- **Escape.** It does nothing, as in `text()` and `select()`; a prompt that
+  answers `undefined` is the palette's, which is not asked for a value.

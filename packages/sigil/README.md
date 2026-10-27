@@ -2809,6 +2809,70 @@ keeps the caret visible.
 > names the question that went unanswered. `err.aborted` tells the two cases
 > apart: `true` is Ctrl-C, `false` is nobody there to ask.
 
+#### Autocomplete
+
+```js
+import { autocomplete } from '@ttylabs/sigil/components';
+
+// a static list: ranked by what is typed, with the matched letters marked
+const region = await autocomplete({
+  message: 'Region',
+  choices: ['us-east-1', 'us-west-2', { label: 'eu-central-1', hint: 'Frankfurt' }],
+  placeholder: 'start typing',
+});
+
+// a source: asked again whenever the term changes
+const pkg = await autocomplete({
+  message: 'Package',
+  source: async (term, signal) => {
+    const res = await fetch(`https://registry.example/search?q=${encodeURIComponent(term)}`, {
+      signal,
+    });
+    return (await res.json()).names;
+  },
+});
+```
+
+Typing narrows the list, Up and Down move through what is left (wrapping, and
+windowed to `rows` or to what the terminal has left), and **Enter answers with
+the highlighted choice's `value`** — its label, if it has none. **Tab copies the
+highlighted label into the field**, which is how a long name is finished without
+typing the rest of it. A term that leaves nothing says `No matches` and Enter does
+nothing until something is on offer. `initial` is the text the field starts with,
+`placeholder` is what it shows while empty, and `validate` may be async: return a
+string to refuse the chosen value with that message and keep the prompt open.
+
+Give it `choices` **or** a `source`, not both. A static list is ranked with
+`rankBy()`, and a source is the filter itself, so what it returns is shown as it
+is — a source may match on something other than the label. It is called with `''`
+when the prompt opens, so there is a list before anything is typed, and it may
+return choices or strings, synchronously or as a promise.
+
+`signal` is aborted when the term changes and when the prompt ends, so a lookup
+that can be cancelled stops costing anything the moment its answer could not be
+used. A call that was aborted **never draws**, whether or not it honoured the
+signal. A source that rejects shows its message under the field and the prompt
+carries on: the next keystroke asks again. While a lookup is out the list on
+screen belongs to an earlier term, so Enter waits for the answer.
+
+**There is no debounce, because that is a trade for the caller to make.** The
+signal is what makes the recipe short — wait a moment, and give up the wait if
+the term has moved on:
+
+```js
+const debounced = (lookup, ms) => (term, signal) =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => lookup(term, signal).then(resolve, reject), ms);
+    signal.addEventListener('abort', () => (clearTimeout(timer), reject(signal.reason)), {
+      once: true,
+    });
+  });
+
+await autocomplete({ message: 'Package', source: debounced(search, 150) });
+```
+
+It rejects with `PromptError` where there is no terminal, like the others.
+
 #### Spinner
 
 ```js

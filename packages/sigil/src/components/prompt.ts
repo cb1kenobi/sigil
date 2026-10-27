@@ -2077,6 +2077,8 @@ export {
   run as runPrompt,
   setNote as setPromptNote,
   SYMBOL as PROMPT_SYMBOLS,
+  toChoice as promptChoice,
+  valueOf as promptValue,
   windowOf as promptWindow,
   windowStart as listWindow,
 };

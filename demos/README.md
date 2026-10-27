@@ -337,6 +337,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it            |
 | [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself            |
 | [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells             |
+| [`components/12-autocomplete.js`](components/12-autocomplete.js)   | Type to filter a list, or search an async source        |
 
 ### Try them without a terminal
 
@@ -375,6 +376,14 @@ because the cipher cells and the resolved ones are two elements over one
 rectangle and each resolves its own style. The sixth is `text-overflow` on a path
 too long for its box: a decrypt is cut and marked the way any other text is, in
 `ellipsis-middle`, which keeps the project at one end and the file at the other.
+
+`12-autocomplete.js` is the prompt that needs a keyboard, so piped it plays the keys
+itself through `createTestTerminal()` and prints the screen after each step -- the
+way a test of your own prompt would. The second half is the one to read: three
+characters are typed faster than the debounce, so the waits for `r` and `re` are
+cancelled by the signal and only `red` ever reaches the pretend registry, and the
+list on screen says `Searching...` until it answers. `debounced()` in that file is
+the recipe the prompt leaves to the caller.
 
 `10-qrcode.js` is the one where a pipe and a terminal get the **same bytes**. A
 scanner wants dark modules on a light background and a terminal already has a light

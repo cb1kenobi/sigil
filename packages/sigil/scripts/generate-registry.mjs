@@ -83,6 +83,10 @@ const ENTRIES = [
     name: 'prompt',
   },
   {
+    desc: 'An autocomplete prompt: type to filter a list, or search an async source',
+    name: 'autocomplete',
+  },
+  {
     desc: 'A scrolling viewport with a scrollbar, keyboard, wheel and a draggable thumb',
     name: 'scroll-box',
   },
