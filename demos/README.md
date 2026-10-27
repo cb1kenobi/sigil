@@ -338,6 +338,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself              |
 | [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells               |
 | [`components/11-choices.js`](components/11-choices.js)             | Headings, disabled choices, descriptions, and `min`/`max` |
+| [`components/19-date.js`](components/19-date.js)                   | A date prompt: segments you step or type into             |
 
 ### Try them without a terminal
 
@@ -376,6 +377,14 @@ because the cipher cells and the resolved ones are two elements over one
 rectangle and each resolves its own style. The sixth is `text-overflow` on a path
 too long for its box: a decrypt is cut and marked the way any other text is, in
 `ellipsis-middle`, which keeps the project at one end and the file at the other.
+
+`19-date.js` is a prompt, so a pipe cannot answer it: piped, it plays the same
+prompts against an in-process terminal from `@ttylabs/sigil/testing` and prints the
+screen after each step. The four runs are the four things worth seeing -- January
+31st stepped into February landing on the 28th, a typed `31` in February clamped
+to the 28th, an `initial` outside `min` refused on Enter and then moved to the
+bound by a step, and a clock that wraps without carrying into the day. The answer
+it prints is `Date.toString()`, so the time zone in it is yours.
 
 `10-qrcode.js` is the one where a pipe and a terminal get the **same bytes**. A
 scanner wants dark modules on a light background and a terminal already has a light

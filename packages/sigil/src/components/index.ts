@@ -21,6 +21,7 @@ export {
   type PaletteOptions,
   type PaletteResult,
 } from './palette.js';
+export { date, type DateOptions } from './date.js';
 export {
   type Choice,
   type ChoiceEntry,
