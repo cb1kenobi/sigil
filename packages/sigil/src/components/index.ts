@@ -199,3 +199,12 @@ export {
   type TableRow,
   tableView,
 } from './table.js';
+export {
+  note,
+  type NoteBorder,
+  type NoteOptions,
+  type NoteTitleAlign,
+  type NoteVariant,
+  noteView,
+  unicodeSupported,
+} from './note.js';
