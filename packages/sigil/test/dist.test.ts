@@ -205,6 +205,7 @@ describe('what importing the package costs', () => {
     'enableDebugOverlay',
     'qrcodeView',
     'commandPalette',
+    'logView',
   ];
 
   /** The bundles in a graph that define any of them. */

@@ -102,6 +102,10 @@ const ENTRIES = [
     desc: 'A QR code, encoded here and drawn in half blocks or in full cells',
     name: 'qrcode',
   },
+  {
+    desc: 'Leveled status lines: info, success, warn, error and step, above any live region',
+    name: 'log',
+  },
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */

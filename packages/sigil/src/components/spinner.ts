@@ -14,8 +14,13 @@ export const DOTS: readonly string[] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴'
 /** Frames for a terminal that cannot be trusted with anything but ASCII. */
 export const LINE: readonly string[] = ['-', '\\', '|', '/'];
 
-/** How a spinner ends, and the mark it leaves. */
-const OUTCOMES = {
+/**
+ * How a spinner ends, and the mark it leaves.
+ *
+ * Exported so that `log` draws the same four: a status line and the spinner
+ * that preceded it should agree about what a warning looks like.
+ */
+export const OUTCOME_SYMBOLS = {
   error: '✖',
   info: 'ℹ',
   success: '✔',
@@ -23,7 +28,7 @@ const OUTCOMES = {
 } as const;
 
 /** One of the four ways a spinner settles. */
-export type SpinnerOutcome = keyof typeof OUTCOMES;
+export type SpinnerOutcome = keyof typeof OUTCOME_SYMBOLS;
 
 export interface SpinnerOptions extends MountOptions {
   /** How long each frame lasts, in milliseconds. Defaults to 80. */
@@ -101,7 +106,7 @@ export function spinnerView(state: SpinnerState, frames: readonly string[] = DOT
     const frame = state.frame.get();
 
     if (outcome) {
-      lead.setText(OUTCOMES[outcome]);
+      lead.setText(OUTCOME_SYMBOLS[outcome]);
       lead.setProps({ class: `sigil-symbol is-${outcome} sigil-${outcome}`, display: 'flex' });
     } else if (frame === undefined) {
       lead.setText('');

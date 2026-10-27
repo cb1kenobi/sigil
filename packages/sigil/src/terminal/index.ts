@@ -124,9 +124,14 @@ export interface Terminal {
    * new holder starts on a clean line.
    *
    * @param onEvict - Called if something else claims the region.
+   * @param above - How to put a line on **stderr** above the region, which is
+   *   what `writeStatus()` calls while this claim is held. A holder that draws
+   *   in place has to take part, because only it knows how to get out of the
+   *   way and back; one that does not say gets the line written straight
+   *   through.
    * @returns The claim.
    */
-  claimLive(onEvict?: () => void): LiveClaim;
+  claimLive(onEvict?: () => void, above?: (text: string) => void): LiveClaim;
   /** Whether the far end has gone away, after which writes do nothing. */
   readonly closed: boolean;
   /**
@@ -233,6 +238,18 @@ export interface Terminal {
   writeErr(chunk: string): boolean;
   /** Writes to stdout. Never throws; returns `false` once the far end is gone. */
   write(chunk: string): boolean;
+  /**
+   * Writes a line to stderr that stays, **above** whatever holds the live region.
+   *
+   * A status line from `log` has no handle on the spinner or bar that happens
+   * to be running, and should not need one: the claim is the terminal's, so
+   * this asks the holder to get out of the way rather than the caller finding
+   * it. With no holder it is `writeErr()`.
+   *
+   * @param chunk - The line. A trailing newline is added if missing.
+   * @returns `false` once the far end is gone.
+   */
+  writeStatus(chunk: string): boolean;
 }
 
 /**
@@ -272,6 +289,7 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
   let resizeAttached = false;
 
   interface InternalClaim extends LiveClaim {
+    above?: (text: string) => void;
     evict(): void;
   }
 
@@ -507,12 +525,13 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
   }
 
   return {
-    claimLive(onEvict?: () => void): LiveClaim {
+    claimLive(onEvict?: () => void, above?: (text: string) => void): LiveClaim {
       const previous = claim;
       previous?.evict();
 
       let active = true;
       const it: InternalClaim = {
+        above,
         get active() {
           return active;
         },
@@ -659,6 +678,19 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
 
     writeErr(chunk: string): boolean {
       return writeTo(stderr, chunk);
+    },
+
+    writeStatus(chunk: string): boolean {
+      if (closed) {
+        return false;
+      }
+
+      if (claim?.active && claim.above) {
+        claim.above(chunk);
+        return true;
+      }
+
+      return writeTo(stderr, chunk.endsWith('\n') ? chunk : `${chunk}\n`);
     },
   };
 }

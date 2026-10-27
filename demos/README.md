@@ -337,6 +337,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it            |
 | [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself            |
 | [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells             |
+| [`components/16-log.js`](components/16-log.js)                     | Leveled status lines, above whatever is repainting      |
 
 ### Try them without a terminal
 
@@ -375,6 +376,13 @@ because the cipher cells and the resolved ones are two elements over one
 rectangle and each resolves its own style. The sixth is `text-overflow` on a path
 too long for its box: a decrypt is cut and marked the way any other text is, in
 `ellipsis-middle`, which keeps the project at one end and the file at the other.
+
+`16-log.js` is the one whose real output is all on **stderr**, which is the point of
+it and is also why a piped run cannot just call `log`: the demo suite requires an
+empty stderr. So piped, it replays the same calls against a test terminal and
+prints the screen those calls produced, with the status line that arrived while the
+spinner was running sitting above where the spinner was. On a terminal it uses the
+real `log` and a real spinner.
 
 `10-qrcode.js` is the one where a pipe and a terminal get the **same bytes**. A
 scanner wants dark modules on a light background and a terminal already has a light

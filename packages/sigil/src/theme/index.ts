@@ -122,6 +122,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-palette-desc  .sigil-palette-empty
  *   .sigil-debug-head  .sigil-debug-title  .sigil-debug-stats
  *   .sigil-debug-log  .sigil-debug-list  .sigil-debug-entry
+ *   .sigil-log  .sigil-log-symbol  .sigil-log-body  .sigil-log-text
  * A class with no rule is still a hook; giving it an empty rule would be a
  * declaration that says nothing and a line for somebody to wonder about. Most of
  * them are here because a role carries what they used to say, which is the point

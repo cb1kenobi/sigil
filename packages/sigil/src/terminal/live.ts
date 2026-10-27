@@ -75,8 +75,10 @@ export interface LiveRegion {
    * region, writes, and draws the frame again underneath.
    *
    * @param text - The line to write. A trailing newline is added if missing.
+   * @param to - Where it goes. Defaults to stdout; `'stderr'` is what
+   *   `terminal.writeStatus()` asks for while this region is on screen.
    */
-  write(text: string): void;
+  write(text: string, to?: 'stderr'): void;
 }
 
 /**
@@ -123,11 +125,14 @@ export function createLiveRegion(opts: LiveRegionOptions = {}): LiveRegion {
       return false;
     }
 
-    claim = terminal.claimLive(() => {
-      // something else wants the region: give back a clean line and stop
-      erase();
-      finish();
-    });
+    claim = terminal.claimLive(
+      () => {
+        // something else wants the region: give back a clean line and stop
+        erase();
+        finish();
+      },
+      (text) => region.write(text, 'stderr')
+    );
 
     offResize = terminal.onResize(() => {
       stale = true;
@@ -186,7 +191,7 @@ export function createLiveRegion(opts: LiveRegionOptions = {}): LiveRegion {
     height = 0;
   }
 
-  return {
+  const region: LiveRegion = {
     get active() {
       return !!claim?.active;
     },
@@ -258,18 +263,33 @@ export function createLiveRegion(opts: LiveRegionOptions = {}): LiveRegion {
 
     terminal,
 
-    write(text: string): void {
+    write(text: string, to?: 'stderr'): void {
       const line = text.endsWith('\n') ? text : `${text}\n`;
+      const out = (chunk: string): void => {
+        if (to === 'stderr') {
+          terminal.writeErr(chunk);
+        } else {
+          terminal.write(chunk);
+        }
+      };
 
-      if (!claim?.active || !isLive()) {
-        terminal.write(line);
+      // a stderr that is not a screen has nothing for the region to get out of
+      // the way of, and repainting would only flicker it for a line that is
+      // going to a file
+      if (!claim?.active || !isLive() || (to === 'stderr' && !terminal.stderr.isTTY)) {
+        out(line);
         return;
       }
 
       // the frame is redrawn underneath rather than left where it was: the
       // text has to land above it, and the only way there is through it
       const redraw = frame;
-      terminal.write(eraseSequence() + line);
+      if (to === 'stderr') {
+        terminal.write(eraseSequence());
+        out(line);
+      } else {
+        terminal.write(eraseSequence() + line);
+      }
       frame = undefined;
       height = 0;
 
@@ -278,4 +298,6 @@ export function createLiveRegion(opts: LiveRegionOptions = {}): LiveRegion {
       }
     },
   };
+
+  return region;
 }
