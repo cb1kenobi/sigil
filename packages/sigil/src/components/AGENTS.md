@@ -4343,3 +4343,96 @@ how the two come to disagree." It is decided, and the answer is no.
   ECMA-48's 0x30-0x3f at the same time, because only `[\d;]` was read: the `<`
   a mouse report leads with was taken for the terminator, and `0;1;1M` was typed
   a character at a time after it.
+
+### A date prompt: segments, ISO order, and the parser's own reader
+
+SIG-165. `src/components/date.ts` is the whole of it: `date()` returns a `Date`
+from year, month and day segments, with the hour, minute and second added by
+`time` and `seconds`.
+
+- **The value is built by the parser and the prompt carries no calendar of its
+  own.** The ticket's requirement was that the prompt accept exactly what the
+  `date` data type accepts, and the only way two readers cannot disagree about
+  what a date is is for there to be one. So Enter turns the segments into
+  `YYYY-MM-DD` or `YYYY-MM-DDTHH:mm:ss` and calls `transformValue(text, 'date')`
+  -- the checks recorded in the root `AGENTS.md` ("A `date` has its clock checked
+  as well as its calendar", "A data type rejects what it cannot represent") are
+  therefore the parser's and not a copy. The one piece of arithmetic the prompt
+  needs outside that call is how long a month is while a day is being stepped,
+  and that is `daysInMonth()` from the same file, exported for it (additively; it
+  was the parser's private helper). The clock and calendar are asked about on the
+  matched text, never read back off a `Date`, which is the parser's rule and
+  holds here for free.
+- **It is unreachable by construction that the parser refuses what the prompt
+  built, and that is why a test replaces the parser.** Every segment is clamped
+  to its range as it is written, so an invalid date cannot be assembled and a
+  sabotage that bypasses the call survives a behavioural suite. `date-parser.test.ts`
+  mocks `transformValue()` and asserts the text it is given and that the answer is
+  what it returns, and that a throw from it is the error line rather than an
+  escape. The year `0000` has no 29 February in the parser's `daysInMonth()`
+  (`Date.UTC` maps years 0-99 to 1900-1999, and 1900 is not a leap year), so the
+  prompt cannot reach it either; it agrees with the parser by sharing the
+  function, and fixing it is the parser's.
+- **Local time, with no offset, and no timezone option.** The text has no `Z` and
+  no offset, which the parser reads as a local date-time, so the answer is the
+  wall-clock time the person saw. The prompt reads `initial`, `min` and `max` back
+  with the _local_ getters for the same reason: this is the one place where that
+  is right, because the value was built local. A wall-clock time a daylight saving
+  gap skipped comes back as the engine resolves it, which is the parser's answer
+  too. Ranges are compared as fields and not as `Date`s so that a check never
+  moves with the zone.
+- **Date only by default; ISO order always.** `time` adds hour and minute and
+  `seconds` adds the second and implies `time` (seconds with no minutes would be
+  a field with nothing in front of it). The segments are year, month, day, then
+  the clock, whatever the locale: ordering by locale means the same prompt takes
+  `06/15` in one place and `15/06` in another with nothing on screen to say which,
+  and the parser's `date` type is ISO only. A `mask` was in the ticket's title and
+  is not built -- `time` and `seconds` are the masks that exist, and a free-form
+  one would be a second grammar next to the parser's.
+- **Stepping wraps inside the segment and never carries.** Up on December is
+  January of the same year; Up on 23 is 00 on the same day. Carrying would make
+  one key change two segments, which is not what a segment stepper is, and the
+  person who wants the next day presses Up on the day. What does change a
+  neighbour is the day, because it depends on the month: it is pulled back to the
+  last day of a shorter month and is not given back, so 31 January stepped to
+  February and on to March is the 28th. Remembering the wanted day would be state
+  the field does not show.
+- **Digits fill a segment; Backspace clears what was typed into it.** The digits
+  are pending until the segment is full or is left (arrow, Tab, Enter, a step),
+  and pending digits are shown as typed with `_` for the rest. A full segment
+  commits and moves on, except the last. A value is clamped to its segment's range
+  when committed, so `99` for a month is 12 and `31` for a day in February is the
+  last day. Backspace drops all pending digits and leaves the value as it was,
+  rather than one digit at a time: a segment is two or four digits, and a half-typed
+  year is retyped faster than it is edited. Anything but a digit does nothing.
+  There is no separator-key advance (`-`, `/`, `:`, space), which is one more way
+  to type the same thing.
+- **`min` and `max` clamp every step and entry, and are inclusive at the precision
+  shown.** The bounds are truncated to the fields shown before they are compared,
+  so a `max` of three in the afternoon on the 20th allows the 20th in a date-only
+  field -- otherwise the last day of the range would be unreachable. A write that
+  would leave the range lands on the nearest bound. **Enter is where the error
+  line lives** because the only value that can be out of range at that point is an
+  explicit `initial`, which is deliberately not moved: moving it would answer a
+  question nobody asked, and the person is better told than quietly handed another
+  date. The default `initial` (now) is pulled into the range instead, since nobody
+  chose it. `min` after `max` and an invalid `Date` reject at the call rather than
+  producing a field that can never be answered.
+- **The caret is a whole segment in reverse video, painted into the frame.** The
+  decision recorded under "Prompts and keys" -- the terminal's own cursor is not
+  moved -- applies unchanged, and so does its consequence: at colour level 0 no
+  caret is drawn, so the focused segment is not marked there. The classes are
+  `sigil-prompt-field`, `sigil-caret`, `sigil-muted` and `sigil-prompt-answer`;
+  there is no new one.
+- **Not ejectable, for the palette's reason.** `sigil add` rewrites a component's
+  relative imports to published subpaths and `../util/transform.js` has none; an
+  ejected copy would carry a second reader of the calendar, which is the thing
+  this component exists not to have. So `date` is not in `generate-registry.mjs`'s
+  `ENTRIES`, and the ticket's registry line is answered by that rather than by an
+  entry.
+- **Deliberately not done.** A timezone or UTC option; locale ordering; a
+  free-form mask; a calendar popup; mouse; a range (two dates) prompt; paste
+  handling (a pasted block is typed in as keys, as for the other non-text
+  prompts, so `2024-06-15` happens to work -- the digits fill the segments and the
+  dashes do nothing -- and nothing else is promised); clock injection (a test sets
+  the system time).
