@@ -1656,6 +1656,60 @@ patch, a pane, and three additions to the renderer that the pane needs.
   window assertions had the old spacing written into them: a test can pin a
   misalignment as readily as an alignment, which is what made this a report rather
   than a failure.
+- **A choice can be disabled, a row can be a heading, and the cursor steps over
+  both rather than landing and refusing (SIG-157).** `Choice` gained
+  `disabled`, `description` and `short`, `choices` may hold a `separator()`, and
+  `select()` took `loop` while `multiselect()` took `min` and `max`. The
+  decisions that are not obvious from the code:
+  - **Skipped, not refused.** A cursor you can put on a row that will not take
+    it reads as a key that did nothing, so `seek()` walks to the next choice on
+    offer and `initial` moves to one the same way. The walk is at most one lap,
+    so a list with nothing on offer ends where it began; that list is refused up
+    front with the message an empty one already had, because to the person at the
+    keyboard they are the same question. Home and End go to the first and last
+    choice _on offer_, not the first and last row.
+  - **`disabled` is `true` or a reason, and the reason takes the hint's place.**
+    A choice carrying both shows the reason, since the hint describes a choice
+    that can be taken. A bare `true` says `disabled`, through `__`. A disabled
+    choice is never ticked, `selected` included, and neither `a` nor `i` touches
+    it -- select-all that ticked something the cursor cannot reach would leave a
+    tick no key could remove.
+  - **A heading starts in the cursor's column, over the labels it introduces.**
+    A separator row carries the same four parts as a choice with the pointer and
+    the box `display: none`, which is what puts it flush left. It is a frozen
+    `{ separator }` object from a function rather than a class: a class would be
+    an `instanceof` that fails across two copies of the package, and a plain
+    shape is checked with `in`.
+  - **A description reserves its row whether or not the highlighted choice has
+    one**, and only when _some_ choice does. The multiselect's error line is
+    reserved the same way for the same reason: showing one must not push the last
+    choice off a canvas that is a fixed number of rows. A list where nothing
+    describes itself keeps the room it had.
+  - **`min` and `max` are judged at Enter and never while ticking.** Stopping the
+    fourth Space at a `max` of 3 would make a tick that silently does nothing,
+    and select-all would have to decide which three. `required` is `min: 1` and
+    an explicit `min` beats it, so `min: 0, required: true` asks for nothing.
+    One tick keeps the old message, `Choose at least one`, because translators
+    already carry it; any other number is `Choose at least {0}`. Both bounds are
+    _asked_ to be whole numbers rather than compared, since every comparison with
+    `NaN` is false and a `max` of `NaN` would accept any number of choices and
+    say nothing about it.
+  - **`a` is select-all and Ctrl-A is still select-all.** Inquirer's checkbox
+    spells it `a` and this file's multiselect has always spelled it Ctrl-A; both
+    work, and a multiselect has no text field for a bare letter to be wanted by.
+    Alt-`a` and Ctrl- or Alt-`i` are not read as either. The hint line is
+    unchanged, because it is reserved at narrow widths already and a longer one
+    is what `prompt.test.ts` guards against; the keys are in the README and the
+    demo instead. That is a discoverability cost, paid knowingly.
+  - **Not done:** Inquirer's configurable `shortcuts` (the two keys are fixed),
+    a separator that is selectable, and a `loop` on `multiselect()`'s Home and
+    End, which it has never had.
+  - **The demo runs piped by not being piped.** `demos/components/11-choices.js`
+    is two ordinary prompts on a terminal, and with none it drives the same two
+    through `createTestTerminal()` and prints the screen after each key. That
+    makes it the only prompt demo `demos.test.ts` runs to exit 0 -- the other
+    cannot, by the rule that a prompt with nobody to answer it fails.
+
 - **A bracketed paste reaches a text prompt as text, with its line breaks
   flattened.** Obeying one is what makes a paste submit half an address, which is
   the whole reason a terminal brackets a paste. The other prompts register no
