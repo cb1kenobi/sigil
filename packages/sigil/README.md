@@ -2768,6 +2768,48 @@ async — return a string to reject the answer with that message. Editing keys
 are the usual ones: arrows, Home/End, Ctrl-A/E/U, Backspace, Delete. A paste
 arrives as one chunk and is read as the keys it carries, not just the first.
 
+#### Choices that say more
+
+```js
+import { multiselect, select, separator } from '@ttylabs/sigil/components';
+
+const target = await select({
+  message: 'Deploy to',
+  choices: [
+    separator('Cloud'),
+    { label: 'Production (us-east-1)', short: 'prod', value: 'prod', description: 'The real one.' },
+    separator('Local'),
+    { label: 'Docker', value: 'docker', disabled: 'Docker is not running' },
+    { label: 'This machine', value: 'local' },
+  ],
+  loop: false,
+});
+
+const checks = await multiselect({
+  message: 'Checks',
+  choices: ['Type check', 'Unit tests', { label: 'Security scan', disabled: true }],
+  min: 1,
+  max: 2,
+});
+```
+
+A `Choice` takes `disabled` (`true`, or a string that is the reason and is drawn
+where a hint would be), `description` (a line under the list while the choice is
+highlighted), `short` (what the answered line says, when the label is longer) and
+`selected`. A `separator(label)` in `choices` is a heading and not a choice.
+
+The cursor **steps over** a heading and a disabled choice rather than landing on
+one and refusing, `initial` moves to the next choice on offer, and Home and End go
+to the first and last. It wraps at the ends unless `loop: false`. A list with
+nothing on offer is refused the way an empty one is. A disabled choice is never
+ticked, whatever its `selected` says.
+
+In `multiselect()`, `a` ticks every choice on offer (or clears them if they all
+already are), `i` flips each one, and Ctrl-A is `a` still. Enter checks `min` and
+`max` — `required` is `min: 1` — and says how many it wanted: `Choose at least 2`.
+Neither is checked while ticking, so a `max` of 3 does not stop the fourth Space,
+only the Enter.
+
 #### A multiline answer
 
 ```js
