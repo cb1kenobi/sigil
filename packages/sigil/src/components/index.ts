@@ -22,6 +22,16 @@ export {
   type PaletteResult,
 } from './palette.js';
 export {
+  cancel,
+  type FrameOptions,
+  group,
+  type GroupOptions,
+  type GroupSteps,
+  intro,
+  isCancel,
+  outro,
+} from './group.js';
+export {
   type Choice,
   confirm,
   type ConfirmOptions,

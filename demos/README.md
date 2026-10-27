@@ -337,6 +337,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it            |
 | [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself            |
 | [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells             |
+| [`components/14-group.js`](components/14-group.js)                 | Prompts as one flow, and the session frame around them  |
 
 ### Try them without a terminal
 
@@ -392,6 +393,15 @@ needs a terminal on both sides.
 What it cannot tell you is whether the code **scans**, which is the only thing
 about a QR code that matters and is the one claim nothing in a process can make.
 `node packages/sigil/scripts/terminal-probe.mjs --qrcode` is that, with a camera.
+
+`14-group.js` is two demos with one flow in them. In a terminal it asks three
+questions with `group()`, the second worded and offered from the first answer,
+framed by `intro()` and `outro()` on stderr -- so redirecting stdout leaves the
+framing on screen and the answers in the file. Piped there is nobody to ask, so it
+builds a test terminal, sends the keys a person would have typed and prints the
+screen after each step: once answering everything, once pressing Ctrl-C at the
+second question, where `onCancel` is handed the one answer given and `cancel()`
+closes the session.
 
 `08-large-text.js` is the one where the answer is that nothing changes: a banner
 is static text, so there is no cursor to move and a pipe gets byte for byte what
