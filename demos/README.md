@@ -325,19 +325,22 @@ waits for it rather than reporting a silence that is not one.
 
 ## Components
 
-|                                                                    |                                                         |
-| ------------------------------------------------------------------ | ------------------------------------------------------- |
-| [`components/01-spinner.js`](components/01-spinner.js)             | Work whose length is not known                          |
-| [`components/02-progress.js`](components/02-progress.js)           | Work whose length is                                    |
-| [`components/03-table.js`](components/03-table.js)                 | Columns that line up, whatever is in them               |
-| [`components/04-prompts.js`](components/04-prompts.js)             | Text, password, select, multiselect, confirm, multiline |
-| [`components/05-live-region.js`](components/05-live-region.js)     | A string frame repainted in place, on its own           |
-| [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js) | Styling, wrapping, and display width                    |
-| [`components/07-typewriter.js`](components/07-typewriter.js)       | Text that arrives rather than appears                   |
-| [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it            |
-| [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself            |
-| [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells             |
-| [`components/14-group.js`](components/14-group.js)                 | Prompts as one flow, and the session frame around them  |
+|                                                                    |                                                           |
+| ------------------------------------------------------------------ | --------------------------------------------------------- |
+| [`components/01-spinner.js`](components/01-spinner.js)             | Work whose length is not known                            |
+| [`components/02-progress.js`](components/02-progress.js)           | Work whose length is                                      |
+| [`components/03-table.js`](components/03-table.js)                 | Columns that line up, whatever is in them                 |
+| [`components/04-prompts.js`](components/04-prompts.js)             | Text, password, select, multiselect, confirm, multiline   |
+| [`components/05-live-region.js`](components/05-live-region.js)     | A string frame repainted in place, on its own             |
+| [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js) | Styling, wrapping, and display width                      |
+| [`components/07-typewriter.js`](components/07-typewriter.js)       | Text that arrives rather than appears                     |
+| [`components/08-large-text.js`](components/08-large-text.js)       | Banner text, and the `.flf` format behind it              |
+| [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself              |
+| [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells               |
+| [`components/11-choices.js`](components/11-choices.js)             | Headings, disabled choices, descriptions, and `min`/`max` |
+| [`components/14-group.js`](components/14-group.js)                 | Prompts as one flow, and the session frame around them    |
+| [`components/17-note.js`](components/17-note.js)                   | A titled, bordered block in a state's colour              |
+| [`components/19-date.js`](components/19-date.js)                   | A date prompt: segments you step or type into             |
 
 ### Try them without a terminal
 
@@ -377,6 +380,14 @@ rectangle and each resolves its own style. The sixth is `text-overflow` on a pat
 too long for its box: a decrypt is cut and marked the way any other text is, in
 `ellipsis-middle`, which keeps the project at one end and the file at the other.
 
+`19-date.js` is a prompt, so a pipe cannot answer it: piped, it plays the same
+prompts against an in-process terminal from `@ttylabs/sigil/testing` and prints the
+screen after each step. The four runs are the four things worth seeing -- January
+31st stepped into February landing on the 28th, a typed `31` in February clamped
+to the 28th, an `initial` outside `min` refused on Enter and then moved to the
+bound by a step, and a clock that wraps without carrying into the day. The answer
+it prints is `Date.toString()`, so the time zone in it is yours.
+
 `10-qrcode.js` is the one where a pipe and a terminal get the **same bytes**. A
 scanner wants dark modules on a light background and a terminal already has a light
 colour and a dark one, so the component borrows them rather than painting any: the
@@ -393,6 +404,14 @@ needs a terminal on both sides.
 What it cannot tell you is whether the code **scans**, which is the only thing
 about a QR code that matters and is the one claim nothing in a process can make.
 `node packages/sigil/scripts/terminal-probe.mjs --qrcode` is that, with a camera.
+
+`11-choices.js` is the only prompt demo that runs piped, and it does so by not
+being piped: with no terminal to read it drives the same two prompts with
+`createTestTerminal()` and prints the screen after each key, so the arrows
+stepping over a heading and a disabled row are something you can read in a log.
+On a terminal it is two ordinary prompts. That is the deliberate difference from
+`04-prompts.js`, which proves a prompt with nobody to answer it fails rather than
+waits -- this one never reaches that rule, because it always has somebody.
 
 `14-group.js` is two demos with one flow in them. In a terminal it asks three
 questions with `group()`, the second worded and offered from the first answer,
@@ -411,6 +430,14 @@ reads its font from `components/fonts/blocks.flf`, written for these demos --
 no third-party `.flf` is committed here and none is bundled in the runtime,
 because the look of a banner is the app's choice and there are hundreds of fonts
 already written.
+
+`17-note.js` is the same kind of demo as the banner: a note is a string and the
+caller does the writing, so a pipe gets what a terminal gets and `--quiet` does
+not reach it. It passes a `width` so that it prints the same blocks wherever it
+is run, and its last two blocks show the ASCII border -- asked for by name, and
+chosen because `TERM=linux` was read out of the `env` it was handed. The state
+colours are the theme's roles, so `NO_COLOR=1` leaves the box and the words and
+takes the colour.
 
 The typewriter and the decrypt answer the same way to a preference rather than to
 a pipe, so a terminal whose user has asked for less motion gets the text in one go

@@ -90,14 +90,19 @@ export const FRAMEWORK_CSS = `
  * mark, the spinner's frame, the progress bar's fill, the active choice and the
  * scroll thumb are all cyan because they are all the live part of a frame, and
  * "make my CLI magenta" is the most obvious thing a theme is for.
+ *
+ * The four state roles set border-color beside color. A border colour does not
+ * inherit, so a bordered box that wants a state's colour on its edge has to carry
+ * the role class itself -- and a role is the only site this sheet lets a
+ * declaration live, so the pair is one rule rather than a compound selector.
  */
 .sigil-accent { color: cyan }
 .sigil-muted { dim: true }
 .sigil-heading { font-weight: bold }
-.sigil-success { color: green }
-.sigil-error { color: red }
-.sigil-warn { color: yellow }
-.sigil-info { color: blue }
+.sigil-success { color: green; border-color: green }
+.sigil-error { color: red; border-color: red }
+.sigil-warn { color: yellow; border-color: yellow }
+.sigil-info { color: blue; border-color: blue }
 
 /*
  * The classes that carry no default and are here to be written against:
@@ -109,6 +114,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-prompt-message  .sigil-prompt-hint  .sigil-prompt-answer
  *   .sigil-prompt-placeholder  .sigil-prompt-error  .sigil-prompt-multiline
  *   .sigil-choice  .sigil-choice-pointer  .sigil-choice-mark  .sigil-choice-hint
+ *   .sigil-choice-heading  .sigil-choice-separator  .sigil-choice-description
  *   .sigil-spinner-frame  .sigil-progress-bar  .sigil-scroll-thumb
  *   .sigil-scroll  .sigil-scroll-row  .sigil-scroll-viewport  .sigil-scroll-content
  *   .sigil-scroll-bar  .sigil-scroll-slot  .sigil-scroll-spacer
@@ -121,6 +127,9 @@ export const FRAMEWORK_CSS = `
  *   .sigil-palette  .sigil-palette-list  .sigil-palette-row
  *   .sigil-palette-pointer  .sigil-palette-label  .sigil-palette-match
  *   .sigil-palette-desc  .sigil-palette-empty
+ *   .sigil-note  .sigil-note-frame  .sigil-note-body  .sigil-note-title
+ *   .sigil-note-note  .sigil-note-info  .sigil-note-success
+ *   .sigil-note-warning  .sigil-note-error
  *   .sigil-debug-head  .sigil-debug-title  .sigil-debug-stats
  *   .sigil-debug-log  .sigil-debug-list  .sigil-debug-entry
  * A class with no rule is still a hook; giving it an empty rule would be a

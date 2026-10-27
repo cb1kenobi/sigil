@@ -21,6 +21,7 @@ export {
   type PaletteOptions,
   type PaletteResult,
 } from './palette.js';
+export { date, type DateOptions } from './date.js';
 export {
   cancel,
   type FrameOptions,
@@ -33,6 +34,7 @@ export {
 } from './group.js';
 export {
   type Choice,
+  type ChoiceEntry,
   confirm,
   type ConfirmOptions,
   ESCAPE_TIMEOUT,
@@ -45,6 +47,8 @@ export {
   type PromptOptions,
   select,
   type SelectOptions,
+  separator,
+  type Separator,
   type SubmitKey,
   text,
   type TextOptions,
@@ -209,3 +213,12 @@ export {
   type TableRow,
   tableView,
 } from './table.js';
+export {
+  note,
+  type NoteBorder,
+  type NoteOptions,
+  type NoteTitleAlign,
+  type NoteVariant,
+  noteView,
+  unicodeSupported,
+} from './note.js';

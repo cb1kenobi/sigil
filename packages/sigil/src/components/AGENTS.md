@@ -1656,6 +1656,60 @@ patch, a pane, and three additions to the renderer that the pane needs.
   window assertions had the old spacing written into them: a test can pin a
   misalignment as readily as an alignment, which is what made this a report rather
   than a failure.
+- **A choice can be disabled, a row can be a heading, and the cursor steps over
+  both rather than landing and refusing (SIG-157).** `Choice` gained
+  `disabled`, `description` and `short`, `choices` may hold a `separator()`, and
+  `select()` took `loop` while `multiselect()` took `min` and `max`. The
+  decisions that are not obvious from the code:
+  - **Skipped, not refused.** A cursor you can put on a row that will not take
+    it reads as a key that did nothing, so `seek()` walks to the next choice on
+    offer and `initial` moves to one the same way. The walk is at most one lap,
+    so a list with nothing on offer ends where it began; that list is refused up
+    front with the message an empty one already had, because to the person at the
+    keyboard they are the same question. Home and End go to the first and last
+    choice _on offer_, not the first and last row.
+  - **`disabled` is `true` or a reason, and the reason takes the hint's place.**
+    A choice carrying both shows the reason, since the hint describes a choice
+    that can be taken. A bare `true` says `disabled`, through `__`. A disabled
+    choice is never ticked, `selected` included, and neither `a` nor `i` touches
+    it -- select-all that ticked something the cursor cannot reach would leave a
+    tick no key could remove.
+  - **A heading starts in the cursor's column, over the labels it introduces.**
+    A separator row carries the same four parts as a choice with the pointer and
+    the box `display: none`, which is what puts it flush left. It is a frozen
+    `{ separator }` object from a function rather than a class: a class would be
+    an `instanceof` that fails across two copies of the package, and a plain
+    shape is checked with `in`.
+  - **A description reserves its row whether or not the highlighted choice has
+    one**, and only when _some_ choice does. The multiselect's error line is
+    reserved the same way for the same reason: showing one must not push the last
+    choice off a canvas that is a fixed number of rows. A list where nothing
+    describes itself keeps the room it had.
+  - **`min` and `max` are judged at Enter and never while ticking.** Stopping the
+    fourth Space at a `max` of 3 would make a tick that silently does nothing,
+    and select-all would have to decide which three. `required` is `min: 1` and
+    an explicit `min` beats it, so `min: 0, required: true` asks for nothing.
+    One tick keeps the old message, `Choose at least one`, because translators
+    already carry it; any other number is `Choose at least {0}`. Both bounds are
+    _asked_ to be whole numbers rather than compared, since every comparison with
+    `NaN` is false and a `max` of `NaN` would accept any number of choices and
+    say nothing about it.
+  - **`a` is select-all and Ctrl-A is still select-all.** Inquirer's checkbox
+    spells it `a` and this file's multiselect has always spelled it Ctrl-A; both
+    work, and a multiselect has no text field for a bare letter to be wanted by.
+    Alt-`a` and Ctrl- or Alt-`i` are not read as either. The hint line is
+    unchanged, because it is reserved at narrow widths already and a longer one
+    is what `prompt.test.ts` guards against; the keys are in the README and the
+    demo instead. That is a discoverability cost, paid knowingly.
+  - **Not done:** Inquirer's configurable `shortcuts` (the two keys are fixed),
+    a separator that is selectable, and a `loop` on `multiselect()`'s Home and
+    End, which it has never had.
+  - **The demo runs piped by not being piped.** `demos/components/11-choices.js`
+    is two ordinary prompts on a terminal, and with none it drives the same two
+    through `createTestTerminal()` and prints the screen after each key. That
+    makes it the only prompt demo `demos.test.ts` runs to exit 0 -- the other
+    cannot, by the rule that a prompt with nobody to answer it fails.
+
 - **A bracketed paste reaches a text prompt as text, with its line breaks
   flattened.** Obeying one is what makes a paste submit half an address, which is
   the whole reason a terminal brackets a paste. The other prompts register no
@@ -4406,3 +4460,167 @@ SIG-160. `src/components/group.ts` is the whole of it: `group()`, `isCancel()`,
   with its old answer shown, which no prompt can do without an `initial` the
   existing ones do not take, and they are not edited here. Blank lines around the
   frame, so a session adds no rows beyond the three it writes.
+
+### A note: a titled, bordered block
+
+SIG-163 asked for what Clack's `note`/`box` and Ink UI's `Alert` do: frame a
+message so it stands out. `src/components/note.ts` is `note()` and `noteView()`,
+and the split is `table()` and `tableView()`'s.
+
+- **One component with a `variant`, and `box` and `alert` are not exported.** They
+  would be the same function under two more names, and a second spelling of one
+  function is how the two come to disagree. `note` was free in the barrel --
+  `prompt.ts` has an internal `note` helper and exports `promptNote`, neither of
+  which collides -- so the component takes the name the ticket opened with.
+- **It shrinks to its message and wraps at the room it is given.** Clack's shape,
+  and the one a "next steps" panel wants: a filled line is a box mostly made of
+  blanks. The message is a plain `text` that wraps itself, inside a bordered box
+  with a `max-width` of the room and a wrapper that does not stretch it. Nothing
+  here counts a column of the message. `white-space: pre` was tried first and is
+  not needed: this engine wraps every text but a `nowrap` one with `wrap()`, which
+  keeps newlines, blank lines and indentation, so a command inside a note keeps
+  its indent. The width has a floor of 5 -- a border and a column of padding each
+  side and one column inside -- because under it the message has no cell to be in
+  and vanished rather than wrapping a letter to a row.
+- **The title is an out-of-flow text one row up, because the border has no notion
+  of one.** `paintBorder()` draws a border as a whole, so a title is a `position:
+  absolute` text at `top: -1` over a `position: relative` box, which resolves
+  against the padding box and so lands on the border row. It takes no space, and
+  `left`, `right`, or both insets with `text-align: center` are the three
+  alignments. A `min-width` is what stops a short message clipping a long title,
+  and a title is cut with `truncate()` to what the room leaves. Where the room
+  cannot hold the corners, a rule on each side and one column of title, the title
+  is left out rather than drawn over a corner.
+- **A title ends in a no-break space, and `note()` turns it back into a space.**
+  A text drops the whitespace at the end of its last line, so " Title " lost the
+  space that keeps the rule off the word. U+00A0 is not whitespace to the wrapper
+  and takes one column. It is replaced on the way out of `note()`, so nothing in
+  what is printed or copied is a no-break space -- and so is one in a message,
+  which prints as the ordinary space it looks like. `noteView()` hands back the
+  tree with the character still in it.
+- **Colour is the four state roles, and that needed `border-color` on them.** A
+  border colour does not inherit, and `should declare on a role, bar four
+  exceptions that say why` allows a declaration only on a role selector, so a
+  `.sigil-note.sigil-error` rule was never available. The roles now set
+  `border-color` beside `color`, which is also the right statement of what an
+  error is. The cost is that the message inherits the role's `color` as well, so
+  an `error` note is red all through; a plain `note` carries no role and is the
+  terminal's own foreground. A message in the default colour inside a coloured
+  border would need a `color` in props, which is the thing built-ins do not do.
+  `warning` maps to `.sigil-warn`, for the reason `SpinnerOutcome` does.
+- **The ASCII fallback is read off the environment by `unicodeSupported()`.**
+  Nothing in the repository decided this before: colour level says nothing about
+  box drawing, and the spinner's `LINE` frames are opt-in. It is the
+  `is-unicode-supported` heuristic -- off Windows everything but `TERM=linux` and
+  `dumb`; on Windows only the terminals known to cope -- taking `env` and
+  `platform` the way `terminalWidth()` does, so a test names the terminal it is
+  about instead of inheriting the developer's. An explicit `border` always wins.
+  `NO_COLOR` does not select ASCII: it is about colour.
+- **Escape sequences are dropped from the message and the title.** `text` strips
+  control characters and does not interpret them, so a styled string put in
+  unmodified printed its `ESC` removed and the rest -- `[31m` -- as literal
+  text. Colour is the variant's, so stripping loses nothing a note was meant to
+  carry; styled runs inside a message would be a `paragraph()` of runs, and that
+  is a different API.
+- **String form only, and it ignores `--quiet`.** A note is a result, on
+  `table()`'s side of the line the quiet axis draws, and the caller does the
+  writing. A live form would be a `mountLive()` of a tree that never changes, which
+  is `console.log(note(...))` with a renderer in the way.
+
+What is deliberately not done: vertical padding (a caller adds a blank line, and
+Clack's extra rows are most of why its notes look tall); a symbol per variant
+(the title is where an app says what kind it is, and at colour level 0 it is all
+that does); styled runs in a message; and a title on a side other than the top.
+
+### A date prompt: segments, ISO order, and the parser's own reader
+
+SIG-165. `src/components/date.ts` is the whole of it: `date()` returns a `Date`
+from year, month and day segments, with the hour, minute and second added by
+`time` and `seconds`.
+
+- **The value is built by the parser and the prompt carries no calendar of its
+  own.** The ticket's requirement was that the prompt accept exactly what the
+  `date` data type accepts, and the only way two readers cannot disagree about
+  what a date is is for there to be one. So Enter turns the segments into
+  `YYYY-MM-DD` or `YYYY-MM-DDTHH:mm:ss` and calls `transformValue(text, 'date')`
+  -- the checks recorded in the root `AGENTS.md` ("A `date` has its clock checked
+  as well as its calendar", "A data type rejects what it cannot represent") are
+  therefore the parser's and not a copy. The one piece of arithmetic the prompt
+  needs outside that call is how long a month is while a day is being stepped,
+  and that is `daysInMonth()` from the same file, exported for it (additively; it
+  was the parser's private helper). The clock and calendar are asked about on the
+  matched text, never read back off a `Date`, which is the parser's rule and
+  holds here for free.
+- **It is unreachable by construction that the parser refuses what the prompt
+  built, and that is why a test replaces the parser.** Every segment is clamped
+  to its range as it is written, so an invalid date cannot be assembled and a
+  sabotage that bypasses the call survives a behavioural suite. `date-parser.test.ts`
+  mocks `transformValue()` and asserts the text it is given and that the answer is
+  what it returns, and that a throw from it is the error line rather than an
+  escape. The year `0000` has no 29 February in the parser's `daysInMonth()`
+  (`Date.UTC` maps years 0-99 to 1900-1999, and 1900 is not a leap year), so the
+  prompt cannot reach it either; it agrees with the parser by sharing the
+  function, and fixing it is the parser's.
+- **Local time, with no offset, and no timezone option.** The text has no `Z` and
+  no offset, which the parser reads as a local date-time, so the answer is the
+  wall-clock time the person saw. The prompt reads `initial`, `min` and `max` back
+  with the _local_ getters for the same reason: this is the one place where that
+  is right, because the value was built local. A wall-clock time a daylight saving
+  gap skipped comes back as the engine resolves it, which is the parser's answer
+  too. Ranges are compared as fields and not as `Date`s so that a check never
+  moves with the zone.
+- **Date only by default; ISO order always.** `time` adds hour and minute and
+  `seconds` adds the second and implies `time` (seconds with no minutes would be
+  a field with nothing in front of it). The segments are year, month, day, then
+  the clock, whatever the locale: ordering by locale means the same prompt takes
+  `06/15` in one place and `15/06` in another with nothing on screen to say which,
+  and the parser's `date` type is ISO only. A `mask` was in the ticket's title and
+  is not built -- `time` and `seconds` are the masks that exist, and a free-form
+  one would be a second grammar next to the parser's.
+- **Stepping wraps inside the segment and never carries.** Up on December is
+  January of the same year; Up on 23 is 00 on the same day. Carrying would make
+  one key change two segments, which is not what a segment stepper is, and the
+  person who wants the next day presses Up on the day. What does change a
+  neighbour is the day, because it depends on the month: it is pulled back to the
+  last day of a shorter month and is not given back, so 31 January stepped to
+  February and on to March is the 28th. Remembering the wanted day would be state
+  the field does not show.
+- **Digits fill a segment; Backspace clears what was typed into it.** The digits
+  are pending until the segment is full or is left (arrow, Tab, Enter, a step),
+  and pending digits are shown as typed with `_` for the rest. A full segment
+  commits and moves on, except the last. A value is clamped to its segment's range
+  when committed, so `99` for a month is 12 and `31` for a day in February is the
+  last day. Backspace drops all pending digits and leaves the value as it was,
+  rather than one digit at a time: a segment is two or four digits, and a half-typed
+  year is retyped faster than it is edited. Anything but a digit does nothing.
+  There is no separator-key advance (`-`, `/`, `:`, space), which is one more way
+  to type the same thing.
+- **`min` and `max` clamp every step and entry, and are inclusive at the precision
+  shown.** The bounds are truncated to the fields shown before they are compared,
+  so a `max` of three in the afternoon on the 20th allows the 20th in a date-only
+  field -- otherwise the last day of the range would be unreachable. A write that
+  would leave the range lands on the nearest bound. **Enter is where the error
+  line lives** because the only value that can be out of range at that point is an
+  explicit `initial`, which is deliberately not moved: moving it would answer a
+  question nobody asked, and the person is better told than quietly handed another
+  date. The default `initial` (now) is pulled into the range instead, since nobody
+  chose it. `min` after `max` and an invalid `Date` reject at the call rather than
+  producing a field that can never be answered.
+- **The caret is a whole segment in reverse video, painted into the frame.** The
+  decision recorded under "Prompts and keys" -- the terminal's own cursor is not
+  moved -- applies unchanged, and so does its consequence: at colour level 0 no
+  caret is drawn, so the focused segment is not marked there. The classes are
+  `sigil-prompt-field`, `sigil-caret`, `sigil-muted` and `sigil-prompt-answer`;
+  there is no new one.
+- **Not ejectable, for the palette's reason.** `sigil add` rewrites a component's
+  relative imports to published subpaths and `../util/transform.js` has none; an
+  ejected copy would carry a second reader of the calendar, which is the thing
+  this component exists not to have. So `date` is not in `generate-registry.mjs`'s
+  `ENTRIES`, and the ticket's registry line is answered by that rather than by an
+  entry.
+- **Deliberately not done.** A timezone or UTC option; locale ordering; a
+  free-form mask; a calendar popup; mouse; a range (two dates) prompt; paste
+  handling (a pasted block is typed in as keys, as for the other non-text
+  prompts, so `2024-06-15` happens to work -- the digits fill the segments and the
+  dashes do nothing -- and nothing else is promised); clock injection (a test sets
+  the system time).
