@@ -1656,6 +1656,60 @@ patch, a pane, and three additions to the renderer that the pane needs.
   window assertions had the old spacing written into them: a test can pin a
   misalignment as readily as an alignment, which is what made this a report rather
   than a failure.
+- **A choice can be disabled, a row can be a heading, and the cursor steps over
+  both rather than landing and refusing (SIG-157).** `Choice` gained
+  `disabled`, `description` and `short`, `choices` may hold a `separator()`, and
+  `select()` took `loop` while `multiselect()` took `min` and `max`. The
+  decisions that are not obvious from the code:
+  - **Skipped, not refused.** A cursor you can put on a row that will not take
+    it reads as a key that did nothing, so `seek()` walks to the next choice on
+    offer and `initial` moves to one the same way. The walk is at most one lap,
+    so a list with nothing on offer ends where it began; that list is refused up
+    front with the message an empty one already had, because to the person at the
+    keyboard they are the same question. Home and End go to the first and last
+    choice _on offer_, not the first and last row.
+  - **`disabled` is `true` or a reason, and the reason takes the hint's place.**
+    A choice carrying both shows the reason, since the hint describes a choice
+    that can be taken. A bare `true` says `disabled`, through `__`. A disabled
+    choice is never ticked, `selected` included, and neither `a` nor `i` touches
+    it -- select-all that ticked something the cursor cannot reach would leave a
+    tick no key could remove.
+  - **A heading starts in the cursor's column, over the labels it introduces.**
+    A separator row carries the same four parts as a choice with the pointer and
+    the box `display: none`, which is what puts it flush left. It is a frozen
+    `{ separator }` object from a function rather than a class: a class would be
+    an `instanceof` that fails across two copies of the package, and a plain
+    shape is checked with `in`.
+  - **A description reserves its row whether or not the highlighted choice has
+    one**, and only when _some_ choice does. The multiselect's error line is
+    reserved the same way for the same reason: showing one must not push the last
+    choice off a canvas that is a fixed number of rows. A list where nothing
+    describes itself keeps the room it had.
+  - **`min` and `max` are judged at Enter and never while ticking.** Stopping the
+    fourth Space at a `max` of 3 would make a tick that silently does nothing,
+    and select-all would have to decide which three. `required` is `min: 1` and
+    an explicit `min` beats it, so `min: 0, required: true` asks for nothing.
+    One tick keeps the old message, `Choose at least one`, because translators
+    already carry it; any other number is `Choose at least {0}`. Both bounds are
+    _asked_ to be whole numbers rather than compared, since every comparison with
+    `NaN` is false and a `max` of `NaN` would accept any number of choices and
+    say nothing about it.
+  - **`a` is select-all and Ctrl-A is still select-all.** Inquirer's checkbox
+    spells it `a` and this file's multiselect has always spelled it Ctrl-A; both
+    work, and a multiselect has no text field for a bare letter to be wanted by.
+    Alt-`a` and Ctrl- or Alt-`i` are not read as either. The hint line is
+    unchanged, because it is reserved at narrow widths already and a longer one
+    is what `prompt.test.ts` guards against; the keys are in the README and the
+    demo instead. That is a discoverability cost, paid knowingly.
+  - **Not done:** Inquirer's configurable `shortcuts` (the two keys are fixed),
+    a separator that is selectable, and a `loop` on `multiselect()`'s Home and
+    End, which it has never had.
+  - **The demo runs piped by not being piped.** `demos/components/11-choices.js`
+    is two ordinary prompts on a terminal, and with none it drives the same two
+    through `createTestTerminal()` and prints the screen after each key. That
+    makes it the only prompt demo `demos.test.ts` runs to exit 0 -- the other
+    cannot, by the rule that a prompt with nobody to answer it fails.
+
 - **A bracketed paste reaches a text prompt as text, with its line breaks
   flattened.** Obeying one is what makes a paste submit half an address, which is
   the whole reason a terminal brackets a paste. The other prompts register no
@@ -4237,6 +4291,11 @@ how the two come to disagree." It is decided, and the answer is no.
   is the whole screen -- and it is the honest version, because which bindings are
   worth showing is the app's decision rather than the framework's.
 
+  **Superseded in part by SIG-166** ("A key-help footer generated from key
+  bindings"): bindings are listable now, by opting in with a description. The
+  asymmetry above still stands for the palette and a function binding, which have
+  no key to list.
+
 ##### What is deliberately out
 
 - **Ejecting it**, with the reason above: the one thing it must share with the
@@ -4343,6 +4402,574 @@ how the two come to disagree." It is decided, and the answer is no.
   ECMA-48's 0x30-0x3f at the same time, because only `[\d;]` was read: the `<`
   a mouse report leads with was taken for the terminator, and `0;1;1M` was typed
   a character at a time after it.
+
+### A number prompt: the parser's reading of a number, in a text field
+
+SIG-159. `src/components/number.ts` is `number(opts): Promise<number>`, and nearly
+everything in it is a decision about what it does _not_ own.
+
+- **The prompt asks `transformValue()` what a number is, and has no opinion of its
+  own.** The text goes through the parser's `int` -- or `number` with `float` --
+  at Enter, so what is refused is what `--port 9007199254740993` is refused for,
+  in the parser's own sentence: nothing past 2^53-1, a lone `-` is `Invalid
+  integer`, a lone `.` is `Invalid number`. A second reader of the coercion rule
+  is how a prompt comes to accept a value the command line then rejects. The
+  rules this relies on (whitespace is not empty, empty is rejected for a
+  non-string type) never fire for typed text, because the field cannot hold
+  whitespace; they are there for a state the filter let through, such as `-`.
+- **A key that cannot be part of a number is ignored as it is typed, and nothing
+  is shown.** Digits (ASCII only: a fullwidth digit is a digit to a human and a
+  `NaN` to `Number()`), a `-` at offset 0 and only when `min` is unset or
+  negative, and a `.` only with `float` and only once. No `e`, so `1e3` and
+  `Infinity` cannot be written and the field never holds text the prompt would not
+  have accepted. The rule runs a character at a time against the value as it
+  stands, so a paste is held to the same rule as a keystroke (`1.2.3` pasted into
+  a float field is `1.23`). The sign check is `cursor === 0 &&
+  !value.startsWith('-')`, and the second half is reachable only by moving Home
+  and typing again, which is the test that pins it. That rule alone was not enough
+  for the claim above: a digit or a `.` has no position check, so Home on `-5` and
+  a `3` wrote `3-5`, which Enter refused and the arrows could not step. Offset 0 of
+  a field that starts with `-` is the one slot ahead of the minus, so **nothing**
+  is taken there, whatever it is. A paste is flattened through `pastedLine()`
+  first, like `text()`'s.
+- **Enter outside `[min, max]` is an error line naming the bound, never a clamp.**
+  The arrows clamp because they produce a value; Enter judges one somebody typed,
+  and handing back a different number from the one on screen is the silent change
+  this repository refuses everywhere. The range is checked before `validate`,
+  which therefore only ever sees an in-range number. A `default` outside the range
+  is held to it as well: an empty answer is an answer.
+- **An empty answer is `default`, or `Enter a number` and the prompt asks again.**
+  Not a throw, for `text()`'s reason: the person is there.
+- **Stepping lands before it steps.** From an empty field (or a lone `-`) the first
+  Up or Down puts `default`, else `min`, else `0` in the field, clamped, and the
+  presses after it add `step`. Stepping _from_ that base instead turns an empty
+  field with `min: 1` into `2` on the first press, which skips the one value the
+  person was looking for. A half-written number (`.`) is left alone rather than
+  guessed at; the complaint belongs to Enter.
+- **Float arithmetic is rounded to the finer of the step's places and the value's.**
+  `0.2 + 0.1` is `0.30000000000000004`, and rounding to the step's places is what
+  fixes it; rounding to the step's alone also turns `0.125 + 0.1` into `0.23` and
+  deletes a digit somebody typed, on an arrow press. Steps are not aligned to a
+  grid anchored at `min` (HTML's step base): `min: 1, step: 5` goes 1, 6, 11, and
+  a value typed as `4` goes to `9`.
+- **A number is written without an exponent or not at all.** `String(1e-7)` is
+  `1e-7` and the field refuses an `e`, so a value the prompt wrote itself would be
+  text the prompt would not accept; `format()` uses `toFixed()` for those. Past
+  1e21 there is no plain spelling, and stepping there does nothing. An `int` that
+  would step past `MAX_SAFE_INTEGER` does nothing either.
+- **`-0` is `0`.** `Number('-0')` is `-0`, and an answer a caller prints or
+  `Object.is`es should not carry a sign nobody asked for.
+- **An unusable option rejects the prompt with a `PromptError` instead of asking
+  it.** A `step` of zero or less, `min > max`, a non-finite value anywhere, and --
+  without `float` -- a fractional `min`, `max`, `step`, `default` or `initial`:
+  each is a prompt that could only misbehave later, the way `multiline()` refuses
+  a `submit` with no name.
+- **The field is `multiline()`'s, not a second one.** `layoutField()` and
+  `fieldLayers()` draw it, so the caret, grapheme handling and cursor keys are the
+  shared ones; the only editing logic here is which characters may be typed. It
+  sits on the question's line like `text()`'s, in a `position: relative` box that
+  the caret layer resolves against, with the window kept on the caret's row for an
+  answer wider than the room. The caret is drawn at colour level 1 and above, as
+  everywhere.
+- **It is not a registry entry, and that is structural.** `generate-registry.mjs`
+  only knows the published subpaths, and `../util/transform.js` has none -- the
+  same refusal the command palette records, for the same reason: the one thing
+  this must share with the parser is the function that says what a valid value is,
+  and an ejected copy would carry a second reader of the coercion rule. Publishing
+  `transformValue()` is a new public surface taken inside a prompt ticket, and is
+  refused here as it was there. `layoutField()` and `fieldLayers()` are likewise
+  not barrel-exported (see the note above them in `prompt.ts`), which would have
+  blocked it independently. The ticket's "registry entry" is therefore not done.
+- **Deliberately not done:** thousands separators and units, an `e` for scientific
+  notation, hex or other bases (`transformValue()` reads `0x10` as an `int`; the
+  field cannot type an `x`), Page Up/Down for a larger step, a held key
+  accelerating, `round`, and a range hint on the question line -- the bound is
+  named when it is broken, which is when a person needs it.
+
+### Prompt flows: `group()`, and the session frame
+
+SIG-160. `src/components/group.ts` is the whole of it: `group()`, `isCancel()`,
+`intro()`, `outro()` and `cancel()`. It edits no prompt.
+
+- **Cancel stays a throw, and `isCancel()` is a question about what was caught.**
+  The ticket asked for a thrown `PromptError`, a returned sentinel, or both. A
+  sentinel changes the return type of every prompt -- `text()` would resolve with
+  `string | symbol`, and every existing caller would need a narrowing it did not
+  have -- to buy a `group()` that can return partial results, which `onCancel`
+  already hands over. So every prompt still rejects, `PromptError.aborted` still
+  separates Ctrl-C from a prompt with nobody to ask, and `isCancel(err)` is
+  exactly `err instanceof PromptError && err.aborted`. The second kind is the
+  program being wired wrong and is deliberately **not** a cancel: a `catch` that
+  treated it as one would swallow the failure `PromptError` exists to make loud.
+- **`onCancel` can replace the rejection and cannot suppress it.** It is called
+  with the answers so far and then the cancel is rethrown; throwing, or returning
+  an `Error`, throws that instead. That is the `beforeError` rule (a hook may
+  replace an error and never swallow one) for the same reason: a group has no
+  result to hand back for steps that did not run, so a swallowed cancel would
+  have to resolve with something that is not a `T`. It is handed the live answers
+  object rather than a copy, because nothing can read it afterwards -- a copy was
+  written and deleted for surviving its sabotage. A non-cancel error is rethrown
+  untouched and does not call it.
+- **A step is handed a copy of the answers, and an answer is defined rather than
+  assigned.** A step that writes to its argument must not change what a later step
+  reads; and a step called `__proto__` is legal, where an assignment would set
+  the prototype and drop the answer.
+- **Types: the result is typed by the keys, and a step that reads its argument
+  cannot be inferred.** `T` is inferred from what the steps resolve with, through
+  a mapped type whose parameter is `Partial<Omit<T, K>>`. A step that _uses_ its
+  argument is contextually typed from `T`, which TypeScript is still inferring, so
+  it fixes `T` before looking at that step's return and the key comes out
+  `unknown`. Measured on TypeScript 7 over four spellings, clack's own shape
+  among them; none works. So the documented spelling is to name the shape,
+  `group<Shape>({...})`, which types every step and checks each return against
+  it. The earlier answers are `Partial` because object keys have an order at
+  runtime and none in the type system. Pinned by `tsc`, since `packages/sigil`'s
+  `include` covers `./test`.
+- **Order is `Object.keys()`'s**, so a key that reads as an integer runs first,
+  as it does anywhere in JavaScript. Not worked around.
+- **The frame is plain output to stderr, and silent unless both ends are a
+  terminal and nobody asked for quiet.** A command's `run()` returns data for a
+  serializer and `mycli init --json | jq` has to receive JSON whatever the
+  session said around the questions. Stdout not a terminal means the prompts
+  reject anyway, so there is no session to frame; stderr not one means `2>log`
+  would collect framing. `isTTY` is read as truthy on stderr because a piped Node
+  stream has no `isTTY` at all. Quiet is `mountLevel()`'s answer, so `--quiet`
+  and `quiet: true` both reach it -- the frame is chrome like a spinner, not a
+  dialogue like a prompt. It is not a live region: nothing on it changes, and
+  claiming the region would evict a spinner for a line that stays.
+- **It is drawn through the cascade, not hard-coded.** One row in a
+  `.sigil-session` box: the mark carries `.sigil-symbol` and a role
+  (`.sigil-accent`, `.sigil-success`, `.sigil-error`) and the intro message is
+  `.sigil-heading`, so a theme restyles it. Marks reuse the spinner's check and
+  cross and add a triangle for the intro. There is no ASCII fallback: the
+  neighbouring components draw fixed glyphs too (the spinner's `LINE` frames are
+  an opt-in), so one here would be the first rather than the pattern.
+- **Deliberately not done.** Going back a step -- it needs a step to be re-asked
+  with its old answer shown, which no prompt can do without an `initial` the
+  existing ones do not take, and they are not edited here. Blank lines around the
+  frame, so a session adds no rows beyond the three it writes.
+
+### A note: a titled, bordered block
+
+SIG-163 asked for what Clack's `note`/`box` and Ink UI's `Alert` do: frame a
+message so it stands out. `src/components/note.ts` is `note()` and `noteView()`,
+and the split is `table()` and `tableView()`'s.
+
+- **One component with a `variant`, and `box` and `alert` are not exported.** They
+  would be the same function under two more names, and a second spelling of one
+  function is how the two come to disagree. `note` was free in the barrel --
+  `prompt.ts` has an internal `note` helper and exports `promptNote`, neither of
+  which collides -- so the component takes the name the ticket opened with.
+- **It shrinks to its message and wraps at the room it is given.** Clack's shape,
+  and the one a "next steps" panel wants: a filled line is a box mostly made of
+  blanks. The message is a plain `text` that wraps itself, inside a bordered box
+  with a `max-width` of the room and a wrapper that does not stretch it. Nothing
+  here counts a column of the message. `white-space: pre` was tried first and is
+  not needed: this engine wraps every text but a `nowrap` one with `wrap()`, which
+  keeps newlines, blank lines and indentation, so a command inside a note keeps
+  its indent. The width has a floor of 5 -- a border and a column of padding each
+  side and one column inside -- because under it the message has no cell to be in
+  and vanished rather than wrapping a letter to a row.
+- **The title is an out-of-flow text one row up, because the border has no notion
+  of one.** `paintBorder()` draws a border as a whole, so a title is a `position:
+  absolute` text at `top: -1` over a `position: relative` box, which resolves
+  against the padding box and so lands on the border row. It takes no space, and
+  `left`, `right`, or both insets with `text-align: center` are the three
+  alignments. A `min-width` is what stops a short message clipping a long title,
+  and a title is cut with `truncate()` to what the room leaves. Where the room
+  cannot hold the corners, a rule on each side and one column of title, the title
+  is left out rather than drawn over a corner.
+- **A title ends in a no-break space, and `note()` turns it back into a space.**
+  A text drops the whitespace at the end of its last line, so " Title " lost the
+  space that keeps the rule off the word. U+00A0 is not whitespace to the wrapper
+  and takes one column. It is replaced on the way out of `note()`, so nothing in
+  what is printed or copied is a no-break space -- and so is one in a message,
+  which prints as the ordinary space it looks like. `noteView()` hands back the
+  tree with the character still in it.
+- **Colour is the four state roles, and that needed `border-color` on them.** A
+  border colour does not inherit, and `should declare on a role, bar four
+  exceptions that say why` allows a declaration only on a role selector, so a
+  `.sigil-note.sigil-error` rule was never available. The roles now set
+  `border-color` beside `color`, which is also the right statement of what an
+  error is. The cost is that the message inherits the role's `color` as well, so
+  an `error` note is red all through; a plain `note` carries no role and is the
+  terminal's own foreground. A message in the default colour inside a coloured
+  border would need a `color` in props, which is the thing built-ins do not do.
+  `warning` maps to `.sigil-warn`, for the reason `SpinnerOutcome` does.
+- **The ASCII fallback is read off the environment by `unicodeSupported()`.**
+  Nothing in the repository decided this before: colour level says nothing about
+  box drawing, and the spinner's `LINE` frames are opt-in. It is the
+  `is-unicode-supported` heuristic -- off Windows everything but `TERM=linux` and
+  `dumb`; on Windows only the terminals known to cope -- taking `env` and
+  `platform` the way `terminalWidth()` does, so a test names the terminal it is
+  about instead of inheriting the developer's. An explicit `border` always wins.
+  `NO_COLOR` does not select ASCII: it is about colour.
+- **Escape sequences are dropped from the message and the title.** `text` strips
+  control characters and does not interpret them, so a styled string put in
+  unmodified printed its `ESC` removed and the rest -- `[31m` -- as literal
+  text. Colour is the variant's, so stripping loses nothing a note was meant to
+  carry; styled runs inside a message would be a `paragraph()` of runs, and that
+  is a different API.
+- **String form only, and it ignores `--quiet`.** A note is a result, on
+  `table()`'s side of the line the quiet axis draws, and the caller does the
+  writing. A live form would be a `mountLive()` of a tree that never changes, which
+  is `console.log(note(...))` with a renderer in the way.
+
+What is deliberately not done: vertical padding (a caller adds a blank line, and
+Clack's extra rows are most of why its notes look tall); a symbol per variant
+(the title is where an app says what kind it is, and at colour level 0 it is all
+that does); styled runs in a message; and a title on a side other than the top.
+
+### A date prompt: segments, ISO order, and the parser's own reader
+
+SIG-165. `src/components/date.ts` is the whole of it: `date()` returns a `Date`
+from year, month and day segments, with the hour, minute and second added by
+`time` and `seconds`.
+
+- **The value is built by the parser and the prompt carries no calendar of its
+  own.** The ticket's requirement was that the prompt accept exactly what the
+  `date` data type accepts, and the only way two readers cannot disagree about
+  what a date is is for there to be one. So Enter turns the segments into
+  `YYYY-MM-DD` or `YYYY-MM-DDTHH:mm:ss` and calls `transformValue(text, 'date')`
+  -- the checks recorded in the root `AGENTS.md` ("A `date` has its clock checked
+  as well as its calendar", "A data type rejects what it cannot represent") are
+  therefore the parser's and not a copy. The one piece of arithmetic the prompt
+  needs outside that call is how long a month is while a day is being stepped,
+  and that is `daysInMonth()` from the same file, exported for it (additively; it
+  was the parser's private helper). The clock and calendar are asked about on the
+  matched text, never read back off a `Date`, which is the parser's rule and
+  holds here for free.
+- **It is unreachable by construction that the parser refuses what the prompt
+  built, and that is why a test replaces the parser.** Every segment is clamped
+  to its range as it is written, so an invalid date cannot be assembled and a
+  sabotage that bypasses the call survives a behavioural suite. `date-parser.test.ts`
+  mocks `transformValue()` and asserts the text it is given and that the answer is
+  what it returns, and that a throw from it is the error line rather than an
+  escape. The year `0000` has no 29 February in the parser's `daysInMonth()`
+  (`Date.UTC` maps years 0-99 to 1900-1999, and 1900 is not a leap year), so the
+  prompt cannot reach it either; it agrees with the parser by sharing the
+  function, and fixing it is the parser's.
+- **Local time, with no offset, and no timezone option.** The text has no `Z` and
+  no offset, which the parser reads as a local date-time, so the answer is the
+  wall-clock time the person saw. The prompt reads `initial`, `min` and `max` back
+  with the _local_ getters for the same reason: this is the one place where that
+  is right, because the value was built local. A wall-clock time a daylight saving
+  gap skipped comes back as the engine resolves it, which is the parser's answer
+  too. Ranges are compared as fields and not as `Date`s so that a check never
+  moves with the zone.
+- **Date only by default; ISO order always.** `time` adds hour and minute and
+  `seconds` adds the second and implies `time` (seconds with no minutes would be
+  a field with nothing in front of it). The segments are year, month, day, then
+  the clock, whatever the locale: ordering by locale means the same prompt takes
+  `06/15` in one place and `15/06` in another with nothing on screen to say which,
+  and the parser's `date` type is ISO only. A `mask` was in the ticket's title and
+  is not built -- `time` and `seconds` are the masks that exist, and a free-form
+  one would be a second grammar next to the parser's.
+- **Stepping wraps inside the segment and never carries.** Up on December is
+  January of the same year; Up on 23 is 00 on the same day. Carrying would make
+  one key change two segments, which is not what a segment stepper is, and the
+  person who wants the next day presses Up on the day. What does change a
+  neighbour is the day, because it depends on the month: it is pulled back to the
+  last day of a shorter month and is not given back, so 31 January stepped to
+  February and on to March is the 28th. Remembering the wanted day would be state
+  the field does not show.
+- **Digits fill a segment; Backspace clears what was typed into it.** The digits
+  are pending until the segment is full or is left (arrow, Tab, Enter, a step),
+  and pending digits are shown as typed with `_` for the rest. A full segment
+  commits and moves on, except the last. A value is clamped to its segment's range
+  when committed, so `99` for a month is 12 and `31` for a day in February is the
+  last day. Backspace drops all pending digits and leaves the value as it was,
+  rather than one digit at a time: a segment is two or four digits, and a half-typed
+  year is retyped faster than it is edited. Anything but a digit does nothing.
+  There is no separator-key advance (`-`, `/`, `:`, space), which is one more way
+  to type the same thing.
+- **`min` and `max` clamp every step and entry, and are inclusive at the precision
+  shown.** The bounds are truncated to the fields shown before they are compared,
+  so a `max` of three in the afternoon on the 20th allows the 20th in a date-only
+  field -- otherwise the last day of the range would be unreachable. A write that
+  would leave the range lands on the nearest bound. **Enter is where the error
+  line lives** because the only value that can be out of range at that point is an
+  explicit `initial`, which is deliberately not moved: moving it would answer a
+  question nobody asked, and the person is better told than quietly handed another
+  date. The default `initial` (now) is pulled into the range instead, since nobody
+  chose it. `min` after `max` and an invalid `Date` reject at the call rather than
+  producing a field that can never be answered.
+- **The caret is a whole segment in reverse video, painted into the frame.** The
+  decision recorded under "Prompts and keys" -- the terminal's own cursor is not
+  moved -- applies unchanged, and so does its consequence: at colour level 0 no
+  caret is drawn, so the focused segment is not marked there. The classes are
+  `sigil-prompt-field`, `sigil-caret`, `sigil-muted` and `sigil-prompt-answer`;
+  there is no new one.
+- **Not ejectable, for the palette's reason.** `sigil add` rewrites a component's
+  relative imports to published subpaths and `../util/transform.js` has none; an
+  ejected copy would carry a second reader of the calendar, which is the thing
+  this component exists not to have. So `date` is not in `generate-registry.mjs`'s
+  `ENTRIES`, and the ticket's registry line is answered by that rather than by an
+  entry.
+- **Deliberately not done.** A timezone or UTC option; locale ordering; a
+  free-form mask; a calendar popup; mouse; a range (two dates) prompt; paste
+  handling (a pasted block is typed in as keys, as for the other non-text
+  prompts, so `2024-06-15` happens to work -- the digits fill the segments and the
+  dashes do nothing -- and nothing else is promised); clock injection (a test sets
+  the system time).
+
+### A key-help footer, read off the bindings
+
+- **The line is `router.bindings()`, so it cannot say what the keys do not.**
+  `bind(keys, handler, { description, group, priority })` carries the description
+  in the same call as the handler, which is the answer to "on `bind()` or a
+  separate declaration": a separate one is the hand-written line again. All three
+  are optional and **dispatch reads none of them** -- a binding without a
+  description behaves as it always did and is not listed, which is also how an app
+  keeps a key it would rather not advertise out of the footer. A bad description
+  or spec throws and takes the half-registered handler back off, so a refused
+  `bind()` leaves no key behind. `src/input/AGENTS.md` has the router's half.
+- **Focus scoping is the tree, and it is declared rather than invented.** Today
+  only the sequence trie and function bindings are global; the one focus-scoped
+  thing is an element's `onKey`, which bubbles from the focused element up through
+  its ancestors. A function cannot be read for what keys it handles, so
+  `describe(keys, { description, scope })` declares them, and `bindings()` lists a
+  scoped entry while `scope` is the focused element or one of its ancestors --
+  exactly the walk `dispatch()` makes. That half **can drift from its handler**,
+  and the doc says so rather than hiding it; the cost of an element owning its
+  keys is that the router cannot see them. A new scoping mechanism for `bind()`
+  itself (a binding that fires only inside an element) was refused: it would change
+  dispatch for every app, and a pending sequence makes it a question about what a
+  held prefix means when focus moves.
+- **Dispatch order, so priority is the footer's and order is the router's.**
+  App-wide entries first, then scoped ones from the focused element outwards, each
+  in registration order. `priority` (higher survives, default 0) decides only what
+  is dropped when the line is too wide; it never reorders.
+- **Truncation drops whole bindings, lowest priority first, later of two equals,
+  and ends in `…`.** The mark's two columns are reserved before the fit is judged,
+  or a row that just fit would overflow by the mark that explains it. Widths are
+  `stringWidth()`, so a CJK description is two columns a character. A row that
+  cannot fit even one line is the bare mark, or nothing at width 0 -- never a
+  binding cut in half and never a wrap (`white-space: nowrap`, `flex-shrink: 0`).
+- **Bindings sharing a description and group are one line (`↑/↓ move`), at the
+  place of the first and at the highest priority among them.** That is what makes
+  `bind('up')` and `bind('down')` read as the line in the ticket without a
+  key-list syntax. Two bindings of one key and one description are one key.
+- **The key names that are words go through `__`, and that departs from the
+  prompts on purpose.** `prompt.ts` translates the modifier and leaves `enter` and
+  `tab` English, on the ground that nobody types them. A footer _prints_ them, and a
+  German footer saying `enter` beside `Strg-s` is the half-translated screen the
+  catalog is meant to prevent -- so `enter`, `esc`, `tab`, `space`, `backspace`,
+  `delete`, `home`, `end`, `pgup` and `pgdn` are literal `__` calls (a name held in
+  a variable would key on `{0}`), arrows are glyphs, and the modifiers nest
+  (`ctrl-{0}` and `alt-{0}` are the prompts' own messages; `shift-{0}` is new).
+  Descriptions are the app's strings and the app translates them where it writes
+  them; the footer never wraps them in `__`.
+- **Reactive through two signals, with no new mechanism.** `bindings()` reads the
+  focus signal and a revision counter bumped by registering or unregistering a
+  description, so an effect re-runs on either. The footer rebuilds its children in
+  one effect rather than keeping a pool of rows: it is a handful of nodes, and a
+  pool would be the optimisation the palette's `draw()` needed for a catalog.
+- **The footer does not claim a key.** `?`, and whether the footer is expanded, are
+  the app's: `expanded` is a boolean or a `State<boolean>` and the demo binds `?`
+  to it, for the reason the palette does not bind a key to open itself.
+- **The width is an option because the footer cannot know its box.** It defaults
+  to `terminal.width` at each run and accepts `() => n` for an app that resizes;
+  reading the laid-out width of the element would need a layout pass inside an
+  effect that is itself rebuilding the children.
+
+#### What is deliberately out
+
+- **Replacing the built-in prompts' hint lines.** They keep their own text in this
+  change: `select()` and `multiselect()` are being rewritten in another open
+  change and the hints are translated strings with their own tests
+  (`prompt-i18n.test.ts`). Adopting the footer is a follow-up that has to decide
+  whether a prompt, which owns no router unless it borrows one, should grow one.
+- **A binding that fires only inside an element.** See above.
+- **Listing a function binding.** `bind(handler)` sees every key and has no key to
+  name; it is not listed, and `describe()` with a key is how to list what it does.
+- **Pagination of an expanded form taller than the terminal.** It lists everything,
+  under its groups, and an app with that many keys wants a screen of its own.
+- **A `?` toggle, a hide/show key, or a default mouse hover on the footer.**
+
+### An autocomplete prompt: type to filter, or search a source
+
+SIG-158. `src/components/autocomplete.ts` is a filter field over a ranked list,
+which is what the palette already is, so it is modelled on `palette.ts` and
+borrows `runPrompt()` and the field helpers rather than reading a key itself.
+`select()` and `multiselect()` are untouched.
+
+- **One entry point, `choices` or `source`, and both is an error.** The two ways
+  to supply a list differ in who filters it: a static list is ranked here with
+  `rankBy()`, and a source _is_ the filter, so what it returns is drawn as it
+  comes -- re-ranking it would hide a result the source matched on something the
+  label does not show (an id, a description). Taking both would need a rule for
+  whose filter wins, which is a rule with no caller; it rejects with a
+  `PromptError` naming the question, as does neither and an empty list, in plain
+  English like `select()`'s own.
+- **A lookup is superseded, not outdated, and the signal is what says which.** The
+  previous call is aborted _before_ the next is started, and a result is written
+  only if its **own** signal is still live. Comparing the term it was asked about
+  with the current one answers a different question -- backspace `ab` to `a` and
+  type `b` again and the old `ab` lookup has the right term and the wrong
+  lifetime. The rule holds for a rejection as well as a result, and for a result
+  that arrives after the prompt ended (`closed`, set by an `onCleanup`, which is
+  also what aborts the call in flight when the prompt is cancelled -- `settle()`
+  never runs for a Ctrl-C).
+- **Enter waits for a lookup in flight.** The list on screen belongs to an
+  earlier term while one is out; it is left drawn because blanking it per
+  keystroke flickers on a fast source, but answering from it would hand back a row
+  for a question no longer being asked. The cost is a source that never settles
+  blocks Enter, and Ctrl-C is how out of that.
+- **A failed lookup empties the list and says why on the line under it; the next
+  keystroke asks again.** That is `validate`'s own channel (one reserved line,
+  `sigil-prompt-error`), shared with the status and empty messages because the
+  three are never true together. The prompt stays alive, which is the only useful
+  answer to a network that may be back by the next key. A source that throws
+  synchronously is the same as one that rejects.
+- **Only a key that changes the term asks the source.** Arrows, Home, Tab on a
+  label already in the field and a backspace at the start of an empty field leave
+  it where it was, and each of those calling out would be a request per arrow
+  press.
+- **Tab completes the label, and Enter answers the value.** Tab writes the
+  highlighted _label_ into the field and, for a static list, keeps that same
+  choice highlighted: ranking its own label usually puts it first, but two
+  choices may share one, and a highlight that jumped to the other would make Tab
+  and Enter disagree. For a source the completed label is a new term and is
+  looked up as one.
+- **No debounce, and the README holds the recipe.** Whether a lookup is worth
+  waiting for is the caller's trade, and `signal` is what makes the wait
+  cancellable. The prompt calls the source on the opening empty term so that there
+  is a list before anything is typed.
+- **Rows are rebuilt per draw for the window and not kept per choice.** The
+  palette keeps a row per catalog entry because its catalog is fixed; a source
+  hands back a different list each time, so there is nothing stable to keep, and a
+  window of ten is cheap. A frame is requested by the `setText()`/`append()` the
+  draw does, so an answer that arrives with no key behind it is painted by the
+  renderer's next paced frame -- which is why the tests wait for one.
+- **`toChoice()` and `valueOf()` are exported from the bottom block of
+  `prompt.ts`** (as `promptChoice` and `promptValue`) rather than copied, so a
+  change to what a `Choice` is made in one place.
+
+- **A disabled choice is left out, not shown and refused.** `select()` keeps one in
+  view and steps the cursor over it. This prompt has no cursor to step: a disabled
+  choice would be ranked, highlighted, filled in by Tab and taken by Enter, so
+  leaving it out of what is offered is the one rule that covers all four. It
+  applies to a `source`'s result as well as to `choices`, and a list with nothing
+  else in it is refused the way an empty one is. What that costs is that a reason
+  for `disabled` is never shown -- it is the lookup's job to say why a thing is not
+  there, and a list that is filtered by typing is a poor place for a row that
+  cannot be chosen. Found by review after #202 merged: the first version deferred
+  this to #196, and by the time that landed the type allowed a flag the prompt
+  ignored.
+
+What is deliberately not done:
+
+- **Separators on `Choice`.** `select()` takes them; this prompt has no cursor to
+  step over a heading and a filtered list of one has nothing to introduce.
+- **The multi-select variant**, which is its own ticket.
+- **Highlighting source results.** A source's match is its own, and marking the
+  term inside a label it did not match on would be marking nothing.
+- **Escape.** It does nothing, as in `text()` and `select()`; a prompt that
+  answers `undefined` is the palette's, which is not asked for a value.
+
+### A path prompt: a text field that completes against the file system
+
+SIG-164 asked for the thing Clack's `path`, Bubbles' filepicker and `gum file`
+all answer, and observed that there are two widgets in it: a field you type a
+path into and a tree you browse. `src/components/path.ts` is the first, and only
+the first.
+
+- **The field, and not the tree, and not one component with both modes.** They
+  share a question and nothing else: the field's state is a string and a cursor,
+  the tree's is a directory and a selection, and a mode flag would make every key
+  mean two things. The field is a prompt in the sense `prompt.ts` is about -- a
+  value comes back, typed -- so it borrows that file's plumbing the way the
+  palette does. A browsing picker is a follow-up with its own ticket.
+- **The answer is the path as typed, with `~` expanded, and resolved only when a
+  `root` was given.** Returning a resolved absolute path unasked would take
+  something away from the caller who wants a relative one, and handing back `~/x`
+  would hand them a path `readFile()` cannot open, because nothing downstream
+  honours `~`. `root` is the one option that says "I want to be told where this
+  is", so it is the one that resolves. `validate` is given the string that will be
+  returned rather than the raw field, so a check like "must exist" is a `stat` of
+  what it was handed. A resolved answer loses a trailing separator -- `resolve()`
+  does -- while an unresolved one keeps what was typed.
+- **Nothing checks that the answer exists, or that it is a directory.**
+  `directory` and `extensions` narrow the _candidates_. A prompt for where to
+  write wants a path that is not there yet, and whether one has to exist is the
+  app's rule, which is what `validate` is for.
+- **`~` goes through `paths.ts`, and a `~` that expands to nothing names nothing.**
+  `baseDir()` is the one rule for "expand, then require absolute", so `~user/`
+  (which `expand()` does not implement) and a `~` with no home both have no
+  directory and therefore no candidates, rather than a directory literally called
+  `~`. A bare `~` or `C:` is offered as a candidate of its own on Tab, because
+  `readdir` cannot list them from where the prompt is and Tab would otherwise find
+  nothing at the one place a person types a path and is told there is nowhere to
+  go.
+- **Candidates are for the whole field, and completing moves the cursor to the
+  end.** Completing against the text before the cursor, and keeping what follows
+  it, is a second rule for a field a person types left to right.
+- **Tab is "the longest prefix everything shares", and only ever longer than what
+  was typed.** On a caseless file system the candidates agree with the typed
+  segment but not in case, and a shorter shared prefix would undo the person's own
+  characters. A single candidate is completed whole, with a separator if it is a
+  directory. A highlighted candidate beats the prefix.
+- **Enter means the field until a candidate has been highlighted.** Up and Down
+  walk the list through a position with nothing highlighted, so there is a way
+  back that is not typing. Enter on a highlighted _file_ takes it and submits; on a
+  highlighted _directory_ it fills it in and carries on, because a directory is a
+  place to go on from far more often than it is an answer -- and in `directory`
+  mode a second Enter submits it. Tab never submits.
+- **A directory is completed in the separator the person is using.** `C:/Users/`
+  is not answered with a backslash. Windows takes both separators and POSIX one: a
+  backslash on POSIX is a file name character. The platform is read from
+  `node:path`'s own `sep`, and the pure helpers (`splitTyped`, `candidatesOf`,
+  `commonPrefix`, `answerOf`) take that as an argument so a test hands them
+  `win32` rather than forcing `process.platform`. Case is ignored in matching on
+  Windows only; macOS is case-insensitive by default and case-sensitive if
+  somebody formatted it so, and a prompt cannot know which.
+- **Dotfiles are skipped, and a segment that starts with `.` asks for them.**
+  `hidden: true` shows them from the start. Directories sort first and then by
+  code unit rather than `localeCompare()`, so the order does not depend on the
+  machine's language.
+- **One read per directory, cached for the life of the prompt, and that stands in
+  for a debounce.** The cost of typing is a `readdir` per directory _level_, and
+  the characters between are a filter over what is already in memory. A read that
+  fails -- missing, not a directory, no permission -- is cached as empty rather
+  than raised. A directory created while the prompt is open is not seen, which is
+  the price of the cache.
+- **A late read can never be drawn, and a key that only edits never waits for
+  one.** A key is applied at once and draws the list from the cache for the value
+  as it is _now_; the read for the directory that value names is started in the
+  background and the list catches up when it lands, which is what a paste and the
+  first listing always did. A read that finishes late fills the cache and can only
+  repaint the newer answer. The first version awaited the read at the top of
+  **every** key, on the argument that keys are handled one at a time so a read
+  cannot answer for the wrong keystroke -- true, and the price was that the same
+  queue let one slow `readdir` (a network mount, a stalled disk, a huge directory)
+  hold every key behind it, the Backspace that gets away from the directory
+  included. Ctrl-C was never held, because the prompt does not queue it, which is
+  why this was a freeze rather than a trap.
+
+  **Tab, Enter, Up and Down still wait**, and that is the half that is not
+  obvious. They act on the list, so acting before it exists is acting on nothing:
+  the first version of the fix waited for none of them and `b`, Down, Down, Tab
+  typed ahead of the first read ended with the Downs dropped -- found by the
+  suite, as a test that failed only under load. They wait for the directory their
+  own value names and nothing else, so typing still never waits, and a key typed
+  after one of them queues behind it only for as long as that one read takes.
+
+  The test holds a read open across a keystroke. Its gate is written against the
+  path `readdir` is handed -- `resolve()` strips the trailing separator, so a gate
+  for `alpha/` held nothing and the test passed whatever the prompt did -- and it
+  asserts the read really was held, for that reason.
+
+- **"No matches" is only said about a directory that has been read.** Before the
+  read returns there is no answer, and saying so would be a claim about a list
+  nobody has seen.
+- **Symlinks are followed to decide whether they are directories**, with one
+  `stat` each; a dangling link is a file.
+
+What is deliberately not done: the browsing picker; completing mid-value;
+checking that the answer exists; refreshing a cached directory; fuzzy matching
+(a prefix is what a shell does and what a person typing a path expects); showing
+file sizes or types in the list.
 
 ### Leveled status lines: `log`
 
