@@ -36,6 +36,21 @@ import type { Painter } from './buffer.js';
 import { type Canvas, createCanvas } from './index.js';
 
 /**
+ * Writes to the stream a backend's caller asked for.
+ *
+ * @param terminal - The terminal.
+ * @param chunk - What to write.
+ * @param to - Stdout unless this says stderr.
+ */
+function emit(terminal: Terminal, chunk: string, to?: 'stderr'): void {
+  if (to === 'stderr') {
+    terminal.writeErr(chunk);
+  } else {
+    terminal.write(chunk);
+  }
+}
+
+/**
  * Line endings a terminal will still be reading as line endings.
  *
  * A bare `\n` reaches column zero only because the line discipline is
@@ -171,8 +186,10 @@ export interface CanvasBackend {
    * written to the main screen on the way out, which is where its reader is.
    *
    * @param text - The line to write. A trailing newline is added if missing.
+   * @param to - Where it goes. Defaults to stdout; `'stderr'` is how `log` puts a
+   *   status line above the frame without putting it in the output.
    */
-  write(text: string): void;
+  write(text: string, to?: 'stderr'): void;
 }
 
 export interface InlineCanvasOptions {
@@ -203,7 +220,7 @@ export interface FullscreenCanvasOptions {
  * @param onEvict - What to do when something else claims the region.
  * @returns The shared state and its helpers.
  */
-function createClaim(terminal: Terminal, onEvict: () => void) {
+function createClaim(terminal: Terminal, onEvict: () => void, above?: (text: string) => void) {
   let claim: LiveClaim | undefined;
   let hidCursor = false;
 
@@ -226,7 +243,7 @@ function createClaim(terminal: Terminal, onEvict: () => void) {
         return false;
       }
 
-      claim = terminal.claimLive(onEvict);
+      claim = terminal.claimLive(onEvict, above);
 
       // only if this is the call that hid it: an app that hid the cursor
       // itself is still hiding it when this stops, and showing it anyway
@@ -302,11 +319,15 @@ export function createInlineCanvas(opts: InlineCanvasOptions = {}): CanvasBacken
 
   const isLive = (): boolean => terminal.isTTY && !terminal.closed;
 
-  const claim = createClaim(terminal, () => {
-    // something else wants the region: give back a clean line and stop
-    erase();
-    claim.finish();
-  });
+  const claim = createClaim(
+    terminal,
+    () => {
+      // something else wants the region: give back a clean line and stop
+      erase();
+      claim.finish();
+    },
+    (text) => backend.write(text, 'stderr')
+  );
 
   /** Puts the cursor at the canvas's top-left and clears from there down. */
   function eraseSequence(): string {
@@ -494,17 +515,33 @@ export function createInlineCanvas(opts: InlineCanvasOptions = {}): CanvasBacken
       return canvas.width;
     },
 
-    write(text: string): void {
+    write(text: string, to?: 'stderr'): void {
       const line = text.endsWith('\n') ? text : `${text}\n`;
 
       if (!claim.active || !isLive()) {
-        terminal.write(line);
+        emit(terminal, line, to);
         return;
       }
 
-      // the text has to land above the canvas, and the only way there is
-      // through it: erase, write, and reserve the rows again underneath
-      terminal.write(eraseSequence() + crlf(line));
+      if (to === 'stderr') {
+        // a stderr that is not a screen has no row for the canvas to get out of
+        // the way of, and erasing and repainting it would only make the frame
+        // flicker for a line that is going to a file
+        if (!terminal.stderr.isTTY) {
+          terminal.writeErr(line);
+          return;
+        }
+
+        // the erase is stdout's, since that is where the canvas was drawn, and
+        // the line is stderr's: two streams onto one screen, in that order
+        terminal.write(eraseSequence());
+        terminal.writeErr(crlf(line));
+      } else {
+        // the text has to land above the canvas, and the only way there is
+        // through it: erase, write, and reserve the rows again underneath
+        terminal.write(eraseSequence() + crlf(line));
+      }
+
       unanchor();
       backend.present({ full: true });
     },
@@ -542,7 +579,7 @@ export function createFullscreenCanvas(opts: FullscreenCanvasOptions = {}): Canv
    * here would survive being read. Held rather than dropped: a log line the app
    * thought it had written is worse than a log line that arrives late.
    */
-  const held: string[] = [];
+  const held: { text: string; to?: 'stderr' }[] = [];
 
   /** Whether this backend is what switched screens, and so owes a switch back. */
   let entered = false;
@@ -550,13 +587,17 @@ export function createFullscreenCanvas(opts: FullscreenCanvasOptions = {}): Canv
 
   const isLive = (): boolean => terminal.isTTY && !terminal.closed;
 
-  const claim = createClaim(terminal, () => {
-    // something else claimed the region. The alternate screen is this
-    // backend's and goes back with it, which is also what puts the evictor on
-    // a screen anybody can see
-    leave();
-    claim.finish();
-  });
+  const claim = createClaim(
+    terminal,
+    () => {
+      // something else claimed the region. The alternate screen is this
+      // backend's and goes back with it, which is also what puts the evictor on
+      // a screen anybody can see
+      leave();
+      claim.finish();
+    },
+    (text) => backend.write(text, 'stderr')
+  );
 
   function leave(): void {
     if (entered) {
@@ -566,10 +607,11 @@ export function createFullscreenCanvas(opts: FullscreenCanvasOptions = {}): Canv
   }
 
   function flushHeld(): void {
-    if (held.length > 0) {
-      const text = held.join('');
-      terminal.write(isLive() ? crlf(text) : text);
-      held.length = 0;
+    // in the order they were held, each to the stream it asked for: a status
+    // line on stderr must not turn up in the output a script is reading
+    for (const { text, to } of held.splice(0)) {
+      const out = isLive() ? crlf(text) : text;
+      emit(terminal, out, to);
     }
   }
 
@@ -673,15 +715,15 @@ export function createFullscreenCanvas(opts: FullscreenCanvasOptions = {}): Canv
       return canvas.width;
     },
 
-    write(text: string): void {
+    write(text: string, to?: 'stderr'): void {
       const line = text.endsWith('\n') ? text : `${text}\n`;
 
       if (!claim.active || !isLive()) {
-        terminal.write(line);
+        emit(terminal, line, to);
         return;
       }
 
-      held.push(line);
+      held.push({ text: line, to });
     },
   };
 

@@ -206,6 +206,7 @@ describe('what importing the package costs', () => {
     'qrcodeView',
     'commandPalette',
     'noteView',
+    'logView',
   ];
 
   /** The bundles in a graph that define any of them. */

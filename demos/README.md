@@ -341,6 +341,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/12-autocomplete.js`](components/12-autocomplete.js)   | Type to filter a list, or search an async source          |
 | [`components/13-number.js`](components/13-number.js)               | A number prompt: range, steps, and the parser's reading   |
 | [`components/14-group.js`](components/14-group.js)                 | Prompts as one flow, and the session frame around them    |
+| [`components/16-log.js`](components/16-log.js)                     | Leveled status lines, above whatever is repainting        |
 | [`components/17-note.js`](components/17-note.js)                   | A titled, bordered block in a state's colour              |
 | [`components/18-path.js`](components/18-path.js)                   | A text field that completes against the file system       |
 | [`components/19-date.js`](components/19-date.js)                   | A date prompt: segments you step or type into             |
@@ -407,6 +408,13 @@ screen after each step. The four runs are the four things worth seeing -- Januar
 to the 28th, an `initial` outside `min` refused on Enter and then moved to the
 bound by a step, and a clock that wraps without carrying into the day. The answer
 it prints is `Date.toString()`, so the time zone in it is yours.
+
+`16-log.js` is the one whose real output is all on **stderr**, which is the point of
+it and is also why a piped run cannot just call `log`: the demo suite requires an
+empty stderr. So piped, it replays the same calls against a test terminal and
+prints the screen those calls produced, with the status line that arrived while the
+spinner was running sitting above where the spinner was. On a terminal it uses the
+real `log` and a real spinner.
 
 `10-qrcode.js` is the one where a pipe and a terminal get the **same bytes**. A
 scanner wants dark modules on a light background and a terminal already has a light

@@ -102,9 +102,21 @@ export {
   renderBar,
 } from './progress.js';
 export {
+  createLog,
+  type Log,
+  log,
+  type LogMessageOptions,
+  type LogOptions,
+  LOG_SYMBOLS,
+  LOG_SYMBOLS_ASCII,
+  type LogSymbols,
+  logView,
+} from './log.js';
+export {
   createSpinner,
   DOTS,
   LINE,
+  OUTCOME_SYMBOLS,
   type Spinner,
   type SpinnerOptions,
   type SpinnerOutcome,

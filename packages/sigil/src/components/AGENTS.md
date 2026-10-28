@@ -4970,3 +4970,68 @@ What is deliberately not done: the browsing picker; completing mid-value;
 checking that the answer exists; refreshing a cached directory; fuzzy matching
 (a prefix is what a shell does and what a person typing a path expects); showing
 file sizes or types in the list.
+
+### Leveled status lines: `log`
+
+SIG-162. `src/components/log.ts` is the whole of it, and `src/terminal/index.ts`,
+`src/terminal/live.ts` and `src/canvas/backend.ts` each grew one small seam so
+that a line can land above a live region without the caller holding it.
+
+- **It is not `src/debug/`, and the two must not be merged.** That logger is
+  `DEBUG`-driven developer output and says nothing unless asked; `log` is what a
+  command tells the person running it and speaks by default. They share a word.
+- **Every level goes to stderr.** Not "stderr for `warn` and `error`, stdout for
+  the rest", which was the ticket's first question: a command's `run()` returns
+  data and a serializer prints it to stdout ("Output formats", root `AGENTS.md`),
+  so an `info` line on stdout lands in the middle of `mycli --format json | jq`.
+  The data is stdout's and the commentary is stderr's, whichever level it is. The
+  stream comes from the terminal (`writeStatus()`), never from `console.*`, so a
+  test can capture it.
+- **Colour is detected from stderr, not stdout.** `createAnsi({ stream:
+  terminal.stderr })`, because `mycli > out.json` leaves stdout a file and stderr
+  the screen -- the one `ansi` instance reads stdout and would strip the colour
+  from the lines that are for a person. `FORCE_COLOR` and `NO_COLOR` still win,
+  being `supportsColor()`'s. A file gets no escape sequence and is **not wrapped**:
+  a line cut at 80 columns cannot be grepped whole.
+- **Above a live region is the terminal's job, because the claim is the
+  terminal's.** `log.info()` has no handle on whatever spinner is running and
+  should not need one. `claimLive()` takes an optional `above` callback and
+  `Terminal.writeStatus()` calls the holder's, else writes to stderr. The inline
+  canvas, the full-screen canvas and `createLiveRegion()` each register theirs; the
+  first and third erase, write and repaint, the full-screen one **holds** the line
+  and flushes it to stderr (not stdout) on the way out, the rule it already keeps.
+  `CanvasBackend.write()` and `LiveRegion.write()` gained an optional `'stderr'`
+  second argument for it. This is the existing mechanism extended by a stream, not
+  a second one. A stderr that is **not a screen** (`2> errors.log`) skips the erase
+  and repaint: there is nothing to get out of the way of and it would only flicker.
+- **A carriage return goes with every line feed on a screen** -- the canvas
+  backend's `crlf()` reasoning: raw mode turns the terminal's own translation off
+  and this cannot see whether it is on.
+- **Quiet is per level.** `info`, `success`, `step` and `message` are progress and
+  are dropped; `warn` and `error` are never dropped, because "a result is not a
+  progress report" (`src/style/output.ts`) and a quiet run that swallowed an error
+  would be useless. Asked **per call**, not frozen at construction, because `log`
+  is built at module scope before `main()` reads argv (`Spinner.write()`'s rule).
+  `quiet: false` opts a logger out of the process-wide request. A non-TTY is the
+  `reduce` level, not `quiet`: a log file is where a status line is most wanted.
+- **Glyphs are shared, and chosen by the caller.** The four outcomes are the
+  spinner's (`OUTCOME_SYMBOLS`, now exported) and `step` is the prompts' pointer
+  (`PROMPT_SYMBOLS.cursor`), so a log line and the spinner before it agree about
+  what a warning looks like. `LOG_SYMBOLS_ASCII` is chosen with `ascii: true`; no
+  neighbour detects a terminal that needs ASCII (`LINE` is the spinner's), and a
+  wrong guess prints `?` where a status was.
+- **The glyph is drawn in a role and the message is not.** `.sigil-info`,
+  `.sigil-success`, `.sigil-warn`, `.sigil-error`, and `.sigil-accent` for `step`;
+  no colour in props. A coloured message is a wall of red for a stack trace.
+  `message()` with no symbol has no glyph column at all, so its text starts at the
+  margin; with one it is uncoloured.
+- **Multi-line text is a column beside the glyph**, so the indent is the box
+  model's rather than a count of spaces that has to agree with the glyph's width
+  (a wide custom symbol is measured by columns). Each line of the caller's text is
+  its own node: the layout collapses a newline, and a blank line has to survive.
+
+**Deliberately not done:** structured fields and timestamps (gum's `log`) -- a
+second tier with its own formatting questions; a `stream` option to choose
+stdout, which is a separate backlog ticket (stderr is the whole answer to
+`--format json`, and a stdout `log` is how it gets corrupted); detecting ASCII-only
+terminals; routing the debug overlay or `console.*` through it.

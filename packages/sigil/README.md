@@ -3130,6 +3130,44 @@ Copying 50%
 Copying 100%
 ```
 
+#### Log
+
+```js
+import { log } from '@ttylabs/sigil/components';
+
+log.step('Installing dependencies');
+log.info('Using the lockfile from the last run');
+log.success('Installed 42 packages');
+log.warn('left-pad is deprecated');
+log.error('Could not write the cache:\npermission denied');
+log.message('see https://example.com/docs', { symbol: '→' });
+```
+
+Leveled status lines: a glyph, a colour and a message. **This is not the `DEBUG`
+logger** in `src/debug/`, which is developer output and says nothing unless asked.
+`log` is what a command tells the person running it, and it speaks by default.
+
+Every line goes to **stderr**, whatever its level. A command's `run()` returns
+data and a serializer prints it to stdout, so a status line there would land in
+the middle of `mycli --format json | jq`.
+
+- The glyph is drawn in a theme role (`.sigil-info`, `.sigil-success`,
+  `.sigil-warn`, `.sigil-error`, and `.sigil-accent` for `step`); the message is
+  left in the terminal's own colour. Colour follows **stderr's** capability, so
+  `mycli > out.json` keeps the lines coloured on a terminal and a file gets none.
+- A message with several lines, or one that wraps, keeps its continuation lines
+  under the first line's text. A line written to a file is not wrapped.
+- A line printed while a spinner, a progress bar or a prompt is on screen lands
+  **above** it, and the frame is put back underneath.
+- `--quiet` drops `info`, `success`, `step` and `message`. `warn` and `error` are
+  never dropped, since neither is progress.
+- `ascii: true` swaps in `LOG_SYMBOLS_ASCII`, and `symbols: { warn: '!!' }`
+  replaces one glyph. Nothing detects a terminal that needs ASCII; the caller
+  chooses, as it does a spinner's `LINE` frames.
+
+`createLog({ terminal, ascii, symbols, quiet, theme })` builds one over another
+terminal; `log` is the process's. No timestamps and no structured fields yet.
+
 #### Table
 
 ```js

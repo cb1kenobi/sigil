@@ -122,6 +122,10 @@ const ENTRIES = [
     desc: 'A key-help footer generated from the key bindings that are live',
     name: 'key-help',
   },
+  {
+    desc: 'Leveled status lines: info, success, warn, error and step, above any live region',
+    name: 'log',
+  },
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */
