@@ -32,6 +32,7 @@ export {
   isCancel,
   outro,
 } from './group.js';
+export { number, type NumberOptions } from './number.js';
 export {
   type Choice,
   type ChoiceEntry,

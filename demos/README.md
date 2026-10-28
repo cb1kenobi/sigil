@@ -338,6 +338,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself              |
 | [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells               |
 | [`components/11-choices.js`](components/11-choices.js)             | Headings, disabled choices, descriptions, and `min`/`max` |
+| [`components/13-number.js`](components/13-number.js)               | A number prompt: range, steps, and the parser's reading   |
 | [`components/14-group.js`](components/14-group.js)                 | Prompts as one flow, and the session frame around them    |
 | [`components/17-note.js`](components/17-note.js)                   | A titled, bordered block in a state's colour              |
 | [`components/19-date.js`](components/19-date.js)                   | A date prompt: segments you step or type into             |
@@ -455,6 +456,14 @@ that will never produce a keystroke:
 node demos/components/04-prompts.js < /dev/null
 # Cannot prompt for "Project name" because the input is not a terminal
 ```
+
+`13-number.js` is the one prompt that does not fail piped. Its subject is what a
+number prompt does with keys, and a pipe has none -- so it plays the same three
+prompts through `createTestTerminal()` and prints the screen after each key: a
+letter that changes nothing, Enter above `max` showing the bound and not
+clamping, a float stepping from `0.2` to `0.8` without noise, and an integer
+past 2^53-1 refused with the sentence the same integer gets as an option. In a terminal
+the same prompts are asked for real.
 
 And `NO_COLOR=1` turns the styling off everywhere:
 

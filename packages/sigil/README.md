@@ -2879,6 +2879,38 @@ keeps the caret visible.
 > what makes a paste submit half an address. Keeping them is the entire point of
 > having more than one line.
 
+#### A number
+
+```js
+import { number } from '@ttylabs/sigil/components';
+
+const port = await number({ message: 'Port', min: 1, max: 65535, default: 8080 });
+const ratio = await number({ message: 'Ratio', float: true, step: 0.1, min: 0, max: 1 });
+```
+
+`number()` resolves with a `number`. Up and Down step the value by `step`
+(default `1`) and stop at `min` and `max`; from an empty field the first press
+lands on `default`, then `min`, then `0`, and the presses after it step. A key
+that cannot be part of the answer is **ignored as it is typed**, with no error
+shown: digits, a leading `-` (only when `min` is unset or negative), and one `.`
+when `float` is set. There is no `e`, so `1e3` cannot be written, and a paste is
+filtered by the same rule. Float steps are rounded to the places they and the
+current value have, so `0.2` stepped by `0.1` is `0.3` and never
+`0.30000000000000004`.
+
+Enter on an empty field answers `default`, or asks again with `Enter a number`
+when there is none. An answer outside `[min, max]` shows a line naming the bound
+and **is not clamped** -- the arrows clamp, Enter does not. `validate(value)`
+receives the number, after the range, and may be async. `initial` starts the
+field with a value to edit, and `placeholder` replaces the dimmed `default`.
+
+The text is read by the same code as `--port 8080` on the command line, as `int`
+or, with `float`, `number`: an integer past 2^53-1 is refused with the parser's
+own sentence rather than rounded. A prompt with no terminal rejects with a
+`PromptError`, like the others. `min`, `max`, `step`, `default` and `initial`
+must be finite, and whole numbers unless `float` is set; a `step` of zero or
+less, or a `min` above the `max`, rejects the prompt rather than asking it.
+
 > [!IMPORTANT]
 > A prompt **throws rather than hangs** when there is no terminal — in a
 > pipeline, a CI job, or a `cron` entry. Waiting on a stdin that will never

@@ -113,6 +113,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-prompt  .sigil-prompt-line  .sigil-prompt-field
  *   .sigil-prompt-message  .sigil-prompt-hint  .sigil-prompt-answer
  *   .sigil-prompt-placeholder  .sigil-prompt-error  .sigil-prompt-multiline
+ *   .sigil-prompt-number
  *   .sigil-choice  .sigil-choice-pointer  .sigil-choice-mark  .sigil-choice-hint
  *   .sigil-choice-heading  .sigil-choice-separator  .sigil-choice-description
  *   .sigil-spinner-frame  .sigil-progress-bar  .sigil-scroll-thumb
