@@ -3040,6 +3040,49 @@ await autocomplete({ message: 'Package', source: debounced(search, 150) });
 
 It rejects with `PromptError` where there is no terminal, like the others.
 
+#### A path
+
+```js
+import { path } from '@ttylabs/sigil/components';
+
+const file = await path({ message: 'Which config?', extensions: ['json', 'yaml'] });
+const out = await path({ message: 'Output directory?', directory: true, root: process.cwd() });
+```
+
+A text field that completes against the file system. **Tab** fills in as much of
+the path as every candidate in the directory being typed agrees on, a list of the
+candidates sits under the field, and Up and Down walk it (through a position with
+nothing highlighted, so there is a way back to "what I typed"). A directory
+completes with a separator on the end so typing carries on into it. Enter takes
+what is typed; Enter on a highlighted file takes the file, and on a highlighted
+directory fills it in and keeps asking.
+
+| Option        | Meaning                                                                          |
+| ------------- | -------------------------------------------------------------------------------- |
+| `message`     | What is being asked                                                              |
+| `directory`   | Offer and complete directories only                                              |
+| `extensions`  | Offer only files with these extensions (`'json'` or `'.json'`); directories stay |
+| `hidden`      | Offer dotfiles. Off by default, and a segment typed with a leading `.` asks      |
+| `root`        | Where a relative path starts. Default: the working directory                     |
+| `initial`     | What the field starts with                                                       |
+| `placeholder` | Shown dimmed while the field is empty                                            |
+| `validate`    | As `text()`: return a string to reject the answer with that message              |
+| `rows`        | How many candidates are shown at once                                            |
+
+The answer is the path **as typed**, with two exceptions: `~` is expanded (through
+`sigil/paths`, so it means what it means everywhere else in the library), and when
+a `root` was given a relative path is resolved against it and comes back absolute.
+`validate` receives that same string. Nothing checks that the path exists --
+`directory` and `extensions` narrow the list and not the answer, because whether a
+path has to exist is the app's rule and a prompt for where to _write_ wants the
+opposite; `validate` is where an app says so.
+
+Each directory is read once per prompt and cached, and a directory that cannot be
+read -- missing, not a directory, no permission -- simply has no candidates.
+
+This is the field. A picker that browses the tree is a different widget and is not
+here.
+
 #### Spinner
 
 ```js

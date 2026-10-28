@@ -34,6 +34,7 @@ export {
   outro,
 } from './group.js';
 export { number, type NumberOptions } from './number.js';
+export { path, type PathOptions } from './path.js';
 export {
   type Choice,
   type ChoiceEntry,

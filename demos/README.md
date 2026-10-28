@@ -342,6 +342,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/13-number.js`](components/13-number.js)               | A number prompt: range, steps, and the parser's reading   |
 | [`components/14-group.js`](components/14-group.js)                 | Prompts as one flow, and the session frame around them    |
 | [`components/17-note.js`](components/17-note.js)                   | A titled, bordered block in a state's colour              |
+| [`components/18-path.js`](components/18-path.js)                   | A text field that completes against the file system       |
 | [`components/19-date.js`](components/19-date.js)                   | A date prompt: segments you step or type into             |
 | [`components/20-key-help.js`](components/20-key-help.js)           | A key-help footer read off the bindings themselves        |
 
@@ -482,6 +483,14 @@ letter that changes nothing, Enter above `max` showing the bound and not
 clamping, a float stepping from `0.2` to `0.8` without noise, and an integer
 past 2^53-1 refused with the sentence the same integer gets as an option. In a terminal
 the same prompts are asked for real.
+
+`18-path.js` is a prompt, and a prompt has nobody to ask when piped, so it does
+what the rest of this section does a different way: it drives the same `path()`
+calls with a scripted keyboard over a throwaway directory made under the OS temp
+directory (`createTestTerminal()` from `@ttylabs/sigil/testing`) and prints the
+screen after each step, so a pipe shows Tab completing a shared prefix, a lone
+directory taking its separator, and the highlight walking the list. On a terminal
+it asks for a config file and an output directory instead.
 
 And `NO_COLOR=1` turns the styling off everywhere:
 
