@@ -15,14 +15,29 @@ export {
   type Ranked,
   rankBy,
 } from './fuzzy.js';
+export { autocomplete, type AutocompleteOptions, type AutocompleteSource } from './autocomplete.js';
 export {
   checkSlotValue,
   commandPalette,
   type PaletteOptions,
   type PaletteResult,
 } from './palette.js';
+export { date, type DateOptions } from './date.js';
+export {
+  cancel,
+  type FrameOptions,
+  group,
+  type GroupOptions,
+  type GroupSteps,
+  intro,
+  isCancel,
+  outro,
+} from './group.js';
+export { number, type NumberOptions } from './number.js';
+export { path, type PathOptions } from './path.js';
 export {
   type Choice,
+  type ChoiceEntry,
   confirm,
   type ConfirmOptions,
   ESCAPE_TIMEOUT,
@@ -35,6 +50,8 @@ export {
   type PromptOptions,
   select,
   type SelectOptions,
+  separator,
+  type Separator,
   type SubmitKey,
   text,
   type TextOptions,
@@ -46,14 +63,25 @@ export {
   type PromptHandlers,
   promptHeadLine,
   promptHeadWidths,
+  promptChoice,
   promptNote,
   promptRowCap,
   type PromptSymbols,
   promptWindow,
   type PromptWindow,
+  promptValue,
   runPrompt,
   setPromptNote,
 } from './prompt.js';
+export {
+  fitKeyHelp,
+  keyHelp,
+  type KeyHelpEntry,
+  keyHelpEntries,
+  type KeyHelpOptions,
+  type KeyHelpSource,
+  keyLabel,
+} from './key-help.js';
 export { mountLevel, type Mounted, type MountOptions, mountLive } from './mount.js';
 export {
   FRAMEWORK_CSS,
@@ -74,9 +102,21 @@ export {
   renderBar,
 } from './progress.js';
 export {
+  createLog,
+  type Log,
+  log,
+  type LogMessageOptions,
+  type LogOptions,
+  LOG_SYMBOLS,
+  LOG_SYMBOLS_ASCII,
+  type LogSymbols,
+  logView,
+} from './log.js';
+export {
   createSpinner,
   DOTS,
   LINE,
+  OUTCOME_SYMBOLS,
   type Spinner,
   type SpinnerOptions,
   type SpinnerOutcome,
@@ -211,3 +251,12 @@ export {
   type TableRow,
   tableView,
 } from './table.js';
+export {
+  note,
+  type NoteBorder,
+  type NoteOptions,
+  type NoteTitleAlign,
+  type NoteVariant,
+  noteView,
+  unicodeSupported,
+} from './note.js';
