@@ -2768,6 +2768,83 @@ async — return a string to reject the answer with that message. Editing keys
 are the usual ones: arrows, Home/End, Ctrl-A/E/U, Backspace, Delete. A paste
 arrives as one chunk and is read as the keys it carries, not just the first.
 
+#### A date
+
+```js
+import { date } from '@ttylabs/sigil/components';
+
+const due = await date({
+  message: 'Due date',
+  min: new Date(),
+  max: new Date(2030, 11, 31),
+});
+
+const start = await date({ message: 'Starts at', time: true });
+```
+
+Returns a `Date`. The field is segments in ISO order, always -- year, month, day,
+then hour and minute with `time: true` and the second with `seconds: true` -- and
+the order does not follow the locale. Left, Right, Tab and Shift-Tab move between
+segments, Up and Down step the one you are on, and digits fill it in, moving on
+when it is full. A segment takes digits only; Backspace drops the digits typed
+into it so far.
+
+Stepping wraps inside the segment and **never carries**: December up is January
+of the same year, and 23:59 up is 23:00 on the same day. The day is pulled back
+to the last day of a shorter month when the month or the year changes, so January
+31st stepped to February is the 28th, or the 29th in a leap year.
+
+The value is built as a **local** date-time and handed to the same reader the
+parser's `date` data type uses, so the prompt and `--when` cannot disagree about
+what a date is. `min` and `max` are inclusive at the precision shown (a `max` of
+the afternoon of the 20th allows the 20th when only the date is shown): a step or
+typed entry that would leave the range lands on the nearest bound, and an
+`initial` given outside it is kept as it is and refused on Enter with an error
+line. `validate` is the same as `text()`'s. `initial` defaults to now, truncated
+to what is shown and pulled into the range.
+
+#### Choices that say more
+
+```js
+import { multiselect, select, separator } from '@ttylabs/sigil/components';
+
+const target = await select({
+  message: 'Deploy to',
+  choices: [
+    separator('Cloud'),
+    { label: 'Production (us-east-1)', short: 'prod', value: 'prod', description: 'The real one.' },
+    separator('Local'),
+    { label: 'Docker', value: 'docker', disabled: 'Docker is not running' },
+    { label: 'This machine', value: 'local' },
+  ],
+  loop: false,
+});
+
+const checks = await multiselect({
+  message: 'Checks',
+  choices: ['Type check', 'Unit tests', { label: 'Security scan', disabled: true }],
+  min: 1,
+  max: 2,
+});
+```
+
+A `Choice` takes `disabled` (`true`, or a string that is the reason and is drawn
+where a hint would be), `description` (a line under the list while the choice is
+highlighted), `short` (what the answered line says, when the label is longer) and
+`selected`. A `separator(label)` in `choices` is a heading and not a choice.
+
+The cursor **steps over** a heading and a disabled choice rather than landing on
+one and refusing, `initial` moves to the next choice on offer, and Home and End go
+to the first and last. It wraps at the ends unless `loop: false`. A list with
+nothing on offer is refused the way an empty one is. A disabled choice is never
+ticked, whatever its `selected` says.
+
+In `multiselect()`, `a` ticks every choice on offer (or clears them if they all
+already are), `i` flips each one, and Ctrl-A is `a` still. Enter checks `min` and
+`max` — `required` is `min: 1` — and says how many it wanted: `Choose at least 2`.
+Neither is checked while ticking, so a `max` of 3 does not stop the fourth Space,
+only the Enter.
+
 #### A multiline answer
 
 ```js
@@ -2840,6 +2917,60 @@ less, or a `min` above the `max`, rejects the prompt rather than asking it.
 > produce a keystroke is a hung build with no explanation, so `PromptError`
 > names the question that went unanswered. `err.aborted` tells the two cases
 > apart: `true` is Ctrl-C, `false` is nobody there to ask.
+
+#### Prompts as one flow
+
+```js
+import {
+  cancel,
+  confirm,
+  group,
+  intro,
+  isCancel,
+  outro,
+  select,
+  text,
+} from '@ttylabs/sigil/components';
+
+intro('create-app');
+
+try {
+  const answers = await group(
+    {
+      name: () => text({ message: 'Project name' }),
+      // a later step is handed what the earlier ones answered
+      template: ({ name }) =>
+        select({ message: `Template for ${name}`, choices: ['app', 'library'] }),
+      ok: () => confirm({ message: 'Create it?' }),
+    },
+    { onCancel: (partial) => cancel('Nothing was created') }
+  );
+  outro(`Created ${answers.name}`);
+} catch (err) {
+  if (!isCancel(err)) throw err;
+}
+```
+
+`group()` runs its steps in key order and resolves with an object keyed the same
+way. A step is any function that returns a value or a promise, handed a copy of
+the answers so far. Cancelling is still a `PromptError` rejection --
+`isCancel(err)` is true for Ctrl-C and false for a prompt with nobody to ask --
+and `onCancel(partial, err)` is called first with what had been answered. It may
+throw, or return an `Error`, to replace the rejection; it cannot swallow it. A
+step that fails for any other reason is rethrown untouched and `onCancel` is not
+called. There is no going back a step.
+
+In TypeScript, a step that reads its argument stops `T` being inferred from what
+the steps return, so name the shape: `group<{ name: string; ok: boolean }>({ ... })`.
+Every step is then checked against it and each earlier answer is typed (as
+optional, since the type cannot say which keys ran first).
+
+`intro()`, `outro()` and `cancel()` each write one line to **stderr** -- a
+command's data is on stdout and a session's framing must not be in it. They write
+nothing when stdout or stderr is not a terminal and nothing under `--quiet`
+(`quiet: true` does the same per call), and draw in the theme's roles
+(`.sigil-accent`, `.sigil-success`, `.sigil-error`) inside a `.sigil-session` row.
+`cancel()` says `Cancelled` when given no message.
 
 #### Spinner
 
@@ -2914,9 +3045,63 @@ characters would not, and `maxWidth` truncates on grapheme clusters rather
 than slicing a surrogate pair in half. No borders — a table in a build log
 sits next to everything else that was printed, and rules around it are noise.
 
+#### Note
+
+```js
+import { note } from '@ttylabs/sigil/components';
+
+console.log(
+  note('Your project is ready.\n\n  $ cd my-app\n  $ npm install', {
+    title: 'Next steps',
+  })
+);
+```
+
+```
+╭─ Next steps ───────────╮
+│ Your project is ready. │
+│                        │
+│   $ cd my-app          │
+│   $ npm install        │
+╰────────────────────────╯
+```
+
+A framed message, for the "next steps" panel or the warning that has to be seen.
+It shrinks to its message and is wrapped at the terminal's width (or `width`), so
+a short note is a short box. Line breaks, blank lines and indentation are kept;
+wide characters and emoji are measured in columns, so the border stays straight.
+Escape sequences in the message are dropped -- colour is the variant's, not the
+text's.
+
+| Option       | Meaning                                                                   |
+| ------------ | ------------------------------------------------------------------------- |
+| `title`      | A heading set into the top border                                         |
+| `titleAlign` | `left` (default), `center` or `right`                                     |
+| `variant`    | `note` (default), `info`, `success`, `warning` or `error`                 |
+| `border`     | `round` (default), `single`, `double`, `bold` or `ascii`                  |
+| `width`      | The widest the block may be, never under 5. Defaults to `terminalWidth()` |
+| `indent`     | How far the block is indented                                             |
+
+The variants colour the border, the title and the message through the theme's
+roles -- `.sigil-info`, `.sigil-success`, `.sigil-warn` and `.sigil-error`, which
+now set `border-color` beside `color` -- so a theme restyles them like anything
+else, and `.sigil-note-error` and its siblings are the narrower hook for one
+variant. A plain `note` takes no role at all. Nothing is coloured at colour
+level 0, so a variant is then told apart by its title, which is worth setting.
+
+Unless `border` is given the border is rounded, and falls back to ASCII where
+`unicodeSupported()` says the terminal cannot be trusted with box drawing -- the
+Linux console, `TERM=dumb`, and Windows consoles not known to cope. `env` and
+`platform` override what it reads.
+
+Like `table()` it returns a string and the caller does the writing, which also
+puts it on the result side of `--quiet`. `noteView()` is the element tree behind
+it, for an app that wants one inside its own tree. There is no live form: a note
+is static, so `console.log(note(...))` already is one.
+
 `sigil/components` also exports `decodeKeys()` and `renderBar()`, and the state
 and the element tree behind each component -- `spinnerView()`, `progressView()`
-and `tableView()`, with `spinnerState()` and `progressState()` driving the two
+`tableView()` and `noteView()`, with `spinnerState()` and `progressState()` driving the two
 that animate -- so a component tree can use them directly rather than through
 the imperative facade. Cutting a line to a width is
 `truncate()` in [`sigil/wrap`](#sigilwrap); padding one is a declared width and

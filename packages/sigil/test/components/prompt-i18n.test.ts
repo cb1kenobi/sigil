@@ -1,5 +1,5 @@
 import { commandPalette } from '../../src/components/palette.js';
-import { confirm, multiline, multiselect, text } from '../../src/components/prompt.js';
+import { confirm, multiline, multiselect, select, text } from '../../src/components/prompt.js';
 import { type Catalog, loadCatalog } from '../../src/i18n/index.js';
 import { parse } from '../../src/parser/parse.js';
 import type { ParseState, Schema } from '../../src/types.js';
@@ -257,6 +257,52 @@ describe('a translated multiselect', () => {
 
     await type(ui.stdin, '\r');
     expect(ui.frame).to.include('Mindestens eine waehlen');
+
+    await type(ui.stdin, '\u0003');
+    await answer;
+  });
+
+  it('should translate the complaints for too few and too many, with the number in them', async () => {
+    await translated({
+      'Choose at least {0}': 'Mindestens {0} waehlen',
+      'Choose at most {0}': 'Hoechstens {0} waehlen',
+    });
+    const ui = screenSetup({ columns: 80, rows: 10 });
+    const answer = settle(
+      multiselect({
+        ansi: ui.ansi,
+        choices: ['eins', 'zwei', 'drei'],
+        max: 2,
+        message: 'Waehlen',
+        min: 2,
+        terminal: ui.terminal,
+      })
+    );
+
+    await type(ui.stdin, '\r');
+    expect(ui.log.join('\n')).to.include('Mindestens 2 waehlen');
+
+    await type(ui.stdin, 'a', '\r');
+    expect(ui.log.join('\n')).to.include('Hoechstens 2 waehlen');
+
+    await type(ui.stdin, '\u0003');
+    await answer;
+  });
+
+  it('should translate the word for a disabled choice that gave no reason', async () => {
+    await translated({ disabled: 'nicht verfuegbar' });
+    const ui = screenSetup({ columns: 80, rows: 10 });
+    const answer = settle(
+      select({
+        ansi: ui.ansi,
+        choices: ['eins', { disabled: true, label: 'zwei' }],
+        message: 'Waehlen',
+        terminal: ui.terminal,
+      })
+    );
+
+    await tick();
+    expect(ui.log.join('\n')).to.include('zwei nicht verfuegbar');
 
     await type(ui.stdin, '\u0003');
     await answer;
