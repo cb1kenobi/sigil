@@ -99,6 +99,10 @@ const ENTRIES = [
     name: 'debug-overlay',
   },
   {
+    desc: 'group() to run prompts as one flow, and intro, outro and cancel to frame the session',
+    name: 'group',
+  },
+  {
     desc: 'A QR code, encoded here and drawn in half blocks or in full cells',
     name: 'qrcode',
   },

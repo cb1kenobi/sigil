@@ -2886,6 +2886,60 @@ keeps the caret visible.
 > names the question that went unanswered. `err.aborted` tells the two cases
 > apart: `true` is Ctrl-C, `false` is nobody there to ask.
 
+#### Prompts as one flow
+
+```js
+import {
+  cancel,
+  confirm,
+  group,
+  intro,
+  isCancel,
+  outro,
+  select,
+  text,
+} from '@ttylabs/sigil/components';
+
+intro('create-app');
+
+try {
+  const answers = await group(
+    {
+      name: () => text({ message: 'Project name' }),
+      // a later step is handed what the earlier ones answered
+      template: ({ name }) =>
+        select({ message: `Template for ${name}`, choices: ['app', 'library'] }),
+      ok: () => confirm({ message: 'Create it?' }),
+    },
+    { onCancel: (partial) => cancel('Nothing was created') }
+  );
+  outro(`Created ${answers.name}`);
+} catch (err) {
+  if (!isCancel(err)) throw err;
+}
+```
+
+`group()` runs its steps in key order and resolves with an object keyed the same
+way. A step is any function that returns a value or a promise, handed a copy of
+the answers so far. Cancelling is still a `PromptError` rejection --
+`isCancel(err)` is true for Ctrl-C and false for a prompt with nobody to ask --
+and `onCancel(partial, err)` is called first with what had been answered. It may
+throw, or return an `Error`, to replace the rejection; it cannot swallow it. A
+step that fails for any other reason is rethrown untouched and `onCancel` is not
+called. There is no going back a step.
+
+In TypeScript, a step that reads its argument stops `T` being inferred from what
+the steps return, so name the shape: `group<{ name: string; ok: boolean }>({ ... })`.
+Every step is then checked against it and each earlier answer is typed (as
+optional, since the type cannot say which keys ran first).
+
+`intro()`, `outro()` and `cancel()` each write one line to **stderr** -- a
+command's data is on stdout and a session's framing must not be in it. They write
+nothing when stdout or stderr is not a terminal and nothing under `--quiet`
+(`quiet: true` does the same per call), and draw in the theme's roles
+(`.sigil-accent`, `.sigil-success`, `.sigil-error`) inside a `.sigil-session` row.
+`cancel()` says `Cancelled` when given no message.
+
 #### Spinner
 
 ```js

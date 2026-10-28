@@ -4398,6 +4398,69 @@ how the two come to disagree." It is decided, and the answer is no.
   a mouse report leads with was taken for the terminator, and `0;1;1M` was typed
   a character at a time after it.
 
+### Prompt flows: `group()`, and the session frame
+
+SIG-160. `src/components/group.ts` is the whole of it: `group()`, `isCancel()`,
+`intro()`, `outro()` and `cancel()`. It edits no prompt.
+
+- **Cancel stays a throw, and `isCancel()` is a question about what was caught.**
+  The ticket asked for a thrown `PromptError`, a returned sentinel, or both. A
+  sentinel changes the return type of every prompt -- `text()` would resolve with
+  `string | symbol`, and every existing caller would need a narrowing it did not
+  have -- to buy a `group()` that can return partial results, which `onCancel`
+  already hands over. So every prompt still rejects, `PromptError.aborted` still
+  separates Ctrl-C from a prompt with nobody to ask, and `isCancel(err)` is
+  exactly `err instanceof PromptError && err.aborted`. The second kind is the
+  program being wired wrong and is deliberately **not** a cancel: a `catch` that
+  treated it as one would swallow the failure `PromptError` exists to make loud.
+- **`onCancel` can replace the rejection and cannot suppress it.** It is called
+  with the answers so far and then the cancel is rethrown; throwing, or returning
+  an `Error`, throws that instead. That is the `beforeError` rule (a hook may
+  replace an error and never swallow one) for the same reason: a group has no
+  result to hand back for steps that did not run, so a swallowed cancel would
+  have to resolve with something that is not a `T`. It is handed the live answers
+  object rather than a copy, because nothing can read it afterwards -- a copy was
+  written and deleted for surviving its sabotage. A non-cancel error is rethrown
+  untouched and does not call it.
+- **A step is handed a copy of the answers, and an answer is defined rather than
+  assigned.** A step that writes to its argument must not change what a later step
+  reads; and a step called `__proto__` is legal, where an assignment would set
+  the prototype and drop the answer.
+- **Types: the result is typed by the keys, and a step that reads its argument
+  cannot be inferred.** `T` is inferred from what the steps resolve with, through
+  a mapped type whose parameter is `Partial<Omit<T, K>>`. A step that _uses_ its
+  argument is contextually typed from `T`, which TypeScript is still inferring, so
+  it fixes `T` before looking at that step's return and the key comes out
+  `unknown`. Measured on TypeScript 7 over four spellings, clack's own shape
+  among them; none works. So the documented spelling is to name the shape,
+  `group<Shape>({...})`, which types every step and checks each return against
+  it. The earlier answers are `Partial` because object keys have an order at
+  runtime and none in the type system. Pinned by `tsc`, since `packages/sigil`'s
+  `include` covers `./test`.
+- **Order is `Object.keys()`'s**, so a key that reads as an integer runs first,
+  as it does anywhere in JavaScript. Not worked around.
+- **The frame is plain output to stderr, and silent unless both ends are a
+  terminal and nobody asked for quiet.** A command's `run()` returns data for a
+  serializer and `mycli init --json | jq` has to receive JSON whatever the
+  session said around the questions. Stdout not a terminal means the prompts
+  reject anyway, so there is no session to frame; stderr not one means `2>log`
+  would collect framing. `isTTY` is read as truthy on stderr because a piped Node
+  stream has no `isTTY` at all. Quiet is `mountLevel()`'s answer, so `--quiet`
+  and `quiet: true` both reach it -- the frame is chrome like a spinner, not a
+  dialogue like a prompt. It is not a live region: nothing on it changes, and
+  claiming the region would evict a spinner for a line that stays.
+- **It is drawn through the cascade, not hard-coded.** One row in a
+  `.sigil-session` box: the mark carries `.sigil-symbol` and a role
+  (`.sigil-accent`, `.sigil-success`, `.sigil-error`) and the intro message is
+  `.sigil-heading`, so a theme restyles it. Marks reuse the spinner's check and
+  cross and add a triangle for the intro. There is no ASCII fallback: the
+  neighbouring components draw fixed glyphs too (the spinner's `LINE` frames are
+  an opt-in), so one here would be the first rather than the pattern.
+- **Deliberately not done.** Going back a step -- it needs a step to be re-asked
+  with its old answer shown, which no prompt can do without an `initial` the
+  existing ones do not take, and they are not edited here. Blank lines around the
+  frame, so a session adds no rows beyond the three it writes.
+
 ### A note: a titled, bordered block
 
 SIG-163 asked for what Clack's `note`/`box` and Ink UI's `Alert` do: frame a

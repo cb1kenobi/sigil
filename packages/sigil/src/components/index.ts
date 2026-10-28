@@ -23,6 +23,16 @@ export {
 } from './palette.js';
 export { date, type DateOptions } from './date.js';
 export {
+  cancel,
+  type FrameOptions,
+  group,
+  type GroupOptions,
+  type GroupSteps,
+  intro,
+  isCancel,
+  outro,
+} from './group.js';
+export {
   type Choice,
   type ChoiceEntry,
   confirm,
