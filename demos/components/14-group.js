@@ -7,8 +7,11 @@
  * `group()` runs named steps in order and hands each one what the steps before it
  * answered, so the third question below is worded with the first answer and the
  * choices of the second depend on it. `intro()`, `outro()` and `cancel()` write
- * the lines that make it read as one session -- to **stderr**, so
- * `node demos/components/14-group.js > answers.txt` still gets only the answers.
+ * the lines that make it read as one session -- to **stderr**, and only when both
+ * stdout and stderr are terminals, so the framing is for a person to look at and
+ * never lands in a pipe or a file. Redirecting stdout (`> answers.txt`) therefore
+ * takes the demo to its scripted half below: the file gets that transcript, and
+ * nothing is asked.
  *
  * A prompt rejects with a `PromptError` when it is cancelled, as it always has;
  * `isCancel()` is the question to ask of what a `catch` caught, and `onCancel`

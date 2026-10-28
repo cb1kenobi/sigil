@@ -415,9 +415,9 @@ waits -- this one never reaches that rule, because it always has somebody.
 
 `14-group.js` is two demos with one flow in them. In a terminal it asks three
 questions with `group()`, the second worded and offered from the first answer,
-framed by `intro()` and `outro()` on stderr -- so redirecting stdout leaves the
-framing on screen and the answers in the file. Piped there is nobody to ask, so it
-builds a test terminal, sends the keys a person would have typed and prints the
+framed by `intro()` and `outro()` on stderr, which draw only when both stdout and
+stderr are terminals. Piped or redirected there is nobody to ask and no framing, so
+it builds a test terminal, sends the keys a person would have typed and prints the
 screen after each step: once answering everything, once pressing Ctrl-C at the
 second question, where `onCancel` is handed the one answer given and `cancel()`
 closes the session.

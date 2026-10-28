@@ -11,7 +11,9 @@ import { describe, expect, it } from 'vitest';
  * lines are plain unless a test asks for colour.
  */
 function lines(message: string, opts: NoteOptions = {}): string[] {
-  return note(message, { colorLevel: 0, env: {}, width: 40, ...opts }).split('\n');
+  return note(message, { colorLevel: 0, env: {}, platform: 'linux', width: 40, ...opts }).split(
+    '\n'
+  );
 }
 
 /** The width of every line, which for a block is one number. */
@@ -161,7 +163,9 @@ describe('note()', () => {
     });
 
     it('should leave no no-break space in what it prints', () => {
-      expect(note('x', { colorLevel: 0, env: {}, title: 'Hi' })).to.not.contain(' ');
+      expect(note('x', { colorLevel: 0, env: {}, platform: 'linux', title: 'Hi' })).to.not.contain(
+        ' '
+      );
     });
   });
 
@@ -207,7 +211,7 @@ describe('note()', () => {
     ] as const)(
       'should take the %s colour from its role, on the border and the message',
       (variant, sgr) => {
-        const out = note('x', { ...colour, env: {}, variant });
+        const out = note('x', { ...colour, env: {}, platform: 'linux', variant });
         const [top, middle] = out.split('\n');
 
         expect(top).to.contain(`${ESC}[${sgr}m`);
@@ -216,13 +220,16 @@ describe('note()', () => {
     );
 
     it('should draw no colour at colour level 0, whatever the variant', () => {
-      expect(note('x', { colorLevel: 0, env: {}, variant: 'error' })).to.not.contain(ESC);
+      expect(
+        note('x', { colorLevel: 0, env: {}, platform: 'linux', variant: 'error' })
+      ).to.not.contain(ESC);
     });
 
     it('should let a theme restyle a variant through its role', () => {
       const out = note('x', {
         ...colour,
         env: {},
+        platform: 'linux',
         theme: '.sigil-error { color: magenta; border-color: magenta }',
         variant: 'error',
       });
@@ -235,6 +242,7 @@ describe('note()', () => {
       const out = note('x', {
         ...colour,
         env: {},
+        platform: 'linux',
         theme: '.sigil-note-error { border-color: cyan }',
         variant: 'error',
       });
@@ -247,14 +255,14 @@ describe('note()', () => {
 
     it('should print the same text for every variant', () => {
       for (const variant of ['note', 'info', 'success', 'warning', 'error'] as const) {
-        expect(strip(note('x', { ...colour, env: {}, variant }))).to.equal(
+        expect(strip(note('x', { ...colour, env: {}, platform: 'linux', variant }))).to.equal(
           lines('x', { width: 80 }).join('\n')
         );
       }
     });
 
     it('should bold the title through the heading role', () => {
-      const out = note('x', { ...colour, env: {}, title: 'T' });
+      const out = note('x', { ...colour, env: {}, platform: 'linux', title: 'T' });
 
       expect(out.split('\n')[0]).to.contain(`${ESC}[1m`);
     });
@@ -263,7 +271,12 @@ describe('note()', () => {
 
 describe('noteView()', () => {
   it('should return a tree and the width it was built for', () => {
-    const { element, width } = noteView('hello', { env: {}, indent: 2, width: 50 });
+    const { element, width } = noteView('hello', {
+      env: {},
+      platform: 'linux',
+      indent: 2,
+      width: 50,
+    });
 
     expect(element.type).to.equal('box');
     expect(width).to.equal(50);
