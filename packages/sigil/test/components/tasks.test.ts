@@ -500,6 +500,45 @@ describe('tasks()', () => {
       expect(ui.log).to.deep.equal(['✔ Built in 2s']);
     });
 
+    it('should end a skipped task that opened a window as informational, not done', async () => {
+      const ui = screenSetup({ rows: 12 });
+
+      const results = await tasks(
+        [
+          {
+            task({ log }) {
+              log().message('checking the cache');
+              return skip('cached');
+            },
+            title: 'Build',
+          },
+        ],
+        { ansi: ui.ansi, terminal: ui.terminal }
+      );
+
+      expect(ui.log).to.deep.equal(['ℹ Build (skipped: cached)']);
+      expect(results[0]?.outcome).to.equal('skip');
+    });
+
+    it('should not settle a skipped task whose window the task already settled', async () => {
+      const ui = screenSetup({ rows: 12 });
+
+      await tasks(
+        [
+          {
+            task({ log }) {
+              log().success('Built in 2s');
+              return skip('cached');
+            },
+            title: 'Build',
+          },
+        ],
+        { ansi: ui.ansi, terminal: ui.terminal }
+      );
+
+      expect(ui.log).to.deep.equal(['✔ Built in 2s']);
+    });
+
     it('should print the title once and the output as it comes in a pipe', async () => {
       const { stdout, terminal } = setup({ isTTY: false });
 
@@ -516,6 +555,25 @@ describe('tasks()', () => {
       );
 
       expect(stdout.output).to.equal('Build\ncompiling\n✔ Build\n');
+    });
+
+    it('should end a skipped task that opened a log as informational in a pipe', async () => {
+      const { stdout, terminal } = setup({ isTTY: false });
+
+      await tasks(
+        [
+          {
+            task({ log }) {
+              log().message('checking the cache');
+              return skip('cached');
+            },
+            title: 'Build',
+          },
+        ],
+        { terminal }
+      );
+
+      expect(stdout.output).to.equal('Build\nchecking the cache\nℹ Build (skipped: cached)\n');
     });
   });
 

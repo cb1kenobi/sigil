@@ -79,6 +79,20 @@ export interface TaskLog {
 }
 
 /**
+ * What `tasks()` holds: the public log, and the one outcome it does not give a
+ * task.
+ *
+ * A skipped task ends as an informational line, which is the spinner's `info`.
+ * `success()` is the only way a window settles well, so a task that opened a
+ * window and then returned `skip()` read as one that ran. Not on `TaskLog`,
+ * because an app that wants an informational ending already has `skip()`.
+ */
+interface InternalTaskLog extends TaskLog {
+  /** Ends the work as informational, and takes the output with it. */
+  info(text?: string): void;
+}
+
+/**
  * One chunk of output, as the lines it holds.
  *
  * Cleaned because it came from something else's terminal: an escape sequence in
@@ -148,7 +162,7 @@ function taskLogView(
  *   how `tasks()` hands its task's line over without printing the title twice.
  * @returns The log.
  */
-function buildTaskLog(opts: TaskLogOptions, adopt?: Spinner): TaskLog {
+function buildTaskLog(opts: TaskLogOptions, adopt?: Spinner): InternalTaskLog {
   const { limit: asked, retain: keep, title, ...mountOpts } = opts;
   const limit = asked && asked > 0 ? Math.floor(asked) : WINDOW;
   const retain = keep && keep > 0 ? Math.floor(keep) : RETAIN;
@@ -191,6 +205,13 @@ function buildTaskLog(opts: TaskLogOptions, adopt?: Spinner): TaskLog {
       },
 
       message: feed,
+
+      info(text?: string): void {
+        if (!settled) {
+          settled = true;
+          spinner.info(text ?? title);
+        }
+      },
 
       get settled() {
         return settled;
@@ -236,7 +257,7 @@ function buildTaskLog(opts: TaskLogOptions, adopt?: Spinner): TaskLog {
   }
 
   /** Collapses the window into the title row, and leaves that where it is. */
-  function settle(outcome: 'error' | 'success', text: string | undefined): boolean {
+  function settle(outcome: 'error' | 'info' | 'success', text: string | undefined): boolean {
     if (settled) {
       return false;
     }
@@ -272,6 +293,10 @@ function buildTaskLog(opts: TaskLogOptions, adopt?: Spinner): TaskLog {
         // translating -- which raw mode turns off
         terminal.write(`${lines.join('\r\n')}\r\n`);
       }
+    },
+
+    info(text?: string): void {
+      settle('info', text);
     },
 
     message: add,
@@ -329,7 +354,20 @@ async function pump(
  * @returns The log, drawn.
  */
 export function taskLog(opts: TaskLogOptions): TaskLog {
-  return buildTaskLog(opts);
+  return publicLog(buildTaskLog(opts));
+}
+
+/** The log a caller is handed: everything but the ending only `tasks()` uses. */
+function publicLog(log: InternalTaskLog): TaskLog {
+  return {
+    error: (text) => log.error(text),
+    message: (line) => log.message(line),
+    get settled() {
+      return log.settled;
+    },
+    stream: (source) => log.stream(source),
+    success: (text) => log.success(text),
+  };
 }
 
 /** What a task is handed. */
@@ -391,12 +429,12 @@ export async function tasks(
     }
 
     const spinner = createSpinner({ ...opts, text: item.title }).start();
-    let opened: TaskLog | undefined;
+    let opened: InternalTaskLog | undefined;
 
     const context: TaskContext = {
       log(logOpts = {}) {
         opened ??= buildTaskLog({ ...opts, ...logOpts, title: spinner.text }, spinner);
-        return opened;
+        return publicLog(opened);
       },
 
       message(text: string): void {
@@ -424,8 +462,8 @@ export async function tasks(
         ? __`${item.title} (skipped: ${value.reason})`
         : __`${item.title} (skipped)`;
       if (opened) {
-        // `success()` is a no-op on a window the task already settled
-        opened.success(final);
+        // `info()` is a no-op on a window the task already settled
+        opened.info(final);
       } else {
         spinner.info(final);
       }

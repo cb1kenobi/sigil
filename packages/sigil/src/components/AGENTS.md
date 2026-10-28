@@ -5057,6 +5057,17 @@ the window a task writes a subprocess's output to. SIG-161.
   `catch` that did not know the difference would treat it as a failure. The
   string a task returns replaces the title on the done line only; a skip's line is
   always built from the title so the reason is not lost.
+
+  **That holds when the task opened a log window too**, and did not at first: a
+  window ended only as `success()` or `error()`, so a task that called `log()` and
+  then returned `skip('cached')` settled on `✔ Build (skipped: cached)` -- a step
+  that never ran, drawn as one that did, while the outcome in the results said
+  `skip`. The window settles `info` internally and the pipe form calls the
+  spinner's own `info()`. It is not on `TaskLog`: a caller who wants the
+  informational ending has `skip()`, and a fourth public method is a second way to
+  say it. `tasks()` hands the task a wrapper without it, so the extra method is
+  not reachable at run time either. Found by review.
+
 - **A thrown task fails its line, stops the list, and rethrows.** What the failure
   means is the caller's, which is `main()`'s rule too. The failed line is left on
   screen. A disabled task (`enabled: false`) is not run and leaves no line.
