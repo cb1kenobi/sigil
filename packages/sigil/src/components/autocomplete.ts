@@ -68,6 +68,8 @@ export type AutocompleteSource<T> = (
 export interface AutocompleteOptions<T> extends PromptOptions {
   /**
    * What to offer, filtered by what is typed. Give this or `source`, not both.
+   * A choice marked `disabled` is left out, and a list of nothing else is refused
+   * the way an empty one is.
    */
   choices?: readonly (Choice<T> | string)[];
   /** The text the field starts with. Defaults to nothing. */
@@ -85,7 +87,8 @@ export interface AutocompleteOptions<T> extends PromptOptions {
    *
    * There is no debounce. Calling a server per keystroke is the caller's trade
    * to make, and the signal is what makes the cheap answer -- wait a moment, then
-   * look -- possible to write; see the README for the recipe.
+   * look -- possible to write; see the README for the recipe. A choice it returns
+   * marked `disabled` is left out of what is shown.
    */
   source?: AutocompleteSource<T>;
   /**
@@ -99,6 +102,19 @@ export interface AutocompleteOptions<T> extends PromptOptions {
 interface Offer<T> {
   readonly choice: Choice<T>;
   readonly matched: readonly number[];
+}
+
+/**
+ * Whether a choice may be answered with.
+ *
+ * `select()` steps over a disabled choice, and this prompt has no cursor to step
+ * with -- a disabled one would be ranked, highlighted, filled in by Tab and taken
+ * by Enter -- so it is left out of what is offered, which is the one answer that
+ * needs no second rule about which of those four is allowed to touch it. Read the
+ * way `select()` reads it: only a truthy `disabled` counts, so `''` is on offer.
+ */
+function isOffered<T>(choice: Choice<T>): boolean {
+  return !choice.disabled;
 }
 
 /**
@@ -177,7 +193,7 @@ export function autocomplete<T = string>(opts: AutocompleteOptions<T>): Promise<
     );
   }
 
-  const fixed = opts.choices?.map((choice) => promptChoice<T>(choice));
+  const fixed = opts.choices?.map((choice) => promptChoice<T>(choice)).filter(isOffered);
   if (fixed?.length === 0) {
     return Promise.reject(new PromptError(`"${opts.message}" has no choices to offer`));
   }
@@ -326,7 +342,10 @@ export function autocomplete<T = string>(opts: AutocompleteOptions<T>): Promise<
             return;
           }
           pending = false;
-          offers = found.map((choice) => ({ choice: promptChoice<T>(choice), matched: [] }));
+          offers = found
+            .map((choice) => promptChoice<T>(choice))
+            .filter(isOffered)
+            .map((choice) => ({ choice, matched: [] }));
           active = 0;
           draw();
         },

@@ -3009,7 +3009,11 @@ Give it `choices` **or** a `source`, not both. A static list is ranked with
 `rankBy()`, and a source is the filter itself, so what it returns is shown as it
 is — a source may match on something other than the label. It is called with `''`
 when the prompt opens, so there is a list before anything is typed, and it may
-return choices or strings, synchronously or as a promise.
+return choices or strings, synchronously or as a promise. A choice marked
+`disabled` is **left out** of what is offered, from either one, rather than shown
+and refused as `select()` does: there is no cursor here to step over it, so it
+would otherwise be highlighted, completed by Tab and answered on Enter. A list
+that is nothing but disabled choices is refused the way an empty one is.
 
 `signal` is aborted when the term changes and when the prompt ends, so a lookup
 that can be cancelled stops costing anything the moment its answer could not be
