@@ -4934,13 +4934,32 @@ the first.
   fails -- missing, not a directory, no permission -- is cached as empty rather
   than raised. A directory created while the prompt is open is not seen, which is
   the price of the cache.
-- **A late read can never be drawn.** Each key awaits the read for the directory
-  _its own_ value names before it draws, and keys are handled one at a time, so a
-  read cannot answer for a different keystroke; what a read that finishes late
-  does is fill the cache, and `draw()` takes the candidates from the cache for the
-  value as it is _now_. A paste cannot wait, so it starts the read and the list
-  catches up when it lands -- the one place this matters, and the test holds a
-  read open across a keystroke to show it.
+- **A late read can never be drawn, and a key that only edits never waits for
+  one.** A key is applied at once and draws the list from the cache for the value
+  as it is _now_; the read for the directory that value names is started in the
+  background and the list catches up when it lands, which is what a paste and the
+  first listing always did. A read that finishes late fills the cache and can only
+  repaint the newer answer. The first version awaited the read at the top of
+  **every** key, on the argument that keys are handled one at a time so a read
+  cannot answer for the wrong keystroke -- true, and the price was that the same
+  queue let one slow `readdir` (a network mount, a stalled disk, a huge directory)
+  hold every key behind it, the Backspace that gets away from the directory
+  included. Ctrl-C was never held, because the prompt does not queue it, which is
+  why this was a freeze rather than a trap.
+
+  **Tab, Enter, Up and Down still wait**, and that is the half that is not
+  obvious. They act on the list, so acting before it exists is acting on nothing:
+  the first version of the fix waited for none of them and `b`, Down, Down, Tab
+  typed ahead of the first read ended with the Downs dropped -- found by the
+  suite, as a test that failed only under load. They wait for the directory their
+  own value names and nothing else, so typing still never waits, and a key typed
+  after one of them queues behind it only for as long as that one read takes.
+
+  The test holds a read open across a keystroke. Its gate is written against the
+  path `readdir` is handed -- `resolve()` strips the trailing separator, so a gate
+  for `alpha/` held nothing and the test passed whatever the prompt did -- and it
+  asserts the read really was held, for that reason.
+
 - **"No matches" is only said about a directory that has been read.** Before the
   read returns there is no answer, and saying so would be a claim about a list
   nobody has seen.

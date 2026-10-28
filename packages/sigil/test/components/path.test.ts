@@ -470,6 +470,37 @@ describe('path()', () => {
       await until(() => expect(field(ui)).toBe('beta.yaml'));
     });
 
+    it('should land keys typed ahead of the first read on the list they imply', async () => {
+      let release: () => void = () => {};
+      const held = new Promise<void>((done) => {
+        release = done;
+      });
+      let holding = false;
+      spy.gate = async (dir) => {
+        if (dir === root) {
+          holding = true;
+          await held;
+        }
+      };
+
+      const { ui } = open();
+      await tick(3);
+      expect(holding).toBe(true);
+
+      // the list does not exist yet: the letter is applied, and the keys that act
+      // on the list wait for it rather than acting on nothing
+      ui.stdin.send('b');
+      await tick(3);
+      expect(field(ui)).toBe('b');
+      ui.stdin.send(DOWN);
+      ui.stdin.send(DOWN);
+      ui.stdin.send(TAB);
+      await tick(3);
+      release();
+
+      await until(() => expect(field(ui)).toBe('beta.yaml'));
+    });
+
     it('should return to the field through the unhighlighted position', async () => {
       const { answer, ui } = open();
       await type(ui.stdin, 'b', 'e', DOWN, UP, ENTER);
@@ -517,8 +548,12 @@ describe('path()', () => {
       const held = new Promise<void>((done) => {
         release = done;
       });
+      // the directory as `readdir` is given it: `resolve()` strips the trailing
+      // separator, so a gate written against `alpha/` would hold nothing
+      let holding = false;
       spy.gate = async (dir) => {
-        if (dir.endsWith(`alpha${sep}`)) {
+        if (dir === join(root, 'alpha')) {
+          holding = true;
           await held;
         }
       };
@@ -532,7 +567,11 @@ describe('path()', () => {
       await tick(3);
       await type(ui.stdin, BACKSPACE);
 
+      // the Backspace is applied while the read is still out, which is the claim
+      // that a slow directory cannot hold typing; `holding` is what says the
+      // read really was held, so the test cannot pass by holding nothing
       await until(() => expect(field(ui)).toBe('alpha'));
+      expect(holding).toBe(true);
       release();
       await tick(5);
 

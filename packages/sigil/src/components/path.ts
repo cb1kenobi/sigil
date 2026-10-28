@@ -326,6 +326,16 @@ export function answerOf(
   return root !== undefined && !flavour.isAbsolute(answer) ? flavour.resolve(base, answer) : answer;
 }
 
+/**
+ * The keys that do something with the list, and so wait for it to exist.
+ *
+ * Everything else edits the field or moves the caret in it, which needs no
+ * directory at all. A key waits only for the directory its own value names, so
+ * `b`, Down, Down, Tab typed ahead of the first read still ends on the second
+ * candidate rather than on an empty list.
+ */
+const ACTS_ON_LIST = new Set(['down', 'enter', 'tab', 'up']);
+
 /** Reads a directory. Anything it cannot read has nothing in it. */
 async function readEntries(dir: string): Promise<PathEntry[]> {
   let found;
@@ -413,11 +423,14 @@ export function path(opts: PathOptions): Promise<string> {
   /**
    * Reads the directory the field is in, unless it already has.
    *
-   * Awaited by every key before it draws, and that is what keeps an answer to
-   * an earlier keystroke from landing on a later one: keys are handled one at a
-   * time, so the directory a key waits for is the one its own value names. The
-   * list is then computed from `loaded` for the value as it is *now*, so a read
-   * that finishes late fills the cache and never the screen.
+   * Awaited only by a key that acts on the list (`ACTS_ON_LIST`), and never by
+   * one that edits the field: keys are handled one at a time, so a slow `readdir`
+   * -- a network mount, a stalled disk, a huge directory -- would otherwise hold
+   * every key behind it, the Backspace that gets away from it included. What
+   * keeps an answer to an earlier keystroke from landing on a later one is that
+   * the list is always computed from `loaded` for the value as it is *now*: a
+   * read that finishes late fills the cache and can only ever repaint the newer
+   * answer.
    */
   async function ensure(): Promise<void> {
     const dir = target();
@@ -463,6 +476,24 @@ export function path(opts: PathOptions): Promise<string> {
   async function refresh(): Promise<void> {
     await ensure();
     shown = candidates();
+  }
+
+  /**
+   * Draws the field from what has been read so far, and lists the rest when the
+   * read lands.
+   *
+   * The two halves are the point: the keystroke is on screen at once and the
+   * directory catches up, so typing never waits on the file system. `finished`
+   * is asked because a read can outlive the prompt.
+   */
+  function redraw(draw: () => void): void {
+    shown = candidates();
+    draw();
+    void refresh().then(() => {
+      if (!finished) {
+        draw();
+      }
+    });
   }
 
   return runPrompt<string>(opts, () => {
@@ -569,16 +600,10 @@ export function path(opts: PathOptions): Promise<string> {
       after.setProps({ class: '' });
     }
 
-    draw();
-
     // the first listing arrives on its own, and draws the field as it is by
     // then rather than as it was: `draw()` reads the current state, so a read
     // that lands after a keystroke can only ever repaint the newer answer
-    void refresh().then(() => {
-      if (!finished) {
-        draw();
-      }
-    });
+    redraw(draw);
 
     /** Submits the field, or says why it cannot be. */
     async function submit(): Promise<{ value: string } | void> {
@@ -586,8 +611,7 @@ export function path(opts: PathOptions): Promise<string> {
       const failed = await opts.validate?.(answer);
       if (typeof failed === 'string' && failed) {
         error = failed;
-        await refresh();
-        draw();
+        redraw(draw);
         return;
       }
       return { value: answer };
@@ -596,7 +620,15 @@ export function path(opts: PathOptions): Promise<string> {
     return {
       async key(k) {
         error = undefined;
-        await refresh();
+        // a key that acts on the list waits for the directory its own value names,
+        // so keys typed ahead of the first read still land on the list they imply;
+        // a key that only edits the field applies at once and draws from what has
+        // been read, so a slow directory cannot hold typing
+        if (ACTS_ON_LIST.has(k.name)) {
+          await refresh();
+        } else {
+          shown = candidates();
+        }
 
         if (k.name === 'enter') {
           const chosen = shown[active];
@@ -605,8 +637,7 @@ export function path(opts: PathOptions): Promise<string> {
           }
           setValue(completion(chosen));
           if (chosen.dir) {
-            await refresh();
-            draw();
+            redraw(draw);
             return;
           }
           return submit();
@@ -664,20 +695,13 @@ export function path(opts: PathOptions): Promise<string> {
           }
         }
 
-        await refresh();
-        draw();
+        redraw(draw);
       },
 
       paste(block: string): void {
         ({ cursor, value } = insertAt(value, cursor, pastedLine(block)));
         active = -1;
-        // the read cannot be awaited here, so the list catches up when it lands
-        void refresh().then(() => {
-          if (!finished) {
-            draw();
-          }
-        });
-        draw();
+        redraw(draw);
       },
 
       settle(answer: string): void {
