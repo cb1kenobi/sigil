@@ -2768,6 +2768,83 @@ async — return a string to reject the answer with that message. Editing keys
 are the usual ones: arrows, Home/End, Ctrl-A/E/U, Backspace, Delete. A paste
 arrives as one chunk and is read as the keys it carries, not just the first.
 
+#### A date
+
+```js
+import { date } from '@ttylabs/sigil/components';
+
+const due = await date({
+  message: 'Due date',
+  min: new Date(),
+  max: new Date(2030, 11, 31),
+});
+
+const start = await date({ message: 'Starts at', time: true });
+```
+
+Returns a `Date`. The field is segments in ISO order, always -- year, month, day,
+then hour and minute with `time: true` and the second with `seconds: true` -- and
+the order does not follow the locale. Left, Right, Tab and Shift-Tab move between
+segments, Up and Down step the one you are on, and digits fill it in, moving on
+when it is full. A segment takes digits only; Backspace drops the digits typed
+into it so far.
+
+Stepping wraps inside the segment and **never carries**: December up is January
+of the same year, and 23:59 up is 23:00 on the same day. The day is pulled back
+to the last day of a shorter month when the month or the year changes, so January
+31st stepped to February is the 28th, or the 29th in a leap year.
+
+The value is built as a **local** date-time and handed to the same reader the
+parser's `date` data type uses, so the prompt and `--when` cannot disagree about
+what a date is. `min` and `max` are inclusive at the precision shown (a `max` of
+the afternoon of the 20th allows the 20th when only the date is shown): a step or
+typed entry that would leave the range lands on the nearest bound, and an
+`initial` given outside it is kept as it is and refused on Enter with an error
+line. `validate` is the same as `text()`'s. `initial` defaults to now, truncated
+to what is shown and pulled into the range.
+
+#### Choices that say more
+
+```js
+import { multiselect, select, separator } from '@ttylabs/sigil/components';
+
+const target = await select({
+  message: 'Deploy to',
+  choices: [
+    separator('Cloud'),
+    { label: 'Production (us-east-1)', short: 'prod', value: 'prod', description: 'The real one.' },
+    separator('Local'),
+    { label: 'Docker', value: 'docker', disabled: 'Docker is not running' },
+    { label: 'This machine', value: 'local' },
+  ],
+  loop: false,
+});
+
+const checks = await multiselect({
+  message: 'Checks',
+  choices: ['Type check', 'Unit tests', { label: 'Security scan', disabled: true }],
+  min: 1,
+  max: 2,
+});
+```
+
+A `Choice` takes `disabled` (`true`, or a string that is the reason and is drawn
+where a hint would be), `description` (a line under the list while the choice is
+highlighted), `short` (what the answered line says, when the label is longer) and
+`selected`. A `separator(label)` in `choices` is a heading and not a choice.
+
+The cursor **steps over** a heading and a disabled choice rather than landing on
+one and refusing, `initial` moves to the next choice on offer, and Home and End go
+to the first and last. It wraps at the ends unless `loop: false`. A list with
+nothing on offer is refused the way an empty one is. A disabled choice is never
+ticked, whatever its `selected` says.
+
+In `multiselect()`, `a` ticks every choice on offer (or clears them if they all
+already are), `i` flips each one, and Ctrl-A is `a` still. Enter checks `min` and
+`max` — `required` is `min: 1` — and says how many it wanted: `Choose at least 2`.
+Neither is checked while ticking, so a `max` of 3 does not stop the fourth Space,
+only the Enter.
+
 #### A multiline answer
 
 ```js
@@ -2802,12 +2879,166 @@ keeps the caret visible.
 > what makes a paste submit half an address. Keeping them is the entire point of
 > having more than one line.
 
+#### A number
+
+```js
+import { number } from '@ttylabs/sigil/components';
+
+const port = await number({ message: 'Port', min: 1, max: 65535, default: 8080 });
+const ratio = await number({ message: 'Ratio', float: true, step: 0.1, min: 0, max: 1 });
+```
+
+`number()` resolves with a `number`. Up and Down step the value by `step`
+(default `1`) and stop at `min` and `max`; from an empty field the first press
+lands on `default`, then `min`, then `0`, and the presses after it step. A key
+that cannot be part of the answer is **ignored as it is typed**, with no error
+shown: digits, a leading `-` (only when `min` is unset or negative), and one `.`
+when `float` is set. There is no `e`, so `1e3` cannot be written, and a paste is
+filtered by the same rule. Float steps are rounded to the places they and the
+current value have, so `0.2` stepped by `0.1` is `0.3` and never
+`0.30000000000000004`.
+
+Enter on an empty field answers `default`, or asks again with `Enter a number`
+when there is none. An answer outside `[min, max]` shows a line naming the bound
+and **is not clamped** -- the arrows clamp, Enter does not. `validate(value)`
+receives the number, after the range, and may be async. `initial` starts the
+field with a value to edit, and `placeholder` replaces the dimmed `default`.
+
+The text is read by the same code as `--port 8080` on the command line, as `int`
+or, with `float`, `number`: an integer past 2^53-1 is refused with the parser's
+own sentence rather than rounded. A prompt with no terminal rejects with a
+`PromptError`, like the others. `min`, `max`, `step`, `default` and `initial`
+must be finite, and whole numbers unless `float` is set; a `step` of zero or
+less, or a `min` above the `max`, rejects the prompt rather than asking it.
+
 > [!IMPORTANT]
 > A prompt **throws rather than hangs** when there is no terminal — in a
 > pipeline, a CI job, or a `cron` entry. Waiting on a stdin that will never
 > produce a keystroke is a hung build with no explanation, so `PromptError`
 > names the question that went unanswered. `err.aborted` tells the two cases
 > apart: `true` is Ctrl-C, `false` is nobody there to ask.
+
+#### Prompts as one flow
+
+```js
+import {
+  cancel,
+  confirm,
+  group,
+  intro,
+  isCancel,
+  outro,
+  select,
+  text,
+} from '@ttylabs/sigil/components';
+
+intro('create-app');
+
+try {
+  const answers = await group(
+    {
+      name: () => text({ message: 'Project name' }),
+      // a later step is handed what the earlier ones answered
+      template: ({ name }) =>
+        select({ message: `Template for ${name}`, choices: ['app', 'library'] }),
+      ok: () => confirm({ message: 'Create it?' }),
+    },
+    { onCancel: (partial) => cancel('Nothing was created') }
+  );
+  outro(`Created ${answers.name}`);
+} catch (err) {
+  if (!isCancel(err)) throw err;
+}
+```
+
+`group()` runs its steps in key order and resolves with an object keyed the same
+way. A step is any function that returns a value or a promise, handed a copy of
+the answers so far. Cancelling is still a `PromptError` rejection --
+`isCancel(err)` is true for Ctrl-C and false for a prompt with nobody to ask --
+and `onCancel(partial, err)` is called first with what had been answered. It may
+throw, or return an `Error`, to replace the rejection; it cannot swallow it. A
+step that fails for any other reason is rethrown untouched and `onCancel` is not
+called. There is no going back a step.
+
+In TypeScript, a step that reads its argument stops `T` being inferred from what
+the steps return, so name the shape: `group<{ name: string; ok: boolean }>({ ... })`.
+Every step is then checked against it and each earlier answer is typed (as
+optional, since the type cannot say which keys ran first).
+
+`intro()`, `outro()` and `cancel()` each write one line to **stderr** -- a
+command's data is on stdout and a session's framing must not be in it. They write
+nothing when stdout or stderr is not a terminal and nothing under `--quiet`
+(`quiet: true` does the same per call), and draw in the theme's roles
+(`.sigil-accent`, `.sigil-success`, `.sigil-error`) inside a `.sigil-session` row.
+`cancel()` says `Cancelled` when given no message.
+
+#### Autocomplete
+
+```js
+import { autocomplete } from '@ttylabs/sigil/components';
+
+// a static list: ranked by what is typed, with the matched letters marked
+const region = await autocomplete({
+  message: 'Region',
+  choices: ['us-east-1', 'us-west-2', { label: 'eu-central-1', hint: 'Frankfurt' }],
+  placeholder: 'start typing',
+});
+
+// a source: asked again whenever the term changes
+const pkg = await autocomplete({
+  message: 'Package',
+  source: async (term, signal) => {
+    const res = await fetch(`https://registry.example/search?q=${encodeURIComponent(term)}`, {
+      signal,
+    });
+    return (await res.json()).names;
+  },
+});
+```
+
+Typing narrows the list, Up and Down move through what is left (wrapping, and
+windowed to `rows` or to what the terminal has left), and **Enter answers with
+the highlighted choice's `value`** — its label, if it has none. **Tab copies the
+highlighted label into the field**, which is how a long name is finished without
+typing the rest of it. A term that leaves nothing says `No matches` and Enter does
+nothing until something is on offer. `initial` is the text the field starts with,
+`placeholder` is what it shows while empty, and `validate` may be async: return a
+string to refuse the chosen value with that message and keep the prompt open.
+
+Give it `choices` **or** a `source`, not both. A static list is ranked with
+`rankBy()`, and a source is the filter itself, so what it returns is shown as it
+is — a source may match on something other than the label. It is called with `''`
+when the prompt opens, so there is a list before anything is typed, and it may
+return choices or strings, synchronously or as a promise. A choice marked
+`disabled` is **left out** of what is offered, from either one, rather than shown
+and refused as `select()` does: there is no cursor here to step over it, so it
+would otherwise be highlighted, completed by Tab and answered on Enter. A list
+that is nothing but disabled choices is refused the way an empty one is.
+
+`signal` is aborted when the term changes and when the prompt ends, so a lookup
+that can be cancelled stops costing anything the moment its answer could not be
+used. A call that was aborted **never draws**, whether or not it honoured the
+signal. A source that rejects shows its message under the field and the prompt
+carries on: the next keystroke asks again. While a lookup is out the list on
+screen belongs to an earlier term, so Enter waits for the answer.
+
+**There is no debounce, because that is a trade for the caller to make.** The
+signal is what makes the recipe short — wait a moment, and give up the wait if
+the term has moved on:
+
+```js
+const debounced = (lookup, ms) => (term, signal) =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => lookup(term, signal).then(resolve, reject), ms);
+    signal.addEventListener('abort', () => (clearTimeout(timer), reject(signal.reason)), {
+      once: true,
+    });
+  });
+
+await autocomplete({ message: 'Package', source: debounced(search, 150) });
+```
+
+It rejects with `PromptError` where there is no terminal, like the others.
 
 #### A path
 
@@ -2925,9 +3156,100 @@ characters would not, and `maxWidth` truncates on grapheme clusters rather
 than slicing a surrogate pair in half. No borders — a table in a build log
 sits next to everything else that was printed, and rules around it are noise.
 
+#### Note
+
+```js
+import { note } from '@ttylabs/sigil/components';
+
+console.log(
+  note('Your project is ready.\n\n  $ cd my-app\n  $ npm install', {
+    title: 'Next steps',
+  })
+);
+```
+
+```
+╭─ Next steps ───────────╮
+│ Your project is ready. │
+│                        │
+│   $ cd my-app          │
+│   $ npm install        │
+╰────────────────────────╯
+```
+
+A framed message, for the "next steps" panel or the warning that has to be seen.
+It shrinks to its message and is wrapped at the terminal's width (or `width`), so
+a short note is a short box. Line breaks, blank lines and indentation are kept;
+wide characters and emoji are measured in columns, so the border stays straight.
+Escape sequences in the message are dropped -- colour is the variant's, not the
+text's.
+
+| Option       | Meaning                                                                   |
+| ------------ | ------------------------------------------------------------------------- |
+| `title`      | A heading set into the top border                                         |
+| `titleAlign` | `left` (default), `center` or `right`                                     |
+| `variant`    | `note` (default), `info`, `success`, `warning` or `error`                 |
+| `border`     | `round` (default), `single`, `double`, `bold` or `ascii`                  |
+| `width`      | The widest the block may be, never under 5. Defaults to `terminalWidth()` |
+| `indent`     | How far the block is indented                                             |
+
+The variants colour the border, the title and the message through the theme's
+roles -- `.sigil-info`, `.sigil-success`, `.sigil-warn` and `.sigil-error`, which
+now set `border-color` beside `color` -- so a theme restyles them like anything
+else, and `.sigil-note-error` and its siblings are the narrower hook for one
+variant. A plain `note` takes no role at all. Nothing is coloured at colour
+level 0, so a variant is then told apart by its title, which is worth setting.
+
+Unless `border` is given the border is rounded, and falls back to ASCII where
+`unicodeSupported()` says the terminal cannot be trusted with box drawing -- the
+Linux console, `TERM=dumb`, and Windows consoles not known to cope. `env` and
+`platform` override what it reads.
+
+Like `table()` it returns a string and the caller does the writing, which also
+puts it on the result side of `--quiet`. `noteView()` is the element tree behind
+it, for an app that wants one inside its own tree. There is no live form: a note
+is static, so `console.log(note(...))` already is one.
+
+#### A key-help footer
+
+```js
+import { keyHelp } from '@ttylabs/sigil/components';
+
+input.bind('up', moveUp, { description: 'move', priority: 6 });
+input.bind('down', moveDown, { description: 'move', priority: 6 });
+input.bind('q', quit, { description: 'quit', priority: 9 });
+input.describe('enter', { description: 'open', scope: list }); // list's own onKey
+
+root.append(keyHelp(input, { expanded }));
+```
+
+```
+↑/↓ move · enter open · q quit
+```
+
+The footer is `input.bindings()` read inside an effect, so the line cannot drift
+from the keys that handle them: it follows the focus, follows a binding being
+added or removed, and lists nothing that has no description. Bindings that share
+a description are one line (`↑/↓`). `bind()` takes the description as a third
+argument; a key an element handles in its own `onKey` is a function the router
+cannot read, so `input.describe(keys, { description, scope })` declares it, and it
+is listed while the scope element or anything inside it holds the focus. That is
+the one half that can drift from its handler.
+
+Wider than the terminal, the short form drops whole bindings, lowest `priority`
+first and the later of two equals, and ends in `…`; it never wraps and never cuts
+a binding in half. Pass `width: () => n` if the terminal resizes. `expanded` is a
+boolean or a `State<boolean>`: set it true and the footer lists every binding
+under its `group`, one to a line. Binding `?` to that signal is the app's job.
+
+Key names that are words (`enter`, `esc`, `tab`, ...) and the `ctrl-`/`alt-`/
+`shift-` prefixes go through the catalog; arrows are glyphs. Descriptions are
+whatever the app passes, so it translates them where it writes them. The built-in
+prompts keep their own hint lines.
+
 `sigil/components` also exports `decodeKeys()` and `renderBar()`, and the state
 and the element tree behind each component -- `spinnerView()`, `progressView()`
-and `tableView()`, with `spinnerState()` and `progressState()` driving the two
+`tableView()` and `noteView()`, with `spinnerState()` and `progressState()` driving the two
 that animate -- so a component tree can use them directly rather than through
 the imperative facade. Cutting a line to a width is
 `truncate()` in [`sigil/wrap`](#sigilwrap); padding one is a declared width and
@@ -3129,6 +3451,22 @@ by stopping the event rather than by asking to be left out of the focus ring.
 A router refuses to exist where stdin is not a terminal. It exists to read keys,
 so one that never can is a bug in the app rather than a state to carry through
 every dispatch as a branch.
+
+#### Describing a binding
+
+```js
+input.bind('ctrl+s', save, { description: 'save', group: 'file', priority: 5 });
+input.describe('enter', { description: 'open', scope: list });
+input.bindings(); // what applies to the focus right now, in dispatch order
+```
+
+A description is read by a listing and by nothing in dispatch: a binding without
+one behaves as it always did and is simply not listed. `bindings()` returns
+app-wide entries first, then the scoped ones from the focused element outwards,
+and subscribes whatever effect reads it to the focus and to the set changing.
+`describe()` is for a key an element's `onKey` handles, which the router cannot
+read; `scope` is the element whose focus -- or whose descendants' -- makes it
+apply. [`keyHelp()`](#a-key-help-footer) is the footer built on it.
 
 #### The mouse
 

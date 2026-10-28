@@ -83,6 +83,10 @@ const ENTRIES = [
     name: 'prompt',
   },
   {
+    desc: 'An autocomplete prompt: type to filter a list, or search an async source',
+    name: 'autocomplete',
+  },
+  {
     desc: 'A path prompt: a text field that completes against the file system',
     name: 'path',
   },
@@ -103,8 +107,20 @@ const ENTRIES = [
     name: 'debug-overlay',
   },
   {
+    desc: 'group() to run prompts as one flow, and intro, outro and cancel to frame the session',
+    name: 'group',
+  },
+  {
     desc: 'A QR code, encoded here and drawn in half blocks or in full cells',
     name: 'qrcode',
+  },
+  {
+    desc: 'A titled, bordered block that shrinks to its message, in a state role colour',
+    name: 'note',
+  },
+  {
+    desc: 'A key-help footer generated from the key bindings that are live',
+    name: 'key-help',
   },
 ];
 

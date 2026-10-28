@@ -1548,3 +1548,31 @@ may be copied, `src/terminal/clipboard.ts` is OSC 52, and
   the line comes out as blanks, the trailing-blank rule empties it, and the copy is
   refused as empty. Which is the `selectable` default doing exactly what it is for,
   and reads as a broken demo until you know that.
+
+### Describing a binding
+
+- **A description is read by a listing and by nothing in dispatch.**
+  `bind(keys, handler, { description, group, priority })` and `describe(keys, {
+  description, scope })` add a record to a set that `bindings()` reads; the trie,
+  the function bindings and `onKey` are exactly what they were, so no existing
+  binding or test moved. A binding with no description is not recorded. The
+  records are frozen and the key is stored as `formatKeys()` prints it, the one
+  spelling the trie and `sequence` already use.
+- **`bindings()` is the focus-scoped read, and it is reactive.** It reads the
+  focus signal and a revision counter, so an effect or a computed that calls it
+  re-runs when the focus moves or a description is added or removed. Order is
+  dispatch order: unscoped entries, then scoped ones from the focused element
+  outwards, registration order within a tie (`sort` is stable). A scope the focus
+  is not inside is not listed, and with nothing focused only unscoped entries are.
+- **There is no scoping on `bind()` itself, and `scope` on `describe()` is
+  documentation.** Only an element's `onKey` is focus-scoped today, and it is a
+  function; `describe()` is the declaration of what it handles and can drift from
+  it. Making a _binding_ fire only inside an element would change dispatch, and
+  would need an answer for a pending sequence whose focus moves.
+- **A refused description leaves nothing registered.** The handler is added to
+  the trie first so the spec is parsed once, and taken back off if the
+  description throws -- otherwise `bind('q', fn, { description: '' })` would throw
+  and still quit the app. The disposer of a described binding removes both.
+- **Measured: the `input` entry grew by 861 B (13,272 to 14,133 B for its chunk)
+  as of this change.** The ceiling in `test/dist.test.ts` is 100 KiB over the whole
+  graph and is untouched.

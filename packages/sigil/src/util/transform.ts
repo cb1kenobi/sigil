@@ -66,11 +66,14 @@ const NO = 'no';
  * the next month is the last day of this one, and `Date.UTC` keeps the
  * arithmetic out of wherever the process happens to be running.
  *
+ * Exported for the `date()` prompt, which steps a day against the month it is in
+ * and has to agree with the parser about how long that month is.
+ *
  * @param year - The full year.
  * @param month - The month, 1-12.
  * @returns The last day of that month.
  */
-function daysInMonth(year: number, month: number): number {
+export function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 

@@ -54,14 +54,49 @@ export class PromptError extends Error {
 
 /** A choice offered by `select()` and `multiselect()`. */
 export interface Choice<T = unknown> {
+  /**
+   * A longer line about the choice, shown under the list while it is the
+   * highlighted one. For what does not fit in a `hint` beside the label.
+   */
+  description?: string;
+  /**
+   * Whether the choice is on offer. A string is the reason, shown where a hint
+   * would be. The cursor skips a disabled choice, `multiselect()`'s select-all
+   * leaves it alone, and it is never ticked -- `selected` included.
+   */
+  disabled?: boolean | string;
   /** Shown after the label, dimmed. */
   hint?: string;
   /** What is shown. */
   label: string;
   /** Whether `multiselect()` starts with it ticked. */
   selected?: boolean;
+  /** What is shown once answered, when it should be shorter than the label. */
+  short?: string;
   /** What is returned. The label, if omitted. */
   value?: T;
+}
+
+/**
+ * A line in a choice list that is not a choice: a heading, or a rule between
+ * groups. The cursor never lands on one.
+ */
+export interface Separator {
+  /** What it says. */
+  readonly separator: string;
+}
+
+/** What a choice list is made of. */
+export type ChoiceEntry<T = unknown> = Choice<T> | Separator | string;
+
+/**
+ * Builds a {@link Separator}.
+ *
+ * @param label - The heading. A short rule if omitted.
+ * @returns The entry to put between choices.
+ */
+export function separator(label = '────────'): Separator {
+  return Object.freeze({ separator: label });
 }
 
 export interface PromptOptions extends MountOptions {
@@ -107,13 +142,25 @@ export interface ConfirmOptions extends PromptOptions {
 
 export interface SelectOptions<T> extends PromptOptions {
   /** What to offer. */
-  choices: readonly (Choice<T> | string)[];
-  /** Which one starts highlighted, by index. Defaults to 0. */
+  choices: readonly ChoiceEntry<T>[];
+  /**
+   * Which one starts highlighted, by index into `choices`. Defaults to 0. A
+   * separator or a disabled choice is passed over for the next one on offer.
+   */
   initial?: number;
+  /**
+   * Whether the cursor wraps from one end of the list to the other. Defaults to
+   * `true`; `false` stops it at the first and last choice on offer.
+   */
+  loop?: boolean;
 }
 
 export interface MultiselectOptions<T> extends SelectOptions<T> {
-  /** Refuse an empty selection. Defaults to `false`. */
+  /** Refuse more than this many. Unlimited if omitted. */
+  max?: number;
+  /** Refuse fewer than this many. Defaults to 0, or 1 when `required`. */
+  min?: number;
+  /** Refuse an empty selection. Defaults to `false`. Same as `min: 1`. */
   required?: boolean;
 }
 
@@ -143,12 +190,103 @@ const SYMBOL: PromptSymbols = Object.freeze({
   question: '?',
 });
 
+/** One line of a choice list: something to pick, or something that only separates. */
+type Item<T> =
+  | { choice: Choice<T>; kind: 'choice'; offered: boolean }
+  | { kind: 'separator'; label: string };
+
+function isSeparator<T>(entry: ChoiceEntry<T>): entry is Separator {
+  return typeof entry === 'object' && 'separator' in entry;
+}
+
 function toChoice<T>(choice: Choice<T> | string): Choice<T> {
   return typeof choice === 'string' ? { label: choice, value: choice as T } : choice;
 }
 
+function toItems<T>(entries: readonly ChoiceEntry<T>[]): Item<T>[] {
+  return entries.map((entry): Item<T> => {
+    if (isSeparator(entry)) {
+      return { kind: 'separator', label: entry.separator };
+    }
+    const choice = toChoice(entry);
+    return { choice, kind: 'choice', offered: !choice.disabled };
+  });
+}
+
+function isOffered<T>(item: Item<T>): item is Extract<Item<T>, { kind: 'choice' }> {
+  return item.kind === 'choice' && item.offered;
+}
+
+/**
+ * The nearest choice on offer, going one way from a place in the list.
+ *
+ * A separator and a disabled choice are not on offer, so the cursor steps over
+ * them rather than landing and refusing: a cursor you can put on a row that will
+ * not take it reads as a key that did nothing. Wrapping is a parameter because
+ * it is an option; the walk is at most one lap, so a list with nothing on offer
+ * ends where it began rather than looping.
+ *
+ * @param items - The list.
+ * @param from - Where the cursor is.
+ * @param direction - `1` for down, `-1` for up.
+ * @param loop - Whether the ends are joined.
+ * @returns Where the cursor goes. `from` if nothing else is on offer that way.
+ */
+function seek<T>(
+  items: readonly Item<T>[],
+  from: number,
+  direction: 1 | -1,
+  loop: boolean
+): number {
+  for (let step = 1; step <= items.length; step++) {
+    let at = from + direction * step;
+    if (loop) {
+      at = ((at % items.length) + items.length) % items.length;
+    } else if (at < 0 || at >= items.length) {
+      break;
+    }
+    if (isOffered(items[at])) {
+      return at;
+    }
+  }
+  return from;
+}
+
+/**
+ * The first choice on offer at or after a place, wrapping, or `-1` if none is.
+ *
+ * @param items - The list.
+ * @param from - Where to start looking.
+ * @returns Its index.
+ */
+function firstOffered<T>(items: readonly Item<T>[], from: number): number {
+  for (let step = 0; step < items.length; step++) {
+    const at = (from + step) % items.length;
+    if (isOffered(items[at])) {
+      return at;
+    }
+  }
+  return -1;
+}
+
+/**
+ * The first or last choice on offer.
+ *
+ * @param items - The list.
+ * @param direction - `1` for the first, `-1` for the last.
+ * @returns Its index.
+ */
+function edge<T>(items: readonly Item<T>[], direction: 1 | -1): number {
+  return direction === 1 ? firstOffered(items, 0) : seek(items, items.length, -1, false);
+}
+
 function valueOf<T>(choice: Choice<T>): T {
   return 'value' in choice ? (choice.value as T) : (choice.label as T);
+}
+
+/** What a choice reads as once the question is answered. */
+function shortOf<T>(choice: Choice<T>): string {
+  return choice.short ?? choice.label;
 }
 
 /** What a prompt's tree and its key handling are, built together under an owner. */
@@ -1744,7 +1882,10 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
 
 /** One row of a choice list, and the parts of it that change. */
 interface ChoiceRow {
+  /** Whether the row can never be ticked or highlighted. */
+  disabled: boolean;
   hint: Element;
+  kind: Item<unknown>['kind'];
   label: Element;
   mark: Element;
   pointer: Element;
@@ -1754,15 +1895,15 @@ interface ChoiceRow {
 /**
  * Builds the rows a choice list is drawn as.
  *
- * @param choices - The choices.
+ * @param items - The choices and the separators between them.
  * @param ticked - Whether each row carries a tick box, for a multiselect.
  * @returns The rows and the box holding them.
  */
 function choiceRows<T>(
-  choices: readonly Choice<T>[],
+  items: readonly Item<T>[],
   ticked: boolean
 ): { list: Element; rows: ChoiceRow[] } {
-  const rows = choices.map((choice) => {
+  const rows = items.map((item): ChoiceRow => {
     // the cursor on every row, hidden where it is not the active one: a text of
     // nothing but spaces measures zero, since `white-space: normal` collapses a
     // run of them, so a blank standing in for the cursor indented an inactive
@@ -1771,10 +1912,36 @@ function choiceRows<T>(
     // cursor's own width rather than a guess at it.
     const pointer = textNode(SYMBOL.cursor, { 'margin-right': 1, visibility: 'hidden' });
     const mark = textNode(SYMBOL.off, { class: 'sigil-choice-mark', 'margin-right': 1 });
-    const label = textNode(choice.label);
-    const hint = textNode(choice.hint ?? '', {
+
+    if (item.kind === 'separator') {
+      // a heading starts in the cursor's column, over the labels it introduces,
+      // where a row of labels is indented past the cursor and the box
+      pointer.setProps({ display: 'none' });
+      mark.setProps({ display: 'none' });
+      const label = textNode(item.label, { class: 'sigil-choice-separator sigil-muted' });
+      const hint = textNode('', { display: 'none' });
+      return {
+        disabled: true,
+        hint,
+        kind: 'separator',
+        label,
+        mark,
+        pointer,
+        row: box({ class: 'sigil-choice sigil-choice-heading' }, pointer, mark, label, hint),
+      };
+    }
+
+    const { choice } = item;
+    const reason =
+      typeof choice.disabled === 'string' && choice.disabled
+        ? choice.disabled
+        : choice.disabled
+          ? __`disabled`
+          : choice.hint;
+    const label = textNode(choice.label, item.offered ? {} : { class: 'sigil-muted' });
+    const hint = textNode(reason ?? '', {
       class: 'sigil-choice-hint sigil-muted',
-      display: choice.hint ? 'flex' : 'none',
+      display: reason ? 'flex' : 'none',
       'margin-left': 1,
     });
 
@@ -1783,7 +1950,9 @@ function choiceRows<T>(
     }
 
     return {
+      disabled: !item.offered,
       hint,
+      kind: 'choice',
       label,
       mark,
       pointer,
@@ -1794,6 +1963,37 @@ function choiceRows<T>(
   return {
     list: box({ 'flex-direction': 'column' }, ...rows.map((row) => row.row)),
     rows,
+  };
+}
+
+/**
+ * The line under a list that says more about the highlighted choice.
+ *
+ * @param items - The choices.
+ * @returns The line, how many rows to keep back for it, and a way to point it at
+ *   a choice. Nothing is kept back when no choice has a description.
+ */
+function describing<T>(items: readonly Item<T>[]): {
+  line: Element;
+  reserved: number;
+  show(active: number): void;
+} {
+  const line = textNode('', {
+    class: 'sigil-choice-description sigil-muted',
+    display: 'none',
+    'margin-left': 2,
+  });
+  const any = items.some((item) => item.kind === 'choice' && item.choice.description);
+
+  return {
+    line,
+    reserved: any ? 1 : 0,
+    show(active: number): void {
+      const item = items[active];
+      const text = item?.kind === 'choice' ? item.choice.description : undefined;
+      line.setText(text ?? '');
+      line.setProps({ display: text ? 'flex' : 'none' });
+    },
   };
 }
 
@@ -1850,22 +2050,52 @@ function paintChoices(
 
   for (const [i, row] of rows.entries()) {
     const here = i === active;
+    const shown = i >= start && i < start + visible ? 'flex' : 'none';
+
+    if (row.kind === 'separator') {
+      row.row.setProps({ display: shown });
+      continue;
+    }
+
     row.pointer.setProps({
       class: here ? 'sigil-choice-pointer' : '',
       visibility: here ? 'visible' : 'hidden',
     });
     row.row.setProps({
       class: here ? 'sigil-choice is-active sigil-accent' : 'sigil-choice',
-      display: i >= start && i < start + visible ? 'flex' : 'none',
+      display: shown,
     });
     if (ticked) {
       const on = ticked.has(i);
       row.mark.setText(on ? SYMBOL.on : SYMBOL.off);
       row.mark.setProps({
-        class: on ? 'sigil-choice-mark is-on sigil-success' : 'sigil-choice-mark',
+        class: on
+          ? 'sigil-choice-mark is-on sigil-success'
+          : row.disabled
+            ? 'sigil-choice-mark sigil-muted'
+            : 'sigil-choice-mark',
       });
     }
   }
+}
+
+/**
+ * The list a prompt was handed, checked and ready to walk.
+ *
+ * @param opts - The prompt's options.
+ * @returns The items and where the cursor starts, or the error to reject with.
+ */
+function offering<T>(opts: SelectOptions<T>): { active: number; items: Item<T>[] } | PromptError {
+  const items = toItems<T>(opts.choices);
+  const wanted = Math.min(Math.max(0, opts.initial ?? 0), items.length - 1);
+  const active = firstOffered(items, wanted);
+
+  // a list with nothing in it and a list with nothing on offer are the same
+  // question to the person at the keyboard, which is why they are one message
+  if (active < 0) {
+    return new PromptError(`"${opts.message}" has no choices to offer`);
+  }
+  return { active, items };
 }
 
 /**
@@ -1875,29 +2105,44 @@ function paintChoices(
  * @returns The chosen value.
  */
 export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
-  const choices = opts.choices.map((choice) => toChoice<T>(choice));
+  const offer = offering(opts);
 
-  if (!choices.length) {
-    return Promise.reject(new PromptError(`"${opts.message}" has no choices to offer`));
+  if (offer instanceof PromptError) {
+    return Promise.reject(offer);
   }
 
-  let active = Math.min(Math.max(0, opts.initial ?? 0), choices.length - 1);
+  const { items } = offer;
+  let { active } = offer;
   let start = 0;
+  const loop = opts.loop ?? true;
   const terminal = opts.terminal ?? defaultTerminal;
+
+  /** The highlighted choice. It is always one, since the cursor only lands on those. */
+  function current(): Choice<T> {
+    return (items[active] as Extract<Item<T>, { kind: 'choice' }>).choice;
+  }
 
   return run<T>(opts, () => {
     const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const head = headWidths(opts.message, Math.max(1, terminal.width));
     const { line, mark } = promptHead(opts.message, head.message, answer);
-    const { list, rows } = choiceRows(choices, false);
-    const view = box({ class: 'sigil-prompt', 'flex-direction': 'column' }, line, list);
+    const { list, rows } = choiceRows(items, false);
+    const described = describing(items);
+    const view = box(
+      { class: 'sigil-prompt', 'flex-direction': 'column' },
+      line,
+      list,
+      described.line
+    );
 
-    /** The rows the list has, once the question has taken its own. */
-    const room = (): number => Math.max(1, Math.max(1, terminal.height) - head.lines);
+    /** The rows the list has, once the question and a description have taken theirs. */
+    const room = (): number =>
+      Math.max(1, Math.max(1, terminal.height) - head.lines - described.reserved);
 
     function draw(): void {
-      start = windowStart(choices.length, active, room(), start);
+      start = windowStart(items.length, active, room(), start);
       paintChoices(rows, active, start, room());
+      described.show(active);
     }
 
     draw();
@@ -1905,29 +2150,30 @@ export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
     return {
       key(k) {
         if (k.name === 'enter') {
-          return { value: valueOf(choices[active]) };
+          return { value: valueOf(current()) };
         }
-        // wrapping, because a list you cannot get to the end of by going up is
-        // a list you have to know the length of
+        // wrapping by default, because a list you cannot get to the end of by
+        // going up is a list you have to know the length of
         if (k.name === 'up') {
-          active = (active - 1 + choices.length) % choices.length;
+          active = seek(items, active, -1, loop);
         } else if (k.name === 'down') {
-          active = (active + 1) % choices.length;
+          active = seek(items, active, 1, loop);
         } else if (k.name === 'home') {
-          active = 0;
+          active = edge(items, 1);
         } else if (k.name === 'end') {
-          active = choices.length - 1;
+          active = edge(items, -1);
         }
         draw();
       },
 
       settle(): void {
         answered(mark);
-        answer.setText(choices[active].label);
+        answer.setText(shortOf(current()));
         answer.setProps({ display: 'flex' });
         // the list goes: what is left is the question and its answer, which is
         // the one line worth keeping in a log
         list.setProps({ display: 'none' });
+        described.line.setProps({ display: 'none' });
       },
 
       view,
@@ -1942,22 +2188,55 @@ export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
  * @returns The chosen values, in the order they are listed.
  */
 export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[]> {
-  const choices = opts.choices.map((choice) => toChoice<T>(choice));
+  const offer = offering(opts);
 
-  if (!choices.length) {
-    return Promise.reject(new PromptError(`"${opts.message}" has no choices to offer`));
+  if (offer instanceof PromptError) {
+    return Promise.reject(offer);
   }
 
-  let active = Math.min(Math.max(0, opts.initial ?? 0), choices.length - 1);
+  const min = opts.min ?? (opts.required ? 1 : 0);
+  const max = opts.max ?? Number.POSITIVE_INFINITY;
+
+  // asked rather than compared, because every comparison with `NaN` is false: a
+  // `max` of `NaN` would accept any number of choices and say nothing about it
+  if (!Number.isInteger(min) || min < 0 || (max !== Infinity && !Number.isInteger(max))) {
+    return Promise.reject(
+      new PromptError(`"${opts.message}" has a min or max that is not a whole number`)
+    );
+  }
+  if (min > max) {
+    return Promise.reject(new PromptError(`"${opts.message}" has a min greater than its max`));
+  }
+
+  const { items } = offer;
+  let { active } = offer;
+  const offered = items.flatMap((item, i) => (isOffered(item) ? [i] : []));
+  // a disabled choice is never ticked, whatever `selected` says
   const ticked = new Set<number>(
-    choices.map((choice, i) => (choice.selected ? i : -1)).filter((i) => i >= 0)
+    offered.filter((i) => (items[i] as Extract<Item<T>, { kind: 'choice' }>).choice.selected)
   );
+  const loop = opts.loop ?? true;
   let error: string | undefined;
   let start = 0;
   const terminal = opts.terminal ?? defaultTerminal;
 
+  function choiceAt(i: number): Choice<T> {
+    return (items[i] as Extract<Item<T>, { kind: 'choice' }>).choice;
+  }
+
   function chosen(): T[] {
-    return [...ticked].sort((a, b) => a - b).map((i) => valueOf(choices[i]));
+    return [...ticked].sort((a, b) => a - b).map((i) => valueOf(choiceAt(i)));
+  }
+
+  /** What is wrong with the selection as it stands, if anything. */
+  function complaint(): string | undefined {
+    if (ticked.size < min) {
+      return min === 1 ? __`Choose at least one` : __`Choose at least ${min}`;
+    }
+    if (ticked.size > max) {
+      return __`Choose at most ${max}`;
+    }
+    return undefined;
   }
 
   return run<T[]>(opts, () => {
@@ -1967,23 +2246,28 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
     });
     const head = headWidths(opts.message, Math.max(1, terminal.width), hintText);
     const { line, mark } = promptHead(opts.message, head.message, hint);
-    const { list, rows } = choiceRows(choices, true);
-    const complaint = note('sigil-prompt-error sigil-error');
+    const { list, rows } = choiceRows(items, true);
+    const described = describing(items);
+    const problem = note('sigil-prompt-error sigil-error');
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
       list,
-      box({ 'padding-left': 2 }, complaint)
+      described.line,
+      box({ 'padding-left': 2 }, problem)
     );
 
-    // the question's rows, and the line an error would take: reserved either
-    // way, so that showing one does not push the last choice off the screen
-    const room = (): number => Math.max(1, Math.max(1, terminal.height) - head.lines - 1);
+    // the question's rows, the description's, and the line an error would take:
+    // reserved either way, so that showing one does not push the last choice off
+    // the screen
+    const room = (): number =>
+      Math.max(1, Math.max(1, terminal.height) - head.lines - 1 - described.reserved);
 
     function draw(): void {
-      start = windowStart(choices.length, active, room(), start);
-      setNote(complaint, error);
+      start = windowStart(items.length, active, room(), start);
+      setNote(problem, error);
       paintChoices(rows, active, start, room(), ticked);
+      described.show(active);
     }
 
     draw();
@@ -1993,8 +2277,8 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
         error = undefined;
 
         if (k.name === 'enter') {
-          if (opts.required && ticked.size === 0) {
-            error = __`Choose at least one`;
+          error = complaint();
+          if (error) {
             draw();
             return;
           }
@@ -2008,15 +2292,27 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
             ticked.add(active);
           }
         } else if (k.name === 'up') {
-          active = (active - 1 + choices.length) % choices.length;
+          active = seek(items, active, -1, loop);
         } else if (k.name === 'down') {
-          active = (active + 1) % choices.length;
-        } else if (k.name === 'a' && k.ctrl) {
-          // all, or none if everything is already ticked
-          if (ticked.size === choices.length) {
-            ticked.clear();
+          active = seek(items, active, 1, loop);
+        } else if (k.name === 'a' && !k.meta) {
+          // all, or none if everything on offer is already ticked: Ctrl-A is the
+          // older spelling and is kept, `a` is what Inquirer's checkbox calls it.
+          // A disabled choice is neither ticked by this nor unticked by it
+          if (offered.every((i) => ticked.has(i))) {
+            for (const i of offered) {
+              ticked.delete(i);
+            }
           } else {
-            for (let i = 0; i < choices.length; i++) {
+            for (const i of offered) {
+              ticked.add(i);
+            }
+          }
+        } else if (k.name === 'i' && !k.ctrl && !k.meta) {
+          for (const i of offered) {
+            if (ticked.has(i)) {
+              ticked.delete(i);
+            } else {
               ticked.add(i);
             }
           }
@@ -2029,15 +2325,16 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
         answered(mark);
         hint.setText(
           values.length
-            ? choices
-                .filter((_, i) => ticked.has(i))
-                .map((choice) => choice.label)
+            ? [...ticked]
+                .sort((a, b) => a - b)
+                .map((i) => shortOf(choiceAt(i)))
                 .join(', ')
             : __`none`
         );
         hint.setProps({ class: 'sigil-prompt-answer sigil-muted' });
         list.setProps({ display: 'none' });
-        setNote(complaint, undefined);
+        described.line.setProps({ display: 'none' });
+        setNote(problem, undefined);
       },
 
       view,
@@ -2077,6 +2374,8 @@ export {
   run as runPrompt,
   setNote as setPromptNote,
   SYMBOL as PROMPT_SYMBOLS,
+  toChoice as promptChoice,
+  valueOf as promptValue,
   windowOf as promptWindow,
   windowStart as listWindow,
 };
