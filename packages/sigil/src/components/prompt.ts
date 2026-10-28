@@ -199,13 +199,16 @@ function isSeparator<T>(entry: ChoiceEntry<T>): entry is Separator {
   return typeof entry === 'object' && 'separator' in entry;
 }
 
+function toChoice<T>(choice: Choice<T> | string): Choice<T> {
+  return typeof choice === 'string' ? { label: choice, value: choice as T } : choice;
+}
+
 function toItems<T>(entries: readonly ChoiceEntry<T>[]): Item<T>[] {
   return entries.map((entry): Item<T> => {
     if (isSeparator(entry)) {
       return { kind: 'separator', label: entry.separator };
     }
-    const choice: Choice<T> =
-      typeof entry === 'string' ? { label: entry, value: entry as T } : entry;
+    const choice = toChoice(entry);
     return { choice, kind: 'choice', offered: !choice.disabled };
   });
 }
@@ -2371,6 +2374,8 @@ export {
   run as runPrompt,
   setNote as setPromptNote,
   SYMBOL as PROMPT_SYMBOLS,
+  toChoice as promptChoice,
+  valueOf as promptValue,
   windowOf as promptWindow,
   windowStart as listWindow,
 };

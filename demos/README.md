@@ -338,6 +338,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/09-decrypt.js`](components/09-decrypt.js)             | Text that jumbles, then resolves into itself              |
 | [`components/10-qrcode.js`](components/10-qrcode.js)               | A QR code, in half blocks and in full cells               |
 | [`components/11-choices.js`](components/11-choices.js)             | Headings, disabled choices, descriptions, and `min`/`max` |
+| [`components/12-autocomplete.js`](components/12-autocomplete.js)   | Type to filter a list, or search an async source          |
 | [`components/13-number.js`](components/13-number.js)               | A number prompt: range, steps, and the parser's reading   |
 | [`components/14-group.js`](components/14-group.js)                 | Prompts as one flow, and the session frame around them    |
 | [`components/17-note.js`](components/17-note.js)                   | A titled, bordered block in a state's colour              |
@@ -389,6 +390,14 @@ because the cipher cells and the resolved ones are two elements over one
 rectangle and each resolves its own style. The sixth is `text-overflow` on a path
 too long for its box: a decrypt is cut and marked the way any other text is, in
 `ellipsis-middle`, which keeps the project at one end and the file at the other.
+
+`12-autocomplete.js` is the prompt that needs a keyboard, so piped it plays the keys
+itself through `createTestTerminal()` and prints the screen after each step -- the
+way a test of your own prompt would. The second half is the one to read: three
+characters are typed faster than the debounce, so the waits for `r` and `re` are
+cancelled by the signal and only `red` ever reaches the pretend registry, and the
+list on screen says `Searching...` until it answers. `debounced()` in that file is
+the recipe the prompt leaves to the caller.
 
 `19-date.js` is a prompt, so a pipe cannot answer it: piped, it plays the same
 prompts against an in-process terminal from `@ttylabs/sigil/testing` and prints the

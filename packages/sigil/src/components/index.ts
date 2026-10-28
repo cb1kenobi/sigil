@@ -15,6 +15,7 @@ export {
   type Ranked,
   rankBy,
 } from './fuzzy.js';
+export { autocomplete, type AutocompleteOptions, type AutocompleteSource } from './autocomplete.js';
 export {
   checkSlotValue,
   commandPalette,
@@ -61,11 +62,13 @@ export {
   type PromptHandlers,
   promptHeadLine,
   promptHeadWidths,
+  promptChoice,
   promptNote,
   promptRowCap,
   type PromptSymbols,
   promptWindow,
   type PromptWindow,
+  promptValue,
   runPrompt,
   setPromptNote,
 } from './prompt.js';

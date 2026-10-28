@@ -134,6 +134,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-key-help  .sigil-key-help-key  .sigil-key-help-desc
  *   .sigil-key-help-sep  .sigil-key-help-more  .sigil-key-help-group
  *   .sigil-key-help-row
+ *   .sigil-autocomplete  .sigil-autocomplete-list  .sigil-autocomplete-label
+ *   .sigil-autocomplete-match  .sigil-autocomplete-status
  *   .sigil-debug-head  .sigil-debug-title  .sigil-debug-stats
  *   .sigil-debug-log  .sigil-debug-list  .sigil-debug-entry
  * A class with no rule is still a hook; giving it an empty rule would be a
