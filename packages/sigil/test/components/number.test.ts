@@ -68,6 +68,7 @@ const CTRL_C = '\u0003';
 const UP = '\u001b[A';
 const DOWN = '\u001b[B';
 const LEFT = '\u001b[D';
+const RIGHT = '\u001b[C';
 const HOME = '\u001b[H';
 const BACKSPACE = '\u007f';
 const PASTE_START = '\u001b[200~';
@@ -153,6 +154,41 @@ describe('number()', () => {
       await type(ui.stdin, HOME);
       await keys(ui.stdin, '-');
       expect(field(ui)).to.equal('-5');
+    });
+
+    it('should take nothing in front of a leading minus', async () => {
+      const { answer, ui } = ask();
+
+      await keys(ui.stdin, '-5');
+      await type(ui.stdin, HOME);
+      await keys(ui.stdin, '3');
+      expect(field(ui)).to.equal('-5');
+
+      await type(ui.stdin, `${PASTE_START}12${PASTE_END}`);
+      expect(field(ui)).to.equal('-5');
+
+      await type(ui.stdin, ENTER);
+      expect((await answer).value).to.equal(-5);
+    });
+
+    it('should take no decimal point in front of a leading minus', async () => {
+      const { ui } = ask({ float: true });
+
+      await keys(ui.stdin, '-5');
+      await type(ui.stdin, HOME);
+      await keys(ui.stdin, '.');
+
+      expect(field(ui)).to.equal('-5');
+    });
+
+    it('should still take digits after the minus', async () => {
+      const { ui } = ask();
+
+      await keys(ui.stdin, '-5');
+      await type(ui.stdin, HOME, RIGHT);
+      await keys(ui.stdin, '3');
+
+      expect(field(ui)).to.equal('-35');
     });
 
     it('should hold a paste to the same rule as a keystroke', async () => {

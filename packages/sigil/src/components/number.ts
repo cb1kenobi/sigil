@@ -150,10 +150,17 @@ export function number(opts: NumberOptions): Promise<number> {
    * `Number()` reads something that is not what was meant, and no `+`, which is
    * not a thing anybody needs to write.
    *
+   * Nothing is taken at offset 0 while the field starts with a `-`: that is the
+   * one slot ahead of the minus, and a digit or a point there would write `3-5`.
+   *
    * @param input - What arrived.
    */
   function accept(input: string): void {
     for (const cluster of graphemes(input)) {
+      if (cursor === 0 && value.startsWith('-')) {
+        continue;
+      }
+
       const digit = cluster >= '0' && cluster <= '9' && cluster.length === 1;
       const sign = cluster === '-' && signed && cursor === 0 && !value.startsWith('-');
       const point = cluster === '.' && float && !value.includes('.');

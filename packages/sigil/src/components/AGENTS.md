@@ -4421,8 +4421,12 @@ everything in it is a decision about what it does _not_ own.
   stands, so a paste is held to the same rule as a keystroke (`1.2.3` pasted into
   a float field is `1.23`). The sign check is `cursor === 0 &&
   !value.startsWith('-')`, and the second half is reachable only by moving Home
-  and typing again, which is the test that pins it. A paste is flattened through
-  `pastedLine()` first, like `text()`'s.
+  and typing again, which is the test that pins it. That rule alone was not enough
+  for the claim above: a digit or a `.` has no position check, so Home on `-5` and
+  a `3` wrote `3-5`, which Enter refused and the arrows could not step. Offset 0 of
+  a field that starts with `-` is the one slot ahead of the minus, so **nothing**
+  is taken there, whatever it is. A paste is flattened through `pastedLine()`
+  first, like `text()`'s.
 - **Enter outside `[min, max]` is an error line naming the bound, never a clamp.**
   The arrows clamp because they produce a value; Enter judges one somebody typed,
   and handing back a different number from the one on screen is the silent change
