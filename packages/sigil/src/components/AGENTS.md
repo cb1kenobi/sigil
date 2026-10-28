@@ -4291,6 +4291,11 @@ how the two come to disagree." It is decided, and the answer is no.
   is the whole screen -- and it is the honest version, because which bindings are
   worth showing is the app's decision rather than the framework's.
 
+  **Superseded in part by SIG-166** ("A key-help footer generated from key
+  bindings"): bindings are listable now, by opting in with a description. The
+  asymmetry above still stands for the palette and a function binding, which have
+  no key to list.
+
 ##### What is deliberately out
 
 - **Ejecting it**, with the reason above: the one thing it must share with the
@@ -4707,3 +4712,77 @@ from year, month and day segments, with the hour, minute and second added by
   prompts, so `2024-06-15` happens to work -- the digits fill the segments and the
   dashes do nothing -- and nothing else is promised); clock injection (a test sets
   the system time).
+
+### A key-help footer, read off the bindings
+
+- **The line is `router.bindings()`, so it cannot say what the keys do not.**
+  `bind(keys, handler, { description, group, priority })` carries the description
+  in the same call as the handler, which is the answer to "on `bind()` or a
+  separate declaration": a separate one is the hand-written line again. All three
+  are optional and **dispatch reads none of them** -- a binding without a
+  description behaves as it always did and is not listed, which is also how an app
+  keeps a key it would rather not advertise out of the footer. A bad description
+  or spec throws and takes the half-registered handler back off, so a refused
+  `bind()` leaves no key behind. `src/input/AGENTS.md` has the router's half.
+- **Focus scoping is the tree, and it is declared rather than invented.** Today
+  only the sequence trie and function bindings are global; the one focus-scoped
+  thing is an element's `onKey`, which bubbles from the focused element up through
+  its ancestors. A function cannot be read for what keys it handles, so
+  `describe(keys, { description, scope })` declares them, and `bindings()` lists a
+  scoped entry while `scope` is the focused element or one of its ancestors --
+  exactly the walk `dispatch()` makes. That half **can drift from its handler**,
+  and the doc says so rather than hiding it; the cost of an element owning its
+  keys is that the router cannot see them. A new scoping mechanism for `bind()`
+  itself (a binding that fires only inside an element) was refused: it would change
+  dispatch for every app, and a pending sequence makes it a question about what a
+  held prefix means when focus moves.
+- **Dispatch order, so priority is the footer's and order is the router's.**
+  App-wide entries first, then scoped ones from the focused element outwards, each
+  in registration order. `priority` (higher survives, default 0) decides only what
+  is dropped when the line is too wide; it never reorders.
+- **Truncation drops whole bindings, lowest priority first, later of two equals,
+  and ends in `…`.** The mark's two columns are reserved before the fit is judged,
+  or a row that just fit would overflow by the mark that explains it. Widths are
+  `stringWidth()`, so a CJK description is two columns a character. A row that
+  cannot fit even one line is the bare mark, or nothing at width 0 -- never a
+  binding cut in half and never a wrap (`white-space: nowrap`, `flex-shrink: 0`).
+- **Bindings sharing a description and group are one line (`↑/↓ move`), at the
+  place of the first and at the highest priority among them.** That is what makes
+  `bind('up')` and `bind('down')` read as the line in the ticket without a
+  key-list syntax. Two bindings of one key and one description are one key.
+- **The key names that are words go through `__`, and that departs from the
+  prompts on purpose.** `prompt.ts` translates the modifier and leaves `enter` and
+  `tab` English, on the ground that nobody types them. A footer _prints_ them, and a
+  German footer saying `enter` beside `Strg-s` is the half-translated screen the
+  catalog is meant to prevent -- so `enter`, `esc`, `tab`, `space`, `backspace`,
+  `delete`, `home`, `end`, `pgup` and `pgdn` are literal `__` calls (a name held in
+  a variable would key on `{0}`), arrows are glyphs, and the modifiers nest
+  (`ctrl-{0}` and `alt-{0}` are the prompts' own messages; `shift-{0}` is new).
+  Descriptions are the app's strings and the app translates them where it writes
+  them; the footer never wraps them in `__`.
+- **Reactive through two signals, with no new mechanism.** `bindings()` reads the
+  focus signal and a revision counter bumped by registering or unregistering a
+  description, so an effect re-runs on either. The footer rebuilds its children in
+  one effect rather than keeping a pool of rows: it is a handful of nodes, and a
+  pool would be the optimisation the palette's `draw()` needed for a catalog.
+- **The footer does not claim a key.** `?`, and whether the footer is expanded, are
+  the app's: `expanded` is a boolean or a `State<boolean>` and the demo binds `?`
+  to it, for the reason the palette does not bind a key to open itself.
+- **The width is an option because the footer cannot know its box.** It defaults
+  to `terminal.width` at each run and accepts `() => n` for an app that resizes;
+  reading the laid-out width of the element would need a layout pass inside an
+  effect that is itself rebuilding the children.
+
+#### What is deliberately out
+
+- **Replacing the built-in prompts' hint lines.** They keep their own text in this
+  change: `select()` and `multiselect()` are being rewritten in another open
+  change and the hints are translated strings with their own tests
+  (`prompt-i18n.test.ts`). Adopting the footer is a follow-up that has to decide
+  whether a prompt, which owns no router unless it borrows one, should grow one.
+- **A binding that fires only inside an element.** See above.
+- **Listing a function binding.** `bind(handler)` sees every key and has no key to
+  name; it is not listed, and `describe()` with a key is how to list what it does.
+- **Pagination of an expanded form taller than the terminal.** It lists everything,
+  under its groups, and an app with that many keys wants a screen of its own.
+- **A `?` toggle, a hide/show key, or a default mouse hover on the footer.**

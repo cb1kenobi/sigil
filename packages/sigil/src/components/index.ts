@@ -69,6 +69,15 @@ export {
   runPrompt,
   setPromptNote,
 } from './prompt.js';
+export {
+  fitKeyHelp,
+  keyHelp,
+  type KeyHelpEntry,
+  keyHelpEntries,
+  type KeyHelpOptions,
+  type KeyHelpSource,
+  keyLabel,
+} from './key-help.js';
 export { mountLevel, type Mounted, type MountOptions, mountLive } from './mount.js';
 export {
   FRAMEWORK_CSS,

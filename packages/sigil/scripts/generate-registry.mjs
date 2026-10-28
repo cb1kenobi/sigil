@@ -110,6 +110,10 @@ const ENTRIES = [
     desc: 'A titled, bordered block that shrinks to its message, in a state role colour',
     name: 'note',
   },
+  {
+    desc: 'A key-help footer generated from the key bindings that are live',
+    name: 'key-help',
+  },
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */

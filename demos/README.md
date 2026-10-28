@@ -342,6 +342,15 @@ waits for it rather than reporting a silence that is not one.
 | [`components/14-group.js`](components/14-group.js)                 | Prompts as one flow, and the session frame around them    |
 | [`components/17-note.js`](components/17-note.js)                   | A titled, bordered block in a state's colour              |
 | [`components/19-date.js`](components/19-date.js)                   | A date prompt: segments you step or type into             |
+| [`components/20-key-help.js`](components/20-key-help.js)           | A key-help footer read off the bindings themselves        |
+
+`20-key-help.js` is a footer that is `router.bindings()` rather than a string
+somebody typed: each key is described where it is bound, the footer follows the
+focus with Tab, and `?` -- the app's own binding, since the component claims no
+key -- expands it into groups. On a terminal it is a small full-screen app; piped
+it has nobody to type, so it replays Tab and `?` through the testing terminal and
+prints the footer after each, including a 24-column step where the
+lowest-priority keys go first and the line ends in `…`.
 
 ### Try them without a terminal
 
