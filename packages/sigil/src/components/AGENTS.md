@@ -4846,11 +4846,22 @@ borrows `runPrompt()` and the field helpers rather than reading a key itself.
   `prompt.ts`** (as `promptChoice` and `promptValue`) rather than copied, so a
   change to what a `Choice` is made in one place.
 
+- **A disabled choice is left out, not shown and refused.** `select()` keeps one in
+  view and steps the cursor over it. This prompt has no cursor to step: a disabled
+  choice would be ranked, highlighted, filled in by Tab and taken by Enter, so
+  leaving it out of what is offered is the one rule that covers all four. It
+  applies to a `source`'s result as well as to `choices`, and a list with nothing
+  else in it is refused the way an empty one is. What that costs is that a reason
+  for `disabled` is never shown -- it is the lookup's job to say why a thing is not
+  there, and a list that is filtered by typing is a poor place for a row that
+  cannot be chosen. Found by review after #202 merged: the first version deferred
+  this to #196, and by the time that landed the type allowed a flag the prompt
+  ignored.
+
 What is deliberately not done:
 
-- **`disabled` and separators on `Choice`.** PR #196 adds them to `select()`; this
-  prompt reads `Choice` as it was on `main` and honouring them here is a
-  follow-up once that lands.
+- **Separators on `Choice`.** `select()` takes them; this prompt has no cursor to
+  step over a heading and a filtered list of one has nothing to introduce.
 - **The multi-select variant**, which is its own ticket.
 - **Highlighting source results.** A source's match is its own, and marking the
   term inside a label it did not match on would be marking nothing.

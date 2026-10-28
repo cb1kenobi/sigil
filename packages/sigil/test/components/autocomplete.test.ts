@@ -435,6 +435,63 @@ describe('autocomplete() over a static list', () => {
   });
 });
 
+describe('autocomplete() and a disabled choice', () => {
+  it('should not offer a disabled choice from a static list', async () => {
+    const ui = screenSetup({ rows: 10 });
+    const answer = settle(
+      open(ui, { choices: [{ disabled: true, label: 'prod' }, 'dev', { label: 'qa' }] })
+    );
+
+    await tick();
+
+    expect(rows(ui)).toEqual(['? Pick', '  ❯ dev', '    qa']);
+
+    await type(ui.stdin, ENTER);
+    expect((await answer).value).toBe('dev');
+  });
+
+  it('should not answer with, or complete to, a disabled choice that matches what is typed', async () => {
+    const ui = screenSetup({ rows: 10 });
+    const answer = settle(
+      open(ui, { choices: [{ disabled: 'locked', label: 'production' }, 'product-docs'] })
+    );
+
+    await type(ui.stdin, 'prod', TAB);
+    expect(rows(ui)[0]).toBe('? Pick product-docs');
+
+    await type(ui.stdin, ENTER);
+    expect((await answer).value).toBe('product-docs');
+  });
+
+  it('should refuse a list in which every choice is disabled', async () => {
+    const ui = screenSetup({ rows: 10 });
+    const settled = await settle(
+      open(ui, {
+        choices: [
+          { disabled: true, label: 'a' },
+          { disabled: 'no', label: 'b' },
+        ],
+      })
+    );
+
+    expect(settled.error?.message).toMatch(/no choices to offer/);
+  });
+
+  it('should not offer a disabled choice a source returns', async () => {
+    const ui = screenSetup({ rows: 10 });
+    const answer = settle(
+      open(ui, { source: () => [{ disabled: true, label: 'prod' }, 'dev', 'qa'] })
+    );
+
+    await frame();
+
+    expect(rows(ui)).toEqual(['? Pick', '  ❯ dev', '    qa']);
+
+    await type(ui.stdin, ENTER);
+    expect((await answer).value).toBe('dev');
+  });
+});
+
 describe('autocomplete() over a source', () => {
   it('should ask for the empty term when it opens, and show what comes back', async () => {
     const ui = screenSetup({ rows: 10 });
