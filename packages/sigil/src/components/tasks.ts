@@ -98,16 +98,23 @@ interface InternalTaskLog extends TaskLog {
  * Cleaned because it came from something else's terminal: an escape sequence in
  * a canvas cell is a corrupted frame, a carriage return is a progress bar that
  * redraws itself and only its last state is a line, and a tab is a column count
- * the grid cannot know.
+ * the grid cannot know. A carriage return that ends a line is a CRLF's, and is not
+ * a redraw -- the redraw's last state is what comes before it.
  *
  * @param text - What was written.
  * @returns The lines, without their breaks.
  */
 function toLines(text: string): string[] {
-  return strip(text)
-    .split(/\r?\n/)
-    .map((line) => line.slice(line.lastIndexOf('\r') + 1).replaceAll('\t', '    '))
-    .map((line) => line.replaceAll(/\p{Cc}/gu, '').trimEnd());
+  return (
+    strip(text)
+      .split(/\r?\n/)
+      // one trailing carriage return is the first half of a CRLF that arrived
+      // split -- `pump()` breaks on the line feed alone -- and has to go before the
+      // rule below, which would otherwise keep what follows it: nothing
+      .map((line) => line.replace(/\r$/, ''))
+      .map((line) => line.slice(line.lastIndexOf('\r') + 1).replaceAll('\t', '    '))
+      .map((line) => line.replaceAll(/\p{Cc}/gu, '').trimEnd())
+  );
 }
 
 /**

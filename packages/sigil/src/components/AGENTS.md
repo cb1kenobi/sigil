@@ -5088,6 +5088,19 @@ the window a task writes a subprocess's output to. SIG-161.
   else's terminal: escape sequences are stripped (a raw one in a cell is a
   corrupted frame), only what follows the last carriage return counts (a progress
   bar redrawing itself), and other control characters go.
+
+  **A carriage return that ends the line is a CRLF's, not a redraw, and goes
+  first.** `stream()` breaks on the line feed alone, so a line from a CRLF source
+  -- Windows, a pty -- arrives ending in `\r`, and "keep what follows the last
+  carriage return" then keeps nothing: every row blank, and `error()` dumping
+  blanks, which loses the one thing a failure is owed. The tests that existed fed
+  `message('one\ntwo\r\nthree')`, where the split on `\r?\n` removes the `\r`
+  before the rule sees it, and a stream of `\n` alone, so neither reached it. One
+  trailing `\r` is dropped first, in `toLines()` because both `message()` and
+  `stream()` read through it -- and a break that falls between the two halves of
+  the CRLF across chunks needs no handling of its own, since `pump()` joins them
+  before it splits. Found by review.
+
 - **Success collapses and failure writes the output below the title; it is not
   drawn into the window.** Both are the same frame (`✔`/`✖` title, window
   hidden, then `done()`), and a failure then writes every retained line with

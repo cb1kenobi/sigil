@@ -114,6 +114,44 @@ describe('taskLog()', () => {
     expect(ui.log).to.deep.equal(['Build', '  done']);
   });
 
+  it('should read a CRLF as a line break and not as a redraw', async () => {
+    const ui = screenSetup({ rows: 12 });
+    const log = taskLog({ ansi: ui.ansi, terminal: ui.terminal, title: 'Build' });
+
+    async function* chunks(): AsyncGenerator<string | Uint8Array> {
+      yield 'compiling a.ts\r\nb';
+      // the break lands between the two halves of the CRLF
+      yield '.ts\r';
+      yield '\nlast\r';
+    }
+    await log.stream(chunks());
+
+    expect(ui.log).to.deep.equal(['Build', '  compiling a.ts', '  b.ts', '  last']);
+  });
+
+  it('should keep the last state of a redraw that ends in a CRLF', () => {
+    const ui = screenSetup({ rows: 12 });
+    const log = taskLog({ ansi: ui.ansi, terminal: ui.terminal, title: 'Build' });
+
+    log.message('10%\r50%\r100%\r\ndone');
+
+    expect(ui.log).to.deep.equal(['Build', '  100%', '  done']);
+  });
+
+  it('should leave the output of a CRLF stream on screen when it fails', async () => {
+    const ui = screenSetup({ rows: 12 });
+    const log = taskLog({ ansi: ui.ansi, terminal: ui.terminal, title: 'Build' });
+
+    await log.stream(
+      (async function* () {
+        yield 'error TS2322\r\n  not assignable\r\n';
+      })()
+    );
+    log.error('Build failed');
+
+    expect(ui.log).to.deep.equal(['✖ Build failed', '  error TS2322', '    not assignable']);
+  });
+
   it('should keep a blank line as a row of the window', () => {
     const ui = screenSetup({ rows: 12 });
     const log = taskLog({ ansi: ui.ansi, limit: 3, terminal: ui.terminal, title: 'Build' });
