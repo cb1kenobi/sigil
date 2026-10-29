@@ -347,7 +347,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/18-path.js`](components/18-path.js)                                         | A text field that completes against the file system               |
 | [`components/19-date.js`](components/19-date.js)                                         | A date prompt: segments you step or type into                     |
 | [`components/20-key-help.js`](components/20-key-help.js)                                 | A key-help footer read off the bindings themselves                |
-| [`components/21-autocomplete-multiselect.js`](components/21-autocomplete-multiselect.js) | Type to filter a list, and tick several; ticks outlive the filter |
+| [`components/41-autocomplete-multiselect.js`](components/41-autocomplete-multiselect.js) | Type to filter a list, and tick several; ticks outlive the filter |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -403,7 +403,7 @@ cancelled by the signal and only `red` ever reaches the pretend registry, and th
 list on screen says `Searching...` until it answers. `debounced()` in that file is
 the recipe the prompt leaves to the caller.
 
-`21-autocomplete-multiselect.js` plays its keys the same way. The step to read is the
+`41-autocomplete-multiselect.js` plays its keys the same way. The step to read is the
 third: after `eu` the first row it ticked is no longer on screen, and the line under
 the list still counts it -- `Selected: 1, 1 not shown` -- until clearing the term
 brings the row back with its tick.

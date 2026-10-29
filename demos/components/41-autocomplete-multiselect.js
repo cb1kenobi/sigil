@@ -1,8 +1,8 @@
 /**
  * A searchable multiselect: type to narrow a long list, and tick several.
  *
- *   node demos/components/21-autocomplete-multiselect.js          <- asks, in a terminal
- *   node demos/components/21-autocomplete-multiselect.js | cat    <- plays the same prompt
+ *   node demos/components/41-autocomplete-multiselect.js          <- asks, in a terminal
+ *   node demos/components/41-autocomplete-multiselect.js | cat    <- plays the same prompt
  *
  * Space ticks the highlighted row and Enter confirms what is ticked. The ticks
  * belong to the choices rather than to the list on screen, so narrowing the list
