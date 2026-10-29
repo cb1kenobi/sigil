@@ -5171,3 +5171,57 @@ the window a task writes a subprocess's output to. SIG-161.
   or (on a throw) failure; a window the task settled itself is left alone.
 - **Not done:** concurrency, subtasks, retry, rollback, and a title that animates
   while a window is open.
+
+### A multiselect with groups: `groupMultiselect()`
+
+SIG-169. `src/components/group-multiselect.ts` is `multiselect()` over
+`{ group: choices }`. It is its own module built on the exports at the bottom of
+`prompt.ts` (`runPrompt()`, `listWindow()`, the head helpers), the way
+`autocomplete()` is, and `multiselect()` and `select()` are untouched: a group
+row is a third kind of row beside a choice and a separator, and teaching
+`choiceRows()` and `paintChoices()` about it would put a branch for a feature one
+prompt has into the two functions all of them share.
+
+- **A group is a selectable row, which is Clack's answer and the default.** The
+  ticket asked, and the reason is that "tick the whole area" is the point of
+  grouping: a header that only labels is already `separator()`. `selectableGroups:
+  false` is the other answer, and it makes the heading a heading in the
+  separator's own style and with the separator's rule -- the cursor never lands on
+  it -- rather than a second kind of row.
+- **The answer is a flat array of values, in listed order.** Not keyed by group:
+  a group is a way of picking and is not itself picked, `multiselect()` already
+  answers a flat array so the two are interchangeable at a call site, and a caller
+  that wants the grouping has the `choices` it passed in. Listed order rather than
+  ticked order for the reason `multiselect()` gives. The same value under two
+  groups is returned twice; a prompt that guessed it was one thing would be
+  guessing about what the caller's values mean.
+- **A group's box is derived, never stored.** `◯` none, `◐` some, `◉` all of the
+  choices under it _that are on offer_, read off the ticked set on every draw. A
+  stored flag is a second copy that ticking one choice by hand has to remember to
+  update, and the first path that forgot would show a group `◉` over an unticked
+  box. The partial glyph is local to the module and not on `PromptSymbols`:
+  that object is frozen and exported, and nothing else draws it.
+- **Space on a group ticks all, or clears all when all are ticked -- and a partial
+  group ticks.** "All" and "none" are the only two outcomes of a toggle; partial
+  has to go one way, and ticking is the way Clack, Inquirer and the select-all
+  key in `multiselect()` all take.
+- **A disabled choice is outside every group operation.** It is not ticked by its
+  group's Space, it does not count towards "all", and `selected` does not tick
+  it -- all `multiselect()`'s rule, applied to a group as to `a`. A group with
+  nothing on offer is not on offer itself: drawn muted, skipped by the cursor.
+- **`min` and `max` count choices and not groups.** A group is not in the
+  answer, so counting it would make `max: 2` refuse a group of two. Checked on
+  Enter and not while ticking, as `multiselect()` does.
+- **No separators inside a group, and a group that is not a list is an error.** The
+  groups are the headings; a `separator()` inside one has no meaning and is
+  refused with a `PromptError` naming the question instead of being drawn.
+  `choices` is a record rather than an array of `{ group, choices }` because that
+  is the ticket's shape; the cost is that JavaScript orders integer-like keys
+  first, which the README says.
+- **Messages are `multiselect()`'s, so there are no new i18n keys.** The hint,
+  `Choose at least ...`, `disabled` and `none` are the same strings through the
+  same tag.
+
+What is deliberately not done: nesting groups in groups; an `initial` row (the
+cursor starts on the first row on offer); descriptions on a group; a group-level
+`selected`; and a type that keys the answer by group.

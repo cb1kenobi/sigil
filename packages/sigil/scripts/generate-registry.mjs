@@ -87,6 +87,10 @@ const ENTRIES = [
     name: 'autocomplete',
   },
   {
+    desc: 'A multiselect with its choices under named groups, where a group ticks its children',
+    name: 'group-multiselect',
+  },
+  {
     desc: 'A path prompt: a text field that completes against the file system',
     name: 'path',
   },
