@@ -3,8 +3,8 @@ import { createTestTerminal, KEYS, tick } from '@ttylabs/sigil/testing';
 /**
  * A multiselect with its choices under named groups.
  *
- *   node demos/components/21-group-multiselect.js
- *   node demos/components/21-group-multiselect.js | cat    <- a scripted run
+ *   node demos/components/40-group-multiselect.js
+ *   node demos/components/40-group-multiselect.js | cat    <- a scripted run
  *
  * Space on a group ticks everything under it, or clears it if it is all ticked
  * already; its box is `◯` for none, `◐` for some and `◉` for all, and follows the

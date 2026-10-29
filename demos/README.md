@@ -347,8 +347,8 @@ waits for it rather than reporting a silence that is not one.
 | [`components/18-path.js`](components/18-path.js)                           | A text field that completes against the file system       |
 | [`components/19-date.js`](components/19-date.js)                           | A date prompt: segments you step or type into             |
 | [`components/20-key-help.js`](components/20-key-help.js)                   | A key-help footer read off the bindings themselves        |
-| [`components/21-group-multiselect.js`](components/21-group-multiselect.js) | A multiselect with its choices under named groups         |
 | [`components/21-list.js`](components/21-list.js)                           | A list prompt: one line, split, returned as an array      |
+| [`components/40-group-multiselect.js`](components/40-group-multiselect.js) | A multiselect with its choices under named groups         |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -404,7 +404,7 @@ cancelled by the signal and only `red` ever reaches the pretend registry, and th
 list on screen says `Searching...` until it answers. `debounced()` in that file is
 the recipe the prompt leaves to the caller.
 
-`21-group-multiselect.js` is a prompt too, so piped it plays its own keys through the
+`40-group-multiselect.js` is a prompt too, so piped it plays its own keys through the
 testing terminal. The thing to watch is the group's box: `◐` when some of what is
 under it is ticked, which it works out from the choices and never stores, so ticking
 the last choice by hand turns it `◉`. Space on a group leaves a disabled choice
