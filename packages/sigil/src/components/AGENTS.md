@@ -5123,3 +5123,37 @@ the window a task writes a subprocess's output to. SIG-161.
   or (on a throw) failure; a window the task settled itself is left alone.
 - **Not done:** concurrency, subtasks, retry, rollback, and a title that animates
   while a window is open.
+
+### Aborting a prompt: `signal`
+
+SIG-176. `PromptOptions.signal` and the few lines in `run()` in `prompt.ts` that read
+it; every prompt goes through `run()`, so every prompt has it and no prompt was edited.
+
+- **An abort rejects with the signal's own `reason`, not a `PromptError`.** The
+  ticket asked which. `AbortSignal.timeout()` rejects with a `TimeoutError` and
+  `abort()` with an `AbortError`, and `fetch`, `setTimeout` from `timers/promises`
+  and `events.once` all hand those back, so a caller already knows how to tell a
+  timeout from an abort and a recipe needs no new vocabulary. It is also the
+  honest answer to `isCancel()`: a cancel is a person pressing Ctrl-C, an abort is
+  the program deciding, and a `PromptError` with `aborted: true` would make
+  `group()` call `onCancel` for a timeout. A non-`PromptError` is rethrown by
+  `group()` untouched, which is the rule for everything that is not a cancel.
+- **`timeout` is not an option.** `signal: AbortSignal.timeout(ms)` is the whole of
+  it, a default is a `catch` on the name, and an option would be a second spelling
+  that needs its own reason type. Documented as a recipe in the README.
+- **Abort is `fail()`, so it is a cancel's teardown by construction.** The listener
+  calls the same function Ctrl-C does: input detached, the router stopped only if
+  this prompt built it, the region cleared and the cursor handed back. A router the
+  app passed in is left running. `prompt-signal.test.ts` asserts the screen, raw
+  mode and cursor against a real cancel's rather than against a list of things to
+  restore, for every prompt.
+- **The listener goes on last and comes off in `detach()`.** `fail()` is only a
+  complete teardown once there is a screen and a router, so the listener is added
+  after both exist; the signal is checked before anything is mounted, which is
+  what makes an already-aborted signal draw nothing. It sits after the
+  nobody-is-there check, so a prompt with no terminal still says that rather than
+  the signal's reason. It is removed when the prompt ends either way, so a signal
+  that outlives many prompts does not accumulate listeners.
+- **Not done.** `group()` takes no signal of its own: pass the same one to each
+  step. A signal that aborts between two steps is seen by the next prompt as
+  already aborted, which is the behaviour wanted.
