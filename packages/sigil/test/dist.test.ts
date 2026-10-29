@@ -194,6 +194,7 @@ describe('what importing the package costs', () => {
   const IMPLEMENTATIONS = [
     'createSpinner',
     'createProgress',
+    'createMultiProgress',
     'createTypewriter',
     'largeTextView',
     'createDecrypt',
