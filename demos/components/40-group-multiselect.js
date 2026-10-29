@@ -53,7 +53,9 @@ async function drive(ui, steps) {
 async function ask(ui) {
   const where = ui ? { terminal: ui.terminal } : {};
 
-  const picked = groupMultiselect({
+  // Each prompt is answered before the next is asked: two at once would read the
+  // same keystrokes and draw over each other on a real terminal.
+  const asked = groupMultiselect({
     ...where,
     choices: features,
     message: 'Features',
@@ -70,6 +72,8 @@ async function ask(ui) {
     ]);
   }
 
+  const picked = await asked;
+
   const tools = groupMultiselect({
     ...where,
     choices: features,
@@ -83,7 +87,7 @@ async function ask(ui) {
     ]);
   }
 
-  return { features: await picked, tools: await tools };
+  return { features: picked, tools: await tools };
 }
 
 try {
