@@ -5035,3 +5035,91 @@ second tier with its own formatting questions; a `stream` option to choose
 stdout, which is a separate backlog ticket (stderr is the whole answer to
 `--format json`, and a stdout `log` is how it gets corrupted); detecting ASCII-only
 terminals; routing the debug overlay or `console.*` through it.
+
+### Tasks: a list of work, and a subprocess's output in a window
+
+`src/components/tasks.ts`: `tasks()` runs a list under spinners and `taskLog()` is
+the window a task writes a subprocess's output to. SIG-161.
+
+- **Sequential and flat, and that is the ticket's first two questions settled
+  rather than deferred.** Concurrent tasks would put several lines in one live
+  region, and the region model is one frame owned by one component: two spinners
+  alive at once evict each other. Doing it properly means one tree of several
+  rows driven by one clock, which is a different component from "a spinner per
+  task". Subtasks are the same cost in another dimension. Neither has a caller.
+- **`tasks()` is `createSpinner()` in a loop and has no drawing of its own.** The
+  quiet axis, the pipe form (a line when a task starts and one when it settles)
+  and the settled marks are the spinner's, so they cannot disagree with it.
+- **A skipped task settles as the spinner's `info`.** There is no fifth outcome
+  and none was added: `ℹ title (skipped: reason)` says it is worth knowing
+  without saying it went well or badly. `skip()` is a marker the task _returns_
+  rather than an error it throws, because a skip is an ordinary outcome and a
+  `catch` that did not know the difference would treat it as a failure. The
+  string a task returns replaces the title on the done line only; a skip's line is
+  always built from the title so the reason is not lost.
+
+  **That holds when the task opened a log window too**, and did not at first: a
+  window ended only as `success()` or `error()`, so a task that called `log()` and
+  then returned `skip('cached')` settled on `✔ Build (skipped: cached)` -- a step
+  that never ran, drawn as one that did, while the outcome in the results said
+  `skip`. The window settles `info` internally and the pipe form calls the
+  spinner's own `info()`. It is not on `TaskLog`: a caller who wants the
+  informational ending has `skip()`, and a fourth public method is a second way to
+  say it. `tasks()` hands the task a wrapper without it, so the extra method is
+  not reachable at run time either. Found by review.
+
+- **A thrown task fails its line, stops the list, and rethrows.** What the failure
+  means is the caller's, which is `main()`'s rule too. The failed line is left on
+  screen. A disabled task (`enabled: false`) is not run and leaves no line.
+- **`taskLog()` is windowed only where there is a terminal to repaint, and the
+  other form is a spinner.** A spinner's frame is the same text appended or
+  repainted, so the canvas can decide. A window is not: appended, every change
+  would write all of it again. So with no terminal (or a closed one) a log is a
+  started spinner whose `write()` is the line and whose `succeed()`/`fail()` is
+  the settled line -- title once, lines as they come, one settled line -- and
+  quiet is the spinner's own, nothing at all. Reduced motion on a terminal still
+  draws the window: it is content that changes, not motion, and the title carries
+  no animation.
+- **The window is a fixed number of rows shown or hidden, not rows added and
+  removed.** The tree never changes shape and the window is one signal. A blank
+  line is a row like any other. A line is cut with `text-overflow`
+  rather than wrapped: a wrapped line is two rows of a fixed-height window.
+- **What a message is, is cleaned before it is shown.** It comes from something
+  else's terminal: escape sequences are stripped (a raw one in a cell is a
+  corrupted frame), only what follows the last carriage return counts (a progress
+  bar redrawing itself), and other control characters go.
+
+  **A carriage return that ends the line is a CRLF's, not a redraw, and goes
+  first.** `stream()` breaks on the line feed alone, so a line from a CRLF source
+  -- Windows, a pty -- arrives ending in `\r`, and "keep what follows the last
+  carriage return" then keeps nothing: every row blank, and `error()` dumping
+  blanks, which loses the one thing a failure is owed. The tests that existed fed
+  `message('one\ntwo\r\nthree')`, where the split on `\r?\n` removes the `\r`
+  before the rule sees it, and a stream of `\n` alone, so neither reached it. One
+  trailing `\r` is dropped first, in `toLines()` because both `message()` and
+  `stream()` read through it -- and a break that falls between the two halves of
+  the CRLF across chunks needs no handling of its own, since `pump()` joins them
+  before it splits. Found by review.
+
+- **Success collapses and failure writes the output below the title; it is not
+  drawn into the window.** Both are the same frame (`✔`/`✖` title, window
+  hidden, then `done()`), and a failure then writes every retained line with
+  `terminal.write`. A canvas taller than the screen is clipped, where a written
+  line scrolls, and "all of it" is the whole point of the failure case. It writes
+  `\r\n`, because it bypasses the backend that does that for every other line.
+- **Retention is bounded (1000 lines by default) and says so.** The feed is a
+  subprocess, so unbounded retention is a leak with a build behind it. The newest
+  are kept, since the end of a log is where the failure is, and a failure says
+  that earlier output was dropped. It does not say how many: a count is a plural,
+  and a plural key is a catalog entry for a line almost nobody will ever see.
+- **Quiet silences the failure output too.** `error()` is progress, as
+  `spinner.fail()` is, and the rethrown error is the caller's report. An app that
+  wants a failing build's output under `--quiet` prints it itself.
+- **`log()` on a task's context adopts the task's spinner rather than starting a
+  second one.** Two regions cannot share the bottom of the screen, and the older
+  would be left as a frozen frame. On a terminal the spinner is stopped (erased)
+  and the window takes its place; in a pipe the spinner _is_ the log, so the title
+  is not printed twice. `tasks()` settles an unsettled window itself, as success
+  or (on a throw) failure; a window the task settled itself is left alone.
+- **Not done:** concurrency, subtasks, retry, rollback, and a title that animates
+  while a window is open.

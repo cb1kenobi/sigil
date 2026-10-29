@@ -341,6 +341,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/12-autocomplete.js`](components/12-autocomplete.js)   | Type to filter a list, or search an async source          |
 | [`components/13-number.js`](components/13-number.js)               | A number prompt: range, steps, and the parser's reading   |
 | [`components/14-group.js`](components/14-group.js)                 | Prompts as one flow, and the session frame around them    |
+| [`components/15-tasks.js`](components/15-tasks.js)                 | A list of work, and a subprocess's output in a window     |
 | [`components/16-log.js`](components/16-log.js)                     | Leveled status lines, above whatever is repainting        |
 | [`components/17-note.js`](components/17-note.js)                   | A titled, bordered block in a state's colour              |
 | [`components/18-path.js`](components/18-path.js)                   | A text field that completes against the file system       |
@@ -415,6 +416,15 @@ empty stderr. So piped, it replays the same calls against a test terminal and
 prints the screen those calls produced, with the status line that arrived while the
 spinner was running sitting above where the spinner was. On a terminal it uses the
 real `log` and a real spinner.
+
+`15-tasks.js` runs a list under spinners and then a build under a window of its
+own output, spawning real node subprocesses so the lines arrive over time. The
+window shows the last six and collapses to one line when the build succeeds; the
+type check after it fails on purpose and keeps everything it printed, and the demo
+catches that one rejection by message so any other throw still fails it. Piped
+there is no window: each title, each line of output and each settled line is
+written once, so the success has all ten lines in the log and the failure has them
+plus the error.
 
 `10-qrcode.js` is the one where a pipe and a terminal get the **same bytes**. A
 scanner wants dark modules on a light background and a terminal already has a light

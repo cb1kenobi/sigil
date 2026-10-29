@@ -138,6 +138,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-autocomplete-match  .sigil-autocomplete-status
  *   .sigil-path  .sigil-path-list  .sigil-path-row  .sigil-path-pointer
  *   .sigil-path-label  .sigil-path-empty
+ *   .sigil-tasklog  .sigil-tasklog-line
  *   .sigil-debug-head  .sigil-debug-title  .sigil-debug-stats
  *   .sigil-debug-log  .sigil-debug-list  .sigil-debug-entry
  *   .sigil-log  .sigil-log-symbol  .sigil-log-body  .sigil-log-text

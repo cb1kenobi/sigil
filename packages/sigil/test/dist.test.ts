@@ -207,6 +207,7 @@ describe('what importing the package costs', () => {
     'commandPalette',
     'noteView',
     'logView',
+    'taskLog',
   ];
 
   /** The bundles in a graph that define any of them. */
