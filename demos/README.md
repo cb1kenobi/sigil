@@ -347,7 +347,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/18-path.js`](components/18-path.js)                   | A text field that completes against the file system       |
 | [`components/19-date.js`](components/19-date.js)                   | A date prompt: segments you step or type into             |
 | [`components/20-key-help.js`](components/20-key-help.js)           | A key-help footer read off the bindings themselves        |
-| [`components/21-sort.js`](components/21-sort.js)                   | A sort prompt: pick a row up, carry it, put it down       |
+| [`components/43-sort.js`](components/43-sort.js)                   | A sort prompt: pick a row up, carry it, put it down       |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -511,7 +511,7 @@ screen after each step, so a pipe shows Tab completing a shared prefix, a lone
 directory taking its separator, and the highlight walking the list. On a terminal
 it asks for a config file and an output directory instead.
 
-`21-sort.js` is a prompt too, so piped it plays the same `sort()` against an
+`43-sort.js` is a prompt too, so piped it plays the same `sort()` against an
 in-process terminal and prints the screen after each key: a row picked up with
 Space and carried with the arrows, a pinned (`disabled`) row that stays where it
 is while the rows around it move past, and Home sending a carried row to the top.
