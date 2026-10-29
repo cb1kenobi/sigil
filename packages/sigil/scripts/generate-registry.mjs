@@ -87,12 +87,20 @@ const ENTRIES = [
     name: 'autocomplete',
   },
   {
+    desc: 'A multiselect with its choices under named groups, where a group ticks its children',
+    name: 'group-multiselect',
+  },
+  {
     desc: 'A path prompt: a text field that completes against the file system',
     name: 'path',
   },
   {
     desc: 'A sort prompt: pick a row up and move it to put a list in order',
     name: 'sort',
+  },
+  {
+    desc: 'A list prompt: one line split on a separator and returned as an array',
+    name: 'list',
   },
   {
     desc: 'A scrolling viewport with a scrollbar, keyboard, wheel and a draggable thumb',
