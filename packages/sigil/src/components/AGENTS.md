@@ -4862,11 +4862,61 @@ What is deliberately not done:
 
 - **Separators on `Choice`.** `select()` takes them; this prompt has no cursor to
   step over a heading and a filtered list of one has nothing to introduce.
-- **The multi-select variant**, which is its own ticket.
+- **The multi-select variant** is below, and is `autocompleteMultiselect()`.
 - **Highlighting source results.** A source's match is its own, and marking the
   term inside a label it did not match on would be marking nothing.
 - **Escape.** It does nothing, as in `text()` and `select()`; a prompt that
   answers `undefined` is the palette's, which is not asked for a value.
+
+### A searchable multiselect: ticks that outlive the filter
+
+SIG-167. `autocompleteMultiselect()` is in `autocomplete.ts` and is not a second
+implementation: both entry points are the one `search()`, and a `multi` argument
+is the whole of the difference. Two prompts that each read keys and manage a
+lookup would be two sets of answers about superseded lookups, which the entries
+above spend most of their length on. It is one registry entry for the same
+reason -- ejecting `autocomplete` brings both.
+
+- **Hidden ticks stay ticked, and are counted, not listed.** The ticks are a
+  `Map` of value to choice, outside the list: the list is rebuilt for every term
+  and a source hands back different rows each time, so a tick kept on a row would
+  be lost with the row. The line under the list says `Selected: 3, 1 not shown`,
+  and the names are not on it -- a long selection would take the screen, and the
+  count is what says the answer is not what is in view. `min` and `max` count the
+  hidden ones: the answer is the ticks, and the screen is a view of them.
+- **Space toggles and is not typed.** A space cannot be typed into the field. The
+  alternative was a different toggle key, and every one was a letter (typed), a
+  chord the terminal may eat, or Tab (which completes a label here, and is the
+  one key a filtered list needs for it). A pasted term still takes spaces, and
+  fuzzy matching does not need one -- `newj` finds `new jersey`.
+- **A tick is keyed by `value`, compared as `Map` compares.** A static list's
+  choices are stable objects, but a source's are new ones on every call, so
+  identity would tick one lookup's `react` and not the next's. Two rows with one
+  value are one choice. A source that returns object values built fresh each time
+  is not recognised, and the README tells it to give the choice a primitive.
+- **The answer is in list order for `choices` and in tick order for a `source`.**
+  `multiselect()` answers in list order, which this keeps where a list exists; a
+  source has none, and an order derived from the last lookup would change with
+  the term.
+- **`selected` is read from `choices` only.** A source is asked again on every
+  keystroke, so honouring it there would tick a row again after it was unticked.
+- **Space waits for a lookup in flight, and Enter does not.** The rows on screen
+  belong to an earlier term while one is out, and ticking one is answering from
+  it -- the rule Enter already follows in `autocomplete()`. Here Enter confirms
+  the ticks, which no lookup can change, so there is nothing to wait for.
+- **The line under the list is one line more than `autocomplete()` keeps back**,
+  for the tally. It shows the key hint while nothing is ticked, which is
+  `multiselect()`'s own string and so already translated.
+- **`validate` takes the array.** It runs after `min` and `max`; a refusal is
+  shown on the foot line and the prompt stays open.
+
+What is deliberately not done:
+
+- **Select all, invert, and a toggle-all key.** `multiselect()` has `a` and `i`;
+  here those are letters in the field, and a select-all over a list the term has
+  narrowed is ambiguous between the rows shown and the whole list. A caller who
+  wants everything passes `selected: true`.
+- **Listing the hidden selections.** See above.
 
 ### A path prompt: a text field that completes against the file system
 

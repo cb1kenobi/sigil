@@ -135,7 +135,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-key-help-sep  .sigil-key-help-more  .sigil-key-help-group
  *   .sigil-key-help-row
  *   .sigil-autocomplete  .sigil-autocomplete-list  .sigil-autocomplete-label
- *   .sigil-autocomplete-match  .sigil-autocomplete-status
+ *   .sigil-autocomplete-match  .sigil-autocomplete-status  .sigil-autocomplete-tally
  *   .sigil-path  .sigil-path-list  .sigil-path-row  .sigil-path-pointer
  *   .sigil-path-label  .sigil-path-empty
  *   .sigil-tasklog  .sigil-tasklog-line

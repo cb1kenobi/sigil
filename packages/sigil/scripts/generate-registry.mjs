@@ -83,7 +83,7 @@ const ENTRIES = [
     name: 'prompt',
   },
   {
-    desc: 'An autocomplete prompt: type to filter a list, or search an async source',
+    desc: 'autocomplete() and autocompleteMultiselect(): type to filter a list, or search an async source',
     name: 'autocomplete',
   },
   {

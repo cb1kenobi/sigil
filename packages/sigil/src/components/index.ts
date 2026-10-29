@@ -15,7 +15,13 @@ export {
   type Ranked,
   rankBy,
 } from './fuzzy.js';
-export { autocomplete, type AutocompleteOptions, type AutocompleteSource } from './autocomplete.js';
+export {
+  autocomplete,
+  autocompleteMultiselect,
+  type AutocompleteMultiselectOptions,
+  type AutocompleteOptions,
+  type AutocompleteSource,
+} from './autocomplete.js';
 export {
   checkSlotValue,
   commandPalette,

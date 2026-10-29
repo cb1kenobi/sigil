@@ -3040,6 +3040,46 @@ await autocomplete({ message: 'Package', source: debounced(search, 150) });
 
 It rejects with `PromptError` where there is no terminal, like the others.
 
+#### Autocomplete multiselect
+
+```js
+import { autocompleteMultiselect } from '@ttylabs/sigil/components';
+
+const regions = await autocompleteMultiselect({
+  message: 'Regions',
+  choices: ['us-east-1', 'us-west-2', 'eu-central-1', 'ap-south-1'],
+  required: true,
+  max: 3,
+});
+// ['us-east-1', 'eu-central-1']
+```
+
+`autocomplete()` with a tick box on each row, for an answer that is several of them.
+It takes the same `choices` or `source`, `initial`, `placeholder` and `rows`, and
+`required`, `min` and `max` as `multiselect()` does.
+
+**Space ticks or unticks the highlighted choice, and Enter confirms what is ticked**
+— not the highlighted row. That makes Space a key rather than a character, so a space
+cannot be typed into the field; one in a pasted term goes in. Tab still copies the
+highlighted label into the field.
+
+**Ticks survive the term changing.** They belong to the choices, not to the list on
+screen, so narrowing the list past a ticked choice does not untick it, and Enter
+answers with it all the same. The line under the list says how many are ticked and how
+many of those the term is hiding (`Selected: 3, 1 not shown`); clearing the term brings
+the rows back with their ticks. `min` and `max` count the hidden ones too.
+
+A choice is ticked **by its `value`**, compared as a `Map` compares keys — strings and
+numbers, or the same object. A `source` that builds a new object for the same thing on
+every lookup should give the choice a primitive `value`. The answer is in the order of
+`choices`; for a `source`, which has no order to speak of, it is the order they were
+ticked in. `selected: true` starts a choice ticked in `choices` and is ignored in a
+source's results, which are asked for again on every keystroke and would otherwise tick
+it again after it was unticked. `validate` is handed the array of values. As with
+`autocomplete()`, a `disabled` choice is left out, and Space waits for a lookup in
+flight (the rows on screen belong to an earlier term) while Enter does not (it answers
+with what is ticked).
+
 #### A path
 
 ```js
