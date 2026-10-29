@@ -347,7 +347,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/18-path.js`](components/18-path.js)                   | A text field that completes against the file system       |
 | [`components/19-date.js`](components/19-date.js)                   | A date prompt: segments you step or type into             |
 | [`components/20-key-help.js`](components/20-key-help.js)           | A key-help footer read off the bindings themselves        |
-| [`components/21-select-key.js`](components/21-select-key.js)       | Choose by pressing a key: numbered, and expanded on `h`   |
+| [`components/42-select-key.js`](components/42-select-key.js)       | Choose by pressing a key: numbered, and expanded on `h`   |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -357,7 +357,7 @@ it has nobody to type, so it replays Tab and `?` through the testing terminal an
 prints the footer after each, including a 24-column step where the
 lowest-priority keys go first and the line ends in `…`.
 
-`21-select-key.js` is a prompt, so a pipe cannot answer it: piped, it plays the same
+`42-select-key.js` is a prompt, so a pipe cannot answer it: piped, it plays the same
 prompts against an in-process terminal from `@ttylabs/sigil/testing` and prints the
 screen after each key. A key nobody has changes nothing and a capital is the same
 key as the small letter; the numbered list keeps a `q` of its own beside 1 to 4;

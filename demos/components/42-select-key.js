@@ -1,7 +1,7 @@
 /**
  * Choosing by pressing a key: `selectKey()`, with its numbered and expanded forms.
  *
- *   node demos/components/21-select-key.js
+ *   node demos/components/42-select-key.js
  *
  * In a terminal there are three questions. The first lists its choices and
  * answers the moment a key is pressed -- `o`, `s` or `d`, and capitals count. The
