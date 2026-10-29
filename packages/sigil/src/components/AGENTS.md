@@ -5123,3 +5123,74 @@ the window a task writes a subprocess's output to. SIG-161.
   or (on a throw) failure; a window the task settled itself is left alone.
 - **Not done:** concurrency, subtasks, retry, rollback, and a title that animates
   while a window is open.
+
+### A select-by-key prompt: `selectKey()`, numbered, and expanded
+
+SIG-170. `src/components/select-key.ts` is one prompt for what Clack calls
+`selectKey` and Inquirer calls `rawlist` and `expand`. `select()` is untouched.
+
+- **One prompt with two options, rather than three functions.** The three differ
+  in what is drawn and not in how a key is read: every one of them answers when a
+  choice's key is pressed. `numbered` is where the keys come from (the position,
+  for a choice that gave none) and `expand` is whether the list is drawn up front
+  or after `h`. Three entry points would be three copies of the collision rules,
+  and a caller could not ask for a numbered list that expands.
+- **A key is one code point, and case does not tell two apart.** `y` and `Y` are
+  one key, which is how `confirm()` has always read them, and matching is
+  `toLowerCase()` rather than the locale's for `camelCase()`'s reason (Turkish
+  `I`). A case-sensitive prompt would let `a` and `A` mean different things in a
+  list whose hint shows one of them as a capital, and the capital is already
+  spoken for: it marks the key Enter takes. **One code point, not one grapheme**:
+  the decoder reads a flag in two pieces as two keys, so a key declared that way
+  could never be pressed, and it is refused with the rest rather than accepted
+  and unreachable. Whitespace and control characters are refused as keys Enter,
+  Tab and Space already are.
+- **A bad list is refused where the prompt is asked.** A `PromptError` that names
+  the choices -- two with one key, a key that is not one character, no key without
+  `numbered`, a tenth unkeyed numbered choice, an `initial` that is not on offer --
+  as `number()` refuses a bad `step`. "First wins" was the other answer and it
+  hides a choice nobody can reach until somebody presses its key. The check
+  includes a **disabled** choice's key: it is not pressable, but enabling it
+  later must not turn a working list into a refused one.
+- **Numbers are positions among the choices, headings not counted and disabled
+  choices counted.** A number that moved when something was disabled would make
+  `3` mean a different thing on the same screen from one run to the next. Only
+  nine fit in a digit, so the tenth unkeyed choice is refused and says so; a key
+  of its own is the way out, and an explicit key that equals another choice's
+  number is an ordinary collision.
+- **`h` and `?` are kept only with `expand`.** Both are help, `?` being what a
+  reader tries and `h` being what Inquirer shows. A choice may not use either
+  while `expand` is set, and may use both when it is not. The `expand` line is
+  `(y/n/a/d/h)`: only keys that work are in it, so a disabled choice's key is
+  left out, and the key Enter takes is the capital, as in `(Y/n)`. Once the list is
+  drawn the line goes -- it would be the same keys twice.
+- **There is no cursor, so Enter takes `initial` or nothing.** `initial` is a key
+  and not an index, because the list is addressed by key everywhere else; a
+  highlighted row that arrows moved would be a second way to answer that the hint
+  does not name. Without `initial` Enter does nothing. The pointer column is on
+  every row either way, hidden where it does not point, so the labels sit where
+  `select()`'s do.
+- **A disabled choice's key does nothing.** It is not in the lookup, so there is
+  no case for it: the row shows the reason, or `disabled` through `__`, which is
+  the string `select()` already carries.
+- **`description` and `selected` are off the type.** There is no highlighted
+  choice to describe and nothing to tick, and a property the prompt reads nowhere
+  is one the type should not name. `KeyChoice` is `Choice` without them plus
+  `key`.
+- **i18n adds no catalog key.** The only text the prompt draws that is not the
+  caller's is `disabled`, which is already a key; the refusals are plain English
+  like `number()`'s. What is **not** translatable is `h`: `confirm()`'s keys come
+  out of a catalog entry (`confirmKeys()`), and a help key would need the same
+  mechanism and the same rule about what English is still accepted, for one key.
+  Left for whoever translates the prompts' keys further.
+
+What is deliberately not done:
+
+- **A list taller than the screen.** The canvas clips it, and a key in the clipped
+  part still answers. This prompt is for a list short enough to hold in the head;
+  `select()` windows because it is for the other kind, and a window here would be
+  a cursor by another name.
+- **Multi-key choices and a key that is a modified key.** `ctrl-d` is not one
+  character, and a modifier makes it a different key, as it does everywhere else.
+- **A case-sensitive mode.** If an app wants `a` and `A` apart it can say so
+  with a flag; nothing here needed it.

@@ -34,6 +34,12 @@ export {
   outro,
 } from './group.js';
 export { number, type NumberOptions } from './number.js';
+export {
+  type KeyChoice,
+  type KeyChoiceEntry,
+  selectKey,
+  type SelectKeyOptions,
+} from './select-key.js';
 export { path, type PathOptions } from './path.js';
 export {
   type Choice,

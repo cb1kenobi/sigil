@@ -2845,6 +2845,50 @@ already are), `i` flips each one, and Ctrl-A is `a` still. Enter checks `min` an
 Neither is checked while ticking, so a `max` of 3 does not stop the fourth Space,
 only the Enter.
 
+#### Choosing by a key
+
+```js
+import { selectKey } from '@ttylabs/sigil/components';
+
+const action = await selectKey({
+  message: 'File exists',
+  choices: [
+    { key: 'o', label: 'Overwrite', value: 'overwrite' },
+    { key: 's', label: 'Skip', value: 'skip' },
+    { key: 'd', label: 'Show the diff', value: 'diff' },
+  ],
+});
+```
+
+For a short list the person already knows, where arrowing to a row is slower than
+the letter they were going to press. Pressing a choice's `key` answers at once;
+there is no cursor, so Up, Down and Space do nothing. It is Clack's `selectKey`,
+and two options make it Inquirer's other two:
+
+| Option     | Meaning                                                                       |
+| ---------- | ----------------------------------------------------------------------------- |
+| `choices`  | `{ key, label, value, hint, short, disabled }`, a `separator()`, or a string  |
+| `numbered` | A choice with no `key` gets its place in the list, `1` to `9` (`rawlist`)     |
+| `expand`   | Show `(y/n/a/d/h)` and the list only after `h` or `?` is pressed (`expand`)   |
+| `initial`  | The key Enter takes. Marked in the list, and the capital in the `expand` line |
+
+A key is **one character and case does not matter**: `S` answers for `s`, and
+`y` and `Y` are one key, so two choices that differ only by case are refused. The
+list is checked where the prompt is asked and not when a key is pressed: two
+choices sharing a key, a key that is not a single character, a choice with no key
+when the prompt is not `numbered`, a tenth unkeyed choice (there is no single
+digit for it), or an `initial` that is not the key of a choice on offer each
+reject with a `PromptError` that names the choice. `expand` keeps `h` and `?`, so
+a choice may not use either; without `expand` they are ordinary keys.
+
+A `disabled` choice stays in the list with its reason where a hint would be, its
+key does nothing, and it keeps its number so the others do not shift. A
+`description` and `selected` do not apply -- there is no highlighted choice to
+describe and nothing to tick -- and are not on its type. The answer is a
+choice's `value`, or its label when it has none, and the log keeps its `short` if
+it has one. It rejects with `PromptError` where there is no terminal, like the
+others.
+
 #### A multiline answer
 
 ```js
