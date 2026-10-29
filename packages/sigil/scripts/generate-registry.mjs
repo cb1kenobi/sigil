@@ -91,6 +91,10 @@ const ENTRIES = [
     name: 'path',
   },
   {
+    desc: 'A sort prompt: pick a row up and move it to put a list in order',
+    name: 'sort',
+  },
+  {
     desc: 'A scrolling viewport with a scrollbar, keyboard, wheel and a draggable thumb',
     name: 'scroll-box',
   },

@@ -3083,6 +3083,48 @@ read -- missing, not a directory, no permission -- simply has no candidates.
 This is the field. A picker that browses the tree is a different widget and is not
 here.
 
+#### Sort
+
+```js
+import { sort } from '@ttylabs/sigil/components';
+
+const order = await sort({
+  message: 'Run the steps in this order',
+  choices: ['lint', 'build', 'test', 'deploy'],
+});
+// ['lint', 'test', 'build', 'deploy']
+```
+
+For an answer that is a permutation rather than a choice: a priority list, a
+build order, the order middleware runs in. It starts from the order `choices`
+is in and returns every value, **in the order the person left them**.
+
+**Space picks the highlighted row up, Up and Down then carry it** (the highlight
+goes along), and Space puts it down; with nothing in hand Up and Down move the
+highlight, wrapping unless `loop: false`. Home and End send a carried row to the
+top or the bottom and Page Up and Page Down carry it a screen at a time; with
+nothing in hand they move the highlight. **Enter answers** whether or not a row
+is still in hand, so it stays where it was carried to. Alt or Shift with Up or
+Down moves a row one place without picking it up, for a hand that knows the keys.
+A carried row stops at either end rather than wrapping.
+
+A choice marked `disabled` is **pinned**: it keeps its place in the list, the
+highlight steps over it, it cannot be picked up, and the rows around it move past
+it. It is still in the answer, in its place. A list with nothing that can be moved
+is refused the way an empty one is.
+
+| Option    | Meaning                                                                  |
+| --------- | ------------------------------------------------------------------------ |
+| `message` | What is being asked                                                      |
+| `choices` | What to put in order, as strings or `Choice`s, in the order it starts in |
+| `initial` | Which row starts highlighted, by index into `choices`                    |
+| `loop`    | Whether the highlight wraps. Default `true`                              |
+| `rows`    | How many rows the list may take. Default: what the terminal has left     |
+
+The rows are numbered, and a list longer than the screen is windowed to follow
+the highlight. It rejects with `PromptError` where there is no terminal, like the
+others.
+
 #### Spinner
 
 ```js

@@ -5123,3 +5123,54 @@ the window a task writes a subprocess's output to. SIG-161.
   or (on a throw) failure; a window the task settled itself is left alone.
 - **Not done:** concurrency, subtasks, retry, rollback, and a title that animates
   while a window is open.
+
+### A sort prompt: pick a row up, carry it, put it down
+
+SIG-173. `src/components/sort.ts` is `sort(opts): Promise<T[]>`, for an answer that
+is a permutation rather than a choice. It is a list prompt in the shape
+`autocomplete()` already is -- `runPrompt()`, rows rebuilt per draw for the
+window, `listWindow()` -- with no field, because nothing is typed.
+
+- **Grab and carry, not modifier-arrows, is the model.** Space picks the
+  highlighted row up, Up and Down move _it_ (the highlight goes along), Space puts
+  it down. The ticket asked which; a modifier chord is the one a terminal cannot
+  be relied on for -- Shift-Up scrolls some emulators' scrollback and Alt-Up is
+  eaten by some window managers -- while Space and the plain arrows reach every
+  one. So the grab is the model and is what the hint line teaches. Shift or Alt
+  with an arrow is _also_ read as a one-place move without a grab, since the key
+  decoder already carries the flags and the cost is one boolean; it is a shortcut
+  and the documentation does not lean on it.
+- **The answer is the values, in order, not indices.** The ticket's other
+  question. Indices make the caller index back into a list they just passed in, and
+  a `Choice` without a `value` answers with its label as everywhere else
+  (`promptValue()`). A caller that wants indices passes `value: index`.
+- **Enter answers whether or not a row is in hand.** A row mid-carry stays where
+  it was carried to. The alternative -- Enter drops, a second Enter answers --
+  makes the commonest gesture (move one thing, confirm) a key longer for the sake
+  of a state nobody is confused by: the hint line changes while a row is held.
+- **A carried row never wraps; the highlight does (`loop`).** Carrying the first
+  row past the top and landing it last is a rotation, not a step, and a stray key
+  would do it with no way to see what happened. Home and End are how a row goes to
+  an end on purpose.
+- **A `disabled` choice is pinned, not left out.** `autocomplete()` leaves one out
+  because it has a filtered list to leave it out of; here the answer is a
+  permutation, and dropping a row from a permutation is a different claim than
+  holding one still. A pinned row keeps its index, the highlight steps over it,
+  it cannot be picked up, and it is in the answer where it was. Implemented by
+  lifting the choices out of the movable places (`slots`, the indices of the rows
+  that are not pinned), reordering _them_, and putting them back, so a carried row
+  jumping a pinned one is the same operation as moving one place. A list with no
+  movable row is refused as an empty one is. The reason shows where a hint would,
+  as in `select()`.
+- **Separators are not accepted.** The ticket says `Choice[]`, and a heading in a
+  list being reordered would have to say which side of a move it belongs to.
+- **Rows are numbered**, padded to the widest place, because the point of the
+  prompt is the position: "which is third" should not need counting.
+- **The head reserves room for the longer of its two hints.** The grab hint and
+  the drop hint are different lengths and swapping one for the other must not make
+  the head taller than `room()` believed, which would push the last row off the
+  screen -- the failure `headWidths()` documents for the multiselect hint.
+
+What is deliberately not done: an Escape that puts a carried row back where it
+was picked up (Escape does nothing in any prompt here), a `validate`, and a
+`min`/`max` -- there is no count to constrain in a permutation.
