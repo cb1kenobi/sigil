@@ -3073,6 +3073,44 @@ await autocomplete({ message: 'Package', source: debounced(search, 150) });
 
 It rejects with `PromptError` where there is no terminal, like the others.
 
+#### A list
+
+```js
+import { list } from '@ttylabs/sigil/components';
+
+const tags = await list({ message: 'Tags', initial: ['cli', 'node'] });
+const hosts = await list({ message: 'Hosts', separator: /[\s,]+/ });
+```
+
+One line, split on a separator and returned as a `string[]` -- what a set of tags
+or hostnames wants, and a poor fit for `multiselect()`, which needs every option
+known in advance. The field is the line `text()` draws, shown exactly as typed; it
+is read as a list when Enter is pressed, and the settled line shows the entries.
+
+| Option        | Meaning                                                                          |
+| ------------- | -------------------------------------------------------------------------------- |
+| `message`     | What is being asked                                                              |
+| `separator`   | A string (matched literally) or a `RegExp`. Default `','`                        |
+| `initial`     | What the field starts with: a string as it is, or an array joined by `separator` |
+| `default`     | An array answered when the line holds no entries; shown dimmed when it is empty  |
+| `placeholder` | Shown dimmed while the field is empty, in place of `default`                     |
+| `validate`    | Receives the entries; return a string to reject the answer with that message     |
+
+Every entry is **trimmed**, and an entry with nothing left in it is **dropped**:
+`'a, b,, c,'` is `['a', 'b', 'c']`, and `' , ,'` is `[]` rather than `['']`. Repeated
+entries are kept, and there is no quoting -- an entry cannot contain its own
+separator. An empty line answers `default` if there is one, and `[]` if not;
+`validate` is where a minimum or a maximum number of entries is enforced.
+
+A `RegExp` separator is matched wherever it matches, so `/[\s,]+/` takes commas and
+spaces alike. Its `g` and `y` flags are ignored, a match with nothing in it is not a
+separator, and a capture group is not an entry. An empty-string separator rejects
+the prompt, as does an `initial` array that would not come back out of its own line
+(an entry holding the separator, say). `splitList(line, separator)` and
+`joinList(items, separator)` are exported for applying the same rule to a value that
+did not come from a prompt. A pasted block is flattened onto the line, like
+`text()`'s.
+
 #### A path
 
 ```js

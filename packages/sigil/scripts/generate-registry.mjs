@@ -95,6 +95,10 @@ const ENTRIES = [
     name: 'path',
   },
   {
+    desc: 'A list prompt: one line split on a separator and returned as an array',
+    name: 'list',
+  },
+  {
     desc: 'A scrolling viewport with a scrollbar, keyboard, wheel and a draggable thumb',
     name: 'scroll-box',
   },

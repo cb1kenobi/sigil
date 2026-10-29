@@ -348,6 +348,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/19-date.js`](components/19-date.js)                           | A date prompt: segments you step or type into             |
 | [`components/20-key-help.js`](components/20-key-help.js)                   | A key-help footer read off the bindings themselves        |
 | [`components/21-group-multiselect.js`](components/21-group-multiselect.js) | A multiselect with its choices under named groups         |
+| [`components/21-list.js`](components/21-list.js)                           | A list prompt: one line, split, returned as an array      |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -433,6 +434,12 @@ catches that one rejection by message so any other throw still fails it. Piped
 there is no window: each title, each line of output and each settled line is
 written once, so the success has all ten lines in the log and the failure has them
 plus the error.
+
+`21-list.js` is a prompt too, so it plays the same three prompts through
+`createTestTerminal()` and prints the screen after each key: an `initial` array
+edited and answered with the empty entries dropped, a regular expression taking
+commas and spaces alike, and a `validate` that holds the answer to two entries.
+On a terminal the prompts are asked for real.
 
 `10-qrcode.js` is the one where a pipe and a terminal get the **same bytes**. A
 scanner wants dark modules on a light background and a terminal already has a light

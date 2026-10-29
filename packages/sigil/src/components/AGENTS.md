@@ -4486,6 +4486,54 @@ everything in it is a decision about what it does _not_ own.
   accelerating, `round`, and a range hint on the question line -- the bound is
   named when it is broken, which is when a person needs it.
 
+### A list prompt: a line read as an array
+
+SIG-172. `src/components/list.ts` is `list(opts): Promise<string[]>`, and the
+ticket's three questions are answered here.
+
+- **The field is `text()`'s line, as typed -- not chips.** Chips would need the
+  line to be a list of widgets with a current one, and every editing key would mean
+  two things (move within an entry, move between entries). The line is what a
+  person types and fixes with the keys they already know, and the settled answer
+  line shows the entries as read. A chip field is a different widget and is not
+  here. The field is the registry-capable one (`promptWindow()` and the shared
+  editing helpers), so `list` is a registry entry, unlike `number`.
+- **A separator is a string or a `RegExp`, both.** A string is matched literally
+  (`'.'` is a dot), a pattern is matched wherever it matches, and `/[\s,]+/` is why
+  the pattern is worth having: tags and hostnames are typed with commas, spaces or
+  both. `String.prototype.split()` is not used for a pattern, because a capture group
+  puts its captures into the result as entries and a pattern that can match nothing
+  splits between every character. `splitList()` scans with its own `g`-flagged copy
+  (so `g` and `y` on the caller's are ignored and its `lastIndex` is never touched)
+  and skips a match with nothing in it. An empty string separator is refused with a
+  `PromptError`, for the same reason.
+- **Trimmed, and an entry with nothing left is dropped, always.** There is no option
+  to keep either: `a,,b` giving `['a', '', 'b']` is a list with a hole that every
+  caller would have to filter, and whitespace around a comma is how the line is
+  written. An empty line is `[]`, never `['']`. Duplicates are kept -- the prompt
+  cannot tell a repeat that was meant from one that was not, and `new Set()` is one
+  expression for a caller who can.
+- **An empty answer is `default`, or `[]`, and "empty" is the entries.** `' , ,'` has
+  no entries and takes the default like the empty string, since the default is for
+  nothing. The answer is a copy of `default`, and `validate` is given it.
+  `validate` receives the entries; a minimum or maximum count is `validate`'s job
+  rather than two more options, which is also how `path()` leaves "must exist".
+- **`initial` is a string or an array, and an array must survive its own line.** A
+  string is the line. An array is joined (`joinList()`: the separator and a space,
+  `', '` for a pattern) and then split again: if that does not give the same array
+  -- an entry holding the separator, an empty entry, space around an entry, a
+  pattern that does not take `', '` -- the prompt rejects with a `PromptError`
+  rather than showing a list the first Enter would change.
+- **No quoting, no escape.** An entry cannot contain its own separator. A caller who
+  needs one picks another separator; quoting rules are a parser in a text field.
+- **A paste is `pastedLine()`'s**: line breaks become spaces, so a block pasted one
+  host per line with a comma separator is one entry. Turning breaks into the
+  separator is possible for a string and not for a pattern, and a rule that holds for
+  one of the two is the kind this file avoids.
+
+Deliberately not done: chips; `min`/`max`/`unique`/`required` options; quoting;
+completion; and a pasted block's line breaks as separators.
+
 ### Prompt flows: `group()`, and the session frame
 
 SIG-160. `src/components/group.ts` is the whole of it: `group()`, `isCancel()`,
