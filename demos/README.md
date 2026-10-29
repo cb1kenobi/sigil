@@ -347,9 +347,9 @@ waits for it rather than reporting a silence that is not one.
 | [`components/18-path.js`](components/18-path.js)                     | A text field that completes against the file system        |
 | [`components/19-date.js`](components/19-date.js)                     | A date prompt: segments you step or type into              |
 | [`components/20-key-help.js`](components/20-key-help.js)             | A key-help footer read off the bindings themselves         |
-| [`components/21-multi-progress.js`](components/21-multi-progress.js) | Several progress bars at once, each with a rate and an ETA |
+| [`components/44-multi-progress.js`](components/44-multi-progress.js) | Several progress bars at once, each with a rate and an ETA |
 
-`21-multi-progress.js` runs four simulated downloads through one
+`44-multi-progress.js` runs four simulated downloads through one
 `createMultiProgress()`, adding the bars a quarter second apart and finishing each
 on its own. On a terminal each row carries a rate and a time remaining; piped,
 every bar writes its own labelled line every 25 percent and no rate, which would
