@@ -2,6 +2,7 @@ import { loadCommand } from '../../src/parser/command/load-command.js';
 import { parse } from '../../src/parser/parse.js';
 import { Argument, Internal } from '../../src/types.js';
 import { camelCase } from '../../src/util/camel-case.js';
+import { daysInMonth } from '../../src/util/transform.js';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1311,6 +1312,82 @@ describe('regressions', () => {
       const result = await parse({ schema: { args: ['a', 'b'] } });
       expect(result.argv).to.deep.equal({});
     });
+  });
+
+  describe('daysInMonth and the first hundred years', () => {
+    // `Date.UTC` maps a year of 0 to 99 onto 1900 to 1999, and `daysInMonth()`
+    // asked it, so February of year 0 -- a leap year -- was counted with 1900's 28
+    // days and `0000-02-29` was refused, while `0100-02-29` is refused for the
+    // right reason. The rule is written out so that no year goes through a mapping
+    it.each([
+      [0, 29],
+      [4, 29],
+      [96, 29],
+      [99, 28],
+      [100, 28],
+      [400, 29],
+      [1900, 28],
+      [2000, 29],
+      [2023, 28],
+      [2024, 29],
+      [2100, 28],
+    ])('should count February of year %i as %i days', (year, days) => {
+      expect(daysInMonth(year, 2)).to.equal(days);
+    });
+
+    it.each([
+      [1, 31],
+      [3, 31],
+      [4, 30],
+      [5, 31],
+      [6, 30],
+      [7, 31],
+      [8, 31],
+      [9, 30],
+      [10, 31],
+      [11, 30],
+      [12, 31],
+    ])('should count month %i as %i days in year 0 as in any other', (month, days) => {
+      expect(daysInMonth(0, month)).to.equal(days);
+      expect(daysInMonth(2023, month)).to.equal(days);
+    });
+
+    it.each(['0000-02-29', '0004-02-29', '0096-02-29', '0400-02-29', '0096-02-29T10:00:00'])(
+      'should accept the leap day %s as a date',
+      async (value) => {
+        const result = await parse({
+          argv: ['--when', value],
+          schema: { options: { '--when <d>': { type: 'date' } } },
+        });
+        const when = result.argv.when as Date;
+        expect(when).to.be.instanceOf(Date);
+        expect(when.getMonth()).to.equal(1);
+        expect(when.getDate()).to.equal(29);
+      }
+    );
+
+    it.each(['0000-02-29', '0096-02-29'])(
+      'should read the leap day %s as a date in auto',
+      async (value) => {
+        const result = await parse({
+          argv: ['--when', value],
+          schema: { options: { '--when <d>': { type: 'auto' } } },
+        });
+        expect(result.argv.when).to.be.instanceOf(Date);
+      }
+    );
+
+    it.each(['0001-02-29', '0099-02-29', '0100-02-29', '0300-02-29'])(
+      'should still reject %s, which is not a leap day',
+      async (value) => {
+        await expect(
+          parse({
+            argv: ['--when', value],
+            schema: { options: { '--when <d>': { type: 'date' } } },
+          })
+        ).rejects.toThrow(`Invalid date: "${value}"`);
+      }
+    );
   });
 
   describe('auto and a date that does not exist', () => {

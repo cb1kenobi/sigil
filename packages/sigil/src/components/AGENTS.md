@@ -4645,10 +4645,11 @@ from year, month and day segments, with the hour, minute and second added by
   sabotage that bypasses the call survives a behavioural suite. `date-parser.test.ts`
   mocks `transformValue()` and asserts the text it is given and that the answer is
   what it returns, and that a throw from it is the error line rather than an
-  escape. The year `0000` has no 29 February in the parser's `daysInMonth()`
-  (`Date.UTC` maps years 0-99 to 1900-1999, and 1900 is not a leap year), so the
-  prompt cannot reach it either; it agrees with the parser by sharing the
-  function, and fixing it is the parser's.
+  escape. The year `0000` used to have no 29 February in the parser's
+  `daysInMonth()` (`Date.UTC` maps years 0-99 to 1900-1999, and 1900 is not a
+  leap year), so the prompt could not reach it either; the parser's fix (the
+  leap rule written out, see the root `AGENTS.md`) reached the prompt for free,
+  because it agrees with the parser by sharing the function.
 - **Local time, with no offset, and no timezone option.** The text has no `Z` and
   no offset, which the parser reads as a local date-time, so the answer is the
   wall-clock time the person saw. The prompt reads `initial`, `min` and `max` back

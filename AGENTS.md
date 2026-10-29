@@ -560,7 +560,13 @@ These look like bugs and are not. Each is intentional and covered by tests.
   by reading the parts back off the `Date`: those getters are local while the
   value may be UTC, so `2024-06-15T00:00:00Z` is the 14th in Chicago and the
   15th in Auckland, and a round trip rejected real instants depending on where
-  it ran.
+  it ran. Nor is the length of a month asked of `Date.UTC`: it maps a year of
+  0 to 99 onto 1900 to 1999, so `daysInMonth()` counted February of year 0, a
+  leap year, with 1900's 28 days and refused `0000-02-29` on both `date` and
+  `auto`. It is the Gregorian rule written out now. Audited at the same time and
+  found clean: every other `Date` in the date path is built from a string or an
+  epoch, neither of which has the two-digit mapping, and the prompt takes its
+  month lengths from this function.
 - **A `date` has its clock checked as well as its calendar, and it takes a UTC
   offset.** The calendar check above stopped at the day, and hour `24` is the
   overflow the `Invalid Date` guard cannot see: `24` is a legal two-digit match

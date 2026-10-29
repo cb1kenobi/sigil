@@ -62,9 +62,15 @@ const YES = 'yes';
 const NO = 'no';
 
 /**
- * The number of days in a month, without asking the local time zone: day 0 of
- * the next month is the last day of this one, and `Date.UTC` keeps the
- * arithmetic out of wherever the process happens to be running.
+ * The number of days in a month, written out rather than asked of the engine.
+ *
+ * It was `new Date(Date.UTC(year, month, 0)).getUTCDate()`, and `Date.UTC` maps a
+ * year of 0 to 99 onto 1900 to 1999 -- so February of year 0, which is a leap
+ * year, was counted with 1900's 28 days and `0000-02-29` was refused. A calendar
+ * check that exists to be arithmetic, and independent of what the engine does
+ * with a year, cannot read the year through the one primitive that does
+ * something to it. The rule is the Gregorian one, proleptic, which is also the
+ * rule ECMAScript's `Date` follows for the full four digits `dateRE` admits.
  *
  * Exported for the `date()` prompt, which steps a day against the month it is in
  * and has to agree with the parser about how long that month is.
@@ -74,7 +80,10 @@ const NO = 'no';
  * @returns The last day of that month.
  */
 export function daysInMonth(year: number, month: number): number {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (month === 2) {
+    return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0 ? 29 : 28;
+  }
+  return month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31;
 }
 
 /**
