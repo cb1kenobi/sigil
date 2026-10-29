@@ -2845,6 +2845,39 @@ already are), `i` flips each one, and Ctrl-A is `a` still. Enter checks `min` an
 Neither is checked while ticking, so a `max` of 3 does not stop the fourth Space,
 only the Enter.
 
+#### Choices under groups
+
+```js
+import { groupMultiselect } from '@ttylabs/sigil/components';
+
+const features = await groupMultiselect({
+  message: 'Features',
+  choices: {
+    Frontend: ['React', 'Vue', { label: 'Svelte', selected: true }],
+    Backend: ['Express', { label: 'Fastify', value: 'fastify' }],
+  },
+  required: true,
+});
+```
+
+A `multiselect()` whose choices sit under named headings. The headings are rows of
+their own: **Space on a group ticks every choice under it**, or clears them if they
+are all ticked already, and its box is `◯` for none, `◐` for some and `◉` for all.
+The box is worked out from the choices, so ticking the last one by hand turns the
+group `◉`. A disabled choice is left alone by its group, and a group with nothing
+on offer is skipped by the cursor.
+
+The answer is a **flat array of the values**, in the order they are listed -- a group
+is a way of picking and is not itself picked. `choices` takes `Choice`s and plain
+strings (no separators: the groups are the headings), and `min`, `max`, `required`
+and `loop` mean what they mean in `multiselect()`; `min` and `max` count choices,
+not groups. `a` ticks every choice and `i` flips each one.
+
+`selectableGroups: false` makes a heading only a heading: the cursor steps over it
+and only the choices under it can be ticked. Groups are listed in the order the
+object holds them, which for JavaScript means a group named like an array index
+(`'1'`) comes before the rest.
+
 #### A multiline answer
 
 ```js

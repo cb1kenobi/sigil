@@ -33,6 +33,7 @@ export {
   isCancel,
   outro,
 } from './group.js';
+export { groupMultiselect, type GroupMultiselectOptions } from './group-multiselect.js';
 export { number, type NumberOptions } from './number.js';
 export { path, type PathOptions } from './path.js';
 export {
