@@ -347,7 +347,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/18-path.js`](components/18-path.js)                   | A text field that completes against the file system       |
 | [`components/19-date.js`](components/19-date.js)                   | A date prompt: segments you step or type into             |
 | [`components/20-key-help.js`](components/20-key-help.js)           | A key-help footer read off the bindings themselves        |
-| [`components/21-charts.js`](components/21-charts.js)               | A sparkline, bars, a braille line chart and a gauge       |
+| [`components/45-charts.js`](components/45-charts.js)               | A sparkline, bars, a braille line chart and a gauge       |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -357,7 +357,7 @@ it has nobody to type, so it replays Tab and `?` through the testing terminal an
 prints the footer after each, including a 24-column step where the
 lowest-priority keys go first and the line ends in `…`.
 
-`21-charts.js` prints every chart as a string, so a pipe and a terminal differ only in
+`45-charts.js` prints every chart as a string, so a pipe and a terminal differ only in
 colour: the sparklines take the `accent` role, the gauge changes role at its
 thresholds, and `NO_COLOR=1` leaves the shapes, which carry the data. The last
 section is the same charts with `ascii: true`, which is what a Linux console or
