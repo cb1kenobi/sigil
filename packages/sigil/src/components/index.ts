@@ -22,6 +22,14 @@ export {
   type PaletteOptions,
   type PaletteResult,
 } from './palette.js';
+export {
+  calendar,
+  type CalendarGridOptions,
+  type CalendarOptions,
+  calendarView,
+  pickDate,
+  type PickDateOptions,
+} from './calendar.js';
 export { date, type DateOptions } from './date.js';
 export {
   cancel,

@@ -17,6 +17,7 @@ import { box, type Element, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { daysInMonth, transformValue } from '../util/transform.js';
+import { addMonths, calendarGrid, type CalendarGridOptions, dayKey } from './calendar.js';
 import { typedText } from './editing.js';
 import {
   promptAnswered,
@@ -29,6 +30,13 @@ import {
 } from './prompt.js';
 
 export interface DateOptions extends PromptOptions {
+  /**
+   * Shows a month grid under the field, with the day the field holds selected.
+   * `true` takes the defaults; an object also names the language, the weekday a
+   * row starts on and the days to mark. Page Up and Page Down then change the
+   * month.
+   */
+  calendar?: boolean | CalendarGridOptions;
   /** Shows the hour and minute as well. Defaults to `false`: a date. */
   time?: boolean;
   /** Shows the second too, which implies `time`. Defaults to `false`. */
@@ -213,6 +221,9 @@ export function date(opts: DateOptions): Promise<Date> {
     }
 
     const field = box({ class: 'sigil-prompt-field' }, ...children);
+    const grid = opts.calendar
+      ? calendarGrid(opts.calendar === true ? {} : opts.calendar, 2)
+      : undefined;
     // reserved at its widest, so the head gives the field the room it will need
     const head = promptHeadWidths(
       opts.message,
@@ -224,6 +235,7 @@ export function date(opts: DateOptions): Promise<Date> {
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
+      ...(grid ? [grid.element] : []),
       box({ 'padding-left': 2 }, complaint)
     );
 
@@ -267,8 +279,23 @@ export function date(opts: DateOptions): Promise<Date> {
       put(f, wrapped);
     }
 
+    /** Moves the month, keeping the day where the month is long enough. */
+    function page(months: number): void {
+      commit();
+      const next = addMonths(parts, months);
+      parts = bounded({ ...parts, day: next.day, month: next.month, year: next.year });
+    }
+
     function draw(): void {
       setPromptNote(complaint, error);
+      grid?.update({
+        max: max && dayKey(max),
+        min: min && dayKey(min),
+        month: parts.month,
+        selected: dayKey(parts),
+        stable: true,
+        year: parts.year,
+      });
 
       fields.forEach((f, i) => {
         const node = segments.get(f)!;
@@ -319,6 +346,8 @@ export function date(opts: DateOptions): Promise<Date> {
           step(1);
         } else if (k.name === 'down') {
           step(-1);
+        } else if (grid && (k.name === 'pageup' || k.name === 'pagedown')) {
+          page(k.name === 'pageup' ? -1 : 1);
         } else if (k.name === 'backspace') {
           pending = '';
         } else {
@@ -347,6 +376,7 @@ export function date(opts: DateOptions): Promise<Date> {
           node.setProps({ class: 'sigil-prompt-answer sigil-muted' });
         }
         setPromptNote(complaint, undefined);
+        grid?.element.setProps({ display: 'none' });
       },
 
       view,

@@ -347,6 +347,17 @@ waits for it rather than reporting a silence that is not one.
 | [`components/18-path.js`](components/18-path.js)                   | A text field that completes against the file system       |
 | [`components/19-date.js`](components/19-date.js)                   | A date prompt: segments you step or type into             |
 | [`components/20-key-help.js`](components/20-key-help.js)           | A key-help footer read off the bindings themselves        |
+| [`components/21-calendar.js`](components/21-calendar.js)           | A month grid: printed, picked from, or under a date field |
+
+`21-calendar.js` prints three months first -- a selected day in `[]`, highlighted
+days with a `*`, a Monday start in German and a leap February in French -- which is
+all `calendar()` is and works on a pipe. The prompts after it (`pickDate()`, and
+`date()` with `calendar: true`) have nobody to ask when piped, so it plays them
+against an in-process terminal from `@ttylabs/sigil/testing` and prints the grid
+after each key: a month change pulling the 31st back to the 29th, and a range
+holding the cursor at its edge. The month, language and week are pinned in the
+piped run so the output is the same anywhere; the answers it prints are
+`Date.toString()`, so the time zone in them is yours.
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the

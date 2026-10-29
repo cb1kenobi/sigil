@@ -139,6 +139,9 @@ export const FRAMEWORK_CSS = `
  *   .sigil-path  .sigil-path-list  .sigil-path-row  .sigil-path-pointer
  *   .sigil-path-label  .sigil-path-empty
  *   .sigil-tasklog  .sigil-tasklog-line
+ *   .sigil-calendar  .sigil-calendar-title  .sigil-calendar-weekdays
+ *   .sigil-calendar-week  .sigil-calendar-day  .sigil-calendar-highlight
+ *   .sigil-calendar-selected  .sigil-calendar-disabled
  *   .sigil-debug-head  .sigil-debug-title  .sigil-debug-stats
  *   .sigil-debug-log  .sigil-debug-list  .sigil-debug-entry
  *   .sigil-log  .sigil-log-symbol  .sigil-log-body  .sigil-log-text

@@ -208,6 +208,7 @@ describe('what importing the package costs', () => {
     'noteView',
     'logView',
     'taskLog',
+    'calendarView',
   ];
 
   /** The bundles in a graph that define any of them. */
