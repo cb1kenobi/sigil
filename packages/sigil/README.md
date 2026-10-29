@@ -3168,6 +3168,35 @@ the middle of `mycli --format json | jq`.
 `createLog({ terminal, ascii, symbols, quiet, theme })` builds one over another
 terminal; `log` is the process's. No timestamps and no structured fields yet.
 
+##### Streaming
+
+```js
+await log.stream.info(model.tokens()); // an async iterable of strings
+await log.stream.warn(child.stderr); // or of Buffers
+```
+
+`log.stream` has the same six methods, each taking text that has not all arrived:
+a string iterable, an async iterable, or `Uint8Array` chunks (decoded as UTF-8,
+with a character cut across two chunks put back together). It returns a promise
+that settles when the source is drained.
+
+- **A line is written as soon as it is final.** Text is wrapped to the terminal's
+  width as it comes; a line leaves once the next word proves it is full or a
+  newline ends it. The last line is held while the word on it may still be growing
+  and is written when the stream ends. Lines land above a spinner or bar exactly as
+  `log.info()` does, and the glyph leads the first line with the rest hanging under
+  its text.
+- **Chunks can be cut anywhere.** A word, an escape sequence (`ESC[3` then `1m`)
+  or a multi-byte character split between chunks wraps the same as the whole text
+  would. The text's own colours are kept, closed at the end of each line and
+  reopened on the next. Unlike `log.info()`, which draws its message in the
+  terminal's colour, a stream keeps the SGR it is given; a terminal with no colour
+  gets none.
+- A file is not wrapped, and a line ends where the text says it does.
+- A **quiet** run drains a stream and writes nothing, except for `warn` and
+  `error`. If the source throws, what arrived is written and the promise rejects
+  with that error.
+
 #### Tasks
 
 ```js

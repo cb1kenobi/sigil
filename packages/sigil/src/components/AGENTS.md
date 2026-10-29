@@ -5123,3 +5123,56 @@ the window a task writes a subprocess's output to. SIG-161.
   or (on a throw) failure; a window the task settled itself is left alone.
 - **Not done:** concurrency, subtasks, retry, rollback, and a title that animates
   while a window is open.
+
+### `log.stream`: log lines fed from an async iterable
+
+SIG-179. `src/components/log-stream.ts` is the wrapper and `createLog()` in
+`log.ts` owns the six `stream` methods. Neither `typewriter` nor the terminal
+changed.
+
+- **It is a feature of `log`, not of `typewriter`.** `typewriter` reveals a string
+  it already has, on a clock, as an element tree that repaints; a stream is a
+  source whose text is not there yet and has no pace of its own -- it writes what
+  arrived, when it arrived. The output is status lines (stderr, the glyph, quiet,
+  above a live region), which is `log`'s, so it is `log.stream.<level>()`, the shape
+  Clack has. A `typewriter` that takes an async source is a separate thing.
+- **Lines are written whole, once final, and never as a partial row.** A line that
+  is still growing cannot be written in place under a live region: `writeStatus()`
+  asks the holder to erase, write and repaint, and a row left half-written would
+  have the region repainted onto its end. So the unit of output is a finished,
+  wrapped line, through the same `writeStatus()` as `log.info()` -- no new terminal
+  seam. The cost is that a line appears when it is full and not word by word; the
+  alternative needs the terminal to know about a cursor parked mid-row.
+- **Wrapping calls `wrap()`.** `createStreamWrapper()` re-wraps the line being
+  built on every chunk and returns the lines that cannot change: `wrap()` is
+  greedy, so every line but the last is final however much follows. A second
+  wrapper whose idea of a break could drift from the first's was the thing to
+  avoid, and the price is a re-wrap per chunk of one line (a paragraph, since a
+  newline in the text ends it). `test/components/log-stream.test.ts` asserts the
+  joined output equals `wrap(whole text)` for chunk sizes from 1 up, plain and
+  styled.
+- **What is held back is exactly what could change.** Everything after the last
+  space (a word that may be growing) and a trailing escape sequence the matcher
+  cannot yet match (`ESC[3`). The state of the SGR carries across a finished line
+  by walking its sequences, and each wrapped line is opened from it.
+- **A stream keeps the SGR it is given, and `log.info()` does not.** The element
+  tree strips control characters from a text, so a styled message passed to
+  `log.info()` loses its `ESC` and draws `[31m` literally -- pre-existing, and left
+  alone here. A stream whose point is wrapping across a sequence would be empty of
+  meaning if it stripped them, so it writes its lines directly, with the glyph
+  drawn through the theme like any other and the text as it came. At colour level
+  `0` the lines are stripped, the rule `log` keeps for a file.
+- **A quiet stream is drained.** The producer (a model, a pipe) is waiting to be
+  read; not reading is not the same as it having nothing to say. `warn` and
+  `error` are never quiet, as for the plain methods.
+- **A source that throws still has its text written first**, then the promise
+  rejects with the same error: half an answer that was shown should be shown whole.
+- **Bytes are decoded with a streaming `TextDecoder`**, so a multi-byte character
+  cut between two `Uint8Array` chunks comes out whole. A bare string is one chunk.
+- **`createStreamWrapper` is exported from the barrel** because the ejected
+  `registry/log.ts` rewrites its sibling imports to `@ttylabs/sigil/components`.
+
+**Deliberately not done:** writing a partial row (above); an `AbortSignal`;
+timestamps and structured fields (a separate ticket); a pace or a cap on how fast
+lines are written; a `typewriter` that accepts an async source; making plain
+`log.info()` keep SGR.
