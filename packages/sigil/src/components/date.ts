@@ -16,7 +16,7 @@
 import { box, type Element, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
-import { daysInMonth, transformValue } from '../util/transform.js';
+import { daysInMonth, transformValue } from '../util/coerce.js';
 import { typedText } from './editing.js';
 import {
   promptAnswered,

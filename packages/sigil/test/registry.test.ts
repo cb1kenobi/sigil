@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -97,6 +97,47 @@ describe('the registry', () => {
       expect(published, `${name} imports ${spec}`).toContain(spec);
     }
   });
+
+  it.each(names)('should import only names the published subpath exports, for %s', async (name) => {
+    // the specifier being published is half of it: `number` imported
+    // `layoutField` from `@ttylabs/sigil/components` for as long as the barrel
+    // did not export it, and every specifier above was fine. The copy fails in
+    // the app, at the import, so it is asked here against the built bundle.
+    // Values only -- a type is erased and the bundle cannot be asked about one
+    const source = readFileSync(join(registry, `${name}.ts`), 'utf-8');
+    const missing: string[] = [];
+
+    for (const [, clause, spec] of source.matchAll(
+      /\bimport\s*\{([^}]*)\}\s*from\s*'(@ttylabs\/sigil[^']*)'/g
+    )) {
+      const sub = (spec as string).slice(pkg.name.length + 1) || 'index';
+      const bundle = (await import(pathToFileURL(join(root, 'dist', `${sub}.mjs`)).href)) as Record<
+        string,
+        unknown
+      >;
+
+      for (const part of (clause as string).split(',')) {
+        const imported = part.trim().split(/\s+as\s+/)[0] as string;
+        if (imported !== '' && !imported.startsWith('type ') && !(imported in bundle)) {
+          missing.push(`${imported} from ${spec}`);
+        }
+      }
+    }
+
+    expect(missing, `${name} imports names the package does not export`).toStrictEqual([]);
+  });
+
+  it.each(['date', 'number', 'palette'])(
+    'should eject %s through @ttylabs/sigil/coerce rather than a copy of the parser',
+    (name) => {
+      // these three were the entries that could not be ejected, for want of a
+      // published home for `transformValue()`. They coerce with the parser's own
+      // function through the subpath, and the registry carries no second reader
+      const entry = manifest.entries[name] as Entry;
+      expect(entry.imports).toContain(`${pkg.name}/coerce`);
+      expect(entry.registryDeps).toStrictEqual([]);
+    }
+  );
 
   it.each(names)('should be the component this package ships, for %s', (name) => {
     // the drift check, and the one that matters most: a registry entry is

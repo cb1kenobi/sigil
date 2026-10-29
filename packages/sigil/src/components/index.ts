@@ -57,6 +57,12 @@ export {
   type TextOptions,
 } from './prompt.js';
 export {
+  fieldLayers,
+  type FieldCell,
+  type FieldFrame,
+  type FieldLayout,
+  type FieldRow,
+  layoutField,
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,

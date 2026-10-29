@@ -106,6 +106,7 @@ const config: UserConfig = defineConfig({
   entry: {
     ansi: './src/ansi/index.ts',
     canvas: './src/canvas/index.ts',
+    coerce: './src/util/coerce.ts',
     components: './src/components/index.ts',
     config: './src/config/index.ts',
     element: './src/element/index.ts',

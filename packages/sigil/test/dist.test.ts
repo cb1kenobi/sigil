@@ -517,6 +517,34 @@ describe('what importing the package costs', () => {
     expect(carriers(graph, 'Invalid boolean')).not.toEqual([]);
   });
 
+  it('should keep the coerce subpath to the coercion and off the root entry', () => {
+    // `@ttylabs/sigil/coerce` is what an ejected `date()`, `number()` or palette
+    // reads the parser's own coercion through. It is a subpath and not a name on
+    // the root because it is parser weight: a command that only answers
+    // `--version` must not load it, and it is not in the root's static graph
+    const root = staticGraph('index.mjs');
+    const coerce = staticGraph('coerce.mjs');
+
+    expect(
+      [...root].filter((name) => name.startsWith('coerce')),
+      'coerce in the root'
+    ).toEqual([]);
+
+    // the presence half first: the coercion really is in its graph, and the
+    // parser proper really is not -- a re-export of `transform.ts` must not
+    // grow into an import of `parse.ts`
+    expect(carriers(coerce, 'Invalid boolean')).not.toEqual([]);
+    for (const marker of ['Extra arguments are not allowed', 'Missing required arguments']) {
+      expect(carriers(coerce, marker), marker).toEqual([]);
+    }
+
+    // measured at 7,529 B over four modules as of SIG-201, of which the
+    // coercion itself is nearly all; a ceiling at about 3x, so ordinary growth
+    // never touches it and the parser arriving does
+    const bytes = [...coerce].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+    expect(bytes, `${[...coerce].join(', ')}`).toBeLessThan(24 * 1024);
+  });
+
   it('should not put the prompts on the path that only prints a script', () => {
     // the whole packaging argument for SIG-151. `app completion bash > file` is
     // the scriptable form and loads the printer: the prompt chunk's own graph is

@@ -34,6 +34,10 @@
       "types": "./dist/canvas.d.mts",
       "default": "./dist/canvas.mjs"
     },
+    "./coerce": {
+      "types": "./dist/coerce.d.mts",
+      "default": "./dist/coerce.mjs"
+    },
     "./components": {
       "types": "./dist/components.d.mts",
       "default": "./dist/components.mjs"

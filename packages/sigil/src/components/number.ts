@@ -23,7 +23,7 @@
 import { box, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
-import { transformValue } from '../util/transform.js';
+import { transformValue } from '../util/coerce.js';
 import { graphemes } from '../width/index.js';
 import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
 import {
