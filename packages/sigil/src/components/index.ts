@@ -110,12 +110,15 @@ export {
   progressView,
   renderBar,
 } from './progress.js';
+export { createStreamWrapper, type StreamWrapper } from './log-stream.js';
 export {
   createLog,
   type Log,
   log,
   type LogMessageOptions,
   type LogOptions,
+  type LogSource,
+  type LogStream,
   LOG_SYMBOLS,
   LOG_SYMBOLS_ASCII,
   type LogSymbols,
