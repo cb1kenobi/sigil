@@ -3,8 +3,8 @@ import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
 /**
  * A toggle prompt: a setting with two named states.
  *
- *   node demos/components/47-toggle.js
- *   node demos/components/47-toggle.js | cat    <- a scripted run, no terminal needed
+ *   node demos/components/29-toggle.js
+ *   node demos/components/29-toggle.js | cat    <- a scripted run, no terminal needed
  *
  * The inactive state is on the left and the active one on the right, like a
  * switch. Left and Right choose one, Tab and Space flip to the other, and Enter

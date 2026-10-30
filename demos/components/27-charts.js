@@ -1,8 +1,8 @@
 /**
  * Charts: a sparkline, bars, a braille line chart and a gauge.
  *
- *   node demos/components/45-charts.js
- *   NO_COLOR=1 node demos/components/45-charts.js
+ *   node demos/components/27-charts.js
+ *   NO_COLOR=1 node demos/components/27-charts.js
  */
 import { barChart, gauge, lineChart, sparkline } from '@ttylabs/sigil/components';
 
