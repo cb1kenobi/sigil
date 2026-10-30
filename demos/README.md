@@ -356,6 +356,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/45-charts.js`](components/45-charts.js)                                     | A sparkline, bars, a braille line chart and a gauge                      |
 | [`components/46-calendar.js`](components/46-calendar.js)                                 | A month grid: printed, picked from, or under a date field                |
 | [`components/47-toggle.js`](components/47-toggle.js)                                     | A toggle prompt: two named states, flipped with the arrows, Tab or Space |
+| [`components/48-badge.js`](components/48-badge.js)                                       | A short status label, in a table cell or on a line                       |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -535,6 +536,13 @@ is run, and its last two blocks show the ASCII border -- asked for by name, and
 chosen because `TERM=linux` was read out of the `env` it was handed. The state
 colours are the theme's roles, so `NO_COLOR=1` leaves the box and the words and
 takes the colour.
+
+`48-badge.js` is a string demo like the note: a badge is a label and the caller does
+the writing, so a pipe gets what a terminal gets. A piped run is colour level 0, so
+what it prints is the bracketed form, `[PASS]`; `FORCE_COLOR=1` shows the same
+labels as padding on a coloured ground. The table is the point of the third block:
+its status column holds `badgeView()` trees, because a string cell has its escape
+sequences dropped and would print a badge's colour as literal characters.
 
 The typewriter and the decrypt answer the same way to a preference rather than to
 a pipe, so a terminal whose user has asked for less motion gets the text in one go

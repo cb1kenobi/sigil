@@ -163,6 +163,10 @@ const ENTRIES = [
     name: 'key-help',
   },
   {
+    desc: 'A short status label: PASS, FAIL or beta, in a state role colour, usable as a table cell',
+    name: 'badge',
+  },
+  {
     desc: 'Leveled status lines: info, success, warn, error and step, above any live region',
     name: 'log',
   },
