@@ -320,10 +320,12 @@ export {
   parseFlf,
   renderFiglet,
 } from './large-text.js';
+export { badge, type BadgeOptions, type BadgeVariant, badgeView } from './badge.js';
 export {
   type Align,
   type Column,
   table,
+  type TableCellView,
   type TableOptions,
   type TableRow,
   tableView,
