@@ -3651,6 +3651,47 @@ puts it on the result side of `--quiet`. `noteView()` is the element tree behind
 it, for an app that wants one inside its own tree. There is no live form: a note
 is static, so `console.log(note(...))` already is one.
 
+#### Badge
+
+```js
+import { badge, badgeView, table } from '@ttylabs/sigil/components';
+
+console.log(`${badge('PASS', { variant: 'success' })} 148 tests in 2.1s`);
+
+console.log(
+  table([
+    ['@ttylabs/sigil', badgeView('PASS', { variant: 'success' })],
+    ['@ttylabs/cli', badgeView('FAIL', { variant: 'error' })],
+  ])
+);
+```
+
+A few characters on a coloured ground -- `PASS`, `FAIL`, `beta` -- for a table
+cell or a line of text. The label is drawn as given, with a column of padding each
+side, in the colour of the variant's theme role: `success`, `warning`, `error` and
+`info` are `.sigil-success`, `.sigil-warn`, `.sigil-error` and `.sigil-info`, and
+`neutral` (the default) takes no role, so it is the terminal's own foreground
+inverted. The role's colour becomes the background by `.sigil-badge { inverse: true }`,
+so a theme that recolours `.sigil-success` recolours its badges, and
+`.sigil-badge-error` and its siblings are the narrower hook for one variant. There
+is no colour option: the colours are the theme's.
+
+Where there is no colour -- a pipe, `NO_COLOR` -- the inverse is gone and padding
+alone would leave `PASS` indistinguishable from the text beside it, so the padding
+becomes brackets: `[PASS]`. Both take two columns, so a badge is the same width
+either way. Escape sequences and line breaks in the label are dropped, and an empty
+label draws nothing.
+
+`badge()` returns a string and the caller does the writing, which puts it on the
+result side of `--quiet`, like `table()` and `note()`. **In a table, use
+`badgeView()`**: a string cell has its escape sequences dropped, so a styled
+`badge()` string would print as literal characters. A `table()` cell may be any
+`{ element, width }` -- a `TableCellView` -- and the table sizes the column by the
+`width`, aligns the tree by the column's `align`, and cuts it at the column's
+`maxWidth`. Pass the same `colorLevel` (or `ansi`) to the badge and the table if
+you override one: the level is what picks brackets or padding, and a badge built
+for one level and drawn at another is still legible but not the same shape.
+
 #### Charts
 
 ```js

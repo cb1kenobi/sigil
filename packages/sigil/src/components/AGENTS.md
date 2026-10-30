@@ -5742,3 +5742,62 @@ is the group. SIG-184.
 - **Not done:** a timer that counts the ETA down between ticks; an overall bar
   for the group; a bar that is indeterminate until its total is known; locale
   number formatting.
+
+### A badge: a short coloured status label
+
+SIG-178 asked whether a badge is a component or a theme class plus
+documentation. `src/components/badge.ts` is `badge()` and `badgeView()`, and the
+split is `note()` and `noteView()`'s.
+
+- **A component, because the theme-class answer leaves the hard part to every
+  app.** A badge is one styled text, which is the argument for the ticket's other
+  answer, and what a class alone cannot do is the two things an app would each
+  have to get right: a label that survives colour level 0, and a cell a `table()`
+  can hold. The colour is not the component's either way -- the variants are the
+  roles `note()` already maps (`warning` is `.sigil-warn`, for the same reason),
+  and `neutral` is no role, as `note`'s default is none -- so this adds no
+  vocabulary to a theme beyond `.sigil-badge` and five narrower hooks.
+- **A role becomes a background by `inverse`, and that is the sheet's fifth
+  declared exception.** The roles set `color`, and `.sigil-badge { inverse: true }`
+  puts that colour behind the label. The alternative was a `background-color` per
+  variant, which restates four colours the roles already own, so a theme would
+  recolour `.sigil-success` and still have to be told about its badge. `should
+  declare on a role, bar five exceptions that say why` was updated deliberately,
+  and its reason is under "Themes".
+- **The padding is spaces in the label, with `white-space: nowrap`.** Measured
+  before it was written: `padding` paints nothing (the paint pass fills the cells
+  of a glyph, not the empty ones around it) and a default `text` drops a
+  trailing space; `nowrap` keeps both, and `inverse` then reaches them. A no-break
+  space, which `note()` uses for its title, would also work but has to be turned
+  back into a space on the way out, which a table cannot do for one cell.
+- **At colour level 0 the padding is brackets, and the component decides it.** The
+  inverse is dropped there, so `PASS` is `PASS` with spaces around it and a
+  badge in a log line is not set apart from what it labels. Which characters are
+  drawn is content, not style, so the sheet cannot say it -- the QR code decides
+  its glyphs from the level for the same reason. Brackets rather than a symbol or
+  the label upper-cased: the label is the app's and is never altered, and `[beta]`
+  reads in a pipe. Both forms take two columns, so the width does not depend on the
+  level and `badgeView()` can report one `width`. The level is
+  `colorLevel ?? ansi.level`, the default a table uses too, so a badge and the
+  table around it agree unless one of them is overridden; an override has to be
+  mirrored on both, and the cost of not doing so is a shape, not a width.
+- **A table cell may be a view, and a string badge cannot be one.** A string cell
+  has its escape sequences dropped by `toDisplayText()` -- which is right, it is
+  how a stray `ESC` is kept off the screen -- so a styled `badge()` string in a
+  cell would print `[7;32m` as text. Rather than special-case escapes in cells,
+  `table()` takes a `TableCellView` (`{ element, width }`, the shape every `*View()`
+  already returns), measures the column by the declared `width`, and sets the tree
+  in a box as wide as the column, justified by `align` and clipped at `maxWidth`.
+  Detected by shape, and a finite numeric `width` is required, so a row holding a
+  plain object still prints `[object Object]` as it did. Nothing else about a
+  table changed: `columnWidths()` reads each cell's width instead of measuring a
+  string, which for a string cell is the same `stringWidth()` as before.
+- **Escape sequences and line breaks in a label are dropped, and an empty label
+  draws nothing** -- a zero-width view and an empty string, not a coloured gap.
+  There is no truncation: a badge is a short label, and a table's `maxWidth` is
+  what cuts one that is not.
+- **String form only, and it ignores `--quiet`**, as `note()` does.
+
+What is deliberately not done: a `muted` or `accent` variant (the ticket named
+five, and either is one line in `ROLES` the day a caller wants it); an icon or
+symbol per variant; case folding; and a badge carrying a colour in its props.
