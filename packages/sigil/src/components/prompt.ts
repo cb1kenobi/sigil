@@ -119,6 +119,19 @@ export interface PromptOptions extends MountOptions {
   router?: InputRouter;
   /** Where keys come from. Defaults to the terminal's input. */
   stdin?: InputStream;
+  /**
+   * Gives the prompt up when this aborts, the way Ctrl-C does.
+   *
+   * The prompt rejects with the signal's own `reason` -- not a `PromptError` --
+   * so `AbortSignal.timeout(10_000)` rejects with the `TimeoutError` it always
+   * does and a caller tells a timeout from an abort by the name it already knows.
+   * The screen, the cursor and stdin are given back exactly as they are on a
+   * cancel. A signal that is already aborted rejects before anything is drawn.
+   *
+   * A timeout with a default is `AbortSignal.timeout()` and a `catch`; there is no
+   * `timeout` option, because the signal is the whole of it.
+   */
+  signal?: AbortSignal;
 }
 
 export interface TextOptions extends PromptOptions {
@@ -346,14 +359,23 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
     );
   }
 
+  // asked after the terminal, so a prompt with nobody to answer it still says
+  // that; and before anything is mounted, so an abort that came first draws nothing
+  if (opts.signal?.aborted) {
+    return Promise.reject(opts.signal.reason);
+  }
+
   return new Promise<T>((resolve, reject) => {
     let handlers: Handlers<T>;
     let settled = false;
     let mounted: Mounted | undefined;
     let stopInput: (() => void) | undefined;
+    let stopListening: (() => void) | undefined;
 
     /** Everything this prompt took, given back in the order it was taken. */
     function detach(): void {
+      stopListening?.();
+      stopListening = undefined;
       stopInput?.();
       stopInput = undefined;
     }
@@ -527,6 +549,19 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
         router.stop();
       }
     };
+
+    // last, because `fail()` is only a complete teardown once there is a screen
+    // and a router to give back. Nothing awaits between the check at the top and
+    // here, so the only abort this can see is one a first frame raised itself
+    const { signal } = opts;
+    if (signal) {
+      const onAbort = (): void => fail(signal.reason);
+      signal.addEventListener('abort', onAbort, { once: true });
+      stopListening = () => signal.removeEventListener('abort', onAbort);
+      if (signal.aborted) {
+        onAbort();
+      }
+    }
   });
 }
 

@@ -71,6 +71,10 @@ const ENTRIES = [
     name: 'progress',
   },
   {
+    desc: 'Several progress bars in one live region, each with a rate and a time remaining',
+    name: 'multi-progress',
+  },
+  {
     desc: 'A table with measured column widths, alignment and truncation',
     name: 'table',
   },
@@ -83,12 +87,28 @@ const ENTRIES = [
     name: 'prompt',
   },
   {
-    desc: 'An autocomplete prompt: type to filter a list, or search an async source',
+    desc: 'autocomplete() and autocompleteMultiselect(): type to filter a list, or search an async source',
     name: 'autocomplete',
+  },
+  {
+    desc: 'A multiselect with its choices under named groups, where a group ticks its children',
+    name: 'group-multiselect',
+  },
+  {
+    desc: "A select-by-key prompt: press a choice's key, number the choices, or expand a compact line",
+    name: 'select-key',
   },
   {
     desc: 'A path prompt: a text field that completes against the file system',
     name: 'path',
+  },
+  {
+    desc: 'A sort prompt: pick a row up and move it to put a list in order',
+    name: 'sort',
+  },
+  {
+    desc: 'A list prompt: one line split on a separator and returned as an array',
+    name: 'list',
   },
   {
     desc: 'A number prompt: min, max, step, and arrows that change the value',
@@ -141,6 +161,10 @@ const ENTRIES = [
   {
     desc: 'Leveled status lines: info, success, warn, error and step, above any live region',
     name: 'log',
+  },
+  {
+    desc: 'Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge',
+    name: 'chart',
   },
 ];
 

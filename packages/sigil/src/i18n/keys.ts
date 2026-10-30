@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 136 keys, which is what a catalog has to carry to translate sigil's own
+ * 148 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -26,7 +26,9 @@ export const SIGIL_KEYS: readonly string[] = [
   '(default: {0})',
   '(empty)',
   '(skip)',
+  '(space to grab, enter to confirm)',
   '(space to select, enter to confirm)',
+  '(up/down to move, space to drop)',
   '({0} to submit)',
   '<command>',
   'A new version of {0} is available: {1} → {2}',
@@ -43,11 +45,14 @@ export const SIGIL_KEYS: readonly string[] = [
   'Count is too large to be exact: {0}',
   'Date must not be after {0}',
   'Date must not be before {0}',
+  'ETA {0}',
   'Enter a number',
   'Error: {0}',
   'Examples:',
   'Expected a list of values',
+  'Expected locale to be a valid language tag',
   'Expected min to be no later than max',
+  'Expected weekStart to be an integer from 0 to 6',
   'Expected {0} to be a valid Date',
   'Extra arguments are not allowed: {0}',
   'Failed to parse {0}: {1}',
@@ -96,6 +101,8 @@ export const SIGIL_KEYS: readonly string[] = [
   'Replace it?',
   'Run a command',
   'Searching...',
+  'Selected: {0}',
+  'Selected: {0}, {1} not shown',
   'Set up completion for {0}, detected {1}:',
   'Show help for a command',
   'Suppress progress, not results',
@@ -154,6 +161,11 @@ export const SIGIL_KEYS: readonly string[] = [
   '{0} names it, and sigil did not add that',
   '{0} options:',
   '{0} was not written by sigil',
+  '{0} {1}/s',
+  '{0}/s',
+  '{0}h {1}m',
+  '{0}m {1}s',
+  '{0}s',
   '… earlier output omitted',
 ];
 
