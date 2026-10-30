@@ -107,6 +107,10 @@ const ENTRIES = [
     name: 'sort',
   },
   {
+    desc: 'A table prompt: a cursor over rows, a sticky heading, and a sort by column',
+    name: 'select-row',
+  },
+  {
     desc: 'A list prompt: one line split on a separator and returned as an array',
     name: 'list',
   },

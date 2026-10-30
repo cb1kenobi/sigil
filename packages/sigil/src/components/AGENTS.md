@@ -5742,3 +5742,104 @@ is the group. SIG-184.
 - **Not done:** a timer that counts the ETA down between ticks; an overall bar
   for the group; a bar that is indeterminate until its total is known; locale
   number formatting.
+
+### An interactive table: `selectRow()`
+
+`src/components/select-row.ts`. SIG-193. A prompt over `table()`'s columns: a
+cursor over rows, Enter answers with the row, a digit sorts. It is a list prompt
+in the shape `sort()` is -- `runPrompt()`, the rows rebuilt per draw for the
+window, `listWindow()` -- and what is new is that the head of the table is a row of
+its own.
+
+- **One column model, which is why `table.ts` exports its pieces.** The ticket's
+  first line. `tableCells()`, `tableWidths()` and `tableRowView()` are what
+  `tableView()` was already made of, given names and exported, and `tableValue()`
+  is the one line that reads a cell off a row, lifted out so that a sort and a
+  table cannot disagree about which value a column holds. They are on the
+  components barrel and not only exported from the file, because the registry
+  rewrites a sibling import to `@ttylabs/sigil/components` -- an ejected
+  `select-row.ts` that imported a helper the barrel did not carry would not
+  resolve in the app. `Column` is unchanged: what a sort adds (`compare`,
+  `sortable`) is `SelectRowColumn extends Column`, so `table()` does not grow two
+  properties it would ignore, and a `Column` is still accepted wherever a
+  `SelectRowColumn` is.
+- **The cursor is on rows and not on cells.** The ticket asked. A cell cursor is
+  for a table whose cells are what is picked, and the case that motivated the
+  ticket -- a deployment out of a list -- picks a row; every other thing a cell
+  cursor would want (an action on one column) is a second prompt over the row it
+  returned. Left and Right are left unbound rather than meaning something
+  different from every other list here.
+- **The answer is the row that went in, by reference.** Not a copy and not an
+  index, for the reason `sort()` answers with values: an index makes the caller
+  look the row up again in a list they just passed in. It is also what makes a
+  sort invisible to the caller -- the table may show the rows in any order and the
+  answer is still the object it holds.
+- **Sorting is built in, on a digit, with a per-column `compare` for what it
+  cannot know.** The ticket asked whether it is built in or the app's job. A
+  callback that reorders `rows` would need the prompt to hand control back
+  mid-prompt and take new rows, which is a state machine nobody asked for, while
+  the column the app cares about is nearly always a string, a number or a date.
+  So the common cases are decided here and the rest is `compare(a, b)` on the
+  column. A digit rather than a chord or a column cursor for the reason `sort()`
+  picked Space: it reaches every terminal and needs no second mode. Pressing it
+  again reverses, and a third time clears -- the three states a column can be in
+  -- and the nine-column reach is the keyboard's, not a choice. The hint says
+  `1-N`, `N` being the last sortable column, so a non-sortable column in the
+  middle is a digit that does nothing rather than a gap in the range.
+- **The default order is by what the value is, not by its text.** A cell holding
+  `9` and one holding `10` order as numbers, which is what a sort is for and what
+  the drawn text cannot say; `table()` hands cells to the screen as strings, so
+  this reads the row through `tableValue()` and not through the cells. Dates order
+  by time, booleans as `0` and `1`, and anything else as text, **case folded and
+  then by code unit, not by `localeCompare()`**: `Intl` is the 4-7 ms the i18n
+  README refuses to pay for a thing the framework has no use for, and `path.ts`
+  already orders by code unit for the same reason. A column that wants a locale
+  has the lever. A number comes before a text in one column, so the order is
+  total.
+- **An empty cell is last whichever way the column runs.** Missing, `null`, `NaN`
+  and an invalid `Date` have no place in an ascending order that reversing it
+  would improve, so descending does not put a column of blanks on top. It is the
+  sorter and not the comparator that says so, which means a custom `compare` is
+  never handed an empty value and does not have to write the same guard. The sort
+  is stable and descending flips the comparison rather than the list, so rows that
+  tie keep the order they came in both ways.
+- **The cursor follows its row through a sort.** Sorting finds the row that was
+  under the cursor in the new order and puts the cursor back on it, so the thing
+  you were looking at does not change under you, and the window scrolls to it. The
+  alternative -- the cursor stays on a line number -- moves it to a different
+  deployment with no sign that it did, which in a prompt whose answer is the row
+  under the cursor is the one thing it must not do silently.
+- **The heading is sticky because it is outside the window, and `ScrollBox` is not
+  involved.** The ticket guessed it "depends on `ScrollBox`". Every list prompt
+  here windows with `listWindow()` over rows rebuilt per draw, and the heading is
+  a sibling of that list rather than a row in it, so it cannot scroll away. A
+  `ScrollBox` is for content that is bigger than its box and is walked by a
+  scrollbar; a prompt's rows are an index and a window, and sixty of them cost
+  nothing to rebuild.
+- **Widths are measured over every row, once.** A column that took its width from
+  the rows on screen would change as the window moved, which is a table that
+  breathes. The cost is that the width is fixed at the longest cell anywhere, and
+  `maxWidth` is what bounds it. A **sortable heading keeps two columns back for
+  its arrow**, added to the measurement of the heading only: turning a sort on
+  must not move every column to its right, and the arrow is drawn over the heading
+  truncated to leave it room. A column whose cells are wider than its heading
+  costs nothing; one whose heading is the widest costs two columns, which is the
+  price of a table that holds still. `sortable: false` on every column spends
+  none, and then the heading and rows are `table()`'s own lines behind a
+  two-column pointer -- which a test pins.
+- **A line says where in the table the cursor is, and only when rows are off
+  screen.** `n/total` under the rows, spent from the same height the rows have, so
+  the question, the heading, the rows and that line add up to what the terminal
+  has. A table that fits is the table and nothing else. It is not translated: it is
+  two numbers and a slash.
+- **`rows` is the data, so the height is `height`.** `sort()`, `autocomplete()` and
+  the rest call the cap on their window `rows`, and here `rows` is what `table()`
+  already calls the data. One of the two names had to give way, and the data is
+  the one the first argument of the sibling function is.
+- **Rows are not `disabled` and there is no `multiple`.** Not asked for. A
+  disabled row would have to be a column-model property (which row is it, in the
+  data, after a sort) and a multi-select table is a different answer type. Both
+  are additive.
+- **Not done:** an initial sort, which the caller can do to the rows they pass; a
+  cell cursor; filtering by typing, which `autocomplete()` is for and which would
+  want a second state for what the keys mean; resizing columns.

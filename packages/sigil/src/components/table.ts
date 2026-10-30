@@ -37,13 +37,30 @@ export interface TableOptions extends StyledOptions {
 export type TableRow = readonly unknown[] | Record<string, unknown>;
 
 /**
+ * What one cell holds, as the row gave it.
+ *
+ * Asked by anything that has to work with the value rather than with how it is
+ * drawn -- a sort compares a number as a number, which its text cannot say.
+ *
+ * @param row - The row.
+ * @param column - The column.
+ * @param index - The column's place among the others, for a row given as an array.
+ * @returns The value, which is `undefined` where the row has none.
+ */
+export function tableValue(row: TableRow, column: Column, index: number): unknown {
+  return Array.isArray(row)
+    ? row[index]
+    : (row as Record<string, unknown>)[column.key ?? String(index)];
+}
+
+/**
  * The columns a set of rows has, and the cells under them.
  *
  * @param rows - The rows.
  * @param opts - The declared columns, if there are any.
  * @returns The columns, their cells, and their headings.
  */
-function readRows(
+export function tableCells(
   rows: readonly TableRow[],
   opts: TableOptions
 ): { cells: string[][]; columns: Column[]; headers: string[] } {
@@ -59,9 +76,7 @@ function readRows(
 
   const cells = rows.map((row) =>
     columns.map((column, i) => {
-      const value = Array.isArray(row)
-        ? row[i]
-        : (row as Record<string, unknown>)[column.key ?? String(i)];
+      const value = tableValue(row, column, i);
       return value === undefined || value === null ? '' : cellText(String(value));
     })
   );
@@ -102,7 +117,7 @@ function cellText(value: string): string {
  * @param head - Whether the heading row is shown.
  * @returns One width per column.
  */
-function columnWidths(
+export function tableWidths(
   headers: string[],
   cells: string[][],
   columns: Column[],
@@ -134,7 +149,7 @@ function columnWidths(
  * @param classes - What to put on each cell, for the heading row.
  * @returns The row.
  */
-function rowOf(
+export function tableRowView(
   values: string[],
   widths: number[],
   columns: Column[],
@@ -173,15 +188,15 @@ export function tableView(
 ): { element: Element; width: number } {
   const gap = opts.gap === undefined ? 2 : Math.max(0, Math.floor(opts.gap));
   const indent = Math.max(0, Math.floor(opts.indent ?? 0));
-  const { cells, columns, headers } = readRows(rows, opts);
+  const { cells, columns, headers } = tableCells(rows, opts);
   const head = opts.head ?? columns.some((column) => column.header !== undefined);
-  const widths = columnWidths(headers, cells, columns, head);
+  const widths = tableWidths(headers, cells, columns, head);
 
   const body = rows.length
-    ? cells.map((row) => rowOf(row, widths, columns, gap, 'sigil-table-cell'))
+    ? cells.map((row) => tableRowView(row, widths, columns, gap, 'sigil-table-cell'))
     : [];
   const children = head
-    ? [rowOf(headers, widths, columns, gap, 'sigil-table-head sigil-heading'), ...body]
+    ? [tableRowView(headers, widths, columns, gap, 'sigil-table-head sigil-heading'), ...body]
     : body;
 
   const natural =

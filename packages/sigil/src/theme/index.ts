@@ -143,6 +143,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-path-label  .sigil-path-empty
  *   .sigil-sort  .sigil-sort-list  .sigil-sort-place  .sigil-sort-label
  *   .sigil-sort-carried
+ *   .sigil-table-select  .sigil-table-select-head  .sigil-table-select-list
+ *   .sigil-table-position
  *   .sigil-tasklog  .sigil-tasklog-line
  *   .sigil-calendar  .sigil-calendar-title  .sigil-calendar-weekdays
  *   .sigil-calendar-week  .sigil-calendar-day  .sigil-calendar-highlight

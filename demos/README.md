@@ -355,6 +355,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/44-multi-progress.js`](components/44-multi-progress.js)                     | Several progress bars at once, each with a rate and an ETA        |
 | [`components/45-charts.js`](components/45-charts.js)                                     | A sparkline, bars, a braille line chart and a gauge               |
 | [`components/46-calendar.js`](components/46-calendar.js)                                 | A month grid: printed, picked from, or under a date field         |
+| [`components/47-select-row.js`](components/47-select-row.js)                             | An interactive table: pick a row, sort by a column                |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -393,6 +394,13 @@ after each key: a month change pulling the 31st back to the 29th, and a range
 holding the cursor at its edge. The month, language and week are pinned in the
 piped run so the output is the same anywhere; the answers it prints are
 `Date.toString()`, so the time zone in them is yours.
+
+`47-select-row.js` is a prompt, so piped it plays the same `selectRow()` against an
+in-process terminal and prints the screen after each key: the cursor moving over
+whole rows, a digit sorting by age with the cursor staying on its row and a second
+press reversing it, a name sort that folds case, and the heading still there when
+the rows have scrolled. The terminal is short enough that the table needs its
+position line. On a terminal it asks for one of six deployments instead.
 
 ### Try them without a terminal
 
