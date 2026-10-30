@@ -2825,6 +2825,61 @@ typed entry that would leave the range lands on the nearest bound, and an
 line. `validate` is the same as `text()`'s. `initial` defaults to now, truncated
 to what is shown and pulled into the range.
 
+#### A calendar
+
+```js
+import { calendar, date, pickDate } from '@ttylabs/sigil/components';
+
+console.log(calendar({ date: new Date(), highlight: deadlines, selected: new Date() }));
+
+const day = await pickDate({ message: 'Which day?', min: new Date() });
+const due = await date({ message: 'Due date', calendar: true });
+```
+
+One month as a grid. `calendar()` returns it as a string, the way `table()` and
+`note()` do, so the caller does the writing and `--quiet` does not silence it.
+
+```
+         June 2024
+ Su  Mo  Tu  We  Th  Fr  Sa
+                          1
+  2   3*  4   5   6   7   8
+  9  10  11  12  13  14 [15]
+ 16  17  18  19  20* 21  22
+```
+
+| Option      | Meaning                                                                               |
+| ----------- | ------------------------------------------------------------------------------------- |
+| `date`      | Any day in the month to show. Default: today                                          |
+| `selected`  | The selected day: in reverse video and set in `[]`                                    |
+| `highlight` | Days to mark: a `*` after the number, and the accent colour                           |
+| `locale`    | The language of month and weekday names. Default: the app's locale, else the system's |
+| `weekStart` | The weekday a row starts on, `0` (Sunday) to `6`. Default: what the locale says       |
+| `indent`    | How far the block is indented                                                         |
+
+The month and weekday names come from `Intl`, in the locale the app's catalog
+resolved (or `locale`), so there is nothing to translate and nothing to ship. The
+numbers are always the Gregorian day written with Western digits, whatever the
+locale prefers. The marks around a number are what show a selected or highlighted
+day without colour; a day that is both shows as selected.
+
+**`pickDate()`** asks for a day by moving through the month. Left and Right move a
+day, Up and Down a week, **Page Up and Page Down a month** (the day is kept where
+the month is long enough and pulled back to its last day where it is not), Home
+and End to the first and last day of the month, and Enter takes the day under the
+cursor. It returns a `Date` at local midnight. `min` and `max` are inclusive and
+every move lands on the nearest bound rather than past it, `initial` outside them
+is moved to the nearer one, and `highlight`, `locale` and `weekStart` are as above.
+The grid keeps six rows while it is open, so the lines under it do not move as the
+month changes.
+
+**`date({ calendar })`** shows the same grid under the date prompt's field, with
+the day the field holds selected. `calendar: true` takes the defaults and an
+object takes `highlight`, `locale` and `weekStart`. Page Up and Page Down change
+the month, and the field's own keys still work and the grid follows them. It is
+a display that also pages, not a second way to pick: Up and Down step the segment
+you are on, as they always did.
+
 #### Choices that say more
 
 ```js

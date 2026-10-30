@@ -354,6 +354,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/43-sort.js`](components/43-sort.js)                                         | A sort prompt: pick a row up, carry it, put it down               |
 | [`components/44-multi-progress.js`](components/44-multi-progress.js)                     | Several progress bars at once, each with a rate and an ETA        |
 | [`components/45-charts.js`](components/45-charts.js)                                     | A sparkline, bars, a braille line chart and a gauge               |
+| [`components/46-calendar.js`](components/46-calendar.js)                                 | A month grid: printed, picked from, or under a date field         |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -382,6 +383,16 @@ section is the same charts with `ascii: true`, which is what a Linux console or
 on its own. On a terminal each row carries a rate and a time remaining; piped,
 every bar writes its own labelled line every 25 percent and no rate, which would
 differ on every line. The `await` on the whole set is what ends the group.
+
+`46-calendar.js` prints three months first -- a selected day in `[]`, highlighted
+days with a `*`, a Monday start in German and a leap February in French -- which is
+all `calendar()` is and works on a pipe. The prompts after it (`pickDate()`, and
+`date()` with `calendar: true`) have nobody to ask when piped, so it plays them
+against an in-process terminal from `@ttylabs/sigil/testing` and prints the grid
+after each key: a month change pulling the 31st back to the 29th, and a range
+holding the cursor at its edge. The month, language and week are pinned in the
+piped run so the output is the same anywhere; the answers it prints are
+`Date.toString()`, so the time zone in them is yours.
 
 ### Try them without a terminal
 

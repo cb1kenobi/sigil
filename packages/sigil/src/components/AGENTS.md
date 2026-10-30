@@ -4761,6 +4761,89 @@ from year, month and day segments, with the hour, minute and second added by
   dashes do nothing -- and nothing else is promised); clock injection (a test sets
   the system time).
 
+### A calendar: one grid, three faces
+
+SIG-187. `src/components/calendar.ts` is the whole of it: `calendar()` prints a
+month, `pickDate()` asks for a day by moving through one, and
+`date({ calendar })` (in `date.ts`) shows the same grid under the date prompt's
+field.
+
+- **One grid, built once and written into.** `calendarGrid()` makes a title, a
+  weekday row and six rows of seven text nodes, and `update()` changes their text
+  and classes. The printer builds it and updates it once; the two prompts update it
+  per key. A tree per key would be the alternative and buys nothing, since the
+  shape never changes. A row the month does not use is `display: none` for the
+  printer and kept (empty) when `stable` is set, which both prompts do: a month
+  that is four rows tall in February and six in August would move every line under
+  it as the month changes.
+- **Month and weekday names are `Intl`'s, not the catalog's.** That was the
+  ticket's first question. A catalog entry per month per language is data the
+  runtime already carries, and the locale is the i18n module's `locale()` when no
+  `locale` option is given, so an app that translates its own output gets a
+  calendar in the same language with nothing added. It is formatted with the
+  Gregorian calendar and Western digits whatever the locale defaults to: the cells
+  are Gregorian days written with `String()`, and a `th-TH` title in the Buddhist
+  year over them would be a month that does not exist. A short weekday name is
+  clipped to the two columns over its digits (`Mon` is `Mo`, `lun.` is `lu`).
+- **Week start is the locale's unless told.** `Intl.Locale#getWeekInfo()` where
+  the runtime has it, Sunday where it does not, and `weekStart: 0-6` (0 Sunday, as
+  `Date#getDay()`) beats both. The ticket asked Sunday or Monday; any weekday costs
+  nothing more and several locales start on Saturday. Tests pass it explicitly,
+  because the default is the machine's.
+- **A mark on the number, because colour is not guaranteed.** The selected day is
+  `[15]` in reverse video; a highlighted day is `3*` in the accent role. A cell is
+  four columns: an opening mark, two digits and a closing mark. The prompt's caret
+  is paint-only and is not drawn at colour level 0, so a calendar whose only
+  signal was reverse video would show nothing under `NO_COLOR`, and a printed
+  calendar is the case where that matters most. A day that is selected _and_
+  highlighted shows as selected, the thing that moves. Out-of-range days are
+  `sigil-muted`, which is dim and is not a mark: they cannot be reached, so nothing
+  depends on seeing them.
+- **Neighbouring months are blank, not dimmed.** The cells before the first and
+  after the last are empty. A dimmed `29 30 31 1 2 3` is the usual grid and was not
+  worth a selection rule for days that are not in the month shown.
+- **Days are dates by the local getters, and the year is taken whole.** A
+  highlighted `Date` is the day it falls on in local time, whatever the clock. The
+  calendar builds its own days with `localDate()` (`setFullYear` on a fixed date)
+  because `new Date(y, m, d)` reads a year under 100 as 19xx and the parser's
+  `date` type accepts `0000`; month lengths are the parser's `daysInMonth()`, as in
+  the date prompt, so the two cannot disagree. That makes the `0000` leap-day quirk
+  recorded under "A date prompt" the same quirk here.
+- **A month change keeps the day where it can and pulls it back where it cannot.**
+  31 January a month on is the 28th or 29th of February, not a day in March, and
+  it is not given back on the way forward -- the date prompt's rule for stepping
+  the month segment, so the grid and the field agree. The year stays inside
+  0-9999.
+- **`pickDate()` clamps an `initial` outside `min`/`max`; `date()` refuses it on
+  Enter.** The date prompt keeps an explicit `initial` out of range so that the
+  person is told rather than handed another date, and it has an error line to tell
+  them with. This prompt has no field to type a different value into and no error
+  line, only a cursor that cannot leave the range, so there is nothing for Enter to
+  refuse and the nearest bound is the only answer it can give.
+- **`date({ calendar })` is a display that pages, not a second picker.** The ticket
+  said "optionally used by the date prompt as a picker". The field's keys already
+  do what arrows would do (Up and Down step the focused segment, Left and Right
+  move between them) and giving the same keys a second meaning in a calendar mode
+  would make the same key do two things depending on state nobody can see. So the
+  grid sits under the field showing the day it holds, follows every change to it,
+  and gets the one pair of keys the field had no use for: Page Up and Page Down
+  change the month, committing any digits typed so far first. `pickDate()` is the
+  prompt that moves by day and week.
+- **No year paging.** Shift-Page-Up would be the natural key, and the key decoder
+  names `ESC [ 5 ; 2 ~` `unknown`: a tilde key's lookup includes the modifier
+  parameter. That is the decoder's to fix, under "Prompts and keys", and not inside
+  a calendar ticket. Until then a year is twelve Page Downs, or the year segment of
+  the date prompt.
+- **Not ejectable, for the date prompt's reason.** It reaches `../util/transform.js`
+  for `daysInMonth()`, which has no published subpath, so `calendar` is not in
+  `generate-registry.mjs`'s `ENTRIES`.
+- **Deliberately not done:** week numbers; a range selection; marking today
+  automatically (pass it as `selected`); leading and trailing days from the
+  neighbouring months; mouse; a time of day in `pickDate()` (the date prompt is
+  the one that has a clock); a `locale`-ordered title is whatever `Intl` writes
+  (`2024年6月`), which is why the title is centred over the grid rather than built
+  from a month and a year of our own.
+
 ### A key-help footer, read off the bindings
 
 - **The line is `router.bindings()`, so it cannot say what the keys do not.**
