@@ -3775,6 +3775,50 @@ result side of `--quiet`, like `table()` and `note()`. **In a table, use
 you override one: the level is what picks brackets or padding, and a badge built
 for one level and drawn at another is still legible but not the same shape.
 
+#### Rule
+
+```js
+import { rule } from '@ttylabs/sigil/components';
+
+console.log(rule({ label: 'Results', width: 32 }));
+console.log(rule({ align: 'left', label: 'Results', width: 32 }));
+console.log(rule({ width: 32 }));
+```
+
+```
+─────────── Results ────────────
+── Results ─────────────────────
+────────────────────────────────
+```
+
+A divider across the terminal's width (or `width`), with an optional label set
+into the line. The label is one line -- escape sequences are dropped and white
+space is collapsed -- and is measured in columns, so wide characters and emoji
+keep the rule the width it was asked to be. It is cut with an ellipsis where it
+would not fit, and left out where there is no room for the line around it.
+
+| Option  | Meaning                                                                   |
+| ------- | ------------------------------------------------------------------------- |
+| `label` | Words set into the line                                                   |
+| `align` | `center` (default), `left` or `right`                                     |
+| `line`  | `single` (default), `double`, `bold` or `ascii`                           |
+| `role`  | `muted` (default), `accent`, `info`, `success`, `warn`, `error` or `none` |
+| `width` | How many columns it spans. Defaults to `terminalWidth()`                  |
+
+A rule is dim by default, because it is there to separate things and not to be
+read, and the label is bold and **not** dim. Any other role colours the line and
+the label both. The theme reaches it the usual way: `.sigil-muted` and the other
+roles for the colour, `.sigil-rule-line` and `.sigil-rule-label` for one part,
+`.sigil-rule` for the row. The character is not CSS -- there is no `content`
+property to carry one -- so it is `line`, which falls back to ASCII where
+`unicodeSupported()` says the terminal cannot be trusted with box drawing, as
+`note()` does; `env` and `platform` override what it reads.
+
+Like `note()` it returns a string and the caller does the writing, which puts it
+on the result side of `--quiet`. `ruleView()` is the element tree behind it, for
+an app that wants one inside its own tree; its width is fixed when it is built,
+so a layout that resizes builds it again.
+
 #### Charts
 
 ```js
