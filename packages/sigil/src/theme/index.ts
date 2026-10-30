@@ -116,6 +116,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-prompt-number
  *   .sigil-choice  .sigil-choice-pointer  .sigil-choice-mark  .sigil-choice-hint
  *   .sigil-choice-heading  .sigil-choice-separator  .sigil-choice-description
+ *   .sigil-choice-group
  *   .sigil-spinner-frame  .sigil-progress-bar  .sigil-scroll-thumb
  *   .sigil-scroll  .sigil-scroll-row  .sigil-scroll-viewport  .sigil-scroll-content
  *   .sigil-scroll-bar  .sigil-scroll-slot  .sigil-scroll-spacer
@@ -138,6 +139,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-autocomplete-match  .sigil-autocomplete-status  .sigil-autocomplete-tally
  *   .sigil-path  .sigil-path-list  .sigil-path-row  .sigil-path-pointer
  *   .sigil-path-label  .sigil-path-empty
+ *   .sigil-sort  .sigil-sort-list  .sigil-sort-place  .sigil-sort-label
+ *   .sigil-sort-carried
  *   .sigil-tasklog  .sigil-tasklog-line
  *   .sigil-debug-head  .sigil-debug-title  .sigil-debug-stats
  *   .sigil-debug-log  .sigil-debug-list  .sigil-debug-entry

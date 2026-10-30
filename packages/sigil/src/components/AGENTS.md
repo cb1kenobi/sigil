@@ -4486,6 +4486,54 @@ everything in it is a decision about what it does _not_ own.
   accelerating, `round`, and a range hint on the question line -- the bound is
   named when it is broken, which is when a person needs it.
 
+### A list prompt: a line read as an array
+
+SIG-172. `src/components/list.ts` is `list(opts): Promise<string[]>`, and the
+ticket's three questions are answered here.
+
+- **The field is `text()`'s line, as typed -- not chips.** Chips would need the
+  line to be a list of widgets with a current one, and every editing key would mean
+  two things (move within an entry, move between entries). The line is what a
+  person types and fixes with the keys they already know, and the settled answer
+  line shows the entries as read. A chip field is a different widget and is not
+  here. The field is the registry-capable one (`promptWindow()` and the shared
+  editing helpers), so `list` is a registry entry, unlike `number`.
+- **A separator is a string or a `RegExp`, both.** A string is matched literally
+  (`'.'` is a dot), a pattern is matched wherever it matches, and `/[\s,]+/` is why
+  the pattern is worth having: tags and hostnames are typed with commas, spaces or
+  both. `String.prototype.split()` is not used for a pattern, because a capture group
+  puts its captures into the result as entries and a pattern that can match nothing
+  splits between every character. `splitList()` scans with its own `g`-flagged copy
+  (so `g` and `y` on the caller's are ignored and its `lastIndex` is never touched)
+  and skips a match with nothing in it. An empty string separator is refused with a
+  `PromptError`, for the same reason.
+- **Trimmed, and an entry with nothing left is dropped, always.** There is no option
+  to keep either: `a,,b` giving `['a', '', 'b']` is a list with a hole that every
+  caller would have to filter, and whitespace around a comma is how the line is
+  written. An empty line is `[]`, never `['']`. Duplicates are kept -- the prompt
+  cannot tell a repeat that was meant from one that was not, and `new Set()` is one
+  expression for a caller who can.
+- **An empty answer is `default`, or `[]`, and "empty" is the entries.** `' , ,'` has
+  no entries and takes the default like the empty string, since the default is for
+  nothing. The answer is a copy of `default`, and `validate` is given it.
+  `validate` receives the entries; a minimum or maximum count is `validate`'s job
+  rather than two more options, which is also how `path()` leaves "must exist".
+- **`initial` is a string or an array, and an array must survive its own line.** A
+  string is the line. An array is joined (`joinList()`: the separator and a space,
+  `', '` for a pattern) and then split again: if that does not give the same array
+  -- an entry holding the separator, an empty entry, space around an entry, a
+  pattern that does not take `', '` -- the prompt rejects with a `PromptError`
+  rather than showing a list the first Enter would change.
+- **No quoting, no escape.** An entry cannot contain its own separator. A caller who
+  needs one picks another separator; quoting rules are a parser in a text field.
+- **A paste is `pastedLine()`'s**: line breaks become spaces, so a block pasted one
+  host per line with a comma separator is one entry. Turning breaks into the
+  separator is possible for a string and not for a pattern, and a rule that holds for
+  one of the two is the kind this file avoids.
+
+Deliberately not done: chips; `min`/`max`/`unique`/`required` options; quoting;
+completion; and a pasted block's line breaks as separators.
+
 ### Prompt flows: `group()`, and the session frame
 
 SIG-160. `src/components/group.ts` is the whole of it: `group()`, `isCancel()`,
@@ -5173,3 +5221,142 @@ the window a task writes a subprocess's output to. SIG-161.
   or (on a throw) failure; a window the task settled itself is left alone.
 - **Not done:** concurrency, subtasks, retry, rollback, and a title that animates
   while a window is open.
+
+### A multiselect with groups: `groupMultiselect()`
+
+SIG-169. `src/components/group-multiselect.ts` is `multiselect()` over
+`{ group: choices }`. It is its own module built on the exports at the bottom of
+`prompt.ts` (`runPrompt()`, `listWindow()`, the head helpers), the way
+`autocomplete()` is, and `multiselect()` and `select()` are untouched: a group
+row is a third kind of row beside a choice and a separator, and teaching
+`choiceRows()` and `paintChoices()` about it would put a branch for a feature one
+prompt has into the two functions all of them share.
+
+- **A group is a selectable row, which is Clack's answer and the default.** The
+  ticket asked, and the reason is that "tick the whole area" is the point of
+  grouping: a header that only labels is already `separator()`. `selectableGroups:
+  false` is the other answer, and it makes the heading a heading in the
+  separator's own style and with the separator's rule -- the cursor never lands on
+  it -- rather than a second kind of row.
+- **The answer is a flat array of values, in listed order.** Not keyed by group:
+  a group is a way of picking and is not itself picked, `multiselect()` already
+  answers a flat array so the two are interchangeable at a call site, and a caller
+  that wants the grouping has the `choices` it passed in. Listed order rather than
+  ticked order for the reason `multiselect()` gives. The same value under two
+  groups is returned twice; a prompt that guessed it was one thing would be
+  guessing about what the caller's values mean.
+- **A group's box is derived, never stored.** `◯` none, `◐` some, `◉` all of the
+  choices under it _that are on offer_, read off the ticked set on every draw. A
+  stored flag is a second copy that ticking one choice by hand has to remember to
+  update, and the first path that forgot would show a group `◉` over an unticked
+  box. The partial glyph is local to the module and not on `PromptSymbols`:
+  that object is frozen and exported, and nothing else draws it.
+- **Space on a group ticks all, or clears all when all are ticked -- and a partial
+  group ticks.** "All" and "none" are the only two outcomes of a toggle; partial
+  has to go one way, and ticking is the way Clack, Inquirer and the select-all
+  key in `multiselect()` all take.
+- **A disabled choice is outside every group operation.** It is not ticked by its
+  group's Space, it does not count towards "all", and `selected` does not tick
+  it -- all `multiselect()`'s rule, applied to a group as to `a`. A group with
+  nothing on offer is not on offer itself: drawn muted, skipped by the cursor.
+- **`min` and `max` count choices and not groups.** A group is not in the
+  answer, so counting it would make `max: 2` refuse a group of two. Checked on
+  Enter and not while ticking, as `multiselect()` does.
+- **No separators inside a group, and a group that is not a list is an error.** The
+  groups are the headings; a `separator()` inside one has no meaning and is
+  refused with a `PromptError` naming the question instead of being drawn.
+  `choices` is a record rather than an array of `{ group, choices }` because that
+  is the ticket's shape; the cost is that JavaScript orders integer-like keys
+  first, which the README says.
+- **Messages are `multiselect()`'s, so there are no new i18n keys.** The hint,
+  `Choose at least ...`, `disabled` and `none` are the same strings through the
+  same tag.
+
+What is deliberately not done: nesting groups in groups; an `initial` row (the
+cursor starts on the first row on offer); descriptions on a group; a group-level
+`selected`; and a type that keys the answer by group.
+
+### A sort prompt: pick a row up, carry it, put it down
+
+SIG-173. `src/components/sort.ts` is `sort(opts): Promise<T[]>`, for an answer that
+is a permutation rather than a choice. It is a list prompt in the shape
+`autocomplete()` already is -- `runPrompt()`, rows rebuilt per draw for the
+window, `listWindow()` -- with no field, because nothing is typed.
+
+- **Grab and carry, not modifier-arrows, is the model.** Space picks the
+  highlighted row up, Up and Down move _it_ (the highlight goes along), Space puts
+  it down. The ticket asked which; a modifier chord is the one a terminal cannot
+  be relied on for -- Shift-Up scrolls some emulators' scrollback and Alt-Up is
+  eaten by some window managers -- while Space and the plain arrows reach every
+  one. So the grab is the model and is what the hint line teaches. Shift or Alt
+  with an arrow is _also_ read as a one-place move without a grab, since the key
+  decoder already carries the flags and the cost is one boolean; it is a shortcut
+  and the documentation does not lean on it.
+- **The answer is the values, in order, not indices.** The ticket's other
+  question. Indices make the caller index back into a list they just passed in, and
+  a `Choice` without a `value` answers with its label as everywhere else
+  (`promptValue()`). A caller that wants indices passes `value: index`.
+- **Enter answers whether or not a row is in hand.** A row mid-carry stays where
+  it was carried to. The alternative -- Enter drops, a second Enter answers --
+  makes the commonest gesture (move one thing, confirm) a key longer for the sake
+  of a state nobody is confused by: the hint line changes while a row is held.
+- **A carried row never wraps; the highlight does (`loop`).** Carrying the first
+  row past the top and landing it last is a rotation, not a step, and a stray key
+  would do it with no way to see what happened. Home and End are how a row goes to
+  an end on purpose.
+- **A `disabled` choice is pinned, not left out.** `autocomplete()` leaves one out
+  because it has a filtered list to leave it out of; here the answer is a
+  permutation, and dropping a row from a permutation is a different claim than
+  holding one still. A pinned row keeps its index, the highlight steps over it,
+  it cannot be picked up, and it is in the answer where it was. Implemented by
+  lifting the choices out of the movable places (`slots`, the indices of the rows
+  that are not pinned), reordering _them_, and putting them back, so a carried row
+  jumping a pinned one is the same operation as moving one place. A list with no
+  movable row is refused as an empty one is. The reason shows where a hint would,
+  as in `select()`.
+- **Separators are not accepted.** The ticket says `Choice[]`, and a heading in a
+  list being reordered would have to say which side of a move it belongs to.
+- **Rows are numbered**, padded to the widest place, because the point of the
+  prompt is the position: "which is third" should not need counting.
+- **The head reserves room for the longer of its two hints.** The grab hint and
+  the drop hint are different lengths and swapping one for the other must not make
+  the head taller than `room()` believed, which would push the last row off the
+  screen -- the failure `headWidths()` documents for the multiselect hint.
+
+What is deliberately not done: an Escape that puts a carried row back where it
+was picked up (Escape does nothing in any prompt here), a `validate`, and a
+`min`/`max` -- there is no count to constrain in a permutation.
+
+### Aborting a prompt: `signal`
+
+SIG-176. `PromptOptions.signal` and the few lines in `run()` in `prompt.ts` that read
+it; every prompt goes through `run()`, so every prompt has it and no prompt was edited.
+
+- **An abort rejects with the signal's own `reason`, not a `PromptError`.** The
+  ticket asked which. `AbortSignal.timeout()` rejects with a `TimeoutError` and
+  `abort()` with an `AbortError`, and `fetch`, `setTimeout` from `timers/promises`
+  and `events.once` all hand those back, so a caller already knows how to tell a
+  timeout from an abort and a recipe needs no new vocabulary. It is also the
+  honest answer to `isCancel()`: a cancel is a person pressing Ctrl-C, an abort is
+  the program deciding, and a `PromptError` with `aborted: true` would make
+  `group()` call `onCancel` for a timeout. A non-`PromptError` is rethrown by
+  `group()` untouched, which is the rule for everything that is not a cancel.
+- **`timeout` is not an option.** `signal: AbortSignal.timeout(ms)` is the whole of
+  it, a default is a `catch` on the name, and an option would be a second spelling
+  that needs its own reason type. Documented as a recipe in the README.
+- **Abort is `fail()`, so it is a cancel's teardown by construction.** The listener
+  calls the same function Ctrl-C does: input detached, the router stopped only if
+  this prompt built it, the region cleared and the cursor handed back. A router the
+  app passed in is left running. `prompt-signal.test.ts` asserts the screen, raw
+  mode and cursor against a real cancel's rather than against a list of things to
+  restore, for every prompt.
+- **The listener goes on last and comes off in `detach()`.** `fail()` is only a
+  complete teardown once there is a screen and a router, so the listener is added
+  after both exist; the signal is checked before anything is mounted, which is
+  what makes an already-aborted signal draw nothing. It sits after the
+  nobody-is-there check, so a prompt with no terminal still says that rather than
+  the signal's reason. It is removed when the prompt ends either way, so a signal
+  that outlives many prompts does not accumulate listeners.
+- **Not done.** `group()` takes no signal of its own: pass the same one to each
+  step. A signal that aborts between two steps is seen by the next prompt as
+  already aborted, which is the behaviour wanted.
