@@ -91,6 +91,10 @@ const ENTRIES = [
     name: 'group-multiselect',
   },
   {
+    desc: "A select-by-key prompt: press a choice's key, number the choices, or expand a compact line",
+    name: 'select-key',
+  },
+  {
     desc: 'A path prompt: a text field that completes against the file system',
     name: 'path',
   },

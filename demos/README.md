@@ -350,6 +350,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/21-list.js`](components/21-list.js)                                         | A list prompt: one line, split, returned as an array              |
 | [`components/40-group-multiselect.js`](components/40-group-multiselect.js)               | A multiselect with its choices under named groups                 |
 | [`components/41-autocomplete-multiselect.js`](components/41-autocomplete-multiselect.js) | Type to filter a list, and tick several; ticks outlive the filter |
+| [`components/42-select-key.js`](components/42-select-key.js)                             | Choose by pressing a key: numbered, and expanded on `h`           |
 | [`components/43-sort.js`](components/43-sort.js)                                         | A sort prompt: pick a row up, carry it, put it down               |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
@@ -359,6 +360,14 @@ key -- expands it into groups. On a terminal it is a small full-screen app; pipe
 it has nobody to type, so it replays Tab and `?` through the testing terminal and
 prints the footer after each, including a 24-column step where the
 lowest-priority keys go first and the line ends in `…`.
+
+`42-select-key.js` is a prompt, so a pipe cannot answer it: piped, it plays the same
+prompts against an in-process terminal from `@ttylabs/sigil/testing` and prints the
+screen after each key. A key nobody has changes nothing and a capital is the same
+key as the small letter; the numbered list keeps a `q` of its own beside 1 to 4;
+the expanded one is a line of keys until `h`, with Enter taking the capital. The
+run ends on two choices that share a key, which is refused when the prompt is
+asked and says which two.
 
 ### Try them without a terminal
 
