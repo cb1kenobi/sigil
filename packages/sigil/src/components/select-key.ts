@@ -208,7 +208,7 @@ export function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T> {
   const terminal = opts.terminal ?? defaultTerminal;
   // `(Y/n/a/d/h)`: only the keys that work, so the line cannot name one that
   // does nothing, and the one Enter takes is the capital
-  const summary = `(${[...offered.map((line) => (line === fallback ? line.typed.toUpperCase() : line.typed)), HELP_KEYS[0]].join('/')})`;
+  const summary = `(${[...offered.map((line) => (line === fallback ? line.typed.toUpperCase() : line.key)), HELP_KEYS[0]].join('/')})`;
   let shown = !expand;
   let picked: KeyChoice<T> | undefined;
 

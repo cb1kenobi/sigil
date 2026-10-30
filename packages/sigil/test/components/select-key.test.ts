@@ -522,6 +522,48 @@ describe('selectKey() expanded', () => {
     expect((await answer).value).toBe('no');
   });
 
+  it('should print a capital only on the key Enter takes', async () => {
+    const ui = screenSetup({ rows: 10 });
+    const answer = settle(
+      open(ui, {
+        choices: [
+          { key: 'Y', label: 'Yes', value: 'yes' },
+          { key: 'N', label: 'No', value: 'no' },
+          { key: 'Q', label: 'Quit', value: 'quit' },
+        ],
+        expand: true,
+        initial: 'n',
+      })
+    );
+
+    await tick();
+
+    expect(rows(ui)).toEqual(['? File exists (y/N/q/h)']);
+
+    await type(ui.stdin, CTRL_C);
+    await answer;
+  });
+
+  it('should print no capital where Enter takes nothing', async () => {
+    const ui = screenSetup({ rows: 10 });
+    const answer = settle(
+      open(ui, {
+        choices: [
+          { key: 'Y', label: 'Yes', value: 'yes' },
+          { key: 'n', label: 'No', value: 'no' },
+        ],
+        expand: true,
+      })
+    );
+
+    await tick();
+
+    expect(rows(ui)).toEqual(['? File exists (y/n/h)']);
+
+    await type(ui.stdin, CTRL_C);
+    await answer;
+  });
+
   it('should answer from the line without ever showing the list', async () => {
     const ui = screenSetup({ rows: 10 });
     const answer = settle(open(ui, { choices: CHOICES, expand: true }));
