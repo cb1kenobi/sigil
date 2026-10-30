@@ -5580,3 +5580,70 @@ to a string, each with a `*View()` returning `{ element, width }`, and the split
   for who wins, and that is the design the first user of it should drive); axis
   ticks between the top and the bottom label; a live form (the app rebuilds the
   string or the tree); and negative bars below a zero baseline.
+
+### Progress: several bars at once, and an ETA
+
+`src/components/progress.ts` gained a rate estimator and `src/components/multi-progress.ts`
+is the group. SIG-184.
+
+- **The audit: `createProgress()` computed no ETA and no rate.** It drew a label,
+  a bar and a percentage, and nothing about time. Both are opt-in (`rate`, `eta`)
+  and off by default, so the line a bar has always drawn is byte for byte what it
+  was.
+- **The multi-bar is a new component over one live region, not several
+  `createProgress()` instances.** Two live regions cannot share the bottom of the
+  screen -- the same reason `tasks()` is sequential -- so a second bar would evict
+  the first. One tree, a `For` over a `State` list of bar states, one row per bar,
+  built from the same `progressView()` the single bar uses, so a row cannot
+  disagree with a bar about what it looks like. `For` is what lets a bar be added
+  or taken out without rebuilding the others.
+- **The estimate is an exponentially weighted moving average with a _time_
+  constant (5 s), not a sample count.** Each sample is weighted by the interval it
+  covers (`1 - exp(-dt / window)`), so a loop reporting every millisecond and one
+  reporting every second settle on the same pace, and a burst of ticks does not
+  outvote the seconds before it. The first sample is the pace so far. Samples
+  closer than 100 ms are not consumed but folded into the next, because a rate
+  over a millisecond is noise. A value lower than the last one starts again. While
+  nothing is reported the rate decays with the same constant when it is read, so
+  a stalled job's ETA lengthens rather than freezing on the last good number. An
+  ETA past 100 hours is not shown.
+- **The clock is `performance.now()` and an option.** `now` is what a test moves
+  by hand; nothing in the suite sleeps.
+- **The rate and the ETA are written when the work moves, and are drawn only when
+  there is a bar.** `trackProgress()` writes the worded text to
+  `ProgressState.detail` from the setters, so the view stays a function of its
+  state. There is no timer: an ETA on a bar that has stopped moving is the last
+  one it was given until the next update. Piped, and under reduced motion, the
+  detail is not drawn at all -- a rate in a log would be a different line on every
+  tick, which is what stepping the percentage exists to prevent. A finished bar
+  says neither: a time remaining of zero is not information.
+- **Time and rate go through the catalog; the number does not go through `Intl`.**
+  `{0}s`, `{0}m {1}s`, `{0}h {1}m`, `ETA {0}`, `{0}/s` and `{0} {1}/s` are keys, so
+  a locale words the units. The decimal separator is a full stop in every locale,
+  because `Intl.NumberFormat` is +6 ms to load (the i18n module's own note).
+- **A group on a terminal is one frame; without one it is a line per bar.** A
+  multi-row frame written to a pipe would repeat every unchanged bar on each
+  change, so the pipe form is not the mounted frame: each bar writes
+  `label NN%` to stdout when its rounded percentage changes (including `0%` when
+  added, and `100%` whatever `step` divides into), and `write()` is a plain
+  line. The group decides this at the first `add()`, from the terminal, as
+  `taskLog()` does. Quiet writes nothing; the bars still keep their values.
+- **Finished bars stay, unless `keep: false`.** A group of six downloads should end
+  as a summary of six. A list longer than the screen cannot: the canvas is clipped
+  where a written line scrolls, so `keep: false` writes the bar's pipe-form line
+  above the frame and removes its row.
+- **The label column is worked out from the bars that are there**, not grown. A
+  bar that left or was relabelled shorter does not keep a column open. A row with
+  no label still holds the column, and only a row set to align gets a
+  `min-width`: a floor of zero is not the same declaration as none, since it lets a
+  single bar's label shrink. The percentage has a four-column right-aligned cell
+  in a group. The detail is last and has no reserved width: a canvas paints every
+  cell it owns, and a reserved blank at the end of a row is trailing whitespace in
+  the log once the frame is left behind.
+- **A bar belongs to one run of its group.** `done()` and `stop()` on the group
+  give the terminal back, and a bar from before is a bar of a screen that no
+  longer exists: a change to it paints nothing and writes nothing. The first
+  `add()` afterwards mounts a fresh group, as a spinner remounts on `start()`.
+- **Not done:** a timer that counts the ETA down between ticks; an overall bar
+  for the group; a bar that is indeterminate until its total is known; locale
+  number formatting.

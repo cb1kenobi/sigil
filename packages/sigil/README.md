@@ -3335,6 +3335,14 @@ bar.done('Copied');
 The bar sizes itself to a third of the terminal, between 10 and 40 columns,
 unless given a `barWidth`.
 
+Pass `rate: true`, `eta: true` or both for the pace and the time remaining beside
+the percentage -- `10 files/s  ETA 9s`, with `unit: 'files'` naming the unit. Both
+come from an estimator that averages over a time window (`window`, 5000 ms by
+default) rather than over the last tick, so a number that would jump settles
+instead. They are drawn only on a terminal: a rate in a log would be a different
+line every time. `createRateEstimator()`, `formatDuration()` and `formatRate()` are
+exported if you want the arithmetic without the bar.
+
 Both degrade the same way. Piped, there is nothing to animate, so a spinner
 writes one line per **change** and a bar one line every `step` percent — not
 one per tick:
@@ -3347,6 +3355,46 @@ compiled foo.js
 Copying 0%
 Copying 50%
 Copying 100%
+```
+
+##### Several bars
+
+```js
+import { createMultiProgress } from '@ttylabs/sigil/components';
+
+const group = createMultiProgress({ eta: true, rate: true, unit: 'kB' });
+
+await Promise.all(
+  packages.map(async (pkg) => {
+    const bar = group.add({ text: pkg.name, total: pkg.size });
+    for await (const chunk of download(pkg)) {
+      bar.tick(chunk.length);
+    }
+    bar.done(`${pkg.name} installed`);
+  })
+);
+
+group.done();
+```
+
+One live region holds every bar, because two cannot share the bottom of the
+screen. Each bar is added and finished on its own, and has its own estimate; the
+bars start in one column however long the labels are. A finished bar stays in the
+frame so the group ends as a summary -- `keep: false` writes its line above the
+frame and drops the row instead, for a list longer than the screen. `bar.stop()`
+takes a bar out without a trace; `group.done()` leaves what is there and gives the
+terminal back, `group.stop()` erases it, and `group.write(line)` prints above the
+bars.
+
+Piped, there are no bars and no frame: each bar writes a labelled line of its own
+every `step` percent, so six interleaved downloads can still be followed.
+
+```
+react 0%
+typescript 0%
+react 50%
+typescript 50%
+react installed 100%
 ```
 
 #### Log

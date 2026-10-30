@@ -108,12 +108,21 @@ export {
 } from '../theme/index.js';
 export {
   createProgress,
+  createRateEstimator,
+  formatDuration,
+  formatRate,
   type Progress,
   type ProgressOptions,
   type ProgressState,
   progressState,
+  type ProgressStatsOptions,
+  type ProgressTracker,
   type ProgressViewOptions,
   progressView,
+  type RateEstimator,
+  type RateEstimatorOptions,
+  resolveBarWidth,
+  trackProgress,
   renderBar,
 } from './progress.js';
 export { createStreamWrapper, type StreamWrapper } from './log-stream.js';
@@ -139,6 +148,14 @@ export {
   type SparklineOptions,
   sparklineView,
 } from './chart.js';
+export {
+  createMultiProgress,
+  type MultiProgress,
+  type MultiProgressBar,
+  type MultiProgressBarOptions,
+  type MultiProgressOptions,
+  multiProgressView,
+} from './multi-progress.js';
 export {
   createLog,
   type Log,

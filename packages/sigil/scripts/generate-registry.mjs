@@ -71,6 +71,10 @@ const ENTRIES = [
     name: 'progress',
   },
   {
+    desc: 'Several progress bars in one live region, each with a rate and a time remaining',
+    name: 'multi-progress',
+  },
+  {
     desc: 'A table with measured column widths, alignment and truncation',
     name: 'table',
   },

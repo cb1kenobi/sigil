@@ -352,6 +352,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/41-autocomplete-multiselect.js`](components/41-autocomplete-multiselect.js) | Type to filter a list, and tick several; ticks outlive the filter |
 | [`components/42-select-key.js`](components/42-select-key.js)                             | Choose by pressing a key: numbered, and expanded on `h`           |
 | [`components/43-sort.js`](components/43-sort.js)                                         | A sort prompt: pick a row up, carry it, put it down               |
+| [`components/44-multi-progress.js`](components/44-multi-progress.js)                     | Several progress bars at once, each with a rate and an ETA        |
 | [`components/45-charts.js`](components/45-charts.js)                                     | A sparkline, bars, a braille line chart and a gauge               |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
@@ -375,6 +376,12 @@ colour: the sparklines take the `accent` role, the gauge changes role at its
 thresholds, and `NO_COLOR=1` leaves the shapes, which carry the data. The last
 section is the same charts with `ascii: true`, which is what a Linux console or
 `TERM=dumb` gets.
+
+`44-multi-progress.js` runs four simulated downloads through one
+`createMultiProgress()`, adding the bars a quarter second apart and finishing each
+on its own. On a terminal each row carries a rate and a time remaining; piped,
+every bar writes its own labelled line every 25 percent and no rate, which would
+differ on every line. The `await` on the whole set is what ends the group.
 
 ### Try them without a terminal
 
