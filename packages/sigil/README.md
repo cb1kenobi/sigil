@@ -3312,8 +3312,45 @@ opposite; `validate` is where an app says so.
 Each directory is read once per prompt and cached, and a directory that cannot be
 read -- missing, not a directory, no permission -- simply has no candidates.
 
-This is the field. A picker that browses the tree is a different widget and is not
-here.
+This is the field. The picker that browses the tree is the next section.
+
+#### A file picker
+
+```js
+import { filePicker } from '@ttylabs/sigil/components';
+
+const file = await filePicker({ message: 'Which config?', extensions: ['json', 'yaml'] });
+const dir = await filePicker({ message: 'Output directory?', directory: true, confine: true });
+```
+
+`path()` is for someone who knows the name; this is for someone who does not. A list
+of what is in a directory, with the directory shown beside the question. **Right**
+goes into the highlighted directory, **Left** or **Backspace** comes back out onto
+the one just left, **Enter** goes into a directory and chooses a file, and Up and
+Down wrap like `select()`'s (Home, End, Page Up and Page Down go further). **`.`**
+shows or hides dotfiles. The answer is the entry you land on, as an absolute path.
+
+| Option       | Meaning                                                                          |
+| ------------ | -------------------------------------------------------------------------------- |
+| `message`    | What is being asked                                                              |
+| `directory`  | Choose a directory: files are not listed, a `.` row is the directory itself      |
+| `extensions` | Offer only files with these extensions (`'json'` or `'.json'`); directories stay |
+| `hidden`     | Show dotfiles from the start; `.` toggles them either way                        |
+| `root`       | Where it starts. Default: the working directory                                  |
+| `confine`    | Left and Backspace stop at `root` instead of going to its parent                 |
+| `loop`       | Whether the highlight wraps. Default `true`                                      |
+| `validate`   | As `path()`: return a string to reject the answer with that message              |
+| `rows`       | How many entries are shown at once                                               |
+
+`directory`, `extensions` and `hidden` are `path()`'s and are decided by the same
+function, so the two agree about what is on offer. With `directory`, Enter chooses
+the highlighted directory (Right is what goes into it), and the first row is `.`,
+the directory being looked at -- so an empty directory can still be the answer.
+`confine` is a navigation rule and not a sandbox: a link inside `root` that points
+outside it is followed, so an app that has to refuse a path puts the check in
+`validate`. Each directory is read once per prompt, a directory that cannot be read
+lists nothing, and sizes and types are not shown, as in `path()`. At a file system
+root (`/`, or a Windows drive such as `C:\`) Left has nowhere to go.
 
 #### Sort
 
