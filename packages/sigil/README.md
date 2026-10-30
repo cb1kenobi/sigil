@@ -3357,6 +3357,44 @@ The rows are numbered, and a list longer than the screen is windowed to follow
 the highlight. It rejects with `PromptError` where there is no terminal, like the
 others.
 
+#### Toggle
+
+```js
+import { toggle } from '@ttylabs/sigil/components';
+
+const enabled = await toggle({
+  message: 'Notifications',
+  active: 'enabled',
+  inactive: 'disabled',
+  initial: true,
+});
+// true
+```
+
+A setting with two named states, for the case where the states are not an answer
+to a question: `confirm()` is "yes or no" with `y` and `n`, and "notifications:
+on or off" has no yes in it. It returns a boolean, `true` for the active state.
+
+Both states are shown, **the inactive one on the left and the active one on the
+right**, like a switch, with a marker on the current one. **Left chooses the
+inactive state and Right the active one; Tab, Shift-Tab and Space flip to the
+other.** Enter answers. Up, letters and anything held with Ctrl or Alt do
+nothing. Once answered the line is the question and the name of the state chosen.
+
+| Option     | Meaning                                                                        |
+| ---------- | ------------------------------------------------------------------------------ |
+| `message`  | What is being asked                                                            |
+| `active`   | What the `true` state is called. Default `on`, translated through the catalog  |
+| `inactive` | What the `false` state is called. Default `off`, translated the same way       |
+| `initial`  | The state it starts in. Default `false`                                        |
+| `signal`   | An `AbortSignal`, as for every prompt: it rejects with the signal's own reason |
+
+A name that is blank or holds a line break, two states with the same name and an
+`initial` that is not a boolean are refused with a `PromptError` before anything
+is drawn. Where the question and both states do not fit on one line the states
+go on a line of their own under it. It rejects with `PromptError` where there is
+no terminal, like the others.
+
 #### Spinner
 
 ```js
@@ -3695,6 +3733,47 @@ Like `table()` it returns a string and the caller does the writing, which also
 puts it on the result side of `--quiet`. `noteView()` is the element tree behind
 it, for an app that wants one inside its own tree. There is no live form: a note
 is static, so `console.log(note(...))` already is one.
+
+#### Badge
+
+```js
+import { badge, badgeView, table } from '@ttylabs/sigil/components';
+
+console.log(`${badge('PASS', { variant: 'success' })} 148 tests in 2.1s`);
+
+console.log(
+  table([
+    ['@ttylabs/sigil', badgeView('PASS', { variant: 'success' })],
+    ['@ttylabs/cli', badgeView('FAIL', { variant: 'error' })],
+  ])
+);
+```
+
+A few characters on a coloured ground -- `PASS`, `FAIL`, `beta` -- for a table
+cell or a line of text. The label is drawn as given, with a column of padding each
+side, in the colour of the variant's theme role: `success`, `warning`, `error` and
+`info` are `.sigil-success`, `.sigil-warn`, `.sigil-error` and `.sigil-info`, and
+`neutral` (the default) takes no role, so it is the terminal's own foreground
+inverted. The role's colour becomes the background by `.sigil-badge { inverse: true }`,
+so a theme that recolours `.sigil-success` recolours its badges, and
+`.sigil-badge-error` and its siblings are the narrower hook for one variant. There
+is no colour option: the colours are the theme's.
+
+Where there is no colour -- a pipe, `NO_COLOR` -- the inverse is gone and padding
+alone would leave `PASS` indistinguishable from the text beside it, so the padding
+becomes brackets: `[PASS]`. Both take two columns, so a badge is the same width
+either way. Escape sequences and line breaks in the label are dropped, and an empty
+label draws nothing.
+
+`badge()` returns a string and the caller does the writing, which puts it on the
+result side of `--quiet`, like `table()` and `note()`. **In a table, use
+`badgeView()`**: a string cell has its escape sequences dropped, so a styled
+`badge()` string would print as literal characters. A `table()` cell may be any
+`{ element, width }` -- a `TableCellView` -- and the table sizes the column by the
+`width`, aligns the tree by the column's `align`, and cuts it at the column's
+`maxWidth`. Pass the same `colorLevel` (or `ansi`) to the badge and the table if
+you override one: the level is what picks brackets or padding, and a badge built
+for one level and drawn at another is still legible but not the same shape.
 
 #### Charts
 
