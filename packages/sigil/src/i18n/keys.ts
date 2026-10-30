@@ -98,6 +98,8 @@ export const SIGIL_KEYS: readonly string[] = [
   'Replace it?',
   'Run a command',
   'Searching...',
+  'Selected: {0}',
+  'Selected: {0}, {1} not shown',
   'Set up completion for {0}, detected {1}:',
   'Show help for a command',
   'Suppress progress, not results',
