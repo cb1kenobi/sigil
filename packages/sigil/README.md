@@ -3709,6 +3709,59 @@ and the ASCII forms are `_.:-=+*#` for a sparkline, `#` bars, a `*` line and `#`
 and `-` in a gauge. `.sigil-chart-sparkline`, `-bar`, `-line` and `-gauge` are the
 theme hooks, each with `-row` and `-part` classes inside.
 
+#### A paginator
+
+```js
+import { createPaginator } from '@ttylabs/sigil/components';
+
+const pager = createPaginator({ perPage: 5, total: results.length });
+
+console.log(pager.slice(results).join('\n'));
+console.log(pager.indicator({ style: 'both' }));
+input.bind('right', () => pager.next());
+```
+
+```
+result-06.log  result-07.log  result-08.log  result-09.log  result-10.log
+○ ● ○ ○ ○ 2/5
+```
+
+For content that is genuinely in pages -- a result set, a wizard, a help browser --
+rather than one long list, which is what the prompts' window and `ScrollBox` scroll.
+`createPaginator({ page, perPage, total })` is the arithmetic, over signals:
+
+- **`page`** counts from zero and clamps when assigned; **`pages`** is at least
+  one, so nothing to show is still `1/1`. `next()`, `previous()`, `first()`,
+  `last()` and `goTo(n)` return whether the page moved, so a key handler can tell
+  the end from a keystroke that did something.
+- **`start`** and **`end`** are the indexes of the current page's items (`end` is
+  exclusive), `onFirstPage` and `onLastPage` say where you are, and
+  `slice(items)` is the page's items.
+- **`total`** and **`perPage`** are assignable. A `total` that shrinks takes the
+  page with it, once, so growing again does not spring it back; a `perPage` that
+  changes keeps the page's **first item** on screen. A `perPage` under one is one.
+
+Every read goes through a signal, so one made inside an effect or a computed is
+tracked. `pager.state` is the three signals, `paginatorState()` makes them without
+the facade, and `pageCount()`, `pageBounds()` and `clampPage()` are the arithmetic.
+
+`pageIndicator(page, pages, options)` is the string, and `pager.indicator()` is
+the same for the current page. `style: 'dots'` (the default) is one dot per page,
+the current one filled -- `● ○ ○` -- `'numeric'` is `2/5`, and `'both'` is
+`○ ● ○ 2/3`. Past `maxDots` pages (10) the dots give way to the number, whatever
+the style said, because a row of forty dots wraps into a different shape on every
+terminal width. `format(page, pages)` words the number, counting from one --
+`Page 2 of 5` in your own language, since `2/5` is not prose and is not in the
+catalog -- `active` and `inactive` replace the glyphs, and `ascii` (by default what
+`unicodeSupported()` says) draws `*` and `.`.
+
+`paginatorView(state, options)` is the live indicator as an element tree, redrawn
+when the page, the total or the page size changes, and `pageIndicatorView()` is
+the static one behind the string. The current dot is `.sigil-accent` and the rest
+`.sigil-muted`, with `.sigil-paginator`, `-active`, `-inactive` and `-numeric` as
+the theme hooks. Nothing is bound to a key: a paginator is state, and which keys
+turn the page is the app's.
+
 #### A key-help footer
 
 ```js

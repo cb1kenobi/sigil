@@ -5742,3 +5742,68 @@ is the group. SIG-184.
 - **Not done:** a timer that counts the ETA down between ticks; an overall bar
   for the group; a bar that is indeterminate until its total is known; locale
   number formatting.
+
+### A paginator: page state, and a dot or numeric indicator
+
+`src/components/paginator.ts`. SIG-190.
+
+- **It is separate from the windowing in `prompt.ts`, and that settles the
+  ticket's first question.** A window's position follows a cursor and moves a row
+  at a time over a list that is one thing; a page is a unit the reader steps
+  between over content that is in pages. One counter cannot serve both without one
+  of them lying about what it is -- a scroll offset is not a multiple of anything,
+  and a page number is -- so the paginator shares no state or code with
+  `listWindow()` or `ScrollBox`. It is for a wizard, a result set, a help browser.
+- **The state is three signals and everything else is a function of them.**
+  `page`, `perPage` and `total`; the number of pages, `start`, `end`, and whether
+  there is a next are computed from them wherever they are read, so `paginatorView()`
+  and the `Paginator` facade cannot disagree about where the page is.
+- **`page` counts from zero, and `format()` is handed it counting from one.**
+  Zero is what it indexes a list with and what Bubbles' paginator uses; one is
+  what a reader is told. The two meet only in the indicator, which converts once.
+- **Reads clamp and writes normalize, and both are needed.** A page written past
+  the end through `state.page` reads as the last, so a view never shows a page that
+  is not there. A `total` that shrinks writes the clamped page back, so growing
+  again does not spring it to where it was -- clamping on read alone would have
+  done exactly that. A `perPage` that changes keeps the page's **first item** on
+  screen (`floor(start / perPage)`) rather than the page number, since page 3 of
+  tens and page 3 of fives are different places.
+- **Nothing to show is one page, not none.** `pageCount(0, n)` is 1, so an empty
+  result set reads `1/1` and a single dot, and `onFirstPage` and `onLastPage` are
+  both true. A `perPage` under one is one and a `total` that is not a count is
+  nothing, rather than a throw: these are written from application data, and a
+  paginator that throws on an empty query is a bug in every caller.
+- **Moves report whether they moved.** `next()` on the last page returns `false`
+  and changes nothing; there is no wrap-around, because a wizard that wraps from
+  the last page to the first is a surprise and a result set that does is rarely
+  what anybody meant. A caller that wants one writes `pager.next() || pager.first()`.
+- **Indicator styles: dots, numeric, both -- the ticket's second question.** The
+  default is dots, one per page with the current one filled and the rest hollow, so
+  the position survives with no colour as the filled dot against the hollow ones.
+  The roles are `.sigil-accent` and `.sigil-muted`, the ordinary ones, with
+  `.sigil-paginator-*` classes beside them as the narrower hook.
+- **Past `maxDots` (10) pages the dots give way to the number, whatever the style
+  says, and `both` becomes the number alone.** A row of dots that does not fit
+  wraps into a different shape on every terminal width, and nobody counts forty of
+  them. Ten is the number a reader can still take in at a glance; `maxDots` moves it.
+- **The number is not in the message catalog.** `2/5` is not prose, so there is no
+  key for `Page {0} of {1}` to translate; `format(page, pages)` is where an app
+  words it, in whatever language it already has.
+- **The string and the live view are one function.** `slotsFor()` decides the four
+  runs -- dots before, the current dot, dots after, the number -- and both
+  `pageIndicator()` and `paginatorView()` write them, so the two cannot disagree
+  about where a space goes or when dots give way to a number. They are separate
+  text nodes because each takes its own role, and each is `white-space: pre` with a
+  width, since a text drops the whitespace at the end of its last line and the space
+  that separates a run from the next would otherwise be nothing at all.
+- **The glyphs follow `unicodeSupported()`.** `●` and `○` are not safe where box
+  drawing is not, so a Linux console or `TERM=dumb` gets `*` and `.`, as the charts
+  do; `ascii` overrides it either way.
+- **No key handling.** Bubbles' paginator ships key bindings; this does not. A
+  paginator is state and a drawing, and which keys turn the page belongs to the
+  app's own router -- the same decision `ScrollBox`'s bindings and `keyHelp()` leave
+  to the caller.
+- **Not done:** wrap-around; a page that follows a cursor (that is a window); a
+  live indicator with a `mountLive()` facade of its own -- it is a tree an app puts
+  inside its own, like `calendarView()`; windowing a long row of dots around the
+  current page.
