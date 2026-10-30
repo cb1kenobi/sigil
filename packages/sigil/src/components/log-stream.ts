@@ -79,6 +79,32 @@ function incompleteAt(text: string): number {
 }
 
 /**
+ * Where text up to the last blank ends, counting only blanks that are text.
+ *
+ * A space inside a sequence is part of it -- a window title is `ESC]0;build step
+ * one BEL` -- and a break there cuts the sequence in half, so what is wrapped
+ * and written is its leftover bytes. Found by walking the tokens, which is how
+ * the wrapper itself tells a sequence from the text around it.
+ *
+ * @param text - The text, with no sequence unfinished at its end.
+ * @returns The offset just after the last space or tab outside a sequence, or `0`.
+ */
+function settledAt(text: string): number {
+  let at = 0;
+  let settled = 0;
+
+  for (const token of tokenize(text)) {
+    at += token.text.length;
+
+    if (token.type === 'cluster' && (token.text === ' ' || token.text === '\t')) {
+      settled = at;
+    }
+  }
+
+  return settled;
+}
+
+/**
  * A line of source reduced to text and SGR.
  *
  * Done on a line that is whole as far as this call can tell -- never on a chunk,
@@ -172,7 +198,7 @@ export function createStreamWrapper(width: number): StreamWrapper {
       // wrap only what is settled: up to the last space before an unfinished
       // sequence. What follows is a word that may still be growing
       const whole = line.slice(0, incompleteAt(line));
-      const settled = Math.max(whole.lastIndexOf(' '), whole.lastIndexOf('\t')) + 1;
+      const settled = settledAt(whole);
 
       if (settled > 0) {
         const wrapped = lines(line.slice(0, settled));

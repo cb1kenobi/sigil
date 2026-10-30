@@ -5420,6 +5420,17 @@ changed.
   progress frame costs no columns. A bare `\r` is dropped, not honoured as "keep the
   text after it": `10%\r50%` is `10%50%`, which is what `log.info()` gives and is
   never a lie about what the source sent. Found by review of SIG-179.
+- **A break is a blank that is text, never one inside a sequence.** `settledAt()`
+  walks the tokens, so the space in a window title (`ESC]0;build step one BEL`) or
+  in `ESC[2 q` cannot be where a chunk is cut. A review round reported this as
+  junk written and real words lost; **that does not reproduce**, and it is worth
+  saying so: the sequence matcher takes an unterminated string payload or CSI to
+  the end of the text, so `clean()` already dropped a cut sequence whole, and a
+  fuzz of 20,000 random chunkings over an alphabet of `ESC`, brackets, spaces and
+  terminators found no input where chunked and whole-text output differ, with the
+  raw `lastIndexOf(' ')` search or without it. So the walk is a declared survivor,
+  not a fix with a test that fails without it: it stops the break depending on the
+  matcher's leniency, and its two tests pin the behaviour rather than discriminate.
 
 **Deliberately not done:** writing a partial row (above); an `AbortSignal`;
 timestamps and structured fields (a separate ticket); a pace or a cap on how fast

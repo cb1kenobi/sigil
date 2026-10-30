@@ -173,6 +173,28 @@ describe('wrapping text that is still arriving', () => {
     expect(run(5, [`ab${ESC}[2Jcd${ESC}[Aef gh\n`])).toEqual(['abcde', 'f gh']);
   });
 
+  it('should not break a line at a space inside a sequence', () => {
+    const title = `${ESC}]0;build step one\u0007`;
+    const text = `ok ${title}done now`;
+    const wrapper = createStreamWrapper(10);
+    const lines = [...wrapper.push(`ok ${title}done`), ...wrapper.push(' now'), ...wrapper.end()];
+
+    expect(lines).toEqual(['ok done', 'now']);
+    expect(lines).toEqual(wrap('ok done now', { width: 10 }).split('\n'));
+    expect(run(10, chop(text, 1))).toEqual(['ok done', 'now']);
+  });
+
+  it('should not break a line at the space in a sequence with an intermediate byte', () => {
+    // `ESC[2 q` sets the cursor style, and its space is a parameter byte. Cut
+    // after it the sequence has no final byte, so what is left is `[2` as text
+    const style = `${ESC}[2 q`;
+    const wrapper = createStreamWrapper(5);
+    const lines = [...wrapper.push(`abc ${style}d`), ...wrapper.end()];
+
+    expect(lines).toEqual(['abc d']);
+    expect(run(5, chop(`abc ${style}d`, 1))).toEqual(['abc d']);
+  });
+
   it('should clean a sequence that arrived in pieces', () => {
     expect(run(40, chop(`x${ESC}[2Jy\rz\n`, 1))).toEqual(['xyz']);
   });
