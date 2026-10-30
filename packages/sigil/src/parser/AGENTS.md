@@ -1141,6 +1141,63 @@ resolution.
   type parameter keeps `type: 'int'` from widening to `string`, so a group is
   still worth inferring from wherever it is used.
 
+### `@ttylabs/sigil/coerce`: the parser's coercion, published on its own
+
+SIG-201. `transformValue()` is what the parser turns a string into a typed value
+with, and it had no published home, which is why `date()`, `number()` and the
+command palette could not be ejected: `sigil add` rewrites a component's relative
+imports to published subpaths and `../util/transform.js` had none. Three
+components were copyable for want of one export. The three components' own
+entries (`src/components/AGENTS.md`) used to say it was refused for being a new
+public surface taken inside a prompt ticket; this is the ticket that takes it, on
+purpose.
+
+- **A new subpath, `@ttylabs/sigil/coerce`, and not a name on an existing one.**
+  Not the root: the root has a ceiling in `dist.test.ts` and this is parser
+  weight, which is what a command that only answers `--version` should not load.
+  Not `/components` either: the parser coerces with it, and a subpath named for its
+  consumers would have the parser importing from a UI barrel. Measured as of this
+  entry: `coerce.mjs` is a 75 B entry over the existing shared `transform` chunk,
+  7,529 B over four modules once its imports are counted; the root entry's static
+  graph is the same seven modules, 12,264 B before and 12,269 B after -- the five
+  bytes are rolldown's chunk names moving because there is one more entry, in
+  `src` and `help`, and `test/dist.test.ts` pins that `coerce` is not in the root
+  graph. `components.mjs` went from 279,079 B over 30 modules to 279,211 B over 31:
+  the extra module is the 75 B entry, since the components now import
+  `../util/coerce.js`.
+- **`transformValue()` and `daysInMonth()`, not the file.** The entry is
+  `src/util/coerce.ts`, a two-name re-export, and not `transform.ts` itself. That
+  module also holds `DATA_TYPES`, `OPTION_DATA_TYPES`, `checkValue()` and
+  `assertChoices()`, which are the parser's and a config schema's business, and
+  publishing the file would make each of them a contract by the act of exporting
+  it. What is promised is the **signature of `transformValue(value, type)`**, the
+  types it accepts and the **sentences it throws** (`Invalid integer: eight`,
+  `Invalid date: "2024-02-30"`): those are the parser's, they are what
+  `--port eight` prints, and a prompt that wants the same sentence needs the same
+  function. `test/coerce.test.ts` pins the exact export list, so a third name is a
+  decision somebody makes.
+- **The smaller "coerce a string to a declared type" was considered and refused.**
+  A second, narrower function that the parser also called would be a refactor of
+  the parser inside a registry ticket, and a function the parser does _not_ call
+  would be a second reader of the rule, which is the defect this exists to avoid.
+  So there is one function, and the subpath is the face it shows.
+- **`daysInMonth()` goes with it.** The date prompt steps a day against the month
+  it is in and has to agree with the parser about how long that month is
+  (including `Date.UTC`'s reading of years 0-99), so it goes the same way rather
+  than being copied into the ejected file.
+- **The components import `../util/coerce.js`, and the parser keeps importing
+  `transform.js`.** The registry generator maps a source path to a subpath through
+  the tsdown entry list, so the path a component writes has to be the entry's.
+  `coerce.ts` has no code of its own, so mocking `util/transform.js` in
+  `date-parser.test.ts` still replaces the one function both reach.
+- **Registry.** `date`, `number` and `palette` are in `ENTRIES`. The generator
+  also learned `BARRELLED`: the palette imports a type from `../types.js`, which
+  no entry names but the root barrel re-exports whole, so `src/types.ts` maps to
+  `@ttylabs/sigil`. `number` additionally needed `layoutField()` and `fieldLayers()`
+  in the components barrel (see "A number prompt" in `src/components/AGENTS.md`).
+  `test/registry.test.ts` now asks the built bundle for every value name each
+  entry imports, which is the check that would have caught the second one.
+
 ### Type inference
 
 - **`src/infer.ts` is `initOption()` and `initArg()` written again in the type

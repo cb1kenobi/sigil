@@ -983,8 +983,12 @@ export interface MultilineOptions extends PromptOptions {
  * is asserted directly and the field is asserted through the screen, which is
  * the split `rowWindow()` and `thumbExtent()` already keep for the scroll box.
  *
- * Not barrel-exported, because only the barrel is published: `FieldLayout` is a
- * shape this module owes nobody, and a type in the public API is a promise.
+ * `layoutField()`, `fieldLayers()` and the shapes they trade in are in the
+ * barrel since SIG-201, and for one reason: `number()` is a registry entry, an
+ * ejected copy imports only what is published, and it draws its field with
+ * exactly these two. That makes `FieldLayout` a promise to the app that ejected
+ * it -- narrow, and made on purpose; see "Ejecting `number`, `date` and the
+ * palette" in this directory's `AGENTS.md`.
  */
 
 /** One cluster of a field's value, and where it was drawn. */

@@ -3863,33 +3863,26 @@ the half a list and a highlight need.
   component reading what the parser built is a direction of dependency this
   repository already has, one layer along.
 
-- **It is deliberately not ejectable, and the reason is structural rather than a
-  preference.** `sigil add` rewrites a component's relative imports to the
-  published subpath that answers for each, and `generate-registry.mjs` refuses a
-  deeper specifier **by name**, so adding the palette to `ENTRIES` fails the
-  build. Measured by doing it, which is how the honest version of this sentence
-  was arrived at: the first specifier it refuses is `../types.js`, with
-  `"../types.js" resolves to src/types.ts, which no published subpath answers
-  for` -- and that one is the **generator's own map** rather than a statement about
-  the API, because the root barrel does `export * from './types.js'` and so does
-  publish `Internal`. The refusal that is about the API is the next relative
-  import, `../util/transform.js`: the map is built from the tsdown entry list,
-  which has no `src/util/` path at all, so nothing published answers for it. The
-  second review round found the first version of this sentence naming the second
-  miss. What that refusal is pointing at is the
-  real reason: the one thing the palette must share with the parser is the
-  function that says what a valid value is, so an ejected copy would either
-  import something unpublished or carry a **second** reader of the coercion rule.
-  "No second catalog" and "no second validator" are the same claim, and an
-  ejected palette cannot keep the second half of it.
+- **It is ejectable since SIG-201, and for most of its life it was not.**
+  `sigil add` rewrites a component's relative imports to the published subpath
+  that answers for each, and `generate-registry.mjs` refuses a deeper specifier
+  **by name**, so adding the palette to `ENTRIES` used to fail the build on
+  `../util/transform.js`: the map is built from the tsdown entry list, which had
+  no `src/util/` path at all. That refusal was pointing at the real reason --
+  the one thing the palette must share with the parser is the function that says
+  what a valid value is, so an ejected copy would either import something
+  unpublished or carry a **second** reader of the coercion rule. "No second
+  catalog" and "no second validator" are the same claim.
 
-  Publishing `transformValue()` was the obvious way round it and is refused:
-  that is a new permanent public surface -- "turn a string into a value of a
-  declared type, the way the parser does" -- taken inside a palette ticket, which
-  is the shape this file refuses repeatedly. What an app that wants to own the
-  palette's _appearance_ has instead is the ladder this file already records:
-  restyle a class, override a prop, or build its own tree over
-  `commandCatalog()`, `rankBy()` and `highlightRuns()`, which are all exported.
+  The answer was to publish the one function rather than to let a copy carry its
+  own: `@ttylabs/sigil/coerce`, recorded under "`@ttylabs/sigil/coerce`: the
+  parser's coercion, published on its own" in `src/parser/AGENTS.md`. The other
+  relative import the generator stopped on, `../types.js`, needed no new
+  subpath: the root entry does `export * from './types.js'`, so the generator
+  now maps `src/types.ts` to `@ttylabs/sigil` (`BARRELLED` in the script). What
+  an app that wants only the palette's _appearance_ has is still the ladder this
+  file records -- restyle a class, override a prop, or build its own tree over
+  `commandCatalog()`, `rankBy()` and `highlightRuns()`.
 
 - **The palette answers with an argv and runs nothing.** Running a selection is
   dispatching a command, which `main()` already does, so `commandPalette()`
@@ -4471,15 +4464,22 @@ everything in it is a decision about what it does _not_ own.
   the caret layer resolves against, with the window kept on the caret's row for an
   answer wider than the room. The caret is drawn at colour level 1 and above, as
   everywhere.
-- **It is not a registry entry, and that is structural.** `generate-registry.mjs`
-  only knows the published subpaths, and `../util/transform.js` has none -- the
-  same refusal the command palette records, for the same reason: the one thing
-  this must share with the parser is the function that says what a valid value is,
-  and an ejected copy would carry a second reader of the coercion rule. Publishing
-  `transformValue()` is a new public surface taken inside a prompt ticket, and is
-  refused here as it was there. `layoutField()` and `fieldLayers()` are likewise
-  not barrel-exported (see the note above them in `prompt.ts`), which would have
-  blocked it independently. The ticket's "registry entry" is therefore not done.
+- **It is a registry entry (SIG-201), and two things had to be published for
+  that.** This entry used to read "not a registry entry, and that is structural":
+  `../util/transform.js` had no subpath, and `layoutField()` and `fieldLayers()`
+  were not in the barrel. The first is `@ttylabs/sigil/coerce` (see
+  `src/parser/AGENTS.md`); the second is that the barrel now exports
+  `layoutField`, `fieldLayers` and the shapes they trade in -- `FieldLayout`,
+  `FieldFrame`, `FieldRow`, `FieldCell` -- which is a **public contract taken
+  deliberately and narrowly**, because an ejected `number.ts` draws its field with
+  exactly those two and importing a name the package does not export fails in the
+  app at the import. `multiline()`, `text()` and the rest keep their field
+  internals private; only the two functions an ejected copy calls, and the types
+  in their signatures, moved. `test/registry.test.ts` asks the built bundle for
+  every value name an entry imports, so the next component that reaches for an
+  unexported helper fails the build rather than the app. Confirmed by type-checking
+  the ejected `date`, `number` and `palette` under `NodeNext` against the built
+  package, which is the check that found `layoutField` was missing.
 - **Deliberately not done:** thousands separators and units, an `e` for scientific
   notation, hex or other bases (`transformValue()` reads `0x10` as an `int`; the
   field cannot type an `x`), Page Up/Down for a larger step, a held key
@@ -4749,12 +4749,14 @@ from year, month and day segments, with the hour, minute and second added by
   caret is drawn, so the focused segment is not marked there. The classes are
   `sigil-prompt-field`, `sigil-caret`, `sigil-muted` and `sigil-prompt-answer`;
   there is no new one.
-- **Not ejectable, for the palette's reason.** `sigil add` rewrites a component's
-  relative imports to published subpaths and `../util/transform.js` has none; an
-  ejected copy would carry a second reader of the calendar, which is the thing
-  this component exists not to have. So `date` is not in `generate-registry.mjs`'s
-  `ENTRIES`, and the ticket's registry line is answered by that rather than by an
-  entry.
+- **Ejectable since SIG-201, through `@ttylabs/sigil/coerce`.** It was "not
+  ejectable, for the palette's reason": `../util/transform.js` had no published
+  subpath, and an ejected copy would have carried a second reader of the calendar,
+  which is the thing this component exists not to have. `transformValue()` and
+  `daysInMonth()` are published together there, so the copy reads the calendar
+  from the parser's own function. `date` is in `generate-registry.mjs`'s
+  `ENTRIES`. `date-parser.test.ts` still replaces the parser by mocking
+  `util/transform.js`, which works because `util/coerce.ts` is a re-export of it.
 - **Deliberately not done.** A timezone or UTC option; locale ordering; a
   free-form mask; a calendar popup; mouse; a range (two dates) prompt; paste
   handling (a pasted block is typed in as keys, as for the other non-text
@@ -4835,9 +4837,18 @@ field.
   parameter. That is the decoder's to fix, under "Prompts and keys", and not inside
   a calendar ticket. Until then a year is twelve Page Downs, or the year segment of
   the date prompt.
-- **Not ejectable, for the date prompt's reason.** It reaches `../util/transform.js`
-  for `daysInMonth()`, which has no published subpath, so `calendar` is not in
-  `generate-registry.mjs`'s `ENTRIES`.
+- **`calendar` is not an entry, though the reason it gave is gone, and `date` ejects
+  through this file's exports.** The reason was `daysInMonth()` having no published
+  subpath, which SIG-201 fixed with `@ttylabs/sigil/coerce`; `calendar.ts` still
+  imports `../util/transform.js`, so adding it to `ENTRIES` also means pointing
+  that at `coerce.js`, and nobody has asked for an ejected calendar. What did
+  change is `date.ts`, which now builds on `calendarGrid()`, `addMonths()` and
+  `dayKey()`. An ejected `date` imports them from `@ttylabs/sigil/components`
+  because a sibling import is rewritten there, so the barrel exports them -- with
+  `Day`, `CalendarGrid` and `GridView`, the types in their signatures -- and
+  `should import only names the published subpath exports, for date` is the test
+  that failed when SIG-187 and SIG-201 met without it. Neither branch was wrong
+  alone: one made `date` an entry and the other made it import the calendar.
 - **Deliberately not done:** week numbers; a range selection; marking today
   automatically (pass it as `selected`); leading and trailing days from the
   neighbouring months; mouse; a time of day in `pickDate()` (the date prompt is

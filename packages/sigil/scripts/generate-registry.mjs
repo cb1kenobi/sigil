@@ -111,6 +111,18 @@ const ENTRIES = [
     name: 'list',
   },
   {
+    desc: 'A number prompt: min, max, step, and arrows that change the value',
+    name: 'number',
+  },
+  {
+    desc: 'A date prompt: year, month and day segments, with min and max',
+    name: 'date',
+  },
+  {
+    desc: 'A command palette generated from the command registry, answering with an argv',
+    name: 'palette',
+  },
+  {
     desc: 'A scrolling viewport with a scrollbar, keyboard, wheel and a draggable thumb',
     name: 'scroll-box',
   },
@@ -188,6 +200,16 @@ function entryMap() {
 }
 
 /**
+ * Source paths that are published by a barrel rather than by an entry of their own.
+ *
+ * `src/types.ts` is re-exported whole by the root entry (`export * from
+ * './types.js'`), so a type a component imports from it is on `@ttylabs/sigil`
+ * even though no tsdown entry names the file. The map above is built from the
+ * entry list and cannot see that; this is the one place it is written down.
+ */
+const BARRELLED = new Map([['src/types.ts', 'index']]);
+
+/**
  * One import specifier, as the ejected copy should spell it.
  *
  * @param spec - The specifier as the source writes it.
@@ -206,7 +228,7 @@ function rewrite(spec) {
 
   // `../element/index.js` -> `src/element/index.ts`
   const source = `src/${spec.replace(/^\.\.\//, '').replace(/\.js$/, '.ts')}`;
-  const subpath = subpaths.get(source);
+  const subpath = subpaths.get(source) ?? BARRELLED.get(source);
 
   if (!subpath) {
     throw new Error(

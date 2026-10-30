@@ -4675,6 +4675,27 @@ process may actually execute, so a directory of the right name is not one.
 Pass `path`, `pathExt` or `cwd` to ask about somewhere other than the
 environment.
 
+### `sigil/coerce`
+
+Turns a string into a value of a declared data type, the way the parser does.
+
+```js
+import { daysInMonth, transformValue } from '@ttylabs/sigil/coerce';
+
+transformValue('8080', 'int'); // 8080
+transformValue('yes', 'bool'); // true
+transformValue('2024-06-15', 'date'); // a Date
+transformValue('eight', 'int'); // throws: Invalid integer: eight
+daysInMonth(2024, 2); // 29
+```
+
+It is the function behind `--port 8080`, so whatever it accepts is what the
+command line accepts, and the sentence it throws is the parser's. That is what
+`number()`, `date()` and the command palette rely on, and why `sigil add` can
+copy them into an app: an ejected prompt asks the same function the parser does,
+rather than carrying a second opinion of what a date is. It is a subpath and not
+a name on the root so that a command which only answers `--version` never loads it.
+
 ### `sigil/updates`
 
 Checks for a newer version in a spawned worker, so the check never blocks the

@@ -29,10 +29,16 @@ export {
   type PaletteResult,
 } from './palette.js';
 export {
+  addMonths,
   calendar,
+  type CalendarGrid,
+  calendarGrid,
   type CalendarGridOptions,
   type CalendarOptions,
   calendarView,
+  type Day,
+  dayKey,
+  type GridView,
   pickDate,
   type PickDateOptions,
 } from './calendar.js';
@@ -80,6 +86,12 @@ export {
   type TextOptions,
 } from './prompt.js';
 export {
+  fieldLayers,
+  type FieldCell,
+  type FieldFrame,
+  type FieldLayout,
+  type FieldRow,
+  layoutField,
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,

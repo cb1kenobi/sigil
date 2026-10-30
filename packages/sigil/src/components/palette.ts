@@ -31,7 +31,7 @@ import { box, type Element, text as textNode, toDisplayText } from '../element/i
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import type { OptionDataType } from '../types.js';
-import { transformValue } from '../util/transform.js';
+import { transformValue } from '../util/coerce.js';
 import {
   type CatalogOptions,
   type CatalogTarget,
