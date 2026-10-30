@@ -147,6 +147,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-sort-carried
  *   .sigil-toggle  .sigil-toggle-option
  *   .sigil-tasklog  .sigil-tasklog-line
+ *   .sigil-paginator  .sigil-paginator-dots  .sigil-paginator-active
+ *   .sigil-paginator-inactive  .sigil-paginator-numeric
  *   .sigil-calendar  .sigil-calendar-title  .sigil-calendar-weekdays
  *   .sigil-calendar-week  .sigil-calendar-day  .sigil-calendar-highlight
  *   .sigil-calendar-selected  .sigil-calendar-disabled

@@ -358,6 +358,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/47-toggle.js`](components/47-toggle.js)                                     | A toggle prompt: two named states, flipped with the arrows, Tab or Space |
 | [`components/48-badge.js`](components/48-badge.js)                                       | A short status label, in a table cell or on a line                       |
 | [`components/49-rule.js`](components/49-rule.js)                                         | A horizontal divider, with a label set into it                           |
+| [`components/50-paginator.js`](components/50-paginator.js)                               | Page state, and a dot or numeric indicator of where you are              |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -402,6 +403,12 @@ after each key: a month change pulling the 31st back to the 29th, and a range
 holding the cursor at its edge. The month, language and week are pinned in the
 piped run so the output is the same anywhere; the answers it prints are
 `Date.toString()`, so the time zone in them is yours.
+
+`50-paginator.js` pages through twenty-three results five at a time, printing the
+page and a dots-and-number indicator under each, then the three indicator styles at
+one position, a row of dots giving way to a number at forty pages, and a `total`
+that shrinks and grows back. It is a pure function of numbers, so it prints the
+same on a pipe and under `NO_COLOR`.
 
 ### Try them without a terminal
 

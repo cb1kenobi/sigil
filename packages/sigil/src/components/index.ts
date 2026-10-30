@@ -56,6 +56,21 @@ export {
 export { groupMultiselect, type GroupMultiselectOptions } from './group-multiselect.js';
 export { joinList, list, type ListOptions, splitList } from './list.js';
 export { number, type NumberOptions } from './number.js';
+export {
+  clampPage,
+  createPaginator,
+  pageBounds,
+  pageCount,
+  pageIndicator,
+  type PageIndicatorOptions,
+  type PageIndicatorStyle,
+  pageIndicatorView,
+  type Paginator,
+  type PaginatorOptions,
+  type PaginatorState,
+  paginatorState,
+  paginatorView,
+} from './paginator.js';
 export { sort, type SortOptions } from './sort.js';
 export { toggle, type ToggleOptions } from './toggle.js';
 export {
