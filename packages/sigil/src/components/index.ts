@@ -337,3 +337,12 @@ export {
   noteView,
   unicodeSupported,
 } from './note.js';
+export {
+  rule,
+  type RuleAlign,
+  type RuleLine,
+  type RuleOptions,
+  type RuleRole,
+  type RuleView,
+  ruleView,
+} from './rule.js';

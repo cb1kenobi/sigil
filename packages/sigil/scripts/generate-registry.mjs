@@ -166,6 +166,10 @@ const ENTRIES = [
     desc: 'Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge',
     name: 'chart',
   },
+  {
+    desc: 'A horizontal divider across the terminal, with an optional label set into it',
+    name: 'rule',
+  },
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */

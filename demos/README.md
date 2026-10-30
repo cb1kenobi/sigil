@@ -355,6 +355,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/44-multi-progress.js`](components/44-multi-progress.js)                     | Several progress bars at once, each with a rate and an ETA        |
 | [`components/45-charts.js`](components/45-charts.js)                                     | A sparkline, bars, a braille line chart and a gauge               |
 | [`components/46-calendar.js`](components/46-calendar.js)                                 | A month grid: printed, picked from, or under a date field         |
+| [`components/47-rule.js`](components/47-rule.js)                                         | A horizontal divider, with a label set into it                    |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -383,6 +384,12 @@ section is the same charts with `ascii: true`, which is what a Linux console or
 on its own. On a terminal each row carries a rate and a time remaining; piped,
 every bar writes its own labelled line every 25 percent and no rate, which would
 differ on every line. The `await` on the whole set is what ends the group.
+
+`47-rule.js` is a string like the note: it passes a `width` so that it prints the
+same lines wherever it is run, and shows the three alignments, the four line
+styles, the roles, a label that is cut to fit, and the ASCII line chosen because
+`TERM=linux` was read out of the `env` it was handed. `NO_COLOR=1` leaves the
+line and the words and takes the dim and the colour.
 
 `46-calendar.js` prints three months first -- a selected day in `[]`, highlighted
 days with a `*`, a Monday start in German and a leap February in French -- which is

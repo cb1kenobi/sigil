@@ -5742,3 +5742,56 @@ is the group. SIG-184.
 - **Not done:** a timer that counts the ETA down between ticks; an overall bar
   for the group; a bar that is indeterminate until its total is known; locale
   number formatting.
+
+### A rule: a horizontal divider, with an optional label
+
+SIG-180 asked for what Textual's `Rule` and `ink-divider` draw: a line across the
+width, with words in it if wanted. `src/components/rule.ts` is `rule()` and
+`ruleView()`, and the split is `note()` and `noteView()`'s.
+
+- **A component, and not a documented border-top recipe.** That settles the
+  ticket's question, and the recipe is not available rather than merely worse:
+  `border-style` is one value for all four edges and there is no `border-top`, so
+  a box that draws only a top line does not exist -- the nearest is a one-row box
+  with a border, which is three rows and a rectangle. What the component is worth
+  is also the argument the ticket made, a named thing with a theme-driven style and
+  a label that aligns, and none of it is a recipe's to carry.
+- **A row of three fixed-width texts, and the arithmetic is the component's.** The
+  line before the label, the label, the line after it, each `white-space: pre` and
+  `flex-shrink: 0` with the width it stands for -- `chart.ts`'s shape, for its
+  reason: the rule has already been fitted, and a text drops trailing whitespace
+  unless it is given its room. The width is fixed when the tree is built, as
+  every `*View()` here is. A `raw` that stretched to whatever the layout gave it
+  was the alternative and is not done: it would need a width the string form does
+  not have, and the string form is the facade.
+- **The label keeps line on both sides, and it is dropped rather than drawn over
+  the end.** Two cells of line at the end it leans towards and one at the other,
+  and one at each end when centred, with a space either side of the words. Where
+  the width cannot hold that around a label of one column the rule is a plain
+  line, and a label cut to nothing but its ellipsis is dropped as well -- an
+  ellipsis alone says nothing, and `note()` goes without a title the same way. A
+  centred label puts the odd cell on the right. The cut is `truncate()`, which may
+  come back a column short for a wide character, so the line after the label is
+  worked out from what was **measured** rather than from what was asked for.
+- **The line style is `line`, and it is not CSS.** "Line style from the theme" is
+  half true: the colour and the attributes are, through the cascade, and the
+  character is not, because no property carries a character -- `border-style` is a
+  character set for a border and this is not one. So `line` is the horizontal of
+  the border sets (`single` `─`, `double` `═`, `bold` `━`, `ascii` `-`), and `round`
+  is not offered because its horizontal is `single`'s. It falls back to ASCII by
+  `unicodeSupported()`, the one place that is decided, and an explicit `line`
+  always wins.
+- **It is dim, and the label is not.** A divider is there to separate, so the
+  default role is `muted`, on the line alone: the words are the one part meant to be
+  read, and `sigil-heading` makes them bold. Any other role -- `accent` or a state
+  -- is the whole rule's, label included, which is the `note()` rule for its
+  variants. `none` carries no role class at all, which is the terminal's own
+  foreground. The label's `sigil-muted` is left off rather than overridden, since
+  two rules of equal specificity on one element are decided by source order.
+- **Escape sequences and line breaks are dropped from the label.** A label is
+  words, colour is the role's, and a break would make the rule two rows.
+- **String form only, and it ignores `--quiet`.** A rule is a result, on `table()`
+  and `note()`'s side of the line, and the caller does the writing.
+
+What is deliberately not done: a rule that follows a resizing layout; a vertical
+rule; a label on both sides; and a style set to a pattern such as `- -`.
