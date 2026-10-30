@@ -325,36 +325,37 @@ waits for it rather than reporting a silence that is not one.
 
 ## Components
 
-|                                                                                          |                                                                   |
-| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| [`components/01-spinner.js`](components/01-spinner.js)                                   | Work whose length is not known                                    |
-| [`components/02-progress.js`](components/02-progress.js)                                 | Work whose length is                                              |
-| [`components/03-table.js`](components/03-table.js)                                       | Columns that line up, whatever is in them                         |
-| [`components/04-prompts.js`](components/04-prompts.js)                                   | Text, password, select, multiselect, confirm, multiline           |
-| [`components/05-live-region.js`](components/05-live-region.js)                           | A string frame repainted in place, on its own                     |
-| [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js)                       | Styling, wrapping, and display width                              |
-| [`components/07-typewriter.js`](components/07-typewriter.js)                             | Text that arrives rather than appears                             |
-| [`components/08-large-text.js`](components/08-large-text.js)                             | Banner text, and the `.flf` format behind it                      |
-| [`components/09-decrypt.js`](components/09-decrypt.js)                                   | Text that jumbles, then resolves into itself                      |
-| [`components/10-qrcode.js`](components/10-qrcode.js)                                     | A QR code, in half blocks and in full cells                       |
-| [`components/11-choices.js`](components/11-choices.js)                                   | Headings, disabled choices, descriptions, and `min`/`max`         |
-| [`components/12-autocomplete.js`](components/12-autocomplete.js)                         | Type to filter a list, or search an async source                  |
-| [`components/13-number.js`](components/13-number.js)                                     | A number prompt: range, steps, and the parser's reading           |
-| [`components/14-group.js`](components/14-group.js)                                       | Prompts as one flow, and the session frame around them            |
-| [`components/15-tasks.js`](components/15-tasks.js)                                       | A list of work, and a subprocess's output in a window             |
-| [`components/16-log.js`](components/16-log.js)                                           | Leveled status lines, and text that is still arriving             |
-| [`components/17-note.js`](components/17-note.js)                                         | A titled, bordered block in a state's colour                      |
-| [`components/18-path.js`](components/18-path.js)                                         | A text field that completes against the file system               |
-| [`components/19-date.js`](components/19-date.js)                                         | A date prompt: segments you step or type into                     |
-| [`components/20-key-help.js`](components/20-key-help.js)                                 | A key-help footer read off the bindings themselves                |
-| [`components/21-list.js`](components/21-list.js)                                         | A list prompt: one line, split, returned as an array              |
-| [`components/40-group-multiselect.js`](components/40-group-multiselect.js)               | A multiselect with its choices under named groups                 |
-| [`components/41-autocomplete-multiselect.js`](components/41-autocomplete-multiselect.js) | Type to filter a list, and tick several; ticks outlive the filter |
-| [`components/42-select-key.js`](components/42-select-key.js)                             | Choose by pressing a key: numbered, and expanded on `h`           |
-| [`components/43-sort.js`](components/43-sort.js)                                         | A sort prompt: pick a row up, carry it, put it down               |
-| [`components/44-multi-progress.js`](components/44-multi-progress.js)                     | Several progress bars at once, each with a rate and an ETA        |
-| [`components/45-charts.js`](components/45-charts.js)                                     | A sparkline, bars, a braille line chart and a gauge               |
-| [`components/46-calendar.js`](components/46-calendar.js)                                 | A month grid: printed, picked from, or under a date field         |
+|                                                                                          |                                                                          |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| [`components/01-spinner.js`](components/01-spinner.js)                                   | Work whose length is not known                                           |
+| [`components/02-progress.js`](components/02-progress.js)                                 | Work whose length is                                                     |
+| [`components/03-table.js`](components/03-table.js)                                       | Columns that line up, whatever is in them                                |
+| [`components/04-prompts.js`](components/04-prompts.js)                                   | Text, password, select, multiselect, confirm, multiline                  |
+| [`components/05-live-region.js`](components/05-live-region.js)                           | A string frame repainted in place, on its own                            |
+| [`components/06-ansi-and-wrap.js`](components/06-ansi-and-wrap.js)                       | Styling, wrapping, and display width                                     |
+| [`components/07-typewriter.js`](components/07-typewriter.js)                             | Text that arrives rather than appears                                    |
+| [`components/08-large-text.js`](components/08-large-text.js)                             | Banner text, and the `.flf` format behind it                             |
+| [`components/09-decrypt.js`](components/09-decrypt.js)                                   | Text that jumbles, then resolves into itself                             |
+| [`components/10-qrcode.js`](components/10-qrcode.js)                                     | A QR code, in half blocks and in full cells                              |
+| [`components/11-choices.js`](components/11-choices.js)                                   | Headings, disabled choices, descriptions, and `min`/`max`                |
+| [`components/12-autocomplete.js`](components/12-autocomplete.js)                         | Type to filter a list, or search an async source                         |
+| [`components/13-number.js`](components/13-number.js)                                     | A number prompt: range, steps, and the parser's reading                  |
+| [`components/14-group.js`](components/14-group.js)                                       | Prompts as one flow, and the session frame around them                   |
+| [`components/15-tasks.js`](components/15-tasks.js)                                       | A list of work, and a subprocess's output in a window                    |
+| [`components/16-log.js`](components/16-log.js)                                           | Leveled status lines, and text that is still arriving                    |
+| [`components/17-note.js`](components/17-note.js)                                         | A titled, bordered block in a state's colour                             |
+| [`components/18-path.js`](components/18-path.js)                                         | A text field that completes against the file system                      |
+| [`components/19-date.js`](components/19-date.js)                                         | A date prompt: segments you step or type into                            |
+| [`components/20-key-help.js`](components/20-key-help.js)                                 | A key-help footer read off the bindings themselves                       |
+| [`components/21-list.js`](components/21-list.js)                                         | A list prompt: one line, split, returned as an array                     |
+| [`components/40-group-multiselect.js`](components/40-group-multiselect.js)               | A multiselect with its choices under named groups                        |
+| [`components/41-autocomplete-multiselect.js`](components/41-autocomplete-multiselect.js) | Type to filter a list, and tick several; ticks outlive the filter        |
+| [`components/42-select-key.js`](components/42-select-key.js)                             | Choose by pressing a key: numbered, and expanded on `h`                  |
+| [`components/43-sort.js`](components/43-sort.js)                                         | A sort prompt: pick a row up, carry it, put it down                      |
+| [`components/44-multi-progress.js`](components/44-multi-progress.js)                     | Several progress bars at once, each with a rate and an ETA               |
+| [`components/45-charts.js`](components/45-charts.js)                                     | A sparkline, bars, a braille line chart and a gauge                      |
+| [`components/46-calendar.js`](components/46-calendar.js)                                 | A month grid: printed, picked from, or under a date field                |
+| [`components/47-toggle.js`](components/47-toggle.js)                                     | A toggle prompt: two named states, flipped with the arrows, Tab or Space |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -573,6 +574,12 @@ in-process terminal and prints the screen after each key: a row picked up with
 Space and carried with the arrows, a pinned (`disabled`) row that stays where it
 is while the rows around it move past, and Home sending a carried row to the top.
 On a terminal it asks for the order of five steps instead.
+
+`47-toggle.js` is a prompt too, so piped it plays the same `toggle()` against an
+in-process terminal and prints the screen after each key: Tab and Space flipping
+the state, Left and Right choosing one outright, and a pair of caller-named
+states (`enabled` and `disabled`) settling to the name chosen. On a terminal it
+asks for two settings instead.
 
 And `NO_COLOR=1` turns the styling off everywhere:
 

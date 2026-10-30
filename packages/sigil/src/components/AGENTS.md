@@ -5742,3 +5742,65 @@ is the group. SIG-184.
 - **Not done:** a timer that counts the ETA down between ticks; an overall bar
   for the group; a bar that is indeterminate until its total is known; locale
   number formatting.
+
+### A toggle prompt: two named states
+
+SIG-168. `src/components/toggle.ts`, a prompt of its own. It returns a boolean, the
+way `confirm()` does, and is not `confirm()` with labels.
+
+- **Its own prompt, because the keys are different and the keys are the prompt.**
+  `confirm()` is answered by typing a letter, and its hint (`(Y/n)`) is a catalog
+  entry that decides both what is drawn and what is accepted. A toggle is answered
+  by moving: Left and Right, Tab and Space. Putting `active` and `inactive` on
+  `confirm()` would have kept two input models in one function and made the `y`/`n`
+  affordance a thing a label could contradict -- `active: 'enabled'` beside a `y`
+  that answers it. The ticket's other half (a setting is not a question, so the
+  states are not "yes" and "no") is why the defaults are `on` and `off`.
+- **The inactive state is on the left, and an arrow says where to go rather than
+  switching.** Like a switch with the lit end on the right, and it is what
+  prompts' `toggle` does. Left always answers `false` and Right always `true`, so
+  pressing Right twice stays on the active state; Tab, Shift-Tab and Space flip.
+  Shift-Tab is let through because with two states back and forward are one move.
+  Up and Down are not read: a two-state switch has no vertical direction, and
+  claiming them would take them from nothing that wants them. Ctrl or Alt with any
+  of the keys is a different key, as for `confirm()`.
+- **`on` and `off` are the defaults, through `__`.** Two new catalog keys. `yes`
+  and `no` already exist and would have cost none, but a setting that reads
+  `yes / no` is the confirm the ticket distinguished this from. A caller's own
+  `active` and `inactive` are drawn as given and never translated.
+- **`initial` defaults to `false`, the left-hand state.** Not `confirm()`'s `true`:
+  the left-hand state is where a switch starts, and a setting the person has not
+  touched should not read as having been turned on. A non-boolean `initial` is
+  refused rather than coerced, because the current state is found by comparing it
+  to each side and a truthy string would mark neither and answer with the string.
+- **Names are refused where the prompt is asked, not drawn badly.** Blank, because a
+  text of nothing but spaces measures zero at `white-space: normal` and the state
+  would have a marker and no name; a control character, because both states share a
+  line; and the same name twice (compared trimmed), because the answer would be a
+  guess about which was meant. All three are a `PromptError` with nothing drawn,
+  the way `selectKey()` refuses an unusable list.
+- **The marker is what says which is current, and the colour agrees with it.** `◉`
+  and `◯` are the multiselect's own symbols, so the answer is readable at colour
+  level 0 (a pipe, `NO_COLOR`) where the accent and the dimming are gone. The two
+  states are `.sigil-toggle-option` with `.sigil-accent` on the current one and
+  `.sigil-muted` on the other: roles only, no colour in props.
+- **The states are drawn whole or under the question.** A prompt's head caps what it
+  reserves for what follows the message at half the line, which suits a hint that may
+  wrap and not this: the canvas clips what runs past its edge, and at 24 columns a
+  state came out as `o`. When the message and both states do not fit on one line
+  (`message + states + 4` columns) the states take a line of their own, indented
+  under the question. What the head reserves then is the longer name, because the
+  answer replaces the states on the question's line and a question as wide as the
+  screen otherwise clipped its own answer. Measured at 24 and 28 columns; both are
+  tests.
+- **Settled, it is the question and the name of the state chosen**, in the muted
+  answer colour, and the mark goes to success, as `confirm()` does.
+- **`signal` is `run()`'s, and nothing here handles it.** Every prompt goes through
+  `runPrompt()`, which reads `PromptOptions.signal` (SIG-176); `toggle.test.ts` asserts
+  a mid-prompt abort, an already-aborted signal and `AbortSignal.timeout()`.
+  `prompt-signal.test.ts`'s every-prompt table was not edited, for the reason
+  `sort()`, `list()` and `selectKey()` are not in it either.
+- **Not done:** the key-help footer (SIG-166) -- no prompt has adopted it, and its entry
+  says adopting it is a decision about whether a prompt grows a router; `y`/`n`
+  shortcuts (that is `confirm()`); vim `h`/`l`; clicking a state with the mouse;
+  more than two states (that is `select()`); a state that is disabled.

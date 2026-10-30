@@ -107,6 +107,10 @@ const ENTRIES = [
     name: 'sort',
   },
   {
+    desc: 'A toggle prompt: a setting with two named states, flipped with the arrows, Tab or Space',
+    name: 'toggle',
+  },
+  {
     desc: 'A list prompt: one line split on a separator and returned as an array',
     name: 'list',
   },
