@@ -348,6 +348,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/19-date.js`](components/19-date.js)                                         | A date prompt: segments you step or type into                     |
 | [`components/20-key-help.js`](components/20-key-help.js)                                 | A key-help footer read off the bindings themselves                |
 | [`components/21-list.js`](components/21-list.js)                                         | A list prompt: one line, split, returned as an array              |
+| [`components/22-masked-text.js`](components/22-masked-text.js)                           | A masked text prompt: a line that follows a template              |
 | [`components/40-group-multiselect.js`](components/40-group-multiselect.js)               | A multiselect with its choices under named groups                 |
 | [`components/41-autocomplete-multiselect.js`](components/41-autocomplete-multiselect.js) | Type to filter a list, and tick several; ticks outlive the filter |
 | [`components/42-select-key.js`](components/42-select-key.js)                             | Choose by pressing a key: numbered, and expanded on `h`           |
@@ -483,6 +484,13 @@ plus the error.
 edited and answered with the empty entries dropped, a regular expression taking
 commas and spaces alike, and a `validate` that holds the answer to two entries.
 On a terminal the prompts are asked for real.
+
+`22-masked-text.js` is a prompt too, so it plays the same three prompts through
+`createTestTerminal()` and prints the screen after each key: a phone number whose
+fixed characters are drawn and skipped while a stray letter is ignored and
+Backspace steps back across them, a licence key with a slot of its own that keeps
+what it is given upper case, and a paste that fills the slots from text that is
+not quite the template's shape. On a terminal the prompts are asked for real.
 
 `10-qrcode.js` is the one where a pipe and a terminal get the **same bytes**. A
 scanner wants dark modules on a light background and a terminal already has a light
