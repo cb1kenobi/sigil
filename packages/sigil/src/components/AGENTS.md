@@ -5223,11 +5223,70 @@ that a line can land above a live region without the caller holding it.
   (a wide custom symbol is measured by columns). Each line of the caller's text is
   its own node: the layout collapses a newline, and a blank line has to survive.
 
-**Deliberately not done:** structured fields and timestamps (gum's `log`) -- a
-second tier with its own formatting questions; a `stream` option to choose
-stdout, which is a separate backlog ticket (stderr is the whole answer to
-`--format json`, and a stdout `log` is how it gets corrupted); detecting ASCII-only
-terminals; routing the debug overlay or `console.*` through it.
+**Deliberately not done:** a `stream` option to choose stdout, which is a separate
+backlog ticket (stderr is the whole answer to `--format json`, and a stdout `log`
+is how it gets corrupted); detecting ASCII-only terminals; routing the debug
+overlay or `console.*` through it. Structured fields and timestamps were on this
+list and are below.
+
+#### Fields and timestamps on a `log` line
+
+SIG-206. Still `src/components/log.ts`; `formatLogFields()` is in it rather than in
+a sibling, because a sibling's exports have to be public for the ejected
+`registry/log.ts` to import them, and this one is worth exporting anyway.
+
+- **Fields are logfmt-shaped, `key=value` after the message, and are not JSON.**
+  `log.info('deployed', { host: 'a', ms: 412 })` is `deployed host=a ms=412`: a
+  shape a person greps and a tool splits on a space, with nothing to learn. The
+  ticket's other options were refused -- following lines break a grep of one
+  event into several rows, and a JSON line is the `--format json` question the
+  ticket says to name separately. A logger that wrote JSON lines is a different
+  feature and is not started here.
+- **Quoting is the whole of the safety, and it is one function.** `token()` writes
+  a key or value bare when it is a plain word and quotes it when it is empty or has
+  a blank, `"`, `=`, a backslash or a control character. Inside quotes every `\p{Cc}`
+  character, `ESC` among them, and `\p{Zl}`/`\p{Zp}` is an escape: `\n`, `\r`, `\t`, and
+  `\uXXXX` for the rest. `JSON.stringify()` was not used because it leaves `DEL`,
+  the C1 range and U+2028 raw, which is exactly what a reader that splits lines on
+  more than `\n` -- or a terminal that obeys a C1 byte -- acts on. The key goes
+  through the same function, so it cannot carry a break either. `no line break
+  survives` is asserted on the screen and on a file, over every one of those
+  characters.
+- **The message may be multi-line and the fields never are.** They sit on the last
+  line of the message, beside it when they fit and under it, indented with the
+  text, when they do not. The fit is decided in `write()` against the width it
+  already knows, and a file's width is made from the content so that the fields are
+  always beside the message there: a record is one line of a file whatever it holds.
+- **Drawn in `.sigil-muted`, the glyph's neighbour and not the message's.** The same
+  role a hint is drawn in, so a theme that restyles it reaches every one; the
+  classes `.sigil-log-fields`, `.sigil-log-time` and `.sigil-log-line` are hooks
+  with no rule of their own.
+- **Values are written as what they are, and a status line never throws.** A
+  string is itself; an object or array is its JSON; a `Date` is its ISO form; an
+  `Error` is its message; anything else is `String()`. `undefined` is left out
+  rather than written, which is what makes `{ host: opts.host }` usable without a
+  guard. A value `JSON.stringify()` throws on (a cycle, a nested `BigInt`) falls
+  back to `String()`, since a log call that raises is worse than an ugly field.
+- **A timestamp is an option of the logger, not of a call.** A stamp on some lines
+  of a log is one a reader cannot rely on, and a per-call option would be a way to
+  write one. `true` is the local `HH:MM:SS`, which is what a person watching wants;
+  `'iso'` is the UTC instant, which is what a file read on another machine wants,
+  and local versus UTC is chosen by name rather than by a second flag. A function
+  takes the `Date` and has line breaks and control characters replaced by a space,
+  because a stamp is text a caller wrote and the same rule applies to it as to a
+  field. It is a column before the glyph, so a second line hangs under the message
+  and not under the clock. There is no process-wide setting: `log` is the process's
+  logger and an app that wants stamps builds its own with `createLog()`, which is
+  what it does for `ascii` and `symbols`. `now` is the clock, so a test needs no
+  fake timers.
+- **Quiet is unchanged and is asked first.** A line the quiet axis drops returns
+  before it formats a field or reads the clock, so a dropped line has no side
+  effect -- a getter on a field and a stub clock are both asserted not called.
+  `warn` and `error` are still never dropped.
+- **Not done: fields and stamps on `log.stream`.** A stream is a source whose text
+  has not all arrived, and where its fields would go -- before the first line,
+  after the last -- is a question the ticket for the stream did not ask. A stream
+  line carries no stamp either, which is why the option's own doc says so.
 
 ### Tasks: a list of work, and a subprocess's output in a window
 

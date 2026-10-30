@@ -342,7 +342,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/13-number.js`](components/13-number.js)                                     | A number prompt: range, steps, and the parser's reading                  |
 | [`components/14-group.js`](components/14-group.js)                                       | Prompts as one flow, and the session frame around them                   |
 | [`components/15-tasks.js`](components/15-tasks.js)                                       | A list of work, and a subprocess's output in a window                    |
-| [`components/16-log.js`](components/16-log.js)                                           | Leveled status lines, and text that is still arriving                    |
+| [`components/16-log.js`](components/16-log.js)                                           | Leveled status lines, fields, and text that is still arriving            |
 | [`components/17-note.js`](components/17-note.js)                                         | A titled, bordered block in a state's colour                             |
 | [`components/18-path.js`](components/18-path.js)                                         | A text field that completes against the file system                      |
 | [`components/19-date.js`](components/19-date.js)                                         | A date prompt: segments you step or type into                            |
@@ -469,7 +469,10 @@ prints the screen those calls produced, with the status line that arrived while 
 spinner was running sitting above where the spinner was. On a terminal it uses the
 real `log` and a real spinner. The last scene is `log.stream.info()` fed an answer
 as four-byte pieces, which cut words, a colour and multi-byte characters in half --
-the lines that come out are the ones a whole string would have given.
+the lines that come out are the ones a whole string would have given. Two lines
+carry fields, one of them with a value that tries to start a second line and is
+written as an escape instead, and the piped run ends with a logger stamped by a
+fixed clock so that its output does not change from one run to the next.
 
 `15-tasks.js` runs a list under spinners and then a build under a window of its
 own output, spawning real node subprocesses so the lines arrive over time. The
