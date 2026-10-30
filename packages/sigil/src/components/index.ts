@@ -118,6 +118,28 @@ export {
 } from './progress.js';
 export { createStreamWrapper, type StreamWrapper } from './log-stream.js';
 export {
+  barChart,
+  barChartView,
+  type BarChartOptions,
+  type BarData,
+  type BarDatum,
+  type ChartOptions,
+  type ChartRole,
+  type ChartView,
+  gauge,
+  type GaugeOptions,
+  gaugeView,
+  lineChart,
+  lineChartView,
+  type LineChartOptions,
+  type ScaleOptions,
+  SPARK_ASCII,
+  SPARK_BLOCKS,
+  sparkline,
+  type SparklineOptions,
+  sparklineView,
+} from './chart.js';
+export {
   createLog,
   type Log,
   log,

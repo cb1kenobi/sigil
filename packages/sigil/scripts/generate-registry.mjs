@@ -146,6 +146,10 @@ const ENTRIES = [
     desc: 'Leveled status lines: info, success, warn, error and step, above any live region',
     name: 'log',
   },
+  {
+    desc: 'Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge',
+    name: 'chart',
+  },
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */

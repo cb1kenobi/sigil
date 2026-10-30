@@ -3548,6 +3548,64 @@ puts it on the result side of `--quiet`. `noteView()` is the element tree behind
 it, for an app that wants one inside its own tree. There is no live form: a note
 is static, so `console.log(note(...))` already is one.
 
+#### Charts
+
+```js
+import { barChart, gauge, lineChart, sparkline } from '@ttylabs/sigil/components';
+
+console.log(`latency ${sparkline([12, 18, 15, 40, 22, 19, 31, 17])}`);
+console.log(barChart({ build: 12.4, test: 7.2, lint: 2.1 }, { width: 32 }));
+console.log(gauge(512, { label: 'Memory', max: 1024, detail: '512 MiB / 1 GiB' }));
+```
+
+```
+latency ▁▃▂█▄▃▆▂
+build █████████████████████ 12.4
+test  ████████████▎          7.2
+lint  ███▌                   2.1
+Memory ██████████░░░░░░░░░░ 512 MiB / 1 GiB
+```
+
+Four functions that take numbers and return a string, drawn as an element tree
+the way `note()` is, so the colour is a theme role and the caller does the
+writing. None has a live form -- a chart of a series that is changing is a chart
+the app builds again -- and, like `table()`, none of them is silenced by
+`--quiet`. `sparklineView()`, `barChartView()`, `lineChartView()` and
+`gaugeView()` are the trees behind them, for an app that wants one inside its own.
+
+- **`sparkline(values, { width, min, max })`** is one line of eight block heights,
+  for a trend beside a command's name. A value that is not a finite number is a
+  **gap**, not the lowest block. A series wider than `width` keeps its **latest**
+  values, and the scale is the shown values' unless `min` and `max` are given --
+  give them when two sparklines have to mean the same height.
+- **`barChart(data, { direction, width, height, barWidth, gap, labelWidth, showValues, format })`**
+  takes `{ label, value }` objects or an object of numbers. `horizontal` (the
+  default) is a label, a bar and a value in aligned columns, and a bar is measured
+  in eighths of a cell. `vertical` is columns with the values and the labels under
+  them. Bars grow from zero, or from the lowest value where some are negative; a
+  value above the bottom is always at least an eighth of a cell, so a small number
+  is not drawn as none.
+- **`lineChart(values, { width, height, min, max, axis, format, xLabels })`** is
+  one series in braille, two dots across and four down a cell, from the same
+  `Dots` grid the canvas draws with. The axis names the top and the bottom of the
+  scale and nothing between, and `xLabels: ['10:00', '10:10']` sets the first and
+  last points under it. A value that is not a finite number **breaks** the line
+  rather than being bridged. A braille cell carries one foreground, so there is
+  one series, in one role.
+- **`gauge(value, { label, detail, width, style, thresholds, min, max })`** is a
+  reading against its range. `value` is a ratio unless `max` says otherwise, so
+  `gauge(0.63)` and `gauge(63, { max: 100 })` are the same line. `style: 'line'`
+  draws a thin bar, and `thresholds: { warn: 0.7, error: 0.9 }` draws the bar in
+  the `warn` and `error` roles from those ratios up. It is not `progress()`: that
+  is live, moves, and falls back to a percentage where there is no terminal; a
+  gauge is printed once. They share the bar arithmetic and nothing else.
+
+Every chart takes `role` (`accent` by default, `none` for the terminal's own
+foreground) and `ascii`. Unless `ascii` is given it follows `unicodeSupported()`,
+and the ASCII forms are `_.:-=+*#` for a sparkline, `#` bars, a `*` line and `#`
+and `-` in a gauge. `.sigil-chart-sparkline`, `-bar`, `-line` and `-gauge` are the
+theme hooks, each with `-row` and `-part` classes inside.
+
 #### A key-help footer
 
 ```js

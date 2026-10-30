@@ -352,6 +352,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/41-autocomplete-multiselect.js`](components/41-autocomplete-multiselect.js) | Type to filter a list, and tick several; ticks outlive the filter |
 | [`components/42-select-key.js`](components/42-select-key.js)                             | Choose by pressing a key: numbered, and expanded on `h`           |
 | [`components/43-sort.js`](components/43-sort.js)                                         | A sort prompt: pick a row up, carry it, put it down               |
+| [`components/45-charts.js`](components/45-charts.js)                                     | A sparkline, bars, a braille line chart and a gauge               |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -368,6 +369,12 @@ key as the small letter; the numbered list keeps a `q` of its own beside 1 to 4;
 the expanded one is a line of keys until `h`, with Enter taking the capital. The
 run ends on two choices that share a key, which is refused when the prompt is
 asked and says which two.
+
+`45-charts.js` prints every chart as a string, so a pipe and a terminal differ only in
+colour: the sparklines take the `accent` role, the gauge changes role at its
+thresholds, and `NO_COLOR=1` leaves the shapes, which carry the data. The last
+section is the same charts with `ascii: true`, which is what a Linux console or
+`TERM=dumb` gets.
 
 ### Try them without a terminal
 

@@ -5511,3 +5511,72 @@ What is deliberately not done:
   character, and a modifier makes it a different key, as it does everywhere else.
 - **A case-sensitive mode.** If an app wants `a` and `A` apart it can say so
   with a flag; nothing here needed it.
+
+### Charts: a sparkline, bars, a braille line chart and a gauge
+
+SIG-186. `src/components/chart.ts` is the whole of it: four functions from numbers
+to a string, each with a `*View()` returning `{ element, width }`, and the split is
+`note()` and `noteView()`'s. Nothing in `src/canvas/` or `src/style/` changed.
+
+- **Sparkline and bars first, the axis-labelled line chart second, was the ticket's
+  first question, and all four shipped together.** They share a scale, a drawing
+  type and a printer, so a second ticket would have been a second review of one
+  file. The line chart is the only one that needs the sub-cell grid, and it uses
+  `Dots` (`canvas/subcell.ts`) directly rather than a `Painter`: a chart is a
+  string, and `charAt()` is the whole of the read it needs.
+- **Scaling is automatic from the shown values and explicit when `min` and `max`
+  are given.** Only a bound the caller left out is read off the data. A caller
+  drawing several charts that must mean the same height passes both, and that is
+  the documented reason to. Two bounds given the wrong way round throw a
+  `RangeError`; one bound given against data that lies on the wrong side of it is
+  flattened onto it, not inverted. Bars are the exception to "bottom is the least
+  value": they grow from zero, or from the lowest value where some are negative,
+  because a bar is a length and `min` defaults to `Math.min(0, ...values)`.
+- **`gauge` is not `progress`, and shares only the bar arithmetic.** `progress()` is
+  live, moves, and falls back to a percentage on a pipe; a gauge is a reading
+  printed once and can be coloured by how bad the reading is. It calls
+  `renderBar()` once per half -- the filled character with an empty `empty`, and
+  the reverse -- so the cell count and the rounding are the progress bar's and the
+  two halves can take different roles without a second copy of the maths.
+- **A value that is not a finite number is a gap, never the lowest mark.** In a
+  sparkline it is a space, in a line chart it breaks the line instead of being
+  bridged, and in a bar chart it is a dash with no bar. Zero and nothing are
+  different answers and a trend should not blur them. A series with no extent
+  (every value equal) is drawn **in the middle** rather than at the bottom, so a
+  flat line is not mistaken for no data.
+- **...except a bar, where no extent means nothing to draw.** A sparkline and a
+  line chart plot a position, and a flat series at the bottom reads as no data. A
+  bar is a length from a baseline, and `min` defaults to `Math.min(0, ...values)`,
+  so with every value zero the scale has no extent and `ratioOf()`'s mid-scale
+  answer drew **half a bar for each zero** -- activity on a chart of an idle
+  period, against the rule above it that a zero draws nothing. `barRatioOf()` is
+  `ratioOf()` with that one case answered `0`, used by both bar directions and by
+  neither of the others. Found by review, and the existing zero test missed it
+  because it had a non-zero value beside the zero, which gives the scale an extent;
+  the new tests are all-zero data in each direction and both fail without it. The
+  gauge is not affected: it refuses a range with no extent where it is built.
+- **A value above the bottom of the scale is at least an eighth of a cell.**
+  Rounding a small value to nothing draws it as zero, which is a different
+  statement. This is the one place a bar is not rounded to the nearest eighth.
+- **A sparkline wider than its room keeps the latest values and scales over the
+  ones it shows.** It is a trend and the end of it is the news. Scaling over cut
+  values would flatten what is left against a spike nobody can see.
+- **Padding is given the width it stands for.** A `text` drops the whitespace at
+  the end of its last line, so a segment that is a label's trailing space, a gap
+  between columns or an empty stretch of a bar vanished and the columns ran
+  together (`buildtestlint`). Every segment has `width: stringWidth(text)` and
+  `white-space: pre` for that reason; `chart.test.ts` pins the columns line up.
+- **Colour is a role on the data and nothing on the labels.** `role` is `accent` by
+  default, the same role a progress bar's bar takes, and `none` leaves the
+  terminal's foreground. A gauge's empty part is `.sigil-muted`, and its bar
+  changes to `warn` and `error` at the thresholds the caller names -- there are
+  no default thresholds, because what is bad is the app's to say.
+- **ASCII follows `unicodeSupported()` from `note.ts`, and is not a second
+  heuristic.** Block elements and braille are no safer than box drawing, and a
+  caller can say `ascii: true` outright. The line chart keeps its sub-cell grid
+  and prints `*` for any cell with a dot in it, so the line is still connected.
+- **Several are not done on purpose:** more than one series in a line chart (a
+  braille cell has one foreground, so two series sharing a cell would need a rule
+  for who wins, and that is the design the first user of it should drive); axis
+  ticks between the top and the bottom label; a live form (the app rebuilds the
+  string or the tree); and negative bars below a zero baseline.
