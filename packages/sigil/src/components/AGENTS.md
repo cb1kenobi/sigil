@@ -4486,6 +4486,54 @@ everything in it is a decision about what it does _not_ own.
   accelerating, `round`, and a range hint on the question line -- the bound is
   named when it is broken, which is when a person needs it.
 
+### A list prompt: a line read as an array
+
+SIG-172. `src/components/list.ts` is `list(opts): Promise<string[]>`, and the
+ticket's three questions are answered here.
+
+- **The field is `text()`'s line, as typed -- not chips.** Chips would need the
+  line to be a list of widgets with a current one, and every editing key would mean
+  two things (move within an entry, move between entries). The line is what a
+  person types and fixes with the keys they already know, and the settled answer
+  line shows the entries as read. A chip field is a different widget and is not
+  here. The field is the registry-capable one (`promptWindow()` and the shared
+  editing helpers), so `list` is a registry entry, unlike `number`.
+- **A separator is a string or a `RegExp`, both.** A string is matched literally
+  (`'.'` is a dot), a pattern is matched wherever it matches, and `/[\s,]+/` is why
+  the pattern is worth having: tags and hostnames are typed with commas, spaces or
+  both. `String.prototype.split()` is not used for a pattern, because a capture group
+  puts its captures into the result as entries and a pattern that can match nothing
+  splits between every character. `splitList()` scans with its own `g`-flagged copy
+  (so `g` and `y` on the caller's are ignored and its `lastIndex` is never touched)
+  and skips a match with nothing in it. An empty string separator is refused with a
+  `PromptError`, for the same reason.
+- **Trimmed, and an entry with nothing left is dropped, always.** There is no option
+  to keep either: `a,,b` giving `['a', '', 'b']` is a list with a hole that every
+  caller would have to filter, and whitespace around a comma is how the line is
+  written. An empty line is `[]`, never `['']`. Duplicates are kept -- the prompt
+  cannot tell a repeat that was meant from one that was not, and `new Set()` is one
+  expression for a caller who can.
+- **An empty answer is `default`, or `[]`, and "empty" is the entries.** `' , ,'` has
+  no entries and takes the default like the empty string, since the default is for
+  nothing. The answer is a copy of `default`, and `validate` is given it.
+  `validate` receives the entries; a minimum or maximum count is `validate`'s job
+  rather than two more options, which is also how `path()` leaves "must exist".
+- **`initial` is a string or an array, and an array must survive its own line.** A
+  string is the line. An array is joined (`joinList()`: the separator and a space,
+  `', '` for a pattern) and then split again: if that does not give the same array
+  -- an entry holding the separator, an empty entry, space around an entry, a
+  pattern that does not take `', '` -- the prompt rejects with a `PromptError`
+  rather than showing a list the first Enter would change.
+- **No quoting, no escape.** An entry cannot contain its own separator. A caller who
+  needs one picks another separator; quoting rules are a parser in a text field.
+- **A paste is `pastedLine()`'s**: line breaks become spaces, so a block pasted one
+  host per line with a comma separator is one entry. Turning breaks into the
+  separator is possible for a string and not for a pattern, and a rule that holds for
+  one of the two is the kind this file avoids.
+
+Deliberately not done: chips; `min`/`max`/`unique`/`required` options; quoting;
+completion; and a pasted block's line breaks as separators.
+
 ### Prompt flows: `group()`, and the session frame
 
 SIG-160. `src/components/group.ts` is the whole of it: `group()`, `isCancel()`,
@@ -4945,11 +4993,61 @@ What is deliberately not done:
 
 - **Separators on `Choice`.** `select()` takes them; this prompt has no cursor to
   step over a heading and a filtered list of one has nothing to introduce.
-- **The multi-select variant**, which is its own ticket.
+- **The multi-select variant** is below, and is `autocompleteMultiselect()`.
 - **Highlighting source results.** A source's match is its own, and marking the
   term inside a label it did not match on would be marking nothing.
 - **Escape.** It does nothing, as in `text()` and `select()`; a prompt that
   answers `undefined` is the palette's, which is not asked for a value.
+
+### A searchable multiselect: ticks that outlive the filter
+
+SIG-167. `autocompleteMultiselect()` is in `autocomplete.ts` and is not a second
+implementation: both entry points are the one `search()`, and a `multi` argument
+is the whole of the difference. Two prompts that each read keys and manage a
+lookup would be two sets of answers about superseded lookups, which the entries
+above spend most of their length on. It is one registry entry for the same
+reason -- ejecting `autocomplete` brings both.
+
+- **Hidden ticks stay ticked, and are counted, not listed.** The ticks are a
+  `Map` of value to choice, outside the list: the list is rebuilt for every term
+  and a source hands back different rows each time, so a tick kept on a row would
+  be lost with the row. The line under the list says `Selected: 3, 1 not shown`,
+  and the names are not on it -- a long selection would take the screen, and the
+  count is what says the answer is not what is in view. `min` and `max` count the
+  hidden ones: the answer is the ticks, and the screen is a view of them.
+- **Space toggles and is not typed.** A space cannot be typed into the field. The
+  alternative was a different toggle key, and every one was a letter (typed), a
+  chord the terminal may eat, or Tab (which completes a label here, and is the
+  one key a filtered list needs for it). A pasted term still takes spaces, and
+  fuzzy matching does not need one -- `newj` finds `new jersey`.
+- **A tick is keyed by `value`, compared as `Map` compares.** A static list's
+  choices are stable objects, but a source's are new ones on every call, so
+  identity would tick one lookup's `react` and not the next's. Two rows with one
+  value are one choice. A source that returns object values built fresh each time
+  is not recognised, and the README tells it to give the choice a primitive.
+- **The answer is in list order for `choices` and in tick order for a `source`.**
+  `multiselect()` answers in list order, which this keeps where a list exists; a
+  source has none, and an order derived from the last lookup would change with
+  the term.
+- **`selected` is read from `choices` only.** A source is asked again on every
+  keystroke, so honouring it there would tick a row again after it was unticked.
+- **Space waits for a lookup in flight, and Enter does not.** The rows on screen
+  belong to an earlier term while one is out, and ticking one is answering from
+  it -- the rule Enter already follows in `autocomplete()`. Here Enter confirms
+  the ticks, which no lookup can change, so there is nothing to wait for.
+- **The line under the list is one line more than `autocomplete()` keeps back**,
+  for the tally. It shows the key hint while nothing is ticked, which is
+  `multiselect()`'s own string and so already translated.
+- **`validate` takes the array.** It runs after `min` and `max`; a refusal is
+  shown on the foot line and the prompt stays open.
+
+What is deliberately not done:
+
+- **Select all, invert, and a toggle-all key.** `multiselect()` has `a` and `i`;
+  here those are letters in the field, and a select-all over a list the term has
+  narrowed is ambiguous between the rows shown and the whole list. A caller who
+  wants everything passes `selected: true`.
+- **Listing the hidden selections.** See above.
 
 ### A path prompt: a text field that completes against the file system
 
@@ -5206,3 +5304,429 @@ the window a task writes a subprocess's output to. SIG-161.
   or (on a throw) failure; a window the task settled itself is left alone.
 - **Not done:** concurrency, subtasks, retry, rollback, and a title that animates
   while a window is open.
+
+### A multiselect with groups: `groupMultiselect()`
+
+SIG-169. `src/components/group-multiselect.ts` is `multiselect()` over
+`{ group: choices }`. It is its own module built on the exports at the bottom of
+`prompt.ts` (`runPrompt()`, `listWindow()`, the head helpers), the way
+`autocomplete()` is, and `multiselect()` and `select()` are untouched: a group
+row is a third kind of row beside a choice and a separator, and teaching
+`choiceRows()` and `paintChoices()` about it would put a branch for a feature one
+prompt has into the two functions all of them share.
+
+- **A group is a selectable row, which is Clack's answer and the default.** The
+  ticket asked, and the reason is that "tick the whole area" is the point of
+  grouping: a header that only labels is already `separator()`. `selectableGroups:
+  false` is the other answer, and it makes the heading a heading in the
+  separator's own style and with the separator's rule -- the cursor never lands on
+  it -- rather than a second kind of row.
+- **The answer is a flat array of values, in listed order.** Not keyed by group:
+  a group is a way of picking and is not itself picked, `multiselect()` already
+  answers a flat array so the two are interchangeable at a call site, and a caller
+  that wants the grouping has the `choices` it passed in. Listed order rather than
+  ticked order for the reason `multiselect()` gives. The same value under two
+  groups is returned twice; a prompt that guessed it was one thing would be
+  guessing about what the caller's values mean.
+- **A group's box is derived, never stored.** `◯` none, `◐` some, `◉` all of the
+  choices under it _that are on offer_, read off the ticked set on every draw. A
+  stored flag is a second copy that ticking one choice by hand has to remember to
+  update, and the first path that forgot would show a group `◉` over an unticked
+  box. The partial glyph is local to the module and not on `PromptSymbols`:
+  that object is frozen and exported, and nothing else draws it.
+- **Space on a group ticks all, or clears all when all are ticked -- and a partial
+  group ticks.** "All" and "none" are the only two outcomes of a toggle; partial
+  has to go one way, and ticking is the way Clack, Inquirer and the select-all
+  key in `multiselect()` all take.
+- **A disabled choice is outside every group operation.** It is not ticked by its
+  group's Space, it does not count towards "all", and `selected` does not tick
+  it -- all `multiselect()`'s rule, applied to a group as to `a`. A group with
+  nothing on offer is not on offer itself: drawn muted, skipped by the cursor.
+- **`min` and `max` count choices and not groups.** A group is not in the
+  answer, so counting it would make `max: 2` refuse a group of two. Checked on
+  Enter and not while ticking, as `multiselect()` does.
+- **No separators inside a group, and a group that is not a list is an error.** The
+  groups are the headings; a `separator()` inside one has no meaning and is
+  refused with a `PromptError` naming the question instead of being drawn.
+  `choices` is a record rather than an array of `{ group, choices }` because that
+  is the ticket's shape; the cost is that JavaScript orders integer-like keys
+  first, which the README says.
+- **Messages are `multiselect()`'s, so there are no new i18n keys.** The hint,
+  `Choose at least ...`, `disabled` and `none` are the same strings through the
+  same tag.
+
+What is deliberately not done: nesting groups in groups; an `initial` row (the
+cursor starts on the first row on offer); descriptions on a group; a group-level
+`selected`; and a type that keys the answer by group.
+
+### A sort prompt: pick a row up, carry it, put it down
+
+SIG-173. `src/components/sort.ts` is `sort(opts): Promise<T[]>`, for an answer that
+is a permutation rather than a choice. It is a list prompt in the shape
+`autocomplete()` already is -- `runPrompt()`, rows rebuilt per draw for the
+window, `listWindow()` -- with no field, because nothing is typed.
+
+- **Grab and carry, not modifier-arrows, is the model.** Space picks the
+  highlighted row up, Up and Down move _it_ (the highlight goes along), Space puts
+  it down. The ticket asked which; a modifier chord is the one a terminal cannot
+  be relied on for -- Shift-Up scrolls some emulators' scrollback and Alt-Up is
+  eaten by some window managers -- while Space and the plain arrows reach every
+  one. So the grab is the model and is what the hint line teaches. Shift or Alt
+  with an arrow is _also_ read as a one-place move without a grab, since the key
+  decoder already carries the flags and the cost is one boolean; it is a shortcut
+  and the documentation does not lean on it.
+- **The answer is the values, in order, not indices.** The ticket's other
+  question. Indices make the caller index back into a list they just passed in, and
+  a `Choice` without a `value` answers with its label as everywhere else
+  (`promptValue()`). A caller that wants indices passes `value: index`.
+- **Enter answers whether or not a row is in hand.** A row mid-carry stays where
+  it was carried to. The alternative -- Enter drops, a second Enter answers --
+  makes the commonest gesture (move one thing, confirm) a key longer for the sake
+  of a state nobody is confused by: the hint line changes while a row is held.
+- **A carried row never wraps; the highlight does (`loop`).** Carrying the first
+  row past the top and landing it last is a rotation, not a step, and a stray key
+  would do it with no way to see what happened. Home and End are how a row goes to
+  an end on purpose.
+- **A `disabled` choice is pinned, not left out.** `autocomplete()` leaves one out
+  because it has a filtered list to leave it out of; here the answer is a
+  permutation, and dropping a row from a permutation is a different claim than
+  holding one still. A pinned row keeps its index, the highlight steps over it,
+  it cannot be picked up, and it is in the answer where it was. Implemented by
+  lifting the choices out of the movable places (`slots`, the indices of the rows
+  that are not pinned), reordering _them_, and putting them back, so a carried row
+  jumping a pinned one is the same operation as moving one place. A list with no
+  movable row is refused as an empty one is. The reason shows where a hint would,
+  as in `select()`.
+- **Separators are not accepted.** The ticket says `Choice[]`, and a heading in a
+  list being reordered would have to say which side of a move it belongs to.
+- **Rows are numbered**, padded to the widest place, because the point of the
+  prompt is the position: "which is third" should not need counting.
+- **The head reserves room for the longer of its two hints.** The grab hint and
+  the drop hint are different lengths and swapping one for the other must not make
+  the head taller than `room()` believed, which would push the last row off the
+  screen -- the failure `headWidths()` documents for the multiselect hint.
+
+What is deliberately not done: an Escape that puts a carried row back where it
+was picked up (Escape does nothing in any prompt here), a `validate`, and a
+`min`/`max` -- there is no count to constrain in a permutation.
+
+### Aborting a prompt: `signal`
+
+SIG-176. `PromptOptions.signal` and the few lines in `run()` in `prompt.ts` that read
+it; every prompt goes through `run()`, so every prompt has it and no prompt was edited.
+
+- **An abort rejects with the signal's own `reason`, not a `PromptError`.** The
+  ticket asked which. `AbortSignal.timeout()` rejects with a `TimeoutError` and
+  `abort()` with an `AbortError`, and `fetch`, `setTimeout` from `timers/promises`
+  and `events.once` all hand those back, so a caller already knows how to tell a
+  timeout from an abort and a recipe needs no new vocabulary. It is also the
+  honest answer to `isCancel()`: a cancel is a person pressing Ctrl-C, an abort is
+  the program deciding, and a `PromptError` with `aborted: true` would make
+  `group()` call `onCancel` for a timeout. A non-`PromptError` is rethrown by
+  `group()` untouched, which is the rule for everything that is not a cancel.
+- **`timeout` is not an option.** `signal: AbortSignal.timeout(ms)` is the whole of
+  it, a default is a `catch` on the name, and an option would be a second spelling
+  that needs its own reason type. Documented as a recipe in the README.
+- **Abort is `fail()`, so it is a cancel's teardown by construction.** The listener
+  calls the same function Ctrl-C does: input detached, the router stopped only if
+  this prompt built it, the region cleared and the cursor handed back. A router the
+  app passed in is left running. `prompt-signal.test.ts` asserts the screen, raw
+  mode and cursor against a real cancel's rather than against a list of things to
+  restore, for every prompt.
+- **The listener goes on last and comes off in `detach()`.** `fail()` is only a
+  complete teardown once there is a screen and a router, so the listener is added
+  after both exist; the signal is checked before anything is mounted, which is
+  what makes an already-aborted signal draw nothing. It sits after the
+  nobody-is-there check, so a prompt with no terminal still says that rather than
+  the signal's reason. It is removed when the prompt ends either way, so a signal
+  that outlives many prompts does not accumulate listeners.
+- **Not done.** `group()` takes no signal of its own: pass the same one to each
+  step. A signal that aborts between two steps is seen by the next prompt as
+  already aborted, which is the behaviour wanted.
+
+### `log.stream`: log lines fed from an async iterable
+
+SIG-179. `src/components/log-stream.ts` is the wrapper and `createLog()` in
+`log.ts` owns the six `stream` methods. Neither `typewriter` nor the terminal
+changed.
+
+- **It is a feature of `log`, not of `typewriter`.** `typewriter` reveals a string
+  it already has, on a clock, as an element tree that repaints; a stream is a
+  source whose text is not there yet and has no pace of its own -- it writes what
+  arrived, when it arrived. The output is status lines (stderr, the glyph, quiet,
+  above a live region), which is `log`'s, so it is `log.stream.<level>()`, the shape
+  Clack has. A `typewriter` that takes an async source is a separate thing.
+- **Lines are written whole, once final, and never as a partial row.** A line that
+  is still growing cannot be written in place under a live region: `writeStatus()`
+  asks the holder to erase, write and repaint, and a row left half-written would
+  have the region repainted onto its end. So the unit of output is a finished,
+  wrapped line, through the same `writeStatus()` as `log.info()` -- no new terminal
+  seam. The cost is that a line appears when it is full and not word by word; the
+  alternative needs the terminal to know about a cursor parked mid-row.
+- **Wrapping calls `wrap()`.** `createStreamWrapper()` re-wraps the line being
+  built on every chunk and returns the lines that cannot change: `wrap()` is
+  greedy, so every line but the last is final however much follows. A second
+  wrapper whose idea of a break could drift from the first's was the thing to
+  avoid, and the price is a re-wrap per chunk of one line (a paragraph, since a
+  newline in the text ends it). `test/components/log-stream.test.ts` asserts the
+  joined output equals `wrap(whole text)` for chunk sizes from 1 up, plain and
+  styled.
+- **What is held back is exactly what could change.** Everything after the last
+  space (a word that may be growing) and a trailing escape sequence the matcher
+  cannot yet match (`ESC[3`). The state of the SGR carries across a finished line
+  by walking its sequences, and each wrapped line is opened from it.
+- **A stream keeps the SGR it is given, and `log.info()` does not.** The element
+  tree strips control characters from a text, so a styled message passed to
+  `log.info()` loses its `ESC` and draws `[31m` literally -- pre-existing, and left
+  alone here. A stream whose point is wrapping across a sequence would be empty of
+  meaning if it stripped them, so it writes its lines directly, with the glyph
+  drawn through the theme like any other and the text as it came. At colour level
+  `0` the lines are stripped, the rule `log` keeps for a file.
+- **A quiet stream is drained.** The producer (a model, a pipe) is waiting to be
+  read; not reading is not the same as it having nothing to say. `warn` and
+  `error` are never quiet, as for the plain methods.
+- **A source that throws still has its text written first**, then the promise
+  rejects with the same error: half an answer that was shown should be shown whole.
+- **Bytes are decoded with a streaming `TextDecoder`**, so a multi-byte character
+  cut between two `Uint8Array` chunks comes out whole. A bare string is one chunk.
+- **`createStreamWrapper` is exported from the barrel** because the ejected
+  `registry/log.ts` rewrites its sibling imports to `@ttylabs/sigil/components`.
+- **Only text and SGR reach the terminal.** The source is a subprocess or a model,
+  and a terminal obeys what it is handed: a bare `\r` (git, npm and curl draw
+  progress with one) returns the cursor, `ESC[2J` clears the screen, OSC 52 writes
+  to the clipboard, and any cursor move breaks the erase-and-repaint
+  `writeStatus()` does under a spinner. `log.info()` is safe because its element
+  tree strips control characters; this path writes strings, so `clean()` in
+  `log-stream.ts` does it: every sequence but an SGR goes, and every control
+  character but a tab. It runs on the line, never on a chunk (a chunk may end inside
+  a sequence), and **before** the wrapper measures, so a dropped sequence or a
+  progress frame costs no columns. A bare `\r` is dropped, not honoured as "keep the
+  text after it": `10%\r50%` is `10%50%`, which is what `log.info()` gives and is
+  never a lie about what the source sent. Found by review of SIG-179.
+- **A break is a blank that is text, never one inside a sequence.** `settledAt()`
+  walks the tokens, so the space in a window title (`ESC]0;build step one BEL`) or
+  in `ESC[2 q` cannot be where a chunk is cut. A review round reported this as
+  junk written and real words lost; **that does not reproduce**, and it is worth
+  saying so: the sequence matcher takes an unterminated string payload or CSI to
+  the end of the text, so `clean()` already dropped a cut sequence whole, and a
+  fuzz of 20,000 random chunkings over an alphabet of `ESC`, brackets, spaces and
+  terminators found no input where chunked and whole-text output differ, with the
+  raw `lastIndexOf(' ')` search or without it. So the walk is a declared survivor,
+  not a fix with a test that fails without it: it stops the break depending on the
+  matcher's leniency, and its two tests pin the behaviour rather than discriminate.
+
+**Deliberately not done:** writing a partial row (above); an `AbortSignal`;
+timestamps and structured fields (a separate ticket); a pace or a cap on how fast
+lines are written; a `typewriter` that accepts an async source; making plain
+`log.info()` keep SGR.
+
+### A select-by-key prompt: `selectKey()`, numbered, and expanded
+
+SIG-170. `src/components/select-key.ts` is one prompt for what Clack calls
+`selectKey` and Inquirer calls `rawlist` and `expand`. `select()` is untouched.
+
+- **One prompt with two options, rather than three functions.** The three differ
+  in what is drawn and not in how a key is read: every one of them answers when a
+  choice's key is pressed. `numbered` is where the keys come from (the position,
+  for a choice that gave none) and `expand` is whether the list is drawn up front
+  or after `h`. Three entry points would be three copies of the collision rules,
+  and a caller could not ask for a numbered list that expands.
+- **A key is one code point, and case does not tell two apart.** `y` and `Y` are
+  one key, which is how `confirm()` has always read them, and matching is
+  `toLowerCase()` rather than the locale's for `camelCase()`'s reason (Turkish
+  `I`). A case-sensitive prompt would let `a` and `A` mean different things in a
+  list whose hint shows one of them as a capital, and the capital is already
+  spoken for: it marks the key Enter takes. **One code point, not one grapheme**:
+  the decoder reads a flag in two pieces as two keys, so a key declared that way
+  could never be pressed, and it is refused with the rest rather than accepted
+  and unreachable. Whitespace and control characters are refused as keys Enter,
+  Tab and Space already are.
+- **A bad list is refused where the prompt is asked.** A `PromptError` that names
+  the choices -- two with one key, a key that is not one character, no key without
+  `numbered`, a tenth unkeyed numbered choice, an `initial` that is not on offer --
+  as `number()` refuses a bad `step`. "First wins" was the other answer and it
+  hides a choice nobody can reach until somebody presses its key. The check
+  includes a **disabled** choice's key: it is not pressable, but enabling it
+  later must not turn a working list into a refused one.
+- **Numbers are positions among the choices, headings not counted and disabled
+  choices counted.** A number that moved when something was disabled would make
+  `3` mean a different thing on the same screen from one run to the next. Only
+  nine fit in a digit, so the tenth unkeyed choice is refused and says so; a key
+  of its own is the way out, and an explicit key that equals another choice's
+  number is an ordinary collision.
+- **`h` and `?` are kept only with `expand`.** Both are help, `?` being what a
+  reader tries and `h` being what Inquirer shows. A choice may not use either
+  while `expand` is set, and may use both when it is not. The `expand` line is
+  `(y/n/a/d/h)`: only keys that work are in it, so a disabled choice's key is
+  left out, and the key Enter takes is the capital, as in `(Y/n)`. Once the list is
+  drawn the line goes -- it would be the same keys twice. **Every other key is
+  printed folded to lower case**, however the caller wrote it: a capital means
+  "Enter takes this" and nothing else, so `{ key: 'Y' }` with no `initial` is
+  `(y/n/h)` rather than a line that names a default Enter does not honour. The
+  list drawn by `h` shows keys as written, since it carries no such meaning.
+- **There is no cursor, so Enter takes `initial` or nothing.** `initial` is a key
+  and not an index, because the list is addressed by key everywhere else; a
+  highlighted row that arrows moved would be a second way to answer that the hint
+  does not name. Without `initial` Enter does nothing. The pointer column is on
+  every row either way, hidden where it does not point, so the labels sit where
+  `select()`'s do.
+- **A disabled choice's key does nothing.** It is not in the lookup, so there is
+  no case for it: the row shows the reason, or `disabled` through `__`, which is
+  the string `select()` already carries.
+- **`description` and `selected` are off the type.** There is no highlighted
+  choice to describe and nothing to tick, and a property the prompt reads nowhere
+  is one the type should not name. `KeyChoice` is `Choice` without them plus
+  `key`.
+- **i18n adds no catalog key.** The only text the prompt draws that is not the
+  caller's is `disabled`, which is already a key; the refusals are plain English
+  like `number()`'s. What is **not** translatable is `h`: `confirm()`'s keys come
+  out of a catalog entry (`confirmKeys()`), and a help key would need the same
+  mechanism and the same rule about what English is still accepted, for one key.
+  Left for whoever translates the prompts' keys further.
+
+What is deliberately not done:
+
+- **A list taller than the screen.** The canvas clips it, and a key in the clipped
+  part still answers. This prompt is for a list short enough to hold in the head;
+  `select()` windows because it is for the other kind, and a window here would be
+  a cursor by another name.
+- **Multi-key choices and a key that is a modified key.** `ctrl-d` is not one
+  character, and a modifier makes it a different key, as it does everywhere else.
+- **A case-sensitive mode.** If an app wants `a` and `A` apart it can say so
+  with a flag; nothing here needed it.
+
+### Charts: a sparkline, bars, a braille line chart and a gauge
+
+SIG-186. `src/components/chart.ts` is the whole of it: four functions from numbers
+to a string, each with a `*View()` returning `{ element, width }`, and the split is
+`note()` and `noteView()`'s. Nothing in `src/canvas/` or `src/style/` changed.
+
+- **Sparkline and bars first, the axis-labelled line chart second, was the ticket's
+  first question, and all four shipped together.** They share a scale, a drawing
+  type and a printer, so a second ticket would have been a second review of one
+  file. The line chart is the only one that needs the sub-cell grid, and it uses
+  `Dots` (`canvas/subcell.ts`) directly rather than a `Painter`: a chart is a
+  string, and `charAt()` is the whole of the read it needs.
+- **Scaling is automatic from the shown values and explicit when `min` and `max`
+  are given.** Only a bound the caller left out is read off the data. A caller
+  drawing several charts that must mean the same height passes both, and that is
+  the documented reason to. Two bounds given the wrong way round throw a
+  `RangeError`; one bound given against data that lies on the wrong side of it is
+  flattened onto it, not inverted. Bars are the exception to "bottom is the least
+  value": they grow from zero, or from the lowest value where some are negative,
+  because a bar is a length and `min` defaults to `Math.min(0, ...values)`.
+- **`gauge` is not `progress`, and shares only the bar arithmetic.** `progress()` is
+  live, moves, and falls back to a percentage on a pipe; a gauge is a reading
+  printed once and can be coloured by how bad the reading is. It calls
+  `renderBar()` once per half -- the filled character with an empty `empty`, and
+  the reverse -- so the cell count and the rounding are the progress bar's and the
+  two halves can take different roles without a second copy of the maths.
+- **A value that is not a finite number is a gap, never the lowest mark.** In a
+  sparkline it is a space, in a line chart it breaks the line instead of being
+  bridged, and in a bar chart it is a dash with no bar. Zero and nothing are
+  different answers and a trend should not blur them. A series with no extent
+  (every value equal) is drawn **in the middle** rather than at the bottom, so a
+  flat line is not mistaken for no data.
+- **...except a bar, where no extent means nothing to draw.** A sparkline and a
+  line chart plot a position, and a flat series at the bottom reads as no data. A
+  bar is a length from a baseline, and `min` defaults to `Math.min(0, ...values)`,
+  so with every value zero the scale has no extent and `ratioOf()`'s mid-scale
+  answer drew **half a bar for each zero** -- activity on a chart of an idle
+  period, against the rule above it that a zero draws nothing. `barRatioOf()` is
+  `ratioOf()` with that one case answered `0`, used by both bar directions and by
+  neither of the others. Found by review, and the existing zero test missed it
+  because it had a non-zero value beside the zero, which gives the scale an extent;
+  the new tests are all-zero data in each direction and both fail without it. The
+  gauge is not affected: it refuses a range with no extent where it is built.
+- **A value above the bottom of the scale is at least an eighth of a cell.**
+  Rounding a small value to nothing draws it as zero, which is a different
+  statement. This is the one place a bar is not rounded to the nearest eighth.
+- **A sparkline wider than its room keeps the latest values and scales over the
+  ones it shows.** It is a trend and the end of it is the news. Scaling over cut
+  values would flatten what is left against a spike nobody can see.
+- **Padding is given the width it stands for.** A `text` drops the whitespace at
+  the end of its last line, so a segment that is a label's trailing space, a gap
+  between columns or an empty stretch of a bar vanished and the columns ran
+  together (`buildtestlint`). Every segment has `width: stringWidth(text)` and
+  `white-space: pre` for that reason; `chart.test.ts` pins the columns line up.
+- **Colour is a role on the data and nothing on the labels.** `role` is `accent` by
+  default, the same role a progress bar's bar takes, and `none` leaves the
+  terminal's foreground. A gauge's empty part is `.sigil-muted`, and its bar
+  changes to `warn` and `error` at the thresholds the caller names -- there are
+  no default thresholds, because what is bad is the app's to say.
+- **ASCII follows `unicodeSupported()` from `note.ts`, and is not a second
+  heuristic.** Block elements and braille are no safer than box drawing, and a
+  caller can say `ascii: true` outright. The line chart keeps its sub-cell grid
+  and prints `*` for any cell with a dot in it, so the line is still connected.
+- **Several are not done on purpose:** more than one series in a line chart (a
+  braille cell has one foreground, so two series sharing a cell would need a rule
+  for who wins, and that is the design the first user of it should drive); axis
+  ticks between the top and the bottom label; a live form (the app rebuilds the
+  string or the tree); and negative bars below a zero baseline.
+
+### Progress: several bars at once, and an ETA
+
+`src/components/progress.ts` gained a rate estimator and `src/components/multi-progress.ts`
+is the group. SIG-184.
+
+- **The audit: `createProgress()` computed no ETA and no rate.** It drew a label,
+  a bar and a percentage, and nothing about time. Both are opt-in (`rate`, `eta`)
+  and off by default, so the line a bar has always drawn is byte for byte what it
+  was.
+- **The multi-bar is a new component over one live region, not several
+  `createProgress()` instances.** Two live regions cannot share the bottom of the
+  screen -- the same reason `tasks()` is sequential -- so a second bar would evict
+  the first. One tree, a `For` over a `State` list of bar states, one row per bar,
+  built from the same `progressView()` the single bar uses, so a row cannot
+  disagree with a bar about what it looks like. `For` is what lets a bar be added
+  or taken out without rebuilding the others.
+- **The estimate is an exponentially weighted moving average with a _time_
+  constant (5 s), not a sample count.** Each sample is weighted by the interval it
+  covers (`1 - exp(-dt / window)`), so a loop reporting every millisecond and one
+  reporting every second settle on the same pace, and a burst of ticks does not
+  outvote the seconds before it. The first sample is the pace so far. Samples
+  closer than 100 ms are not consumed but folded into the next, because a rate
+  over a millisecond is noise. A value lower than the last one starts again. While
+  nothing is reported the rate decays with the same constant when it is read, so
+  a stalled job's ETA lengthens rather than freezing on the last good number. An
+  ETA past 100 hours is not shown.
+- **The clock is `performance.now()` and an option.** `now` is what a test moves
+  by hand; nothing in the suite sleeps.
+- **The rate and the ETA are written when the work moves, and are drawn only when
+  there is a bar.** `trackProgress()` writes the worded text to
+  `ProgressState.detail` from the setters, so the view stays a function of its
+  state. There is no timer: an ETA on a bar that has stopped moving is the last
+  one it was given until the next update. Piped, and under reduced motion, the
+  detail is not drawn at all -- a rate in a log would be a different line on every
+  tick, which is what stepping the percentage exists to prevent. A finished bar
+  says neither: a time remaining of zero is not information.
+- **Time and rate go through the catalog; the number does not go through `Intl`.**
+  `{0}s`, `{0}m {1}s`, `{0}h {1}m`, `ETA {0}`, `{0}/s` and `{0} {1}/s` are keys, so
+  a locale words the units. The decimal separator is a full stop in every locale,
+  because `Intl.NumberFormat` is +6 ms to load (the i18n module's own note).
+- **A group on a terminal is one frame; without one it is a line per bar.** A
+  multi-row frame written to a pipe would repeat every unchanged bar on each
+  change, so the pipe form is not the mounted frame: each bar writes
+  `label NN%` to stdout when its rounded percentage changes (including `0%` when
+  added, and `100%` whatever `step` divides into), and `write()` is a plain
+  line. The group decides this at the first `add()`, from the terminal, as
+  `taskLog()` does. Quiet writes nothing; the bars still keep their values.
+- **Finished bars stay, unless `keep: false`.** A group of six downloads should end
+  as a summary of six. A list longer than the screen cannot: the canvas is clipped
+  where a written line scrolls, so `keep: false` writes the bar's pipe-form line
+  above the frame and removes its row.
+- **The label column is worked out from the bars that are there**, not grown. A
+  bar that left or was relabelled shorter does not keep a column open. A row with
+  no label still holds the column, and only a row set to align gets a
+  `min-width`: a floor of zero is not the same declaration as none, since it lets a
+  single bar's label shrink. The percentage has a four-column right-aligned cell
+  in a group. The detail is last and has no reserved width: a canvas paints every
+  cell it owns, and a reserved blank at the end of a row is trailing whitespace in
+  the log once the frame is left behind.
+- **A bar belongs to one run of its group.** `done()` and `stop()` on the group
+  give the terminal back, and a bar from before is a bar of a screen that no
+  longer exists: a change to it paints nothing and writes nothing. The first
+  `add()` afterwards mounts a fresh group, as a spinner remounts on `start()`.
+- **Not done:** a timer that counts the ETA down between ticks; an overall bar
+  for the group; a bar that is indeterminate until its total is known; locale
+  number formatting.
