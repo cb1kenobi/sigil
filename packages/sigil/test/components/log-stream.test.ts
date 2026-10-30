@@ -149,6 +149,34 @@ describe('wrapping text that is still arriving', () => {
     expect(run(40, [`  ${ESC}[0m`])).toEqual([]);
   });
 
+  it('should drop a bare carriage return rather than let it reach the terminal', () => {
+    expect(run(40, ['a\rb\n'])).toEqual(['ab']);
+    expect(run(40, ['10%\r50%\r100%\n'])).toEqual(['10%50%100%']);
+  });
+
+  it('should drop every sequence that is not a colour, and keep the colours', () => {
+    const red = `${ESC}[31m`;
+    const reset = `${ESC}[0m`;
+
+    expect(run(40, [`x${ESC}[2Jy\n`])).toEqual(['xy']);
+    expect(run(40, [`x${ESC}[Ay${ESC}[1;1Hz\n`])).toEqual(['xyz']);
+    expect(run(40, [`a${ESC}]52;c;aGk=\u0007b${ESC}]8;;https://x${ESC}\\c\n`])).toEqual(['abc']);
+    expect(run(40, [`${red}x${ESC}[2Jy${reset}\n`])).toEqual([`${red}xy${reset}`]);
+  });
+
+  it('should drop other control characters, leave a tab to the wrapper, and drop a stray escape', () => {
+    expect(run(40, ['a\u0007b\u0008c\u007fd\te\n'])).toEqual([wrap('abcd\te', { width: 40 })]);
+    expect(run(40, [`a${ESC}`])).toEqual(['a']);
+  });
+
+  it('should not count a dropped sequence toward the width', () => {
+    expect(run(5, [`ab${ESC}[2Jcd${ESC}[Aef gh\n`])).toEqual(['abcde', 'f gh']);
+  });
+
+  it('should clean a sequence that arrived in pieces', () => {
+    expect(run(40, chop(`x${ESC}[2Jy\rz\n`, 1))).toEqual(['xyz']);
+  });
+
   it('should wrap by columns and not by length', () => {
     const lines = run(6, [...chop('日本語 日本語 日本語', 2)]);
 
@@ -231,6 +259,22 @@ describe('a streamed status line', () => {
     expect(stderr.output).toBe(
       `${LOG_SYMBOLS.info} a line much longer than ten columns\n` + `${' '.repeat(1)} and another\n`
     );
+  });
+
+  it('should write nothing to the terminal but text and colour', async () => {
+    const { stderr, terminal } = split();
+    await createLog({ colorLevel: 0, terminal }).stream.warn(
+      arriving([
+        'progress 10%\rprogress 50%\n',
+        `clear${ESC}[2J${ESC}[Aup ${ESC}]52;c;aGk=\u0007done\n`,
+      ])
+    );
+
+    expect(stderr.text).toBe(
+      `${LOG_SYMBOLS.warn} progress 10%progress 50%\n${' '.repeat(2)}clearup done\n`
+    );
+    expect(stderr.text).not.toContain('\r');
+    expect(stderr.text).not.toContain(ESC);
   });
 
   it('should put back a character that a chunk boundary cut in two', async () => {

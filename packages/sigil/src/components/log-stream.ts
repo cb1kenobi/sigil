@@ -16,6 +16,14 @@
  * - **Styling carries across a newline and a chunk.** The state is walked over
  *   each finished line, and the next one is opened from it.
  *
+ * What is written is text and colour and nothing else. The source is whatever a
+ * subprocess or a model produced, and a terminal obeys what it is handed: a bare
+ * `\r` returns the cursor and the next frame of a progress bar overwrites the
+ * row, `ESC[2J` clears the screen, and an OSC 52 writes to the clipboard -- all
+ * while the status line under a spinner is being repainted by cursor arithmetic
+ * this module cannot see. So a line is cleaned before it is measured, which is
+ * also why the wrapper does not count a progress frame it is about to drop.
+ *
  * Nothing here wraps differently from `wrap()`: it *calls* it, over the whole of
  * the line being built each time, and returns the lines that cannot change. Wrap
  * is greedy, so every line but the last of a wrap is final however much text
@@ -27,7 +35,7 @@
  */
 
 import { matcher, strip } from '../ansi/strip.js';
-import { createSgrState, tokenize, wrap } from '../wrap/index.js';
+import { createSgrState, isSgr, tokenize, wrap } from '../wrap/index.js';
 
 export interface StreamWrapper {
   /**
@@ -71,6 +79,34 @@ function incompleteAt(text: string): number {
 }
 
 /**
+ * A line of source reduced to text and SGR.
+ *
+ * Done on a line that is whole as far as this call can tell -- never on a chunk,
+ * which may end inside a sequence -- so every sequence in it is complete and one
+ * that is not (a stream that ended mid-escape) is just a stray `ESC`, which is a
+ * control character and goes with the rest. A tab is the one control character
+ * that is layout rather than a command.
+ *
+ * @param text - The text, with no newline in it.
+ * @returns The text with every sequence but an SGR removed, and every control
+ *   character but a tab.
+ */
+function clean(text: string): string {
+  let out = '';
+
+  for (const token of tokenize(text)) {
+    out +=
+      token.type === 'sequence'
+        ? isSgr(token.text)
+          ? token.text
+          : ''
+        : token.text.replaceAll(/\p{Cc}/gu, (c) => (c === '\t' ? c : ''));
+  }
+
+  return out;
+}
+
+/**
  * A wrapper for chunks.
  *
  * @param width - The column to wrap at, or `Infinity` for no wrapping, in which
@@ -88,14 +124,14 @@ export function createStreamWrapper(width: number): StreamWrapper {
   let given = 0;
 
   /** The wrapped lines of the text, opened from the styling carried in. */
-  const lines = (text: string): string[] => wrap(state.open() + text, { width }).split('\n');
+  const lines = (text: string): string[] => wrap(state.open() + clean(text), { width }).split('\n');
 
   /** Ends the line being built: styling carries on, and the count starts over. */
   const finish = (): string[] => {
     const wrapped = lines(line);
     const out = wrapped.slice(given);
 
-    for (const token of tokenize(line)) {
+    for (const token of tokenize(clean(line))) {
       if (token.type === 'sequence') {
         state.apply(token.text);
       }
@@ -111,7 +147,7 @@ export function createStreamWrapper(width: number): StreamWrapper {
       // text that is only whitespace, or only sequences, is not a line: a stream
       // that ends on its newline has nothing after it, and a final reset is not
       // a blank row
-      if (strip(line).trim() === '') {
+      if (strip(clean(line)).trim() === '') {
         return [];
       }
       return finish();

@@ -5408,6 +5408,18 @@ changed.
   cut between two `Uint8Array` chunks comes out whole. A bare string is one chunk.
 - **`createStreamWrapper` is exported from the barrel** because the ejected
   `registry/log.ts` rewrites its sibling imports to `@ttylabs/sigil/components`.
+- **Only text and SGR reach the terminal.** The source is a subprocess or a model,
+  and a terminal obeys what it is handed: a bare `\r` (git, npm and curl draw
+  progress with one) returns the cursor, `ESC[2J` clears the screen, OSC 52 writes
+  to the clipboard, and any cursor move breaks the erase-and-repaint
+  `writeStatus()` does under a spinner. `log.info()` is safe because its element
+  tree strips control characters; this path writes strings, so `clean()` in
+  `log-stream.ts` does it: every sequence but an SGR goes, and every control
+  character but a tab. It runs on the line, never on a chunk (a chunk may end inside
+  a sequence), and **before** the wrapper measures, so a dropped sequence or a
+  progress frame costs no columns. A bare `\r` is dropped, not honoured as "keep the
+  text after it": `10%\r50%` is `10%50%`, which is what `log.info()` gives and is
+  never a lie about what the source sent. Found by review of SIG-179.
 
 **Deliberately not done:** writing a partial row (above); an `AbortSignal`;
 timestamps and structured fields (a separate ticket); a pace or a cap on how fast
