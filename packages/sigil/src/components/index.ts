@@ -15,7 +15,13 @@ export {
   type Ranked,
   rankBy,
 } from './fuzzy.js';
-export { autocomplete, type AutocompleteOptions, type AutocompleteSource } from './autocomplete.js';
+export {
+  autocomplete,
+  autocompleteMultiselect,
+  type AutocompleteMultiselectOptions,
+  type AutocompleteOptions,
+  type AutocompleteSource,
+} from './autocomplete.js';
 export {
   checkSlotValue,
   commandPalette,
@@ -33,7 +39,16 @@ export {
   isCancel,
   outro,
 } from './group.js';
+export { groupMultiselect, type GroupMultiselectOptions } from './group-multiselect.js';
+export { joinList, list, type ListOptions, splitList } from './list.js';
 export { number, type NumberOptions } from './number.js';
+export { sort, type SortOptions } from './sort.js';
+export {
+  type KeyChoice,
+  type KeyChoiceEntry,
+  selectKey,
+  type SelectKeyOptions,
+} from './select-key.js';
 export { path, type PathOptions } from './path.js';
 export {
   type Choice,
@@ -110,6 +125,29 @@ export {
   trackProgress,
   renderBar,
 } from './progress.js';
+export { createStreamWrapper, type StreamWrapper } from './log-stream.js';
+export {
+  barChart,
+  barChartView,
+  type BarChartOptions,
+  type BarData,
+  type BarDatum,
+  type ChartOptions,
+  type ChartRole,
+  type ChartView,
+  gauge,
+  type GaugeOptions,
+  gaugeView,
+  lineChart,
+  lineChartView,
+  type LineChartOptions,
+  type ScaleOptions,
+  SPARK_ASCII,
+  SPARK_BLOCKS,
+  sparkline,
+  type SparklineOptions,
+  sparklineView,
+} from './chart.js';
 export {
   createMultiProgress,
   type MultiProgress,
@@ -124,6 +162,8 @@ export {
   log,
   type LogMessageOptions,
   type LogOptions,
+  type LogSource,
+  type LogStream,
   LOG_SYMBOLS,
   LOG_SYMBOLS_ASCII,
   type LogSymbols,

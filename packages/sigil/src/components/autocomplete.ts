@@ -22,6 +22,9 @@
  *   },
  * });
  * ```
+ *
+ * `autocompleteMultiselect()` is the same field over the same list with a tick
+ * box on each row, for an answer that is several of them.
  */
 
 import { box, type Element, text as textNode } from '../element/index.js';
@@ -98,6 +101,29 @@ export interface AutocompleteOptions<T> extends PromptOptions {
   validate?: (value: T) => string | undefined | false | Promise<string | undefined | false>;
 }
 
+export interface AutocompleteMultiselectOptions<T> extends Omit<
+  AutocompleteOptions<T>,
+  'validate'
+> {
+  /** Refuse more than this many. Unlimited if omitted. */
+  max?: number;
+  /** Refuse fewer than this many. Defaults to 0, or 1 when `required`. */
+  min?: number;
+  /** Refuse an empty selection. Defaults to `false`. Same as `min: 1`. */
+  required?: boolean;
+  /**
+   * Checks the chosen values, in the order they will be returned. Return a string
+   * to refuse them with that message, or anything falsy to accept.
+   */
+  validate?: (values: T[]) => string | undefined | false | Promise<string | undefined | false>;
+}
+
+/** What `search()` needs to know to be a multiselect, and that it is one. */
+interface Multi {
+  readonly max: number;
+  readonly min: number;
+}
+
 /** One row of what is on offer, and which of its code points the term matched. */
 interface Offer<T> {
   readonly choice: Choice<T>;
@@ -126,9 +152,11 @@ function isOffered<T>(choice: Choice<T>): boolean {
  *
  * @param offer - What to show.
  * @param current - Whether it is the highlighted row.
+ * @param ticked - Whether it is ticked, for a multiselect. Omitted, the row has no
+ *   tick box at all.
  * @returns The row.
  */
-function offerRow<T>({ choice, matched }: Offer<T>, current: boolean): Element {
+function offerRow<T>({ choice, matched }: Offer<T>, current: boolean, ticked?: boolean): Element {
   // the pointer is on every row and `visibility` takes it off the others, for the
   // reason the choice list records: hidden content still takes its space, and a
   // text of one space would measure nothing at all
@@ -138,6 +166,14 @@ function offerRow<T>({ choice, matched }: Offer<T>, current: boolean): Element {
     visibility: current ? 'visible' : 'hidden',
     'white-space': 'nowrap',
   });
+  const mark =
+    ticked === undefined
+      ? undefined
+      : textNode(ticked ? PROMPT_SYMBOLS.on : PROMPT_SYMBOLS.off, {
+          class: ticked ? 'sigil-choice-mark is-on sigil-success' : 'sigil-choice-mark',
+          'margin-right': 1,
+          'white-space': 'nowrap',
+        });
   const label = box(
     { class: 'sigil-autocomplete-label', 'flex-shrink': 0 },
     ...highlightRuns(choice.label, matched).map((run) =>
@@ -156,7 +192,7 @@ function offerRow<T>({ choice, matched }: Offer<T>, current: boolean): Element {
 
   return box(
     { class: current ? 'sigil-choice is-active sigil-accent' : 'sigil-choice' },
-    pointer,
+    ...(mark ? [pointer, mark] : [pointer]),
     label,
     hint
   );
@@ -180,6 +216,63 @@ function offerRow<T>({ choice, matched }: Offer<T>, current: boolean): Element {
  * @returns The chosen value.
  */
 export function autocomplete<T = string>(opts: AutocompleteOptions<T>): Promise<T> {
+  return search<T>(opts) as Promise<T>;
+}
+
+/**
+ * Asks for any number of a list, narrowed as the answer is typed.
+ *
+ * Everything `autocomplete()` does, with a tick box on each row. **Space ticks or
+ * unticks the highlighted choice** -- which is why a space cannot be typed into the
+ * field, though one can be pasted -- and **Enter confirms what is ticked** rather
+ * than taking the highlighted row. The ticks belong to the choices and not to the
+ * list on screen, so a choice the term has since filtered out stays ticked, and the
+ * line under the list counts the ones that are out of sight.
+ *
+ * A choice is ticked by its `value`, compared the way a `Map` compares keys: two
+ * rows with one value are one choice, and a source that hands back a fresh object
+ * for what is the same thing each time is not recognised as having done so. A
+ * `selected` choice starts ticked, in `choices` only -- a source is asked again on
+ * every keystroke and would otherwise tick it again after it was unticked.
+ *
+ * @param opts - What to ask, and where the choices come from.
+ * @returns The chosen values, in the order they are listed -- or, for a source,
+ *   the order they were ticked in, since it has no list order to speak of.
+ */
+export function autocompleteMultiselect<T = string>(
+  opts: AutocompleteMultiselectOptions<T>
+): Promise<T[]> {
+  const min = opts.min ?? (opts.required ? 1 : 0);
+  const max = opts.max ?? Number.POSITIVE_INFINITY;
+
+  // asked rather than compared, for `multiselect()`'s reason: every comparison
+  // with `NaN` is false, so a `max` of `NaN` would accept any number and say
+  // nothing about it
+  if (!Number.isInteger(min) || min < 0 || (max !== Infinity && !Number.isInteger(max))) {
+    return Promise.reject(
+      new PromptError(`"${opts.message}" has a min or max that is not a whole number`)
+    );
+  }
+  if (min > max) {
+    return Promise.reject(new PromptError(`"${opts.message}" has a min greater than its max`));
+  }
+
+  return search<T>(opts as SearchOptions<T>, { max, min }) as Promise<T[]>;
+}
+
+/** The options both prompts are asked with: `validate` takes either answer. */
+type SearchOptions<T> = Omit<AutocompleteOptions<T>, 'validate'> & {
+  validate?: (answer: never) => string | undefined | false | Promise<string | undefined | false>;
+};
+
+/**
+ * The prompt both entry points are, so that a fix to one cannot miss the other.
+ *
+ * @param opts - What to ask, and where the choices come from.
+ * @param multi - Given, the prompt ticks choices and answers with all of them.
+ * @returns The chosen value, or the list of them.
+ */
+function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
   const { source } = opts;
 
   if (source !== undefined && opts.choices !== undefined) {
@@ -203,8 +296,27 @@ export function autocomplete<T = string>(opts: AutocompleteOptions<T>): Promise<
   let cursor = value.length;
   let active = 0;
   let start = 0;
+  /**
+   * What is ticked, by value. Not by row: the list is rebuilt for every term, and a
+   * choice the term hides is still ticked. Insertion order is the order they were
+   * ticked in.
+   */
+  const ticked = new Map<unknown, Choice<T>>();
+  for (const choice of fixed ?? []) {
+    if (multi && choice.selected) {
+      ticked.set(promptValue(choice), choice);
+    }
+  }
 
-  return runPrompt<T>(opts, () => {
+  /** The ticked choices in the order they are answered in. */
+  const ticks = (): Choice<T>[] => {
+    const all = [...ticked.values()];
+    // a static list has an order, and it is the list's: tick order would hand
+    // back an answer that depends on how the user happened to move
+    return fixed ? all.sort((a, b) => fixed.indexOf(a) - fixed.indexOf(b)) : all;
+  };
+
+  return runPrompt<T | T[]>(opts, () => {
     const before = textNode('', { 'white-space': 'nowrap' });
     const caret = textNode('', { class: 'sigil-caret', 'white-space': 'nowrap' });
     const after = textNode('', { 'white-space': 'nowrap' });
@@ -218,11 +330,16 @@ export function autocomplete<T = string>(opts: AutocompleteOptions<T>): Promise<
     // -- a failure empties the list, and the other two are about its state --
     // so one element with the most pressing of them is the whole of it
     const foot = promptNote('');
+    // what is ticked, and how much of it the list is not showing -- a line of its
+    // own rather than a share of `foot`, because it is true alongside every one
+    // of foot's messages
+    const tally = promptNote('sigil-autocomplete-tally sigil-muted');
     const view = box(
       { class: 'sigil-prompt sigil-autocomplete', 'flex-direction': 'column' },
       line,
       box({ 'padding-left': 2 }, list),
-      box({ 'padding-left': 2 }, foot)
+      box({ 'padding-left': 2 }, foot),
+      ...(multi ? [box({ 'padding-left': 2 }, tally)] : [])
     );
 
     /** What is on offer for the current term. */
@@ -252,7 +369,7 @@ export function autocomplete<T = string>(opts: AutocompleteOptions<T>): Promise<
      * that is `NaN` must not blank the list.
      */
     const room = (): number => {
-      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines - 1);
+      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines - (multi ? 2 : 1));
       return Math.max(1, Math.min(promptRowCap(opts.rows, avail), avail));
     };
 
@@ -266,7 +383,28 @@ export function autocomplete<T = string>(opts: AutocompleteOptions<T>): Promise<
       }
       for (const [rank, offer] of offers.entries()) {
         if (rank >= start && rank < start + visible) {
-          list.append(offerRow(offer, rank === active));
+          list.append(
+            offerRow(
+              offer,
+              rank === active,
+              multi ? ticked.has(promptValue(offer.choice)) : undefined
+            )
+          );
+        }
+      }
+
+      if (multi) {
+        if (ticked.size === 0) {
+          setPromptNote(tally, __`(space to select, enter to confirm)`);
+        } else {
+          const shown = new Set<unknown>(offers.map((offer) => promptValue(offer.choice)));
+          const hidden = [...ticked.keys()].filter((key) => !shown.has(key)).length;
+          setPromptNote(
+            tally,
+            hidden > 0
+              ? __`Selected: ${ticked.size}, ${hidden} not shown`
+              : __`Selected: ${ticked.size}`
+          );
         }
       }
 
@@ -376,13 +514,37 @@ export function autocomplete<T = string>(opts: AutocompleteOptions<T>): Promise<
       async key(k) {
         complaint = undefined;
 
-        if (k.name === 'enter') {
+        if (k.name === 'enter' && multi) {
+          // the answer is what is ticked, which a lookup in flight cannot change,
+          // so unlike the single prompt there is nothing here to wait for
+          const wrong =
+            ticked.size < multi.min
+              ? multi.min === 1
+                ? __`Choose at least one`
+                : __`Choose at least ${multi.min}`
+              : ticked.size > multi.max
+                ? __`Choose at most ${multi.max}`
+                : undefined;
+          if (wrong) {
+            complaint = wrong;
+            draw();
+            return;
+          }
+          const values = ticks().map((choice) => promptValue(choice));
+          const failed = await opts.validate?.(values as never);
+          if (typeof failed === 'string' && failed) {
+            complaint = failed;
+            draw();
+            return;
+          }
+          return { value: values };
+        } else if (k.name === 'enter') {
           // a lookup still out means the list on screen is for an earlier term,
           // and answering with a row of it would be answering a question that
           // is no longer the one asked
           const picked = pending ? undefined : offers[active]?.choice;
           if (picked) {
-            const failed = await opts.validate?.(promptValue(picked));
+            const failed = await opts.validate?.(promptValue(picked) as never);
             if (typeof failed === 'string' && failed) {
               complaint = failed;
               draw();
@@ -390,6 +552,18 @@ export function autocomplete<T = string>(opts: AutocompleteOptions<T>): Promise<
             }
             chosen = picked;
             return { value: promptValue(picked) };
+          }
+        } else if (multi && k.name === 'space') {
+          // the row on screen while a lookup is out belongs to an earlier term, so
+          // it is not ticked for the same reason Enter does not answer with it
+          const picked = pending ? undefined : offers[active]?.choice;
+          if (picked) {
+            const key = promptValue(picked);
+            if (ticked.has(key)) {
+              ticked.delete(key);
+            } else {
+              ticked.set(key, picked);
+            }
           }
         } else if (k.name === 'tab') {
           const picked = offers[active]?.choice;
@@ -470,12 +644,19 @@ export function autocomplete<T = string>(opts: AutocompleteOptions<T>): Promise<
         caret.setText('');
         caret.setProps({ class: '' });
         after.setText('');
-        answer.setText(chosen?.label ?? '');
+        answer.setText(
+          multi
+            ? ticks()
+                .map((choice) => choice.short ?? choice.label)
+                .join(', ') || __`none`
+            : (chosen?.label ?? '')
+        );
         answer.setProps({ display: 'flex' });
         // the list goes: what is left is the question and its answer, which is
         // the one line worth keeping in a log
         list.setProps({ display: 'none' });
         setPromptNote(foot, undefined);
+        setPromptNote(tally, undefined);
       },
 
       view,

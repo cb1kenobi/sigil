@@ -2768,6 +2768,28 @@ async — return a string to reject the answer with that message. Editing keys
 are the usual ones: arrows, Home/End, Ctrl-A/E/U, Backspace, Delete. A paste
 arrives as one chunk and is read as the keys it carries, not just the first.
 
+Every prompt takes a `signal`. Aborting it gives the prompt up the way Ctrl-C
+does — the screen, the cursor and stdin are put back — but the promise rejects
+with the signal's own `reason`, not a `PromptError`, so a program's decision is
+never mistaken for a person cancelling. A signal that is already aborted rejects
+before anything is drawn.
+
+```js
+// "use the default after ten seconds" is one signal and a catch
+const ok = await confirm({
+  message: 'Deploy?',
+  signal: AbortSignal.timeout(10_000),
+}).catch((err) => {
+  if (err?.name === 'TimeoutError') return true;
+  throw err;
+});
+
+// or cancel it because something else finished
+const controller = new AbortController();
+build.then(() => controller.abort());
+await select({ message: 'Target', choices, signal: controller.signal });
+```
+
 #### A date
 
 ```js
@@ -2844,6 +2866,83 @@ already are), `i` flips each one, and Ctrl-A is `a` still. Enter checks `min` an
 `max` — `required` is `min: 1` — and says how many it wanted: `Choose at least 2`.
 Neither is checked while ticking, so a `max` of 3 does not stop the fourth Space,
 only the Enter.
+
+#### Choices under groups
+
+```js
+import { groupMultiselect } from '@ttylabs/sigil/components';
+
+const features = await groupMultiselect({
+  message: 'Features',
+  choices: {
+    Frontend: ['React', 'Vue', { label: 'Svelte', selected: true }],
+    Backend: ['Express', { label: 'Fastify', value: 'fastify' }],
+  },
+  required: true,
+});
+```
+
+A `multiselect()` whose choices sit under named headings. The headings are rows of
+their own: **Space on a group ticks every choice under it**, or clears them if they
+are all ticked already, and its box is `◯` for none, `◐` for some and `◉` for all.
+The box is worked out from the choices, so ticking the last one by hand turns the
+group `◉`. A disabled choice is left alone by its group, and a group with nothing
+on offer is skipped by the cursor.
+
+The answer is a **flat array of the values**, in the order they are listed -- a group
+is a way of picking and is not itself picked. `choices` takes `Choice`s and plain
+strings (no separators: the groups are the headings), and `min`, `max`, `required`
+and `loop` mean what they mean in `multiselect()`; `min` and `max` count choices,
+not groups. `a` ticks every choice and `i` flips each one.
+
+`selectableGroups: false` makes a heading only a heading: the cursor steps over it
+and only the choices under it can be ticked. Groups are listed in the order the
+object holds them, which for JavaScript means a group named like an array index
+(`'1'`) comes before the rest.
+
+#### Choosing by a key
+
+```js
+import { selectKey } from '@ttylabs/sigil/components';
+
+const action = await selectKey({
+  message: 'File exists',
+  choices: [
+    { key: 'o', label: 'Overwrite', value: 'overwrite' },
+    { key: 's', label: 'Skip', value: 'skip' },
+    { key: 'd', label: 'Show the diff', value: 'diff' },
+  ],
+});
+```
+
+For a short list the person already knows, where arrowing to a row is slower than
+the letter they were going to press. Pressing a choice's `key` answers at once;
+there is no cursor, so Up, Down and Space do nothing. It is Clack's `selectKey`,
+and two options make it Inquirer's other two:
+
+| Option     | Meaning                                                                       |
+| ---------- | ----------------------------------------------------------------------------- |
+| `choices`  | `{ key, label, value, hint, short, disabled }`, a `separator()`, or a string  |
+| `numbered` | A choice with no `key` gets its place in the list, `1` to `9` (`rawlist`)     |
+| `expand`   | Show `(y/n/a/d/h)` and the list only after `h` or `?` is pressed (`expand`)   |
+| `initial`  | The key Enter takes. Marked in the list, and the capital in the `expand` line |
+
+A key is **one character and case does not matter**: `S` answers for `s`, and
+`y` and `Y` are one key, so two choices that differ only by case are refused. The
+list is checked where the prompt is asked and not when a key is pressed: two
+choices sharing a key, a key that is not a single character, a choice with no key
+when the prompt is not `numbered`, a tenth unkeyed choice (there is no single
+digit for it), or an `initial` that is not the key of a choice on offer each
+reject with a `PromptError` that names the choice. `expand` keeps `h` and `?`, so
+a choice may not use either; without `expand` they are ordinary keys.
+
+A `disabled` choice stays in the list with its reason where a hint would be, its
+key does nothing, and it keeps its number so the others do not shift. A
+`description` and `selected` do not apply -- there is no highlighted choice to
+describe and nothing to tick -- and are not on its type. The answer is a
+choice's `value`, or its label when it has none, and the log keeps its `short` if
+it has one. It rejects with `PromptError` where there is no terminal, like the
+others.
 
 #### A multiline answer
 
@@ -3040,6 +3139,84 @@ await autocomplete({ message: 'Package', source: debounced(search, 150) });
 
 It rejects with `PromptError` where there is no terminal, like the others.
 
+#### A list
+
+```js
+import { list } from '@ttylabs/sigil/components';
+
+const tags = await list({ message: 'Tags', initial: ['cli', 'node'] });
+const hosts = await list({ message: 'Hosts', separator: /[\s,]+/ });
+```
+
+One line, split on a separator and returned as a `string[]` -- what a set of tags
+or hostnames wants, and a poor fit for `multiselect()`, which needs every option
+known in advance. The field is the line `text()` draws, shown exactly as typed; it
+is read as a list when Enter is pressed, and the settled line shows the entries.
+
+| Option        | Meaning                                                                          |
+| ------------- | -------------------------------------------------------------------------------- |
+| `message`     | What is being asked                                                              |
+| `separator`   | A string (matched literally) or a `RegExp`. Default `','`                        |
+| `initial`     | What the field starts with: a string as it is, or an array joined by `separator` |
+| `default`     | An array answered when the line holds no entries; shown dimmed when it is empty  |
+| `placeholder` | Shown dimmed while the field is empty, in place of `default`                     |
+| `validate`    | Receives the entries; return a string to reject the answer with that message     |
+
+Every entry is **trimmed**, and an entry with nothing left in it is **dropped**:
+`'a, b,, c,'` is `['a', 'b', 'c']`, and `' , ,'` is `[]` rather than `['']`. Repeated
+entries are kept, and there is no quoting -- an entry cannot contain its own
+separator. An empty line answers `default` if there is one, and `[]` if not;
+`validate` is where a minimum or a maximum number of entries is enforced.
+
+A `RegExp` separator is matched wherever it matches, so `/[\s,]+/` takes commas and
+spaces alike. Its `g` and `y` flags are ignored, a match with nothing in it is not a
+separator, and a capture group is not an entry. An empty-string separator rejects
+the prompt, as does an `initial` array that would not come back out of its own line
+(an entry holding the separator, say). `splitList(line, separator)` and
+`joinList(items, separator)` are exported for applying the same rule to a value that
+did not come from a prompt. A pasted block is flattened onto the line, like
+`text()`'s.
+
+#### Autocomplete multiselect
+
+```js
+import { autocompleteMultiselect } from '@ttylabs/sigil/components';
+
+const regions = await autocompleteMultiselect({
+  message: 'Regions',
+  choices: ['us-east-1', 'us-west-2', 'eu-central-1', 'ap-south-1'],
+  required: true,
+  max: 3,
+});
+// ['us-east-1', 'eu-central-1']
+```
+
+`autocomplete()` with a tick box on each row, for an answer that is several of them.
+It takes the same `choices` or `source`, `initial`, `placeholder` and `rows`, and
+`required`, `min` and `max` as `multiselect()` does.
+
+**Space ticks or unticks the highlighted choice, and Enter confirms what is ticked**
+— not the highlighted row. That makes Space a key rather than a character, so a space
+cannot be typed into the field; one in a pasted term goes in. Tab still copies the
+highlighted label into the field.
+
+**Ticks survive the term changing.** They belong to the choices, not to the list on
+screen, so narrowing the list past a ticked choice does not untick it, and Enter
+answers with it all the same. The line under the list says how many are ticked and how
+many of those the term is hiding (`Selected: 3, 1 not shown`); clearing the term brings
+the rows back with their ticks. `min` and `max` count the hidden ones too.
+
+A choice is ticked **by its `value`**, compared as a `Map` compares keys — strings and
+numbers, or the same object. A `source` that builds a new object for the same thing on
+every lookup should give the choice a primitive `value`. The answer is in the order of
+`choices`; for a `source`, which has no order to speak of, it is the order they were
+ticked in. `selected: true` starts a choice ticked in `choices` and is ignored in a
+source's results, which are asked for again on every keystroke and would otherwise tick
+it again after it was unticked. `validate` is handed the array of values. As with
+`autocomplete()`, a `disabled` choice is left out, and Space waits for a lookup in
+flight (the rows on screen belong to an earlier term) while Enter does not (it answers
+with what is ticked).
+
 #### A path
 
 ```js
@@ -3082,6 +3259,48 @@ read -- missing, not a directory, no permission -- simply has no candidates.
 
 This is the field. A picker that browses the tree is a different widget and is not
 here.
+
+#### Sort
+
+```js
+import { sort } from '@ttylabs/sigil/components';
+
+const order = await sort({
+  message: 'Run the steps in this order',
+  choices: ['lint', 'build', 'test', 'deploy'],
+});
+// ['lint', 'test', 'build', 'deploy']
+```
+
+For an answer that is a permutation rather than a choice: a priority list, a
+build order, the order middleware runs in. It starts from the order `choices`
+is in and returns every value, **in the order the person left them**.
+
+**Space picks the highlighted row up, Up and Down then carry it** (the highlight
+goes along), and Space puts it down; with nothing in hand Up and Down move the
+highlight, wrapping unless `loop: false`. Home and End send a carried row to the
+top or the bottom and Page Up and Page Down carry it a screen at a time; with
+nothing in hand they move the highlight. **Enter answers** whether or not a row
+is still in hand, so it stays where it was carried to. Alt or Shift with Up or
+Down moves a row one place without picking it up, for a hand that knows the keys.
+A carried row stops at either end rather than wrapping.
+
+A choice marked `disabled` is **pinned**: it keeps its place in the list, the
+highlight steps over it, it cannot be picked up, and the rows around it move past
+it. It is still in the answer, in its place. A list with nothing that can be moved
+is refused the way an empty one is.
+
+| Option    | Meaning                                                                  |
+| --------- | ------------------------------------------------------------------------ |
+| `message` | What is being asked                                                      |
+| `choices` | What to put in order, as strings or `Choice`s, in the order it starts in |
+| `initial` | Which row starts highlighted, by index into `choices`                    |
+| `loop`    | Whether the highlight wraps. Default `true`                              |
+| `rows`    | How many rows the list may take. Default: what the terminal has left     |
+
+The rows are numbered, and a list longer than the screen is windowed to follow
+the highlight. It rejects with `PromptError` where there is no terminal, like the
+others.
 
 #### Spinner
 
@@ -3216,6 +3435,35 @@ the middle of `mycli --format json | jq`.
 `createLog({ terminal, ascii, symbols, quiet, theme })` builds one over another
 terminal; `log` is the process's. No timestamps and no structured fields yet.
 
+##### Streaming
+
+```js
+await log.stream.info(model.tokens()); // an async iterable of strings
+await log.stream.warn(child.stderr); // or of Buffers
+```
+
+`log.stream` has the same six methods, each taking text that has not all arrived:
+a string iterable, an async iterable, or `Uint8Array` chunks (decoded as UTF-8,
+with a character cut across two chunks put back together). It returns a promise
+that settles when the source is drained.
+
+- **A line is written as soon as it is final.** Text is wrapped to the terminal's
+  width as it comes; a line leaves once the next word proves it is full or a
+  newline ends it. The last line is held while the word on it may still be growing
+  and is written when the stream ends. Lines land above a spinner or bar exactly as
+  `log.info()` does, and the glyph leads the first line with the rest hanging under
+  its text.
+- **Chunks can be cut anywhere.** A word, an escape sequence (`ESC[3` then `1m`)
+  or a multi-byte character split between chunks wraps the same as the whole text
+  would. The text's own colours are kept, closed at the end of each line and
+  reopened on the next. Unlike `log.info()`, which draws its message in the
+  terminal's colour, a stream keeps the SGR it is given; a terminal with no colour
+  gets none.
+- A file is not wrapped, and a line ends where the text says it does.
+- A **quiet** run drains a stream and writes nothing, except for `warn` and
+  `error`. If the source throws, what arrived is written and the promise rejects
+  with that error.
+
 #### Tasks
 
 ```js
@@ -3347,6 +3595,64 @@ Like `table()` it returns a string and the caller does the writing, which also
 puts it on the result side of `--quiet`. `noteView()` is the element tree behind
 it, for an app that wants one inside its own tree. There is no live form: a note
 is static, so `console.log(note(...))` already is one.
+
+#### Charts
+
+```js
+import { barChart, gauge, lineChart, sparkline } from '@ttylabs/sigil/components';
+
+console.log(`latency ${sparkline([12, 18, 15, 40, 22, 19, 31, 17])}`);
+console.log(barChart({ build: 12.4, test: 7.2, lint: 2.1 }, { width: 32 }));
+console.log(gauge(512, { label: 'Memory', max: 1024, detail: '512 MiB / 1 GiB' }));
+```
+
+```
+latency ▁▃▂█▄▃▆▂
+build █████████████████████ 12.4
+test  ████████████▎          7.2
+lint  ███▌                   2.1
+Memory ██████████░░░░░░░░░░ 512 MiB / 1 GiB
+```
+
+Four functions that take numbers and return a string, drawn as an element tree
+the way `note()` is, so the colour is a theme role and the caller does the
+writing. None has a live form -- a chart of a series that is changing is a chart
+the app builds again -- and, like `table()`, none of them is silenced by
+`--quiet`. `sparklineView()`, `barChartView()`, `lineChartView()` and
+`gaugeView()` are the trees behind them, for an app that wants one inside its own.
+
+- **`sparkline(values, { width, min, max })`** is one line of eight block heights,
+  for a trend beside a command's name. A value that is not a finite number is a
+  **gap**, not the lowest block. A series wider than `width` keeps its **latest**
+  values, and the scale is the shown values' unless `min` and `max` are given --
+  give them when two sparklines have to mean the same height.
+- **`barChart(data, { direction, width, height, barWidth, gap, labelWidth, showValues, format })`**
+  takes `{ label, value }` objects or an object of numbers. `horizontal` (the
+  default) is a label, a bar and a value in aligned columns, and a bar is measured
+  in eighths of a cell. `vertical` is columns with the values and the labels under
+  them. Bars grow from zero, or from the lowest value where some are negative; a
+  value above the bottom is always at least an eighth of a cell, so a small number
+  is not drawn as none.
+- **`lineChart(values, { width, height, min, max, axis, format, xLabels })`** is
+  one series in braille, two dots across and four down a cell, from the same
+  `Dots` grid the canvas draws with. The axis names the top and the bottom of the
+  scale and nothing between, and `xLabels: ['10:00', '10:10']` sets the first and
+  last points under it. A value that is not a finite number **breaks** the line
+  rather than being bridged. A braille cell carries one foreground, so there is
+  one series, in one role.
+- **`gauge(value, { label, detail, width, style, thresholds, min, max })`** is a
+  reading against its range. `value` is a ratio unless `max` says otherwise, so
+  `gauge(0.63)` and `gauge(63, { max: 100 })` are the same line. `style: 'line'`
+  draws a thin bar, and `thresholds: { warn: 0.7, error: 0.9 }` draws the bar in
+  the `warn` and `error` roles from those ratios up. It is not `progress()`: that
+  is live, moves, and falls back to a percentage where there is no terminal; a
+  gauge is printed once. They share the bar arithmetic and nothing else.
+
+Every chart takes `role` (`accent` by default, `none` for the terminal's own
+foreground) and `ascii`. Unless `ascii` is given it follows `unicodeSupported()`,
+and the ASCII forms are `_.:-=+*#` for a sparkline, `#` bars, a `*` line and `#`
+and `-` in a gauge. `.sigil-chart-sparkline`, `-bar`, `-line` and `-gauge` are the
+theme hooks, each with `-row` and `-part` classes inside.
 
 #### A key-help footer
 

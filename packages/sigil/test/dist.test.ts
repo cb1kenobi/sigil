@@ -208,6 +208,7 @@ describe('what importing the package costs', () => {
     'commandPalette',
     'noteView',
     'logView',
+    'barChartView',
     'taskLog',
   ];
 

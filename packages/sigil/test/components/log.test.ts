@@ -483,6 +483,7 @@ describe('the process logger', () => {
       'info',
       'message',
       'step',
+      'stream',
       'success',
       'warn',
     ]);
