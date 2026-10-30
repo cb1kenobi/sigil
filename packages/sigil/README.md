@@ -2768,6 +2768,28 @@ async — return a string to reject the answer with that message. Editing keys
 are the usual ones: arrows, Home/End, Ctrl-A/E/U, Backspace, Delete. A paste
 arrives as one chunk and is read as the keys it carries, not just the first.
 
+Every prompt takes a `signal`. Aborting it gives the prompt up the way Ctrl-C
+does — the screen, the cursor and stdin are put back — but the promise rejects
+with the signal's own `reason`, not a `PromptError`, so a program's decision is
+never mistaken for a person cancelling. A signal that is already aborted rejects
+before anything is drawn.
+
+```js
+// "use the default after ten seconds" is one signal and a catch
+const ok = await confirm({
+  message: 'Deploy?',
+  signal: AbortSignal.timeout(10_000),
+}).catch((err) => {
+  if (err?.name === 'TimeoutError') return true;
+  throw err;
+});
+
+// or cancel it because something else finished
+const controller = new AbortController();
+build.then(() => controller.abort());
+await select({ message: 'Target', choices, signal: controller.signal });
+```
+
 #### A date
 
 ```js
