@@ -12,12 +12,13 @@
  * stderr's, whichever level it is.
  */
 
-import { type Ansi, createAnsi } from '../ansi/index.js';
+import { type Ansi, createAnsi, strip } from '../ansi/index.js';
 import { box, type Element, renderToLines, text as textNode } from '../element/index.js';
 import { resolveOutput } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
+import { createStreamWrapper } from './log-stream.js';
 import { PROMPT_SYMBOLS } from './prompt.js';
 import { OUTCOME_SYMBOLS } from './spinner.js';
 
@@ -84,6 +85,33 @@ export interface LogMessageOptions {
   symbol?: string;
 }
 
+/**
+ * Where a stream's text comes from.
+ *
+ * Chunks may be cut anywhere -- inside a word, inside an escape sequence, inside
+ * a multi-byte character -- because that is how a model's tokens and a
+ * subprocess's pipe arrive. A `Uint8Array` is decoded as UTF-8, with a character
+ * split across two chunks put back together. A bare string is one chunk.
+ */
+export type LogSource = string | Iterable<string | Uint8Array> | AsyncIterable<string | Uint8Array>;
+
+/**
+ * The same six lines as `Log`, fed from a source rather than a string.
+ *
+ * Each returns a promise that settles when the source has been drained and the
+ * last line written. A line is written as soon as it is final -- wrapped at the
+ * terminal's width, so the last, still-growing line is held until it is full,
+ * the text says it ended, or the stream does.
+ */
+export interface LogStream {
+  error(source: LogSource): Promise<void>;
+  info(source: LogSource): Promise<void>;
+  message(source: LogSource, opts?: LogMessageOptions): Promise<void>;
+  step(source: LogSource): Promise<void>;
+  success(source: LogSource): Promise<void>;
+  warn(source: LogSource): Promise<void>;
+}
+
 export interface Log {
   /** A failure. Written even when the run is quiet. */
   error(message: string): void;
@@ -95,6 +123,11 @@ export interface Log {
   step(message: string): void;
   /** Something finished. */
   success(message: string): void;
+  /**
+   * Status lines whose text has not all arrived yet: an LLM's answer, a
+   * subprocess's output.
+   */
+  readonly stream: LogStream;
   /** Something is off but the run goes on. Written even when the run is quiet. */
   warn(message: string): void;
 }
@@ -167,34 +200,43 @@ export function createLog(opts: LogOptions = {}): Log {
   // the other: `mycli > out.json` leaves these lines on the screen in colour
   let detected: Ansi | undefined;
 
-  function write(level: Level | undefined, message: string, symbol: string | undefined): void {
+  /** Whether this level is dropped, asked now rather than at construction. */
+  function silenced(level: Level | undefined): boolean {
     // asked now rather than frozen at construction: `log` is built at module
     // scope, before `main()` has read argv, so a level frozen there could never
     // see `--quiet`
-    if (
+    return (
       !SURVIVES_QUIET.has(level) &&
       resolveOutput({
         live: terminal.isTTY && !terminal.closed,
         quiet: opts.quiet,
         reducedMotion: opts.reducedMotion,
       }) === 'quiet'
-    ) {
+    );
+  }
+
+  /** The width of stderr when it is a screen, and `undefined` for a file. */
+  function screenWidth(): number | undefined {
+    const columns = terminal.stderr.columns;
+    return terminal.stderr.isTTY === true && typeof columns === 'number' && columns > 0
+      ? Math.floor(columns)
+      : undefined;
+  }
+
+  function write(level: Level | undefined, message: string, symbol: string | undefined): void {
+    if (silenced(level)) {
       return;
     }
 
-    const screen = terminal.stderr.isTTY === true;
     detected ??= createAnsi({ stream: terminal.stderr });
     const colorLevel = opts.colorLevel ?? (opts.ansi ?? detected).level;
     const view = logView(message, symbol, level && ROLE[level]);
 
     // a log file is not wrapped for a screen: the reader has a pager, and a line
     // cut at 80 columns is one that cannot be grepped whole
-    const columns = terminal.stderr.columns;
+    const columns = screenWidth();
     const widest = Math.max(...message.split(/\r?\n/).map((line) => stringWidth(line)));
-    const width =
-      screen && typeof columns === 'number' && columns > 0
-        ? Math.floor(columns)
-        : widest + (symbol ? stringWidth(symbol) + 1 : 0) + 1;
+    const width = columns ?? widest + (symbol ? stringWidth(symbol) + 1 : 0) + 1;
 
     const lines = renderToLines(view, {
       cascade: themedCascade(opts),
@@ -202,11 +244,85 @@ export function createLog(opts: LogOptions = {}): Log {
       width: Math.max(1, width),
     });
 
-    // a carriage return with every line feed on a screen, for the reason
-    // `crlf()` in the canvas backend gives: whether the line discipline is
-    // translating a bare one is not something this can see, and raw mode turns
-    // it off. A file keeps the plain line feeds it would have had
-    terminal.writeStatus(`${lines.join(screen ? '\r\n' : '\n')}${screen ? '\r\n' : '\n'}`);
+    send(lines);
+  }
+
+  /**
+   * Writes finished lines to stderr, above whatever is repainting.
+   *
+   * A carriage return goes with every line feed on a screen, for the reason
+   * `crlf()` in the canvas backend gives: whether the line discipline is
+   * translating a bare one is not something this can see, and raw mode turns it
+   * off. A file keeps the plain line feeds it would have had.
+   */
+  function send(lines: string[]): void {
+    const eol = terminal.stderr.isTTY === true ? '\r\n' : '\n';
+    terminal.writeStatus(`${lines.join(eol)}${eol}`);
+  }
+
+  async function stream(
+    level: Level | undefined,
+    source: LogSource,
+    symbol: string | undefined
+  ): Promise<void> {
+    // a silenced stream is still drained: whatever is producing the text (a
+    // model, a child process) is waiting to be read, and stopping reading is not
+    // the same as it having nothing to say
+    const quiet = silenced(level);
+    const columns = screenWidth();
+    const gutter = symbol ? stringWidth(symbol) + 1 : 0;
+    const wrapper = createStreamWrapper(
+      columns === undefined ? Infinity : Math.max(1, columns - gutter)
+    );
+    const decoder = new TextDecoder();
+
+    detected ??= createAnsi({ stream: terminal.stderr });
+    const colorLevel = opts.colorLevel ?? (opts.ansi ?? detected).level;
+
+    // the glyph is drawn through the theme like any other, and leads the first
+    // line only; the rest sit under the first one's text
+    let lead =
+      symbol && !quiet
+        ? `${renderToLines(
+            textNode(symbol, {
+              class: `sigil-log-symbol sigil-symbol${level ? ` ${ROLE[level]}` : ''}`,
+            }),
+            { cascade: themedCascade(opts), colorLevel, width: stringWidth(symbol) }
+          ).join('')} `
+        : '';
+    const hang = ' '.repeat(gutter);
+
+    const flush = (lines: string[]): void => {
+      if (lines.length === 0 || quiet) {
+        return;
+      }
+
+      send(
+        lines.map((line, index) => {
+          const bare = colorLevel === 0 ? strip(line) : line;
+          const front = index === 0 ? lead : hang;
+          // no trailing blanks on a row with nothing in it
+          return bare === '' ? front.trimEnd() : front + bare;
+        })
+      );
+      lead = hang;
+    };
+
+    try {
+      for await (const chunk of typeof source === 'string' ? [source] : source) {
+        flush(
+          wrapper.push(typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true }))
+        );
+      }
+      flush(wrapper.push(decoder.decode()));
+    } catch (error) {
+      // what arrived was real, and a reader who was shown half of an answer
+      // should be shown all of that half before being told it stopped
+      flush(wrapper.end());
+      throw error;
+    }
+
+    flush(wrapper.end());
   }
 
   return {
@@ -214,6 +330,14 @@ export function createLog(opts: LogOptions = {}): Log {
     info: (message) => write('info', message, symbols.info),
     message: (message, o = {}) => write(undefined, message, o.symbol),
     step: (message) => write('step', message, symbols.step),
+    stream: {
+      error: (source) => stream('error', source, symbols.error),
+      info: (source) => stream('info', source, symbols.info),
+      message: (source, o = {}) => stream(undefined, source, o.symbol),
+      step: (source) => stream('step', source, symbols.step),
+      success: (source) => stream('success', source, symbols.success),
+      warn: (source) => stream('warn', source, symbols.warn),
+    },
     success: (message) => write('success', message, symbols.success),
     warn: (message) => write('warn', message, symbols.warn),
   };
