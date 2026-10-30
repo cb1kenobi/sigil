@@ -3463,6 +3463,7 @@ log.success('Installed 42 packages');
 log.warn('left-pad is deprecated');
 log.error('Could not write the cache:\npermission denied');
 log.message('see https://example.com/docs', { symbol: '→' });
+log.success('Deployed', { host: 'a.example.com', ms: 412 });
 ```
 
 Leveled status lines: a glyph, a colour and a message. **This is not the `DEBUG`
@@ -3487,8 +3488,52 @@ the middle of `mycli --format json | jq`.
   replaces one glyph. Nothing detects a terminal that needs ASCII; the caller
   chooses, as it does a spinner's `LINE` frames.
 
-`createLog({ terminal, ascii, symbols, quiet, theme })` builds one over another
-terminal; `log` is the process's. No timestamps and no structured fields yet.
+`createLog({ terminal, ascii, symbols, quiet, theme, timestamp })` builds one over
+another terminal; `log` is the process's.
+
+##### Fields and timestamps
+
+```js
+log.info('deployed', { host: 'a', ms: 412 });
+// ℹ deployed host=a ms=412
+
+log.warn('rejected', { reason: 'bad input\n! forged line' });
+// ⚠ rejected reason="bad input\n! forged line"
+
+const stamped = createLog({ timestamp: 'iso' });
+stamped.error('Failed', { host: 'b' });
+// 2026-10-30T18:50:17.547Z ✖ Failed host=b
+```
+
+Every level takes a second argument of fields, and `message()` takes them as
+`{ fields }` beside its `symbol`. They are written after the message as `key=value`
+pairs separated by a space, in the order the object has them, drawn in the muted
+role. It is a plain-text shape a person can grep and a tool can split, and it is
+**not** a JSON mode: a `log` that writes JSON lines would be a different feature.
+
+- **A field cannot start a second line.** A key or value is written bare when it is
+  a plain word. If it is empty or holds a blank, a quote, `=`, a backslash or a
+  control character it is quoted, and inside the quotes the line feed is `\n`, the
+  tab `\t`, and every other control character, `ESC` and the Unicode line
+  separators `\uXXXX`. A message with several lines keeps them; the fields are
+  only ever on one.
+- A value that is not a string is `String()` of it, except an object or array,
+  which is its JSON, a `Date`, which is its ISO form, and an `Error`, which is its
+  message. `undefined` leaves the field out, so `{ host: opts.host }` says nothing
+  without a host. A value that cannot be serialized is written as `String()` rather
+  than throwing from a status line.
+- The fields share the last line of the message when they fit, and go under it when
+  they do not. A file has no width, so they are always on the message's line.
+- `timestamp: true` writes the **local** time, `18:50:17`, before the glyph;
+  `'iso'` writes the instant in **UTC** (`2026-10-30T18:50:17.547Z`), which is what
+  a file read elsewhere wants; a function takes a `Date` and returns the text, with
+  any line break or control character in it replaced by a space. Off by default.
+  It is an option of the logger rather than of a call: a stamp on some lines of a
+  log is one a reader cannot rely on. `now` replaces the clock, for a test.
+- A line the quiet axis drops reads neither the clock nor a field, so `--quiet`
+  behaves as it did. `log.stream` takes no fields and writes no stamp.
+- The two helpers behind it are `formatLogFields()`, for text in the same shape
+  somewhere else, and the `logView()` that draws a line.
 
 ##### Streaming
 
