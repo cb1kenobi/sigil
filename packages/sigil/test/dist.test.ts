@@ -195,6 +195,7 @@ describe('what importing the package costs', () => {
     'createSpinner',
     'createProgress',
     'createMultiProgress',
+    'clockView',
     'createTypewriter',
     'largeTextView',
     'createDecrypt',

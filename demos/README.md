@@ -355,6 +355,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/44-multi-progress.js`](components/44-multi-progress.js)                     | Several progress bars at once, each with a rate and an ETA        |
 | [`components/45-charts.js`](components/45-charts.js)                                     | A sparkline, bars, a braille line chart and a gauge               |
 | [`components/46-calendar.js`](components/46-calendar.js)                                 | A month grid: printed, picked from, or under a date field         |
+| [`components/47-clock.js`](components/47-clock.js)                                       | A stopwatch beside a spinner, and a countdown before an action    |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -393,6 +394,12 @@ after each key: a month change pulling the 31st back to the 29th, and a range
 holding the cursor at its edge. The month, language and week are pinned in the
 piped run so the output is the same anywhere; the answers it prints are
 `Date.toString()`, so the time zone in them is yours.
+
+`47-clock.js` runs a `stopwatch()` beside a spinner and a `timer()` as a node in a
+tree. On a terminal the spinner reads `Installing... 1s` and the countdown ticks
+`00:02`, `00:01`; piped, neither ticks and neither draws a number -- a stopwatch in
+a log would say `0s` once -- while the countdown still runs out and the demo ends
+at `Deployed`.
 
 ### Try them without a terminal
 

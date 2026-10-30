@@ -75,6 +75,10 @@ const ENTRIES = [
     name: 'multi-progress',
   },
   {
+    desc: 'A stopwatch and a timer: a count as signals, with a readout that ticks only where it can draw',
+    name: 'clock',
+  },
+  {
     desc: 'A table with measured column widths, alignment and truncation',
     name: 'table',
   },
