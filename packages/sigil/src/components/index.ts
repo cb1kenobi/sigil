@@ -72,6 +72,7 @@ export {
   paginatorView,
 } from './paginator.js';
 export { sort, type SortOptions } from './sort.js';
+export { toggle, type ToggleOptions } from './toggle.js';
 export {
   type KeyChoice,
   type KeyChoiceEntry,
@@ -193,7 +194,10 @@ export {
 } from './multi-progress.js';
 export {
   createLog,
+  formatLogFields,
   type Log,
+  type LogExtras,
+  type LogFields,
   log,
   type LogMessageOptions,
   type LogOptions,
@@ -202,6 +206,7 @@ export {
   LOG_SYMBOLS,
   LOG_SYMBOLS_ASCII,
   type LogSymbols,
+  type LogTimestamp,
   logView,
 } from './log.js';
 export {
@@ -335,10 +340,12 @@ export {
   parseFlf,
   renderFiglet,
 } from './large-text.js';
+export { badge, type BadgeOptions, type BadgeVariant, badgeView } from './badge.js';
 export {
   type Align,
   type Column,
   table,
+  type TableCellView,
   type TableOptions,
   type TableRow,
   tableView,
@@ -352,3 +359,12 @@ export {
   noteView,
   unicodeSupported,
 } from './note.js';
+export {
+  rule,
+  type RuleAlign,
+  type RuleLine,
+  type RuleOptions,
+  type RuleRole,
+  type RuleView,
+  ruleView,
+} from './rule.js';

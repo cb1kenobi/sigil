@@ -3357,6 +3357,44 @@ The rows are numbered, and a list longer than the screen is windowed to follow
 the highlight. It rejects with `PromptError` where there is no terminal, like the
 others.
 
+#### Toggle
+
+```js
+import { toggle } from '@ttylabs/sigil/components';
+
+const enabled = await toggle({
+  message: 'Notifications',
+  active: 'enabled',
+  inactive: 'disabled',
+  initial: true,
+});
+// true
+```
+
+A setting with two named states, for the case where the states are not an answer
+to a question: `confirm()` is "yes or no" with `y` and `n`, and "notifications:
+on or off" has no yes in it. It returns a boolean, `true` for the active state.
+
+Both states are shown, **the inactive one on the left and the active one on the
+right**, like a switch, with a marker on the current one. **Left chooses the
+inactive state and Right the active one; Tab, Shift-Tab and Space flip to the
+other.** Enter answers. Up, letters and anything held with Ctrl or Alt do
+nothing. Once answered the line is the question and the name of the state chosen.
+
+| Option     | Meaning                                                                        |
+| ---------- | ------------------------------------------------------------------------------ |
+| `message`  | What is being asked                                                            |
+| `active`   | What the `true` state is called. Default `on`, translated through the catalog  |
+| `inactive` | What the `false` state is called. Default `off`, translated the same way       |
+| `initial`  | The state it starts in. Default `false`                                        |
+| `signal`   | An `AbortSignal`, as for every prompt: it rejects with the signal's own reason |
+
+A name that is blank or holds a line break, two states with the same name and an
+`initial` that is not a boolean are refused with a `PromptError` before anything
+is drawn. Where the question and both states do not fit on one line the states
+go on a line of their own under it. It rejects with `PromptError` where there is
+no terminal, like the others.
+
 #### Spinner
 
 ```js
@@ -3463,6 +3501,7 @@ log.success('Installed 42 packages');
 log.warn('left-pad is deprecated');
 log.error('Could not write the cache:\npermission denied');
 log.message('see https://example.com/docs', { symbol: '→' });
+log.success('Deployed', { host: 'a.example.com', ms: 412 });
 ```
 
 Leveled status lines: a glyph, a colour and a message. **This is not the `DEBUG`
@@ -3487,8 +3526,52 @@ the middle of `mycli --format json | jq`.
   replaces one glyph. Nothing detects a terminal that needs ASCII; the caller
   chooses, as it does a spinner's `LINE` frames.
 
-`createLog({ terminal, ascii, symbols, quiet, theme })` builds one over another
-terminal; `log` is the process's. No timestamps and no structured fields yet.
+`createLog({ terminal, ascii, symbols, quiet, theme, timestamp })` builds one over
+another terminal; `log` is the process's.
+
+##### Fields and timestamps
+
+```js
+log.info('deployed', { host: 'a', ms: 412 });
+// ℹ deployed host=a ms=412
+
+log.warn('rejected', { reason: 'bad input\n! forged line' });
+// ⚠ rejected reason="bad input\n! forged line"
+
+const stamped = createLog({ timestamp: 'iso' });
+stamped.error('Failed', { host: 'b' });
+// 2026-10-30T18:50:17.547Z ✖ Failed host=b
+```
+
+Every level takes a second argument of fields, and `message()` takes them as
+`{ fields }` beside its `symbol`. They are written after the message as `key=value`
+pairs separated by a space, in the order the object has them, drawn in the muted
+role. It is a plain-text shape a person can grep and a tool can split, and it is
+**not** a JSON mode: a `log` that writes JSON lines would be a different feature.
+
+- **A field cannot start a second line.** A key or value is written bare when it is
+  a plain word. If it is empty or holds a blank, a quote, `=`, a backslash or a
+  control character it is quoted, and inside the quotes the line feed is `\n`, the
+  tab `\t`, and every other control character, `ESC` and the Unicode line
+  separators `\uXXXX`. A message with several lines keeps them; the fields are
+  only ever on one.
+- A value that is not a string is `String()` of it, except an object or array,
+  which is its JSON, a `Date`, which is its ISO form, and an `Error`, which is its
+  message. `undefined` leaves the field out, so `{ host: opts.host }` says nothing
+  without a host. A value that cannot be serialized is written as `String()` rather
+  than throwing from a status line.
+- The fields share the last line of the message when they fit, and go under it when
+  they do not. A file has no width, so they are always on the message's line.
+- `timestamp: true` writes the **local** time, `18:50:17`, before the glyph;
+  `'iso'` writes the instant in **UTC** (`2026-10-30T18:50:17.547Z`), which is what
+  a file read elsewhere wants; a function takes a `Date` and returns the text, with
+  any line break or control character in it replaced by a space. Off by default.
+  It is an option of the logger rather than of a call: a stamp on some lines of a
+  log is one a reader cannot rely on. `now` replaces the clock, for a test.
+- A line the quiet axis drops reads neither the clock nor a field, so `--quiet`
+  behaves as it did. `log.stream` takes no fields and writes no stamp.
+- The two helpers behind it are `formatLogFields()`, for text in the same shape
+  somewhere else, and the `logView()` that draws a line.
 
 ##### Streaming
 
@@ -3650,6 +3733,91 @@ Like `table()` it returns a string and the caller does the writing, which also
 puts it on the result side of `--quiet`. `noteView()` is the element tree behind
 it, for an app that wants one inside its own tree. There is no live form: a note
 is static, so `console.log(note(...))` already is one.
+
+#### Badge
+
+```js
+import { badge, badgeView, table } from '@ttylabs/sigil/components';
+
+console.log(`${badge('PASS', { variant: 'success' })} 148 tests in 2.1s`);
+
+console.log(
+  table([
+    ['@ttylabs/sigil', badgeView('PASS', { variant: 'success' })],
+    ['@ttylabs/cli', badgeView('FAIL', { variant: 'error' })],
+  ])
+);
+```
+
+A few characters on a coloured ground -- `PASS`, `FAIL`, `beta` -- for a table
+cell or a line of text. The label is drawn as given, with a column of padding each
+side, in the colour of the variant's theme role: `success`, `warning`, `error` and
+`info` are `.sigil-success`, `.sigil-warn`, `.sigil-error` and `.sigil-info`, and
+`neutral` (the default) takes no role, so it is the terminal's own foreground
+inverted. The role's colour becomes the background by `.sigil-badge { inverse: true }`,
+so a theme that recolours `.sigil-success` recolours its badges, and
+`.sigil-badge-error` and its siblings are the narrower hook for one variant. There
+is no colour option: the colours are the theme's.
+
+Where there is no colour -- a pipe, `NO_COLOR` -- the inverse is gone and padding
+alone would leave `PASS` indistinguishable from the text beside it, so the padding
+becomes brackets: `[PASS]`. Both take two columns, so a badge is the same width
+either way. Escape sequences and line breaks in the label are dropped, and an empty
+label draws nothing.
+
+`badge()` returns a string and the caller does the writing, which puts it on the
+result side of `--quiet`, like `table()` and `note()`. **In a table, use
+`badgeView()`**: a string cell has its escape sequences dropped, so a styled
+`badge()` string would print as literal characters. A `table()` cell may be any
+`{ element, width }` -- a `TableCellView` -- and the table sizes the column by the
+`width`, aligns the tree by the column's `align`, and cuts it at the column's
+`maxWidth`. Pass the same `colorLevel` (or `ansi`) to the badge and the table if
+you override one: the level is what picks brackets or padding, and a badge built
+for one level and drawn at another is still legible but not the same shape.
+
+#### Rule
+
+```js
+import { rule } from '@ttylabs/sigil/components';
+
+console.log(rule({ label: 'Results', width: 32 }));
+console.log(rule({ align: 'left', label: 'Results', width: 32 }));
+console.log(rule({ width: 32 }));
+```
+
+```
+─────────── Results ────────────
+── Results ─────────────────────
+────────────────────────────────
+```
+
+A divider across the terminal's width (or `width`), with an optional label set
+into the line. The label is one line -- escape sequences are dropped and white
+space is collapsed -- and is measured in columns, so wide characters and emoji
+keep the rule the width it was asked to be. It is cut with an ellipsis where it
+would not fit, and left out where there is no room for the line around it.
+
+| Option  | Meaning                                                                   |
+| ------- | ------------------------------------------------------------------------- |
+| `label` | Words set into the line                                                   |
+| `align` | `center` (default), `left` or `right`                                     |
+| `line`  | `single` (default), `double`, `bold` or `ascii`                           |
+| `role`  | `muted` (default), `accent`, `info`, `success`, `warn`, `error` or `none` |
+| `width` | How many columns it spans. Defaults to `terminalWidth()`                  |
+
+A rule is dim by default, because it is there to separate things and not to be
+read, and the label is bold and **not** dim. Any other role colours the line and
+the label both. The theme reaches it the usual way: `.sigil-muted` and the other
+roles for the colour, `.sigil-rule-line` and `.sigil-rule-label` for one part,
+`.sigil-rule` for the row. The character is not CSS -- there is no `content`
+property to carry one -- so it is `line`, which falls back to ASCII where
+`unicodeSupported()` says the terminal cannot be trusted with box drawing, as
+`note()` does; `env` and `platform` override what it reads.
+
+Like `note()` it returns a string and the caller does the writing, which puts it
+on the result side of `--quiet`. `ruleView()` is the element tree behind it, for
+an app that wants one inside its own tree; its width is fixed when it is built,
+so a layout that resizes builds it again.
 
 #### Charts
 

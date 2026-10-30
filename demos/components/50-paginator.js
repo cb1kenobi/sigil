@@ -1,8 +1,8 @@
 /**
  * A paginator: page state, and an indicator for where you are.
  *
- *   node demos/components/47-paginator.js
- *   NO_COLOR=1 node demos/components/47-paginator.js
+ *   node demos/components/50-paginator.js
+ *   NO_COLOR=1 node demos/components/50-paginator.js
  *
  * For content that is in pages rather than one long scroll -- a result set, a
  * wizard, a help browser. `createPaginator()` is the arithmetic: which items are on

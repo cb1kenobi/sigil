@@ -5223,11 +5223,70 @@ that a line can land above a live region without the caller holding it.
   (a wide custom symbol is measured by columns). Each line of the caller's text is
   its own node: the layout collapses a newline, and a blank line has to survive.
 
-**Deliberately not done:** structured fields and timestamps (gum's `log`) -- a
-second tier with its own formatting questions; a `stream` option to choose
-stdout, which is a separate backlog ticket (stderr is the whole answer to
-`--format json`, and a stdout `log` is how it gets corrupted); detecting ASCII-only
-terminals; routing the debug overlay or `console.*` through it.
+**Deliberately not done:** a `stream` option to choose stdout, which is a separate
+backlog ticket (stderr is the whole answer to `--format json`, and a stdout `log`
+is how it gets corrupted); detecting ASCII-only terminals; routing the debug
+overlay or `console.*` through it. Structured fields and timestamps were on this
+list and are below.
+
+#### Fields and timestamps on a `log` line
+
+SIG-206. Still `src/components/log.ts`; `formatLogFields()` is in it rather than in
+a sibling, because a sibling's exports have to be public for the ejected
+`registry/log.ts` to import them, and this one is worth exporting anyway.
+
+- **Fields are logfmt-shaped, `key=value` after the message, and are not JSON.**
+  `log.info('deployed', { host: 'a', ms: 412 })` is `deployed host=a ms=412`: a
+  shape a person greps and a tool splits on a space, with nothing to learn. The
+  ticket's other options were refused -- following lines break a grep of one
+  event into several rows, and a JSON line is the `--format json` question the
+  ticket says to name separately. A logger that wrote JSON lines is a different
+  feature and is not started here.
+- **Quoting is the whole of the safety, and it is one function.** `token()` writes
+  a key or value bare when it is a plain word and quotes it when it is empty or has
+  a blank, `"`, `=`, a backslash or a control character. Inside quotes every `\p{Cc}`
+  character, `ESC` among them, and `\p{Zl}`/`\p{Zp}` is an escape: `\n`, `\r`, `\t`, and
+  `\uXXXX` for the rest. `JSON.stringify()` was not used because it leaves `DEL`,
+  the C1 range and U+2028 raw, which is exactly what a reader that splits lines on
+  more than `\n` -- or a terminal that obeys a C1 byte -- acts on. The key goes
+  through the same function, so it cannot carry a break either. `no line break
+  survives` is asserted on the screen and on a file, over every one of those
+  characters.
+- **The message may be multi-line and the fields never are.** They sit on the last
+  line of the message, beside it when they fit and under it, indented with the
+  text, when they do not. The fit is decided in `write()` against the width it
+  already knows, and a file's width is made from the content so that the fields are
+  always beside the message there: a record is one line of a file whatever it holds.
+- **Drawn in `.sigil-muted`, the glyph's neighbour and not the message's.** The same
+  role a hint is drawn in, so a theme that restyles it reaches every one; the
+  classes `.sigil-log-fields`, `.sigil-log-time` and `.sigil-log-line` are hooks
+  with no rule of their own.
+- **Values are written as what they are, and a status line never throws.** A
+  string is itself; an object or array is its JSON; a `Date` is its ISO form; an
+  `Error` is its message; anything else is `String()`. `undefined` is left out
+  rather than written, which is what makes `{ host: opts.host }` usable without a
+  guard. A value `JSON.stringify()` throws on (a cycle, a nested `BigInt`) falls
+  back to `String()`, since a log call that raises is worse than an ugly field.
+- **A timestamp is an option of the logger, not of a call.** A stamp on some lines
+  of a log is one a reader cannot rely on, and a per-call option would be a way to
+  write one. `true` is the local `HH:MM:SS`, which is what a person watching wants;
+  `'iso'` is the UTC instant, which is what a file read on another machine wants,
+  and local versus UTC is chosen by name rather than by a second flag. A function
+  takes the `Date` and has line breaks and control characters replaced by a space,
+  because a stamp is text a caller wrote and the same rule applies to it as to a
+  field. It is a column before the glyph, so a second line hangs under the message
+  and not under the clock. There is no process-wide setting: `log` is the process's
+  logger and an app that wants stamps builds its own with `createLog()`, which is
+  what it does for `ascii` and `symbols`. `now` is the clock, so a test needs no
+  fake timers.
+- **Quiet is unchanged and is asked first.** A line the quiet axis drops returns
+  before it formats a field or reads the clock, so a dropped line has no side
+  effect -- a getter on a field and a stub clock are both asserted not called.
+  `warn` and `error` are still never dropped.
+- **Not done: fields and stamps on `log.stream`.** A stream is a source whose text
+  has not all arrived, and where its fields would go -- before the first line,
+  after the last -- is a question the ticket for the stream did not ask. A stream
+  line carries no stamp either, which is why the option's own doc says so.
 
 ### Tasks: a list of work, and a subprocess's output in a window
 
@@ -5742,6 +5801,180 @@ is the group. SIG-184.
 - **Not done:** a timer that counts the ETA down between ticks; an overall bar
   for the group; a bar that is indeterminate until its total is known; locale
   number formatting.
+
+### A toggle prompt: two named states
+
+SIG-168. `src/components/toggle.ts`, a prompt of its own. It returns a boolean, the
+way `confirm()` does, and is not `confirm()` with labels.
+
+- **Its own prompt, because the keys are different and the keys are the prompt.**
+  `confirm()` is answered by typing a letter, and its hint (`(Y/n)`) is a catalog
+  entry that decides both what is drawn and what is accepted. A toggle is answered
+  by moving: Left and Right, Tab and Space. Putting `active` and `inactive` on
+  `confirm()` would have kept two input models in one function and made the `y`/`n`
+  affordance a thing a label could contradict -- `active: 'enabled'` beside a `y`
+  that answers it. The ticket's other half (a setting is not a question, so the
+  states are not "yes" and "no") is why the defaults are `on` and `off`.
+- **The inactive state is on the left, and an arrow says where to go rather than
+  switching.** Like a switch with the lit end on the right, and it is what
+  prompts' `toggle` does. Left always answers `false` and Right always `true`, so
+  pressing Right twice stays on the active state; Tab, Shift-Tab and Space flip.
+  Shift-Tab is let through because with two states back and forward are one move.
+  Up and Down are not read: a two-state switch has no vertical direction, and
+  claiming them would take them from nothing that wants them. Ctrl or Alt with any
+  of the keys is a different key, as for `confirm()`.
+- **`on` and `off` are the defaults, through `__`.** Two new catalog keys. `yes`
+  and `no` already exist and would have cost none, but a setting that reads
+  `yes / no` is the confirm the ticket distinguished this from. A caller's own
+  `active` and `inactive` are drawn as given and never translated.
+- **`initial` defaults to `false`, the left-hand state.** Not `confirm()`'s `true`:
+  the left-hand state is where a switch starts, and a setting the person has not
+  touched should not read as having been turned on. A non-boolean `initial` is
+  refused rather than coerced, because the current state is found by comparing it
+  to each side and a truthy string would mark neither and answer with the string.
+- **Names are refused where the prompt is asked, not drawn badly.** Blank, because a
+  text of nothing but spaces measures zero at `white-space: normal` and the state
+  would have a marker and no name; a control character, because both states share a
+  line; and the same name twice (compared trimmed), because the answer would be a
+  guess about which was meant. All three are a `PromptError` with nothing drawn,
+  the way `selectKey()` refuses an unusable list.
+- **The marker is what says which is current, and the colour agrees with it.** `◉`
+  and `◯` are the multiselect's own symbols, so the answer is readable at colour
+  level 0 (a pipe, `NO_COLOR`) where the accent and the dimming are gone. The two
+  states are `.sigil-toggle-option` with `.sigil-accent` on the current one and
+  `.sigil-muted` on the other: roles only, no colour in props.
+- **The states are drawn whole or under the question.** A prompt's head caps what it
+  reserves for what follows the message at half the line, which suits a hint that may
+  wrap and not this: the canvas clips what runs past its edge, and at 24 columns a
+  state came out as `o`. When the message and both states do not fit on one line
+  (`message + states + 4` columns) the states take a line of their own, indented
+  under the question. What the head reserves then is the longer name, because the
+  answer replaces the states on the question's line and a question as wide as the
+  screen otherwise clipped its own answer. Measured at 24 and 28 columns; both are
+  tests.
+- **Settled, it is the question and the name of the state chosen**, in the muted
+  answer colour, and the mark goes to success, as `confirm()` does.
+- **`signal` is `run()`'s, and nothing here handles it.** Every prompt goes through
+  `runPrompt()`, which reads `PromptOptions.signal` (SIG-176); `toggle.test.ts` asserts
+  a mid-prompt abort, an already-aborted signal and `AbortSignal.timeout()`.
+  `prompt-signal.test.ts`'s every-prompt table was not edited, for the reason
+  `sort()`, `list()` and `selectKey()` are not in it either.
+- **Not done:** the key-help footer (SIG-166) -- no prompt has adopted it, and its entry
+  says adopting it is a decision about whether a prompt grows a router; `y`/`n`
+  shortcuts (that is `confirm()`); vim `h`/`l`; clicking a state with the mouse;
+  more than two states (that is `select()`); a state that is disabled.
+
+### A badge: a short coloured status label
+
+SIG-178 asked whether a badge is a component or a theme class plus
+documentation. `src/components/badge.ts` is `badge()` and `badgeView()`, and the
+split is `note()` and `noteView()`'s.
+
+- **A component, because the theme-class answer leaves the hard part to every
+  app.** A badge is one styled text, which is the argument for the ticket's other
+  answer, and what a class alone cannot do is the two things an app would each
+  have to get right: a label that survives colour level 0, and a cell a `table()`
+  can hold. The colour is not the component's either way -- the variants are the
+  roles `note()` already maps (`warning` is `.sigil-warn`, for the same reason),
+  and `neutral` is no role, as `note`'s default is none -- so this adds no
+  vocabulary to a theme beyond `.sigil-badge` and five narrower hooks.
+- **A role becomes a background by `inverse`, and that is the sheet's fifth
+  declared exception.** The roles set `color`, and `.sigil-badge { inverse: true }`
+  puts that colour behind the label. The alternative was a `background-color` per
+  variant, which restates four colours the roles already own, so a theme would
+  recolour `.sigil-success` and still have to be told about its badge. `should
+  declare on a role, bar five exceptions that say why` was updated deliberately,
+  and its reason is under "Themes".
+- **The padding is spaces in the label, with `white-space: nowrap`.** Measured
+  before it was written: `padding` paints nothing (the paint pass fills the cells
+  of a glyph, not the empty ones around it) and a default `text` drops a
+  trailing space; `nowrap` keeps both, and `inverse` then reaches them. A no-break
+  space, which `note()` uses for its title, would also work but has to be turned
+  back into a space on the way out, which a table cannot do for one cell.
+- **At colour level 0 the padding is brackets, and the component decides it.** The
+  inverse is dropped there, so `PASS` is `PASS` with spaces around it and a
+  badge in a log line is not set apart from what it labels. Which characters are
+  drawn is content, not style, so the sheet cannot say it -- the QR code decides
+  its glyphs from the level for the same reason. Brackets rather than a symbol or
+  the label upper-cased: the label is the app's and is never altered, and `[beta]`
+  reads in a pipe. Both forms take two columns, so the width does not depend on the
+  level and `badgeView()` can report one `width`. The level is
+  `colorLevel ?? ansi.level`, the default a table uses too, so a badge and the
+  table around it agree unless one of them is overridden; an override has to be
+  mirrored on both, and the cost of not doing so is a shape, not a width.
+- **A table cell may be a view, and a string badge cannot be one.** A string cell
+  has its escape sequences dropped by `toDisplayText()` -- which is right, it is
+  how a stray `ESC` is kept off the screen -- so a styled `badge()` string in a
+  cell would print `[7;32m` as text. Rather than special-case escapes in cells,
+  `table()` takes a `TableCellView` (`{ element, width }`, the shape every `*View()`
+  already returns), measures the column by the declared `width`, and sets the tree
+  in a box as wide as the column, justified by `align` and clipped at `maxWidth`.
+  Detected by shape, and a finite numeric `width` is required, so a row holding a
+  plain object still prints `[object Object]` as it did. Nothing else about a
+  table changed: `columnWidths()` reads each cell's width instead of measuring a
+  string, which for a string cell is the same `stringWidth()` as before.
+- **Escape sequences and line breaks in a label are dropped, and an empty label
+  draws nothing** -- a zero-width view and an empty string, not a coloured gap.
+  There is no truncation: a badge is a short label, and a table's `maxWidth` is
+  what cuts one that is not.
+- **String form only, and it ignores `--quiet`**, as `note()` does.
+
+What is deliberately not done: a `muted` or `accent` variant (the ticket named
+five, and either is one line in `ROLES` the day a caller wants it); an icon or
+symbol per variant; case folding; and a badge carrying a colour in its props.
+
+### A rule: a horizontal divider, with an optional label
+
+SIG-180 asked for what Textual's `Rule` and `ink-divider` draw: a line across the
+width, with words in it if wanted. `src/components/rule.ts` is `rule()` and
+`ruleView()`, and the split is `note()` and `noteView()`'s.
+
+- **A component, and not a documented border-top recipe.** That settles the
+  ticket's question, and the recipe is not available rather than merely worse:
+  `border-style` is one value for all four edges and there is no `border-top`, so
+  a box that draws only a top line does not exist -- the nearest is a one-row box
+  with a border, which is three rows and a rectangle. What the component is worth
+  is also the argument the ticket made, a named thing with a theme-driven style and
+  a label that aligns, and none of it is a recipe's to carry.
+- **A row of three fixed-width texts, and the arithmetic is the component's.** The
+  line before the label, the label, the line after it, each `white-space: pre` and
+  `flex-shrink: 0` with the width it stands for -- `chart.ts`'s shape, for its
+  reason: the rule has already been fitted, and a text drops trailing whitespace
+  unless it is given its room. The width is fixed when the tree is built, as
+  every `*View()` here is. A `raw` that stretched to whatever the layout gave it
+  was the alternative and is not done: it would need a width the string form does
+  not have, and the string form is the facade.
+- **The label keeps line on both sides, and it is dropped rather than drawn over
+  the end.** Two cells of line at the end it leans towards and one at the other,
+  and one at each end when centred, with a space either side of the words. Where
+  the width cannot hold that around a label of one column the rule is a plain
+  line, and a label cut to nothing but its ellipsis is dropped as well -- an
+  ellipsis alone says nothing, and `note()` goes without a title the same way. A
+  centred label puts the odd cell on the right. The cut is `truncate()`, which may
+  come back a column short for a wide character, so the line after the label is
+  worked out from what was **measured** rather than from what was asked for.
+- **The line style is `line`, and it is not CSS.** "Line style from the theme" is
+  half true: the colour and the attributes are, through the cascade, and the
+  character is not, because no property carries a character -- `border-style` is a
+  character set for a border and this is not one. So `line` is the horizontal of
+  the border sets (`single` `─`, `double` `═`, `bold` `━`, `ascii` `-`), and `round`
+  is not offered because its horizontal is `single`'s. It falls back to ASCII by
+  `unicodeSupported()`, the one place that is decided, and an explicit `line`
+  always wins.
+- **It is dim, and the label is not.** A divider is there to separate, so the
+  default role is `muted`, on the line alone: the words are the one part meant to be
+  read, and `sigil-heading` makes them bold. Any other role -- `accent` or a state
+  -- is the whole rule's, label included, which is the `note()` rule for its
+  variants. `none` carries no role class at all, which is the terminal's own
+  foreground. The label's `sigil-muted` is left off rather than overridden, since
+  two rules of equal specificity on one element are decided by source order.
+- **Escape sequences and line breaks are dropped from the label.** A label is
+  words, colour is the role's, and a break would make the rule two rows.
+- **String form only, and it ignores `--quiet`.** A rule is a result, on `table()`
+  and `note()`'s side of the line, and the caller does the writing.
+
+What is deliberately not done: a rule that follows a resizing layout; a vertical
+rule; a label on both sides; and a style set to a pattern such as `- -`.
 
 ### A paginator: page state, and a dot or numeric indicator
 
