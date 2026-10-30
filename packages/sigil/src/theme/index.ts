@@ -144,6 +144,9 @@ export const FRAMEWORK_CSS = `
  *   .sigil-sort  .sigil-sort-list  .sigil-sort-place  .sigil-sort-label
  *   .sigil-sort-carried
  *   .sigil-tasklog  .sigil-tasklog-line
+ *   .sigil-outline  .sigil-outline-list  .sigil-outline-item
+ *   .sigil-outline-marker  .sigil-outline-body  .sigil-outline-text
+ *   .sigil-outline-nested
  *   .sigil-calendar  .sigil-calendar-title  .sigil-calendar-weekdays
  *   .sigil-calendar-week  .sigil-calendar-day  .sigil-calendar-highlight
  *   .sigil-calendar-selected  .sigil-calendar-disabled

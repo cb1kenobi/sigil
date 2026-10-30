@@ -211,6 +211,7 @@ describe('what importing the package costs', () => {
     'barChartView',
     'taskLog',
     'calendarView',
+    'outlineView',
   ];
 
   /** The bundles in a graph that define any of them. */

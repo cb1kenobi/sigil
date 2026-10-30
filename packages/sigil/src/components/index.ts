@@ -56,6 +56,17 @@ export {
 export { groupMultiselect, type GroupMultiselectOptions } from './group-multiselect.js';
 export { joinList, list, type ListOptions, splitList } from './list.js';
 export { number, type NumberOptions } from './number.js';
+export {
+  createOutline,
+  outline,
+  type Outline,
+  type OutlineEnumerator,
+  type OutlineItem,
+  type OutlineMarkerInfo,
+  type OutlineOptions,
+  type OutlineStyle,
+  outlineView,
+} from './outline.js';
 export { sort, type SortOptions } from './sort.js';
 export {
   type KeyChoice,
