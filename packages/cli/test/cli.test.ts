@@ -409,11 +409,26 @@ describe('@ttylabs/cli', () => {
   describe('the fixtures', () => {
     const fixtures = resolve(root, 'test/fixtures');
 
-    /** Every file under `test/fixtures`, relative to the repository root. */
+    /**
+     * Every file under `test/fixtures` that a test does not write.
+     *
+     * `node_modules` and `out` are skipped rather than walked and filtered
+     * afterwards, and that is a race and not tidiness: `sigil build` writes its
+     * scratch output under `node_modules/.sigil/<hash>` and removes it when it
+     * finishes, so a build in another test file's worker deletes a directory
+     * between this walk listing it and reading it -- `ENOENT: scandir`, on a
+     * run that passed when repeated. What the walk misses is nothing the test
+     * below looks at, since it excludes exactly these two from what it asserts.
+     */
     const files = (function walk(dir: string): string[] {
       return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
         const path = join(dir, entry.name);
-        return entry.isDirectory() ? walk(path) : [path];
+
+        if (!entry.isDirectory()) {
+          return [path];
+        }
+
+        return entry.name === 'node_modules' || entry.name === 'out' ? [] : walk(path);
       });
     })(fixtures);
 
