@@ -1,8 +1,8 @@
 /**
  * A horizontal divider, with an optional label set into it.
  *
- *   node demos/components/47-rule.js
- *   NO_COLOR=1 node demos/components/47-rule.js
+ *   node demos/components/49-rule.js
+ *   NO_COLOR=1 node demos/components/49-rule.js
  */
 import { rule } from '@ttylabs/sigil/components';
 

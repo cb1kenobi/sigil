@@ -107,6 +107,10 @@ const ENTRIES = [
     name: 'sort',
   },
   {
+    desc: 'A toggle prompt: a setting with two named states, flipped with the arrows, Tab or Space',
+    name: 'toggle',
+  },
+  {
     desc: 'A list prompt: one line split on a separator and returned as an array',
     name: 'list',
   },
@@ -157,6 +161,10 @@ const ENTRIES = [
   {
     desc: 'A key-help footer generated from the key bindings that are live',
     name: 'key-help',
+  },
+  {
+    desc: 'A short status label: PASS, FAIL or beta, in a state role colour, usable as a table cell',
+    name: 'badge',
   },
   {
     desc: 'Leveled status lines: info, success, warn, error and step, above any live region',

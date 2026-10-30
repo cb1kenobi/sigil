@@ -134,6 +134,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-note  .sigil-note-frame  .sigil-note-body  .sigil-note-title
  *   .sigil-note-note  .sigil-note-info  .sigil-note-success
  *   .sigil-note-warning  .sigil-note-error
+ *   .sigil-badge  .sigil-badge-neutral  .sigil-badge-success
+ *   .sigil-badge-warning  .sigil-badge-error  .sigil-badge-info
  *   .sigil-key-help  .sigil-key-help-key  .sigil-key-help-desc
  *   .sigil-key-help-sep  .sigil-key-help-more  .sigil-key-help-group
  *   .sigil-key-help-row
@@ -143,6 +145,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-path-label  .sigil-path-empty
  *   .sigil-sort  .sigil-sort-list  .sigil-sort-place  .sigil-sort-label
  *   .sigil-sort-carried
+ *   .sigil-toggle  .sigil-toggle-option
  *   .sigil-tasklog  .sigil-tasklog-line
  *   .sigil-calendar  .sigil-calendar-title  .sigil-calendar-weekdays
  *   .sigil-calendar-week  .sigil-calendar-day  .sigil-calendar-highlight
@@ -150,6 +153,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-debug-head  .sigil-debug-title  .sigil-debug-stats
  *   .sigil-debug-log  .sigil-debug-list  .sigil-debug-entry
  *   .sigil-log  .sigil-log-symbol  .sigil-log-body  .sigil-log-text
+ *   .sigil-log-time  .sigil-log-fields  .sigil-log-line
  *   .sigil-chart  .sigil-chart-sparkline  .sigil-chart-bar  .sigil-chart-line
  *   .sigil-chart-gauge  and a -row and a -part of each
  *   .sigil-rule  .sigil-rule-line  .sigil-rule-label
@@ -205,6 +209,26 @@ export const FRAMEWORK_CSS = `
  * no overlay to toggle, and a user who asked for no colour.
  */
 .sigil-debug { background-color: black }
+
+/*
+ * a badge
+ *
+ * The fifth declared exception to the role rule -- the QR code's, below, is the
+ * fourth, in the order they were added -- and the same declaration as the first:
+ * inverse, which no role is. A badge is a few characters on a coloured
+ * background, and the colour is the variant's role -- success, error, warn or
+ * info -- so inverting a text that already has the role's colour puts that colour
+ * behind it and the terminal's own background in front. That is the whole of how
+ * a role becomes a background here, and it is why this sets no colour of its own:
+ * a theme restyles a badge by restyling the role, and the neutral variant, which
+ * carries no role, is the terminal's foreground inverted. A background colour
+ * declared here instead would be a second place a theme had to be told about each
+ * of the four.
+ *
+ * It has no effect at colour level 0, where attributes are dropped, which is why
+ * the component draws brackets there instead of padding.
+ */
+.sigil-badge { inverse: true }
 
 /*
  * a QR code
