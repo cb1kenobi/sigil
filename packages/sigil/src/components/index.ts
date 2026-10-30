@@ -36,6 +36,7 @@ export {
 export { groupMultiselect, type GroupMultiselectOptions } from './group-multiselect.js';
 export { joinList, list, type ListOptions, splitList } from './list.js';
 export { number, type NumberOptions } from './number.js';
+export { sort, type SortOptions } from './sort.js';
 export { path, type PathOptions } from './path.js';
 export {
   type Choice,

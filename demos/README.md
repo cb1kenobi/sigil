@@ -349,6 +349,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/20-key-help.js`](components/20-key-help.js)                   | A key-help footer read off the bindings themselves        |
 | [`components/21-list.js`](components/21-list.js)                           | A list prompt: one line, split, returned as an array      |
 | [`components/40-group-multiselect.js`](components/40-group-multiselect.js) | A multiselect with its choices under named groups         |
+| [`components/43-sort.js`](components/43-sort.js)                           | A sort prompt: pick a row up, carry it, put it down       |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -524,6 +525,12 @@ directory (`createTestTerminal()` from `@ttylabs/sigil/testing`) and prints the
 screen after each step, so a pipe shows Tab completing a shared prefix, a lone
 directory taking its separator, and the highlight walking the list. On a terminal
 it asks for a config file and an output directory instead.
+
+`43-sort.js` is a prompt too, so piped it plays the same `sort()` against an
+in-process terminal and prints the screen after each key: a row picked up with
+Space and carried with the arrows, a pinned (`disabled`) row that stays where it
+is while the rows around it move past, and Home sending a carried row to the top.
+On a terminal it asks for the order of five steps instead.
 
 And `NO_COLOR=1` turns the styling off everywhere:
 

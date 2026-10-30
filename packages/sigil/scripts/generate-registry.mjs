@@ -95,6 +95,10 @@ const ENTRIES = [
     name: 'path',
   },
   {
+    desc: 'A sort prompt: pick a row up and move it to put a list in order',
+    name: 'sort',
+  },
+  {
     desc: 'A list prompt: one line split on a separator and returned as an array',
     name: 'list',
   },
