@@ -57,6 +57,7 @@ export { groupMultiselect, type GroupMultiselectOptions } from './group-multisel
 export { joinList, list, type ListOptions, splitList } from './list.js';
 export { number, type NumberOptions } from './number.js';
 export { sort, type SortOptions } from './sort.js';
+export { toggle, type ToggleOptions } from './toggle.js';
 export {
   type KeyChoice,
   type KeyChoiceEntry,

@@ -3357,6 +3357,44 @@ The rows are numbered, and a list longer than the screen is windowed to follow
 the highlight. It rejects with `PromptError` where there is no terminal, like the
 others.
 
+#### Toggle
+
+```js
+import { toggle } from '@ttylabs/sigil/components';
+
+const enabled = await toggle({
+  message: 'Notifications',
+  active: 'enabled',
+  inactive: 'disabled',
+  initial: true,
+});
+// true
+```
+
+A setting with two named states, for the case where the states are not an answer
+to a question: `confirm()` is "yes or no" with `y` and `n`, and "notifications:
+on or off" has no yes in it. It returns a boolean, `true` for the active state.
+
+Both states are shown, **the inactive one on the left and the active one on the
+right**, like a switch, with a marker on the current one. **Left chooses the
+inactive state and Right the active one; Tab, Shift-Tab and Space flip to the
+other.** Enter answers. Up, letters and anything held with Ctrl or Alt do
+nothing. Once answered the line is the question and the name of the state chosen.
+
+| Option     | Meaning                                                                        |
+| ---------- | ------------------------------------------------------------------------------ |
+| `message`  | What is being asked                                                            |
+| `active`   | What the `true` state is called. Default `on`, translated through the catalog  |
+| `inactive` | What the `false` state is called. Default `off`, translated the same way       |
+| `initial`  | The state it starts in. Default `false`                                        |
+| `signal`   | An `AbortSignal`, as for every prompt: it rejects with the signal's own reason |
+
+A name that is blank or holds a line break, two states with the same name and an
+`initial` that is not a boolean are refused with a `PromptError` before anything
+is drawn. Where the question and both states do not fit on one line the states
+go on a line of their own under it. It rejects with `PromptError` where there is
+no terminal, like the others.
+
 #### Spinner
 
 ```js
