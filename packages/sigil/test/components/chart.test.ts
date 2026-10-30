@@ -150,6 +150,10 @@ describe('barChart()', () => {
       expect(bars({ a: 0, b: 4 }, { showValues: false, width: 10 })[0]).to.equal('a');
     });
 
+    it('should draw nothing for any bar when every value is zero', () => {
+      expect(bars({ a: 0, b: 0 }, { showValues: false, width: 10 })).to.deep.equal(['a', 'b']);
+    });
+
     it('should take the bars from a list of labelled values as well as from an object', () => {
       expect(bars([{ label: 'x', value: 2 }], { showValues: false, width: 6 })).to.deep.equal([
         'x ████',
@@ -206,6 +210,13 @@ describe('barChart()', () => {
 
       // 3 of 4 over two rows is 12 of 16 eighths: a full row and half of the next
       expect(rows).to.deep.equal(['▄ █', '█ █', 'a b']);
+    });
+
+    it('should draw no column at all when every value is zero', () => {
+      const rows = bars({ a: 0, b: 0 }, { direction: 'vertical', height: 2, showValues: false });
+
+      expect(rows.join('\n')).to.not.match(/[\u2581-\u2588]/);
+      expect(rows.at(-1)).to.equal('a b');
     });
 
     it('should widen a column to the widest label or value so that neither is cut', () => {

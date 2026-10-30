@@ -207,6 +207,24 @@ function ratioOf(value: number, low: number, high: number): number {
 }
 
 /**
+ * Where a bar's value sits on its scale: `ratioOf()`, except that a scale with no
+ * extent draws nothing rather than half a bar.
+ *
+ * A bar is a length from a baseline, so with every value equal to that baseline
+ * -- all zeros, which is an idle period or a count of no errors -- there is
+ * nothing to draw, and the mid-scale answer `ratioOf()` gives a flat line would
+ * show activity that is not there.
+ *
+ * @param value - The value.
+ * @param low - The bottom of the scale.
+ * @param high - The top of the scale.
+ * @returns A ratio from 0 to 1.
+ */
+function barRatioOf(value: number, low: number, high: number): number {
+  return high === low ? 0 : ratioOf(value, low, high);
+}
+
+/**
  * A number as a chart writes it: whole, or to at most two decimals.
  *
  * @param value - The number.
@@ -465,7 +483,7 @@ function horizontalBars(data: readonly BarDatum[], opts: BarChartOptions): Row[]
 
   return data.map((datum, i) => {
     const label = truncate(labels[i] as string, labelWidth, 'ellipsis');
-    const ratio = isPlottable(datum.value) ? ratioOf(datum.value, low, high) : 0;
+    const ratio = isPlottable(datum.value) ? barRatioOf(datum.value, low, high) : 0;
     const bar = barAcross(ratio, room, plain);
     const row: Segment[] = [];
 
@@ -513,7 +531,7 @@ function verticalBars(data: readonly BarDatum[], opts: BarChartOptions): Row[] {
 
   // a bar's height in eighths of a row; a value above the bottom is at least one
   const eighths = data.map((datum) => {
-    const ratio = isPlottable(datum.value) ? ratioOf(datum.value, low, high) : 0;
+    const ratio = isPlottable(datum.value) ? barRatioOf(datum.value, low, high) : 0;
     return plain
       ? Math.max(ratio > 0 ? 1 : 0, Math.round(ratio * height)) * 8
       : Math.max(ratio > 0 ? 1 : 0, Math.round(ratio * height * 8));
