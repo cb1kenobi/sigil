@@ -3272,6 +3272,59 @@ it again after it was unticked. `validate` is handed the array of values. As wit
 flight (the rows on screen belong to an earlier term) while Enter does not (it answers
 with what is ticked).
 
+#### A masked text field
+
+```js
+import { maskedText } from '@ttylabs/sigil/components';
+
+const phone = await maskedText({ message: 'Phone', template: '(###) ###-####' });
+const key = await maskedText({
+  message: 'Licence key',
+  template: 'KKKK-KKKK-KKKK',
+  slots: { K: { match: /[a-z0-9]/i, transform: (char) => char.toUpperCase() } },
+});
+```
+
+A line that follows a template. The field is drawn with its shape -- `(___) ___-____` --
+and only the slots take input: the fixed characters are drawn and skipped over, so
+typing `5551234567` gives `(555) 123-4567`. The answer is the **formatted** text, which
+is what was on screen; the raw characters are `applyMask(template, answer).raw`.
+
+| Option        | Meaning                                                                       |
+| ------------- | ----------------------------------------------------------------------------- |
+| `message`     | What is being asked                                                           |
+| `template`    | The shape of the answer. A slot character takes input and any other is drawn  |
+| `slots`       | Slots of your own, by the single character that stands for each in `template` |
+| `initial`     | What the field starts with, read the way a paste is; may leave slots empty    |
+| `default`     | Answered when nothing was typed. It has to fill the template; shown dimmed    |
+| `placeholder` | Shown dimmed while nothing has been typed, in place of the blank template     |
+| `validate`    | Receives the formatted answer; return a string to reject it with that message |
+
+The slots a template understands are `#` for a digit, `A` for a letter, `N` for a
+letter or a digit, `H` for a hex digit and `*` for any character that is not
+whitespace -- ASCII, because these are for codes and numbers (`MASK_SLOTS` lists
+them). A slot of your own is a `RegExp` tested against one character, or
+`{ match, transform }` where `transform` rewrites what was kept: an upper-casing
+slot for a licence key, or `''` to refuse the character after all. `slots` wins over
+the built-in ones where they share a character. A backslash makes the next character
+fixed, so `'\\#'` is a literal `#`; a template with no slot, or ending in a backslash,
+rejects the prompt.
+
+Typing fills the slot the caret is on and moves to the next one, over any fixed
+characters between, and a character the slot does not accept is ignored. Typing
+**overwrites** rather than pushing what follows along, because a pushed character
+would have to fit the slot it lands in. Backspace empties the slot before the caret
+and steps onto it, crossing a fixed character in one press, Delete empties the slot
+under it, and Left, Right, Home and End move by slot. Enter answers once every slot is
+full and says `Fill in every blank` otherwise.
+
+A paste is read from the caret, left to right: a character goes into the slot it is
+at if it fits and is dropped if not, and the template's own fixed characters are
+passed over where they come -- so `(555) 123-4567` and `555.123.4567` fill the same
+slots, and `+1 555` in `+1 ###` is not taken to start with a `1`. `applyMask(template,
+text, slots?)` is that rule on its own, returning `{ complete, dropped, raw, value }`
+for a value that did not come from a prompt.
+
 #### A path
 
 ```js

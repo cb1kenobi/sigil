@@ -359,6 +359,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/30-badge.js`](components/30-badge.js)                                       | A short status label, in a table cell or on a line                       |
 | [`components/31-rule.js`](components/31-rule.js)                                         | A horizontal divider, with a label set into it                           |
 | [`components/32-paginator.js`](components/32-paginator.js)                               | Page state, and a dot or numeric indicator of where you are              |
+| [`components/33-masked-text.js`](components/33-masked-text.js)                           | A masked text prompt: a line that follows a template                     |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -502,6 +503,13 @@ plus the error.
 edited and answered with the empty entries dropped, a regular expression taking
 commas and spaces alike, and a `validate` that holds the answer to two entries.
 On a terminal the prompts are asked for real.
+
+`33-masked-text.js` is a prompt too, so it plays the same three prompts through
+`createTestTerminal()` and prints the screen after each key: a phone number whose
+fixed characters are drawn and skipped while a stray letter is ignored and
+Backspace steps back across them, a licence key with a slot of its own that keeps
+what it is given upper case, and a paste that fills the slots from text that is
+not quite the template's shape. On a terminal the prompts are asked for real.
 
 `10-qrcode.js` is the one where a pipe and a terminal get the **same bytes**. A
 scanner wants dark modules on a light background and a terminal already has a light

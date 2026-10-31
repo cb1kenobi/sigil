@@ -115,6 +115,10 @@ const ENTRIES = [
     name: 'list',
   },
   {
+    desc: 'A masked text prompt: a line that follows a template, with fixed characters skipped',
+    name: 'masked-text',
+  },
+  {
     desc: 'A number prompt: min, max, step, and arrows that change the value',
     name: 'number',
   },

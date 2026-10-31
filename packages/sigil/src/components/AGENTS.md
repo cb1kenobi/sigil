@@ -4534,6 +4534,88 @@ ticket's three questions are answered here.
 Deliberately not done: chips; `min`/`max`/`unique`/`required` options; quoting;
 completion; and a pasted block's line breaks as separators.
 
+### A masked text prompt: a line that follows a template
+
+SIG-174. `src/components/masked-text.ts` is `maskedText(opts): Promise<string>`
+and `applyMask()`, and the ticket's three questions are answered here.
+
+- **The syntax is a template of fixed characters and one-character slots, with a
+  `slots` option for the regex.** Textual's has a dozen letters, a required and an
+  optional spelling of each, and case flags; the ticket's own examples
+  (`(###) ###-####`, `AAAA-####`) are the short end of it. So the built-ins are
+  five -- `#` digit, `A` letter, `N` letter or digit, `H` hex digit, `*` anything
+  that is not whitespace -- and anything else is a slot the caller names:
+  `slots: { K: /[a-z0-9]/i }`, or `{ match, transform }`. That is the "closer to a
+  regex per slot" answer without making a template a regex, which would have to be
+  parsed to be drawn. The built-ins are ASCII on purpose: they are for codes, and a
+  letter from another script is as much a typo in a phone number as a digit is.
+  `slots` replaces a built-in of the same character. A backslash escapes the next
+  character, which is the one way to draw a `#`. A template with no slot, one
+  ending in a backslash, and a slot not named by exactly one character are
+  refused, as a `RangeError` from `applyMask()` and a `PromptError` from the prompt.
+- **A slot pattern is tested against a whole character.** It is anchored, and its
+  `g` and `y` flags are dropped for the reason `splitList()` drops them: a pattern
+  that remembers where it matched last answers differently the second time. A
+  `transform` runs after the match, so an upper-casing slot accepts both cases, and
+  returning `''` refuses the character after all.
+- **The answer is the formatted string; the raw characters are one call away.** A
+  caller who asked for a phone number wants to store `(555) 123-4567` far more often
+  than `5551234567`, and it is what was on screen. An option that changed the return
+  type between the two would make the types lie, so `applyMask(template, answer).raw`
+  is the other, and works on any value that did not come from a prompt.
+- **Typing overwrites; it does not insert.** Inserting pushes every later character
+  one slot along, and each has to fit the slot it lands in -- a digit pushed into a
+  letter slot has nowhere to go, so the edit would have to be refused or would drop
+  something already typed. Overwriting makes every edit local: the slot the caret is
+  on changes and no other. The cost is that a character typed in the middle replaces
+  one rather than making room, which is also what Textual's does. The state is one
+  cell per slot, with gaps allowed -- Delete leaves one -- and the caret is a slot
+  index, `0` to `count` (past the last, where there is nothing to type into).
+- **The caret is on a slot, never on a fixed character, and steps one slot at a
+  time.** That is what makes "cursor skips literals both ways" a property of the
+  model and not of a loop that looks for the next slot: Left and Right move by slot,
+  Backspace empties the slot before the caret and steps onto it -- across a literal
+  in one press -- and End is after the last slot with anything in it, which is where
+  typing carries on from. A backspace onto an already empty slot just moves.
+- **A key press never consumes a fixed character, and a paste does.** `fill()` takes
+  a `skipFixed` flag. Typing is a character for the slot, full stop: in `+1 ###` the
+  `1` a person types is a digit, and eating it as the template's own would make that
+  prompt untypeable. Pasted text may carry the template's formatting, so the fixed
+  characters in front of the slot are passed over in order -- `(555) 123-4567` and
+  `5551234567` fill the same ten slots and `+1 555` is not read as starting with a
+  digit. It is read left to right with no look-ahead, so `+1 (555)` into `(###)`
+  fills a slot with the `1`: the template cannot say which is which, and a rule
+  that guessed would be one nobody could predict. What fits nowhere is **dropped**,
+  not refused, because `555.123.4567` is an answer a person can use; `applyMask()`
+  reports how many in `dropped`. A paste starts at the caret and overwrites from
+  there, and a block's line breaks are flattened first, as `text()`'s are.
+- **Enter answers when every slot is full, and says so when not.** There is no
+  optional slot -- Textual's lowercase spelling -- because an answer that may be
+  short is a string that is not the template's shape, and `validate` is where a
+  caller who wants one writes the rule. An empty field answers `default` if there is
+  one; a field with a gap in it does not, since half-cleared is not empty.
+- **`default` and `initial` are read the way a paste is.** Either may be raw or
+  formatted. `default` has to fill the template with nothing left over, because it
+  is an answer and is returned as the formatted text; `initial` may leave slots
+  empty but may not drop a character, because the field would show something other
+  than what was given. Both reject the prompt with a `PromptError` naming the
+  option, as `list()` does for `initial`.
+- **`placeholder` is `text()`'s: dimmed text in an empty field, in place of the blank
+  template.** The empty slots are drawn as `_`, dimmed until something is typed; the
+  option is for a hint such as `your number`. While a placeholder (or the default)
+  stands in for the field the caret is drawn on its first character, so the caret
+  and Delete and typing are all held at slot `0` -- a Right that moved a caret nobody
+  could see would put the next digit somewhere unexpected. There is no option for the
+  blank character. It is a one-line addition when a caller needs `·`.
+- **The field is `text()`'s line, windowed with `promptWindow()`, and the entry is
+  registry-capable.** Everything it imports is on a published subpath, so
+  `sigil add masked-text` ejects it. `Fill in every blank` is the one new message and
+  goes through `__`, so it is in `SIGIL_KEYS`.
+
+Deliberately not done: optional slots; an insert mode; a case flag in the template
+(a `transform` does it); a configurable blank character; word movement; and a
+template that is a regular expression.
+
 ### Prompt flows: `group()`, and the session frame
 
 SIG-160. `src/components/group.ts` is the whole of it: `group()`, `isCancel()`,

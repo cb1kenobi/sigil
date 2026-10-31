@@ -55,6 +55,14 @@ export {
 } from './group.js';
 export { groupMultiselect, type GroupMultiselectOptions } from './group-multiselect.js';
 export { joinList, list, type ListOptions, splitList } from './list.js';
+export {
+  applyMask,
+  type Applied,
+  MASK_SLOTS,
+  maskedText,
+  type MaskedTextOptions,
+  type MaskSlot,
+} from './masked-text.js';
 export { number, type NumberOptions } from './number.js';
 export {
   clampPage,
