@@ -60,7 +60,10 @@ export type Stopwatch = Clock;
 /** Counts down from a duration, and says when it gets there. */
 export interface Timer extends Clock {
   start(): Timer;
-  /** Ends it without it getting there: `done` settles `false` and the clock stops. */
+  /**
+   * Ends it without it getting there: `done` settles `false` and the clock stops.
+   * It stays stopped until `reset()`, which gives it a new `done`.
+   */
   cancel(): void;
   /**
    * Settles when the count reaches zero: `true` for a timer that ran out and
@@ -316,9 +319,14 @@ function createClock(limit: number | undefined, opts: ClockOptions): Timer {
       if (isRunning.get()) {
         return clock;
       }
+      if (settled) {
+        // a timer that ran out or was cancelled stays stopped until it is
+        // reset: `done` has already said how it ended, so a new run would hold
+        // the process open for a countdown nobody can await
+        return clock;
+      }
       if (limit !== undefined && spent() >= limit) {
-        // a duration of zero is over as it starts, and a timer that already
-        // ran out stays out until it is reset
+        // a duration of zero is over as it starts
         finish();
         return clock;
       }

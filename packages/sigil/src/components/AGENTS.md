@@ -6429,6 +6429,12 @@ its own.
   awaiting it, and the boolean is what tells the action whether to proceed. A
   timer that ran out stays out until `reset()`, which gives it a new promise: the
   first one is spent and the next run's awaiter needs one of their own. A
+  cancelled timer stays stopped until `reset()` for the same reason. Restarting
+  it used to run a fresh countdown under a `done` that had already said `false`,
+  so the code awaiting it skipped its action while a referenced deadline held
+  the process open for nothing. Giving `start()` a new promise was the other
+  option, and it was refused: a promise that changes identity on `start()` would
+  be a second place a new run begins, beside `reset()`. A
   duration of zero is over as it starts. A duration that is not a finite
   non-negative number throws where it is given.
 - **Not done:** a stopwatch with laps; a timer that restarts itself; a facade that

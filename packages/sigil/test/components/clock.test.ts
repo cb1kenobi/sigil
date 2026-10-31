@@ -290,6 +290,33 @@ describe('timer()', () => {
     expect(down.elapsed).to.equal(1000);
   });
 
+  it('should stay stopped once it is cancelled, until it is reset', async () => {
+    const t = time();
+    const handles = watchTimers();
+    const down = timer(3000, { now: t.now, quiet: true }).start();
+    await t.advance(1000);
+    down.cancel();
+    const first = down.done;
+
+    // a run whose `done` had already settled `false` would do nothing for the
+    // code awaiting it, and would hold the process open while it counted
+    const armed = handles.length;
+    down.start();
+    await t.advance(5000);
+    expect(down.running).to.equal(false);
+    expect(down.remaining).to.equal(2000);
+    expect(handles.length).to.equal(armed);
+    expect(down.done).to.equal(first);
+    expect(await first).to.equal(false);
+    handles.restore();
+
+    down.reset();
+    expect(down.done).not.to.equal(first);
+    down.start();
+    await t.advance(3000);
+    expect(await down.done).to.equal(true);
+  });
+
   it('should keep the process alive for a countdown, and not for the readout of one', () => {
     const { terminal } = setup({ isTTY: true });
     const handles = watchTimers();
