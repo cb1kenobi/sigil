@@ -1,8 +1,8 @@
 /**
  * A calendar: one month, printed or picked from.
  *
- *   node demos/components/46-calendar.js
- *   NO_COLOR=1 node demos/components/46-calendar.js
+ *   node demos/components/28-calendar.js
+ *   NO_COLOR=1 node demos/components/28-calendar.js
  *
  * `calendar()` returns a month as a string, the way `table()` does. A highlighted
  * day carries a `*` and the selected one sits in `[]`, so both survive a terminal

@@ -1,8 +1,8 @@
 /**
  * A badge: a few characters on a coloured ground, for a table cell or a line.
  *
- *   node demos/components/48-badge.js
- *   NO_COLOR=1 node demos/components/48-badge.js
+ *   node demos/components/30-badge.js
+ *   NO_COLOR=1 node demos/components/30-badge.js
  */
 import { badge, badgeView, table } from '@ttylabs/sigil/components';
 
