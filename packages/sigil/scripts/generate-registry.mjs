@@ -103,6 +103,10 @@ const ENTRIES = [
     name: 'path',
   },
   {
+    desc: 'A file picker: browse a directory tree with the arrows, and answer the entry you land on',
+    name: 'file-picker',
+  },
+  {
     desc: 'A sort prompt: pick a row up and move it to put a list in order',
     name: 'sort',
   },

@@ -98,7 +98,23 @@ export {
   selectKey,
   type SelectKeyOptions,
 } from './select-key.js';
-export { path, type PathOptions } from './path.js';
+export {
+  candidatesOf,
+  type EntryCache,
+  entryCache,
+  path,
+  type PathEntry,
+  type PathFilter,
+  type PathFlavour,
+  type PathOptions,
+} from './path.js';
+export {
+  entryPath,
+  filePicker,
+  type FilePickerFlavour,
+  type FilePickerOptions,
+  parentOf,
+} from './file-picker.js';
 export {
   type Choice,
   type ChoiceEntry,

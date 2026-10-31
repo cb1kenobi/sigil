@@ -214,6 +214,7 @@ describe('what importing the package costs', () => {
     'ruleView',
     'paginatorView',
     'outlineView',
+    'filePicker',
   ];
 
   /** The bundles in a graph that define any of them. */

@@ -361,6 +361,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/32-paginator.js`](components/32-paginator.js)                               | Page state, and a dot or numeric indicator of where you are              |
 | [`components/33-masked-text.js`](components/33-masked-text.js)                           | A masked text prompt: a line that follows a template                     |
 | [`components/34-outline.js`](components/34-outline.js)                                   | Bulleted, numbered and nested lists, and one that changes live           |
+| [`components/35-file-picker.js`](components/35-file-picker.js)                           | A file picker: browse a directory tree with the arrows                   |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -608,6 +609,12 @@ directory (`createTestTerminal()` from `@ttylabs/sigil/testing`) and prints the
 screen after each step, so a pipe shows Tab completing a shared prefix, a lone
 directory taking its separator, and the highlight walking the list. On a terminal
 it asks for a config file and an output directory instead.
+
+`35-file-picker.js` is a prompt as well, so piped it drives the same `filePicker()`
+with a scripted keyboard over a throwaway directory and prints the screen after each
+key: Right going into a directory, Left coming back out onto the one it left, `.`
+showing the dotfiles, and `directory` mode answering the directory it is in. On a
+terminal it asks for a config file and then a directory instead.
 
 `25-sort.js` is a prompt too, so piped it plays the same `sort()` against an
 in-process terminal and prints the screen after each key: a row picked up with

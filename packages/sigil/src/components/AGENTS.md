@@ -5227,7 +5227,7 @@ the first.
   the tree's is a directory and a selection, and a mode flag would make every key
   mean two things. The field is a prompt in the sense `prompt.ts` is about -- a
   value comes back, typed -- so it borrows that file's plumbing the way the
-  palette does. A browsing picker is a follow-up with its own ticket.
+  palette does. The browsing picker is `filePicker()`, below.
 - **The answer is the path as typed, with `~` expanded, and resolved only when a
   `root` was given.** Returning a resolved absolute path unasked would take
   something away from the caller who wants a relative one, and handing back `~/x`
@@ -5313,10 +5313,82 @@ the first.
 - **Symlinks are followed to decide whether they are directories**, with one
   `stat` each; a dangling link is a file.
 
-What is deliberately not done: the browsing picker; completing mid-value;
+What is deliberately not done: completing mid-value;
 checking that the answer exists; refreshing a cached directory; fuzzy matching
 (a prefix is what a shell does and what a person typing a path expects); showing
 file sizes or types in the list.
+
+### A file picker: browse a directory tree with the arrows
+
+SIG-202. `src/components/file-picker.ts`, the other widget SIG-164 named and set
+aside. `path()` is for someone who knows the name and this is for someone who
+does not: a list of a directory, Right or Enter to go in, Left or Backspace to
+come out, and the answer is the entry you land on.
+
+- **A component of its own, and what it shares with `path()` is the half that is
+  not the prompt.** The two have different state (a string and a cursor; a
+  directory and a highlight), different keys and different frames, so a mode flag
+  would make every key mean two things. What is shared is moved out of `path()`
+  rather than copied: `candidatesOf()` decides what is on offer, so `directory`,
+  `extensions` and `hidden` mean the same in both and the two cannot come to
+  disagree about what a file is, and `entryCache()` is the once-per-directory
+  read, which `path()` now uses too. Both are exported from the barrel, because
+  the registry entry for `file-picker` imports them through
+  `@ttylabs/sigil/components` like any sibling, and an ejected copy would
+  otherwise reach for a name that is not published. The cache is per prompt, as
+  it always was: "shared" is the code, and nothing is remembered between two
+  prompts, for the reason a stale directory is already the stated price of the
+  cache.
+- **The answer is always an absolute path.** The picker is built from a
+  directory that has been resolved, so there is no typed spelling to preserve --
+  which is the reason `path()` returns what was typed and this does not. `root` is
+  where it starts and nothing else; with no `root` that is the working directory.
+- **Right goes in, Left comes out, and Enter does what the row is for.** Enter on
+  a directory goes in and on a file chooses it, which is the ticket's description.
+  `directory` mode inverts that and Right is then what goes in: a prompt for a
+  directory that went in on Enter could never answer one. The first row of a
+  `directory` list is `.`, the directory being looked at, so a directory with
+  nothing in it can still be the answer and Enter on a fresh picker answers where
+  it is. Bubbles' `DirAllowed` is the model; the `.` row is what stands in for its
+  select key.
+- **Left lands on the directory it left, and does not wait for a read.** The
+  highlight is a name asked for (`want`) and resolved when the parent's listing
+  exists, so going up out of a directory that is slow to read does not hold the
+  Left behind the read -- `path()`'s lesson about a Backspace that cannot get
+  away, kept. Every key that acts on the list (move, go in, choose) waits for the
+  current directory, so keys typed ahead of the first read still land on the list
+  they imply. `should not hold Left behind a directory that is slow to read` is
+  the check, and awaiting the read first fails it and nothing else.
+- **`confine` is a navigation rule and not a sandbox.** Left stops at `root`, and
+  that is all it says: a link inside `root` that points out of it is followed, and
+  the picker goes up by the logical path it came down, not the link's target. An
+  app that has to refuse a path says so in `validate`. At a file system root Left
+  has nowhere to go, which is `dirname(dir) === dir` and needs no platform
+  branch: `/` and `C:\` are both fixed points. A Windows drive letter is
+  somewhere to start and not somewhere to go up to -- listing the drives would
+  need a call this package has no portable way to make, so it is not done rather
+  than done by guessing at `A:` through `Z:`. `parentOf()` and `entryPath()` take
+  the flavour as an argument for `path()`'s reason, and the tests hand them
+  `win32`.
+- **`.` toggles dotfiles, and sizes and types are not in the list.** There is no
+  field to type a dot into, so the key is free; the highlight stays on the same
+  name through the toggle, and falls to the top if that name was the one hidden.
+  Bubbles shows size and type; `path()` deliberately does not, and a `stat` per
+  entry is a read the once-per-directory cache was written not to make. The
+  trailing separator on a directory is the whole of the type column.
+- **A hand-built list rather than a `ScrollBox`.** The rows are rebuilt per draw
+  for the window on screen with `listWindow()` and `promptRowCap()`, as `sort()`
+  does: a list that is replaced wholesale on every directory has no row that
+  stays attached to an entry, which is what a `ScrollBox` is for, and a prompt
+  is not mounted in a full-screen canvas.
+- **"No matches" is only said about a directory that has been read**, and in
+  `directory` mode that is a list holding only `.`. It reuses the key `path()`
+  already has rather than a new one, because the list can be empty from the
+  filter as well as from the directory.
+
+What is deliberately not done: typing to filter (that is `path()` and
+`autocomplete()`); a drive list; a `~` or Home key; showing sizes or types;
+choosing several files; refreshing a cached directory.
 
 ### Leveled status lines: `log`
 

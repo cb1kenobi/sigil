@@ -143,6 +143,9 @@ export const FRAMEWORK_CSS = `
  *   .sigil-autocomplete-match  .sigil-autocomplete-status  .sigil-autocomplete-tally
  *   .sigil-path  .sigil-path-list  .sigil-path-row  .sigil-path-pointer
  *   .sigil-path-label  .sigil-path-empty
+ *   .sigil-filepicker  .sigil-filepicker-dir  .sigil-filepicker-list
+ *   .sigil-filepicker-row  .sigil-filepicker-pointer  .sigil-filepicker-label
+ *   .sigil-filepicker-empty
  *   .sigil-sort  .sigil-sort-list  .sigil-sort-place  .sigil-sort-label
  *   .sigil-sort-carried
  *   .sigil-toggle  .sigil-toggle-option
