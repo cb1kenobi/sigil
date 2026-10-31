@@ -1,8 +1,8 @@
 /**
  * Several progress bars at once, each with a rate and a time remaining.
  *
- *   node demos/components/44-multi-progress.js
- *   node demos/components/44-multi-progress.js | cat     <- a labelled line per bar
+ *   node demos/components/26-multi-progress.js
+ *   node demos/components/26-multi-progress.js | cat     <- a labelled line per bar
  *
  * Four "downloads" of different sizes and speeds share one live region. Each bar
  * is added and finished on its own; the pace and the ETA beside it come from an

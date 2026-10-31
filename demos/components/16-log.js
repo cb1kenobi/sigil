@@ -11,6 +11,12 @@
  * to print on stdout and a status line there would land in the middle of
  * `mycli --format json | jq`.
  *
+ * A line takes fields after its message -- `log.info('Deployed', { host, ms })`
+ * is `Deployed host=a.example.com ms=412` -- so it can be grepped and read by a
+ * tool. A value with a blank in it is quoted, and one with a line break or a
+ * control character has it escaped, so a field cannot start a second line.
+ * `createLog({ timestamp: true })` puts the time in front of every line.
+ *
  * `log.stream.info()` and its siblings take text that has not all arrived -- a
  * model's tokens, a subprocess's pipe -- and wrap it as it comes: each line is
  * written once it is final, and the last one waits for the word still growing.
@@ -70,12 +76,17 @@ async function scene(logger, spinner, pause) {
   logger.message('A line with no level, and one with a symbol of its own:');
   logger.message('see https://example.com/docs', { symbol: '→' });
 
+  // fields follow the message, dimmed; a value cannot forge a line of its own
+  logger.success('Deployed', { host: 'a.example.com', ms: 412 });
+  logger.warn('Rejected', { reason: 'bad input\n✖ forged line' });
+
   // bytes, cut mid-character: the stream puts them back together
   await logger.stream.info(arriving(pause));
 }
 
 if (process.stdout.isTTY && process.stderr.isTTY) {
   await scene(log, createSpinner(), sleep);
+  createLog({ timestamp: true }).info('Done', { stamped: 'with the local time' });
 } else {
   const ui = createTestTerminal({ columns: 44, rows: 20 });
   const logger = createLog({ terminal: ui.terminal });
@@ -98,6 +109,21 @@ if (process.stdout.isTTY && process.stderr.isTTY) {
 
   console.log('\nThe same four with ascii: true:\n');
   for (const line of plain.lines) {
+    console.log(`  | ${line}`);
+  }
+
+  // a fixed clock, so the output is the same on every run
+  const clock = createTestTerminal({ columns: 60, rows: 4 });
+  const stamped = createLog({
+    now: () => new Date(Date.UTC(2026, 9, 30, 18, 50, 17, 547)),
+    terminal: clock.terminal,
+    timestamp: 'iso',
+  });
+  stamped.info('Deployed', { host: 'a', ms: 412 });
+  stamped.error('Failed:\nconnection refused', { host: 'b' });
+
+  console.log("\nWith timestamp: 'iso', which is UTC:\n");
+  for (const line of clock.lines) {
     console.log(`  | ${line}`);
   }
 }

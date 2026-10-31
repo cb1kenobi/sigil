@@ -1,8 +1,8 @@
 /**
  * A masked text prompt: a line that follows a template.
  *
- *   node demos/components/22-masked-text.js
- *   node demos/components/22-masked-text.js | cat    <- a scripted run, no terminal needed
+ *   node demos/components/33-masked-text.js
+ *   node demos/components/33-masked-text.js | cat    <- a scripted run, no terminal needed
  *
  * The template draws the shape of the answer: `(###) ###-####` is a phone number,
  * and only the `#` slots take input. Type `5551234567` and the parentheses, space
