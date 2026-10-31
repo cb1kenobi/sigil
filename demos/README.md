@@ -363,6 +363,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/34-outline.js`](components/34-outline.js)                                   | Bulleted, numbered and nested lists, and one that changes live           |
 | [`components/35-file-picker.js`](components/35-file-picker.js)                           | A file picker: browse a directory tree with the arrows                   |
 | [`components/36-select-row.js`](components/36-select-row.js)                             | An interactive table: pick a row, sort by a column                       |
+| [`components/37-clock.js`](components/37-clock.js)                                       | A stopwatch beside a spinner, and a countdown before an action           |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -426,6 +427,12 @@ whole rows, a digit sorting by age with the cursor staying on its row and a seco
 press reversing it, a name sort that folds case, and the heading still there when
 the rows have scrolled. The terminal is short enough that the table needs its
 position line. On a terminal it asks for one of six deployments instead.
+
+`37-clock.js` runs a `stopwatch()` beside a spinner and a `timer()` as a node in a
+tree. On a terminal the spinner reads `Installing... 1s` and the countdown ticks
+`00:02`, `00:01`; piped, neither ticks and neither draws a number -- a stopwatch in
+a log would say `0s` once -- while the countdown still runs out and the demo ends
+at `Deployed`.
 
 ### Try them without a terminal
 

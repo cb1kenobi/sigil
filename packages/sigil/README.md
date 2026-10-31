@@ -3580,6 +3580,51 @@ typescript 50%
 react installed 100%
 ```
 
+#### Stopwatch and timer
+
+```js
+import { createSpinner, stopwatch, timer } from '@ttylabs/sigil/components';
+import { effect } from '@ttylabs/sigil/signals';
+
+const watch = stopwatch().start();
+const spin = createSpinner({ text: 'Installing...' }).start();
+
+effect(() => {
+  spin.text = watch.live ? `Installing... ${watch.text}` : 'Installing...';
+});
+
+// ...and a countdown before something proceeds
+const countdown = timer(5000, { format: 'clock' }).start();
+if (await countdown.done) {
+  deploy();
+}
+```
+
+Signals first and a view second, because the readout is meant to sit beside
+something else. `elapsed` (and `remaining` on a timer) are milliseconds read off
+the clock, so they are right whenever they are asked; `text` is the same time
+written out. Read inside an effect, either one re-runs once a tick, which is the
+whole of the reactive part. `start()`, `pause()` and `reset()` do what they say,
+and `view()` is the readout as an element, for a tree of your own.
+
+`format` is `'words'` (`42s`, `3m 05s`, `2h 10m`, worded by the catalog so a
+locale can change the units), `'clock'` (`00:42`, `03:05`, `2:10:00`, which is
+digits and not translated) or a function from whole seconds. A stopwatch rounds
+down and a timer rounds up, so a timer with 400 ms
+left says `1s` and `0s` only when it is over. `tick` is how often the readout is
+redrawn, a second by default, and lands on the boundary rather than a tick after
+the last redraw. `timer(ms)` takes a duration in milliseconds, and its `done`
+promise settles `true` when it runs out or `false` if you `cancel()` it.
+
+Only the **readout** is quiet. On a terminal that repaints, a clock wakes once a
+tick; piped, under reduced motion, and under `--quiet` it sets no timer and
+`view()` draws nothing, because a stopwatch in a log would say `0s` once, which is
+a wrong number rather than a missing one. The count and the countdown still work:
+`elapsed` is correct and `done` still settles, since the action a countdown is
+for has to happen whether anybody is watching. `live` says whether a readout would
+be drawn. A pending timer keeps the process alive, because somebody is waiting on
+it; the redraw does not.
+
 #### Log
 
 ```js

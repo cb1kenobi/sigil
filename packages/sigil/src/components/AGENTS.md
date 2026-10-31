@@ -6367,3 +6367,77 @@ its own.
 - **Not done:** an initial sort, which the caller can do to the rows they pass; a
   cell cursor; filtering by typing, which `autocomplete()` is for and which would
   want a second state for what the keys mean; resizing columns.
+
+### A timer and a stopwatch: signals first, and only the readout is quiet
+
+`src/components/clock.ts`. SIG-185.
+
+- **The two questions the ticket left open, settled.** _Component, or a formatted
+  signal driven by an interval?_ The second, with a view over it: the readout is
+  `Installing... 12s` -- a spinner's text -- or a node in a tree the app already
+  has, so a facade that mounts a region of its own would be the one shape nobody
+  can put beside anything. There is no `createStopwatch()` that owns the bottom
+  of the screen; `mountLive(() => clock.view())` is the one line that is. _Which
+  format?_ Both, and the default is words: `42s`, `3m 05s`, `2h 10m` is
+  `formatDuration()`, which already goes through the catalog, so a locale words
+  it and no key was added. `'clock'` is `00:42` and `2:10:00`, digits and colons,
+  which is not a thing a catalog words, and a function is handed whole seconds.
+  The words form drops the seconds past an hour, as the ETA it was written for
+  does; a stopwatch that runs for hours and wants them says `'clock'`.
+- **The time is never stored, and that is what makes quiet cost nothing.** It is
+  what was counted before the current run, plus `now() - startedAt`, read off the
+  clock whenever it is asked. A signal holding it would be wrong between ticks and
+  would be stale for good in a run that ticks never -- and a quiet run is exactly
+  that. What a tick is, is a counter written so that whatever read the time in an
+  effect reads it again: the getters (`elapsed`, `remaining`, `text`, `running`,
+  `live`) read a state and then the clock, so the same property is fresh when read
+  plainly and reactive when read in an effect. Not a `Computed`, which would
+  memoise on the counter and answer a quiet clock with the value it had when it
+  started.
+- **Quiet gates the redraw and nothing else.** `mountLevel()` is asked on each
+  `start()` -- not at construction, for the reason a facade's `write()` asks: a
+  clock built in a module body exists before `main()` has read argv -- and the
+  answer is `live`. Not live means no redraw timer, and `view()` is `display:
+  none`: piped, under reduced motion and quiet. Hidden rather than drawn once,
+  because `0s` written once to a log is a wrong number and not a missing one, which
+  is the rule a bar's rate already follows. But a **timer still runs out** in a
+  quiet run and `done` still settles, because a countdown before an action is
+  behaviour: the action has to happen whether anybody is watching, and a timer that
+  stopped counting under `--quiet` would hold it back for ever.
+- **Two timers with opposite jobs, and the reference is the difference.** The
+  redraw is `unref()`ed, as the spinner's is: a readout is not a reason for a
+  finished program to stay alive. The deadline of a `timer()` is **not**, because
+  somebody is awaiting `done` and a top-level `await` on a promise nothing will
+  settle exits with code 13. It costs a running countdown the process, which is
+  what a countdown is; a paused or cancelled one holds nothing. Both are
+  `setTimeout` chains rather than an interval, for the reasons below.
+- **A redraw lands on the boundary of what is shown, not a tick after the last
+  one.** A stopwatch changes when the elapsed time crosses a multiple of the tick,
+  a countdown when the time left does, so each redraw is armed for that, taking
+  the turn of the event loop that ran late into account instead of pushing every
+  later second back by it. Seconds round the way a watch reads them -- down when
+  counting up, up when counting down -- so a timer with 400 ms left says `1s` and
+  `0s` only when it is over.
+- **A timer may fire early, and the deadline does not believe it.** Node can run a
+  `setTimeout` a millisecond before it was due. A deadline that finished then
+  would say zero with time left, so it asks the clock and waits for the rest. And
+  a delay is capped at 2^31 - 1: past it the platform fires at once with a
+  warning, and a loop that re-arms for the time left would spin; a long countdown
+  is waited for in pieces instead.
+- **`done` settles `true` when it runs out and `false` when it is cancelled, and
+  never rejects.** A promise that never settles is the worse answer for the code
+  awaiting it, and the boolean is what tells the action whether to proceed. A
+  timer that ran out stays out until `reset()`, which gives it a new promise: the
+  first one is spent and the next run's awaiter needs one of their own. A
+  cancelled timer stays stopped until `reset()` for the same reason. Restarting
+  it used to run a fresh countdown under a `done` that had already said `false`,
+  so the code awaiting it skipped its action while a referenced deadline held
+  the process open for nothing. Giving `start()` a new promise was the other
+  option, and it was refused: a promise that changes identity on `start()` would
+  be a second place a new run begins, beside `reset()`. A
+  duration of zero is over as it starts. A duration that is not a finite
+  non-negative number throws where it is given.
+- **Not done:** a stopwatch with laps; a timer that restarts itself; a facade that
+  owns a region; sub-second readouts (`tick` redraws faster and the format still
+  speaks whole seconds); a `ref: false` for a countdown that should not hold the
+  process.

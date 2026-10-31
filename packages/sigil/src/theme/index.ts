@@ -110,6 +110,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-spinner  .sigil-spinner-text
  *   .sigil-progress  .sigil-progress-label  .sigil-progress-percent
  *   .sigil-progress-detail  .sigil-multiprogress
+ *   .sigil-clock
  *   .sigil-table  .sigil-table-row  .sigil-table-cell  .sigil-table-head
  *   .sigil-prompt  .sigil-prompt-line  .sigil-prompt-field
  *   .sigil-prompt-message  .sigil-prompt-hint  .sigil-prompt-answer
