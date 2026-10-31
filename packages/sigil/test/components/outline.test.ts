@@ -241,7 +241,7 @@ describe('outline()', () => {
 
     it('should drop the escape sequences in an item, which would print as the text after them', () => {
       const ansi = createAnsi({ level: 3 });
-      const out = outline([ansi.red('one two')], { colorLevel: 0, width: 40 });
+      const out = outline([ansi.red('one two')], { colorLevel: 0, ...TERMINAL, width: 40 });
 
       expect(out).to.equal('• one two');
     });
