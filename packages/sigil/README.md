@@ -3872,6 +3872,72 @@ on the result side of `--quiet`. `ruleView()` is the element tree behind it, for
 an app that wants one inside its own tree; its width is fixed when it is built,
 so a layout that resizes builds it again.
 
+#### Outline
+
+```js
+import { outline } from '@ttylabs/sigil/components';
+
+console.log(
+  outline(
+    [
+      'Install the package',
+      { text: 'Configure it', items: ['Pick a theme', 'Pick a shell'] },
+      'Ship',
+    ],
+    { enumerator: ['arabic', 'alpha'] }
+  )
+);
+```
+
+```
+1. Install the package
+2. Configure it
+   a. Pick a theme
+   b. Pick a shell
+3. Ship
+```
+
+Bulleted, numbered and nested lists, for the "next steps" an app would otherwise
+lay out by hand. An item is a string, or `{ text, items }` with the items nested
+under it. A counting list is aligned on its full stops, an item that wraps hangs
+under its own text rather than under its marker, and a nested list starts at the
+column its parent's text does. It is named `outline` because `list()` is the
+prompt that reads a line as an array.
+
+| Option       | Meaning                                                                       |
+| ------------ | ----------------------------------------------------------------------------- |
+| `enumerator` | A style, a function, or an array of either read by depth (and cycled)         |
+| `start`      | The number a counting list starts at. Defaults to 1                           |
+| `indent`     | How far the block is indented                                                 |
+| `width`      | The widest the block may be, never under 4. Defaults to `terminalWidth()`     |
+| `ascii`      | ASCII bullets. Defaults to what `unicodeSupported()` says of `env`/`platform` |
+
+The styles are `bullet` and `dash` (the defaults, by depth), `asterisk`, `none`,
+and the counting `arabic`, `alpha`, `ALPHA`, `roman` and `ROMAN`. A counting
+style past what it can write -- `roman` over 3999, or any number under 1 -- is
+drawn as the number rather than as nothing, and `alpha` carries on past `z` with
+`aa`, `ab`. An enumerator that is a function is handed
+`{ index, depth, count, item }` and returns the marker, so a custom one is a
+lambda:
+
+```js
+outline(steps, { enumerator: ({ index, count }) => `[${index + 1}/${count}]` });
+```
+
+Markers are right-aligned within their list, and are `.sigil-muted`; the item is
+`.sigil-outline-text`, with `.sigil-outline-marker`, `-item`, `-body`, `-list` and
+`-nested` for the rest, so a theme restyles them like anything else. Escape
+sequences are dropped from items and markers -- colour is the theme's, as in
+`note()`.
+
+`outline()` returns a string and the caller does the writing, which puts it on the
+result side of `--quiet`. `outlineView()` is the element tree behind it. The live
+form is `createOutline(items, opts)`, for a list that changes on screen -- a
+checklist whose items turn up as they are found: `update(items)` replaces the
+list, `done()` leaves it where it is and `stop()` erases it. Where there is no
+terminal nothing is written until `done()`, which writes the list once; a quiet
+run writes nothing.
+
 #### Charts
 
 ```js

@@ -4750,6 +4750,78 @@ Clack's extra rows are most of why its notes look tall); a symbol per variant
 (the title is where an app says what kind it is, and at colour level 0 it is all
 that does); styled runs in a message; and a title on a side other than the top.
 
+### An outline: lists, and why it is not called `list`
+
+SIG-181 asked for what Lip Gloss's `list` package and Ink UI's `UnorderedList` and
+`OrderedList` draw. `src/components/outline.ts` is `outline()`, `outlineView()` and
+`createOutline()`, and the split is `note()` and `noteView()`'s, with a live form
+added.
+
+- **It is `outline()` because `list()` was taken.** The ticket says `list()`, and
+  `list` in this barrel has been the prompt that reads a line as an array since
+  SIG-157, with `splitList()` and `joinList()` beside it. Overloading one name over a
+  prompt that returns a promise and a block that returns a string would be a type
+  that depends on what the first argument looks like, so the second one took another
+  name. `outline` because it covers the ordered and the unordered and the nested
+  with one word; `bulletList` was a lie for a numbered one.
+- **The enumerator is a function, and the names are shorthand for ones.** That was
+  the first open question and the answer is yes: `OutlineEnumerator` is a style name
+  or `(info) => string`, so a custom one is a lambda. `info` is
+  `{ index, depth, count, item }`, with `index` from 0 whatever `start` says --
+  `start` moves what a _named_ counting style draws, since a function that wants an
+  offset adds one. An array of enumerators is read by depth and **cycles**, the
+  rule a legal outline wants (`1.`, `a.`, `i.`, then `1.` again) and the one a
+  default of `['bullet', 'dash']` needs; repeating the last entry was refused
+  because it makes a fourth level look like the third.
+- **Hanging indent is the box model, not `wrap()`.** The second open question hoped
+  for `wrap()`'s `hangingIndent`, which would have kept an item's escape sequences
+  across a break. It was not used because the item has to be a `text` element, a
+  `text` drops the `ESC` of a sequence and prints the rest as literal characters
+  (measured: `\u001B[31mhi` is drawn `[31mhi`), and a row of a marker and a column
+  beside it is what lays a nested list at the column its parent's text starts at
+  without counting anything. So **escape sequences are dropped from items and
+  markers**, as `note()` drops them, and colour is the theme's. A caller who needs
+  a styled run inside an item needs `paragraph()` of runs, which is a different API.
+- **A row is a marker and a body column, and the nested list is inside the body.**
+  The marker is `nowrap`, does not shrink, and carries the gap as padding; the body
+  shrinks with `min-width: 0` and holds the text and then the nested list. A wrapped
+  line therefore hangs under its own first word and a nested list starts where its
+  parent's text does, from the same flex arithmetic rather than from a column of the
+  marker being added to a column of the indent.
+- **Markers are right-aligned within their own list.** `9.` over `10.` would
+  start its text a column apart; padding on the left lines the full stops up, which
+  is what Lip Gloss does and what a printed outline looks like. It is per list: a
+  nested list measures its own. Roman numerals right-align too, so `i.` over `viii.`
+  is a column of tails rather than of heads.
+- **A style that cannot write the number draws the number.** Roman numerals stop at
+  3999 and have no zero; `alpha` has no letter under 1. `start: 0` on `roman` is
+  `0.` rather than an empty marker, which would read as a list with the numbers
+  missing, and `alpha` past `z` is `aa`, `ab`, a spreadsheet's columns -- the only
+  convention a list that long has.
+- **A list with no marker still nests.** `enumerator: 'none'` leaves nothing to hang
+  a child from, and a child at the parent's own column is indistinguishable from a
+  sibling, so a nested list is indented two columns when the list above drew no
+  marker.
+- **The live form is a mount whose tree is rebuilt, and where there is no terminal
+  it writes once at the end.** `createOutline()` holds the items in a `State` and
+  `update()` replaces them whole; the tree is a `For` over a one-element list of the
+  current array, so a new array is a changed row and the tree is built again, which
+  is the cheapest reading of "items replaced" and needs no keyed diff of nested
+  lists. A list has no frames to repaint in a log, and a line per `update()` would
+  print the whole list each time, so a pipe gets the final list once from `done()`
+  and `stop()` writes nothing. A quiet run writes nothing, through `mountLevel()`
+  like every other mount. A malformed list is refused where it is handed over,
+  including in `update()`, and the screen keeps what it was showing.
+- **String form ignores `--quiet`.** A list is a result, on `table()`'s side of the
+  line the quiet axis draws; only `createOutline()` is progress.
+
+What is deliberately not done: a marker with its own colour (a theme restyles
+`.sigil-outline-marker`, and a function returning escape sequences is dropped for
+the reason above); a checkbox style, which is `enumerator: () => '[ ]'` and a state
+the caller holds; a separate item for continuation paragraphs, which is a line break
+in the text; and keyed updates, which a caller wanting them builds from
+`outlineView()` inside its own reactive tree.
+
 ### A date prompt: segments, ISO order, and the parser's own reader
 
 SIG-165. `src/components/date.ts` is the whole of it: `date()` returns a `Date`

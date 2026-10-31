@@ -175,6 +175,10 @@ const ENTRIES = [
     name: 'log',
   },
   {
+    desc: 'Bulleted, numbered and nested lists, with a function for an enumerator and a hanging indent',
+    name: 'outline',
+  },
+  {
     desc: 'Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge',
     name: 'chart',
   },

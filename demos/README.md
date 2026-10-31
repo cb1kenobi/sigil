@@ -360,6 +360,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/31-rule.js`](components/31-rule.js)                                         | A horizontal divider, with a label set into it                           |
 | [`components/32-paginator.js`](components/32-paginator.js)                               | Page state, and a dot or numeric indicator of where you are              |
 | [`components/33-masked-text.js`](components/33-masked-text.js)                           | A masked text prompt: a line that follows a template                     |
+| [`components/34-outline.js`](components/34-outline.js)                                   | Bulleted, numbered and nested lists, and one that changes live           |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -410,6 +411,12 @@ page and a dots-and-number indicator under each, then the three indicator styles
 one position, a row of dots giving way to a number at forty pages, and a `total`
 that shrinks and grows back. It is a pure function of numbers, so it prints the
 same on a pipe and under `NO_COLOR`.
+
+`34-outline.js` prints lists as strings -- the default bullets, a numbered outline
+with a letter level under it, roman numerals, a custom enumerator and a narrow
+width where the items wrap under their own text -- so a pipe and a terminal differ
+only in colour. The last section is `createOutline()`: on a terminal it redraws in
+place as items are ticked off, and piped it writes the finished list once.
 
 ### Try them without a terminal
 

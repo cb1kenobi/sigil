@@ -65,6 +65,17 @@ export {
 } from './masked-text.js';
 export { number, type NumberOptions } from './number.js';
 export {
+  createOutline,
+  outline,
+  type Outline,
+  type OutlineEnumerator,
+  type OutlineItem,
+  type OutlineMarkerInfo,
+  type OutlineOptions,
+  type OutlineStyle,
+  outlineView,
+} from './outline.js';
+export {
   clampPage,
   createPaginator,
   pageBounds,
