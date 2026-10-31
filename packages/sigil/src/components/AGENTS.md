@@ -4534,6 +4534,88 @@ ticket's three questions are answered here.
 Deliberately not done: chips; `min`/`max`/`unique`/`required` options; quoting;
 completion; and a pasted block's line breaks as separators.
 
+### A masked text prompt: a line that follows a template
+
+SIG-174. `src/components/masked-text.ts` is `maskedText(opts): Promise<string>`
+and `applyMask()`, and the ticket's three questions are answered here.
+
+- **The syntax is a template of fixed characters and one-character slots, with a
+  `slots` option for the regex.** Textual's has a dozen letters, a required and an
+  optional spelling of each, and case flags; the ticket's own examples
+  (`(###) ###-####`, `AAAA-####`) are the short end of it. So the built-ins are
+  five -- `#` digit, `A` letter, `N` letter or digit, `H` hex digit, `*` anything
+  that is not whitespace -- and anything else is a slot the caller names:
+  `slots: { K: /[a-z0-9]/i }`, or `{ match, transform }`. That is the "closer to a
+  regex per slot" answer without making a template a regex, which would have to be
+  parsed to be drawn. The built-ins are ASCII on purpose: they are for codes, and a
+  letter from another script is as much a typo in a phone number as a digit is.
+  `slots` replaces a built-in of the same character. A backslash escapes the next
+  character, which is the one way to draw a `#`. A template with no slot, one
+  ending in a backslash, and a slot not named by exactly one character are
+  refused, as a `RangeError` from `applyMask()` and a `PromptError` from the prompt.
+- **A slot pattern is tested against a whole character.** It is anchored, and its
+  `g` and `y` flags are dropped for the reason `splitList()` drops them: a pattern
+  that remembers where it matched last answers differently the second time. A
+  `transform` runs after the match, so an upper-casing slot accepts both cases, and
+  returning `''` refuses the character after all.
+- **The answer is the formatted string; the raw characters are one call away.** A
+  caller who asked for a phone number wants to store `(555) 123-4567` far more often
+  than `5551234567`, and it is what was on screen. An option that changed the return
+  type between the two would make the types lie, so `applyMask(template, answer).raw`
+  is the other, and works on any value that did not come from a prompt.
+- **Typing overwrites; it does not insert.** Inserting pushes every later character
+  one slot along, and each has to fit the slot it lands in -- a digit pushed into a
+  letter slot has nowhere to go, so the edit would have to be refused or would drop
+  something already typed. Overwriting makes every edit local: the slot the caret is
+  on changes and no other. The cost is that a character typed in the middle replaces
+  one rather than making room, which is also what Textual's does. The state is one
+  cell per slot, with gaps allowed -- Delete leaves one -- and the caret is a slot
+  index, `0` to `count` (past the last, where there is nothing to type into).
+- **The caret is on a slot, never on a fixed character, and steps one slot at a
+  time.** That is what makes "cursor skips literals both ways" a property of the
+  model and not of a loop that looks for the next slot: Left and Right move by slot,
+  Backspace empties the slot before the caret and steps onto it -- across a literal
+  in one press -- and End is after the last slot with anything in it, which is where
+  typing carries on from. A backspace onto an already empty slot just moves.
+- **A key press never consumes a fixed character, and a paste does.** `fill()` takes
+  a `skipFixed` flag. Typing is a character for the slot, full stop: in `+1 ###` the
+  `1` a person types is a digit, and eating it as the template's own would make that
+  prompt untypeable. Pasted text may carry the template's formatting, so the fixed
+  characters in front of the slot are passed over in order -- `(555) 123-4567` and
+  `5551234567` fill the same ten slots and `+1 555` is not read as starting with a
+  digit. It is read left to right with no look-ahead, so `+1 (555)` into `(###)`
+  fills a slot with the `1`: the template cannot say which is which, and a rule
+  that guessed would be one nobody could predict. What fits nowhere is **dropped**,
+  not refused, because `555.123.4567` is an answer a person can use; `applyMask()`
+  reports how many in `dropped`. A paste starts at the caret and overwrites from
+  there, and a block's line breaks are flattened first, as `text()`'s are.
+- **Enter answers when every slot is full, and says so when not.** There is no
+  optional slot -- Textual's lowercase spelling -- because an answer that may be
+  short is a string that is not the template's shape, and `validate` is where a
+  caller who wants one writes the rule. An empty field answers `default` if there is
+  one; a field with a gap in it does not, since half-cleared is not empty.
+- **`default` and `initial` are read the way a paste is.** Either may be raw or
+  formatted. `default` has to fill the template with nothing left over, because it
+  is an answer and is returned as the formatted text; `initial` may leave slots
+  empty but may not drop a character, because the field would show something other
+  than what was given. Both reject the prompt with a `PromptError` naming the
+  option, as `list()` does for `initial`.
+- **`placeholder` is `text()`'s: dimmed text in an empty field, in place of the blank
+  template.** The empty slots are drawn as `_`, dimmed until something is typed; the
+  option is for a hint such as `your number`. While a placeholder (or the default)
+  stands in for the field the caret is drawn on its first character, so the caret
+  and Delete and typing are all held at slot `0` -- a Right that moved a caret nobody
+  could see would put the next digit somewhere unexpected. There is no option for the
+  blank character. It is a one-line addition when a caller needs `·`.
+- **The field is `text()`'s line, windowed with `promptWindow()`, and the entry is
+  registry-capable.** Everything it imports is on a published subpath, so
+  `sigil add masked-text` ejects it. `Fill in every blank` is the one new message and
+  goes through `__`, so it is in `SIGIL_KEYS`.
+
+Deliberately not done: optional slots; an insert mode; a case flag in the template
+(a `transform` does it); a configurable blank character; word movement; and a
+template that is a regular expression.
+
 ### Prompt flows: `group()`, and the session frame
 
 SIG-160. `src/components/group.ts` is the whole of it: `group()`, `isCancel()`,
@@ -4667,6 +4749,78 @@ What is deliberately not done: vertical padding (a caller adds a blank line, and
 Clack's extra rows are most of why its notes look tall); a symbol per variant
 (the title is where an app says what kind it is, and at colour level 0 it is all
 that does); styled runs in a message; and a title on a side other than the top.
+
+### An outline: lists, and why it is not called `list`
+
+SIG-181 asked for what Lip Gloss's `list` package and Ink UI's `UnorderedList` and
+`OrderedList` draw. `src/components/outline.ts` is `outline()`, `outlineView()` and
+`createOutline()`, and the split is `note()` and `noteView()`'s, with a live form
+added.
+
+- **It is `outline()` because `list()` was taken.** The ticket says `list()`, and
+  `list` in this barrel has been the prompt that reads a line as an array since
+  SIG-157, with `splitList()` and `joinList()` beside it. Overloading one name over a
+  prompt that returns a promise and a block that returns a string would be a type
+  that depends on what the first argument looks like, so the second one took another
+  name. `outline` because it covers the ordered and the unordered and the nested
+  with one word; `bulletList` was a lie for a numbered one.
+- **The enumerator is a function, and the names are shorthand for ones.** That was
+  the first open question and the answer is yes: `OutlineEnumerator` is a style name
+  or `(info) => string`, so a custom one is a lambda. `info` is
+  `{ index, depth, count, item }`, with `index` from 0 whatever `start` says --
+  `start` moves what a _named_ counting style draws, since a function that wants an
+  offset adds one. An array of enumerators is read by depth and **cycles**, the
+  rule a legal outline wants (`1.`, `a.`, `i.`, then `1.` again) and the one a
+  default of `['bullet', 'dash']` needs; repeating the last entry was refused
+  because it makes a fourth level look like the third.
+- **Hanging indent is the box model, not `wrap()`.** The second open question hoped
+  for `wrap()`'s `hangingIndent`, which would have kept an item's escape sequences
+  across a break. It was not used because the item has to be a `text` element, a
+  `text` drops the `ESC` of a sequence and prints the rest as literal characters
+  (measured: `\u001B[31mhi` is drawn `[31mhi`), and a row of a marker and a column
+  beside it is what lays a nested list at the column its parent's text starts at
+  without counting anything. So **escape sequences are dropped from items and
+  markers**, as `note()` drops them, and colour is the theme's. A caller who needs
+  a styled run inside an item needs `paragraph()` of runs, which is a different API.
+- **A row is a marker and a body column, and the nested list is inside the body.**
+  The marker is `nowrap`, does not shrink, and carries the gap as padding; the body
+  shrinks with `min-width: 0` and holds the text and then the nested list. A wrapped
+  line therefore hangs under its own first word and a nested list starts where its
+  parent's text does, from the same flex arithmetic rather than from a column of the
+  marker being added to a column of the indent.
+- **Markers are right-aligned within their own list.** `9.` over `10.` would
+  start its text a column apart; padding on the left lines the full stops up, which
+  is what Lip Gloss does and what a printed outline looks like. It is per list: a
+  nested list measures its own. Roman numerals right-align too, so `i.` over `viii.`
+  is a column of tails rather than of heads.
+- **A style that cannot write the number draws the number.** Roman numerals stop at
+  3999 and have no zero; `alpha` has no letter under 1. `start: 0` on `roman` is
+  `0.` rather than an empty marker, which would read as a list with the numbers
+  missing, and `alpha` past `z` is `aa`, `ab`, a spreadsheet's columns -- the only
+  convention a list that long has.
+- **A list with no marker still nests.** `enumerator: 'none'` leaves nothing to hang
+  a child from, and a child at the parent's own column is indistinguishable from a
+  sibling, so a nested list is indented two columns when the list above drew no
+  marker.
+- **The live form is a mount whose tree is rebuilt, and where there is no terminal
+  it writes once at the end.** `createOutline()` holds the items in a `State` and
+  `update()` replaces them whole; the tree is a `For` over a one-element list of the
+  current array, so a new array is a changed row and the tree is built again, which
+  is the cheapest reading of "items replaced" and needs no keyed diff of nested
+  lists. A list has no frames to repaint in a log, and a line per `update()` would
+  print the whole list each time, so a pipe gets the final list once from `done()`
+  and `stop()` writes nothing. A quiet run writes nothing, through `mountLevel()`
+  like every other mount. A malformed list is refused where it is handed over,
+  including in `update()`, and the screen keeps what it was showing.
+- **String form ignores `--quiet`.** A list is a result, on `table()`'s side of the
+  line the quiet axis draws; only `createOutline()` is progress.
+
+What is deliberately not done: a marker with its own colour (a theme restyles
+`.sigil-outline-marker`, and a function returning escape sequences is dropped for
+the reason above); a checkbox style, which is `enumerator: () => '[ ]'` and a state
+the caller holds; a separate item for continuation paragraphs, which is a line break
+in the text; and keyed updates, which a caller wanting them builds from
+`outlineView()` inside its own reactive tree.
 
 ### A date prompt: segments, ISO order, and the parser's own reader
 
@@ -5073,7 +5227,7 @@ the first.
   the tree's is a directory and a selection, and a mode flag would make every key
   mean two things. The field is a prompt in the sense `prompt.ts` is about -- a
   value comes back, typed -- so it borrows that file's plumbing the way the
-  palette does. A browsing picker is a follow-up with its own ticket.
+  palette does. The browsing picker is `filePicker()`, below.
 - **The answer is the path as typed, with `~` expanded, and resolved only when a
   `root` was given.** Returning a resolved absolute path unasked would take
   something away from the caller who wants a relative one, and handing back `~/x`
@@ -5159,10 +5313,82 @@ the first.
 - **Symlinks are followed to decide whether they are directories**, with one
   `stat` each; a dangling link is a file.
 
-What is deliberately not done: the browsing picker; completing mid-value;
+What is deliberately not done: completing mid-value;
 checking that the answer exists; refreshing a cached directory; fuzzy matching
 (a prefix is what a shell does and what a person typing a path expects); showing
 file sizes or types in the list.
+
+### A file picker: browse a directory tree with the arrows
+
+SIG-202. `src/components/file-picker.ts`, the other widget SIG-164 named and set
+aside. `path()` is for someone who knows the name and this is for someone who
+does not: a list of a directory, Right or Enter to go in, Left or Backspace to
+come out, and the answer is the entry you land on.
+
+- **A component of its own, and what it shares with `path()` is the half that is
+  not the prompt.** The two have different state (a string and a cursor; a
+  directory and a highlight), different keys and different frames, so a mode flag
+  would make every key mean two things. What is shared is moved out of `path()`
+  rather than copied: `candidatesOf()` decides what is on offer, so `directory`,
+  `extensions` and `hidden` mean the same in both and the two cannot come to
+  disagree about what a file is, and `entryCache()` is the once-per-directory
+  read, which `path()` now uses too. Both are exported from the barrel, because
+  the registry entry for `file-picker` imports them through
+  `@ttylabs/sigil/components` like any sibling, and an ejected copy would
+  otherwise reach for a name that is not published. The cache is per prompt, as
+  it always was: "shared" is the code, and nothing is remembered between two
+  prompts, for the reason a stale directory is already the stated price of the
+  cache.
+- **The answer is always an absolute path.** The picker is built from a
+  directory that has been resolved, so there is no typed spelling to preserve --
+  which is the reason `path()` returns what was typed and this does not. `root` is
+  where it starts and nothing else; with no `root` that is the working directory.
+- **Right goes in, Left comes out, and Enter does what the row is for.** Enter on
+  a directory goes in and on a file chooses it, which is the ticket's description.
+  `directory` mode inverts that and Right is then what goes in: a prompt for a
+  directory that went in on Enter could never answer one. The first row of a
+  `directory` list is `.`, the directory being looked at, so a directory with
+  nothing in it can still be the answer and Enter on a fresh picker answers where
+  it is. Bubbles' `DirAllowed` is the model; the `.` row is what stands in for its
+  select key.
+- **Left lands on the directory it left, and does not wait for a read.** The
+  highlight is a name asked for (`want`) and resolved when the parent's listing
+  exists, so going up out of a directory that is slow to read does not hold the
+  Left behind the read -- `path()`'s lesson about a Backspace that cannot get
+  away, kept. Every key that acts on the list (move, go in, choose) waits for the
+  current directory, so keys typed ahead of the first read still land on the list
+  they imply. `should not hold Left behind a directory that is slow to read` is
+  the check, and awaiting the read first fails it and nothing else.
+- **`confine` is a navigation rule and not a sandbox.** Left stops at `root`, and
+  that is all it says: a link inside `root` that points out of it is followed, and
+  the picker goes up by the logical path it came down, not the link's target. An
+  app that has to refuse a path says so in `validate`. At a file system root Left
+  has nowhere to go, which is `dirname(dir) === dir` and needs no platform
+  branch: `/` and `C:\` are both fixed points. A Windows drive letter is
+  somewhere to start and not somewhere to go up to -- listing the drives would
+  need a call this package has no portable way to make, so it is not done rather
+  than done by guessing at `A:` through `Z:`. `parentOf()` and `entryPath()` take
+  the flavour as an argument for `path()`'s reason, and the tests hand them
+  `win32`.
+- **`.` toggles dotfiles, and sizes and types are not in the list.** There is no
+  field to type a dot into, so the key is free; the highlight stays on the same
+  name through the toggle, and falls to the top if that name was the one hidden.
+  Bubbles shows size and type; `path()` deliberately does not, and a `stat` per
+  entry is a read the once-per-directory cache was written not to make. The
+  trailing separator on a directory is the whole of the type column.
+- **A hand-built list rather than a `ScrollBox`.** The rows are rebuilt per draw
+  for the window on screen with `listWindow()` and `promptRowCap()`, as `sort()`
+  does: a list that is replaced wholesale on every directory has no row that
+  stays attached to an entry, which is what a `ScrollBox` is for, and a prompt
+  is not mounted in a full-screen canvas.
+- **"No matches" is only said about a directory that has been read**, and in
+  `directory` mode that is a list holding only `.`. It reuses the key `path()`
+  already has rather than a new one, because the list can be empty from the
+  filter as well as from the directory.
+
+What is deliberately not done: typing to filter (that is `path()` and
+`autocomplete()`); a drive list; a `~` or Home key; showing sizes or types;
+choosing several files; refreshing a cached directory.
 
 ### Leveled status lines: `log`
 
@@ -5223,11 +5449,70 @@ that a line can land above a live region without the caller holding it.
   (a wide custom symbol is measured by columns). Each line of the caller's text is
   its own node: the layout collapses a newline, and a blank line has to survive.
 
-**Deliberately not done:** structured fields and timestamps (gum's `log`) -- a
-second tier with its own formatting questions; a `stream` option to choose
-stdout, which is a separate backlog ticket (stderr is the whole answer to
-`--format json`, and a stdout `log` is how it gets corrupted); detecting ASCII-only
-terminals; routing the debug overlay or `console.*` through it.
+**Deliberately not done:** a `stream` option to choose stdout, which is a separate
+backlog ticket (stderr is the whole answer to `--format json`, and a stdout `log`
+is how it gets corrupted); detecting ASCII-only terminals; routing the debug
+overlay or `console.*` through it. Structured fields and timestamps were on this
+list and are below.
+
+#### Fields and timestamps on a `log` line
+
+SIG-206. Still `src/components/log.ts`; `formatLogFields()` is in it rather than in
+a sibling, because a sibling's exports have to be public for the ejected
+`registry/log.ts` to import them, and this one is worth exporting anyway.
+
+- **Fields are logfmt-shaped, `key=value` after the message, and are not JSON.**
+  `log.info('deployed', { host: 'a', ms: 412 })` is `deployed host=a ms=412`: a
+  shape a person greps and a tool splits on a space, with nothing to learn. The
+  ticket's other options were refused -- following lines break a grep of one
+  event into several rows, and a JSON line is the `--format json` question the
+  ticket says to name separately. A logger that wrote JSON lines is a different
+  feature and is not started here.
+- **Quoting is the whole of the safety, and it is one function.** `token()` writes
+  a key or value bare when it is a plain word and quotes it when it is empty or has
+  a blank, `"`, `=`, a backslash or a control character. Inside quotes every `\p{Cc}`
+  character, `ESC` among them, and `\p{Zl}`/`\p{Zp}` is an escape: `\n`, `\r`, `\t`, and
+  `\uXXXX` for the rest. `JSON.stringify()` was not used because it leaves `DEL`,
+  the C1 range and U+2028 raw, which is exactly what a reader that splits lines on
+  more than `\n` -- or a terminal that obeys a C1 byte -- acts on. The key goes
+  through the same function, so it cannot carry a break either. `no line break
+  survives` is asserted on the screen and on a file, over every one of those
+  characters.
+- **The message may be multi-line and the fields never are.** They sit on the last
+  line of the message, beside it when they fit and under it, indented with the
+  text, when they do not. The fit is decided in `write()` against the width it
+  already knows, and a file's width is made from the content so that the fields are
+  always beside the message there: a record is one line of a file whatever it holds.
+- **Drawn in `.sigil-muted`, the glyph's neighbour and not the message's.** The same
+  role a hint is drawn in, so a theme that restyles it reaches every one; the
+  classes `.sigil-log-fields`, `.sigil-log-time` and `.sigil-log-line` are hooks
+  with no rule of their own.
+- **Values are written as what they are, and a status line never throws.** A
+  string is itself; an object or array is its JSON; a `Date` is its ISO form; an
+  `Error` is its message; anything else is `String()`. `undefined` is left out
+  rather than written, which is what makes `{ host: opts.host }` usable without a
+  guard. A value `JSON.stringify()` throws on (a cycle, a nested `BigInt`) falls
+  back to `String()`, since a log call that raises is worse than an ugly field.
+- **A timestamp is an option of the logger, not of a call.** A stamp on some lines
+  of a log is one a reader cannot rely on, and a per-call option would be a way to
+  write one. `true` is the local `HH:MM:SS`, which is what a person watching wants;
+  `'iso'` is the UTC instant, which is what a file read on another machine wants,
+  and local versus UTC is chosen by name rather than by a second flag. A function
+  takes the `Date` and has line breaks and control characters replaced by a space,
+  because a stamp is text a caller wrote and the same rule applies to it as to a
+  field. It is a column before the glyph, so a second line hangs under the message
+  and not under the clock. There is no process-wide setting: `log` is the process's
+  logger and an app that wants stamps builds its own with `createLog()`, which is
+  what it does for `ascii` and `symbols`. `now` is the clock, so a test needs no
+  fake timers.
+- **Quiet is unchanged and is asked first.** A line the quiet axis drops returns
+  before it formats a field or reads the clock, so a dropped line has no side
+  effect -- a getter on a field and a stub clock are both asserted not called.
+  `warn` and `error` are still never dropped.
+- **Not done: fields and stamps on `log.stream`.** A stream is a source whose text
+  has not all arrived, and where its fields would go -- before the first line,
+  after the last -- is a question the ticket for the stream did not ask. A stream
+  line carries no stamp either, which is why the option's own doc says so.
 
 ### Tasks: a list of work, and a subprocess's output in a window
 
@@ -5742,6 +6027,346 @@ is the group. SIG-184.
 - **Not done:** a timer that counts the ETA down between ticks; an overall bar
   for the group; a bar that is indeterminate until its total is known; locale
   number formatting.
+
+### A toggle prompt: two named states
+
+SIG-168. `src/components/toggle.ts`, a prompt of its own. It returns a boolean, the
+way `confirm()` does, and is not `confirm()` with labels.
+
+- **Its own prompt, because the keys are different and the keys are the prompt.**
+  `confirm()` is answered by typing a letter, and its hint (`(Y/n)`) is a catalog
+  entry that decides both what is drawn and what is accepted. A toggle is answered
+  by moving: Left and Right, Tab and Space. Putting `active` and `inactive` on
+  `confirm()` would have kept two input models in one function and made the `y`/`n`
+  affordance a thing a label could contradict -- `active: 'enabled'` beside a `y`
+  that answers it. The ticket's other half (a setting is not a question, so the
+  states are not "yes" and "no") is why the defaults are `on` and `off`.
+- **The inactive state is on the left, and an arrow says where to go rather than
+  switching.** Like a switch with the lit end on the right, and it is what
+  prompts' `toggle` does. Left always answers `false` and Right always `true`, so
+  pressing Right twice stays on the active state; Tab, Shift-Tab and Space flip.
+  Shift-Tab is let through because with two states back and forward are one move.
+  Up and Down are not read: a two-state switch has no vertical direction, and
+  claiming them would take them from nothing that wants them. Ctrl or Alt with any
+  of the keys is a different key, as for `confirm()`.
+- **`on` and `off` are the defaults, through `__`.** Two new catalog keys. `yes`
+  and `no` already exist and would have cost none, but a setting that reads
+  `yes / no` is the confirm the ticket distinguished this from. A caller's own
+  `active` and `inactive` are drawn as given and never translated.
+- **`initial` defaults to `false`, the left-hand state.** Not `confirm()`'s `true`:
+  the left-hand state is where a switch starts, and a setting the person has not
+  touched should not read as having been turned on. A non-boolean `initial` is
+  refused rather than coerced, because the current state is found by comparing it
+  to each side and a truthy string would mark neither and answer with the string.
+- **Names are refused where the prompt is asked, not drawn badly.** Blank, because a
+  text of nothing but spaces measures zero at `white-space: normal` and the state
+  would have a marker and no name; a control character, because both states share a
+  line; and the same name twice (compared trimmed), because the answer would be a
+  guess about which was meant. All three are a `PromptError` with nothing drawn,
+  the way `selectKey()` refuses an unusable list.
+- **The marker is what says which is current, and the colour agrees with it.** `◉`
+  and `◯` are the multiselect's own symbols, so the answer is readable at colour
+  level 0 (a pipe, `NO_COLOR`) where the accent and the dimming are gone. The two
+  states are `.sigil-toggle-option` with `.sigil-accent` on the current one and
+  `.sigil-muted` on the other: roles only, no colour in props.
+- **The states are drawn whole or under the question.** A prompt's head caps what it
+  reserves for what follows the message at half the line, which suits a hint that may
+  wrap and not this: the canvas clips what runs past its edge, and at 24 columns a
+  state came out as `o`. When the message and both states do not fit on one line
+  (`message + states + 4` columns) the states take a line of their own, indented
+  under the question. What the head reserves then is the longer name, because the
+  answer replaces the states on the question's line and a question as wide as the
+  screen otherwise clipped its own answer. Measured at 24 and 28 columns; both are
+  tests.
+- **Settled, it is the question and the name of the state chosen**, in the muted
+  answer colour, and the mark goes to success, as `confirm()` does.
+- **`signal` is `run()`'s, and nothing here handles it.** Every prompt goes through
+  `runPrompt()`, which reads `PromptOptions.signal` (SIG-176); `toggle.test.ts` asserts
+  a mid-prompt abort, an already-aborted signal and `AbortSignal.timeout()`.
+  `prompt-signal.test.ts`'s every-prompt table was not edited, for the reason
+  `sort()`, `list()` and `selectKey()` are not in it either.
+- **Not done:** the key-help footer (SIG-166) -- no prompt has adopted it, and its entry
+  says adopting it is a decision about whether a prompt grows a router; `y`/`n`
+  shortcuts (that is `confirm()`); vim `h`/`l`; clicking a state with the mouse;
+  more than two states (that is `select()`); a state that is disabled.
+
+### A badge: a short coloured status label
+
+SIG-178 asked whether a badge is a component or a theme class plus
+documentation. `src/components/badge.ts` is `badge()` and `badgeView()`, and the
+split is `note()` and `noteView()`'s.
+
+- **A component, because the theme-class answer leaves the hard part to every
+  app.** A badge is one styled text, which is the argument for the ticket's other
+  answer, and what a class alone cannot do is the two things an app would each
+  have to get right: a label that survives colour level 0, and a cell a `table()`
+  can hold. The colour is not the component's either way -- the variants are the
+  roles `note()` already maps (`warning` is `.sigil-warn`, for the same reason),
+  and `neutral` is no role, as `note`'s default is none -- so this adds no
+  vocabulary to a theme beyond `.sigil-badge` and five narrower hooks.
+- **A role becomes a background by `inverse`, and that is the sheet's fifth
+  declared exception.** The roles set `color`, and `.sigil-badge { inverse: true }`
+  puts that colour behind the label. The alternative was a `background-color` per
+  variant, which restates four colours the roles already own, so a theme would
+  recolour `.sigil-success` and still have to be told about its badge. `should
+  declare on a role, bar five exceptions that say why` was updated deliberately,
+  and its reason is under "Themes".
+- **The padding is spaces in the label, with `white-space: nowrap`.** Measured
+  before it was written: `padding` paints nothing (the paint pass fills the cells
+  of a glyph, not the empty ones around it) and a default `text` drops a
+  trailing space; `nowrap` keeps both, and `inverse` then reaches them. A no-break
+  space, which `note()` uses for its title, would also work but has to be turned
+  back into a space on the way out, which a table cannot do for one cell.
+- **At colour level 0 the padding is brackets, and the component decides it.** The
+  inverse is dropped there, so `PASS` is `PASS` with spaces around it and a
+  badge in a log line is not set apart from what it labels. Which characters are
+  drawn is content, not style, so the sheet cannot say it -- the QR code decides
+  its glyphs from the level for the same reason. Brackets rather than a symbol or
+  the label upper-cased: the label is the app's and is never altered, and `[beta]`
+  reads in a pipe. Both forms take two columns, so the width does not depend on the
+  level and `badgeView()` can report one `width`. The level is
+  `colorLevel ?? ansi.level`, the default a table uses too, so a badge and the
+  table around it agree unless one of them is overridden; an override has to be
+  mirrored on both, and the cost of not doing so is a shape, not a width.
+- **A table cell may be a view, and a string badge cannot be one.** A string cell
+  has its escape sequences dropped by `toDisplayText()` -- which is right, it is
+  how a stray `ESC` is kept off the screen -- so a styled `badge()` string in a
+  cell would print `[7;32m` as text. Rather than special-case escapes in cells,
+  `table()` takes a `TableCellView` (`{ element, width }`, the shape every `*View()`
+  already returns), measures the column by the declared `width`, and sets the tree
+  in a box as wide as the column, justified by `align` and clipped at `maxWidth`.
+  Detected by shape, and a finite numeric `width` is required, so a row holding a
+  plain object still prints `[object Object]` as it did. Nothing else about a
+  table changed: `columnWidths()` reads each cell's width instead of measuring a
+  string, which for a string cell is the same `stringWidth()` as before.
+- **Escape sequences and line breaks in a label are dropped, and an empty label
+  draws nothing** -- a zero-width view and an empty string, not a coloured gap.
+  There is no truncation: a badge is a short label, and a table's `maxWidth` is
+  what cuts one that is not.
+- **String form only, and it ignores `--quiet`**, as `note()` does.
+
+What is deliberately not done: a `muted` or `accent` variant (the ticket named
+five, and either is one line in `ROLES` the day a caller wants it); an icon or
+symbol per variant; case folding; and a badge carrying a colour in its props.
+
+### A rule: a horizontal divider, with an optional label
+
+SIG-180 asked for what Textual's `Rule` and `ink-divider` draw: a line across the
+width, with words in it if wanted. `src/components/rule.ts` is `rule()` and
+`ruleView()`, and the split is `note()` and `noteView()`'s.
+
+- **A component, and not a documented border-top recipe.** That settles the
+  ticket's question, and the recipe is not available rather than merely worse:
+  `border-style` is one value for all four edges and there is no `border-top`, so
+  a box that draws only a top line does not exist -- the nearest is a one-row box
+  with a border, which is three rows and a rectangle. What the component is worth
+  is also the argument the ticket made, a named thing with a theme-driven style and
+  a label that aligns, and none of it is a recipe's to carry.
+- **A row of three fixed-width texts, and the arithmetic is the component's.** The
+  line before the label, the label, the line after it, each `white-space: pre` and
+  `flex-shrink: 0` with the width it stands for -- `chart.ts`'s shape, for its
+  reason: the rule has already been fitted, and a text drops trailing whitespace
+  unless it is given its room. The width is fixed when the tree is built, as
+  every `*View()` here is. A `raw` that stretched to whatever the layout gave it
+  was the alternative and is not done: it would need a width the string form does
+  not have, and the string form is the facade.
+- **The label keeps line on both sides, and it is dropped rather than drawn over
+  the end.** Two cells of line at the end it leans towards and one at the other,
+  and one at each end when centred, with a space either side of the words. Where
+  the width cannot hold that around a label of one column the rule is a plain
+  line, and a label cut to nothing but its ellipsis is dropped as well -- an
+  ellipsis alone says nothing, and `note()` goes without a title the same way. A
+  centred label puts the odd cell on the right. The cut is `truncate()`, which may
+  come back a column short for a wide character, so the line after the label is
+  worked out from what was **measured** rather than from what was asked for.
+- **The line style is `line`, and it is not CSS.** "Line style from the theme" is
+  half true: the colour and the attributes are, through the cascade, and the
+  character is not, because no property carries a character -- `border-style` is a
+  character set for a border and this is not one. So `line` is the horizontal of
+  the border sets (`single` `─`, `double` `═`, `bold` `━`, `ascii` `-`), and `round`
+  is not offered because its horizontal is `single`'s. It falls back to ASCII by
+  `unicodeSupported()`, the one place that is decided, and an explicit `line`
+  always wins.
+- **It is dim, and the label is not.** A divider is there to separate, so the
+  default role is `muted`, on the line alone: the words are the one part meant to be
+  read, and `sigil-heading` makes them bold. Any other role -- `accent` or a state
+  -- is the whole rule's, label included, which is the `note()` rule for its
+  variants. `none` carries no role class at all, which is the terminal's own
+  foreground. The label's `sigil-muted` is left off rather than overridden, since
+  two rules of equal specificity on one element are decided by source order.
+- **Escape sequences and line breaks are dropped from the label.** A label is
+  words, colour is the role's, and a break would make the rule two rows.
+- **String form only, and it ignores `--quiet`.** A rule is a result, on `table()`
+  and `note()`'s side of the line, and the caller does the writing.
+
+What is deliberately not done: a rule that follows a resizing layout; a vertical
+rule; a label on both sides; and a style set to a pattern such as `- -`.
+
+### A paginator: page state, and a dot or numeric indicator
+
+`src/components/paginator.ts`. SIG-190.
+
+- **It is separate from the windowing in `prompt.ts`, and that settles the
+  ticket's first question.** A window's position follows a cursor and moves a row
+  at a time over a list that is one thing; a page is a unit the reader steps
+  between over content that is in pages. One counter cannot serve both without one
+  of them lying about what it is -- a scroll offset is not a multiple of anything,
+  and a page number is -- so the paginator shares no state or code with
+  `listWindow()` or `ScrollBox`. It is for a wizard, a result set, a help browser.
+- **The state is three signals and everything else is a function of them.**
+  `page`, `perPage` and `total`; the number of pages, `start`, `end`, and whether
+  there is a next are computed from them wherever they are read, so `paginatorView()`
+  and the `Paginator` facade cannot disagree about where the page is.
+- **`page` counts from zero, and `format()` is handed it counting from one.**
+  Zero is what it indexes a list with and what Bubbles' paginator uses; one is
+  what a reader is told. The two meet only in the indicator, which converts once.
+- **Reads clamp and writes normalize, and both are needed.** A page written past
+  the end through `state.page` reads as the last, so a view never shows a page that
+  is not there. A `total` that shrinks writes the clamped page back, so growing
+  again does not spring it to where it was -- clamping on read alone would have
+  done exactly that. A `perPage` that changes keeps the page's **first item** on
+  screen (`floor(start / perPage)`) rather than the page number, since page 3 of
+  tens and page 3 of fives are different places.
+- **Nothing to show is one page, not none.** `pageCount(0, n)` is 1, so an empty
+  result set reads `1/1` and a single dot, and `onFirstPage` and `onLastPage` are
+  both true. A `perPage` under one is one and a `total` that is not a count is
+  nothing, rather than a throw: these are written from application data, and a
+  paginator that throws on an empty query is a bug in every caller.
+- **Moves report whether they moved.** `next()` on the last page returns `false`
+  and changes nothing; there is no wrap-around, because a wizard that wraps from
+  the last page to the first is a surprise and a result set that does is rarely
+  what anybody meant. A caller that wants one writes `pager.next() || pager.first()`.
+- **Indicator styles: dots, numeric, both -- the ticket's second question.** The
+  default is dots, one per page with the current one filled and the rest hollow, so
+  the position survives with no colour as the filled dot against the hollow ones.
+  The roles are `.sigil-accent` and `.sigil-muted`, the ordinary ones, with
+  `.sigil-paginator-*` classes beside them as the narrower hook.
+- **Past `maxDots` (10) pages the dots give way to the number, whatever the style
+  says, and `both` becomes the number alone.** A row of dots that does not fit
+  wraps into a different shape on every terminal width, and nobody counts forty of
+  them. Ten is the number a reader can still take in at a glance; `maxDots` moves it.
+- **The number is not in the message catalog.** `2/5` is not prose, so there is no
+  key for `Page {0} of {1}` to translate; `format(page, pages)` is where an app
+  words it, in whatever language it already has.
+- **The string and the live view are one function.** `slotsFor()` decides the four
+  runs -- dots before, the current dot, dots after, the number -- and both
+  `pageIndicator()` and `paginatorView()` write them, so the two cannot disagree
+  about where a space goes or when dots give way to a number. They are separate
+  text nodes because each takes its own role, and each is `white-space: pre` with a
+  width, since a text drops the whitespace at the end of its last line and the space
+  that separates a run from the next would otherwise be nothing at all.
+- **The glyphs follow `unicodeSupported()`.** `●` and `○` are not safe where box
+  drawing is not, so a Linux console or `TERM=dumb` gets `*` and `.`, as the charts
+  do; `ascii` overrides it either way.
+- **No key handling.** Bubbles' paginator ships key bindings; this does not. A
+  paginator is state and a drawing, and which keys turn the page belongs to the
+  app's own router -- the same decision `ScrollBox`'s bindings and `keyHelp()` leave
+  to the caller.
+- **Not done:** wrap-around; a page that follows a cursor (that is a window); a
+  live indicator with a `mountLive()` facade of its own -- it is a tree an app puts
+  inside its own, like `calendarView()`; windowing a long row of dots around the
+  current page.
+
+### An interactive table: `selectRow()`
+
+`src/components/select-row.ts`. SIG-193. A prompt over `table()`'s columns: a
+cursor over rows, Enter answers with the row, a digit sorts. It is a list prompt
+in the shape `sort()` is -- `runPrompt()`, the rows rebuilt per draw for the
+window, `listWindow()` -- and what is new is that the head of the table is a row of
+its own.
+
+- **One column model, which is why `table.ts` exports its pieces.** The ticket's
+  first line. `tableCells()`, `tableWidths()` and `tableRowView()` are what
+  `tableView()` was already made of, given names and exported, and `tableValue()`
+  is the one line that reads a cell off a row, lifted out so that a sort and a
+  table cannot disagree about which value a column holds. They are on the
+  components barrel and not only exported from the file, because the registry
+  rewrites a sibling import to `@ttylabs/sigil/components` -- an ejected
+  `select-row.ts` that imported a helper the barrel did not carry would not
+  resolve in the app. `Column` is unchanged: what a sort adds (`compare`,
+  `sortable`) is `SelectRowColumn extends Column`, so `table()` does not grow two
+  properties it would ignore, and a `Column` is still accepted wherever a
+  `SelectRowColumn` is.
+- **The cursor is on rows and not on cells.** The ticket asked. A cell cursor is
+  for a table whose cells are what is picked, and the case that motivated the
+  ticket -- a deployment out of a list -- picks a row; every other thing a cell
+  cursor would want (an action on one column) is a second prompt over the row it
+  returned. Left and Right are left unbound rather than meaning something
+  different from every other list here.
+- **The answer is the row that went in, by reference.** Not a copy and not an
+  index, for the reason `sort()` answers with values: an index makes the caller
+  look the row up again in a list they just passed in. It is also what makes a
+  sort invisible to the caller -- the table may show the rows in any order and the
+  answer is still the object it holds.
+- **Sorting is built in, on a digit, with a per-column `compare` for what it
+  cannot know.** The ticket asked whether it is built in or the app's job. A
+  callback that reorders `rows` would need the prompt to hand control back
+  mid-prompt and take new rows, which is a state machine nobody asked for, while
+  the column the app cares about is nearly always a string, a number or a date.
+  So the common cases are decided here and the rest is `compare(a, b)` on the
+  column. A digit rather than a chord or a column cursor for the reason `sort()`
+  picked Space: it reaches every terminal and needs no second mode. Pressing it
+  again reverses, and a third time clears -- the three states a column can be in
+  -- and the nine-column reach is the keyboard's, not a choice. The hint says
+  `1-N`, `N` being the last sortable column, so a non-sortable column in the
+  middle is a digit that does nothing rather than a gap in the range.
+- **The default order is by what the value is, not by its text.** A cell holding
+  `9` and one holding `10` order as numbers, which is what a sort is for and what
+  the drawn text cannot say; `table()` hands cells to the screen as strings, so
+  this reads the row through `tableValue()` and not through the cells. Dates order
+  by time, booleans as `0` and `1`, and anything else as text, **case folded and
+  then by code unit, not by `localeCompare()`**: `Intl` is the 4-7 ms the i18n
+  README refuses to pay for a thing the framework has no use for, and `path.ts`
+  already orders by code unit for the same reason. A column that wants a locale
+  has the lever. A number comes before a text in one column, so the order is
+  total.
+- **An empty cell is last whichever way the column runs.** Missing, `null`, `NaN`
+  and an invalid `Date` have no place in an ascending order that reversing it
+  would improve, so descending does not put a column of blanks on top. It is the
+  sorter and not the comparator that says so, which means a custom `compare` is
+  never handed an empty value and does not have to write the same guard. The sort
+  is stable and descending flips the comparison rather than the list, so rows that
+  tie keep the order they came in both ways.
+- **The cursor follows its row through a sort.** Sorting finds the row that was
+  under the cursor in the new order and puts the cursor back on it, so the thing
+  you were looking at does not change under you, and the window scrolls to it. The
+  alternative -- the cursor stays on a line number -- moves it to a different
+  deployment with no sign that it did, which in a prompt whose answer is the row
+  under the cursor is the one thing it must not do silently.
+- **The heading is sticky because it is outside the window, and `ScrollBox` is not
+  involved.** The ticket guessed it "depends on `ScrollBox`". Every list prompt
+  here windows with `listWindow()` over rows rebuilt per draw, and the heading is
+  a sibling of that list rather than a row in it, so it cannot scroll away. A
+  `ScrollBox` is for content that is bigger than its box and is walked by a
+  scrollbar; a prompt's rows are an index and a window, and sixty of them cost
+  nothing to rebuild.
+- **Widths are measured over every row, once.** A column that took its width from
+  the rows on screen would change as the window moved, which is a table that
+  breathes. The cost is that the width is fixed at the longest cell anywhere, and
+  `maxWidth` is what bounds it. A **sortable heading keeps two columns back for
+  its arrow**, added to the measurement of the heading only: turning a sort on
+  must not move every column to its right, and the arrow is drawn over the heading
+  truncated to leave it room. A column whose cells are wider than its heading
+  costs nothing; one whose heading is the widest costs two columns, which is the
+  price of a table that holds still. `sortable: false` on every column spends
+  none, and then the heading and rows are `table()`'s own lines behind a
+  two-column pointer -- which a test pins.
+- **A line says where in the table the cursor is, and only when rows are off
+  screen.** `n/total` under the rows, spent from the same height the rows have, so
+  the question, the heading, the rows and that line add up to what the terminal
+  has. A table that fits is the table and nothing else. It is not translated: it is
+  two numbers and a slash.
+- **`rows` is the data, so the height is `height`.** `sort()`, `autocomplete()` and
+  the rest call the cap on their window `rows`, and here `rows` is what `table()`
+  already calls the data. One of the two names had to give way, and the data is
+  the one the first argument of the sibling function is.
+- **Rows are not `disabled` and there is no `multiple`.** Not asked for. A
+  disabled row would have to be a column-model property (which row is it, in the
+  data, after a sort) and a multi-select table is a different answer type. Both
+  are additive.
+- **Not done:** an initial sort, which the caller can do to the rows they pass; a
+  cell cursor; filtering by typing, which `autocomplete()` is for and which would
+  want a second state for what the keys mean; resizing columns.
 
 ### A timer and a stopwatch: signals first, and only the readout is quiet
 

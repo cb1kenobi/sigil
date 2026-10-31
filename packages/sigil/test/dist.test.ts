@@ -212,6 +212,11 @@ describe('what importing the package costs', () => {
     'barChartView',
     'taskLog',
     'calendarView',
+    'ruleView',
+    'paginatorView',
+    'outlineView',
+    'filePicker',
+    'selectRow',
   ];
 
   /** The bundles in a graph that define any of them. */
@@ -602,21 +607,28 @@ describe('what importing the package costs', () => {
   });
 
   it('should keep the components entry worth importing for one component', () => {
-    // 245,744 B over 29 modules today -- re-measured, because it read 234,912
-    // over 23 while the comment 130 lines up said 239,929 over 26, which is the
-    // two-comments-disagreeing-about-one-measurement defect that one is written
-    // about, in the same file. Of it the palette is 10,624: its own
-    // code, the 1,778 B `transform` chunk, the 154 B `types` chunk and 180 B of
-    // class names in `FRAMEWORK_CSS`, which ships because the vocabulary comment
-    // is inside the template literal. The QR encoder is another 10,255 of it,
-    // which is what moved this figure when SIG-136 merged.
+    // 245,744 B over 29 modules when SIG-136 merged -- re-measured then,
+    // because it read 234,912 over 23 while the comment 130 lines up said
+    // 239,929 over 26, which is the two-comments-disagreeing-about-one-
+    // measurement defect that one is written about, in the same file. Of it the
+    // palette is 10,624: its own code, the 1,778 B `transform` chunk, the 154 B
+    // `types` chunk and 180 B of class names in `FRAMEWORK_CSS`, which ships
+    // because the vocabulary comment is inside the template literal. The QR
+    // encoder is another 10,255 of it, which is what moved this figure when
+    // SIG-136 merged.
+    //
+    // 328,125 B over 31 when SIG-181 merged, which crossed the 320 KiB this
+    // ceiling was: `main` was already at 324,756, and the outline added 3,369 B
+    // of its own code and class names and no module at all. That is ordinary
+    // growth, which a ceiling exists not to catch, so the ceiling moved -- to
+    // 1.4x of the new figure, which is the ratio it was set at
     //
     // A ceiling rather than a measurement, at about 1.4x, so ordinary growth
     // never touches it and a second runtime stack does
     const graph = staticGraph('components.mjs');
     const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(320 * 1024);
+    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(448 * 1024);
   });
 
   // `mouseenter` and the mode sequence rather than `hitTest` and `enableMouse`: a

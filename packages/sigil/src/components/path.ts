@@ -11,8 +11,11 @@
  * const file = await path({ message: 'Which config?', extensions: ['json', 'yaml'] });
  * ```
  *
- * This is the field. A picker that browses the tree -- arrows to descend, Enter
- * to choose -- is a different widget with a different shape, and is not here.
+ * This is the field. The picker that browses the tree -- arrows to descend, Enter
+ * to choose -- is a different widget with a different shape, and is
+ * `filePicker()` in `file-picker.ts`; what the two share is the half of this file
+ * that is not the prompt: what a directory holds, which of it is offered, and the
+ * once-per-directory read.
  */
 
 import { box, type Element, text as textNode } from '../element/index.js';
@@ -365,6 +368,49 @@ async function readEntries(dir: string): Promise<PathEntry[]> {
   );
 }
 
+/**
+ * A directory's entries, read once and kept for the life of whoever asked.
+ *
+ * What `path()` and `filePicker()` both stand on: the first read of a directory
+ * is the only one, however many keystrokes land in it, and a read that fails is
+ * cached as empty rather than raised. A directory created after it was read is
+ * not seen, which is the price.
+ *
+ * `get()` answers from what has landed and never waits, which is what lets a key
+ * that only edits draw at once; `load()` is the one that waits, and only the keys
+ * that act on the list are meant to await it.
+ */
+export interface EntryCache {
+  /** The entries of a directory that has been read, or `undefined` before then. */
+  get(dir: string): PathEntry[] | undefined;
+  /** Whether the directory has been read. */
+  has(dir: string): boolean;
+  /** Reads the directory unless it already has been, and resolves when it has. */
+  load(dir: string): Promise<void>;
+}
+
+/** Makes a cache with nothing read. One per prompt. */
+export function entryCache(): EntryCache {
+  const reads = new Map<string, Promise<PathEntry[]>>();
+  const loaded = new Map<string, PathEntry[]>();
+
+  return {
+    get: (dir) => loaded.get(dir),
+    has: (dir) => loaded.has(dir),
+    async load(dir) {
+      if (loaded.has(dir)) {
+        return;
+      }
+      let read = reads.get(dir);
+      if (!read) {
+        read = readEntries(dir);
+        reads.set(dir, read);
+      }
+      loaded.set(dir, await read);
+    },
+  };
+}
+
 /** One row of the list. */
 interface PathRow {
   readonly label: Element;
@@ -404,8 +450,7 @@ export function path(opts: PathOptions): Promise<string> {
    * *level* rather than per character, and the characters in between are a
    * filter over what is already here.
    */
-  const reads = new Map<string, Promise<PathEntry[]>>();
-  const loaded = new Map<string, PathEntry[]>();
+  const cache = entryCache();
 
   let value = opts.initial ?? '';
   let cursor = value.length;
@@ -428,21 +473,15 @@ export function path(opts: PathOptions): Promise<string> {
    * -- a network mount, a stalled disk, a huge directory -- would otherwise hold
    * every key behind it, the Backspace that gets away from it included. What
    * keeps an answer to an earlier keystroke from landing on a later one is that
-   * the list is always computed from `loaded` for the value as it is *now*: a
+   * the list is always computed from the cache for the value as it is *now*: a
    * read that finishes late fills the cache and can only ever repaint the newer
    * answer.
    */
   async function ensure(): Promise<void> {
     const dir = target();
-    if (dir === undefined || loaded.has(dir)) {
-      return;
+    if (dir !== undefined) {
+      await cache.load(dir);
     }
-    let read = reads.get(dir);
-    if (!read) {
-      read = readEntries(dir);
-      reads.set(dir, read);
-    }
-    loaded.set(dir, await read);
   }
 
   /** The candidates for the field as it is now, from what has been read. */
@@ -451,7 +490,7 @@ export function path(opts: PathOptions): Promise<string> {
     const rooted = dir === '' ? rootName(segment, flavour) : undefined;
     const where = target();
     const found =
-      where === undefined ? [] : candidatesOf(loaded.get(where) ?? [], segment, filter, flavour);
+      where === undefined ? [] : candidatesOf(cache.get(where) ?? [], segment, filter, flavour);
 
     // a root names a directory the working directory has no entry for, so it
     // goes in front of whatever happens to start with the same characters
@@ -576,7 +615,7 @@ export function path(opts: PathOptions): Promise<string> {
       // empty only once the directory has been read: before then there is no
       // answer yet, and "no matches" would be a claim about a list not seen
       const where = target();
-      const known = where !== undefined && loaded.has(where);
+      const known = where !== undefined && cache.has(where);
       empty.setProps({
         display:
           shown.length === 0 && (known || where === undefined) && value !== '' ? 'flex' : 'none',

@@ -33,8 +33,69 @@ export interface TableOptions extends StyledOptions {
   head?: boolean;
 }
 
+/**
+ * A cell that is already a tree, such as what `badgeView()` returns.
+ *
+ * A string cell is text: its escape sequences are dropped, because a `text`
+ * draws no control character, so a styled string put in one prints its `ESC`
+ * removed and the rest as literal characters. A view is the one cell form that
+ * keeps its own styling, and its `width` is what the column is measured with --
+ * the table cannot ask a tree how wide it is without laying it out, which is the
+ * work the declared widths exist to avoid.
+ */
+export interface TableCellView {
+  /** The cell's tree. */
+  element: Element;
+  /** How many columns it takes. */
+  width: number;
+}
+
 /** A row, however it was given. */
 export type TableRow = readonly unknown[] | Record<string, unknown>;
+
+/** A cell as the table holds it: what it draws, and how wide that is. */
+export interface TableCell {
+  text: string;
+  view?: TableCellView;
+  width: number;
+}
+
+/**
+ * Whether a value is a view rather than something to print.
+ *
+ * Checked by shape and not by class, so a view from another copy of the package
+ * is one, and a plain object a row happens to hold -- which prints as
+ * `[object Object]` -- is not unless it has both fields.
+ *
+ * @param value - A cell.
+ * @returns Whether it is a view.
+ */
+function isView(value: unknown): value is TableCellView {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'element' in value &&
+    typeof (value as TableCellView).width === 'number' &&
+    Number.isFinite((value as TableCellView).width)
+  );
+}
+
+/**
+ * What one cell holds, as the row gave it.
+ *
+ * Asked by anything that has to work with the value rather than with how it is
+ * drawn -- a sort compares a number as a number, which its text cannot say.
+ *
+ * @param row - The row.
+ * @param column - The column.
+ * @param index - The column's place among the others, for a row given as an array.
+ * @returns The value, which is `undefined` where the row has none.
+ */
+export function tableValue(row: TableRow, column: Column, index: number): unknown {
+  return Array.isArray(row)
+    ? row[index]
+    : (row as Record<string, unknown>)[column.key ?? String(index)];
+}
 
 /**
  * The columns a set of rows has, and the cells under them.
@@ -43,10 +104,10 @@ export type TableRow = readonly unknown[] | Record<string, unknown>;
  * @param opts - The declared columns, if there are any.
  * @returns The columns, their cells, and their headings.
  */
-function readRows(
+export function tableCells(
   rows: readonly TableRow[],
   opts: TableOptions
-): { cells: string[][]; columns: Column[]; headers: string[] } {
+): { cells: TableCell[][]; columns: Column[]; headers: string[] } {
   // a column may be a name, a declaration, or nothing at all -- in which case
   // the first row says what the columns are
   const first = rows[0];
@@ -59,10 +120,13 @@ function readRows(
 
   const cells = rows.map((row) =>
     columns.map((column, i) => {
-      const value = Array.isArray(row)
-        ? row[i]
-        : (row as Record<string, unknown>)[column.key ?? String(i)];
-      return value === undefined || value === null ? '' : cellText(String(value));
+      const value = tableValue(row, column, i);
+      if (isView(value)) {
+        return { text: '', view: value, width: Math.max(0, Math.floor(value.width)) };
+      }
+
+      const shown = value === undefined || value === null ? '' : cellText(String(value));
+      return { text: shown, width: stringWidth(shown) };
     })
   );
 
@@ -102,16 +166,16 @@ function cellText(value: string): string {
  * @param head - Whether the heading row is shown.
  * @returns One width per column.
  */
-function columnWidths(
+export function tableWidths(
   headers: string[],
-  cells: string[][],
+  cells: TableCell[][],
   columns: Column[],
   head: boolean
 ): number[] {
   return columns.map((column, i) => {
     const widest = Math.max(
       head ? stringWidth(headers[i]) : 0,
-      ...cells.map((row) => stringWidth(row[i]))
+      ...cells.map((row) => row[i].width)
     );
     return column.maxWidth && column.maxWidth > 0 ? Math.min(widest, column.maxWidth) : widest;
   });
@@ -134,8 +198,8 @@ function columnWidths(
  * @param classes - What to put on each cell, for the heading row.
  * @returns The row.
  */
-function rowOf(
-  values: string[],
+export function tableRowView(
+  values: TableCell[],
   widths: number[],
   columns: Column[],
   gap: number,
@@ -144,19 +208,55 @@ function rowOf(
   return box(
     { class: 'sigil-table-row', 'column-gap': gap, 'flex-shrink': 0 },
     ...values.map((value, i) =>
-      textNode(value, {
-        class: classes,
-        // the declared width is kept whatever the row adds up to: a table is
-        // sized to its content and a narrow terminal is allowed to wrap it,
-        // which is what it has always done. Shrinking instead would put the
-        // columns of one row somewhere the next row's are not
-        'flex-shrink': 0,
-        'text-align': columns[i].align ?? 'left',
-        'text-overflow': 'ellipsis',
-        'white-space': 'nowrap',
-        width: widths[i],
-      })
+      value.view
+        ? viewCell(value.view, widths[i], columns[i].align ?? 'left', classes)
+        : textNode(value.text, {
+            class: classes,
+            // the declared width is kept whatever the row adds up to: a table is
+            // sized to its content and a narrow terminal is allowed to wrap it,
+            // which is what it has always done. Shrinking instead would put the
+            // columns of one row somewhere the next row's are not
+            'flex-shrink': 0,
+            'text-align': columns[i].align ?? 'left',
+            'text-overflow': 'ellipsis',
+            'white-space': 'nowrap',
+            width: widths[i],
+          })
     )
+  );
+}
+
+/** Where a view sits in a column wider than it, by the column's alignment. */
+const JUSTIFY: Record<Align, string> = {
+  center: 'center',
+  left: 'flex-start',
+  right: 'flex-end',
+};
+
+/**
+ * A view as a cell: a box as wide as its column with the tree set inside it.
+ *
+ * The box is what a text cell's own width and `text-align` are, since a tree
+ * has no alignment of its own -- and it clips, which is `text-overflow`'s
+ * stand-in, because a tree cannot be cut with an ellipsis and a badge wider
+ * than a `maxWidth` column is cut where the column ends.
+ *
+ * @param view - The cell.
+ * @param width - The column's width.
+ * @param align - The column's alignment.
+ * @param classes - What the other cells of this row carry.
+ * @returns The cell.
+ */
+function viewCell(view: TableCellView, width: number, align: Align, classes: string): Element {
+  return box(
+    {
+      class: classes,
+      'flex-shrink': 0,
+      'justify-content': JUSTIFY[align],
+      overflow: 'hidden',
+      width,
+    },
+    view.element
   );
 }
 
@@ -173,15 +273,24 @@ export function tableView(
 ): { element: Element; width: number } {
   const gap = opts.gap === undefined ? 2 : Math.max(0, Math.floor(opts.gap));
   const indent = Math.max(0, Math.floor(opts.indent ?? 0));
-  const { cells, columns, headers } = readRows(rows, opts);
+  const { cells, columns, headers } = tableCells(rows, opts);
   const head = opts.head ?? columns.some((column) => column.header !== undefined);
-  const widths = columnWidths(headers, cells, columns, head);
+  const widths = tableWidths(headers, cells, columns, head);
 
   const body = rows.length
-    ? cells.map((row) => rowOf(row, widths, columns, gap, 'sigil-table-cell'))
+    ? cells.map((row) => tableRowView(row, widths, columns, gap, 'sigil-table-cell'))
     : [];
   const children = head
-    ? [rowOf(headers, widths, columns, gap, 'sigil-table-head sigil-heading'), ...body]
+    ? [
+        tableRowView(
+          headers.map((header) => ({ text: header, width: stringWidth(header) })),
+          widths,
+          columns,
+          gap,
+          'sigil-table-head sigil-heading'
+        ),
+        ...body,
+      ]
     : body;
 
   const natural =

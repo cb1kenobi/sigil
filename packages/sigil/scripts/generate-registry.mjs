@@ -107,12 +107,28 @@ const ENTRIES = [
     name: 'path',
   },
   {
+    desc: 'A file picker: browse a directory tree with the arrows, and answer the entry you land on',
+    name: 'file-picker',
+  },
+  {
     desc: 'A sort prompt: pick a row up and move it to put a list in order',
     name: 'sort',
   },
   {
+    desc: 'A table prompt: a cursor over rows, a sticky heading, and a sort by column',
+    name: 'select-row',
+  },
+  {
+    desc: 'A toggle prompt: a setting with two named states, flipped with the arrows, Tab or Space',
+    name: 'toggle',
+  },
+  {
     desc: 'A list prompt: one line split on a separator and returned as an array',
     name: 'list',
+  },
+  {
+    desc: 'A masked text prompt: a line that follows a template, with fixed characters skipped',
+    name: 'masked-text',
   },
   {
     desc: 'A number prompt: min, max, step, and arrows that change the value',
@@ -163,12 +179,24 @@ const ENTRIES = [
     name: 'key-help',
   },
   {
+    desc: 'A short status label: PASS, FAIL or beta, in a state role colour, usable as a table cell',
+    name: 'badge',
+  },
+  {
     desc: 'Leveled status lines: info, success, warn, error and step, above any live region',
     name: 'log',
   },
   {
+    desc: 'Bulleted, numbered and nested lists, with a function for an enumerator and a hanging indent',
+    name: 'outline',
+  },
+  {
     desc: 'Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge',
     name: 'chart',
+  },
+  {
+    desc: 'A horizontal divider across the terminal, with an optional label set into it',
+    name: 'rule',
   },
 ];
 

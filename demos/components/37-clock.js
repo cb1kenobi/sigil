@@ -1,8 +1,8 @@
 /**
  * A stopwatch beside a spinner, and a countdown before an action.
  *
- *   node demos/components/47-clock.js
- *   node demos/components/47-clock.js | cat     <- no readout, and no ticking
+ *   node demos/components/37-clock.js
+ *   node demos/components/37-clock.js | cat     <- no readout, and no ticking
  *
  * `stopwatch()` and `timer(ms)` are signals first: `text` and `elapsed` are read
  * off the clock, and read inside an effect they re-run once a second. So
