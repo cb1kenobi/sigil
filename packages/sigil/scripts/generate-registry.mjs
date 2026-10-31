@@ -111,6 +111,10 @@ const ENTRIES = [
     name: 'sort',
   },
   {
+    desc: 'A table prompt: a cursor over rows, a sticky heading, and a sort by column',
+    name: 'select-row',
+  },
+  {
     desc: 'A toggle prompt: a setting with two named states, flipped with the arrows, Tab or Space',
     name: 'toggle',
   },

@@ -215,6 +215,7 @@ describe('what importing the package costs', () => {
     'paginatorView',
     'outlineView',
     'filePicker',
+    'selectRow',
   ];
 
   /** The bundles in a graph that define any of them. */

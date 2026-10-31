@@ -380,11 +380,22 @@ export {
   type Align,
   type Column,
   table,
+  type TableCell,
+  tableCells,
   type TableCellView,
   type TableOptions,
   type TableRow,
+  tableRowView,
+  tableValue,
   tableView,
+  tableWidths,
 } from './table.js';
+export {
+  compareCells,
+  selectRow,
+  type SelectRowColumn,
+  type SelectRowOptions,
+} from './select-row.js';
 export {
   note,
   type NoteBorder,

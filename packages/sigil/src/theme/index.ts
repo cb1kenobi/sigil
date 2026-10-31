@@ -149,6 +149,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-sort  .sigil-sort-list  .sigil-sort-place  .sigil-sort-label
  *   .sigil-sort-carried
  *   .sigil-toggle  .sigil-toggle-option
+ *   .sigil-table-select  .sigil-table-select-head  .sigil-table-select-list
+ *   .sigil-table-position
  *   .sigil-tasklog  .sigil-tasklog-line
  *   .sigil-paginator  .sigil-paginator-dots  .sigil-paginator-active
  *   .sigil-paginator-inactive  .sigil-paginator-numeric

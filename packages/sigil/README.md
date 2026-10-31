@@ -3770,6 +3770,64 @@ characters would not, and `maxWidth` truncates on grapheme clusters rather
 than slicing a surrogate pair in half. No borders — a table in a build log
 sits next to everything else that was printed, and rules around it are noise.
 
+#### Select a row
+
+```js
+import { selectRow } from '@ttylabs/sigil/components';
+
+const deployment = await selectRow({
+  message: 'Which deployment?',
+  rows: [
+    { name: 'web', region: 'eu-west', age: 12 },
+    { name: 'api', region: 'us-east', age: 3 },
+  ],
+  columns: [{ key: 'name' }, { key: 'region' }, { key: 'age', align: 'right' }],
+});
+// { name: 'api', region: 'us-east', age: 3 }
+```
+
+"Pick a deployment from this list" where a deployment is more than a label: a
+`select()` would mean flattening the columns into one string and padding them by
+hand. The `columns` are `table()`'s own -- the same `Column`, measured the same
+way, inferred from the first row's keys when not given -- so one declaration
+prints a table and asks about one. It returns **the row exactly as it was passed
+in**, an object or an array.
+
+Up and Down move a cursor over whole rows (there is no cell cursor), wrapping
+unless `loop: false`; Home and End go to the ends and Page Up and Page Down a
+screen at a time. **Enter answers.** A table longer than the screen is windowed to
+follow the cursor, the heading stays on screen however far it scrolls, and a line
+under the rows says where in the table the cursor is.
+
+**A digit sorts by that column** (the first nine): pressing it again reverses the
+order and a third time puts the rows back as they came, with an arrow on the
+heading. The cursor stays on the row it was on, wherever the sort sends it, and a
+cell with no value -- missing, `null`, `NaN`, an invalid `Date` -- is placed last
+whichever way the column runs. The sort is built in and reads the values the rows
+hold: numbers, bigints, dates and booleans order as what they are, so `9` comes
+before `10`, and anything else orders as text, case folded and then by code unit.
+That is not locale-aware, because that needs `Intl`; a column that wants a locale,
+a version or a size with a unit gives its own `compare(a, b)`, and `sortable:
+false` takes a column out of it.
+
+| Option    | Meaning                                                                      |
+| --------- | ---------------------------------------------------------------------------- |
+| `message` | What is being asked                                                          |
+| `rows`    | What to pick from, as objects or arrays. Never changed                       |
+| `columns` | `Column`s as for `table()`, each with an optional `compare` and `sortable`   |
+| `gap`     | The columns between one column and the next. Default 2                       |
+| `head`    | Whether to draw the heading row. Default: when any column has a `header`     |
+| `initial` | Which row starts under the cursor, by index into `rows`                      |
+| `loop`    | Whether the cursor wraps. Default `true`                                     |
+| `height`  | How many body rows the table may take. Default: what the terminal has left   |
+| `short`   | What is left on the answered line. Default: the row's cells, comma separated |
+
+`height` is named for what it is because `rows` is the data here, as it is for
+`table()`. A sortable heading keeps two columns back for its arrow, so turning a
+sort on does not move the columns; widths are measured over every row, so they do
+not move as the window does either. It rejects with `PromptError` where there is
+no terminal and for an empty `rows`, like the others.
+
 #### Note
 
 ```js

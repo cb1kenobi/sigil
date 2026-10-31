@@ -54,7 +54,7 @@ export interface TableCellView {
 export type TableRow = readonly unknown[] | Record<string, unknown>;
 
 /** A cell as the table holds it: what it draws, and how wide that is. */
-interface Cell {
+export interface TableCell {
   text: string;
   view?: TableCellView;
   width: number;
@@ -81,16 +81,33 @@ function isView(value: unknown): value is TableCellView {
 }
 
 /**
+ * What one cell holds, as the row gave it.
+ *
+ * Asked by anything that has to work with the value rather than with how it is
+ * drawn -- a sort compares a number as a number, which its text cannot say.
+ *
+ * @param row - The row.
+ * @param column - The column.
+ * @param index - The column's place among the others, for a row given as an array.
+ * @returns The value, which is `undefined` where the row has none.
+ */
+export function tableValue(row: TableRow, column: Column, index: number): unknown {
+  return Array.isArray(row)
+    ? row[index]
+    : (row as Record<string, unknown>)[column.key ?? String(index)];
+}
+
+/**
  * The columns a set of rows has, and the cells under them.
  *
  * @param rows - The rows.
  * @param opts - The declared columns, if there are any.
  * @returns The columns, their cells, and their headings.
  */
-function readRows(
+export function tableCells(
   rows: readonly TableRow[],
   opts: TableOptions
-): { cells: Cell[][]; columns: Column[]; headers: string[] } {
+): { cells: TableCell[][]; columns: Column[]; headers: string[] } {
   // a column may be a name, a declaration, or nothing at all -- in which case
   // the first row says what the columns are
   const first = rows[0];
@@ -103,9 +120,7 @@ function readRows(
 
   const cells = rows.map((row) =>
     columns.map((column, i) => {
-      const value = Array.isArray(row)
-        ? row[i]
-        : (row as Record<string, unknown>)[column.key ?? String(i)];
+      const value = tableValue(row, column, i);
       if (isView(value)) {
         return { text: '', view: value, width: Math.max(0, Math.floor(value.width)) };
       }
@@ -151,9 +166,9 @@ function cellText(value: string): string {
  * @param head - Whether the heading row is shown.
  * @returns One width per column.
  */
-function columnWidths(
+export function tableWidths(
   headers: string[],
-  cells: Cell[][],
+  cells: TableCell[][],
   columns: Column[],
   head: boolean
 ): number[] {
@@ -183,8 +198,8 @@ function columnWidths(
  * @param classes - What to put on each cell, for the heading row.
  * @returns The row.
  */
-function rowOf(
-  values: Cell[],
+export function tableRowView(
+  values: TableCell[],
   widths: number[],
   columns: Column[],
   gap: number,
@@ -258,16 +273,16 @@ export function tableView(
 ): { element: Element; width: number } {
   const gap = opts.gap === undefined ? 2 : Math.max(0, Math.floor(opts.gap));
   const indent = Math.max(0, Math.floor(opts.indent ?? 0));
-  const { cells, columns, headers } = readRows(rows, opts);
+  const { cells, columns, headers } = tableCells(rows, opts);
   const head = opts.head ?? columns.some((column) => column.header !== undefined);
-  const widths = columnWidths(headers, cells, columns, head);
+  const widths = tableWidths(headers, cells, columns, head);
 
   const body = rows.length
-    ? cells.map((row) => rowOf(row, widths, columns, gap, 'sigil-table-cell'))
+    ? cells.map((row) => tableRowView(row, widths, columns, gap, 'sigil-table-cell'))
     : [];
   const children = head
     ? [
-        rowOf(
+        tableRowView(
           headers.map((header) => ({ text: header, width: stringWidth(header) })),
           widths,
           columns,

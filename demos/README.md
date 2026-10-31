@@ -362,6 +362,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/33-masked-text.js`](components/33-masked-text.js)                           | A masked text prompt: a line that follows a template                     |
 | [`components/34-outline.js`](components/34-outline.js)                                   | Bulleted, numbered and nested lists, and one that changes live           |
 | [`components/35-file-picker.js`](components/35-file-picker.js)                           | A file picker: browse a directory tree with the arrows                   |
+| [`components/36-select-row.js`](components/36-select-row.js)                             | An interactive table: pick a row, sort by a column                       |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -418,6 +419,13 @@ with a letter level under it, roman numerals, a custom enumerator and a narrow
 width where the items wrap under their own text -- so a pipe and a terminal differ
 only in colour. The last section is `createOutline()`: on a terminal it redraws in
 place as items are ticked off, and piped it writes the finished list once.
+
+`36-select-row.js` is a prompt, so piped it plays the same `selectRow()` against an
+in-process terminal and prints the screen after each key: the cursor moving over
+whole rows, a digit sorting by age with the cursor staying on its row and a second
+press reversing it, a name sort that folds case, and the heading still there when
+the rows have scrolled. The terminal is short enough that the table needs its
+position line. On a terminal it asks for one of six deployments instead.
 
 ### Try them without a terminal
 
