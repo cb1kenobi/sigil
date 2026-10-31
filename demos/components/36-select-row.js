@@ -3,8 +3,8 @@ import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
 /**
  * An interactive table: pick a row, and sort by a column on the way.
  *
- *   node demos/components/47-select-row.js
- *   node demos/components/47-select-row.js | cat    <- a scripted run, no terminal needed
+ *   node demos/components/36-select-row.js
+ *   node demos/components/36-select-row.js | cat    <- a scripted run, no terminal needed
  *
  * Up and Down move a cursor over whole rows and Enter answers with the row that
  * was passed in. A digit sorts by that column: again to reverse, and a third time

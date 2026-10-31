@@ -42,6 +42,7 @@ import {
 } from './prompt.js';
 import {
   type Column,
+  type TableCell,
   tableCells,
   type TableRow,
   tableRowView,
@@ -319,14 +320,16 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
     };
 
     /** The heading cells, with the arrow on the column that is sorted. */
-    const headings = (): string[] =>
-      headers.map((heading, i) =>
-        i === sortBy
-          ? `${truncate(heading, Math.max(0, (widths[i] as number) - 2))} ${
-              descending ? ARROW.descending : ARROW.ascending
-            }`
-          : heading
-      );
+    const headings = (): TableCell[] =>
+      headers.map((heading, i) => {
+        const shown =
+          i === sortBy
+            ? `${truncate(heading, Math.max(0, (widths[i] as number) - 2))} ${
+                descending ? ARROW.descending : ARROW.ascending
+              }`
+            : heading;
+        return { text: shown, width: stringWidth(shown) };
+      });
 
     function draw(): void {
       const { footer, rows } = room();
@@ -359,7 +362,7 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
               visibility: current ? 'visible' : 'hidden',
               'white-space': 'nowrap',
             }),
-            tableRowView(cells[index] as string[], widths, columns, gap, 'sigil-table-cell')
+            tableRowView(cells[index] as TableCell[], widths, columns, gap, 'sigil-table-cell')
           )
         );
       }
@@ -407,7 +410,10 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
         hint.setText(
           opts.short
             ? opts.short(row)
-            : (cells[data.indexOf(row)] as string[]).filter(Boolean).join(', ')
+            : (cells[data.indexOf(row)] as TableCell[])
+                .map((cell) => cell.text)
+                .filter(Boolean)
+                .join(', ')
         );
         hint.setProps({ class: 'sigil-prompt-answer sigil-muted' });
         header?.setProps({ display: 'none' });

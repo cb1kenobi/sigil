@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 151 keys, which is what a catalog has to carry to translate sigil's own
+ * 159 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -53,6 +53,10 @@ export const SIGIL_KEYS: readonly string[] = [
   'Error: {0}',
   'Examples:',
   'Expected a list of values',
+  'Expected an enumerator to return a string',
+  'Expected each item to be a string or an object with a text string',
+  'Expected enumerator to hold at least one entry',
+  'Expected items to be an array',
   'Expected locale to be a valid language tag',
   'Expected min to be no later than max',
   'Expected weekStart to be an integer from 0 to 6',
@@ -60,6 +64,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Extra arguments are not allowed: {0}',
   'Failed to parse {0}: {1}',
   'Failed to read {0}: {1}',
+  'Fill in every blank',
   'Global options:',
   'Input ended before the prompt was answered',
   'Install {0} completion for {1}?',
@@ -119,6 +124,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Unknown command "{0}". Did you mean "{1}"?',
   'Unknown option "{0}"',
   'Unknown option "{0}". Did you mean "{1}"?',
+  'Unknown outline enumerator {0}',
   'Unknown output format "{0}". This command accepts: {1}',
   'Unsafe config key "{0}" in {1}',
   'Unterminated comment in {0} on line {1}',
@@ -143,6 +149,8 @@ export const SIGIL_KEYS: readonly string[] = [
   'home',
   'no',
   'none',
+  'off',
+  'on',
   'option {0}',
   'pgdn',
   'pgup',
