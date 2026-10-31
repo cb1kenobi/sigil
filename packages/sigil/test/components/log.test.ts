@@ -1,6 +1,7 @@
 import { createFullscreenCanvas } from '../../src/canvas/index.js';
 import {
   createLog,
+  formatLogFields,
   LOG_SYMBOLS,
   LOG_SYMBOLS_ASCII,
   log as processLog,
@@ -487,5 +488,244 @@ describe('the process logger', () => {
       'success',
       'warn',
     ]);
+  });
+});
+
+describe('a status line with fields', () => {
+  it('should write the fields after the message as key=value pairs', () => {
+    const { stderr, terminal } = split({ columns: 80 });
+    createLog({ colorLevel: 0, terminal }).info('deployed', { host: 'a', ms: 412 });
+    expect(stderr.output).toBe(`${LOG_SYMBOLS.info} deployed host=a ms=412\n`);
+  });
+
+  it('should take fields on every level and on a message', () => {
+    const { stderr, terminal } = split({ columns: 80 });
+    const log = createLog({ colorLevel: 0, terminal });
+
+    log.step('a', { n: 1 });
+    log.success('b', { n: 2 });
+    log.warn('c', { n: 3 });
+    log.error('d', { n: 4 });
+    log.message('e', { fields: { n: 5 }, symbol: '*' });
+
+    expect(stderr.output).toBe(
+      [
+        `${LOG_SYMBOLS.step} a n=1`,
+        `${LOG_SYMBOLS.success} b n=2`,
+        `${LOG_SYMBOLS.warn} c n=3`,
+        `${LOG_SYMBOLS.error} d n=4`,
+        '* e n=5',
+        '',
+      ].join('\n')
+    );
+  });
+
+  it('should write nothing extra for no fields, an empty object, or only undefined', () => {
+    const { stderr, terminal } = split({ columns: 80 });
+    const log = createLog({ colorLevel: 0, terminal });
+
+    log.info('a');
+    log.info('b', {});
+    log.info('c', { host: undefined });
+
+    expect(stderr.output).toBe(
+      [`${LOG_SYMBOLS.info} a`, `${LOG_SYMBOLS.info} b`, `${LOG_SYMBOLS.info} c`, ''].join('\n')
+    );
+  });
+
+  it('should put the fields on the last line of a message with several', () => {
+    const { stderr, terminal } = split({ columns: 80 });
+    createLog({ colorLevel: 0, terminal }).error('could not write\npermission denied', {
+      path: '/x',
+    });
+    expect(stderr.output).toBe(
+      `${LOG_SYMBOLS.error} could not write\n  permission denied path=/x\n`
+    );
+  });
+
+  it('should move the fields under the text when they do not fit beside it', () => {
+    const { stderr, terminal } = split({ columns: 24 });
+    createLog({ colorLevel: 0, terminal }).info('deployed to production', {
+      host: 'a',
+      ms: 412,
+    });
+    expect(stderr.output).toBe(`${LOG_SYMBOLS.info} deployed to production\n  host=a ms=412\n`);
+  });
+
+  it('should keep the fields on the one line of a file, whatever their length', () => {
+    const { stderr, terminal } = split({ err: false });
+    createLog({ terminal }).info('deployed', { host: 'a'.repeat(120), ms: 412 });
+    expect(stderr.output).toBe(`${LOG_SYMBOLS.info} deployed host=${'a'.repeat(120)} ms=412\n`);
+  });
+
+  it('should draw the fields in the muted role and leave the message alone', () => {
+    const { stderr, terminal } = split({ columns: 80 });
+    createLog({
+      colorLevel: 3,
+      terminal,
+      theme: '.sigil-muted { color: magenta; dim: false }',
+    }).info('x', {
+      k: 'v',
+    });
+    expect(stderr.output).toContain(`x ${ESC}[35mk=v`);
+  });
+
+  it('should not read a field of a line the quiet axis drops', () => {
+    const { stderr, terminal } = split();
+    const log = createLog({ colorLevel: 0, quiet: true, terminal });
+    const read = vi.fn(() => 'x');
+
+    log.info('a', {
+      get k() {
+        return read();
+      },
+    });
+    log.warn('b', { k: 1 });
+
+    expect(read).not.toHaveBeenCalled();
+    expect(stderr.output).toBe(`${LOG_SYMBOLS.warn} b k=1\n`);
+  });
+});
+
+describe('quoting a field', () => {
+  it('should leave a plain word bare', () => {
+    expect(formatLogFields({ host: 'a.example.com:8080', path: '/x/y-z' })).toBe(
+      'host=a.example.com:8080 path=/x/y-z'
+    );
+  });
+
+  it('should quote an empty value, a blank, a quote, an equals sign and a backslash', () => {
+    expect(formatLogFields({ a: '', b: 'two words', c: 'say "hi"', d: 'k=v', e: 'a\\b' })).toBe(
+      'a="" b="two words" c="say \\"hi\\"" d="k=v" e="a\\\\b"'
+    );
+  });
+
+  it('should write a line break as an escape so that a value cannot start a second line', () => {
+    const forged = 'ok\n2026-01-01T00:00:00Z error: forged\r\nmore';
+    const written = formatLogFields({ msg: forged });
+
+    expect(written).toBe('msg="ok\\n2026-01-01T00:00:00Z error: forged\\r\\nmore"');
+    expect(written).not.toMatch(/[\r\n]/);
+  });
+
+  it('should escape every control character, the Unicode line separators, and ESC', () => {
+    const nasty = `a${ESC}[2Jb\u0000c\u007fd\u0085e\u2028f\u2029g\tz`;
+    const written = formatLogFields({ v: nasty });
+
+    // eslint-disable-next-line no-control-regex
+    expect(/[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u2028\u2029]/.test(written)).toBe(false);
+    expect(written).toBe('v="a\\u001b[2Jb\\u0000c\\u007fd\\u0085e\\u2028f\\u2029g\\tz"');
+  });
+
+  it('should quote and escape a key the same way', () => {
+    const written = formatLogFields({ 'a b': 1, 'x\ny=z': 2, '': 3 });
+    expect(written).toBe('"a b"=1 "x\\ny=z"=2 ""=3');
+    expect(written).not.toContain('\n');
+  });
+
+  it('should not let a field forge a line on a screen or in a file', () => {
+    for (const err of [true, false]) {
+      const { stderr, terminal } = split({ columns: 80, err });
+      createLog({ colorLevel: 0, terminal }).info('real', { v: 'x\n! forged line' });
+
+      expect(stderr.text.split('\n').filter(Boolean)).toHaveLength(1);
+      expect(stderr.output).toBe(`${LOG_SYMBOLS.info} real v="x\\n! forged line"\n`);
+    }
+  });
+
+  it('should write other types the way JSON would, and leave undefined out', () => {
+    expect(
+      formatLogFields({
+        a: 1,
+        b: true,
+        c: null,
+        d: undefined,
+        e: 10n,
+        f: [1, 'x'],
+        g: { n: 1 },
+        h: new Date(Date.UTC(2026, 0, 2, 3, 4, 5)),
+        i: new Error('boom now'),
+      })
+    ).toBe(
+      'a=1 b=true c=null e=10 f="[1,\\"x\\"]" g="{\\"n\\":1}" h=2026-01-02T03:04:05.000Z i="boom now"'
+    );
+  });
+
+  it('should not throw on a value that cannot be serialized', () => {
+    const cycle: Record<string, unknown> = {};
+    cycle.self = cycle;
+    expect(formatLogFields({ a: cycle, b: { n: 1n } })).toBe(
+      'a="[object Object]" b="[object Object]"'
+    );
+  });
+});
+
+describe('a timestamp', () => {
+  const when = new Date(2026, 9, 30, 8, 5, 3, 7);
+
+  it('should stamp nothing by default', () => {
+    const { stderr, terminal } = split({ columns: 80 });
+    createLog({ colorLevel: 0, now: () => when, terminal }).info('x');
+    expect(stderr.output).toBe(`${LOG_SYMBOLS.info} x\n`);
+  });
+
+  it('should stamp the local time before the glyph with timestamp: true', () => {
+    const { stderr, terminal } = split({ columns: 80 });
+    createLog({ colorLevel: 0, now: () => when, terminal, timestamp: true }).info('x');
+    expect(stderr.output).toBe(`08:05:03 ${LOG_SYMBOLS.info} x\n`);
+  });
+
+  it('should stamp the UTC instant with timestamp: iso', () => {
+    const { stderr, terminal } = split({ columns: 80 });
+    createLog({ colorLevel: 0, now: () => when, terminal, timestamp: 'iso' }).info('x');
+    expect(stderr.output).toBe(`${when.toISOString()} ${LOG_SYMBOLS.info} x\n`);
+  });
+
+  it('should take a function, and keep it to one line', () => {
+    const { stderr, terminal } = split({ columns: 80 });
+    createLog({
+      colorLevel: 0,
+      now: () => when,
+      terminal,
+      timestamp: (d) => `[${d.getFullYear()}\n${ESC}[2J]`,
+    }).info('x');
+
+    expect(stderr.output).toBe(`[2026 [2J] ${LOG_SYMBOLS.info} x\n`);
+  });
+
+  it('should stamp a message with no glyph, and hang a second line under the text', () => {
+    const { stderr, terminal } = split({ columns: 80 });
+    const log = createLog({ colorLevel: 0, now: () => when, terminal, timestamp: true });
+
+    log.message('plain');
+    log.warn('one\ntwo', { k: 1 });
+
+    expect(stderr.output).toBe(
+      `08:05:03 plain\n08:05:03 ${LOG_SYMBOLS.warn} one\n         ${' '.repeat(2)}two k=1\n`
+    );
+  });
+
+  it('should draw the stamp in the muted role', () => {
+    const { stderr, terminal } = split({ columns: 80 });
+    createLog({
+      colorLevel: 3,
+      now: () => when,
+      terminal,
+      theme: '.sigil-muted { color: magenta; dim: false }',
+      timestamp: true,
+    }).info('x');
+    expect(stderr.output).toContain(`${ESC}[35m08:05:03 `);
+  });
+
+  it('should not read the clock for a line the quiet axis drops', () => {
+    const { terminal } = split();
+    const now = vi.fn(() => when);
+    const log = createLog({ colorLevel: 0, now, quiet: true, terminal, timestamp: true });
+
+    log.info('x');
+    expect(now).not.toHaveBeenCalled();
+
+    log.error('y');
+    expect(now).toHaveBeenCalledTimes(1);
   });
 });

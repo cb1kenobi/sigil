@@ -3272,6 +3272,59 @@ it again after it was unticked. `validate` is handed the array of values. As wit
 flight (the rows on screen belong to an earlier term) while Enter does not (it answers
 with what is ticked).
 
+#### A masked text field
+
+```js
+import { maskedText } from '@ttylabs/sigil/components';
+
+const phone = await maskedText({ message: 'Phone', template: '(###) ###-####' });
+const key = await maskedText({
+  message: 'Licence key',
+  template: 'KKKK-KKKK-KKKK',
+  slots: { K: { match: /[a-z0-9]/i, transform: (char) => char.toUpperCase() } },
+});
+```
+
+A line that follows a template. The field is drawn with its shape -- `(___) ___-____` --
+and only the slots take input: the fixed characters are drawn and skipped over, so
+typing `5551234567` gives `(555) 123-4567`. The answer is the **formatted** text, which
+is what was on screen; the raw characters are `applyMask(template, answer).raw`.
+
+| Option        | Meaning                                                                       |
+| ------------- | ----------------------------------------------------------------------------- |
+| `message`     | What is being asked                                                           |
+| `template`    | The shape of the answer. A slot character takes input and any other is drawn  |
+| `slots`       | Slots of your own, by the single character that stands for each in `template` |
+| `initial`     | What the field starts with, read the way a paste is; may leave slots empty    |
+| `default`     | Answered when nothing was typed. It has to fill the template; shown dimmed    |
+| `placeholder` | Shown dimmed while nothing has been typed, in place of the blank template     |
+| `validate`    | Receives the formatted answer; return a string to reject it with that message |
+
+The slots a template understands are `#` for a digit, `A` for a letter, `N` for a
+letter or a digit, `H` for a hex digit and `*` for any character that is not
+whitespace -- ASCII, because these are for codes and numbers (`MASK_SLOTS` lists
+them). A slot of your own is a `RegExp` tested against one character, or
+`{ match, transform }` where `transform` rewrites what was kept: an upper-casing
+slot for a licence key, or `''` to refuse the character after all. `slots` wins over
+the built-in ones where they share a character. A backslash makes the next character
+fixed, so `'\\#'` is a literal `#`; a template with no slot, or ending in a backslash,
+rejects the prompt.
+
+Typing fills the slot the caret is on and moves to the next one, over any fixed
+characters between, and a character the slot does not accept is ignored. Typing
+**overwrites** rather than pushing what follows along, because a pushed character
+would have to fit the slot it lands in. Backspace empties the slot before the caret
+and steps onto it, crossing a fixed character in one press, Delete empties the slot
+under it, and Left, Right, Home and End move by slot. Enter answers once every slot is
+full and says `Fill in every blank` otherwise.
+
+A paste is read from the caret, left to right: a character goes into the slot it is
+at if it fits and is dropped if not, and the template's own fixed characters are
+passed over where they come -- so `(555) 123-4567` and `555.123.4567` fill the same
+slots, and `+1 555` in `+1 ###` is not taken to start with a `1`. `applyMask(template,
+text, slots?)` is that rule on its own, returning `{ complete, dropped, raw, value }`
+for a value that did not come from a prompt.
+
 #### A path
 
 ```js
@@ -3356,6 +3409,44 @@ is refused the way an empty one is.
 The rows are numbered, and a list longer than the screen is windowed to follow
 the highlight. It rejects with `PromptError` where there is no terminal, like the
 others.
+
+#### Toggle
+
+```js
+import { toggle } from '@ttylabs/sigil/components';
+
+const enabled = await toggle({
+  message: 'Notifications',
+  active: 'enabled',
+  inactive: 'disabled',
+  initial: true,
+});
+// true
+```
+
+A setting with two named states, for the case where the states are not an answer
+to a question: `confirm()` is "yes or no" with `y` and `n`, and "notifications:
+on or off" has no yes in it. It returns a boolean, `true` for the active state.
+
+Both states are shown, **the inactive one on the left and the active one on the
+right**, like a switch, with a marker on the current one. **Left chooses the
+inactive state and Right the active one; Tab, Shift-Tab and Space flip to the
+other.** Enter answers. Up, letters and anything held with Ctrl or Alt do
+nothing. Once answered the line is the question and the name of the state chosen.
+
+| Option     | Meaning                                                                        |
+| ---------- | ------------------------------------------------------------------------------ |
+| `message`  | What is being asked                                                            |
+| `active`   | What the `true` state is called. Default `on`, translated through the catalog  |
+| `inactive` | What the `false` state is called. Default `off`, translated the same way       |
+| `initial`  | The state it starts in. Default `false`                                        |
+| `signal`   | An `AbortSignal`, as for every prompt: it rejects with the signal's own reason |
+
+A name that is blank or holds a line break, two states with the same name and an
+`initial` that is not a boolean are refused with a `PromptError` before anything
+is drawn. Where the question and both states do not fit on one line the states
+go on a line of their own under it. It rejects with `PromptError` where there is
+no terminal, like the others.
 
 #### Spinner
 
@@ -3463,6 +3554,7 @@ log.success('Installed 42 packages');
 log.warn('left-pad is deprecated');
 log.error('Could not write the cache:\npermission denied');
 log.message('see https://example.com/docs', { symbol: '→' });
+log.success('Deployed', { host: 'a.example.com', ms: 412 });
 ```
 
 Leveled status lines: a glyph, a colour and a message. **This is not the `DEBUG`
@@ -3487,8 +3579,52 @@ the middle of `mycli --format json | jq`.
   replaces one glyph. Nothing detects a terminal that needs ASCII; the caller
   chooses, as it does a spinner's `LINE` frames.
 
-`createLog({ terminal, ascii, symbols, quiet, theme })` builds one over another
-terminal; `log` is the process's. No timestamps and no structured fields yet.
+`createLog({ terminal, ascii, symbols, quiet, theme, timestamp })` builds one over
+another terminal; `log` is the process's.
+
+##### Fields and timestamps
+
+```js
+log.info('deployed', { host: 'a', ms: 412 });
+// ℹ deployed host=a ms=412
+
+log.warn('rejected', { reason: 'bad input\n! forged line' });
+// ⚠ rejected reason="bad input\n! forged line"
+
+const stamped = createLog({ timestamp: 'iso' });
+stamped.error('Failed', { host: 'b' });
+// 2026-10-30T18:50:17.547Z ✖ Failed host=b
+```
+
+Every level takes a second argument of fields, and `message()` takes them as
+`{ fields }` beside its `symbol`. They are written after the message as `key=value`
+pairs separated by a space, in the order the object has them, drawn in the muted
+role. It is a plain-text shape a person can grep and a tool can split, and it is
+**not** a JSON mode: a `log` that writes JSON lines would be a different feature.
+
+- **A field cannot start a second line.** A key or value is written bare when it is
+  a plain word. If it is empty or holds a blank, a quote, `=`, a backslash or a
+  control character it is quoted, and inside the quotes the line feed is `\n`, the
+  tab `\t`, and every other control character, `ESC` and the Unicode line
+  separators `\uXXXX`. A message with several lines keeps them; the fields are
+  only ever on one.
+- A value that is not a string is `String()` of it, except an object or array,
+  which is its JSON, a `Date`, which is its ISO form, and an `Error`, which is its
+  message. `undefined` leaves the field out, so `{ host: opts.host }` says nothing
+  without a host. A value that cannot be serialized is written as `String()` rather
+  than throwing from a status line.
+- The fields share the last line of the message when they fit, and go under it when
+  they do not. A file has no width, so they are always on the message's line.
+- `timestamp: true` writes the **local** time, `18:50:17`, before the glyph;
+  `'iso'` writes the instant in **UTC** (`2026-10-30T18:50:17.547Z`), which is what
+  a file read elsewhere wants; a function takes a `Date` and returns the text, with
+  any line break or control character in it replaced by a space. Off by default.
+  It is an option of the logger rather than of a call: a stamp on some lines of a
+  log is one a reader cannot rely on. `now` replaces the clock, for a test.
+- A line the quiet axis drops reads neither the clock nor a field, so `--quiet`
+  behaves as it did. `log.stream` takes no fields and writes no stamp.
+- The two helpers behind it are `formatLogFields()`, for text in the same shape
+  somewhere else, and the `logView()` that draws a line.
 
 ##### Streaming
 
@@ -3651,6 +3787,91 @@ puts it on the result side of `--quiet`. `noteView()` is the element tree behind
 it, for an app that wants one inside its own tree. There is no live form: a note
 is static, so `console.log(note(...))` already is one.
 
+#### Badge
+
+```js
+import { badge, badgeView, table } from '@ttylabs/sigil/components';
+
+console.log(`${badge('PASS', { variant: 'success' })} 148 tests in 2.1s`);
+
+console.log(
+  table([
+    ['@ttylabs/sigil', badgeView('PASS', { variant: 'success' })],
+    ['@ttylabs/cli', badgeView('FAIL', { variant: 'error' })],
+  ])
+);
+```
+
+A few characters on a coloured ground -- `PASS`, `FAIL`, `beta` -- for a table
+cell or a line of text. The label is drawn as given, with a column of padding each
+side, in the colour of the variant's theme role: `success`, `warning`, `error` and
+`info` are `.sigil-success`, `.sigil-warn`, `.sigil-error` and `.sigil-info`, and
+`neutral` (the default) takes no role, so it is the terminal's own foreground
+inverted. The role's colour becomes the background by `.sigil-badge { inverse: true }`,
+so a theme that recolours `.sigil-success` recolours its badges, and
+`.sigil-badge-error` and its siblings are the narrower hook for one variant. There
+is no colour option: the colours are the theme's.
+
+Where there is no colour -- a pipe, `NO_COLOR` -- the inverse is gone and padding
+alone would leave `PASS` indistinguishable from the text beside it, so the padding
+becomes brackets: `[PASS]`. Both take two columns, so a badge is the same width
+either way. Escape sequences and line breaks in the label are dropped, and an empty
+label draws nothing.
+
+`badge()` returns a string and the caller does the writing, which puts it on the
+result side of `--quiet`, like `table()` and `note()`. **In a table, use
+`badgeView()`**: a string cell has its escape sequences dropped, so a styled
+`badge()` string would print as literal characters. A `table()` cell may be any
+`{ element, width }` -- a `TableCellView` -- and the table sizes the column by the
+`width`, aligns the tree by the column's `align`, and cuts it at the column's
+`maxWidth`. Pass the same `colorLevel` (or `ansi`) to the badge and the table if
+you override one: the level is what picks brackets or padding, and a badge built
+for one level and drawn at another is still legible but not the same shape.
+
+#### Rule
+
+```js
+import { rule } from '@ttylabs/sigil/components';
+
+console.log(rule({ label: 'Results', width: 32 }));
+console.log(rule({ align: 'left', label: 'Results', width: 32 }));
+console.log(rule({ width: 32 }));
+```
+
+```
+─────────── Results ────────────
+── Results ─────────────────────
+────────────────────────────────
+```
+
+A divider across the terminal's width (or `width`), with an optional label set
+into the line. The label is one line -- escape sequences are dropped and white
+space is collapsed -- and is measured in columns, so wide characters and emoji
+keep the rule the width it was asked to be. It is cut with an ellipsis where it
+would not fit, and left out where there is no room for the line around it.
+
+| Option  | Meaning                                                                   |
+| ------- | ------------------------------------------------------------------------- |
+| `label` | Words set into the line                                                   |
+| `align` | `center` (default), `left` or `right`                                     |
+| `line`  | `single` (default), `double`, `bold` or `ascii`                           |
+| `role`  | `muted` (default), `accent`, `info`, `success`, `warn`, `error` or `none` |
+| `width` | How many columns it spans. Defaults to `terminalWidth()`                  |
+
+A rule is dim by default, because it is there to separate things and not to be
+read, and the label is bold and **not** dim. Any other role colours the line and
+the label both. The theme reaches it the usual way: `.sigil-muted` and the other
+roles for the colour, `.sigil-rule-line` and `.sigil-rule-label` for one part,
+`.sigil-rule` for the row. The character is not CSS -- there is no `content`
+property to carry one -- so it is `line`, which falls back to ASCII where
+`unicodeSupported()` says the terminal cannot be trusted with box drawing, as
+`note()` does; `env` and `platform` override what it reads.
+
+Like `note()` it returns a string and the caller does the writing, which puts it
+on the result side of `--quiet`. `ruleView()` is the element tree behind it, for
+an app that wants one inside its own tree; its width is fixed when it is built,
+so a layout that resizes builds it again.
+
 #### Outline
 
 ```js
@@ -3774,6 +3995,59 @@ foreground) and `ascii`. Unless `ascii` is given it follows `unicodeSupported()`
 and the ASCII forms are `_.:-=+*#` for a sparkline, `#` bars, a `*` line and `#`
 and `-` in a gauge. `.sigil-chart-sparkline`, `-bar`, `-line` and `-gauge` are the
 theme hooks, each with `-row` and `-part` classes inside.
+
+#### A paginator
+
+```js
+import { createPaginator } from '@ttylabs/sigil/components';
+
+const pager = createPaginator({ perPage: 5, total: results.length });
+
+console.log(pager.slice(results).join('\n'));
+console.log(pager.indicator({ style: 'both' }));
+input.bind('right', () => pager.next());
+```
+
+```
+result-06.log  result-07.log  result-08.log  result-09.log  result-10.log
+○ ● ○ ○ ○ 2/5
+```
+
+For content that is genuinely in pages -- a result set, a wizard, a help browser --
+rather than one long list, which is what the prompts' window and `ScrollBox` scroll.
+`createPaginator({ page, perPage, total })` is the arithmetic, over signals:
+
+- **`page`** counts from zero and clamps when assigned; **`pages`** is at least
+  one, so nothing to show is still `1/1`. `next()`, `previous()`, `first()`,
+  `last()` and `goTo(n)` return whether the page moved, so a key handler can tell
+  the end from a keystroke that did something.
+- **`start`** and **`end`** are the indexes of the current page's items (`end` is
+  exclusive), `onFirstPage` and `onLastPage` say where you are, and
+  `slice(items)` is the page's items.
+- **`total`** and **`perPage`** are assignable. A `total` that shrinks takes the
+  page with it, once, so growing again does not spring it back; a `perPage` that
+  changes keeps the page's **first item** on screen. A `perPage` under one is one.
+
+Every read goes through a signal, so one made inside an effect or a computed is
+tracked. `pager.state` is the three signals, `paginatorState()` makes them without
+the facade, and `pageCount()`, `pageBounds()` and `clampPage()` are the arithmetic.
+
+`pageIndicator(page, pages, options)` is the string, and `pager.indicator()` is
+the same for the current page. `style: 'dots'` (the default) is one dot per page,
+the current one filled -- `● ○ ○` -- `'numeric'` is `2/5`, and `'both'` is
+`○ ● ○ 2/3`. Past `maxDots` pages (10) the dots give way to the number, whatever
+the style said, because a row of forty dots wraps into a different shape on every
+terminal width. `format(page, pages)` words the number, counting from one --
+`Page 2 of 5` in your own language, since `2/5` is not prose and is not in the
+catalog -- `active` and `inactive` replace the glyphs, and `ascii` (by default what
+`unicodeSupported()` says) draws `*` and `.`.
+
+`paginatorView(state, options)` is the live indicator as an element tree, redrawn
+when the page, the total or the page size changes, and `pageIndicatorView()` is
+the static one behind the string. The current dot is `.sigil-accent` and the rest
+`.sigil-muted`, with `.sigil-paginator`, `-active`, `-inactive` and `-numeric` as
+the theme hooks. Nothing is bound to a key: a paginator is state, and which keys
+turn the page is the app's.
 
 #### A key-help footer
 

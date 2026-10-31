@@ -1,8 +1,8 @@
 /**
  * Lists: bulleted, numbered and nested, and one that changes while it is on screen.
  *
- *   node demos/components/47-outline.js
- *   node demos/components/47-outline.js | cat    <- the finished list is written once
+ *   node demos/components/34-outline.js
+ *   node demos/components/34-outline.js | cat    <- the finished list is written once
  *
  * An item is a string, or `{ text, items }` with the items nested under it. The
  * marker is chosen by depth, and an item that wraps hangs under its own text.

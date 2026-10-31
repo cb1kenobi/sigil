@@ -211,6 +211,8 @@ describe('what importing the package costs', () => {
     'barChartView',
     'taskLog',
     'calendarView',
+    'ruleView',
+    'paginatorView',
     'outlineView',
   ];
 
