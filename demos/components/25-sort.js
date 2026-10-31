@@ -3,8 +3,8 @@ import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
 /**
  * A sort prompt: put a list in order.
  *
- *   node demos/components/43-sort.js
- *   node demos/components/43-sort.js | cat    <- a scripted run, no terminal needed
+ *   node demos/components/25-sort.js
+ *   node demos/components/25-sort.js | cat    <- a scripted run, no terminal needed
  *
  * Space picks the highlighted row up, Up and Down carry it, Space puts it down,
  * and Enter answers. Home and End send a carried row to the top or the bottom.

@@ -62,20 +62,29 @@ the entry it belongs to.
   `sigil-${outcome}` lands on a role for all four values of `SpinnerOutcome`,
   which is the one emission that computes its class.
 
-  `.sigil-caret`, `.sigil-scroll-track`, `.sigil-debug` and `.sigil-qrcode-paint`
-  are the four declared exceptions: no role is inversion; the track is the one
+  `.sigil-caret`, `.sigil-scroll-track`, `.sigil-debug`, `.sigil-qrcode-paint` and
+  `.sigil-badge` are the five declared exceptions: no role is inversion; the track is the one
   grey here that is not de-emphasised _text_, so it must not be `.sigil-muted` --
   that role is `dim` on a dark terminal, and a dim track is not a track;
   `.sigil-debug` is a **background** rather than a foreground, which no role is
   either; and the QR code's is a foreground and a background _together_, because a
   scanner wants dark modules on a light one and a terminal is usually the other
   way round, so neither of the two is de-emphasis, a state or an accent. `should
-  declare on a role, bar four exceptions that say why` is the invariant, and it
+  declare on a role, bar five exceptions that say why` is the invariant, and it
   reads the **parsed** sheet rather than the source, because the comment listing
   the component classes as hooks would otherwise be mistaken for a rule. It was
   three until SIG-136, and the sentence here still said three for a commit after
   the test had been renamed -- which a review round pointed at by asking what
   counts elsewhere in this file the change had made false.
+
+  The fifth is `.sigil-badge` (SIG-178), and it is `inverse` again -- the same
+  declaration as the caret, for a different reason: it is how a role becomes a
+  background. A badge is a label on a coloured ground, the colour is the variant's
+  role, and `inverse` on a text that already has the role's `color` paints that
+  colour behind the label. Declaring `background-color` on each variant instead
+  would be four more rules that restate the four roles' colours, and a theme that
+  recoloured `.sigil-success` would have to be told again; this way it is one
+  rule and the roles stay the only place a state has a colour.
 
 - **The toolchain has no sheet of its own, and deleting it fixed a bug rather than
   tidying one.** `TOOLCHAIN_CSS` was seven declarations under a `cli-` prefix at

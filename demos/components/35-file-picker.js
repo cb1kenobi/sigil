@@ -3,8 +3,8 @@ import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
 /**
  * A file picker: browse a directory tree with the arrows.
  *
- *   node demos/components/47-file-picker.js
- *   node demos/components/47-file-picker.js | cat    <- a scripted run, no terminal needed
+ *   node demos/components/35-file-picker.js
+ *   node demos/components/35-file-picker.js | cat    <- a scripted run, no terminal needed
  *
  * `path()` is a field you type a path into; this is a list you walk. Right goes
  * into the highlighted directory, Left or Backspace comes back out onto the one

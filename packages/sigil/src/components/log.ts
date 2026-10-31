@@ -10,6 +10,10 @@
  * prints it to stdout, so a status line on stdout would arrive in the middle of
  * `mycli --format json | jq`. The data is stdout's and the commentary is
  * stderr's, whichever level it is.
+ *
+ * A line may carry fields -- `deployed host=a ms=412` -- and a logger may stamp
+ * each line with the time. Both are for the reader of a file as much as of a
+ * screen, which is why they are plain text in a fixed shape.
  */
 
 import { type Ansi, createAnsi, strip } from '../ansi/index.js';
@@ -62,9 +66,31 @@ export const LOG_SYMBOLS_ASCII: LogSymbols = Object.freeze({
   warn: '!',
 });
 
+/**
+ * The key-value pairs a line carries after its message.
+ *
+ * Written in insertion order, and a value that is `undefined` is left out, so
+ * `{ host: opts.host }` says nothing when there is no host rather than
+ * `host=undefined`.
+ */
+export type LogFields = Readonly<Record<string, unknown>>;
+
+/**
+ * How a line is stamped.
+ *
+ * - `true` or `'time'`: the local time, `18:50:17`.
+ * - `'iso'`: the instant in UTC, `2026-10-30T18:50:17.547Z`, which is what a
+ *   file that is read on another machine wants.
+ * - A function: whatever it returns, with line breaks and control characters
+ *   replaced by a space so that a stamp cannot start a second line.
+ */
+export type LogTimestamp = boolean | 'iso' | 'time' | ((date: Date) => string);
+
 export interface LogOptions extends StyledOptions {
   /** Use `LOG_SYMBOLS_ASCII`. Defaults to false. */
   ascii?: boolean;
+  /** The clock the timestamps read. Defaults to the system's. */
+  now?: () => Date;
   /**
    * Whether this is progress rather than the answer.
    *
@@ -78,9 +104,13 @@ export interface LogOptions extends StyledOptions {
   symbols?: Partial<LogSymbols>;
   /** The terminal to write through. Defaults to the process's. */
   terminal?: Terminal;
+  /** Stamp every line with the time. Off by default. */
+  timestamp?: LogTimestamp;
 }
 
 export interface LogMessageOptions {
+  /** Fields to write after the message. */
+  fields?: LogFields;
   /** A glyph of the caller's own. Without one the text starts at the margin. */
   symbol?: string;
 }
@@ -114,22 +144,22 @@ export interface LogStream {
 
 export interface Log {
   /** A failure. Written even when the run is quiet. */
-  error(message: string): void;
+  error(message: string, fields?: LogFields): void;
   /** Something worth knowing that is not progress. */
-  info(message: string): void;
+  info(message: string, fields?: LogFields): void;
   /** A line with no level of its own. */
   message(message: string, opts?: LogMessageOptions): void;
   /** The start of a stage of the work. */
-  step(message: string): void;
+  step(message: string, fields?: LogFields): void;
   /** Something finished. */
-  success(message: string): void;
+  success(message: string, fields?: LogFields): void;
   /**
    * Status lines whose text has not all arrived yet: an LLM's answer, a
    * subprocess's output.
    */
   readonly stream: LogStream;
   /** Something is off but the run goes on. Written even when the run is quiet. */
-  warn(message: string): void;
+  warn(message: string, fields?: LogFields): void;
 }
 
 type Level = 'error' | 'info' | 'step' | 'success' | 'warn';
@@ -146,6 +176,127 @@ const ROLE: Record<Level, string> = {
 /** The levels a quiet run still says. */
 const SURVIVES_QUIET: ReadonlySet<Level | undefined> = new Set(['error', 'warn']);
 
+/** A key or value that can stand bare: no blank, quote, `=`, backslash or control. */
+const BARE = /^[^\s"=\\\p{Cc}\p{Zl}\p{Zp}]+$/u;
+
+/** What cannot be written as itself inside quotes. */
+const UNSAFE = /["\\\p{Cc}\p{Zl}\p{Zp}]/gu;
+
+const ESCAPES: Record<string, string> = {
+  '\n': '\\n',
+  '\r': '\\r',
+  '\t': '\\t',
+  '"': '\\"',
+  '\\': '\\\\',
+};
+
+/**
+ * One key or one value, quoted when it has to be.
+ *
+ * A bare word is written as it is. Anything with a blank, a quote, an `=`, a
+ * backslash or a control character is quoted, and inside the quotes everything
+ * that could end the line or move the cursor is written as an escape -- the line
+ * feed as `\n`, the rest as `\uXXXX`. That is the rule a field cannot forge a
+ * second line by: a value is one token on one line whatever it holds, and a
+ * U+2028 is as much a line break to some readers as a `\n` is.
+ *
+ * @param value - The text.
+ * @returns The token.
+ */
+function token(value: string): string {
+  if (value !== '' && BARE.test(value)) {
+    return value;
+  }
+
+  return `"${value.replace(
+    UNSAFE,
+    (char) => ESCAPES[char] ?? `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`
+  )}"`;
+}
+
+/** A value of any type, as the text that is quoted. `undefined` is `undefined`. */
+function fieldText(value: unknown): string | undefined {
+  switch (typeof value) {
+    case 'undefined':
+      return undefined;
+    case 'string':
+      return value;
+    case 'object': {
+      if (value instanceof Date) {
+        return Number.isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString();
+      }
+      if (value instanceof Error) {
+        return value.message;
+      }
+      try {
+        // a value with a `toJSON()` of its own is trusted to say what it is
+        return JSON.stringify(value) ?? String(value);
+      } catch {
+        // a cycle, or a BigInt inside: what it prints as is better than a throw
+        // from a status line
+        return String(value);
+      }
+    }
+    default:
+      return String(value);
+  }
+}
+
+/**
+ * Fields as `key=value` pairs separated by a space.
+ *
+ * Quoting is `token()`'s, applied to the key as well as the value, so a key
+ * cannot carry a line break either. A value that is not a string is written the
+ * way it would be in JSON where that is a thing -- an object, an array -- and as
+ * `String()` otherwise. An empty result is the empty string, so a caller can ask
+ * whether there was anything to write.
+ *
+ * @param fields - The pairs.
+ * @returns The text, one line.
+ */
+export function formatLogFields(fields: LogFields | undefined): string {
+  const pairs: string[] = [];
+
+  for (const [key, value] of Object.entries(fields ?? {})) {
+    const written = fieldText(value);
+    if (written !== undefined) {
+      pairs.push(`${token(key)}=${token(written)}`);
+    }
+  }
+
+  return pairs.join(' ');
+}
+
+/** The stamp for one line, or `undefined` for none. */
+function stamp(option: LogTimestamp | undefined, date: Date): string | undefined {
+  if (!option) {
+    return undefined;
+  }
+
+  if (typeof option === 'function') {
+    return String(option(date))
+      .replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, ' ')
+      .trim();
+  }
+
+  if (option === 'iso') {
+    return date.toISOString();
+  }
+
+  const two = (n: number): string => String(n).padStart(2, '0');
+  return `${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
+}
+
+/** What goes around a message: the time before it and the fields after it. */
+export interface LogExtras {
+  /** The fields, already written by `formatLogFields()`. */
+  fields?: string;
+  /** The stamp. */
+  time?: string;
+  /** The width the line is laid out in, which decides whether the fields fit beside the text. */
+  width?: number;
+}
+
 /**
  * One status line as an element tree.
  *
@@ -160,28 +311,73 @@ const SURVIVES_QUIET: ReadonlySet<Level | undefined> = new Set(['error', 'warn']
  * @param role - The theme role the glyph is drawn in.
  * @returns The tree.
  */
-export function logView(message: string, symbol: string | undefined, role?: string): Element {
+export function logView(
+  message: string,
+  symbol: string | undefined,
+  role?: string,
+  extras: LogExtras = {}
+): Element {
   // one node per line of the caller's text: the layout collapses a newline, and
   // a blank line is a node of its own so that it survives
   const lines = message.split(/\r?\n/).map((line) => textNode(line, { class: 'sigil-log-text' }));
-  const body = box(
-    { class: 'sigil-log-body', 'flex-direction': 'column', 'flex-shrink': 1 },
-    ...lines
-  );
+  const children: Element[] = [...lines];
 
-  if (!symbol) {
-    return box({ class: 'sigil-log' }, body);
+  if (extras.fields) {
+    const last = message.split(/\r?\n/).at(-1) ?? '';
+    const beside =
+      extras.width === undefined ||
+      stringWidth(last) + 1 + stringWidth(extras.fields) <= extras.width;
+    const written = textNode(extras.fields, {
+      class: 'sigil-log-fields sigil-muted',
+      'flex-shrink': 1,
+      ...(beside ? { 'margin-left': 1 } : {}),
+    });
+
+    if (beside) {
+      // the fields belong to the last line of the text, which stays a node of its
+      // own so that it is measured the way it was
+      children.pop();
+      children.push(
+        box(
+          { class: 'sigil-log-line', 'flex-direction': 'row' },
+          lines[lines.length - 1] as Element,
+          written
+        )
+      );
+    } else {
+      // too wide to share a row: under the text, which is still one line of
+      // fields rather than a pair per row, so it reads as one record
+      children.push(written);
+    }
   }
 
-  return box(
-    { class: 'sigil-log' },
-    textNode(symbol, {
-      class: `sigil-log-symbol sigil-symbol${role ? ` ${role}` : ''}`,
-      'flex-shrink': 0,
-      'margin-right': 1,
-    }),
-    body
+  const body = box(
+    { class: 'sigil-log-body', 'flex-direction': 'column', 'flex-shrink': 1 },
+    ...children
   );
+  const columns: Element[] = [];
+
+  if (extras.time) {
+    columns.push(
+      textNode(extras.time, {
+        class: 'sigil-log-time sigil-muted',
+        'flex-shrink': 0,
+        'margin-right': 1,
+      })
+    );
+  }
+
+  if (symbol) {
+    columns.push(
+      textNode(symbol, {
+        class: `sigil-log-symbol sigil-symbol${role ? ` ${role}` : ''}`,
+        'flex-shrink': 0,
+        'margin-right': 1,
+      })
+    );
+  }
+
+  return box({ class: 'sigil-log' }, ...columns, body);
 }
 
 /**
@@ -223,20 +419,40 @@ export function createLog(opts: LogOptions = {}): Log {
       : undefined;
   }
 
-  function write(level: Level | undefined, message: string, symbol: string | undefined): void {
+  function write(
+    level: Level | undefined,
+    message: string,
+    symbol: string | undefined,
+    given?: LogFields
+  ): void {
     if (silenced(level)) {
       return;
     }
 
+    // after the quiet check, so a line that is dropped never reads the clock or
+    // runs a getter on a field
+    const fields = formatLogFields(given);
+    const time = stamp(opts.timestamp, (opts.now ?? (() => new Date()))());
+    const gutter = (time ? stringWidth(time) + 1 : 0) + (symbol ? stringWidth(symbol) + 1 : 0);
+
     detected ??= createAnsi({ stream: terminal.stderr });
     const colorLevel = opts.colorLevel ?? (opts.ansi ?? detected).level;
-    const view = logView(message, symbol, level && ROLE[level]);
 
     // a log file is not wrapped for a screen: the reader has a pager, and a line
     // cut at 80 columns is one that cannot be grepped whole
     const columns = screenWidth();
-    const widest = Math.max(...message.split(/\r?\n/).map((line) => stringWidth(line)));
-    const width = columns ?? widest + (symbol ? stringWidth(symbol) + 1 : 0) + 1;
+    const rows = message.split(/\r?\n/).map((line) => stringWidth(line));
+    // the fields share the last row when they fit, so a file -- which has no
+    // limit -- always has them there
+    const beside = fields ? stringWidth(fields) + 1 : 0;
+    const last = rows.length - 1;
+    const widest = Math.max(...rows.slice(0, last), (rows[last] ?? 0) + beside);
+    const width = columns ?? widest + gutter + 1;
+    const view = logView(message, symbol, level && ROLE[level], {
+      fields,
+      time,
+      width: width - gutter,
+    });
 
     const lines = renderToLines(view, {
       cascade: themedCascade(opts),
@@ -326,10 +542,10 @@ export function createLog(opts: LogOptions = {}): Log {
   }
 
   return {
-    error: (message) => write('error', message, symbols.error),
-    info: (message) => write('info', message, symbols.info),
-    message: (message, o = {}) => write(undefined, message, o.symbol),
-    step: (message) => write('step', message, symbols.step),
+    error: (message, fields) => write('error', message, symbols.error, fields),
+    info: (message, fields) => write('info', message, symbols.info, fields),
+    message: (message, o = {}) => write(undefined, message, o.symbol, o.fields),
+    step: (message, fields) => write('step', message, symbols.step, fields),
     stream: {
       error: (source) => stream('error', source, symbols.error),
       info: (source) => stream('info', source, symbols.info),
@@ -338,8 +554,8 @@ export function createLog(opts: LogOptions = {}): Log {
       success: (source) => stream('success', source, symbols.success),
       warn: (source) => stream('warn', source, symbols.warn),
     },
-    success: (message) => write('success', message, symbols.success),
-    warn: (message) => write('warn', message, symbols.warn),
+    success: (message, fields) => write('success', message, symbols.success, fields),
+    warn: (message, fields) => write('warn', message, symbols.warn, fields),
   };
 }
 
