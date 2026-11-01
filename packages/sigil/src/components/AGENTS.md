@@ -5644,9 +5644,14 @@ the window a task writes a subprocess's output to. SIG-161.
   alive at once evict each other. Doing it properly means one tree of several
   rows driven by one clock, which is a different component from "a spinner per
   task". Subtasks are the same cost in another dimension. Neither has a caller.
-- **`tasks()` is `createSpinner()` in a loop and has no drawing of its own.** The
+  **Superseded by SIG-203**, which built exactly that component: see "Tasks side
+  by side, and subtasks" below. The default is still one at a time.
+- **`tasks()` was `createSpinner()` in a loop and had no drawing of its own.** The
   quiet axis, the pipe form (a line when a task starts and one when it settles)
-  and the settled marks are the spinner's, so they cannot disagree with it.
+  and the settled marks were the spinner's, so they could not disagree with it.
+  SIG-203 replaced the loop with one frame of rows, and kept the agreement by
+  drawing each row with `spinnerView()` and each settled line as `spinnerView()`
+  rendered to a string, rather than by keeping the loop.
 - **A skipped task settles as the spinner's `info`.** There is no fifth outcome
   and none was added: `ℹ title (skipped: reason)` says it is worth knowing
   without saying it went well or badly. `skip()` is a marker the task _returns_
@@ -5718,8 +5723,164 @@ the window a task writes a subprocess's output to. SIG-161.
   and the window takes its place; in a pipe the spinner _is_ the log, so the title
   is not printed twice. `tasks()` settles an unsettled window itself, as success
   or (on a throw) failure; a window the task settled itself is left alone.
-- **Not done:** concurrency, subtasks, retry, rollback, and a title that animates
-  while a window is open.
+  **Since SIG-203 there is no spinner to adopt**: a task's window is rows of the
+  list's one frame, under the task's own row, so the adopt path and the internal
+  `info()` ending it needed are gone and `taskLog()` on its own is what it was.
+  What it promised is unchanged and its tests are untouched.
+- **Not done:** rollback, and a title that animates while a window is open.
+  Concurrency, subtasks and retry are SIG-203's, below.
+
+### Tasks side by side, and subtasks
+
+`src/components/tasks.ts` again: `concurrency` and `failFast` on `tasks()`,
+`context.tasks()` for subtasks, `retry` on a task, and `context.signal`. SIG-203.
+The demo is `demos/components/43-concurrent-tasks.js`.
+
+- **One live region holding a row per task, driven by one clock -- not a spinner
+  per task.** A spinner per task is the problem SIG-161 avoided by running one at
+  a time: each claims the region and evicts the last. So a run is one `For` over
+  every task at every depth, built once per top-level `tasks()` call and shared by
+  every `context.tasks()` under it, and one `setInterval` advances the frame of
+  every row that is spinning. Each row is `spinnerView()` with a `SpinnerState`
+  of its own, so a row cannot disagree with a lone spinner about what running and
+  settled look like. The clock runs only while some row spins, which is what keeps
+  a task whose window is open from waking the process, as SIG-161's window did.
+
+  **The clock's effect reads a boolean, not a count.** It read the number of
+  spinning rows at first, so every task that started beside the others re-ran the
+  effect, which cleared the interval and made a new one: four tasks, four
+  `setInterval` calls, and a cadence that reset on every start. The test that
+  counts them is what found it. `State`'s equality is what makes the boolean work
+  -- `true` set over `true` notifies nobody.
+
+- **`concurrency` is a number: 1 by default, a positive integer, or `Infinity`.**
+  Anything else is a `TypeError` thrown before anything is drawn, because `0` is a
+  list that never starts -- a hang rather than a choice -- and a fraction has no
+  reading worth guessing at. A bad `retry` is refused the same way, up front, so
+  that a typo in the fifth task does not surface after four have run. Each list
+  has its own: three parents at a concurrency of three, each running subtasks at
+  three, is nine at once, which is the caller's arithmetic rather than a global
+  limit this would have to invent.
+
+- **A task that settles at the top leaves the frame and is written above it, so
+  the frame holds only what is running.** That bounds it at the concurrency rather
+  than at the length of the list, and a written line scrolls where a frame taller
+  than the screen is clipped -- the `keep: false` reasoning from the multi-bar.
+  The cost is that lines land in the order tasks _finished_ rather than the order
+  they were listed, which was weighed against keeping list order and committing
+  only a settled prefix. Completion order won because it is the order a pipe has
+  to write them in, so a screen and a log tell one story; and because a prefix
+  rule lets one slow first task hold every finished one in the frame. The results
+  `tasks()` resolves with are in list order regardless. For a sequential list the
+  two orders are the same, which is why every SIG-161 test passed unchanged.
+
+  A task's settled line is `spinnerView()` rendered to a string with its outcome
+  set and written with `mounted.write()`, styled -- not a plain string, which would
+  have lost the colour on the mark. The frame is repainted without the task
+  _before_ the write, so the frame the write puts back underneath is the one that
+  no longer holds it. The indent is spaces in front of the string rather than a
+  margin, because a string render starts at the root's own box and its margin has
+  nothing to be a margin against -- measured: `  ✔ react` came out as `✔ react`.
+
+- **When even the running rows do not fit, what is cheapest to lose goes first,
+  and a cut is said.** The budget is the screen's height less the cursor's row.
+  First to go are subtasks that have already settled, oldest first: a success is
+  collapsed into its parent anyway and a failure is written out whole when the
+  parent settles. Then window lines, which a failure writes out whole too. Only
+  then are running rows cut, from the bottom, with `… 7 more running` in the last
+  row. Queued tasks that have not started are never drawn: a row for each would
+  make the frame as long as the list again, which is what the commit rule exists
+  to avoid. Recomputed on a resize.
+
+- **Failure is fail fast by default, and fail fast means waiting.** The first
+  failure starts nothing new, aborts `context.signal` for every task still
+  running, waits for them, and rethrows the first error -- SIG-161's rule
+  generalised, and identical to it at a concurrency of one. Waiting is not
+  optional: a promise cannot be cancelled from outside, so rejecting at once would
+  leave the others writing into a region that had already been given back, and
+  the screen has to be returned before the promise settles. A running task that
+  ignores the signal ends however it ends and keeps that line.
+
+  **A task that rejects with the abort settles as `ℹ title (cancelled)`**, which
+  is the spinner's `info` again rather than a fifth outcome, for the reason a skip
+  is: it did what it was told, and `✖` would report two failures where there was
+  one. "Rejects with the abort" is the signal's own `reason` or anything named
+  `AbortError`, since `fetch()`, `spawn()` and `node:timers/promises` reject with
+  an `AbortError` of their own rather than with the reason.
+
+  **`failFast: false` runs every task and rejects with an `AggregateError`**,
+  holding each failure in list order -- always an `AggregateError`, so a caller's
+  `catch` has one shape to read whether one task failed or five. Its message is
+  the failure's own when there is one, so `main()` still prints something useful,
+  and `{0} tasks failed` otherwise. Resolving with failed outcomes instead was
+  refused: a caller who forgot to look would exit zero over a failed build.
+
+  On screen, every task that started stays, as it ended; one that never started
+  leaves no line, as SIG-161's did.
+
+- **Piped, every line is written when it happens, and a line says whose it is
+  wherever its position cannot.** Holding a task's lines until it settles would
+  make a CI log tidy and a hang invisible, which is the wrong way round: the start
+  line is how a log says what was running when the job was killed. So a task
+  writes a line when it starts, when its text changes, for each line of its
+  output, on each retry, and when it settles -- the multi-bar's precedent, where
+  each bar's line is labelled because six of them interleave. A start or settle
+  line already carries the title. An output line carries `title: ` in front of it,
+  because a subprocess has no idea which task it is printing for. A subtask's
+  lines carry its ancestors' titles (`✔ Installing: Fetched react`) and **drop the
+  indent**, because under interleaving the line above may be anybody's and an
+  indent would claim a parent the line does not have.
+
+  Whether a task's lines can interleave is decided from the options -- its list's
+  concurrency, or any ancestor's, capped by how many tasks there are -- and never
+  from timing, so the same program writes the same shape every run. A sequential
+  run labels nothing and indents subtasks under their parent, which is SIG-161's
+  pipe form byte for byte.
+
+- **Subtasks are `context.tasks()`, not a `subtasks` property.** The ordinary case
+  is a list the task only knows once it has run -- the packages a resolve found --
+  and a declarative list would be a second spelling that could only express the
+  other case. Nested as deep as the calls go; each level is `INDENT` further in.
+  While a parent runs, its subtasks are shown under it, the settled ones included,
+  so the block reads as one thing. When it settles, the block is committed as one:
+  a success as its single line, a failure as its line, its own window's output,
+  and every subtask as it ended -- `taskLog()`'s rule (a success collapses, a
+  failure keeps everything) applied one level up.
+
+  **A parent's outcome follows its children's only through the rejection.** A
+  failed subtask rejects `context.tasks()`, which fails the parent unless it
+  catches -- and a parent that catches settles however it returns. No separate
+  rule derives one from the other, because the one that exists already says it
+  and a second would disagree with it the first time a parent caught. A skipped
+  subtask does not skip its parent: the parent ran. A list aborted from outside
+  before every task ran rejects with the signal's reason, so its parent ends as
+  cancelled rather than as a success with half its subtasks missing.
+
+  `TaskResultValue` accepts `TaskOutcome[]` so that a task which is only a group
+  can be `({ tasks }) => tasks([...])` and type-check; it settles on the title, as
+  returning nothing does.
+
+- **`retry` is per task: a number of further attempts, or `{ tries, delay }`.**
+  The row reads `title (retry 1 of 2)` while it tries again, and a pipe gets that
+  as a line. Each attempt is handed a fresh context, and the failed attempt's
+  window and subtasks are discarded, so a failure shows only the last attempt's
+  output -- the one that is the failure. A late call from an earlier attempt that
+  is still running is ignored. Not retried: a task that returned `skip()`, which
+  is not a failure; a task cancelled by its list; and anything once the list has
+  aborted, which also cuts a delay short. The errors of the attempts that were
+  retried are not reported; the last one is what is rethrown.
+
+- **Skip was already SIG-161's, and no declarative `skip` was added.** Listr2's
+  `skip: () => boolean | string` is `task: () => cond ? skip(reason) : work()`
+  spelled a second way. `enabled: false` stays the way to leave no line at all.
+
+- **Quiet draws nothing and changes nothing else**: the tasks run, retries happen,
+  and a failure still rejects. Under reduced motion the rows are drawn and no
+  timer starts, as a lone spinner's are.
+
+- **Not done:** rollback; a concurrency limit shared across nested lists; a row
+  for queued tasks; a declarative `skip` or a function `enabled`; and reporting
+  the errors of attempts that a retry recovered from.
 
 ### A multiselect with groups: `groupMultiselect()`
 
@@ -6095,7 +6256,7 @@ is the group. SIG-184.
   was.
 - **The multi-bar is a new component over one live region, not several
   `createProgress()` instances.** Two live regions cannot share the bottom of the
-  screen -- the same reason `tasks()` is sequential -- so a second bar would evict
+  screen -- the same reason `tasks()` was sequential -- so a second bar would evict
   the first. One tree, a `For` over a `State` list of bar states, one row per bar,
   built from the same `progressView()` the single bar uses, so a row cannot
   disagree with a bar about what it looks like. `For` is what lets a bar be added

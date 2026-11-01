@@ -656,3 +656,913 @@ describe('tasks()', () => {
     });
   });
 });
+
+/** A promise and the two handles that settle it, for a task a test finishes by hand. */
+function deferred<T = void>(): {
+  promise: Promise<T>;
+  reject: (error: unknown) => void;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, reject, resolve };
+}
+
+describe('tasks() side by side', () => {
+  it('should run no more than concurrency tasks at once', async () => {
+    const ui = screenSetup();
+    let running = 0;
+    let most = 0;
+
+    await tasks(
+      Array.from({ length: 6 }, (_, i) => ({
+        async task() {
+          running++;
+          most = Math.max(most, running);
+          await tick(1 + (i % 3));
+          running--;
+        },
+        title: `Task ${i + 1}`,
+      })),
+      { ansi: ui.ansi, concurrency: 3, terminal: ui.terminal }
+    );
+
+    expect(most).to.equal(3);
+  });
+
+  it('should run every task at once with a concurrency of Infinity', async () => {
+    const ui = screenSetup();
+    const gate = deferred();
+    let started = 0;
+
+    const running = tasks(
+      Array.from({ length: 5 }, (_, i) => ({
+        async task() {
+          started++;
+          await gate.promise;
+        },
+        title: `Task ${i + 1}`,
+      })),
+      { ansi: ui.ansi, concurrency: Infinity, terminal: ui.terminal }
+    );
+    await tick();
+
+    expect(started).to.equal(5);
+    gate.resolve();
+    await running;
+  });
+
+  it('should draw a row for each running task in one frame', async () => {
+    const ui = screenSetup();
+    const gate = deferred();
+
+    const running = tasks(
+      [
+        { task: () => gate.promise, title: 'Fetch react' },
+        { task: () => gate.promise, title: 'Fetch vite' },
+      ],
+      { ansi: ui.ansi, concurrency: 2, frames: ['*'], terminal: ui.terminal }
+    );
+    await tick();
+
+    expect(ui.log).to.deep.equal(['* Fetch react', '* Fetch vite']);
+    gate.resolve();
+    await running;
+  });
+
+  it('should write a task above the frame as it finishes, in the order they finished', async () => {
+    const ui = screenSetup();
+    const first = deferred();
+    const second = deferred();
+
+    const running = tasks(
+      [
+        { task: () => first.promise, title: 'First' },
+        { task: () => second.promise, title: 'Second' },
+      ],
+      { ansi: ui.ansi, concurrency: 2, frames: ['*'], terminal: ui.terminal }
+    );
+    await tick();
+
+    second.resolve();
+    await tick();
+    expect(ui.log).to.deep.equal(['✔ Second', '* First']);
+
+    first.resolve();
+    const results = await running;
+    expect(ui.log).to.deep.equal(['✔ Second', '✔ First']);
+    // the results are the list's order whatever the screen's is
+    expect(results.map((result) => result.title)).to.deep.equal(['First', 'Second']);
+  });
+
+  it('should drive every running row from one timer', async () => {
+    vi.useFakeTimers();
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    try {
+      const ui = screenSetup();
+      const gate = deferred();
+
+      const running = tasks(
+        Array.from({ length: 4 }, (_, i) => ({ task: () => gate.promise, title: `Task ${i}` })),
+        { ansi: ui.ansi, concurrency: 4, frames: ['a', 'b'], terminal: ui.terminal }
+      );
+      // one tick of the frames, and the repaint the renderer paces after it
+      await vi.advanceTimersByTimeAsync(120);
+
+      expect(intervals).toHaveBeenCalledTimes(1);
+      expect(ui.log).to.deep.equal(['b Task 0', 'b Task 1', 'b Task 2', 'b Task 3']);
+
+      gate.resolve();
+      await running;
+      expect(vi.getTimerCount()).to.equal(0);
+    } finally {
+      intervals.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('should draw the rows still and start no timer under a motion preference', async () => {
+    vi.useFakeTimers();
+    try {
+      const ui = screenSetup();
+      const gate = deferred();
+
+      const running = tasks(
+        [
+          { task: () => gate.promise, title: 'One' },
+          { task: () => gate.promise, title: 'Two' },
+        ],
+        { ansi: ui.ansi, concurrency: 2, reducedMotion: 'reduce', terminal: ui.terminal }
+      );
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(vi.getTimerCount()).to.equal(0);
+      expect(ui.log).to.deep.equal(['One', 'Two']);
+      gate.resolve();
+      await running;
+      expect(ui.log).to.deep.equal(['✔ One', '✔ Two']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should cut the running rows that do not fit the screen, and say how many', async () => {
+    const ui = screenSetup({ rows: 5 });
+    const gate = deferred();
+
+    const running = tasks(
+      Array.from({ length: 10 }, (_, i) => ({ task: () => gate.promise, title: `Task ${i + 1}` })),
+      { ansi: ui.ansi, concurrency: 10, frames: ['*'], terminal: ui.terminal }
+    );
+    await tick();
+
+    expect(ui.log).to.deep.equal(['* Task 1', '* Task 2', '* Task 3', '… 7 more running']);
+    gate.resolve();
+    await running;
+    expect(ui.log).to.have.length(10);
+  });
+
+  it.each([0, -1, 1.5, Number.NaN])('should refuse a concurrency of %s', async (concurrency) => {
+    const ui = screenSetup();
+    let ran = false;
+
+    await expect(
+      tasks([{ task: () => void (ran = true), title: 'One' }], {
+        ansi: ui.ansi,
+        concurrency,
+        terminal: ui.terminal,
+      })
+    ).rejects.toThrow(TypeError);
+
+    expect(ran).to.equal(false);
+    expect(ui.output).to.equal('');
+  });
+
+  describe('when a task fails', () => {
+    it('should start nothing new, cancel what is running, and rethrow the first error', async () => {
+      const ui = screenSetup();
+      const boom = new Error('no network');
+      let third = false;
+      let aborted = false;
+
+      await expect(
+        tasks(
+          [
+            {
+              async task() {
+                await tick();
+                throw boom;
+              },
+              title: 'Fetch react',
+            },
+            {
+              task: ({ signal }) =>
+                new Promise<void>((_resolve, reject) => {
+                  signal.addEventListener('abort', () => {
+                    aborted = true;
+                    reject(signal.reason);
+                  });
+                }),
+              title: 'Fetch vite',
+            },
+            { task: () => void (third = true), title: 'Fetch esbuild' },
+          ],
+          { ansi: ui.ansi, concurrency: 2, terminal: ui.terminal }
+        )
+      ).rejects.toBe(boom);
+
+      expect(aborted).to.equal(true);
+      expect(third).to.equal(false);
+      expect(ui.log).to.deep.equal(['✖ Fetch react', 'ℹ Fetch vite (cancelled)']);
+    });
+
+    it('should wait for a running task that ignores the signal, and keep how it ended', async () => {
+      const ui = screenSetup();
+      const slow = deferred();
+      let settled = false;
+
+      const running = tasks(
+        [
+          {
+            task: () => Promise.reject(new Error('x')),
+            title: 'Fails',
+          },
+          {
+            async task() {
+              await slow.promise;
+              return 'Finished anyway';
+            },
+            title: 'Slow',
+          },
+        ],
+        { ansi: ui.ansi, concurrency: 2, terminal: ui.terminal }
+      ).catch((error: unknown) => {
+        settled = true;
+        throw error;
+      });
+      await tick();
+
+      expect(settled).to.equal(false);
+      slow.resolve();
+      await expect(running).rejects.toThrow('x');
+      expect(ui.log).to.deep.equal(['✖ Fails', '✔ Finished anyway']);
+    });
+
+    it('should run every task with failFast off and reject with each failure in list order', async () => {
+      const ui = screenSetup();
+      const late = new Error('late');
+      const early = new Error('early');
+      let ran = 0;
+
+      const error: unknown = await tasks(
+        [
+          {
+            async task() {
+              await tick(2);
+              throw late;
+            },
+            title: 'One',
+          },
+          { task: () => void ran++, title: 'Two' },
+          {
+            task: () => {
+              throw early;
+            },
+            title: 'Three',
+          },
+          { task: () => void ran++, title: 'Four' },
+        ],
+        { ansi: ui.ansi, concurrency: 2, failFast: false, terminal: ui.terminal }
+      ).catch((caught: unknown) => caught);
+
+      expect(error).to.be.instanceOf(AggregateError);
+      expect((error as AggregateError).errors).to.deep.equal([late, early]);
+      expect((error as AggregateError).message).to.equal('2 tasks failed');
+      expect(ran).to.equal(2);
+      expect([...ui.log].sort()).to.deep.equal(['✔ Four', '✔ Two', '✖ One', '✖ Three']);
+    });
+
+    it('should carry the one failure message when failFast is off and one task failed', async () => {
+      const ui = screenSetup();
+
+      const error: unknown = await tasks(
+        [
+          { task: () => Promise.reject(new Error('disk full')), title: 'One' },
+          { task: () => {}, title: 'Two' },
+        ],
+        { ansi: ui.ansi, failFast: false, terminal: ui.terminal }
+      ).catch((caught: unknown) => caught);
+
+      expect(error).to.be.instanceOf(AggregateError);
+      expect((error as AggregateError).message).to.equal('disk full');
+      expect(ui.log).to.deep.equal(['✖ One', '✔ Two']);
+    });
+
+    it('should write all of a failed window under its line and collapse the other', async () => {
+      const ui = screenSetup({ rows: 16 });
+      const gate = deferred();
+
+      await expect(
+        tasks(
+          [
+            {
+              async task({ log }) {
+                const window = log({ limit: 2 });
+                for (const line of lines(4)) {
+                  window.message(line);
+                }
+                await gate.promise;
+                throw new Error('exit 1');
+              },
+              title: 'Build',
+            },
+            {
+              async task({ log }) {
+                log({ limit: 2 }).message('linting');
+                await tick();
+                gate.resolve();
+              },
+              title: 'Lint',
+            },
+          ],
+          { ansi: ui.ansi, concurrency: 2, terminal: ui.terminal }
+        )
+      ).rejects.toThrow('exit 1');
+
+      expect(ui.log).to.deep.equal(['✔ Lint', '✖ Build', ...lines(4).map((line) => `  ${line}`)]);
+    });
+  });
+
+  describe('when there is no terminal', () => {
+    it('should label a line of output with its task where tasks run side by side', async () => {
+      const { stdout, terminal } = setup({ isTTY: false });
+      const a = deferred();
+      const b = deferred();
+
+      const running = tasks(
+        [
+          {
+            async task({ log }) {
+              log().message('resolving');
+              b.resolve();
+              await a.promise;
+              log().message('done');
+            },
+            title: 'Fetch react',
+          },
+          {
+            async task({ log }) {
+              await b.promise;
+              log().message('resolving');
+              a.resolve();
+            },
+            title: 'Fetch vite',
+          },
+        ],
+        { concurrency: 2, terminal }
+      );
+      await running;
+
+      expect(stdout.output).to.equal(
+        [
+          'Fetch react',
+          'Fetch react: resolving',
+          'Fetch vite',
+          'Fetch vite: resolving',
+          'Fetch react: done',
+          '✔ Fetch vite',
+          '✔ Fetch react',
+          '',
+        ].join('\n')
+      );
+    });
+
+    it('should leave a line of output alone where only one task runs at a time', async () => {
+      const { stdout, terminal } = setup({ isTTY: false });
+
+      await tasks(
+        [
+          { task: ({ log }) => log().message('one'), title: 'First' },
+          { task: ({ log }) => log().message('two'), title: 'Second' },
+        ],
+        { concurrency: 4, terminal: terminal }
+      ).then(() =>
+        tasks([{ task: ({ log }) => log().message('three'), title: 'Third' }], {
+          concurrency: 4,
+          terminal,
+        })
+      );
+
+      expect(stdout.output).to.contain('First: one\n');
+      expect(stdout.output).to.contain('Third\nthree\n✔ Third\n');
+    });
+  });
+});
+
+describe('tasks() with subtasks', () => {
+  it('should draw subtasks one level in, under their parent', async () => {
+    const ui = screenSetup();
+    const gate = deferred();
+
+    const running = tasks(
+      [
+        {
+          task: ({ tasks: sub }) =>
+            sub(
+              [
+                { task: () => gate.promise, title: 'react' },
+                { task: () => gate.promise, title: 'vite' },
+              ],
+              { concurrency: 2 }
+            ),
+          title: 'Install',
+        },
+      ],
+      { ansi: ui.ansi, frames: ['*'], terminal: ui.terminal }
+    );
+    await tick();
+
+    expect(ui.log).to.deep.equal(['* Install', '  * react', '  * vite']);
+    gate.resolve();
+    await running;
+  });
+
+  it('should keep a settled subtask under its parent until the parent settles', async () => {
+    const ui = screenSetup();
+    const gate = deferred();
+
+    const running = tasks(
+      [
+        {
+          task: ({ tasks: sub }) =>
+            sub([
+              { task: () => 'react 19', title: 'react' },
+              { task: () => gate.promise, title: 'vite' },
+            ]),
+          title: 'Install',
+        },
+      ],
+      { ansi: ui.ansi, frames: ['*'], terminal: ui.terminal }
+    );
+    await tick();
+
+    expect(ui.log).to.deep.equal(['* Install', '  ✔ react 19', '  * vite']);
+    gate.resolve();
+    await running;
+  });
+
+  it('should collapse a parent that succeeds to its one line', async () => {
+    const ui = screenSetup();
+
+    const results = await tasks(
+      [
+        {
+          async task({ tasks: sub }) {
+            const done = await sub([
+              { task: () => {}, title: 'react' },
+              { task: () => skip('cached'), title: 'vite' },
+            ]);
+            return `Installed ${done.length} packages`;
+          },
+          title: 'Install',
+        },
+      ],
+      { ansi: ui.ansi, terminal: ui.terminal }
+    );
+
+    expect(ui.log).to.deep.equal(['✔ Installed 2 packages']);
+    expect(results[0]?.outcome).to.equal('success');
+  });
+
+  it('should fail the parent with a failed subtask and keep every subtask on screen', async () => {
+    const ui = screenSetup();
+    const boom = new Error('404');
+
+    await expect(
+      tasks(
+        [
+          {
+            task: ({ tasks: sub }) =>
+              sub([
+                { task: () => {}, title: 'react' },
+                {
+                  task: () => {
+                    throw boom;
+                  },
+                  title: 'left-pad',
+                },
+                { task: () => {}, title: 'never' },
+              ]),
+            title: 'Install',
+          },
+        ],
+        { ansi: ui.ansi, terminal: ui.terminal }
+      )
+    ).rejects.toBe(boom);
+
+    expect(ui.log).to.deep.equal(['✖ Install', '  ✔ react', '  ✖ left-pad']);
+  });
+
+  it('should let a parent that catches its subtasks failure decide its own outcome', async () => {
+    const ui = screenSetup();
+
+    await tasks(
+      [
+        {
+          async task({ tasks: sub }) {
+            try {
+              await sub([{ task: () => Promise.reject(new Error('x')), title: 'optional' }]);
+            } catch {
+              return 'Installed without the optional one';
+            }
+          },
+          title: 'Install',
+        },
+      ],
+      { ansi: ui.ansi, terminal: ui.terminal }
+    );
+
+    expect(ui.log).to.deep.equal(['✔ Installed without the optional one']);
+  });
+
+  it('should nest as deep as the tasks do', async () => {
+    const ui = screenSetup({ rows: 12 });
+
+    await expect(
+      tasks(
+        [
+          {
+            task: ({ tasks: one }) =>
+              one([
+                {
+                  task: ({ tasks: two }) =>
+                    two([{ task: () => Promise.reject(new Error('deep')), title: 'Leaf' }]),
+                  title: 'Branch',
+                },
+              ]),
+            title: 'Root',
+          },
+        ],
+        { ansi: ui.ansi, terminal: ui.terminal }
+      )
+    ).rejects.toThrow('deep');
+
+    expect(ui.log).to.deep.equal(['✖ Root', '  ✖ Branch', '    ✖ Leaf']);
+  });
+
+  it('should cancel a running parent subtasks when a sibling of the parent fails', async () => {
+    const ui = screenSetup();
+    let aborted = false;
+
+    await expect(
+      tasks(
+        [
+          {
+            task: ({ tasks: sub }) =>
+              sub([
+                {
+                  task: ({ signal }) =>
+                    new Promise<void>((_resolve, reject) => {
+                      signal.addEventListener('abort', () => {
+                        aborted = true;
+                        reject(signal.reason);
+                      });
+                    }),
+                  title: 'download',
+                },
+              ]),
+            title: 'Install',
+          },
+          {
+            async task() {
+              await tick();
+              throw new Error('lockfile is stale');
+            },
+            title: 'Verify',
+          },
+        ],
+        { ansi: ui.ansi, concurrency: 2, terminal: ui.terminal }
+      )
+    ).rejects.toThrow('lockfile is stale');
+
+    expect(aborted).to.equal(true);
+    expect(ui.log).to.deep.equal(['✖ Verify', 'ℹ Install (cancelled)']);
+  });
+
+  // the results are filled by index, so a cancelled subtask before one that
+  // succeeded left a gap that did not shorten them, and read as every one run
+  it('should cancel the parent when a subtask is cancelled and the one listed after it succeeded', async () => {
+    const ui = screenSetup();
+    let continued = false;
+
+    await expect(
+      tasks(
+        [
+          {
+            async task({ tasks: sub }) {
+              await sub(
+                [
+                  {
+                    task: ({ signal }) =>
+                      new Promise<void>((_resolve, reject) => {
+                        signal.addEventListener('abort', () => reject(signal.reason));
+                      }),
+                    title: 'download',
+                  },
+                  { task: () => undefined, title: 'link' },
+                ],
+                { concurrency: 2 }
+              );
+              continued = true;
+            },
+            title: 'Install',
+          },
+          {
+            async task() {
+              await tick();
+              throw new Error('lockfile is stale');
+            },
+            title: 'Verify',
+          },
+        ],
+        { ansi: ui.ansi, concurrency: 2, terminal: ui.terminal }
+      )
+    ).rejects.toThrow('lockfile is stale');
+
+    expect(continued).to.equal(false);
+    expect(ui.log).to.deep.equal(['✖ Verify', 'ℹ Install (cancelled)']);
+  });
+
+  it('should indent subtasks in a pipe and write the parent last', async () => {
+    const { stdout, terminal } = setup({ isTTY: false });
+
+    await tasks(
+      [
+        {
+          task: ({ tasks: sub }) =>
+            sub([{ task: ({ log }) => log().message('ok'), title: 'react' }]),
+          title: 'Install',
+        },
+      ],
+      { terminal }
+    );
+
+    expect(stdout.output).to.equal('Install\n  react\n  ok\n  ✔ react\n✔ Install\n');
+  });
+
+  it('should name the parent of a subtask in a pipe where lines interleave, and not indent it', async () => {
+    const { stdout, terminal } = setup({ isTTY: false });
+    const gate = deferred();
+
+    await tasks(
+      [
+        {
+          task: ({ tasks: sub }) =>
+            sub([
+              {
+                async task({ log }) {
+                  await gate.promise;
+                  log().message('200 OK');
+                },
+                title: 'react',
+              },
+            ]),
+          title: 'Install',
+        },
+        { task: () => gate.resolve(), title: 'Lint' },
+      ],
+      { concurrency: 2, terminal }
+    );
+
+    expect(stdout.output).to.equal(
+      [
+        'Install',
+        'Install: react',
+        'Lint',
+        'Install: react: 200 OK',
+        '✔ Lint',
+        '✔ Install: react',
+        '✔ Install',
+        '',
+      ].join('\n')
+    );
+  });
+});
+
+describe('tasks() with retries', () => {
+  it('should run a failing task again, saying which retry it is on', async () => {
+    const ui = screenSetup();
+    const seen: string[] = [];
+    let attempts = 0;
+
+    const results = await tasks(
+      [
+        {
+          async task() {
+            attempts++;
+            seen.push(ui.frame);
+            if (attempts < 3) {
+              throw new Error('flaky');
+            }
+            return 'Fetched';
+          },
+          retry: 2,
+          title: 'Fetch',
+        },
+      ],
+      { ansi: ui.ansi, frames: ['*'], terminal: ui.terminal }
+    );
+
+    expect(attempts).to.equal(3);
+    expect(seen).to.deep.equal(['* Fetch', '* Fetch (retry 1 of 2)', '* Fetch (retry 2 of 2)']);
+    expect(ui.log).to.deep.equal(['✔ Fetched']);
+    expect(results[0]?.outcome).to.equal('success');
+  });
+
+  it('should fail with the last error once the retries are spent', async () => {
+    const ui = screenSetup();
+    let attempts = 0;
+
+    await expect(
+      tasks(
+        [
+          {
+            task: () => {
+              attempts++;
+              throw new Error(`attempt ${attempts}`);
+            },
+            retry: 1,
+            title: 'Fetch',
+          },
+        ],
+        { ansi: ui.ansi, terminal: ui.terminal }
+      )
+    ).rejects.toThrow('attempt 2');
+
+    expect(ui.log).to.deep.equal(['✖ Fetch']);
+  });
+
+  it('should wait the delay between attempts', async () => {
+    vi.useFakeTimers();
+    try {
+      const ui = screenSetup();
+      let attempts = 0;
+
+      const running = tasks(
+        [
+          {
+            task: () => {
+              attempts++;
+              if (attempts === 1) {
+                throw new Error('flaky');
+              }
+            },
+            retry: { delay: 1000, tries: 1 },
+            title: 'Fetch',
+          },
+        ],
+        { ansi: ui.ansi, terminal: ui.terminal }
+      );
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(attempts).to.equal(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await running;
+      expect(attempts).to.equal(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should keep only the last attempt output when a retried task fails', async () => {
+    const ui = screenSetup({ rows: 12 });
+    let attempts = 0;
+
+    await expect(
+      tasks(
+        [
+          {
+            task({ log }) {
+              attempts++;
+              log().message(`output of attempt ${attempts}`);
+              throw new Error('exit 1');
+            },
+            retry: 1,
+            title: 'Build',
+          },
+        ],
+        { ansi: ui.ansi, terminal: ui.terminal }
+      )
+    ).rejects.toThrow('exit 1');
+
+    expect(ui.log).to.deep.equal(['✖ Build', '  output of attempt 2']);
+  });
+
+  it('should not show a failed attempt output under a later attempt that printed none', async () => {
+    const ui = screenSetup({ rows: 12 });
+    let attempts = 0;
+
+    await expect(
+      tasks(
+        [
+          {
+            task({ log }) {
+              if (++attempts === 1) {
+                log().message('output of attempt 1');
+              }
+              throw new Error('exit 1');
+            },
+            retry: 1,
+            title: 'Build',
+          },
+        ],
+        { ansi: ui.ansi, terminal: ui.terminal }
+      )
+    ).rejects.toThrow('exit 1');
+
+    expect(ui.log).to.deep.equal(['✖ Build']);
+  });
+
+  it('should not retry a task that skipped', async () => {
+    const ui = screenSetup();
+    let attempts = 0;
+
+    await tasks(
+      [
+        {
+          task: () => {
+            attempts++;
+            return skip('cached');
+          },
+          retry: 3,
+          title: 'Build',
+        },
+      ],
+      { ansi: ui.ansi, terminal: ui.terminal }
+    );
+
+    expect(attempts).to.equal(1);
+  });
+
+  it('should write a line for each retry in a pipe', async () => {
+    const { stdout, terminal } = setup({ isTTY: false });
+    let attempts = 0;
+
+    await tasks(
+      [
+        {
+          task: () => {
+            if (++attempts === 1) {
+              throw new Error('flaky');
+            }
+          },
+          retry: 1,
+          title: 'Fetch',
+        },
+      ],
+      { terminal }
+    );
+
+    expect(stdout.output).to.equal('Fetch\nFetch (retry 1 of 1)\n✔ Fetch\n');
+  });
+
+  it.each([-1, 1.5, Number.NaN])('should refuse a retry of %s', async (retry) => {
+    await expect(
+      tasks([{ retry, task: () => {}, title: 'One' }], { terminal: setup().terminal })
+    ).rejects.toThrow(TypeError);
+  });
+});
+
+describe('tasks() when asked to be quiet', () => {
+  it('should draw nothing for tasks side by side or nested, and still rethrow', async () => {
+    const { stdout, terminal } = setup({ isTTY: true });
+    let ran = 0;
+
+    await expect(
+      tasks(
+        [
+          {
+            task: ({ tasks: sub }) =>
+              sub([{ task: ({ log }) => void log().message(String(++ran)), title: 'a' }]),
+            title: 'One',
+          },
+          {
+            task: () => {
+              ran++;
+              throw new Error('x');
+            },
+            title: 'Two',
+          },
+        ],
+        { concurrency: 2, quiet: true, terminal }
+      )
+    ).rejects.toThrow('x');
+
+    expect(ran).to.equal(2);
+    expect(stdout.output).to.equal('');
+  });
+});
