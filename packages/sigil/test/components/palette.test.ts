@@ -957,11 +957,13 @@ describe('commandPalette()', () => {
     // which is a field that refuses an answer without saying why. Found by
     // review.
     //
-    // Wide enough that the composed complaint fits on one row: the head reserves
-    // the submit hint's columns now, so at 60 the message wrapped and the hint
-    // sat *between* its two halves on screen -- which no row-major read can
-    // reassemble, whatever it does to the whitespace. The claim here is that the
-    // complaint is the parser's own, so the fixture is a width that can show one
+    // Wide enough that the composed complaint fits on one row: the head used to
+    // reserve the submit hint's columns, so at 60 the message wrapped and the
+    // hint sat *between* its two halves on screen -- which no row-major read can
+    // reassemble, whatever it does to the whitespace. The hint is a key footer
+    // under the field now (SIG-205), so the head reserves nothing; the claim here
+    // is that the complaint is the parser's own, so the fixture is a width that
+    // can show one
     const ui = screenSetup({ columns: 80, rows: 12 });
     const answer = settle(
       open(
@@ -976,7 +978,9 @@ describe('commandPalette()', () => {
     await type(ui.stdin, 'eight', '\u0004');
     // the complaint is the parser's own, and `eight` is still in the field
     expect(ui.frame + ui.log.join('\n')).toMatch(/Invalid integer: eight/);
-    expect(ui.frame).toMatch(/eight/);
+    // the field's own row, which is not the complaint's and not the footer's --
+    // the footer is the last row now, which is what `ui.frame` used to read
+    expect(ui.log).toContain('  eight');
 
     // fixing it in place, which is what `initial` is for
     await type(ui.stdin, BACKSPACE, BACKSPACE, BACKSPACE, BACKSPACE, BACKSPACE, '8', '\u0004');

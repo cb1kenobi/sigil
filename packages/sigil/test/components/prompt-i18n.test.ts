@@ -132,39 +132,39 @@ describe('a translated confirm', () => {
 });
 
 describe('a translated multiline field', () => {
-  it('should translate the submit hint, modifier and all', async () => {
-    await translated({ '({0} to submit)': '({0} zum Absenden)', 'ctrl-{0}': 'Strg+{0}' });
+  it('should translate the submit key in its footer, modifier and all', async () => {
+    await translated({ 'ctrl-{0}': 'Strg+{0}', submit: 'absenden' });
     const ui = screenSetup({ columns: 60, rows: 10 });
     const answer = settle(
       multiline({ ansi: ui.ansi, message: 'Beschreiben', terminal: ui.terminal })
     );
 
     await tick();
-    expect(ui.frame).to.include('(Strg+d zum Absenden)');
+    expect(ui.log.join('\n')).to.include('Strg+d absenden');
 
     await type(ui.stdin, '\u0003');
     await answer;
   });
 
-  it('should translate every modifier shape, and leave a bare name alone', async () => {
-    // each combination is a whole key rather than two translatable fragments, so a
-    // translator sees `ctrl-alt-{0}` and writes `Strg+Alt+{0}` -- which also lets
-    // them pick the separator. The key's *own* name stays English, because the
-    // letter on the cap and `enter` are printed the same on every keyboard sold
+  it('should translate every modifier shape by nesting them, and a named key too', async () => {
+    // the footer's rule rather than the old hint's: a modifier is one message,
+    // `ctrl-{0}` or `alt-{0}`, and two of them nest -- so `ctrl-alt-{0}` is not a
+    // key any more, and a translator who writes `Strg+{0}` has written it once.
+    // A key name that is a word goes through the catalog as well, which is the
+    // footer's recorded departure from what the prompts' own hints did; a name
+    // that is not a word, `f2`, is printed as it is
     await translated({
-      '({0} to submit)': '({0} zum Absenden)',
       'alt-{0}': 'Alt+{0}',
-      'ctrl-alt-{0}': 'Strg+Alt+{0}',
       'ctrl-{0}': 'Strg+{0}',
+      enter: 'Eingabe',
+      submit: 'absenden',
     });
 
     for (const [submit, expected] of [
-      [{ ctrl: true, name: 'd' }, '(Strg+d zum Absenden)'],
-      [{ meta: true, name: 'enter' }, '(Alt+enter zum Absenden)'],
-      [{ ctrl: true, meta: true, name: 's' }, '(Strg+Alt+s zum Absenden)'],
-      // a bare name is its own label and no lookup, which `keyLabel()`'s own
-      // comment records as true by construction rather than by this assertion
-      [{ name: 'f2' }, '(f2 zum Absenden)'],
+      [{ ctrl: true, name: 'd' }, 'Strg+d absenden'],
+      [{ meta: true, name: 'enter' }, 'Alt+Eingabe absenden'],
+      [{ ctrl: true, meta: true, name: 's' }, 'Strg+Alt+s absenden'],
+      [{ name: 'f2' }, 'f2 absenden'],
     ] as const) {
       const ui = screenSetup({ columns: 60, rows: 10 });
       const answer = settle(
@@ -177,7 +177,7 @@ describe('a translated multiline field', () => {
       );
 
       await tick();
-      expect(ui.frame, JSON.stringify(submit)).to.include(expected);
+      expect(ui.log.join('\n'), JSON.stringify(submit)).to.include(expected);
 
       await type(ui.stdin, '\u0003');
       await answer;
@@ -220,9 +220,14 @@ describe('a translated multiline field', () => {
 });
 
 describe('a translated multiselect', () => {
-  it('should translate its hint', async () => {
+  it('should translate its footer: the descriptions and the key names', async () => {
     await translated({
-      '(space to select, enter to confirm)': '(Leertaste waehlt, Enter bestaetigt)',
+      all: 'alle',
+      confirm: 'bestaetigen',
+      enter: 'Eingabe',
+      invert: 'umkehren',
+      select: 'waehlen',
+      space: 'Leertaste',
     });
     const ui = screenSetup({ columns: 80, rows: 10 });
     const answer = settle(
@@ -235,8 +240,9 @@ describe('a translated multiselect', () => {
     );
 
     await tick();
-    // the head rather than `frame`, which is the last row and for a list is a choice
-    expect(ui.log.join('\n')).to.include('(Leertaste waehlt, Enter bestaetigt)');
+    expect(ui.log.join('\n')).to.include(
+      'Leertaste waehlen · a alle · i umkehren · Eingabe bestaetigen'
+    );
 
     await type(ui.stdin, '\u0003');
     await answer;
@@ -256,7 +262,7 @@ describe('a translated multiselect', () => {
     );
 
     await type(ui.stdin, '\r');
-    expect(ui.frame).to.include('Mindestens eine waehlen');
+    expect(ui.log.join('\n')).to.include('Mindestens eine waehlen');
 
     await type(ui.stdin, '\u0003');
     await answer;

@@ -56,7 +56,12 @@ function rows(ui: ScreenHarness): string[] {
 }
 
 const REGIONS = ['us-east-1', 'us-west-2', 'eu-central-1', 'ap-south-1'];
-const HINT = '  (space to select, enter to confirm)';
+/**
+ * The key footer, which is the last row while the prompt is open. The tally over
+ * it says nothing until something is ticked, because the keys are the footer's
+ * to name.
+ */
+const FOOTER = '  space select · enter confirm';
 
 describe('autocompleteMultiselect() over a static list', () => {
   it('should draw a tick box on every row, and say how to use them', async () => {
@@ -71,7 +76,7 @@ describe('autocompleteMultiselect() over a static list', () => {
       '    ◯ us-west-2',
       '    ◯ eu-central-1',
       '    ◯ ap-south-1',
-      HINT,
+      FOOTER,
     ]);
 
     await type(ui.stdin, CTRL_C);
@@ -84,11 +89,13 @@ describe('autocompleteMultiselect() over a static list', () => {
 
     await type(ui.stdin, SPACE);
     expect(rows(ui).slice(1, 3)).toEqual(['  ❯ ◉ us-east-1', '    ◯ us-west-2']);
-    expect(rows(ui).at(-1)).toBe('  Selected: 1');
+    expect(rows(ui).at(-2)).toBe('  Selected: 1');
 
     await type(ui.stdin, SPACE);
     expect(rows(ui).slice(1, 2)).toEqual(['  ❯ ◯ us-east-1']);
-    expect(rows(ui).at(-1)).toBe(HINT);
+    // nothing ticked is nothing on the tally: the row over the footer is a choice
+    expect(rows(ui).at(-2)).toBe('    ◯ ap-south-1');
+    expect(rows(ui).at(-1)).toBe(FOOTER);
 
     await type(ui.stdin, CTRL_C);
     await answer;
@@ -152,7 +159,7 @@ describe('autocompleteMultiselect() over a static list', () => {
     const answer = settle(open(ui, { choices: REGIONS }));
 
     await type(ui.stdin, 'e', 'u');
-    expect(rows(ui)).toEqual(['? Pick eu', '  ❯ ◯ eu-central-1', HINT]);
+    expect(rows(ui)).toEqual(['? Pick eu', '  ❯ ◯ eu-central-1', FOOTER]);
 
     await type(ui.stdin, SPACE, ENTER);
     expect((await answer).value).toEqual(['eu-central-1']);
@@ -164,11 +171,16 @@ describe('autocompleteMultiselect() over a static list', () => {
 
     await type(ui.stdin, SPACE, 'e', 'u');
     // us-east-1 is hidden by "eu" but still ticked, and the line says so
-    expect(rows(ui)).toEqual(['? Pick eu', '  ❯ ◯ eu-central-1', '  Selected: 1, 1 not shown']);
+    expect(rows(ui)).toEqual([
+      '? Pick eu',
+      '  ❯ ◯ eu-central-1',
+      '  Selected: 1, 1 not shown',
+      FOOTER,
+    ]);
 
     await type(ui.stdin, BACKSPACE, BACKSPACE);
     expect(rows(ui).slice(1, 2)).toEqual(['  ❯ ◉ us-east-1']);
-    expect(rows(ui).at(-1)).toBe('  Selected: 1');
+    expect(rows(ui).at(-2)).toBe('  Selected: 1');
 
     await type(ui.stdin, ENTER);
     expect((await answer).value).toEqual(['us-east-1']);
@@ -221,7 +233,7 @@ describe('autocompleteMultiselect() over a static list', () => {
     const answer = settle(open(ui, { choices: REGIONS }));
 
     await type(ui.stdin, 'z', 'z', SPACE);
-    expect(rows(ui)).toEqual(['? Pick zz', '  No matches', HINT]);
+    expect(rows(ui)).toEqual(['? Pick zz', '  No matches', FOOTER]);
 
     await type(ui.stdin, ENTER);
     expect((await answer).value).toEqual([]);
@@ -254,15 +266,11 @@ describe('autocompleteMultiselect() over a static list', () => {
     const answer = settle(open(ui, { choices: REGIONS }));
 
     await tick();
-    // 6 rows: the question, the foot, the tally, and three choices
+    // 6 rows: the question, the foot, the tally, the key footer, and two
+    // choices -- the foot and the tally are kept back while they say nothing,
+    // so that saying something does not push the footer off the screen
     expect(ui.log.length).toBeLessThanOrEqual(6);
-    expect(rows(ui)).toEqual([
-      '? Pick',
-      '  ❯ ◯ us-east-1',
-      '    ◯ us-west-2',
-      '    ◯ eu-central-1',
-      HINT,
-    ]);
+    expect(rows(ui)).toEqual(['? Pick', '  ❯ ◯ us-east-1', '    ◯ us-west-2', FOOTER]);
 
     await type(ui.stdin, CTRL_C);
     await answer;
@@ -398,7 +406,7 @@ describe('autocompleteMultiselect() over a source', () => {
     await type(ui.stdin, 'e', 'x');
     await frame();
 
-    expect(rows(ui)).toEqual(['? Pick ex', '  ❯ ◯ express', '  Selected: 1, 1 not shown']);
+    expect(rows(ui)).toEqual(['? Pick ex', '  ❯ ◯ express', '  Selected: 1, 1 not shown', FOOTER]);
 
     await type(ui.stdin, BACKSPACE);
     await frame();
@@ -438,7 +446,7 @@ describe('autocompleteMultiselect() over a source', () => {
     // being looked at any more: a second Space would untick it if it counted
     await type(ui.stdin, SPACE);
     expect(rows(ui).join('\n')).toContain('Searching...');
-    expect(rows(ui).at(-1)).toBe('  Selected: 1');
+    expect(rows(ui).at(-2)).toBe('  Selected: 1');
 
     await type(ui.stdin, ENTER);
     expect((await answer).value).toEqual(['react']);

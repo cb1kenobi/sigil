@@ -6,6 +6,7 @@ import {
   multiselect,
   password,
   PromptError,
+  promptKeys,
   select,
   text,
 } from '../../src/components/prompt.js';
@@ -488,10 +489,11 @@ describe('an affordance in a narrow terminal', () => {
     }
   });
 
-  it('should not flatten the question to reserve a long hint', async () => {
-    // the overcorrection: the multiselect hint is 35 columns, so reserving it in
-    // full left `Pick some things` four columns and seven rows of two letters.
-    // Neither half gives up more than half the line
+  it('should give the question the whole line now the keys are a footer', async () => {
+    // the overcorrection this used to guard: the multiselect hint was 35 columns
+    // beside the question, so reserving it in full left `Pick some things` four
+    // columns. The keys are a row of their own under the list now, so the head
+    // has no tail to reserve for and the question is on one line where it fits
     const ui = screenSetup({ columns: 40, rows: 12 });
     const answer = settle(
       multiselect({
@@ -502,22 +504,19 @@ describe('an affordance in a narrow terminal', () => {
       })
     );
 
-    expect(ui.log[0]).to.include('Pick some things');
+    expect(ui.log[0]).to.equal('? Pick some things');
 
     await type(ui.stdin, '\u0003');
     await answer;
   });
 
-  it('should window the list against the head it drew, not the message alone', async () => {
-    // `headWidths().lines` counted the message alone, so a hint that wrapped made
-    // the head taller than the choice window believed and the row reserved for
-    // the error line absorbed it. Measured at 30 columns with eight choices on a
-    // ten-row screen: eight were drawn where seven fit, filling the screen edge
-    // to edge, so an error would have had nowhere to go.
-    //
-    // Enough choices that the slack is gone, which is what the first fixture here
-    // lacked -- with three choices on ten rows nothing overflows either way and
-    // the sabotage survived
+  it('should window the list against the footer and the error line', async () => {
+    // moved deliberately by SIG-205. This was a head made taller by a wrapped
+    // hint, which a footer cannot do: it is one row at every width. What still
+    // has to hold is that the list is windowed against every row under it --
+    // the error line and the footer both -- or the footer is what an overflowing
+    // list pushes off the screen. Eight choices on ten rows: the head, seven
+    // choices, the error line kept back, and the footer
     const ui = screenSetup({ columns: 30, rows: 10 });
     const answer = settle(
       multiselect({
@@ -529,13 +528,10 @@ describe('an affordance in a narrow terminal', () => {
     );
 
     const drawn = ui.log;
-    const head = drawn.findIndex((row) => row.includes(PROMPT_SYMBOLS.off));
     const shown = drawn.filter((row) => row.includes(PROMPT_SYMBOLS.off)).length;
 
-    // the head really is taller than its message, or this asserts nothing
-    expect(head).to.be.greaterThan(1);
-    // and the row kept back for the error line is still there
-    expect(head + shown).to.be.lessThan(10);
+    expect(shown).to.equal(7);
+    expect(drawn.at(-1)).to.include('space select');
 
     await type(ui.stdin, '\u0003');
     await answer;
@@ -577,9 +573,10 @@ describe('an affordance in a narrow terminal', () => {
     }
   });
 
-  it('should keep the submit hint readable rather than one column wide', async () => {
-    // measured at 40 columns before this: `(ctrl-d to submit)` came out as `(`,
-    // `t`, `s` down the right-hand side, one character per row
+  it('should keep the submit key readable rather than one column wide', async () => {
+    // measured at 40 columns before the head reserved its tail: `(ctrl-d to
+    // submit)` came out as `(`, `t`, `s` down the right-hand side. It is the
+    // footer's line now, which never wraps, and the question keeps the head
     const ui = screenSetup({ columns: 40, rows: 10 });
     const answer = settle(
       multiline({
@@ -589,7 +586,7 @@ describe('an affordance in a narrow terminal', () => {
       })
     );
 
-    expect(ui.log.join('\n')).to.include('(ctrl-d to submit)');
+    expect(ui.log).to.include('  ctrl-d submit');
 
     await type(ui.stdin, '\u0003');
     await answer;
@@ -880,6 +877,75 @@ describe('multiselect()', () => {
 
     await type(ui.stdin, SPACE, ENTER);
     expect(await answer).to.deep.equal(['a']);
+  });
+
+  it('should list the keys it answers in a footer, select-all and invert among them', async () => {
+    // SIG-157 left `a` and `i` out of the hint knowingly, for want of room; the
+    // footer is read off the prompt's own key table, so a key it answers by name
+    // and describes is a key it lists
+    const ui = screenSetup({ columns: 80, rows: 10 });
+    const answer = multiselect({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
+    await tick();
+
+    expect(ui.log.at(-1)).to.equal('  space select · a all · i invert · enter confirm');
+
+    await type(ui.stdin, 'i', ENTER);
+    expect(await answer).to.deep.equal(['a', 'b', 'c']);
+  });
+
+  it('should drop the least important keys from the footer first, keeping select and confirm', async () => {
+    // the footer sheds whole bindings rather than wrapping, so what a narrow
+    // terminal keeps is decided by priority: Space and Enter are the two a
+    // multiselect cannot be answered without, invert goes before select-all
+    const widths: Record<number, string> = {
+      40: '  space select · a all · enter confirm …',
+      30: '  space select …',
+    };
+    for (const [columns, expected] of Object.entries(widths)) {
+      const ui = screenSetup({ columns: Number(columns), rows: 10 });
+      const answer = settle(
+        multiselect({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal })
+      );
+      await tick();
+
+      expect(ui.log.at(-1), `at ${columns} columns`).to.equal(expected);
+
+      await type(ui.stdin, CTRL_C);
+      await answer;
+    }
+  });
+
+  it('should take the footer off once answered, leaving the question and the answer', async () => {
+    const ui = screenSetup({ columns: 80, rows: 10 });
+    const answer = multiselect({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
+
+    await type(ui.stdin, SPACE, ENTER);
+    await answer;
+    await tick();
+
+    expect(ui.log).to.deep.equal(['? Pick a']);
+  });
+
+  it('should read a modified key as a different key, the way the router does', async () => {
+    // the key table matches a key by its canonical spelling, modifiers and all,
+    // which is the rule `bind()` already keeps -- so Shift-Down is not Down, and
+    // Alt-Space is not Space
+    const ui = screenSetup();
+    const answer = multiselect({ ansi: ui.ansi, choices, message: 'Pick', terminal: ui.terminal });
+
+    await type(ui.stdin, '\u001b[1;2B', SPACE, ENTER);
+
+    expect(await answer).to.deep.equal(['a']);
+  });
+
+  it('should refuse a sequence as a prompt key, which a prompt could never match', () => {
+    // a prompt reads one key at a time, so `g g` would be a listed line no key
+    // could ever reach -- refused where it is written, like `bind()`'s bad specs
+    const keys = promptKeys<void>();
+    expect(() => keys.on('g g', () => undefined, { description: 'top' })).toThrow(
+      'A prompt key is one key, not a sequence: "g g"'
+    );
+    expect(keys.bindings()).to.deep.equal([]);
   });
 
   it('should tick everything with ctrl-a, and untick with it again', async () => {
@@ -1296,6 +1362,37 @@ describe('a router the app already owns', () => {
     await type(ui.stdin, 'y');
 
     expect(seen).to.deep.equal(['y']);
+    router.stop();
+  });
+
+  it('should draw its footer from its own keys, and list nothing on the router', async () => {
+    // the router's list is the app's footer. A prompt swallows every key while it
+    // is up, so the app's described keys would be a false statement in the
+    // prompt's footer, and the prompt's own written into the router would turn up
+    // in the app's -- so the footer reads the prompt's key table and the router's
+    // list is exactly what the app put there, before, during and after
+    const ui = screenSetup({ columns: 80, rows: 10 });
+    const router = createInput({ terminal: ui.terminal });
+    const off = router.bind('q', () => undefined, { description: 'quit' });
+    const before = router.bindings();
+
+    const answer = multiselect({
+      ansi: ui.ansi,
+      choices: ['a', 'b'],
+      message: 'Pick',
+      router,
+      terminal: ui.terminal,
+    });
+    await tick();
+
+    expect(ui.log.at(-1)).to.equal('  space select · a all · i invert · enter confirm');
+    expect(router.bindings()).to.deep.equal(before);
+
+    await type(ui.stdin, SPACE, ENTER);
+    expect(await answer).to.deep.equal(['a']);
+    expect(router.bindings()).to.deep.equal(before);
+
+    off();
     router.stop();
   });
 });

@@ -8,8 +8,19 @@ import {
   toDisplayText,
 } from '../element/index.js';
 import { __, __n, confirmKeys } from '../i18n/index.js';
-import { createInput, type InputRouter, type InputStream, type Key } from '../input/index.js';
+import {
+  type BindingHelp,
+  type BindingInfo,
+  createInput,
+  formatKey,
+  type InputRouter,
+  type InputStream,
+  type Key,
+  type KeyPattern,
+  parseKeys,
+} from '../input/index.js';
 import { isAbort } from '../input/index.js';
+import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { graphemes, stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
@@ -27,6 +38,7 @@ import {
   wordAfter,
   wordBefore,
 } from './editing.js';
+import { keyHelp, type KeyHelpSource } from './key-help.js';
 import { type Mounted, type MountOptions, mountLive } from './mount.js';
 
 export { ESCAPE_TIMEOUT } from '../input/index.js';
@@ -752,6 +764,116 @@ function setNote(element: Element, text: string | undefined): void {
   element.setProps({ display: text ? 'flex' : 'none' });
 }
 
+/** What a footer lists a prompt key as: fixed, or read again whenever the footer is. */
+export type PromptKeyHelp = BindingHelp | (() => BindingHelp | undefined);
+
+/**
+ * The keys a prompt answers by name, each with what its footer says about it.
+ *
+ * The prompt's own key table rather than bindings on the router, and that is the
+ * decision SIG-205 records under "The built-in prompts draw the footer": a
+ * borrowed router belongs to the app, whose described keys would be a false
+ * statement under a prompt that swallows every key, and dispatch stays the one
+ * function binding `run()` makes, so Ctrl-C, `claims()` and the one-key queue are
+ * what they were. It is a {@link KeyHelpSource}, which is the whole of what the
+ * footer asks of a router.
+ */
+export interface PromptKeys<R> extends KeyHelpSource {
+  /**
+   * Answers a key, and lists it unless `help` is absent or says nothing.
+   *
+   * A key is matched the way the router matches one -- by its canonical spelling,
+   * modifiers and all -- so `up` is not `shift+up`. The first one registered wins.
+   *
+   * @param keys - One key, as `bind()` spells it, or a pattern for a key built at
+   *   run time.
+   * @param run - What it does.
+   * @param help - What the footer says, or a function asked each time it is read.
+   */
+  on(keys: string | KeyPattern, run: (k: Key) => R, help?: PromptKeyHelp): void;
+  /** The handler a key is bound to, if any. */
+  match(k: Key): ((k: Key) => R) | undefined;
+  /** Asks the footer to read the help again, after a state a help function reads has moved. */
+  refresh(): void;
+}
+
+/**
+ * Builds an empty {@link PromptKeys}.
+ *
+ * @returns The table.
+ */
+function promptKeys<R>(): PromptKeys<R> {
+  const entries: { help: PromptKeyHelp | undefined; run: (k: Key) => R; spec: string }[] = [];
+  const revision = new State(0);
+
+  return {
+    bindings(): readonly BindingInfo[] {
+      revision.get();
+      const out: BindingInfo[] = [];
+      for (const entry of entries) {
+        const help = typeof entry.help === 'function' ? entry.help() : entry.help;
+        if (help === undefined || help.description === '') {
+          continue;
+        }
+        out.push(
+          Object.freeze({
+            description: help.description,
+            group: help.group,
+            keys: entry.spec,
+            priority: Number.isFinite(help.priority) ? (help.priority as number) : 0,
+            scope: undefined,
+          })
+        );
+      }
+      return out;
+    },
+
+    match(k: Key): ((k: Key) => R) | undefined {
+      const spec = formatKey(k);
+      return entries.find((entry) => entry.spec === spec)?.run;
+    },
+
+    on(keys: string | KeyPattern, run: (k: Key) => R, help?: PromptKeyHelp): void {
+      let pattern: KeyPattern;
+      if (typeof keys === 'string') {
+        const patterns = parseKeys(keys);
+        // a prompt reads one key at a time, so a sequence is a binding that could
+        // never be matched -- refused where it is written, like the router's own
+        if (patterns.length !== 1) {
+          throw new TypeError(`A prompt key is one key, not a sequence: "${keys}"`);
+        }
+        pattern = patterns[0] as KeyPattern;
+      } else {
+        pattern = keys;
+      }
+      entries.push({ help, run, spec: formatKey(pattern) });
+      revision.set(revision.get() + 1);
+    },
+
+    refresh(): void {
+      revision.set(revision.get() + 1);
+    },
+  };
+}
+
+/**
+ * The footer under a prompt: its key table, on one row that never wraps.
+ *
+ * Indented under the question the way the error line is, and given the columns
+ * that leaves. One row at every width -- what does not fit is dropped whole,
+ * lowest priority first -- so a prompt reserves exactly one row for it.
+ *
+ * @param keys - The prompt's key table.
+ * @param columns - The terminal's width.
+ * @returns The footer, in a box to hide once the prompt is answered.
+ */
+function promptFooter(keys: KeyHelpSource, columns: number): Element {
+  return box(
+    { class: 'sigil-prompt-keys', 'padding-left': 2 },
+    keyHelp(keys, { width: Math.max(0, columns - 2) })
+  );
+}
+
 /**
  * Asks for a line of text.
  *
@@ -916,7 +1038,7 @@ export function password(opts: TextOptions): Promise<string> {
 /**
  * The key that submits a multiline answer, since Enter cannot.
  *
- * A spec rather than a predicate, because the hint the field draws has to say
+ * A spec rather than a predicate, because the footer the field draws has to say
  * which key it is: a `(k: Key) => boolean` is more flexible and would need a
  * second option beside it for the label, and two options that can disagree
  * about one key is how a prompt comes to tell the reader to press something
@@ -1545,44 +1667,6 @@ function rowCap(rows: number | undefined, fallback = 10): number {
   return rows !== undefined && rows >= 1 ? Math.floor(rows) : fallback;
 }
 
-/** `ctrl-d`, as a reader would type it. */
-function keyLabel(key: SubmitKey): string {
-  const { name } = key;
-
-  // the *modifier* is translated and the key's own name is not, which is the
-  // line SIG-53 drew one step along: a name the user types stays English, and a
-  // modifier is a word printed on a key cap that really does differ -- a German
-  // keyboard says `Strg`, so `ctrl-d` names a key that is not there. The letter
-  // on the key, and `enter` or `tab`, are printed the same on essentially every
-  // keyboard sold, so translating those would be inventing a vocabulary rather
-  // than matching one -- and could not be done through `__` anyway, which is
-  // worth knowing before anybody tries: the tag's key comes from its *literal*
-  // parts, so `__`${name}`` keys on `{0}` rather than on `f2`. A key name is a
-  // value, and a value is never a key -- so a bare name is covered by the modifier
-  // test's own `f2` case, and the thing that is *not* asserted there is that it
-  // was not looked up, because such an assertion cannot fail.
-  //
-  // Each combination is a whole key rather than two translatable fragments, so
-  // that a translator sees `ctrl-{0}` and writes `Strg+{0}` -- which also lets
-  // them pick the separator, since `+` is the German convention and `-` is ours
-  if (key.ctrl && key.meta) {
-    return __`ctrl-alt-${name}`;
-  }
-  if (key.ctrl) {
-    return __`ctrl-${name}`;
-  }
-  if (key.meta) {
-    return __`alt-${name}`;
-  }
-
-  return name;
-}
-
-/** Whether a key is the one that submits. */
-function isSubmitKey(k: Key, spec: SubmitKey): boolean {
-  return k.name === spec.name && k.ctrl === (spec.ctrl ?? false) && k.meta === (spec.meta ?? false);
-}
-
 /**
  * Asks for several lines of text.
  *
@@ -1633,27 +1717,44 @@ export function multiline(opts: MultilineOptions): Promise<string> {
   let top = 0;
 
   return run<string>(opts, () => {
-    const hintText = __`(${keyLabel(submit)} to submit)`;
-    const hint = textNode(hintText, {
-      class: 'sigil-prompt-hint sigil-muted',
-    });
     const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
-    const head = headWidths(opts.message, Math.max(1, terminal.width), hintText);
-    const { line, mark } = promptHead(opts.message, head.message, hint, answer);
+    const head = headWidths(opts.message, Math.max(1, terminal.width));
+    const { line, mark } = promptHead(opts.message, head.message, answer);
     const complaint = note('sigil-prompt-error sigil-error');
+
+    // the one key this field has that nobody would guess, and the only one it
+    // lists: everything else is the editing a text field always has, and stays
+    // in the chain below. Matched through the table, so the key the footer names
+    // and the key that submits are one record
+    const keys = promptKeys<Promise<{ value: string } | void>>();
+    keys.on(
+      { ctrl: submit.ctrl ?? false, meta: submit.meta ?? false, name: submit.name, shift: false },
+      async () => {
+        const failed = await opts.validate?.(value);
+        if (typeof failed === 'string' && failed) {
+          error = failed;
+          draw();
+          return;
+        }
+        return { value };
+      },
+      { description: __`submit` }
+    );
+    const footer = promptFooter(keys, terminal.width);
 
     /** The columns the field has, once the indent under the question is taken. */
     const room = Math.max(1, Math.max(1, terminal.width) - 2);
     /**
      * The rows the field may take before it scrolls.
      *
-     * Capped by what is left under the question and over the error line, which
-     * is reserved either way so that showing one does not push the last row of
-     * the field off the screen -- the rule the choice list already keeps.
+     * Capped by what is left under the question and over the error line and the
+     * footer, which are reserved either way so that showing an error does not
+     * push the last row of the field off the screen -- the rule the choice list
+     * already keeps.
      */
     const cap = Math.max(
       1,
-      Math.min(rowCap(opts.rows), Math.max(1, terminal.height) - head.lines - 1)
+      Math.min(rowCap(opts.rows), Math.max(1, terminal.height) - head.lines - 2)
     );
 
     /**
@@ -1680,7 +1781,8 @@ export function multiline(opts: MultilineOptions): Promise<string> {
         field,
         caretLayer
       ),
-      box({ 'padding-left': 2 }, complaint)
+      box({ 'padding-left': 2 }, complaint),
+      footer
     );
 
     function draw(): void {
@@ -1755,20 +1857,15 @@ export function multiline(opts: MultilineOptions): Promise<string> {
       // field escaped by the key that submits it has no way out. Ctrl-C is never
       // claimable, which `run()` is what enforces
       claims(k) {
-        return isSubmitKey(k, submit);
+        return keys.match(k) !== undefined;
       },
 
       async key(k) {
         error = undefined;
 
-        if (isSubmitKey(k, submit)) {
-          const failed = await opts.validate?.(value);
-          if (typeof failed === 'string' && failed) {
-            error = failed;
-            draw();
-            return;
-          }
-          return { value };
+        const bound = keys.match(k);
+        if (bound) {
+          return bound(k);
         }
 
         const vertically = k.name === 'up' || k.name === 'down';
@@ -1837,7 +1934,7 @@ export function multiline(opts: MultilineOptions): Promise<string> {
 
       settle(written: string): void {
         answered(mark);
-        hint.setProps({ display: 'none' });
+        footer.setProps({ display: 'none' });
         // one line in the log, which is the house style every other prompt here
         // keeps -- `select()` leaves its label and `multiselect()` leaves a comma
         // list. The whole of what was written is the caller's return value, and a
@@ -2278,29 +2375,84 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
     return undefined;
   }
 
+  /** Ticks every choice on offer, or none if every one already is. */
+  function all(): void {
+    // a disabled choice is neither ticked by this nor unticked by it
+    if (offered.every((i) => ticked.has(i))) {
+      for (const i of offered) {
+        ticked.delete(i);
+      }
+    } else {
+      for (const i of offered) {
+        ticked.add(i);
+      }
+    }
+  }
+
+  /** Flips every choice on offer. */
+  function invert(): void {
+    for (const i of offered) {
+      if (ticked.has(i)) {
+        ticked.delete(i);
+      } else {
+        ticked.add(i);
+      }
+    }
+  }
+
   return run<T[]>(opts, () => {
-    const hintText = __`(space to select, enter to confirm)`;
-    const hint = textNode(hintText, {
-      class: 'sigil-prompt-hint sigil-muted',
-    });
-    const head = headWidths(opts.message, Math.max(1, terminal.width), hintText);
-    const { line, mark } = promptHead(opts.message, head.message, hint);
+    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
+    const head = headWidths(opts.message, Math.max(1, terminal.width));
+    const { line, mark } = promptHead(opts.message, head.message, answer);
     const { list, rows } = choiceRows(items, true);
     const described = describing(items);
     const problem = note('sigil-prompt-error sigil-error');
+
+    // the keys, each with the line the footer lists it as. The arrows are not
+    // listed, for the reason `select()` has no footer at all: they are the keys
+    // nobody has to be told. Ctrl-A is the older spelling of select-all and is
+    // kept, unlisted, because one key per line is what the footer has room for
+    const keys = promptKeys<{ value: T[] } | void>();
+    keys.on('up', () => void (active = seek(items, active, -1, loop)));
+    keys.on('down', () => void (active = seek(items, active, 1, loop)));
+    keys.on(
+      'space',
+      () => {
+        if (ticked.has(active)) {
+          ticked.delete(active);
+        } else {
+          ticked.add(active);
+        }
+      },
+      { description: __`select`, priority: 3 }
+    );
+    keys.on('a', all, { description: __`all`, priority: 2 });
+    keys.on('ctrl+a', all);
+    keys.on('i', invert, { description: __`invert`, priority: 1 });
+    keys.on(
+      'enter',
+      () => {
+        error = complaint();
+        return error ? undefined : { value: chosen() };
+      },
+      { description: __`confirm`, priority: 3 }
+    );
+
+    const footer = promptFooter(keys, terminal.width);
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
       list,
       described.line,
-      box({ 'padding-left': 2 }, problem)
+      box({ 'padding-left': 2 }, problem),
+      footer
     );
 
-    // the question's rows, the description's, and the line an error would take:
-    // reserved either way, so that showing one does not push the last choice off
-    // the screen
+    // the question's rows, the description's, the line an error would take and
+    // the footer's: reserved either way, so that showing one does not push the
+    // last choice off the screen
     const room = (): number =>
-      Math.max(1, Math.max(1, terminal.height) - head.lines - 1 - described.reserved);
+      Math.max(1, Math.max(1, terminal.height) - head.lines - 2 - described.reserved);
 
     function draw(): void {
       start = windowStart(items.length, active, room(), start);
@@ -2314,55 +2466,16 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
     return {
       key(k) {
         error = undefined;
-
-        if (k.name === 'enter') {
-          error = complaint();
-          if (error) {
-            draw();
-            return;
-          }
-          return { value: chosen() };
+        const done = keys.match(k)?.(k);
+        if (done) {
+          return done;
         }
-
-        if (k.name === 'space') {
-          if (ticked.has(active)) {
-            ticked.delete(active);
-          } else {
-            ticked.add(active);
-          }
-        } else if (k.name === 'up') {
-          active = seek(items, active, -1, loop);
-        } else if (k.name === 'down') {
-          active = seek(items, active, 1, loop);
-        } else if (k.name === 'a' && !k.meta) {
-          // all, or none if everything on offer is already ticked: Ctrl-A is the
-          // older spelling and is kept, `a` is what Inquirer's checkbox calls it.
-          // A disabled choice is neither ticked by this nor unticked by it
-          if (offered.every((i) => ticked.has(i))) {
-            for (const i of offered) {
-              ticked.delete(i);
-            }
-          } else {
-            for (const i of offered) {
-              ticked.add(i);
-            }
-          }
-        } else if (k.name === 'i' && !k.ctrl && !k.meta) {
-          for (const i of offered) {
-            if (ticked.has(i)) {
-              ticked.delete(i);
-            } else {
-              ticked.add(i);
-            }
-          }
-        }
-
         draw();
       },
 
       settle(values: T[]): void {
         answered(mark);
-        hint.setText(
+        answer.setText(
           values.length
             ? [...ticked]
                 .sort((a, b) => a - b)
@@ -2370,9 +2483,10 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
                 .join(', ')
             : __`none`
         );
-        hint.setProps({ class: 'sigil-prompt-answer sigil-muted' });
+        answer.setProps({ display: 'flex' });
         list.setProps({ display: 'none' });
         described.line.setProps({ display: 'none' });
+        footer.setProps({ display: 'none' });
         setNote(problem, undefined);
       },
 
@@ -2406,6 +2520,8 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
  */
 export {
   answered as promptAnswered,
+  promptFooter,
+  promptKeys,
   rowCap as promptRowCap,
   headWidths as promptHeadWidths,
   note as promptNote,

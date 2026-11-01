@@ -9,7 +9,8 @@ import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
  * Up and Down move a cursor over whole rows and Enter answers with the row that
  * was passed in. A digit sorts by that column: again to reverse, and a third time
  * to put the rows back as they came. The heading stays where it is while the rows
- * scroll, and a line under them says where in the table the cursor is.
+ * scroll, and a line under them says where in the table the cursor is. The last
+ * row is the key footer, which names the digits that sort.
  *
  * The columns are the ones `table()` takes, so the same declaration prints a table
  * and asks about one. Piped, there is nobody to type, so the same prompt is driven

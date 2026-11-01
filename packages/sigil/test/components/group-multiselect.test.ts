@@ -59,7 +59,7 @@ describe('groupMultiselect() drawing', () => {
     await tick();
 
     expect(rows(ui)).toEqual([
-      '? Pick (space to select, enter to confirm)',
+      '? Pick',
       '❯ ◯ Backend',
       '    ◯ Express',
       '    ◯ Fastify',
@@ -67,6 +67,9 @@ describe('groupMultiselect() drawing', () => {
       '    ◯ React',
       '    ◯ Vue',
       '    ◯ Svelte',
+      // multiselect()'s footer, line for line: one table of keys per prompt, and
+      // the same five lines for the same five gestures
+      '  space select · a all · i invert · enter confirm',
     ]);
 
     await type(ui.stdin, CTRL_C);

@@ -26,8 +26,10 @@ import {
   PROMPT_SYMBOLS,
   promptAnswered,
   promptChoice,
+  promptFooter,
   promptHeadLine,
   promptHeadWidths,
+  promptKeys,
   type PromptOptions,
   PromptError,
   promptRowCap,
@@ -210,22 +212,73 @@ export function sort<T = string>(opts: SortOptions<T>): Promise<T[]> {
   }
 
   return runPrompt<T[]>(opts, () => {
-    const grabHint = __`(space to grab, enter to confirm)`;
-    const dropHint = __`(up/down to move, space to drop)`;
-    const hint = textNode(grabHint, { class: 'sigil-prompt-hint sigil-muted' });
-    // sized for the longer of the two, so that swapping one for the other never
-    // makes the head taller than the window believed
-    const head = promptHeadWidths(
-      opts.message,
-      Math.max(1, terminal.width),
-      grabHint.length > dropHint.length ? grabHint : dropHint
-    );
-    const { line, mark } = promptHeadLine(opts.message, head.message, hint);
+    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
+    const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
+    const { line, mark } = promptHeadLine(opts.message, head.message, answer);
     const list = box({ class: 'sigil-sort-list', 'flex-direction': 'column' });
-    const view = box({ class: 'sigil-prompt sigil-sort', 'flex-direction': 'column' }, line, list);
 
+    /** Moves the highlight, or the row being carried, to a place. */
+    function goTo(to: number): void {
+      if (carrying) {
+        carry(to);
+      } else {
+        at = to;
+      }
+    }
+
+    /** Up or Down. A quick one moves the row without a grab. */
+    function arrow(by: -1 | 1, quick: boolean): void {
+      if (carrying || quick) {
+        carry(at + by);
+      } else {
+        step(by);
+      }
+    }
+
+    /** A page, in rows: the window less one, so a row stays in view. */
+    const page = (): number => Math.max(1, room() - 1);
+
+    // what the footer says follows the grab: Space reads `grab` until a row is
+    // up and `drop` while one is, and the arrows are listed only while carrying,
+    // because that is when they do something nobody would guess. Help is a
+    // function for exactly that, read again on `refresh()`
+    const keys = promptKeys<{ value: T[] } | void>();
+    const moving = () => (carrying ? { description: __`move`, priority: 1 } : undefined);
+    keys.on('up', () => arrow(-1, false), moving);
+    keys.on('down', () => arrow(1, false), moving);
+    // alt or shift is a move without a grab, for a hand that already knows the
+    // keys; a terminal that eats one of them still has the grab
+    for (const mod of ['shift', 'alt']) {
+      keys.on(`${mod}+up`, () => arrow(-1, true));
+      keys.on(`${mod}+down`, () => arrow(1, true));
+    }
+    keys.on(
+      'space',
+      () => {
+        carrying = !carrying;
+      },
+      () => ({ description: carrying ? __`drop` : __`grab`, priority: 2 })
+    );
+    keys.on('enter', () => ({ value: order.map((choice) => promptValue(choice)) }), {
+      description: __`confirm`,
+      priority: 0,
+    });
+    keys.on('home', () => goTo(0));
+    keys.on('end', () => goTo(slots.length - 1));
+    keys.on('pageup', () => goTo(Math.max(0, at - page())));
+    keys.on('pagedown', () => goTo(Math.min(slots.length - 1, at + page())));
+
+    const footer = promptFooter(keys, terminal.width);
+    const view = box(
+      { class: 'sigil-prompt sigil-sort', 'flex-direction': 'column' },
+      line,
+      list,
+      footer
+    );
+
+    // the footer's row is kept back with the question's
     const room = (): number => {
-      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines);
+      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines - 1);
       return Math.max(1, Math.min(promptRowCap(opts.rows, avail), avail));
     };
 
@@ -248,63 +301,26 @@ export function sort<T = string>(opts: SortOptions<T>): Promise<T[]> {
           );
         }
       }
-      hint.setText(carrying ? dropHint : grabHint);
+      keys.refresh();
     }
 
     draw();
 
     return {
       key(k) {
-        if (k.name === 'enter') {
-          return { value: order.map((choice) => promptValue(choice)) };
+        const done = keys.match(k)?.(k);
+        if (done) {
+          return done;
         }
-
-        const page = Math.max(1, room() - 1);
-        // alt or shift is a move without a grab, for a hand that already knows the
-        // keys; a terminal that eats one of them still has the grab
-        const quick = k.name === 'up' || k.name === 'down' ? k.shift || k.meta : false;
-
-        if (k.name === 'space') {
-          carrying = !carrying;
-        } else if (k.name === 'up' || k.name === 'down') {
-          const by = k.name === 'up' ? -1 : 1;
-          if (carrying || quick) {
-            carry(at + by);
-          } else {
-            step(by);
-          }
-        } else if (k.name === 'home') {
-          if (carrying) {
-            carry(0);
-          } else {
-            at = 0;
-          }
-        } else if (k.name === 'end') {
-          if (carrying) {
-            carry(slots.length - 1);
-          } else {
-            at = slots.length - 1;
-          }
-        } else if (k.name === 'pageup' || k.name === 'pagedown') {
-          const to = Math.min(
-            Math.max(0, at + (k.name === 'pageup' ? -page : page)),
-            slots.length - 1
-          );
-          if (carrying) {
-            carry(to);
-          } else {
-            at = to;
-          }
-        }
-
         draw();
       },
 
       settle(): void {
         promptAnswered(mark);
-        hint.setText(order.map((choice) => choice.short ?? choice.label).join(', '));
-        hint.setProps({ class: 'sigil-prompt-answer sigil-muted' });
+        answer.setText(order.map((choice) => choice.short ?? choice.label).join(', '));
+        answer.setProps({ display: 'flex' });
         list.setProps({ display: 'none' });
+        footer.setProps({ display: 'none' });
       },
 
       view,

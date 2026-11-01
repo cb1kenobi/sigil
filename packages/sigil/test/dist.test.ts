@@ -583,7 +583,7 @@ describe('what importing the package costs', () => {
     const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
     const printer = printerChunk();
 
-    for (const marker of ['because the input is not a terminal', '(space to select']) {
+    for (const marker of ['because the input is not a terminal', 'Choose at least one']) {
       expect(carriers(shipped, marker), marker).not.toEqual([]);
       expect(carriers(staticGraph(printer), marker), marker).toEqual([]);
     }

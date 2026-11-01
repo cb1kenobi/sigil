@@ -12,6 +12,9 @@ import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
  * choice marked `disabled` is pinned: the rows around it move past it, and it
  * keeps its place.
  *
+ * The last row is the key footer, and it follows the grab: `space grab · enter
+ * confirm` with nothing in hand, and the arrows listed as `move` while a row is.
+ *
  * Piped, there is nobody to type, so the same prompt is driven by a scripted
  * keyboard (`createTestTerminal()` from `@ttylabs/sigil/testing`) and the screen
  * is printed after each step.

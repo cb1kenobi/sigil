@@ -639,7 +639,10 @@ the two width defects it turned up were already wrong in English.
   is a **whole** key -- `ctrl-{0}`, `alt-{0}`, `ctrl-alt-{0}` -- rather than two
   translatable fragments, so a translator sees the shape and picks the separator
   too, which is `+` in German and `-` here. A key with no modifier is its own name
-  and no lookup.
+  and no lookup. Superseded for the prompts by SIG-205: the one caller of
+  `keyLabel()` was the multiline hint, which is a key footer now, and the footer
+  nests `ctrl-{0}` around `alt-{0}` and translates the names that are words --
+  `src/components/AGENTS.md`, "The built-in prompts draw the footer".
 
 - **`select()` has no hint and keeps none.** Only `multiselect()` does, because
   tick boxes need telling and arrow keys are discoverable. Worth writing down
