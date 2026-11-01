@@ -123,6 +123,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-spinner-frame  .sigil-progress-bar  .sigil-scroll-thumb
  *   .sigil-scroll  .sigil-scroll-row  .sigil-scroll-viewport  .sigil-scroll-content
  *   .sigil-scroll-bar  .sigil-scroll-slot  .sigil-scroll-spacer
+ *   .sigil-collapsible  .sigil-collapsible-marker  .sigil-collapsible-label
+ *   .sigil-collapsible-body
  *   .sigil-typewriter  .sigil-typewriter-text
  *   .sigil-large-text  .sigil-large-text-body
  *   .sigil-decrypt  .sigil-decrypt-plain  .sigil-decrypt-cipher
@@ -189,6 +191,23 @@ export const FRAMEWORK_CSS = `
  * there and grey here, and cyan is whatever the user chose it to be.
  */
 .sigil-scroll-track { color: gray }
+
+/*
+ * a collapsible
+ *
+ * The sixth declared exception to the role rule, and inverse for the reason the
+ * caret is: no role is inversion. It is also the one :focus rule in this sheet,
+ * and the reason is that nothing else says
+ * which title the keys go to: a scroll box shows its focus by scrolling, and a
+ * collapsible title that is focused and drawn the same as one that is not is a
+ * Tab that appears to do nothing. Inverse is an attribute rather than a colour,
+ * so it is right on a light terminal and a dark one alike. It is (0,2,0) where
+ * every other rule here is (0,1,0), which costs a theme nothing: origin is
+ * decided before specificity, so a one-class theme rule on the title still beats
+ * it. At colour level 0 the attribute is dropped and the focus is not shown,
+ * which is true of every :focus rule an app writes as well.
+ */
+.sigil-collapsible-title:focus { inverse: true }
 
 /*
  * the debug overlay

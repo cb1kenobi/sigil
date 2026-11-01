@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 159 keys, which is what a catalog has to carry to translate sigil's own
+ * 167 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -52,8 +52,13 @@ export const SIGIL_KEYS: readonly string[] = [
   'Enter a number',
   'Error: {0}',
   'Examples:',
+  'Expected a collapsible title to be a string',
   'Expected a list of values',
+  'Expected an element that Collapsible() returned',
   'Expected an enumerator to return a string',
+  'Expected collapsible children to be a function that builds the body',
+  'Expected collapsible group to come from collapsibleGroup()',
+  'Expected collapsible open to be a boolean or a State',
   'Expected each item to be a string or an object with a text string',
   'Expected enumerator to hold at least one entry',
   'Expected items to be an array',
@@ -138,6 +143,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'alt-{0}',
   'argument <{0}>',
   'backspace',
+  'close',
   'ctrl-alt-{0}',
   'ctrl-{0}',
   'delete',
@@ -151,6 +157,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'none',
   'off',
   'on',
+  'open',
   'option {0}',
   'pgdn',
   'pgup',
@@ -158,6 +165,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'shift-{0}',
   'space',
   'tab',
+  'toggle',
   'y/n',
   'yes',
   '{0} (skipped)',

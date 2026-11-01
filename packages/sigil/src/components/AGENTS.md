@@ -6529,3 +6529,105 @@ its own.
   by a string, `spinner: 'arc'`, which would put every set in a bundled app's
   graph for want of a static reference to shake by; and a set that carries its own
   ASCII fallback.
+
+### A collapsible: a title that opens and closes, and an accordion of them
+
+`src/components/collapsible.ts`. SIG-192. Textual's `Collapsible`: a focusable
+title over a body that is shown or hidden. It is an element-tree component in the
+shape `ScrollBox` is -- a function of props that returns the host, with its keys
+in `onKey` and its click in `onMouse` -- and not a prompt, because a section does
+not answer anything: it sits in a tree beside other things and stays there.
+
+- **The three questions the ticket left open, settled.** _Keys:_ Enter and Space
+  flip the focused title, Right opens it and Left closes it -- the tree-view
+  convention, and the one `filePicker()` already uses for into and out of a
+  directory. Up and Down are **not** bound: moving between the titles of an
+  accordion is what the ARIA pattern does with them, and it needs the focus ring,
+  which an element does not hold -- a component that wanted it would have to be
+  handed the router, which does not exist while the tree that makes it is being
+  built. Tab already walks the titles, since a closed body is `display: none` and
+  the ring skips it. _Accordion:_ in, as `collapsibleGroup()` handed to each
+  member, because it is a dozen lines over the state each member already has and
+  the ticket's own description of an accordion is "several of them, one open".
+  _Animated height:_ **no**, and instant is the recommendation rather than a
+  deferral -- the next bullet is why.
+- **Instant, because a height animation here buys little and costs three
+  things.** `height: auto` does not interpolate: `mixLength()` snaps between
+  `auto` and cells, as CSS does, because `auto` is a question the layout answers
+  and not a number. So animating would mean measuring the body after a layout,
+  pinning `height` to that many cells, easing from zero, and unpinning at the end
+  -- a body that grows while it is open (a log, a lazily filled list) would be
+  clipped by the pin until the end, and the first frame would be one layout late,
+  which is the lag `ScrollBox` draws its thumb with a `raw` element to avoid. Every
+  frame of it also moves **every row below the section**, so the canvas diff,
+  which is cheap exactly where little changes, repaints the rest of the screen
+  per frame -- over ssh, for a reveal that is three to ten whole-cell states at
+  most. And it would be one more thing for reduced motion and quiet to switch off,
+  which they would, since the animator does not start a transition under
+  `reduce`; instant is what both of those come to anyway. Textual's own
+  `Collapsible` does not animate either. An app that wants motion can still put a
+  `transition` on the title's colour through the theme hooks.
+- **The body is built once and hidden, not unmounted.** `children` runs when the
+  section is built, open or not, and closing sets `display: none` on the body. So
+  what is inside it -- a scroll offset, a text field's contents, a row windowed by
+  a `ScrollBox` -- is the same when it opens again, and the cost is the body's
+  elements existing while nobody can see them, which for "show stack" is a few
+  texts. Building on first open was the alternative, and it would make the first
+  open the one that is different from every other.
+- **The title is what is focused, not the host.** A key reaches the focused
+  element and then its ancestors. With the handler on the host, Enter typed into
+  a field inside an open body would bubble up and close the section around it; on
+  the title, which is the body's sibling, it never arrives there. The click is on
+  the title for the same reason.
+- **`open` is a boolean or a `State<boolean>`, and the state is the one truth.**
+  `keyHelp()`'s `expanded` already has that shape. The keys and the click write
+  the state; one effect reads it and sets the body's `display`, the marker and the
+  `is-open` class. So an app that writes the state opens the section, and nothing
+  holds a second copy for the two to disagree about. Anything else for `open` is
+  refused where the section is built: a truthy string would read as open and then
+  never be `true` again, which is the hole `toggle()` refuses its `initial` over.
+- **A group closes the others in that same effect, not in the key handler.** That
+  is what makes the rule hold for an app writing a member's state as well as for a
+  key or a click. Two members built open leave the later one open, because each
+  closes the others as its effect first runs. Closing the open member leaves none
+  open: the ARIA accordion allows either and "at least one" would need a rule for
+  which one when the app closes them all, which `closeAll()` does. A member built
+  inside a component leaves the group with it, through `onCleanup`; one built
+  outside any owner stays a member, and closing a section nobody can see costs a
+  write.
+- **An arrow that would change nothing is not claimed; Enter and Space always
+  are.** Right on an open section and Left on a closed one go on to whatever is
+  around it -- a horizontal `ScrollBox` gets its arrows back. That is the opposite
+  of `ScrollBox`'s own rule, which claims Home at the top, and the difference is
+  that a scroll box at its end is still the thing those keys are about, while a
+  section that is already open is not what Right is asking for. A key with Ctrl,
+  Alt or Shift, and a key that arrived in a paste, are left alone: a pasted line
+  ending in a newline is not an Enter on whatever happened to have the focus.
+- **The click toggles, not the press.** The press is left to bubble so its default
+  action -- focusing the title -- still happens, and a press dragged off the title
+  toggles nothing. Only the left button; a wheel goes on to whatever scrolls.
+- **Its keys are described by a helper, `describeCollapsible()`.** The key-help
+  footer can only list what `describe()` declared, and the router a section would
+  describe to is built from the tree the section is in, so it cannot be an option.
+  The helper scopes the four keys to each title, which is exactly where they work,
+  and returns one disposer. The descriptions go through `__`, as the framework's
+  own strings do.
+- **The framework sheet has its first `:focus` rule.** `.sigil-collapsible-title:focus
+  { inverse: true }`. Without it a Tab onto a title looks like a Tab that did
+  nothing -- a scroll box shows its focus by scrolling, a title has nothing else to
+  show it by. It is `(0,2,0)` where every other rule there is `(0,1,0)`, which
+  costs a theme nothing, because the cascade decides origin before specificity. At
+  colour level 0 attributes are dropped and the focus is not shown, which is true
+  of any `:focus` rule; the demo says the focus in words when piped for that
+  reason. It is the sixth declared exception in `test/theme.test.ts`'s role
+  invariant, beside the caret and for the caret's reason: no role is inversion. The marker's one-cell margin is not inverted, since a margin is cells
+  nothing paints -- a trailing space in the marker's text was tried instead and is
+  measured away.
+- **Not done:** moving the focus to the title when a section is closed by
+  something other than its title (an app writing the state, or a group) while the
+  focus is inside its body -- an element cannot move the focus, so the focus stays
+  on a hidden element until Tab, which is the same thing an app hiding any
+  focused subtree gets; Up and Down between an accordion's titles; a `disabled`
+  section; a title that is an element rather than a string; and opening by
+  default where there is no terminal -- the app knows whether it built a router,
+  and a section nobody can open is one it should build open.

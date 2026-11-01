@@ -62,15 +62,19 @@ the entry it belongs to.
   `sigil-${outcome}` lands on a role for all four values of `SpinnerOutcome`,
   which is the one emission that computes its class.
 
-  `.sigil-caret`, `.sigil-scroll-track`, `.sigil-debug`, `.sigil-qrcode-paint` and
-  `.sigil-badge` are the five declared exceptions: no role is inversion; the track is the one
+  `.sigil-caret`, `.sigil-scroll-track`, `.sigil-debug`, `.sigil-qrcode-paint`,
+  `.sigil-badge` and `.sigil-collapsible-title:focus` are the six declared
+  exceptions: no role is inversion; the track is the one
   grey here that is not de-emphasised _text_, so it must not be `.sigil-muted` --
   that role is `dim` on a dark terminal, and a dim track is not a track;
   `.sigil-debug` is a **background** rather than a foreground, which no role is
   either; and the QR code's is a foreground and a background _together_, because a
   scanner wants dark modules on a light one and a terminal is usually the other
-  way round, so neither of the two is de-emphasis, a state or an accent. `should
-  declare on a role, bar five exceptions that say why` is the invariant, and it
+  way round, so neither of the two is de-emphasis, a state or an accent. The sixth
+  (SIG-192) is the one rule keyed on a state rather than a class, and is the
+  caret's reason again: a focused collapsible title is drawn inverse, because
+  nothing else says which title the keys go to. `should
+  declare on a role, bar six exceptions that say why` is the invariant, and it
   reads the **parsed** sheet rather than the source, because the comment listing
   the component classes as hooks would otherwise be mistaken for a rule. It was
   three until SIG-136, and the sentence here still said three for a commit after

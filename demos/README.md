@@ -365,6 +365,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/36-select-row.js`](components/36-select-row.js)                             | An interactive table: pick a row, sort by a column                       |
 | [`components/37-clock.js`](components/37-clock.js)                                       | A stopwatch beside a spinner, and a countdown before an action           |
 | [`components/38-spinners.js`](components/38-spinners.js)                                 | Every spinner frame set in the package, and the ASCII fallback           |
+| [`components/41-collapsible.js`](components/41-collapsible.js)                           | A section that opens and closes, and an accordion of them                |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -439,6 +440,16 @@ at `Deployed`.
 at its own interval, and then one spinner with `ascii: true`, which is what a
 terminal that cannot draw braille gets by default. Piped, a spinner draws no
 frames, so it is one line per set and does not wait.
+
+`41-collapsible.js` is a failed deploy with its stack folded under `Show stack`,
+and an accordion of three questions where opening one closes the open one. On a
+terminal Tab walks the titles, Enter and Space flip one, Right opens and Left
+closes, a click flips the title it lands on, and the footer lists those keys while
+a title has the focus. Piped, a scripted keyboard drives the same tree and the
+demo prints it after each step, with the focus said in words, since the inverse
+that marks it on a terminal is an attribute a pipe drops. The last step tabs into
+a field inside the open answer, which is in the ring only while its section is
+open.
 
 ### Try them without a terminal
 
