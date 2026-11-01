@@ -6059,6 +6059,9 @@ to a string, each with a `*View()` returning `{ element, width }`, and the split
   between columns or an empty stretch of a bar vanished and the columns ran
   together (`buildtestlint`). Every segment has `width: stringWidth(text)` and
   `white-space: pre` for that reason; `chart.test.ts` pins the columns line up.
+  Of the two, the width was the one doing the work: `pre` was read as `normal`
+  until SIG-207 and dropped the same trailing space. It keeps it now, so the
+  two say the same thing and neither was taken out. See `white-space` in [`src/element/AGENTS.md`](../element/AGENTS.md).
 - **Colour is a role on the data and nothing on the labels.** `role` is `accent` by
   default, the same role a progress bar's bar takes, and `none` leaves the
   terminal's foreground. A gauge's empty part is `.sigil-muted`, and its bar
@@ -6367,7 +6370,9 @@ rule; a label on both sides; and a style set to a pattern such as `- -`.
   about where a space goes or when dots give way to a number. They are separate
   text nodes because each takes its own role, and each is `white-space: pre` with a
   width, since a text drops the whitespace at the end of its last line and the space
-  that separates a run from the next would otherwise be nothing at all.
+  that separates a run from the next would otherwise be nothing at all. Until
+  SIG-207 that was true of `pre` too and the width alone held the space; `pre`
+  keeps it now, and the width is what it would measure anyway. See `white-space` in [`src/element/AGENTS.md`](../element/AGENTS.md).
 - **The glyphs follow `unicodeSupported()`.** `●` and `○` are not safe where box
   drawing is not, so a Linux console or `TERM=dumb` gets `*` and `.`, as the charts
   do; `ascii` overrides it either way.
@@ -6625,7 +6630,11 @@ its own.
   way and `pre` keeps no trailing one -- so it was taken out rather than left as a
   declaration that does nothing. The declared width is the paginator's answer to
   the same rule, and it is set on the settled mark too, since a width left over
-  from a six-cell frame would pad `✔` out to six.
+  from a six-cell frame would pad `✔` out to six. That measurement was right for
+  its day and stopped being so in SIG-207: `pre` was `normal` under another name,
+  and it keeps a trailing space now. The width stays: it is set per frame to what
+  the frame measures, which is exactly what a `pre` lead would come to, so moving
+  onto `pre` would change no output and would be a second way of saying it. See `white-space` in [`src/element/AGENTS.md`](../element/AGENTS.md).
 - **The long tail is a registry entry that is data, and the registry test says
   which.** `should say what %s can be themed with` asserted every entry lists a
   class, and an entry that draws nothing has none. It is an explicit `DATA` list
@@ -6735,7 +6744,11 @@ not answer anything: it sits in a tree beside other things and stays there.
   reason. It is the sixth declared exception in `test/theme.test.ts`'s role
   invariant, beside the caret and for the caret's reason: no role is inversion. The marker's one-cell margin is not inverted, since a margin is cells
   nothing paints -- a trailing space in the marker's text was tried instead and is
-  measured away.
+  measured away. Re-measured in SIG-207 and that is true only of `normal`: the
+  marker is `nowrap`, and a `nowrap` (or now `pre`) `'▸ '` keeps its space, so the
+  gap could be inverted with no new property. Left as it is, since whether the
+  focus bar should span the gap is a design question rather than a defect.
+  See `white-space` in [`src/element/AGENTS.md`](../element/AGENTS.md).
 - **Not done:** moving the focus to the title when a section is closed by
   something other than its title (an app writing the state, or a group) while the
   focus is inside its body -- an element cannot move the focus, so the focus stays
@@ -6946,7 +6959,9 @@ that prompt over a directory.
 - **The runs of a line are `white-space: nowrap`, not `pre`.** A guide below the
   last sibling is all spaces, and measured: a `pre` text of `'│   '` beside `'x'`
   renders `│x`, while `nowrap` keeps the four columns. The line is already wrapped,
-  so `nowrap` loses nothing.
+  so `nowrap` loses nothing. That was `pre` read as `normal`, fixed in SIG-207:
+  the two now measure alike, and `nowrap` is kept because it was never wrong.
+  See `white-space` in [`src/element/AGENTS.md`](../element/AGENTS.md).
 - **Right opens, and on an open branch steps in; Left closes, and on anything
   else steps out.** Textual's and every file manager's tree. Space toggles. Enter
   answers with the highlighted node's `value` -- a branch included, because a tree
