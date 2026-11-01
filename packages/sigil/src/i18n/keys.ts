@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 159 keys, which is what a catalog has to carry to translate sigil's own
+ * 160 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -126,6 +126,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Unknown option "{0}". Did you mean "{1}"?',
   'Unknown outline enumerator {0}',
   'Unknown output format "{0}". This command accepts: {1}',
+  'Unknown tree guide {0}',
   'Unsafe config key "{0}" in {1}',
   'Unterminated comment in {0} on line {1}',
   'Unterminated string in {0} on line {1}',

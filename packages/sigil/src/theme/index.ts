@@ -158,6 +158,9 @@ export const FRAMEWORK_CSS = `
  *   .sigil-outline  .sigil-outline-list  .sigil-outline-item
  *   .sigil-outline-marker  .sigil-outline-body  .sigil-outline-text
  *   .sigil-outline-nested
+ *   .sigil-tree  .sigil-tree-line  .sigil-tree-guide  .sigil-tree-marker
+ *   .sigil-tree-label  .sigil-tree-select  .sigil-tree-list  .sigil-tree-row
+ *   .sigil-tree-pointer  .sigil-tree-toggle  .sigil-tree-loading
  *   .sigil-calendar  .sigil-calendar-title  .sigil-calendar-weekdays
  *   .sigil-calendar-week  .sigil-calendar-day  .sigil-calendar-highlight
  *   .sigil-calendar-selected  .sigil-calendar-disabled

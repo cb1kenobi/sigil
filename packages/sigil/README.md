@@ -4078,6 +4078,84 @@ list, `done()` leaves it where it is and `stop()` erases it. Where there is no
 terminal nothing is written until `done()`, which writes the list once; a quiet
 run writes nothing.
 
+#### Tree
+
+```js
+import { tree } from '@ttylabs/sigil/components';
+
+console.log(
+  tree({ text: 'src', items: ['index.ts', { text: 'parser', items: ['argv.ts', 'tokens.ts'] }] })
+);
+```
+
+```
+src
+├── index.ts
+└── parser
+    ├── argv.ts
+    └── tokens.ts
+```
+
+Nested data drawn with `├──` and `└──`, as Lip Gloss's `tree` draws it. The items
+are `outline()`'s -- a string, or `{ text, items }` -- so one value prints as a list
+or as a tree. Handed a list, the tree starts at the margin; handed one object, its
+text is a root on a line of its own. An item that wraps carries its guide down
+beside the lines it wraps onto.
+
+| Option       | Meaning                                                                         |
+| ------------ | ------------------------------------------------------------------------------- |
+| `guide`      | `plain` (`└──`, the default) or `rounded` (`╰──`)                               |
+| `enumerator` | `outline()`'s, drawn after the guide: `'arabic'` numbers a tree. Default `none` |
+| `start`      | The number a counting enumerator starts at                                      |
+| `indent`     | How far the block is indented                                                   |
+| `width`      | The widest the block may be. Defaults to `terminalWidth()`                      |
+| `ascii`      | `\|--` and `` `-- ``. Defaults to what `unicodeSupported()` says                |
+
+The guides and markers are `.sigil-muted` and the text is `.sigil-tree-label`.
+`tree()` returns a string, on the result side of `--quiet`; `treeView()` is the
+element tree behind it.
+
+**`selectTree()`** asks for a node of one. Up and Down move and wrap; **Right**
+opens a branch and on an open one steps to its first child, **Left** closes an
+open branch and otherwise goes to the parent, **Space** toggles, and **Enter**
+answers with the node's `value` (its `text` if it has none). A branch's `items` may
+be a function, called the first time it opens and kept after -- a read on demand.
+The rows are a window over what is open.
+
+```js
+const region = await selectTree({
+  message: 'Which region?',
+  items: [
+    { text: 'Americas', items: async () => (await regions('amer')).map((r) => r.name) },
+    { text: 'Europe', items: ['eu-west', 'eu-central'], expanded: true },
+  ],
+  leaves: true, // Enter opens a continent; only a region is an answer
+});
+```
+
+| Option       | Meaning                                                                  |
+| ------------ | ------------------------------------------------------------------------ |
+| `items`      | A list, or one root node. A node may say `value`, `items` and `expanded` |
+| `leaves`     | Only a leaf can be the answer; Enter on a branch opens or closes it      |
+| `guide`      | As `tree()`                                                              |
+| `enumerator` | As `tree()`                                                              |
+| `loop`       | Whether the highlight wraps. Default `true`                              |
+| `rows`       | How many rows are shown at once                                          |
+| `short`      | What is shown once answered. Default: the node's text                    |
+| `validate`   | Return a string to reject the answer with that message                   |
+
+Keys that move or answer wait for a branch still being read, so a Right and a Down
+typed together land on its first child; Left does not, so a slow branch can always
+be closed. A function that throws closes its branch again and says why, and the
+next Right calls it again.
+
+**`directoryTree()`** is that prompt over the file system, as Textual's
+`DirectoryTree` is: the root is the top node, open, and each directory under it is
+read the first time it opens. It takes `filePicker()`'s `directory`, `extensions`,
+`hidden` and `root`, decided by the same function, and answers with an absolute
+path. Enter opens a directory and answers a file; with `directory`, files are not
+listed and Enter answers the directory, the root included.
+
 #### Charts
 
 ```js

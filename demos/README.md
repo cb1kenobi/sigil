@@ -364,6 +364,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/35-file-picker.js`](components/35-file-picker.js)                           | A file picker: browse a directory tree with the arrows                   |
 | [`components/36-select-row.js`](components/36-select-row.js)                             | An interactive table: pick a row, sort by a column                       |
 | [`components/37-clock.js`](components/37-clock.js)                                       | A stopwatch beside a spinner, and a countdown before an action           |
+| [`components/39-tree.js`](components/39-tree.js)                                         | A tree printed with guides, a prompt over one, and a directory tree      |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -433,6 +434,16 @@ tree. On a terminal the spinner reads `Installing... 1s` and the countdown ticks
 `00:02`, `00:01`; piped, neither ticks and neither draws a number -- a stopwatch in
 a log would say `0s` once -- while the countdown still runs out and the demo ends
 at `Deployed`.
+
+`39-tree.js` prints trees as strings first -- a root with its children hung from
+it, the rounded guide numbered with `outline()`'s enumerators, an item wrapping
+with its guide carried down beside it, and the ASCII fallback -- so that half is
+the same on a pipe. The rest is prompts, so piped it drives `selectTree()` and
+`directoryTree()` with a scripted keyboard and prints the screen after each key: a
+branch whose children are read when it opens, Right stepping in and Left coming
+back out, and a directory tree reading `src/` only once it is opened. On a terminal
+it asks for a region out of a tree of continents and then for a file under the
+working directory.
 
 ### Try them without a terminal
 

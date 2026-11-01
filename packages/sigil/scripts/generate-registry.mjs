@@ -191,6 +191,10 @@ const ENTRIES = [
     name: 'outline',
   },
   {
+    desc: 'A tree: nested data printed with ├── and └──, a prompt that opens and closes branches read on demand, and a directory tree',
+    name: 'tree',
+  },
+  {
     desc: 'Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge',
     name: 'chart',
   },
