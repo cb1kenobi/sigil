@@ -84,6 +84,13 @@ export interface EditorOptions extends Omit<PromptOptions, 'router'> {
    * Enter opens the editor again on exactly what was saved.
    */
   validate?: (value: string) => string | undefined | false | Promise<string | undefined | false>;
+  /**
+   * An answer to start from: the file opens holding it, the way it would hold
+   * `default`. Beats `default`, which is how `group()` re-asks a step with the
+   * answer it was given. A value that is not a string is dropped rather than
+   * refused, because after going back a stale answer is the ordinary case.
+   */
+  value?: string;
 }
 
 /** What the platform falls back to when neither variable names an editor. */
@@ -466,7 +473,7 @@ export async function editor(opts: EditorOptions): Promise<string> {
     }
   }
 
-  let content = opts.default ?? '';
+  let content = typeof opts.value === 'string' ? opts.value : (opts.default ?? '');
   let error: string | undefined;
 
   for (;;) {

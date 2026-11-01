@@ -3104,6 +3104,8 @@ shows behind an editor that opens a window, and is erased when it closes.
 | ---------- | ------------------------------------------------------------------------------------ |
 | `message`  | What is being asked                                                                  |
 | `default`  | What the file starts with. Not a fallback: an empty file answers `''`                |
+| `value`    | An answer to start from, which the file opens holding. Beats `default`               |
+| `back`     | Escape goes back a step, before the editor is open. What `group()` gives a step      |
 | `postfix`  | The end of the file's name, so the editor picks a syntax mode. Default `.txt`        |
 | `editor`   | A command to run ahead of `$VISUAL` and `$EDITOR`, for an app with its own setting   |
 | `validate` | Checks the answer; return a string to reject it with that message. May be async      |

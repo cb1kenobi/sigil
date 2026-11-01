@@ -7355,6 +7355,7 @@ takes a `value` now, `run()` reads a `back` option, and a step is handed both.
   nothing is ticked. `sort()` puts the rows it names first, in its order, and the
   rest after them in theirs, so a row added since the last answer lands last and a
   pinned row stays put. `selectKey()` makes it the choice Enter takes.
+  `editor()` opens the file holding it, ahead of `default`.
   `selectTree()` highlights the node and opens the branches above it, but reads no
   lazy branch to look for it, so a node under an unread branch is found only once
   something opens that branch. `directoryTree()` opens the directories on the
@@ -7448,7 +7449,7 @@ takes a `value` now, `run()` reads a `back` option, and a step is handed both.
   rows back at `done()`, nothing records how many there were, and a log line or a
   spinner may have written below them since.
 - **How it is pinned.** `test/components/prompt-value.test.ts` has three tables
-  over all 22 prompts: answers with `value` on the submit key alone (each `value`
+  over all 23 prompts (`editor()`, SIG-171, is the 23rd): answers with `value` on the submit key alone (each `value`
   is chosen so that it is not where the prompt would have opened anyway), rejects
   with a `PromptBack` on Escape when given `back` and leaves an empty screen, and
   ignores Escape without it. Further cases cover the drop rule per prompt, the
@@ -7569,8 +7570,15 @@ the answer.
   file, so the default is visible and editable rather than implied, and an empty
   file is how somebody answers "nothing" -- `''`, never the default back.
   `multiline()` calls the same idea `initial` and refuses `default` for its own
-  reason; SIG-204 is unifying those names and this one follows the ticket until
-  then.
+  reason. SIG-204 then gave every prompt a `value`, and here it beats `default` the
+  way it beats `initial` there: the file opens holding it, so a step `group()`
+  re-asks opens on the answer it was given. A `value` that is not a string is
+  dropped, as on every prompt. `back` needed no code: `ask()` hands the options to
+  `runPrompt()`, which takes Escape before the prompt's own keys. It applies only
+  at the question, since while the editor is open Escape is the editor's, and the
+  temporary file does not exist yet at that point, so going back leaves nothing to
+  remove. Both are pinned by the shared tables in `prompt-value.test.ts`, which
+  run `editor()` with a command that exits without touching the file.
 - **The answer has a BOM, CRLF and one trailing line break taken off.** Those are
   how an editor encodes a file rather than what was written -- Notepad has written
   the first two, vim adds the third to every file and Notepad does not -- so an
