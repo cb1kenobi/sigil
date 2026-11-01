@@ -1,6 +1,6 @@
+import { tempDir } from '../temp.js';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -50,7 +50,7 @@ beforeAll(() => {
       );
     }
   }
-  dir = mkdtempSync(join(tmpdir(), 'sigil-terminal-'));
+  dir = tempDir('sigil-terminal-');
 }, 120000);
 
 /**

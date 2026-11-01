@@ -53,6 +53,7 @@ import {
   type PromptOptions,
   promptNote,
   promptRowCap,
+  promptSameValue,
   runPrompt,
   setPromptNote,
 } from './prompt.js';
@@ -336,6 +337,16 @@ export interface SelectTreeOptions<T = string> extends PromptOptions {
    * anything falsy to accept.
    */
   validate?: (value: T) => string | undefined | false | Promise<string | undefined | false>;
+  /**
+   * An answer to start from: the node holding it starts highlighted, with every
+   * branch above it opened. Compared the way a `Map` compares keys.
+   *
+   * Looked for among the nodes there are, and no branch is read to look further:
+   * one under a branch whose `items` is a function is found once something opens
+   * that branch -- its own `expanded`, say -- and not before. Given up at the
+   * first key, and simply never found if nothing holds it.
+   */
+  value?: T;
 }
 
 /** A node as the prompt holds it. */
@@ -404,6 +415,38 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
   let finished = false;
   let chosen = '';
   let draw = (): void => {};
+  /** The starting answer, until it is found or a key is pressed. */
+  let want = opts.value;
+
+  /** The first node there is that holds a value, open or not. */
+  function find(nodes: readonly TreeNode<T>[], value: T): TreeNode<T> | undefined {
+    for (const node of nodes) {
+      if (promptSameValue(node.value, value)) {
+        return node;
+      }
+      const inside = node.children && find(node.children, value);
+      if (inside) {
+        return inside;
+      }
+    }
+    return undefined;
+  }
+
+  /** Highlights the starting answer, once there is a node holding it. */
+  function place(): void {
+    if (want === undefined) {
+      return;
+    }
+    const found = find(top, want);
+    if (found === undefined) {
+      return;
+    }
+    want = undefined;
+    for (let up = found.parent; up !== undefined; up = up.parent) {
+      open(up);
+    }
+    active = found;
+  }
 
   /** Refuses an item that is neither a string nor an object with text. */
   function choiceOf(item: TreeChoiceItem<T>): TreeChoice<T> {
@@ -595,8 +638,14 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
       ) => Promise<{ value: T } | void> | void
     ) => {
       return async (): Promise<{ value: T } | void> => {
-        const node = active as TreeNode<T>;
         await opened();
+        // the starting answer is placed before the key acts, so an Enter typed
+        // before the reads on the way down to it landed still takes it --
+        // `filePicker()`'s rule. Once a key has acted the person has moved, and
+        // a later read is not one to jump to
+        place();
+        want = undefined;
+        const node = active as TreeNode<T>;
         const rows = visible();
         return step(node, rows, rows.indexOf(node));
       };
@@ -615,6 +664,9 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     const toggles = (): boolean => active?.branch === true;
 
     keys.on('left', () => {
+      // waits for nothing, so the person has moved before any starting answer
+      // still being read for could be placed
+      want = undefined;
       const node = active as TreeNode<T>;
       if (node.branch && node.expanded) {
         node.expanded = false;
@@ -670,7 +722,7 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
           : { description: __`pick`, priority: 3 }
     );
 
-    const footer = promptFooter(keys, terminal.width);
+    const footer = promptFooter(keys, terminal.width, opts.back);
     const view = box(
       { class: 'sigil-prompt sigil-tree-select', 'flex-direction': 'column' },
       line,
@@ -719,6 +771,7 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     }
 
     draw = (): void => {
+      place();
       const rows = visible();
       if (active === undefined || !rows.includes(active)) {
         active = rows[0];
@@ -802,6 +855,12 @@ export interface DirectoryTreeOptions extends Omit<
   hidden?: boolean;
   /** The directory at the top of the tree. Defaults to the working directory. A `~` is expanded. */
   root?: string;
+  /**
+   * An answer to start from: a path, which starts highlighted with every
+   * directory between it and `root` opened. Dropped when it is not under `root`
+   * or is not there any more.
+   */
+  value?: string;
 }
 
 /**
@@ -825,19 +884,29 @@ export function directoryTree(opts: DirectoryTreeOptions): Promise<string> {
     hidden: opts.hidden,
   };
   const cache = entryCache();
+  // a starting answer is found by `selectTree()`, which reads no branch to look
+  // for one -- so the directories on the way down to it are opened here, where
+  // the path says which they are
+  const target = typeof opts.value === 'string' ? nodePath.resolve(opts.value) : undefined;
 
   const read = (dir: string) => async (): Promise<TreeChoice<string>[]> => {
     await cache.load(dir);
     return candidatesOf(cache.get(dir) ?? [], '', filter).map((entry) => {
       const value = nodePath.join(dir, entry.name);
       return entry.dir
-        ? { items: read(value), text: entry.name + nodePath.sep, value }
+        ? {
+            expanded: target?.startsWith(value + nodePath.sep) === true,
+            items: read(value),
+            text: entry.name + nodePath.sep,
+            value,
+          }
         : { text: entry.name, value };
     });
   };
 
   return selectTree<string>({
     ...opts,
+    value: target,
     items: {
       expanded: true,
       items: read(base),

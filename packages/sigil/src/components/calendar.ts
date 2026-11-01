@@ -62,6 +62,12 @@ export interface PickDateOptions extends CalendarGridOptions, PromptOptions {
   max?: Date;
   /** The earliest day that can be picked, inclusive. */
   min?: Date;
+  /**
+   * An answer to start from: the day the cursor starts on, beating `initial` and
+   * pulled into `min` and `max` the same way. One that is not a valid date is
+   * dropped rather than refused.
+   */
+  value?: Date;
 }
 
 /** A calendar day. The month is 1-12, as in the parser's `date` type. */
@@ -481,7 +487,9 @@ export function pickDate(opts: PickDateOptions): Promise<Date> {
     return d;
   }
 
-  let cursor = bounded(dayOf(opts.initial ?? new Date()));
+  const given =
+    opts.value instanceof Date && !Number.isNaN(opts.value.getTime()) ? opts.value : opts.initial;
+  let cursor = bounded(dayOf(given ?? new Date()));
 
   return runPrompt<Date>(opts, () => {
     const grid = calendarGrid(opts, 2);

@@ -33,6 +33,7 @@ import {
   type PromptOptions,
   PromptError,
   promptRowCap,
+  promptSameValue,
   promptValue,
   runPrompt,
 } from './prompt.js';
@@ -59,6 +60,12 @@ export interface SortOptions<T> extends PromptOptions {
    * the question.
    */
   rows?: number;
+  /**
+   * An answer to start from: the order the list opens in. The rows it names come
+   * first, in its order, and the rest after them in theirs; a pinned row keeps
+   * its place either way, and a value no movable row holds is dropped.
+   */
+  value?: readonly T[];
 }
 
 /**
@@ -139,6 +146,40 @@ function sortRow<T>(
 }
 
 /**
+ * The list put in the order of a starting answer.
+ *
+ * Only the movable rows move, into the movable places, so a pinned row keeps its
+ * place exactly as it does under a carry. Those the answer names come first, in
+ * its order; the rest follow in theirs -- which is what a list that has gained a
+ * row since it was last answered should look like, the new row last. A value no
+ * movable row holds is dropped.
+ *
+ * @param start - The choices, in the order they were given.
+ * @param slots - The movable places.
+ * @param value - The answer to start from.
+ * @returns The choices in the order to start in.
+ */
+function arranged<T>(start: Choice<T>[], slots: number[], value: readonly T[]): Choice<T>[] {
+  const rank = (choice: Choice<T>): number => {
+    const at = value.findIndex((v) => promptSameValue(v, promptValue(choice)));
+    return at < 0 ? Number.POSITIVE_INFINITY : at;
+  };
+  // a stable sort, so the rows the answer does not name keep their order
+  const movable = slots
+    .map((slot) => start[slot] as Choice<T>)
+    .sort((a, b) => {
+      const ra = rank(a);
+      const rb = rank(b);
+      return ra === rb ? 0 : ra < rb ? -1 : 1;
+    });
+  const order = [...start];
+  slots.forEach((slot, i) => {
+    order[slot] = movable[i] as Choice<T>;
+  });
+  return order;
+}
+
+/**
  * Asks for a list put in order.
  *
  * Up and Down move the highlight; **Space picks the highlighted row up**, and
@@ -162,7 +203,9 @@ export function sort<T = string>(opts: SortOptions<T>): Promise<T[]> {
 
   const terminal = opts.terminal ?? defaultTerminal;
   const loop = opts.loop ?? true;
-  let order = start;
+  let order = Array.isArray(opts.value)
+    ? arranged(start, slots, opts.value as readonly T[])
+    : start;
   // an index into `slots`, so that the highlight cannot rest on a pinned place
   let at = (() => {
     const wanted = Math.min(Math.max(0, opts.initial ?? 0), start.length - 1);
@@ -268,7 +311,7 @@ export function sort<T = string>(opts: SortOptions<T>): Promise<T[]> {
     keys.on('pageup', () => goTo(Math.max(0, at - page())));
     keys.on('pagedown', () => goTo(Math.min(slots.length - 1, at + page())));
 
-    const footer = promptFooter(keys, terminal.width);
+    const footer = promptFooter(keys, terminal.width, opts.back);
     const view = box(
       { class: 'sigil-prompt sigil-sort', 'flex-direction': 'column' },
       line,

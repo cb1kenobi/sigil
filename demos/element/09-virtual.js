@@ -29,7 +29,7 @@
  * the content box's extent spans the whole list and the range, the clamp and the
  * thumb are the answers they would be over every row.
  *
- * Two things to try, and the second one is this tier's honest edge:
+ * Three things to try, and the last one is this tier's honest edge:
  *
  * - **Scroll it, every way.** Arrows, PageUp/PageDown, Home/End, the wheel with
  *   its acceleration curve, and dragging the thumb. Watch the element count stay
@@ -37,6 +37,11 @@
  *   window. Home
  *   and End are the sharpest: the thumb goes to the very top and the very bottom,
  *   which it could not do if the range came from what was built.
+ * - **Press `+`.** A thousand more rows arrive while nobody is scrolling, which
+ *   is a log growing -- and the thumb shrinks and End reaches the new last row at
+ *   once. Nothing moved the offset or the viewport, so nothing told the window;
+ *   `scrollControl(log).resync()` is how the app says the count moved. Before it
+ *   existed the spacer below went on measuring the old list until the next scroll.
  * - **Tab.** The rows are focusable and Tab walks the ones that **exist**, which
  *   with a window is the ones on screen. So the focus can never end up somewhere
  *   you cannot see -- which is the failure `scrollIntoView()` is wired to the
@@ -52,7 +57,7 @@
  * writer of the offset there is.
  */
 import { createInlineCanvas } from '@ttylabs/sigil/canvas';
-import { ScrollBox } from '@ttylabs/sigil/components';
+import { ScrollBox, scrollControl } from '@ttylabs/sigil/components';
 import { box, cellStyle, raw, text } from '@ttylabs/sigil/element';
 import { createInput, isAbort } from '@ttylabs/sigil/input';
 import { createEffect, render } from '@ttylabs/sigil/renderer';
@@ -68,6 +73,8 @@ if (!process.stdin.isTTY || !process.stdout.isTTY) {
 if (process.stdin.isTTY && process.stdout.isTTY) {
   /** Ten thousand, which is the number both benchmarks are written for. */
   const ROWS = 10_000;
+  /** How many rows `+` adds. */
+  const MORE = 1_000;
   /** How tall the window is, border included. */
   const WINDOW = 20;
 
@@ -111,8 +118,17 @@ if (process.stdin.isTTY && process.stdout.isTTY) {
     return n;
   }
 
+  /**
+   * The rows, held so that `+` can grow them: `count` is read on every window,
+   * and `resync()` is what asks for one when nothing else would.
+   */
+  const rows = { count: ROWS, height: 1, row };
+
+  /** The scroll box, once `App()` has built it. */
+  let log;
+
   function App() {
-    const log = ScrollBox({
+    log = ScrollBox({
       // the height is in **props** and not in the sheet, deliberately: a declared
       // height in cells is a floor under the first window, so `wireRows()` builds
       // it before anything has arranged anything and this frame takes **one**
@@ -127,7 +143,7 @@ if (process.stdin.isTTY && process.stdout.isTTY) {
       // wins wherever the two disagree. This demo's host is exactly `WINDOW` tall,
       // so here they agree
       props: { class: 'log', height: WINDOW },
-      rows: { count: ROWS, height: 1, row },
+      rows,
     });
 
     const readout = text('');
@@ -154,7 +170,7 @@ if (process.stdin.isTTY && process.stdout.isTTY) {
           painter.text(
             area.x,
             area.y,
-            `${countElements(log)} elements for ${ROWS} rows`,
+            `${countElements(log)} elements for ${rows.count} rows`,
             cellStyle(element.style)
           );
         },
@@ -171,6 +187,7 @@ if (process.stdin.isTTY && process.stdout.isTTY) {
         text('wheel', { class: 'key' }),
         text('drag the thumb', { class: 'key' }),
         text('tab', { class: 'key' }),
+        text('+', { class: 'key' }),
         text('q', { class: 'key' }),
         readout
       ),
@@ -199,6 +216,10 @@ if (process.stdin.isTTY && process.stdout.isTTY) {
       event.stop();
       view.dispose();
       input.stop();
+    } else if (event.key.name === '+') {
+      event.stop();
+      rows.count += MORE;
+      scrollControl(log).resync();
     }
   });
 

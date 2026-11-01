@@ -2766,7 +2766,19 @@ const features = await multiselect({
 ```
 
 `text()` takes `default`, `placeholder`, `mask`, and a `validate` that may be
-async — return a string to reject the answer with that message. Editing keys
+async — return a string to reject the answer with that message.
+
+**Every prompt takes a `value`: an answer to start from**, typed as the answer it
+gives, so one name works whatever is being asked -- the field opens holding it, a
+list with that choice highlighted, a multiselect with exactly those ticked, a sort
+in that order, a file picker in the directory holding it. A choice is found by its
+`value`, compared the way a `Map` compares keys. It beats `initial` (which stays
+what it was: an index on `select()`, `sort()` and `selectRow()`, starting text on
+the fields) and `selected`, and on `confirm()` it is what Enter alone means. A
+`value` a prompt cannot show -- no choice holds it, a fraction on an integer
+field, text that does not fit a mask -- is dropped rather than refused, because it
+is usually an earlier answer to a question that has since changed.
+`commandPalette()` takes none: it is not asked for a value. Editing keys
 are the usual ones: arrows, Home/End, Ctrl-A/E/U, Backspace, Delete. A paste
 arrives as one chunk and is read as the keys it carries, not just the first.
 
@@ -2787,7 +2799,8 @@ not fit is dropped whole, least important first, and the row ends in `…`. It g
 once the prompt is answered, so the log keeps the question and the answer. The
 arrows are not listed, since they are the keys nobody has to be told, and `text()`,
 `select()` and `confirm()` draw no footer — `confirm()`'s `(Y/n)` already names its
-keys. A key is matched the way `bind()` matches one, modifiers and all, so
+keys. A prompt asked with `back: true`, which is what `group()` does, adds
+`esc back` to its footer. A key is matched the way `bind()` matches one, modifiers and all, so
 Shift-Down is not Down.
 
 Every prompt takes a `signal`. Aborting it gives the prompt up the way Ctrl-C
@@ -3187,7 +3200,32 @@ the answers so far. Cancelling is still a `PromptError` rejection --
 and `onCancel(partial, err)` is called first with what had been answered. It may
 throw, or return an `Error`, to replace the rejection; it cannot swallow it. A
 step that fails for any other reason is rethrown untouched and `onCancel` is not
-called. There is no going back a step.
+called.
+
+**Escape goes back a step.** Each step is handed a second argument, `step`, shaped
+as prompt options: `back: true` on every step after the first, and `value` -- what
+the step answered last time -- whenever it is being asked again. Spread it into
+the prompt and that prompt goes back on Escape and opens on its earlier answer:
+
+```js
+const answers = await group({
+  name: (_, step) => text({ message: 'Project name', value: 'my-app', ...step }),
+  pm: ({ name }, step) =>
+    select({ message: `Package manager for ${name}`, choices: ['npm', 'pnpm'], ...step }),
+  ok: (_, step) => confirm({ message: 'Create it?', ...step }),
+});
+```
+
+Each key is present only when it says something, so `{ value: suggestion, ...step }`
+opens on the suggestion the first time and on the earlier answer every time after.
+Going back never skips a step on the way forward: every step after the one gone
+back to is asked again, because a step may depend on the answer that changed. A
+re-asked step's old answer is only where it opens -- a list that no longer offers
+it drops it -- and a step that knows it no longer means anything can leave `value`
+out of what it spreads. The screen is a transcript: what was answered before going
+back stays above the question asked again. `isBack(err)` is true for the
+`PromptBack` a prompt asked with `back: true` rejects with, for an app that runs its
+own loop over prompts.
 
 In TypeScript, a step that reads its argument stops `T` being inferred from what
 the steps return, so name the shape: `group<{ name: string; ok: boolean }>({ ... })`.
@@ -3880,7 +3918,74 @@ await tasks([
 each task ended. A task that returns a string settles on it in place of its
 title; one that returns `skip(reason?)` settles as `ℹ title (skipped: reason)`;
 one that throws leaves `✖ title` on screen, runs nothing after it, and rethrows
-to the caller. Tasks do not run concurrently and do not nest.
+to the caller.
+
+##### Side by side, and subtasks
+
+```js
+await tasks(
+  [
+    {
+      title: 'Installing',
+      // a task that is only a group returns its subtasks
+      task: ({ tasks }) =>
+        tasks(
+          packages.map((name) => ({
+            title: `Fetching ${name}`,
+            task: ({ signal }) => fetchPackage(name, { signal }),
+            retry: { tries: 2, delay: 500 },
+          })),
+          { concurrency: 3 }
+        ),
+    },
+    { title: 'Generating types', task: generate },
+  ],
+  { concurrency: 2 }
+);
+```
+
+```
+✔ Generating types
+⠹ Installing
+  ✔ Fetching react
+  ⠹ Fetching typescript
+  ⠹ Fetching vite
+```
+
+- **`concurrency`** is how many tasks run at once: 1 by default, any positive
+  integer, or `Infinity`. Every running task has a row, and every row is in one
+  live region driven by one timer -- so a spinner per task, which would evict
+  each other, is never what you get.
+- **A task that finishes leaves the frame and is written above it**, so lines
+  land in the order tasks finished, and the frame is only as tall as what is
+  running. When even that does not fit the screen, the rows that do not fit are
+  cut and the last row says `… 7 more running`.
+- **`context.tasks(list, { concurrency, failFast })`** runs subtasks one level
+  further in, as deep as you nest it. While the parent runs its subtasks are
+  shown under it, settled ones included. A parent that succeeds collapses to its
+  one line; a parent that fails keeps every subtask below its `✖` line, as each
+  one ended.
+- **A subtask's failure fails its parent** because it rejects `context.tasks()`,
+  and nothing else decides it: a parent that catches the rejection settles
+  however it returns. A skipped subtask does not skip its parent.
+- **`failFast`** is `true` by default: the first failure starts nothing new,
+  aborts `context.signal` for the tasks still running, waits for them, and
+  rethrows the first error. A task that rejects with the abort settles as
+  `ℹ title (cancelled)`. With `failFast: false` every task runs, each failure
+  stays on screen, and the list rejects with an `AggregateError` holding every
+  failure in list order.
+- **`retry`** on a task is a number of further attempts, or
+  `{ tries, delay }`. The row reads `title (retry 1 of 2)` while it tries again,
+  and a window it opened starts over. A `skip()` is not retried, nor is a task
+  cancelled by a sibling's failure.
+
+Piped, there is no frame: each task writes a line when it starts and one when it
+settles, indented under its parent, in the order it happened. Where tasks run
+side by side their lines interleave, so a line of a task's output is labelled
+with its title (`Fetching react: 200 OK`), and a subtask's lines carry its
+parent's (`✔ Installing: Fetching react`) instead of an indent that would place
+them under the wrong one. A quiet run writes nothing, and still runs the tasks
+and rejects.
 
 `taskLog()` is the window a task writes a subprocess's output to, and works on
 its own:
@@ -4522,6 +4627,37 @@ output or the input is not a terminal it writes the document out as it was given
 and resolves, which is what `less` does when it is piped. It leaves the mouse
 alone unless you pass `mouse: true`, because a terminal reporting the mouse stops
 doing its own selection, and copying a line out is half of what a pager is for.
+
+#### Building on a scroll box
+
+The pager is a component built on `ScrollBox`, and what it uses to hear one is
+public:
+
+```js
+import { ScrollBox, scrollControl } from '@ttylabs/sigil/components';
+
+const rows = { count: 0, height: 1, row: (i) => text(lines[i]) };
+const view = ScrollBox({
+  onScroll: (control) => status.setText(`row ${control.viewport.scroll?.y ?? 0}`),
+  props: { height: 20 },
+  rows,
+});
+
+// a log that grows while nobody scrolls: the count is yours, so say it moved
+lines.push(line);
+rows.count = lines.length;
+scrollControl(view).resync();
+```
+
+`onScroll` is called whenever the offset moved -- the keys, the wheel, the thumb,
+`scrollIntoView()` from the focus ring, or your own `scrollTo()` -- and
+`onResize` whenever a frame gave the viewport a new size, each **after** a
+windowed list has rebuilt its window, so what they read is what is on screen.
+`onResize` returns whether it changed the tree, so the frame lays out again
+before it paints. `scrollControl()` hands back the viewport, which owns the
+offset, and `resync()`, which re-windows a `rows` list against its `count` now:
+the offset and the viewport's size each have a writer the box hears, and the
+count is the one number only you can say moved.
 
 `sigil/components` also exports `decodeKeys()` and `renderBar()`, and the state
 and the element tree behind each component -- `spinnerView()`, `progressView()`

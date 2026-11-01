@@ -157,7 +157,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-toggle  .sigil-toggle-option
  *   .sigil-table-select  .sigil-table-select-head  .sigil-table-select-list
  *   .sigil-table-position
- *   .sigil-tasklog  .sigil-tasklog-line
+ *   .sigil-tasklog  .sigil-tasklog-line  .sigil-tasks  .sigil-tasks-more
  *   .sigil-paginator  .sigil-paginator-dots  .sigil-paginator-active
  *   .sigil-paginator-inactive  .sigil-paginator-numeric
  *   .sigil-outline  .sigil-outline-list  .sigil-outline-item

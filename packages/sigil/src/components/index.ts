@@ -49,8 +49,10 @@ export {
   type FrameOptions,
   group,
   type GroupOptions,
+  type GroupStep,
   type GroupSteps,
   intro,
+  isBack,
   isCancel,
   outro,
 } from './group.js';
@@ -147,6 +149,7 @@ export {
   multiselect,
   type MultiselectOptions,
   password,
+  PromptBack,
   PromptError,
   type PromptOptions,
   select,
@@ -177,6 +180,7 @@ export {
   promptKeys,
   promptNote,
   promptRowCap,
+  promptSameValue,
   promptSummary,
   type PromptSymbols,
   promptWindow,
@@ -307,10 +311,13 @@ export {
   type TaskContext,
   type TaskLog,
   taskLog,
+  type TaskListOptions,
   type TaskLogOptions,
   type TaskOutcome,
-  tasks,
   type TaskResultValue,
+  type TaskRetry,
+  tasks,
+  type TasksOptions,
 } from './tasks.js';
 export { decodeKeys, isAbort, type Key, pendingLength } from './keys.js';
 export {
@@ -394,8 +401,9 @@ export {
   type ScrollAxis,
   ScrollBox,
   type ScrollBoxProps,
+  scrollControl,
+  type ScrollControl,
   type ScrollRows,
-  scrollViewport,
   thumbExtent,
 } from './scroll-box.js';
 export {

@@ -11,9 +11,9 @@
  * holds, which is what says this added a flag rather than moved a byte.
  */
 
+import { tempDir } from './temp.js';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -196,7 +196,7 @@ function prompted(
  * @returns Its directory.
  */
 function appFor(): string {
-  const at = mkdtempSync(join(tmpdir(), 'sig141-add-'));
+  const at = tempDir('sig141-add-');
   mkdirSync(join(at, 'src'));
   mkdirSync(join(at, 'node_modules', '@ttylabs'), { recursive: true });
   writeFileSync(
@@ -321,8 +321,8 @@ describe('a quiet build', () => {
    * same thing at greater length.
    */
   it('should print neither the chunk table nor the inlined one', async () => {
-    const out = join(mkdtempSync(join(tmpdir(), 'sig141-')), 'dist');
-    const quiet = join(mkdtempSync(join(tmpdir(), 'sig141-')), 'dist');
+    const out = join(tempDir('sig141-'), 'dist');
+    const quiet = join(tempDir('sig141-'), 'dist');
     const [loud, hushed] = await Promise.all([
       sigil(['build', 'test/fixtures/buildable', '--out', out]),
       sigil(['build', '--quiet', 'test/fixtures/buildable', '--out', quiet]),

@@ -1,5 +1,20 @@
-import { cancel, group, intro, isCancel, outro } from '../../src/components/group.js';
-import { confirm, PromptError, text } from '../../src/components/prompt.js';
+import {
+  cancel,
+  group,
+  type GroupStep,
+  intro,
+  isBack,
+  isCancel,
+  outro,
+} from '../../src/components/group.js';
+import {
+  confirm,
+  ESCAPE_TIMEOUT,
+  PromptBack,
+  PromptError,
+  select,
+  text,
+} from '../../src/components/prompt.js';
 import { setQuiet } from '../../src/style/index.js';
 import { createTerminal, type InputStream, type OutputStream } from '../../src/terminal/index.js';
 import { createInput, createStream, screenSetup, tick } from './helpers.js';
@@ -13,6 +28,41 @@ const ESC = '\u001b';
 function cancelled(): Promise<never> {
   return Promise.reject(new PromptError('Cancelled', true));
 }
+
+/**
+ * A step that answers from a script, one entry per time it is asked: a value to
+ * answer with, or `BACK` to go back. It records what it was handed each time.
+ */
+const BACK = Symbol('back');
+function scripted<V>(script: (V | typeof BACK)[], seen: unknown[][] = []) {
+  let asked = 0;
+  const step = async (answers: object, handed: GroupStep<V>): Promise<V> => {
+    seen.push([{ ...answers }, { ...handed }]);
+    const next = script[asked++];
+    if (next === BACK) {
+      throw new PromptBack();
+    }
+    if (next === undefined) {
+      throw new Error('asked more often than scripted');
+    }
+    return next;
+  };
+  return { seen, step };
+}
+
+describe('isBack()', () => {
+  it('should be true for a PromptBack and nothing else', () => {
+    expect(isBack(new PromptBack())).toBe(true);
+    expect(isBack(new PromptError('Cancelled', true))).toBe(false);
+    expect(isBack(new Error('Went back'))).toBe(false);
+    expect(isBack(undefined)).toBe(false);
+  });
+
+  it('should not be a cancel', () => {
+    // a person going back has not left, and a catch for leaving must not fire
+    expect(isCancel(new PromptBack())).toBe(false);
+  });
+});
 
 describe('isCancel()', () => {
   it('should be true for a person pressing Ctrl-C', () => {
@@ -189,6 +239,115 @@ describe('group()', () => {
     });
   });
 
+  describe('going back', () => {
+    it('should hand back only to steps after the first', async () => {
+      const a = scripted(['one']);
+      const b = scripted(['two']);
+      await group({ a: a.step, b: b.step });
+
+      expect(a.seen).to.deep.equal([[{}, {}]]);
+      expect(b.seen).to.deep.equal([[{ a: 'one' }, { back: true }]]);
+    });
+
+    it('should ask the step before again with its earlier answer as the value', async () => {
+      const a = scripted(['one', 'uno']);
+      const b = scripted([BACK, 'two']);
+
+      expect(await group({ a: a.step, b: b.step })).to.deep.equal({ a: 'uno', b: 'two' });
+      expect(a.seen).to.deep.equal([
+        [{}, {}],
+        [{}, { value: 'one' }],
+      ]);
+    });
+
+    it('should ask every step after the one gone back to again, and skip none', async () => {
+      // the dependent-answer rule: going back from c to a, then forward again,
+      // asks b again even though b was answered -- b may read a, which changed
+      const a = scripted(['npm', 'pnpm']);
+      const b = scripted(['ci', BACK, 'install']);
+      const c = scripted([BACK, 'yes']);
+
+      const answers = await group({ a: a.step, b: b.step, c: c.step });
+
+      expect(answers).to.deep.equal({ a: 'pnpm', b: 'install', c: 'yes' });
+      expect(b.seen).to.deep.equal([
+        [{ a: 'npm' }, { back: true }],
+        [{ a: 'npm' }, { back: true, value: 'ci' }],
+        [{ a: 'pnpm' }, { back: true, value: 'ci' }],
+      ]);
+    });
+
+    it('should not show a re-asked step an answer from after it', async () => {
+      // d goes back to c, c goes back to b: what c answered is c's to be shown
+      // again, not b's to read as an answer -- it was given under a b that is
+      // being changed
+      const a = scripted(['one']);
+      const b = scripted(['two', 'deux']);
+      const c = scripted(['three', BACK, 'trois']);
+      const d = scripted([BACK, 'four']);
+
+      expect(await group({ a: a.step, b: b.step, c: c.step, d: d.step })).to.deep.equal({
+        a: 'one',
+        b: 'deux',
+        c: 'trois',
+        d: 'four',
+      });
+      expect(b.seen.at(-1)).to.deep.equal([{ a: 'one' }, { back: true, value: 'two' }]);
+      expect(c.seen.at(-1)).to.deep.equal([
+        { a: 'one', b: 'deux' },
+        { back: true, value: 'three' },
+      ]);
+      // never answered, so there is nothing to show it when it is asked again
+      expect(d.seen.at(-1)).to.deep.equal([{ a: 'one', b: 'deux', c: 'trois' }, { back: true }]);
+    });
+
+    it('should leave out a value the step never gave, so a spread keeps its own', async () => {
+      const a = scripted(['one']);
+      let handed: unknown;
+      await group({
+        a: a.step,
+        b: (_answers, step) => {
+          handed = { value: 'suggested', ...step };
+          return 'b';
+        },
+      });
+
+      expect(handed).to.deep.equal({ back: true, value: 'suggested' });
+    });
+
+    it('should hand a frozen step, so a step cannot change what the next one is handed', async () => {
+      let frozen = false;
+      await group({ a: (_answers, step) => ((frozen = Object.isFrozen(step)), 1) });
+      expect(frozen).toBe(true);
+    });
+
+    it('should rethrow a PromptBack from the first step, where there is nothing to go back to', async () => {
+      const onCancel = vi.fn();
+      const error = new PromptBack();
+
+      await expect(group({ a: () => Promise.reject(error) }, { onCancel })).rejects.toBe(error);
+      expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it('should call onCancel with the answers that stand after a back', async () => {
+      const onCancel = vi.fn();
+      const a = scripted(['one', 'uno']);
+      let asked = 0;
+
+      const result = group(
+        {
+          a: a.step,
+          b: () =>
+            Promise.reject(asked++ === 0 ? new PromptBack() : new PromptError('Cancelled', true)),
+        },
+        { onCancel }
+      );
+
+      await expect(result).rejects.toSatisfy(isCancel);
+      expect(onCancel).toHaveBeenCalledWith({ a: 'uno' }, expect.any(PromptError));
+    });
+  });
+
   describe('with real prompts', () => {
     it('should carry an answer into the next prompt and finish', async () => {
       const ui = screenSetup({ columns: 60 });
@@ -232,6 +391,57 @@ describe('group()', () => {
 
       expect(isCancel(await result)).toBe(true);
       expect(onCancel).toHaveBeenCalledWith({ name: 'a' }, expect.any(PromptError));
+    });
+
+    it('should go back a step on Escape and show the earlier answer there', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const ui = screenSetup({ columns: 60, rows: 12 });
+        const opts = { ansi: ui.ansi, terminal: ui.terminal };
+
+        const result = group<{ name: string; ok: boolean; pm: string }>({
+          name: (_answers, step) => text({ ...opts, message: 'Name?', ...step }),
+          pm: ({ name }, step) =>
+            select({
+              ...opts,
+              choices: ['npm', 'pnpm', 'yarn'],
+              message: `Package manager for ${name}?`,
+              ...step,
+            }),
+          ok: (_answers, step) => confirm({ ...opts, message: 'Create it?', ...step }),
+        });
+
+        const send = async (...keys: string[]): Promise<void> => {
+          for (const key of keys) {
+            ui.stdin.send(key);
+            await vi.advanceTimersByTimeAsync(ESCAPE_TIMEOUT);
+            await tick();
+          }
+        };
+
+        await tick();
+        await send('a', 'd', 'a', ENTER, '\u001b[B', '\u001b[B', ENTER);
+        expect(ui.log.at(-1)).to.contain('Create it?');
+
+        // back to the list, which opens on what was picked
+        await send(ESC);
+        expect(ui.log.join('\n')).not.to.contain('Create it?');
+        expect(ui.log.find((row) => row.includes('❯'))).to.contain('yarn');
+
+        // and back again to the name, which comes back holding what was typed
+        await send(ESC);
+        expect(ui.log.at(-1)).to.contain('? Name? ada');
+
+        // an edit, and forward again: the list is asked again rather than
+        // skipped, under the new name, still opening on the earlier answer
+        await send('m', ENTER);
+        expect(ui.log.join('\n')).to.contain('Package manager for adam?');
+        await send(ENTER, 'y');
+
+        expect(await result).to.deep.equal({ name: 'adam', ok: true, pm: 'yarn' });
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
@@ -295,6 +505,20 @@ describe('group()', () => {
         );
 
       expectTypeOf(run).returns.resolves.toEqualTypeOf<{ n: number; s: string }>();
+    });
+
+    it('should type what a step is handed as its own answer', () => {
+      group<{ count: number; tags: string[] }>({
+        count: (_answers, step) => {
+          expectTypeOf(step).toEqualTypeOf<GroupStep<number>>();
+          expectTypeOf(step.value).toEqualTypeOf<number | undefined>();
+          return 1;
+        },
+        tags: (_answers, step) => {
+          expectTypeOf(step.value).toEqualTypeOf<string[] | undefined>();
+          return [];
+        },
+      });
     });
 
     it('should type a union answer from a step that can answer two ways', () => {

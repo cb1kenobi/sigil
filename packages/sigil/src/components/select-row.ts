@@ -98,6 +98,13 @@ export interface SelectRowOptions<R extends object = TableRow> extends PromptOpt
    * long a line to leave behind.
    */
   short?: (row: R) => string;
+  /**
+   * An answer to start from: the row that is this one starts under the cursor,
+   * and beats `initial`. The row itself, compared the way a `Map` compares keys --
+   * so it is found when `rows` is the same objects it was answered from, and
+   * dropped, leaving `initial` to decide, when it is not.
+   */
+  value?: R;
 }
 
 /**
@@ -232,7 +239,9 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
   let order = unsorted;
   let sortBy: number | undefined;
   let descending = false;
-  let at = Math.min(Math.max(0, Math.floor(opts.initial ?? 0) || 0), data.length - 1);
+  const named = opts.value === undefined ? -1 : data.indexOf(opts.value);
+  let at =
+    named >= 0 ? named : Math.min(Math.max(0, Math.floor(opts.initial ?? 0) || 0), data.length - 1);
   let top = 0;
 
   /** The index into `data` of the row under the cursor. */
@@ -322,7 +331,7 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
       }
     }
 
-    const footer = promptFooter(keys, terminal.width);
+    const footer = promptFooter(keys, terminal.width, opts.back);
     const view = box(
       { class: 'sigil-prompt sigil-table-select', 'flex-direction': 'column' },
       ...[line, header, list, position, footer].filter(

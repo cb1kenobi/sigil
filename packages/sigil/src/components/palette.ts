@@ -60,7 +60,7 @@ import {
   text,
 } from './prompt.js';
 
-export interface PaletteOptions extends Omit<PromptOptions, 'message'>, CatalogOptions {
+export interface PaletteOptions extends Omit<PromptOptions, 'back' | 'message'>, CatalogOptions {
   /** What is being asked. Defaults to `Run a command`. */
   message?: string;
   /**

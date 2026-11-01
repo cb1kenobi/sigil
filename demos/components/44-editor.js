@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url';
 /**
  * An editor prompt: the answer is written in $VISUAL or $EDITOR.
  *
- *   node demos/components/42-editor.js
- *   EDITOR='code --wait' node demos/components/42-editor.js
- *   node demos/components/42-editor.js | cat    <- a scripted run, no terminal needed
+ *   node demos/components/44-editor.js
+ *   EDITOR='code --wait' node demos/components/44-editor.js
+ *   node demos/components/44-editor.js | cat    <- a scripted run, no terminal needed
  *
  * The question is drawn and Enter opens the editor on a temporary file that
  * starts with `default`. While it is open the prompt holds nothing -- no raw
