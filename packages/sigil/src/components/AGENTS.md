@@ -7355,6 +7355,7 @@ takes a `value` now, `run()` reads a `back` option, and a step is handed both.
   nothing is ticked. `sort()` puts the rows it names first, in its order, and the
   rest after them in theirs, so a row added since the last answer lands last and a
   pinned row stays put. `selectKey()` makes it the choice Enter takes.
+  `editor()` opens the file holding it, ahead of `default`.
   `selectTree()` highlights the node and opens the branches above it, but reads no
   lazy branch to look for it, so a node under an unread branch is found only once
   something opens that branch. `directoryTree()` opens the directories on the
@@ -7448,7 +7449,7 @@ takes a `value` now, `run()` reads a `back` option, and a step is handed both.
   rows back at `done()`, nothing records how many there were, and a log line or a
   spinner may have written below them since.
 - **How it is pinned.** `test/components/prompt-value.test.ts` has three tables
-  over all 22 prompts: answers with `value` on the submit key alone (each `value`
+  over all 23 prompts (`editor()`, SIG-171, is the 23rd): answers with `value` on the submit key alone (each `value`
   is chosen so that it is not where the prompt would have opened anyway), rejects
   with a `PromptBack` on Escape when given `back` and leaves an empty screen, and
   ignores Escape without it. Further cases cover the drop rule per prompt, the
@@ -7457,3 +7458,148 @@ takes a `value` now, `run()` reads a `back` option, and a step is handed both.
   with a scripted step, a real `text`/`select`/`confirm` flow driven with Escape,
   and the type of `step`. `demos/components/42-group-back.js` changes the first
   answer, so the second list drops an old answer it no longer offers.
+
+### An editor prompt: `editor()`, and handing the terminal to another program
+
+SIG-171. `src/components/editor.ts`, `test/components/editor.test.ts`, and
+`demos/components/44-editor.js`. Inquirer's `editor`, and the shape `git commit`
+has: a temporary file, `$VISUAL` or `$EDITOR` opened on it, and the saved text as
+the answer.
+
+- **The editor is `editor`, `$VISUAL`, `$EDITOR`, then `vi` -- `notepad` on
+  Windows -- and only the last goes through `which()`.** The two variables are the
+  user's statement of what to run and are run as written; the platform default is
+  a guess nobody made, so it is offered only if `which()` finds it, and with no
+  variable and no `vi` the prompt rejects naming the two variables **before
+  anything is drawn** -- asking somebody to press Enter to open nothing is the
+  wrong order. `vi` because POSIX requires it and it is git's default for that
+  reason; `notepad` because Windows has no terminal editor that is always there,
+  and it is what Inquirer's `external-editor` falls back to. A blank variable is
+  unset, the rule the parser keeps for an environment value. `editor` is there for
+  an app with its own setting, which is git's `core.editor`. `resolveEditor(env)` is
+  exported so a caller can ask before prompting; the platform is read per call and
+  not taken as an argument, which is `which()`'s own rule and why a test forces it
+  with the same `defineProperty` seam `which.test.ts` uses.
+- **`$EDITOR` is a shell command, so the shell splits it.** `code --wait`, `vim -u
+  NONE` and `"/Applications/My Editor.app/bin/edit" -w` are all ordinary values,
+  and a tokenizer here would be a second, worse shell -- Inquirer's splits on
+  whitespace and breaks the third. git's reading is the precedent: on POSIX it is
+  `sh -c '<editor> "$@"' <editor> <file>`, so the file goes in as `$1` and needs no
+  quoting at all, whatever the temp directory is called. On Windows it is
+  `cmd.exe` through `spawn(..., { shell: true })`, with the file double-quoted into
+  the line -- a Windows path cannot hold a `"` -- and the shell is not optional
+  there: `code` is `code.cmd`, and node refuses to spawn a `.cmd` without one since
+  CVE-2024-27980. A tmp path holding `%` would be expanded by `cmd.exe`; that is
+  left, since no default temp directory has one. `should be made under the temp
+  directory even when its path holds a space` and `should start the file from
+  default, and hand the editor one argument` pin that the editor gets exactly one
+  argument for the file on both shells.
+- **The terminal is given up by ending the prompt, not by suspending it.** Each
+  attempt is a whole `runPrompt()`: Enter _answers_ it, and its teardown -- the
+  router stopped, stdin paused with its `data` listener gone, raw mode and the
+  paste markers off, the claim released and the cursor shown -- is the teardown
+  every answer gets, so nothing is a second implementation of it. The question is
+  then drawn again from scratch for a retry, or a one-frame mount leaves the
+  answered line. The alternative was a suspend and resume on the live region and
+  the router, and it would have to stop a resize handler, the frame pacing and
+  every effect from painting over another program's screen; none of that exists
+  to stop if the region is gone. A pty probe confirmed the part a test cannot: a
+  paused stdin with no listener does not take a byte from an inherited child, and
+  vim, a cooked-mode line editor and the next prompt after it all read their keys.
+  `should give the terminal up while the editor is open, and take it back after`
+  holds the fake editor open and asserts raw mode off, no `data` listener, stdin
+  paused, the cursor shown and the SIGINT listener added, then all of it put back.
+- **A borrowed `router` is refused**, in the type (`Omit`) and at run time. It is
+  the app's and stays running, and a running router reads stdin -- the editor would
+  get every other key. The prompt cannot pause it, because a router has no pause:
+  that is the suspend this entry declines to build.
+- **A line is left on screen while the editor is open, and erased after.** `?
+  Commit message Waiting for your editor to close the file…`, because an editor
+  that opens a window (`code --wait`) leaves this terminal showing, and a question
+  that vanished there is a program that looks hung -- which is git's `hint:
+  Waiting for your editor` for the same reason. It is the prompt's own settled
+  frame, and its height is worked out from the widths the head is drawn at, so the
+  erase walks up exactly what was drawn: `should erase exactly the waiting line, at
+  a width that wraps it` writes a line above, wraps the waiting line to four rows,
+  and asserts the line above survives. It is erased after a clean exit and after a
+  cancel, and **left after a failure**, since a failed editor has usually printed
+  why under it and the screen is the only record. A resize while the editor is
+  open leaves it too, for the live region's stale-frame reason: rows may linger
+  rather than an erase guessing at them. What it cannot know is whether the editor
+  used the alternate screen; one that printed lines and did not -- `ed`, or the
+  cooked-mode stand-in in the pty probe -- has its last lines erased instead and the
+  waiting line kept, which is git's caveat too. The hint and the line say "your
+  editor" rather than the command, which is a path and flags and would be half a
+  line beside the question; the errors do name it.
+- **The temp file is `edit<postfix>` in a `mkdtemp()` directory that exists for one
+  run of the editor and no longer.** A directory, because it is private to the
+  user and cannot be raced the way a predictable name in a shared temp directory
+  can, and because removing it takes the editor's litter too -- vim writes its
+  `.swp` and a `~` backup beside the file. One run, because then no path that does
+  not open an editor has anything to clean: a Ctrl-C at the question, an abort
+  before Enter and a refusal never make one, and a validation retry writes a fresh
+  directory from the text held in memory. The file is `0o600`, since an answer may
+  be a secret. `postfix` defaults to `.txt` and is refused if it holds a separator
+  or a control character, because it is joined into a path inside that directory.
+- **Every exit path removes it, and SIGINT is the editor's.** The removal is a
+  `finally` around the spawn, which covers an answer, an editor that exits
+  non-zero, one killed by a signal, and a spawn that fails. **SIGINT is ignored for
+  the life of the editor**, which is git's rule: Ctrl-C reaches the whole
+  foreground group, so behind a window-opening editor it would kill this process,
+  orphan the editor and leave the file. The editor decides what Ctrl-C means, and
+  an editor that dies of it -- by the signal, or exit 130, which is how `sh` reports
+  one, or `STATUS_CONTROL_C_EXIT` on Windows -- is a **cancel**, `aborted: true`,
+  measured on a pty with the line erased and the directory gone. A terminal editor
+  in raw mode never sees a SIGINT at all. `exit` removes it for a `process.exit()`
+  from anywhere, and SIGHUP and SIGTERM remove it and then stand down the way the
+  terminal's restore handler does: listeners off, and the signal raised again if
+  nothing else is listening, because a CLI that stopped dying on SIGTERM while a
+  prompt was open is worse than a file left in `/tmp`. What is not covered is a
+  signal with no listener -- SIGKILL, or an app's own SIGINT handler that calls
+  `process.exit()`, which `exit` does catch but which leaves the editor running.
+  The tests call the added `exit` and `SIGTERM` listeners directly rather than
+  emitting the events, which would run the test runner's own.
+- **An editor that exits non-zero rejects; it does not ask again.** `{0} exited with
+  code {1}` or `{0} was stopped by {1}`, a `PromptError` with `aborted: false`.
+  `:cq` is how vim abandons an edit and git aborts the commit on it, and a
+  misconfigured `$EDITOR` would otherwise loop on Enter forever. A failing
+  `validate` is the one thing that asks again, under the reason, and the editor
+  reopens on what was saved byte for byte.
+- **`default` is what the file starts with, not a fallback for an empty answer.**
+  The ticket names it `default` and Inquirer means this by it. An editor shows the
+  file, so the default is visible and editable rather than implied, and an empty
+  file is how somebody answers "nothing" -- `''`, never the default back.
+  `multiline()` calls the same idea `initial` and refuses `default` for its own
+  reason. SIG-204 then gave every prompt a `value`, and here it beats `default` the
+  way it beats `initial` there: the file opens holding it, so a step `group()`
+  re-asks opens on the answer it was given. A `value` that is not a string is
+  dropped, as on every prompt. `back` needed no code: `ask()` hands the options to
+  `runPrompt()`, which takes Escape before the prompt's own keys. It applies only
+  at the question, since while the editor is open Escape is the editor's, and the
+  temporary file does not exist yet at that point, so going back leaves nothing to
+  remove. Both are pinned by the shared tables in `prompt-value.test.ts`, which
+  run `editor()` with a command that exits without touching the file.
+- **The answer has a BOM, CRLF and one trailing line break taken off.** Those are
+  how an editor encodes a file rather than what was written -- Notepad has written
+  the first two, vim adds the third to every file and Notepad does not -- so an
+  untouched default answers the same string on every platform. Further blank lines
+  were typed and stay. The default is written verbatim.
+- **An abort is honoured when the editor closes, not while it is open.** The signal
+  rejects before Enter the way it does for every prompt. Once the editor has the
+  terminal, killing it could leave the screen in the alternate buffer and the tty
+  in raw mode -- the rule is that a CLI must never take the terminal down with it,
+  and that holds for a child it spawned -- and through `sh -c` a kill may not reach
+  the editor anyway. So it waits, then rejects with the reason and drops the edit.
+- **No footer.** One key, Enter, named in the hint beside the question: the
+  `confirm()` argument from "The built-in prompts draw the footer", since a footer
+  under a one-line question would double its height. The answered line is the
+  question and the answer's first line, through `promptSummary()` -- extracted from
+  `multiline()` so the two prompts that answer several lines summarize them one way.
+- **`stdio: 'inherit'`, so the editor gets the process's own fds**, whatever streams
+  the terminal object wraps. An app drawing to `/dev/tty` with stdout piped would
+  hand the editor a pipe; nothing has asked for that, and the fds of a terminal
+  object are not always there to pass.
+- **Not done.** An `editor` given as an argv array rather than a command; waiting
+  out the alternate-screen question; `$VISUAL` skipped on a dumb terminal (git's
+  rule, and a prompt does not draw on one anyway); a way to accept the default
+  without opening the editor.

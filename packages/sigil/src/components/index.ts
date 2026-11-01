@@ -43,6 +43,7 @@ export {
   type PickDateOptions,
 } from './calendar.js';
 export { date, type DateOptions } from './date.js';
+export { editor, type EditorOptions, resolveEditor } from './editor.js';
 export {
   cancel,
   type FrameOptions,
@@ -180,6 +181,7 @@ export {
   promptNote,
   promptRowCap,
   promptSameValue,
+  promptSummary,
   type PromptSymbols,
   promptWindow,
   type PromptWindow,

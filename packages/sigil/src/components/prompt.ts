@@ -971,6 +971,29 @@ function promptFooter(keys: KeyHelpSource, columns: number, back = false): Eleme
 }
 
 /**
+ * What a settled answer of several lines leaves in the log: its first line, and
+ * how many follow it.
+ *
+ * One line, which is the house style every prompt here keeps -- `select()` leaves
+ * its label and `multiselect()` a comma list. The whole of what was written is the
+ * caller's return value, and a log holding a fifty-line paste per prompt is a log
+ * nobody reads. Shared by `multiline()` and `editor()`, so the two answers of more
+ * than one line cannot come to be summarized two ways.
+ *
+ * @param written - The answer.
+ * @returns The line to leave.
+ */
+function summaryOf(written: string): string {
+  const lines = written.split('\n');
+  const more = lines.length - 1;
+  return written === ''
+    ? __`(empty)`
+    : more > 0
+      ? `${lines[0]} ${__n(more, '(+{0} more line)', '(+{0} more lines)')}`
+      : (lines[0] as string);
+}
+
+/**
  * Asks for a line of text.
  *
  * @param opts - What to ask, and how to check the answer.
@@ -2038,19 +2061,8 @@ export function multiline(opts: MultilineOptions): Promise<string> {
       settle(written: string): void {
         answered(mark);
         footer.setProps({ display: 'none' });
-        // one line in the log, which is the house style every other prompt here
-        // keeps -- `select()` leaves its label and `multiselect()` leaves a comma
-        // list. The whole of what was written is the caller's return value, and a
-        // log holding a fifty-line paste per prompt is a log nobody reads
-        const lines = written.split('\n');
-        const more = lines.length - 1;
-        answer.setText(
-          written === ''
-            ? __`(empty)`
-            : more > 0
-              ? `${lines[0]} ${__n(more, '(+{0} more line)', '(+{0} more lines)')}`
-              : lines[0]
-        );
+        // one line in the log, for the reason `summaryOf()` records
+        answer.setText(summaryOf(written));
         answer.setProps({ display: 'flex' });
         field.setProps({ display: 'none' });
         caretLayer.setProps({ display: 'none' });
@@ -2649,6 +2661,7 @@ export {
   promptHead as promptHeadLine,
   run as runPrompt,
   setNote as setPromptNote,
+  summaryOf as promptSummary,
   SYMBOL as PROMPT_SYMBOLS,
   toChoice as promptChoice,
   valueOf as promptValue,

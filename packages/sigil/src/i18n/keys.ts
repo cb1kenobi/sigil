@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 194 keys, which is what a catalog has to carry to translate sigil's own
+ * 200 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -33,11 +33,13 @@ export const SIGIL_KEYS: readonly string[] = [
   'Arguments:',
   'Cancelled',
   'Cannot delete "{0}": it is set in {1}, which is read-only.\n  Set it in {2} to override the value, or\n  remove it from {3}.',
+  'Cannot open an editor for "{0}": set $VISUAL or $EDITOR',
   'Cannot prompt for "{0}" because the input is not a terminal',
   'Choose at least one',
   'Choose at least {0}',
   'Choose at most {0}',
   'Commands:',
+  'Could not open {0}: {1}',
   'Count is too large to be exact: {0}',
   'Date must not be after {0}',
   'Date must not be before {0}',
@@ -100,6 +102,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Options:',
   'Present the result as JSON',
   'Present the result in this format',
+  'Press Enter to open your editor',
   'Print a shell completion script',
   'Print the version',
   'Refusing to write {0}: {1} would be lost.\n  Pass lossy: true to write anyway, or use a store that can keep what is there.',
@@ -135,6 +138,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Unterminated string in {0} on line {1}',
   'Usage:',
   'Value must be "{0}" or "{1}"',
+  'Waiting for your editor to close the file…',
   'Went back',
   'Which shell?',
   'Wrote {0}',
@@ -199,6 +203,7 @@ export const SIGIL_KEYS: readonly string[] = [
   '{0} already names it',
   '{0} arguments:',
   '{0} cannot hold the value at "{1}": {2}',
+  '{0} exited with code {1}',
   '{0} is already up to date',
   '{0} is not there',
   '{0} must hold an object',
@@ -206,6 +211,7 @@ export const SIGIL_KEYS: readonly string[] = [
   '{0} options:',
   '{0} task failed',
   '{0} was not written by sigil',
+  '{0} was stopped by {1}',
   '{0} {1}/s',
   '{0}/s',
   '{0}h {1}m',

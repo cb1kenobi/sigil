@@ -1,6 +1,7 @@
 import { autocomplete, autocompleteMultiselect } from '../../src/components/autocomplete.js';
 import { pickDate } from '../../src/components/calendar.js';
 import { date } from '../../src/components/date.js';
+import { editor } from '../../src/components/editor.js';
 import { filePicker } from '../../src/components/file-picker.js';
 import { groupMultiselect } from '../../src/components/group-multiselect.js';
 import { list } from '../../src/components/list.js';
@@ -35,6 +36,14 @@ import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from 'vit
 const ENTER = '\r';
 const CTRL_D = '\u0004';
 const ESC = '\u001b';
+
+/**
+ * An editor command that exits without touching the file, so `editor()` answers
+ * with whatever the file opened holding. Node rather than `true`, because the
+ * command is run by `cmd.exe` on Windows, and quoted because the path to node may
+ * hold a space.
+ */
+const SAVES_NOTHING = `"${process.execPath}" -e ""`;
 
 /** A directory for the two prompts that answer with a path, made once for the file. */
 let root = '';
@@ -247,6 +256,14 @@ const cases: [string, Case][] = [
     'directoryTree',
     { answer: () => file, ask: (b) => directoryTree({ ...b, message: 'Q?', root, value: file }) },
   ],
+  [
+    'editor',
+    {
+      answer: () => 'one\ntwo',
+      ask: (b) =>
+        editor({ ...b, default: 'no', editor: SAVES_NOTHING, message: 'Q?', value: 'one\ntwo' }),
+    },
+  ],
 ];
 
 /** Lets a prompt that reads the file system or a source catch up. */
@@ -415,6 +432,18 @@ describe('a prompt given a value it cannot show', () => {
       'selectTree, for a value no node holds',
       (b) => selectTree({ ...b, items: ['a', 'b'], message: 'Q?', value: 'gone' }),
       'a',
+    ],
+    [
+      'editor, for a value that is not a string',
+      (b) =>
+        editor({
+          ...b,
+          default: 'no',
+          editor: SAVES_NOTHING,
+          message: 'Q?',
+          value: 42 as unknown as string,
+        }),
+      'no',
     ],
   ];
 
@@ -667,6 +696,8 @@ describe('types', () => {
     >();
     expectTypeOf<Parameters<typeof toggle>[0]['value']>().toEqualTypeOf<boolean | undefined>();
     expectTypeOf<Parameters<typeof date>[0]['value']>().toEqualTypeOf<Date | undefined>();
+    expectTypeOf<Parameters<typeof editor>[0]['value']>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<Parameters<typeof editor>[0]['back']>().toEqualTypeOf<boolean | undefined>();
   });
 
   it('should not offer the palette back, since Escape already dismisses it', () => {
