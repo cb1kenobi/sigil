@@ -39,8 +39,10 @@ import {
   PROMPT_SYMBOLS,
   promptAnswered,
   promptChoice,
+  promptFooter,
   promptHeadLine,
   promptHeadWidths,
+  promptKeys,
   promptNote,
   type PromptOptions,
   PromptError,
@@ -334,12 +336,69 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
     // own rather than a share of `foot`, because it is true alongside every one
     // of foot's messages
     const tally = promptNote('sigil-autocomplete-tally sigil-muted');
+
+    // the two keys a ticking list has that a filter field does not, and so the
+    // two its footer lists: Space is not typed here, and Enter confirms the
+    // ticks rather than answering with the highlighted row. The single prompt
+    // has neither, so it has no table and no footer -- `select()`'s reason, one
+    // prompt along: what it does with a key is what a text field does
+    const keys = promptKeys<Promise<{ value: T[] } | void> | void>();
+    if (multi) {
+      keys.on(
+        'space',
+        () => {
+          // the row on screen while a lookup is out belongs to an earlier term, so
+          // it is not ticked for the same reason Enter does not answer with it
+          const picked = pending ? undefined : offers[active]?.choice;
+          if (picked) {
+            const key = promptValue(picked);
+            if (ticked.has(key)) {
+              ticked.delete(key);
+            } else {
+              ticked.set(key, picked);
+            }
+          }
+        },
+        { description: __`select`, priority: 3 }
+      );
+      keys.on(
+        'enter',
+        async () => {
+          // the answer is what is ticked, which a lookup in flight cannot change,
+          // so unlike the single prompt there is nothing here to wait for
+          const wrong =
+            ticked.size < multi.min
+              ? multi.min === 1
+                ? __`Choose at least one`
+                : __`Choose at least ${multi.min}`
+              : ticked.size > multi.max
+                ? __`Choose at most ${multi.max}`
+                : undefined;
+          if (wrong) {
+            complaint = wrong;
+            draw();
+            return;
+          }
+          const values = ticks().map((choice) => promptValue(choice));
+          const failed = await opts.validate?.(values as never);
+          if (typeof failed === 'string' && failed) {
+            complaint = failed;
+            draw();
+            return;
+          }
+          return { value: values };
+        },
+        { description: __`confirm`, priority: 3 }
+      );
+    }
+    const footer = multi ? promptFooter(keys, terminal.width) : undefined;
+
     const view = box(
       { class: 'sigil-prompt sigil-autocomplete', 'flex-direction': 'column' },
       line,
       box({ 'padding-left': 2 }, list),
       box({ 'padding-left': 2 }, foot),
-      ...(multi ? [box({ 'padding-left': 2 }, tally)] : [])
+      ...(multi ? [box({ 'padding-left': 2 }, tally), footer as Element] : [])
     );
 
     /** What is on offer for the current term. */
@@ -369,7 +428,7 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
      * that is `NaN` must not blank the list.
      */
     const room = (): number => {
-      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines - (multi ? 2 : 1));
+      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines - (multi ? 3 : 1));
       return Math.max(1, Math.min(promptRowCap(opts.rows, avail), avail));
     };
 
@@ -395,7 +454,8 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
 
       if (multi) {
         if (ticked.size === 0) {
-          setPromptNote(tally, __`(space to select, enter to confirm)`);
+          // the keys are the footer's to say, so nothing ticked is nothing here
+          setPromptNote(tally, undefined);
         } else {
           const shown = new Set<unknown>(offers.map((offer) => promptValue(offer.choice)));
           const hidden = [...ticked.keys()].filter((key) => !shown.has(key)).length;
@@ -514,31 +574,13 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
       async key(k) {
         complaint = undefined;
 
-        if (k.name === 'enter' && multi) {
-          // the answer is what is ticked, which a lookup in flight cannot change,
-          // so unlike the single prompt there is nothing here to wait for
-          const wrong =
-            ticked.size < multi.min
-              ? multi.min === 1
-                ? __`Choose at least one`
-                : __`Choose at least ${multi.min}`
-              : ticked.size > multi.max
-                ? __`Choose at most ${multi.max}`
-                : undefined;
-          if (wrong) {
-            complaint = wrong;
-            draw();
-            return;
+        const bound = keys.match(k);
+        if (bound) {
+          const done = await bound(k);
+          if (done) {
+            return done;
           }
-          const values = ticks().map((choice) => promptValue(choice));
-          const failed = await opts.validate?.(values as never);
-          if (typeof failed === 'string' && failed) {
-            complaint = failed;
-            draw();
-            return;
-          }
-          return { value: values };
-        } else if (k.name === 'enter') {
+        } else if (k.name === 'enter' && !multi) {
           // a lookup still out means the list on screen is for an earlier term,
           // and answering with a row of it would be answering a question that
           // is no longer the one asked
@@ -552,18 +594,6 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
             }
             chosen = picked;
             return { value: promptValue(picked) };
-          }
-        } else if (multi && k.name === 'space') {
-          // the row on screen while a lookup is out belongs to an earlier term, so
-          // it is not ticked for the same reason Enter does not answer with it
-          const picked = pending ? undefined : offers[active]?.choice;
-          if (picked) {
-            const key = promptValue(picked);
-            if (ticked.has(key)) {
-              ticked.delete(key);
-            } else {
-              ticked.set(key, picked);
-            }
           }
         } else if (k.name === 'tab') {
           const picked = offers[active]?.choice;
@@ -657,6 +687,7 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
         list.setProps({ display: 'none' });
         setPromptNote(foot, undefined);
         setPromptNote(tally, undefined);
+        footer?.setProps({ display: 'none' });
       },
 
       view,

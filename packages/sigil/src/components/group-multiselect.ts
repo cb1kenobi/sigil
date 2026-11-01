@@ -27,8 +27,10 @@ import {
   PROMPT_SYMBOLS,
   promptAnswered,
   promptChoice,
+  promptFooter,
   promptHeadLine,
   promptHeadWidths,
+  promptKeys,
   promptNote,
   type PromptOptions,
   PromptError,
@@ -199,11 +201,35 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
     return from;
   }
 
+  /** Ticks every choice, or none if they all are already. */
+  function all(): void {
+    // a group is the sum of its choices and has nothing of its own to tick
+    if (options.every((i) => ticked.has(i))) {
+      for (const i of options) {
+        ticked.delete(i);
+      }
+    } else {
+      for (const i of options) {
+        ticked.add(i);
+      }
+    }
+  }
+
+  /** Flips every choice on offer. */
+  function invert(): void {
+    for (const i of options) {
+      if (ticked.has(i)) {
+        ticked.delete(i);
+      } else {
+        ticked.add(i);
+      }
+    }
+  }
+
   return runPrompt<T[]>(opts, () => {
-    const hintText = __`(space to select, enter to confirm)`;
-    const hint = textNode(hintText, { class: 'sigil-prompt-hint sigil-muted' });
-    const head = promptHeadWidths(opts.message, Math.max(1, terminal.width), hintText);
-    const { line, mark } = promptHeadLine(opts.message, head.message, hint);
+    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
+    const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
+    const { line, mark } = promptHeadLine(opts.message, head.message, answer);
 
     const views = rows.map((row): RowView => {
       // the cursor on every row, hidden where it is not the active one, for the
@@ -264,18 +290,65 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
       'margin-left': 2,
     });
     const problem = promptNote('sigil-prompt-error sigil-error');
+
+    // `multiselect()`'s table, key for key and line for line: the same five keys
+    // listed the same way, so the two prompts cannot come to describe one
+    // gesture differently. Home and End are this prompt's own and, like the
+    // arrows, are answered without being listed
+    const keys = promptKeys<{ value: T[] } | void>();
+    keys.on('up', () => void (active = seek(active, -1)));
+    keys.on('down', () => void (active = seek(active, 1)));
+    keys.on('home', () => void (active = offeredRows[0] as number));
+    keys.on('end', () => void (active = offeredRows.at(-1) as number));
+    keys.on(
+      'space',
+      () => {
+        const row = rows[active];
+        if (row.kind === 'group') {
+          // all, or none if every choice under it that can be ticked already is
+          const clear = stateOf(active) === 'all';
+          for (const m of row.members) {
+            if (clear) {
+              ticked.delete(m);
+            } else {
+              ticked.add(m);
+            }
+          }
+        } else if (ticked.has(active)) {
+          ticked.delete(active);
+        } else {
+          ticked.add(active);
+        }
+      },
+      { description: __`select`, priority: 3 }
+    );
+    keys.on('a', all, { description: __`all`, priority: 2 });
+    keys.on('ctrl+a', all);
+    keys.on('i', invert, { description: __`invert`, priority: 1 });
+    keys.on(
+      'enter',
+      () => {
+        error = complaint();
+        return error ? undefined : { value: chosen() };
+      },
+      { description: __`confirm`, priority: 3 }
+    );
+
+    const footer = promptFooter(keys, terminal.width);
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
       list,
       description,
-      box({ 'padding-left': 2 }, problem)
+      box({ 'padding-left': 2 }, problem),
+      footer
     );
 
-    // the question's rows, the description's, and the line an error would take:
-    // reserved either way, so that showing one does not push the last row off
+    // the question's rows, the description's, the line an error would take and
+    // the footer's: reserved either way, so that showing one does not push the
+    // last row off
     const room = (): number =>
-      Math.max(1, Math.max(1, terminal.height) - head.lines - 1 - (describing ? 1 : 0));
+      Math.max(1, Math.max(1, terminal.height) - head.lines - 2 - (describing ? 1 : 0));
 
     function draw(): void {
       const visible = Math.max(1, Math.min(room(), rows.length));
@@ -325,69 +398,16 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
     return {
       key(k) {
         error = undefined;
-
-        if (k.name === 'enter') {
-          error = complaint();
-          if (error) {
-            draw();
-            return;
-          }
-          return { value: chosen() };
+        const done = keys.match(k)?.(k);
+        if (done) {
+          return done;
         }
-
-        if (k.name === 'space') {
-          const row = rows[active];
-          if (row.kind === 'group') {
-            // all, or none if every choice under it that can be ticked already is
-            const clear = stateOf(active) === 'all';
-            for (const m of row.members) {
-              if (clear) {
-                ticked.delete(m);
-              } else {
-                ticked.add(m);
-              }
-            }
-          } else if (ticked.has(active)) {
-            ticked.delete(active);
-          } else {
-            ticked.add(active);
-          }
-        } else if (k.name === 'up') {
-          active = seek(active, -1);
-        } else if (k.name === 'down') {
-          active = seek(active, 1);
-        } else if (k.name === 'home') {
-          active = offeredRows[0];
-        } else if (k.name === 'end') {
-          active = offeredRows.at(-1) as number;
-        } else if (k.name === 'a' && !k.meta) {
-          // every choice, or none if they all are already; a group is the sum of
-          // its choices and has nothing of its own to tick
-          if (options.every((i) => ticked.has(i))) {
-            for (const i of options) {
-              ticked.delete(i);
-            }
-          } else {
-            for (const i of options) {
-              ticked.add(i);
-            }
-          }
-        } else if (k.name === 'i' && !k.ctrl && !k.meta) {
-          for (const i of options) {
-            if (ticked.has(i)) {
-              ticked.delete(i);
-            } else {
-              ticked.add(i);
-            }
-          }
-        }
-
         draw();
       },
 
       settle(values: T[]): void {
         promptAnswered(mark);
-        hint.setText(
+        answer.setText(
           values.length
             ? [...ticked]
                 .sort((a, b) => a - b)
@@ -395,9 +415,10 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
                 .join(', ')
             : __`none`
         );
-        hint.setProps({ class: 'sigil-prompt-answer sigil-muted' });
+        answer.setProps({ display: 'flex' });
         list.setProps({ display: 'none' });
         description.setProps({ display: 'none' });
+        footer.setProps({ display: 'none' });
         setPromptNote(problem, undefined);
       },
 

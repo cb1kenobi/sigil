@@ -1506,8 +1506,9 @@ lists the command by name alone.
 
 ### The prompts, and what a translated `confirm` accepts
 
-The affordances translate like everything else — the submit hint, the
-multiselect hint, the settled answers, `Choose at least one`, and the command
+The affordances translate like everything else — the key footer's descriptions
+(`select`, `all`, `invert`, `confirm`, `submit`, `grab`, `drop`, `move`, `pick`,
+`sort`) and its key names, the settled answers, `Choose at least one`, and the command
 palette's own `Run a command`, `No commands match` and `(skip)` — and `confirm`
 is the one with a twist, because its hint names the keys it reads. Translating the
 hint on its own would give a prompt that displays `(J/n)` and ignores `j`.
@@ -1541,11 +1542,12 @@ What does **not** move is `argv`. `--force=y` and `type: 'yesno'` accept
 mean something different under another `LANG`. A keystroke at an interactive
 prompt is the other case, which is why only the prompt's keys gain anything.
 
-Key names are English and modifiers are not: `ctrl-{0}`, `alt-{0}` and
-`ctrl-alt-{0}` are keys, so a German catalog writes `Strg+{0}` and the hint reads
-`(Strg+d zum Absenden)`. The separator is the catalog's too. The key's own name
-stays English, because the letter on the cap — and `enter`, and `tab` — is
-printed the same on essentially every keyboard sold.
+A footer's modifiers are keys, `ctrl-{0}`, `alt-{0}` and `shift-{0}`, and they
+nest, so a German catalog writes `Strg+{0}` and `Alt+{0}` once each and the
+multiline footer reads `Strg+d absenden` -- or `Strg+Alt+s absenden` for a
+Ctrl-Alt submit key. The separator is the catalog's too. A letter on a key cap is
+printed as it is, while the names that are words -- `enter`, `space`, `tab`,
+`esc` -- are keys, because a footer prints them beside translated words.
 
 ### A missing translation
 
@@ -2768,6 +2770,26 @@ async — return a string to reject the answer with that message. Editing keys
 are the usual ones: arrows, Home/End, Ctrl-A/E/U, Backspace, Delete. A paste
 arrives as one chunk and is read as the keys it carries, not just the first.
 
+A prompt whose keys a reader would not guess draws them in a **key footer** under
+the list — the [key-help footer](#a-key-help-footer), read off the prompt's own
+key table, so the line names the keys the prompt answers and nothing else:
+
+```
+? Features
+❯ ◉ TypeScript
+  ◯ Tests
+  space select · a all · i invert · enter confirm
+```
+
+That is `multiselect()`, `groupMultiselect()`, `autocompleteMultiselect()`,
+`multiline()`, `sort()` and `selectRow()`. It is one row at every width: what does
+not fit is dropped whole, least important first, and the row ends in `…`. It goes
+once the prompt is answered, so the log keeps the question and the answer. The
+arrows are not listed, since they are the keys nobody has to be told, and `text()`,
+`select()` and `confirm()` draw no footer — `confirm()`'s `(Y/n)` already names its
+keys. A key is matched the way `bind()` matches one, modifiers and all, so
+Shift-Down is not Down.
+
 Every prompt takes a `signal`. Aborting it gives the prompt up the way Ctrl-C
 does — the screen, the cursor and stdin are put back — but the promise rejects
 with the signal's own `reason`, not a `PromptError`, so a program's decision is
@@ -2917,7 +2939,8 @@ nothing on offer is refused the way an empty one is. A disabled choice is never
 ticked, whatever its `selected` says.
 
 In `multiselect()`, `a` ticks every choice on offer (or clears them if they all
-already are), `i` flips each one, and Ctrl-A is `a` still. Enter checks `min` and
+already are), `i` flips each one, and Ctrl-A is `a` still — the footer lists `a`
+and `i`, and leaves Ctrl-A out. Enter checks `min` and
 `max` — `required` is `min: 1` — and says how many it wanted: `Choose at least 2`.
 Neither is checked while ticking, so a `max` of 3 does not stop the fourth Space,
 only the Enter.
@@ -3013,8 +3036,8 @@ const notes = await multiline({
 ```
 
 Enter inserts a newline, so **Ctrl-D is what submits** — `submit` names another
-key, and the hint the field draws is generated from it so the two cannot
-disagree. `{ meta: true, name: 'enter' }` is Alt-Enter, which is also what
+key, and the footer under the field (`ctrl-d submit`) is generated from it so the
+two cannot disagree. `{ meta: true, name: 'enter' }` is Alt-Enter, which is also what
 Escape-then-Enter arrives as when the two are pressed in quick succession.
 
 The field **soft wraps**: it wraps for display and the value keeps exactly the
@@ -3259,7 +3282,8 @@ highlighted label into the field.
 screen, so narrowing the list past a ticked choice does not untick it, and Enter
 answers with it all the same. The line under the list says how many are ticked and how
 many of those the term is hiding (`Selected: 3, 1 not shown`); clearing the term brings
-the rows back with their ticks. `min` and `max` count the hidden ones too.
+the rows back with their ticks. `min` and `max` count the hidden ones too. That line
+says nothing until something is ticked; the footer under it names Space and Enter.
 
 A choice is ticked **by its `value`**, compared as a `Map` compares keys — strings and
 numbers, or the same object. A `source` that builds a new object for the same thing on
@@ -3428,7 +3452,9 @@ top or the bottom and Page Up and Page Down carry it a screen at a time; with
 nothing in hand they move the highlight. **Enter answers** whether or not a row
 is still in hand, so it stays where it was carried to. Alt or Shift with Up or
 Down moves a row one place without picking it up, for a hand that knows the keys.
-A carried row stops at either end rather than wrapping.
+A carried row stops at either end rather than wrapping. The footer follows the
+grab: `space grab · enter confirm` with nothing in hand, and `↑/↓ move · space drop
+· enter confirm` while a row is carried.
 
 A choice marked `disabled` is **pinned**: it keeps its place in the list, the
 highlight steps over it, it cannot be picked up, and the rows around it move past
@@ -3853,7 +3879,8 @@ hold: numbers, bigints, dates and booleans order as what they are, so `9` comes
 before `10`, and anything else orders as text, case folded and then by code unit.
 That is not locale-aware, because that needs `Intl`; a column that wants a locale,
 a version or a size with a unit gives its own `compare(a, b)`, and `sortable:
-false` takes a column out of it.
+false` takes a column out of it. The footer names the digits that sort and no
+other -- `enter pick · 1/3 sort` where the second column is not sortable.
 
 | Option    | Meaning                                                                      |
 | --------- | ---------------------------------------------------------------------------- |
@@ -4224,7 +4251,8 @@ under its `group`, one to a line. Binding `?` to that signal is the app's job.
 Key names that are words (`enter`, `esc`, `tab`, ...) and the `ctrl-`/`alt-`/
 `shift-` prefixes go through the catalog; arrows are glyphs. Descriptions are
 whatever the app passes, so it translates them where it writes them. The built-in
-prompts keep their own hint lines.
+prompts draw this footer too, from a key table of their own rather than from a
+router -- see [Prompts](#prompts).
 
 `sigil/components` also exports `decodeKeys()` and `renderBar()`, and the state
 and the element tree behind each component -- `spinnerView()`, `progressView()`

@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 159 keys, which is what a catalog has to carry to translate sigil's own
+ * 161 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -25,14 +25,7 @@ export const SIGIL_KEYS: readonly string[] = [
   '(choices: {0})',
   '(default: {0})',
   '(empty)',
-  '(enter to pick)',
-  '(enter to pick, 1 to sort)',
-  '(enter to pick, 1-{0} to sort)',
   '(skip)',
-  '(space to grab, enter to confirm)',
-  '(space to select, enter to confirm)',
-  '(up/down to move, space to drop)',
-  '({0} to submit)',
   '<command>',
   'A new version of {0} is available: {1} → {2}',
   'Added a block to {0}',
@@ -135,18 +128,23 @@ export const SIGIL_KEYS: readonly string[] = [
   'Wrote {0}',
   '[command]',
   '[options]',
+  'all',
   'alt-{0}',
   'argument <{0}>',
   'backspace',
-  'ctrl-alt-{0}',
+  'confirm',
   'ctrl-{0}',
   'delete',
   'disabled',
+  'drop',
   'end',
   'enter',
   'esc',
   'from $SHELL',
+  'grab',
   'home',
+  'invert',
+  'move',
   'no',
   'none',
   'off',
@@ -154,9 +152,13 @@ export const SIGIL_KEYS: readonly string[] = [
   'option {0}',
   'pgdn',
   'pgup',
+  'pick',
+  'select',
   'setting "{0}"',
   'shift-{0}',
+  'sort',
   'space',
+  'submit',
   'tab',
   'y/n',
   'yes',

@@ -1700,7 +1700,9 @@ patch, a pane, and three additions to the renderer that the pane needs.
     Alt-`a` and Ctrl- or Alt-`i` are not read as either. The hint line is
     unchanged, because it is reserved at narrow widths already and a longer one
     is what `prompt.test.ts` guards against; the keys are in the README and the
-    demo instead. That is a discoverability cost, paid knowingly.
+    demo instead. That is a discoverability cost, paid knowingly -- and paid back
+    by SIG-205, whose key footer lists `a all` and `i invert` and sheds them first
+    when the row is short.
   - **Not done:** Inquirer's configurable `shortcuts` (the two keys are fixed),
     a separator that is selectable, and a `loop` on `multiselect()`'s Home and
     End, which it has never had.
@@ -5072,17 +5074,125 @@ field.
 
 #### What is deliberately out
 
-- **Replacing the built-in prompts' hint lines.** They keep their own text in this
-  change: `select()` and `multiselect()` are being rewritten in another open
+- **Replacing the built-in prompts' hint lines.** They kept their own text in this
+  change: `select()` and `multiselect()` were being rewritten in another open
   change and the hints are translated strings with their own tests
-  (`prompt-i18n.test.ts`). Adopting the footer is a follow-up that has to decide
-  whether a prompt, which owns no router unless it borrows one, should grow one.
+  (`prompt-i18n.test.ts`). Done since, by SIG-205 -- see "The built-in prompts draw
+  the footer" below, which is also where the router question this left open is
+  answered.
 - **A binding that fires only inside an element.** See above.
 - **Listing a function binding.** `bind(handler)` sees every key and has no key to
   name; it is not listed, and `describe()` with a key is how to list what it does.
 - **Pagination of an expanded form taller than the terminal.** It lists everything,
   under its groups, and an app with that many keys wants a screen of its own.
 - **A `?` toggle, a hide/show key, or a default mouse hover on the footer.**
+
+### The built-in prompts draw the footer
+
+SIG-205. Every prompt that drew a hand-written key hint -- `multiselect()`,
+`groupMultiselect()`, `autocompleteMultiselect()`, `multiline()`, `sort()` and
+`selectRow()` -- draws the SIG-166 footer under itself instead, and seven hint
+keys left the catalog.
+
+- **A prompt grows no router, because it never lacked one and the footer does not
+  need one.** The question SIG-166 left was whether "a prompt, which owns no router
+  unless it borrows one, should grow one". It rested on a premise that had stopped
+  being true before it was written: `run()` has built a router of its own whenever
+  none was handed in since the components became element trees. And `keyHelp()`
+  takes a `KeyHelpSource` -- `bindings()` and nothing else -- precisely so that
+  drawing one does not need a router behind it. So there was nothing to grow.
+- **The keys are a table the prompt owns, and nothing is written to the router.**
+  `promptKeys()` is that table: `on(keys, run, help)` puts a handler and its
+  description in one record, `match(k)` is what `key()` dispatches through, and
+  `bindings()` is what the footer reads. One record is both halves, so a listed key
+  cannot drift from what it does -- the property `describe()` could not promise an
+  element's `onKey`, had here without registering anything on the router.
+  Registering with `bind(keys, handler, help)` was the alternative, and it is
+  refused twice. It would change dispatch for every app that hands a router in: a
+  prompt's one function binding is what makes Ctrl-C go first, what `claims()`
+  lets the multiline field take Ctrl-D through, and what queues one key at a time
+  behind an async `validate` -- the trie runs after every function binding and has
+  none of that. And a borrowed router's list is **the app's footer**: a prompt
+  swallows every key while it is up, so reading `router.bindings()` would list the
+  app's keys as live under a prompt that eats them, and writing the prompt's own
+  into it would put them in the app's footer and leave the app's beside them.
+  `should draw its footer from its own keys, and list nothing on the router` pins
+  the list as exactly what the app put there, before, during and after.
+- **A key is matched the way `bind()` matches one, modifiers and all.** By
+  `formatKey()`, so Shift-Down is not Down and Alt-Space is not Space -- the rule
+  `confirm()` already keeps for `Y` and Ctrl-Y. That is a behaviour change in the
+  six prompts and it is taken knowingly: they read `k.name` and ignored the
+  modifiers, so Ctrl-Up moved the cursor and Alt-Enter confirmed. Where a modified
+  key meant something it is an entry of its own: `ctrl+a` beside `a` in both
+  multiselects, `shift+` and `alt+` arrows in `sort()`. A text field's editing
+  keys stay in the chain after the table, because nothing lists them and readline
+  modifiers (Ctrl-W, Alt-B) are a vocabulary the table would only restate.
+- **What is listed is what nobody would guess, and the arrows are not.** That is
+  the line `src/i18n/AGENTS.md` already drew for `select()` -- "tick boxes need
+  telling and arrow keys are discoverable" -- applied per key rather than per
+  prompt. The arrows, Home, End and the paging keys are entries with no help: they
+  dispatch and are not listed, which is the footer's own rule for a binding with no
+  description. `sort()` lists `↑/↓ move` **while a row is carried**, because that is
+  when an arrow does something an arrow does not usually do; help may be a
+  function for that, read again on `refresh()`, which `draw()` calls.
+- **`text()`, `password()`, `select()` and `confirm()` draw no footer.** The first
+  three never had a hint, and growing one would be a row nobody asked for under
+  every one of them. `confirm()` keeps `(Y/n)`: it is one catalog entry deciding
+  both what is drawn and what is accepted (`confirmKeys()`), it is where the
+  default is shown, and a footer under a one-line question would double its
+  height. `selectKey()`'s `(Y/n/a/d/h)` stays for the same reasons -- generated
+  from the keys already, so it was never the hand-written line this replaces.
+- **The footer is one row under everything, so the head has no tail to reserve.**
+  The hint sat beside the question and `headWidths()` capped its reservation at
+  half the line; the footer is a row of its own at the bottom, indented under the
+  question the way the error line is, so the question takes the whole line and the
+  list is windowed against one more row. It never wraps -- what does not fit is
+  dropped whole, lowest priority first, and the row ends in `…` -- so "what is
+  reserved at narrow widths" is now **exactly one row at every width** rather than
+  half a line that wraps. The multiselect's priorities say what survives: Space and
+  Enter (3) are the two it cannot be answered without, select-all (2) goes before
+  them and invert (1) first, so 40 columns is `space select · a all · enter confirm
+  …` and 30 is `space select …`. `headWidths()` keeps its tail parameter for
+  `confirm()` and `selectKey()`.
+- **The narrow-width tests moved, and each move is the behaviour rather than a
+  loosened assertion.** `should not flatten the question to reserve a long hint`
+  became `should give the question the whole line now the keys are a footer`;
+  `should window the list against the head it drew` -- which asserted a head made
+  taller by a wrapped hint, a thing a footer cannot do -- became `should window the
+  list against the footer and the error line`, which asserts seven of eight
+  choices on ten rows and the footer still on the last one; and the submit-hint
+  case asserts `ctrl-d submit`. The `(Y/n)` sweep is untouched, since `confirm()`
+  did not move. Every list that is screen-bound shows one row fewer, which moved
+  the window and page counts in `sort.test.ts`, `select-row.test.ts`,
+  `multiline.test.ts` and `autocomplete-multiselect.test.ts` by exactly that row.
+- **A settled answer is no longer reserved for at narrow widths.** It used to be
+  written into the hint's element, which inherited the hint's reservation; it is
+  an answer element of its own now, which is what `select()` has always had -- so
+  below about twenty columns a long settled list clips the way `select()`'s does.
+  The same rule for every list prompt rather than a better one for some.
+- **`selectRow()` binds a digit per sortable column, and the footer folds them.**
+  `enter pick · 1/2/3 sort` rather than `1-3`, and only the columns that sort get
+  a digit -- so a table whose middle column does not sort says `1/3`, where the
+  hint said `1-3` and named a key that did nothing.
+- **The orphaned keys are retired and `sigil check` will say so, which is the
+  point.** `(space to select, enter to confirm)`, `(space to grab, enter to
+  confirm)`, `(up/down to move, space to drop)`, `(enter to pick)`, `(enter to
+  pick, 1 to sort)`, `(enter to pick, 1-{0} to sort)` and `({0} to submit)` went,
+  and so did `ctrl-alt-{0}`: the footer nests `ctrl-{0}` around `alt-{0}`, so a
+  translator writes each modifier once. Ten came in -- `select`, `all`, `invert`,
+  `confirm`, `submit`, `grab`, `drop`, `move`, `pick` and `sort`. An app catalog
+  carrying the old seven is told they are orphans and the new ten are missing,
+  which is `sigil check` working rather than a regression: a sentence that left
+  the framework is exactly what an orphan report is for, and keeping dead keys
+  alive to keep a report quiet would be the opposite. The key names a footer
+  prints that are words -- `enter`, `space` -- are translated too, which is the
+  footer's own recorded departure from the prompts' `keyLabel()`; that function
+  had one caller, the multiline hint, and went with it.
+- **`promptKeys()` and `promptFooter()` are exported with the rest of the prompt
+  plumbing**, for the reason `runPrompt()` is: `group-multiselect.ts`, `sort.ts`,
+  `select-row.ts` and `autocomplete.ts` are separate modules and an ejected copy
+  of one imports them from `@ttylabs/sigil/components`. A third-party prompt gets
+  the same footer for the same price.
 
 ### An autocomplete prompt: type to filter, or search a source
 
@@ -5202,8 +5312,10 @@ reason -- ejecting `autocomplete` brings both.
   it -- the rule Enter already follows in `autocomplete()`. Here Enter confirms
   the ticks, which no lookup can change, so there is nothing to wait for.
 - **The line under the list is one line more than `autocomplete()` keeps back**,
-  for the tally. It shows the key hint while nothing is ticked, which is
-  `multiselect()`'s own string and so already translated.
+  for the tally. It showed the key hint while nothing was ticked, which was
+  `multiselect()`'s own string; since SIG-205 it says nothing until something is
+  ticked, and a key footer under it -- one more row kept back -- names Space and
+  Enter. The single `autocomplete()` has no footer, for `select()`'s reason.
 - **`validate` takes the array.** It runs after `min` and `max`; a refusal is
   shown on the foot line and the prompt stays open.
 
@@ -5668,7 +5780,8 @@ window, `listWindow()` -- with no field, because nothing is typed.
   it down. The ticket asked which; a modifier chord is the one a terminal cannot
   be relied on for -- Shift-Up scrolls some emulators' scrollback and Alt-Up is
   eaten by some window managers -- while Space and the plain arrows reach every
-  one. So the grab is the model and is what the hint line teaches. Shift or Alt
+  one. So the grab is the model and is what the key footer teaches (the hint line
+  did, before SIG-205). Shift or Alt
   with an arrow is _also_ read as a one-place move without a grab, since the key
   decoder already carries the flags and the cost is one boolean; it is a shortcut
   and the documentation does not lean on it.
@@ -5679,7 +5792,7 @@ window, `listWindow()` -- with no field, because nothing is typed.
 - **Enter answers whether or not a row is in hand.** A row mid-carry stays where
   it was carried to. The alternative -- Enter drops, a second Enter answers --
   makes the commonest gesture (move one thing, confirm) a key longer for the sake
-  of a state nobody is confused by: the hint line changes while a row is held.
+  of a state nobody is confused by: the key footer changes while a row is held.
 - **A carried row never wraps; the highlight does (`loop`).** Carrying the first
   row past the top and landing it last is a rotation, not a step, and a stray key
   would do it with no way to see what happened. Home and End are how a row goes to

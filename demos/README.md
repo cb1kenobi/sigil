@@ -426,7 +426,8 @@ in-process terminal and prints the screen after each key: the cursor moving over
 whole rows, a digit sorting by age with the cursor staying on its row and a second
 press reversing it, a name sort that folds case, and the heading still there when
 the rows have scrolled. The terminal is short enough that the table needs its
-position line. On a terminal it asks for one of six deployments instead.
+position line, and under that is the key footer, `enter pick · 1/2/3/4 sort`. On a
+terminal it asks for one of six deployments instead.
 
 `37-clock.js` runs a `stopwatch()` beside a spinner and a `timer()` as a node in a
 tree. On a terminal the spinner reads `Installing... 1s` and the countdown ticks
@@ -490,7 +491,8 @@ headings are only headings and the cursor never lands on one.
 `23-autocomplete-multiselect.js` plays its keys the same way. The step to read is the
 third: after `eu` the first row it ticked is no longer on screen, and the line under
 the list still counts it -- `Selected: 1, 1 not shown` -- until clearing the term
-brings the row back with its tick.
+brings the row back with its tick. Under that line is the key footer, which names
+Space and Enter; the tally above it says nothing until something is ticked.
 
 `19-date.js` is a prompt, so a pipe cannot answer it: piped, it plays the same
 prompts against an in-process terminal from `@ttylabs/sigil/testing` and prints the
@@ -555,7 +557,10 @@ about a QR code that matters and is the one claim nothing in a process can make.
 being piped: with no terminal to read it drives the same two prompts with
 `createTestTerminal()` and prints the screen after each key, so the arrows
 stepping over a heading and a disabled row are something you can read in a log.
-On a terminal it is two ordinary prompts. That is the deliberate difference from
+On a terminal it is two ordinary prompts. The multiselect's last row is its key
+footer -- `space select · a all · i invert · enter confirm` -- which is the
+prompt's own key table printed, so select-all and invert are on screen rather than
+only in the README. That is the deliberate difference from
 `04-prompts.js`, which proves a prompt with nobody to answer it fails rather than
 waits -- this one never reaches that rule, because it always has somebody.
 
@@ -635,7 +640,9 @@ terminal it asks for a config file and then a directory instead.
 in-process terminal and prints the screen after each key: a row picked up with
 Space and carried with the arrows, a pinned (`disabled`) row that stays where it
 is while the rows around it move past, and Home sending a carried row to the top.
-On a terminal it asks for the order of five steps instead.
+The last row is the key footer, and it changes with the grab: `space grab · enter
+confirm` with nothing in hand, `↑/↓ move · space drop · enter confirm` while a row
+is carried. On a terminal it asks for the order of five steps instead.
 
 `29-toggle.js` is a prompt too, so piped it plays the same `toggle()` against an
 in-process terminal and prints the screen after each key: Tab and Space flipping
