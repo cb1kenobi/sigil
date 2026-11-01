@@ -3,7 +3,9 @@ import type { Key } from '../../src/components/keys.js';
 import {
   rowWindow,
   ScrollBox,
-  scrollViewport,
+  type ScrollBoxProps,
+  scrollControl,
+  type ScrollControl,
   thumbExtent,
 } from '../../src/components/scroll-box.js';
 import {
@@ -197,12 +199,15 @@ describe('a scroll box', () => {
     ]);
   });
 
-  it('should hand back the viewport that owns the offset, and nothing for any other element', () => {
+  it('should hand back the control of a box it built, and nothing for any other element', () => {
     const host = listBox(8);
     // the same element the class finds, reached without asking a theme's hook
-    expect(scrollViewport(host)).toBe(viewportIn(host));
-    expect(scrollViewport(viewportIn(host))).toBe(undefined);
-    expect(scrollViewport(box())).toBe(undefined);
+    expect(scrollControl(host)?.viewport).toBe(viewportIn(host));
+    expect(scrollControl(viewportIn(host))).toBe(undefined);
+    expect(scrollControl(box())).toBe(undefined);
+    // and a box built from children has no window, so asking it to re-window is
+    // a no-op rather than a throw
+    expect(scrollControl(host)?.resync()).toBe(false);
   });
 
   it('should reserve the gutter whether or not anything can scroll', () => {
@@ -1393,5 +1398,233 @@ describe('a windowed list whose viewport changed size without changing its windo
     renderToLines(root, { cascade: themedCascade(), height: 10, width: 13 });
     expect(counter.calls() - settled, 'one layout, because nothing reported a change').toBe(1);
     expect(viewportIn(host).content?.width).toBe(12);
+  });
+});
+
+describe('a scroll box heard from outside', () => {
+  const row = (i: number): Element => text(`r${i}`, { focusable: true, id: `r${i}` });
+
+  /** Every row id the tree is holding, in order. */
+  const held = (host: Element): string[] =>
+    every(host)
+      .filter((e) => e.id?.startsWith('r'))
+      .map((e) => e.id as string);
+
+  /** A box over twenty rows, either way, recording each `onScroll` it hears. */
+  function heard(
+    windowed: boolean,
+    extra: Partial<ScrollBoxProps> = {}
+  ): { calls: { held: string[]; y: number | undefined }[]; host: Element; view: Element } {
+    const calls: { held: string[]; y: number | undefined }[] = [];
+    let host: Element | undefined;
+    const content = windowed
+      ? { rows: { count: 20, height: 1, row } }
+      : {
+          children: () =>
+            box({ 'flex-direction': 'column' }, ...Array.from({ length: 20 }, (_, i) => row(i))),
+        };
+    host = ScrollBox({
+      ...content,
+      // what the handler reads is the window the offset asked for, which is the
+      // half of "after the window" a call count cannot see
+      onScroll: (control) => calls.push({ held: held(host!), y: control.viewport.scroll?.y }),
+      props: { height: 4, width: 12 },
+      ...extra,
+    });
+    lay(host);
+    return { calls, host, view: viewportIn(host) };
+  }
+
+  for (const windowed of [false, true]) {
+    const shape = windowed ? 'rows' : 'children';
+
+    it(`should hear every writer of the offset, on a box built from ${shape}`, () => {
+      vi.useFakeTimers();
+      try {
+        const { calls, host, view } = heard(windowed);
+        /** Writes, lays out, and asks that exactly one call heard the new offset. */
+        const writes = (label: string, write: () => void): void => {
+          const before = calls.length;
+          const from = view.scroll?.y ?? 0;
+          write();
+          lay(host);
+          expect(view.scroll?.y ?? 0, `${label} moved the offset`).not.toBe(from);
+          expect(calls.length, label).toBe(before + 1);
+          expect(calls.at(-1)?.y, label).toBe(view.scroll?.y);
+        };
+
+        writes('a key', () => host.onKey?.(keyEvent('down')));
+        writes('a wheel notch', () => host.onMouse?.(mouseEvent({ kind: 'wheel', wheel: 'down' })));
+        const bar = find(host, (e) => e.classes.includes('sigil-scroll-bar'))!;
+        writes('a click on the track', () => {
+          bar.onMouse?.(mouseEvent({ kind: 'mousedown', x: 11, y: 3 }));
+          bar.onMouse?.(mouseEvent({ kind: 'mouseup', x: 11, y: 3 }));
+        });
+        // the focus ring's writer, which is the one no handler of the box sees:
+        // the last row on screen, with a margin past it
+        const last = find(host, (e) => e.id === `r${(view.scroll?.y ?? 0) + 3}`)!;
+        writes('scrollIntoView()', () => scrollIntoView(last, { margin: 1 }));
+        writes('scrollBy()', () => scrollBy(view, 0, -5));
+        writes('scrollTo()', () => view.scrollTo(0, 0));
+
+        // a write that moved nothing is not a scroll
+        const count = calls.length;
+        view.scrollTo(0, 0);
+        expect(calls).toHaveLength(count);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  }
+
+  it('should call onScroll after the window was rebuilt for the new offset', () => {
+    const { calls, view } = heard(true);
+    view.scrollTo(0, 9);
+    expect(calls.at(-1)?.held).toStrictEqual(['r9', 'r10', 'r11', 'r12']);
+  });
+
+  it('should hand both hooks the control scrollControl() hands out', () => {
+    const seen: ScrollControl[] = [];
+    const host = ScrollBox({
+      onResize: (control) => {
+        seen.push(control);
+        return false;
+      },
+      onScroll: (control) => seen.push(control),
+      props: { 'flex-grow': 1, 'min-height': 0, width: 12 },
+      rows: { count: 20, height: 1, row },
+    });
+    const root = box({ 'flex-direction': 'column' }, host);
+    renderToLines(root, { cascade: themedCascade(), height: 4, width: 12 });
+    viewportIn(host).scrollTo(0, 1);
+    expect(seen).toHaveLength(2);
+    expect(seen.every((control) => control === scrollControl(host))).toBe(true);
+  });
+
+  it('should refuse a hook that is not a function where the box is built', () => {
+    // rather than at the first scroll, deep inside somebody's `scrollTo()`
+    const rows = { count: 1, height: 1, row };
+    expect(() => ScrollBox({ onScroll: 'nope' as never, rows })).toThrow(
+      'Expected scroll box onScroll to be a function'
+    );
+    expect(() => ScrollBox({ onResize: 1 as never, rows })).toThrow(
+      'Expected scroll box onResize to be a function'
+    );
+  });
+
+  describe('onResize', () => {
+    /** A list bounded by its parent, so a frame's height is the viewport's. */
+    function loose(onResize: ScrollBoxProps['onResize']): { host: Element; root: Element } {
+      // no width of its own, so a frame's width is the viewport's as well
+      const host = ScrollBox({
+        onResize,
+        props: { 'flex-grow': 1, 'min-height': 0 },
+        rows: { count: 500, height: 1, row },
+      });
+      return { host, root: box({ 'flex-direction': 'column' }, host) };
+    }
+    const frame = (root: Element, height: number, width = 12): string[] =>
+      renderToLines(root, { cascade: themedCascade(), height, width }).map((line) =>
+        strip(line).trimEnd()
+      );
+
+    it('should be called after the window was rebuilt for the new size', () => {
+      const sizes: { held: number; height: number | undefined }[] = [];
+      const { host, root } = loose((control) => {
+        sizes.push({ held: held(host).length, height: control.viewport.content?.height });
+        return false;
+      });
+      frame(root, 4);
+      frame(root, 10);
+      // each time, the window already holds the rows the new height can see
+      expect(sizes).toStrictEqual([
+        { held: 4, height: 4 },
+        { held: 10, height: 10 },
+      ]);
+    });
+
+    it('should lay out again where the handler said it changed the tree', () => {
+      // the return value is `ResizeHandler`'s rule passed on: only the handler
+      // knows it edited the tree, and a frame that did not lay out again would
+      // paint the edit at the boxes of the layout before it. A width-only
+      // resize, so the window itself has nothing to report
+      let label: Element | undefined;
+      let calls = 0;
+      const { host, root } = loose(() => {
+        // the first is the first frame, which lays out again for the window it
+        // built anyway; the second is the one only this handler's answer can move
+        if (++calls < 2) {
+          return false;
+        }
+        label?.setProp('width', 7);
+        label?.setText('widened');
+        return true;
+      });
+      label = text('x', { 'flex-shrink': 0, width: 1 });
+      root.append(label);
+      frame(root, 5, 12);
+      expect(frame(root, 5, 13).at(-1)).toBe('widened');
+      // the box rather than the picture, because a text paints past a box too
+      // narrow for it and the line reads the same either way
+      expect(label.box?.width).toBe(7);
+      expect(held(host), 'and the window had nothing to report').toHaveLength(4);
+    });
+  });
+
+  describe('resync()', () => {
+    it('should re-window a list whose count grew while nobody scrolled', () => {
+      // the later tier SIG-131 left: a log that grows with no scroll to make the
+      // window read the count again, so the spacer below kept its old height
+      const rows = { count: 10, height: 1, row };
+      const host = ScrollBox({ props: { height: 4, width: 12 }, rows });
+      const control = scrollControl(host)!;
+      lay(host);
+      expect(scrollRange(control.viewport).y).toBe(6);
+
+      rows.count = 40;
+      lay(host);
+      expect(scrollRange(control.viewport).y, 'nothing asked yet').toBe(6);
+
+      expect(control.resync()).toBe(true);
+      lay(host);
+      expect(scrollRange(control.viewport).y).toBe(36);
+      // and the new end is reachable, which is what a follow mode scrolls to
+      control.viewport.scrollTo(0, 36);
+      expect(held(host)).toStrictEqual(['r36', 'r37', 'r38', 'r39']);
+    });
+
+    it('should build the new rows where the list grew into the window', () => {
+      // a list shorter than its viewport, which is a log's first second: the rows
+      // it grows by are on screen at once, with no scroll in prospect at all
+      const rows = { count: 2, height: 1, row };
+      const host = ScrollBox({ props: { height: 4, width: 12 }, rows });
+      lay(host);
+      expect(picture(host)).toStrictEqual([
+        'r0         █',
+        'r1         █',
+        '           █',
+        '           █',
+      ]);
+      rows.count = 3;
+      expect(scrollControl(host)!.resync()).toBe(true);
+      expect(picture(host)).toStrictEqual([
+        'r0         █',
+        'r1         █',
+        'r2         █',
+        '           █',
+      ]);
+    });
+
+    it('should answer false where the window it recomputed is the one it has', () => {
+      // the same guard the hooks go through, so a call per appended line is a
+      // `rowWindow()` until the line lands in view
+      const rows = { count: 10, height: 1, row };
+      const host = ScrollBox({ props: { height: 4, width: 12 }, rows });
+      lay(host);
+      expect(scrollControl(host)!.resync()).toBe(false);
+      rows.count = 11;
+      expect(scrollControl(host)!.resync()).toBe(true);
+      expect(scrollControl(host)!.resync()).toBe(false);
+    });
   });
 });

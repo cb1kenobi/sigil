@@ -777,9 +777,10 @@ not building it addresses the 72ms." This is not building it.
   spacer below at its old height. That case needs a row **taller than a cell** to
   reach at all, because at one cell every offset is a different window and the
   guard never answers -- which is why the first test for it was vacuous and
-  survived its sabotage. A list that has to grow while nobody is scrolling is
-  left for a later tier: it needs a way to ask for a re-sync, which is a second
-  mechanism beside `onScroll` and has no caller yet.
+  survived its sabotage. A list that has to grow while nobody is scrolling was
+  left for a later tier here, because it needed a way to ask for a re-sync -- a
+  second mechanism beside `onScroll`, with no caller yet. SIG-209 is that tier:
+  `scrollControl(host).resync()`, under "A scroll box heard from outside" below.
 
 - **A vertically windowed list's _horizontal_ extent is the widest row that was
   built, and `rows.width` is what closes it.** Found by probing `axis: 'both'`
@@ -1047,8 +1048,8 @@ not building it addresses the 72ms." This is not building it.
   lost is reaching the ones that do not. A **windowed horizontal** axis, which
   is the same mechanism turned ninety degrees and has no caller -- and which is
   not the cross-axis extent above, since that one is answered by `rows.width`
-  rather than deferred. **A list that grows while nobody is scrolling**, for the
-  reason the `count` entry gives. And
+  rather than deferred. **A list that grows while nobody is scrolling** was here
+  for the reason the `count` entry gives, and is `resync()` now (SIG-209). And
   **overscan**, which is one more number than the design needs: a window rebuild
   is 0.26ms of cascade over eighty elements, and rows that stay in the window
   are kept rather than rebuilt, so what a notch costs is the rows that newly
@@ -1491,17 +1492,22 @@ patch, a pane, and three additions to the renderer that the pane needs.
   overlay whose teardown order decides whether `console.log` still works. The app
   owns the pairing, which is what makes `installed` a statement it can act on.
 
-- **The pane does not re-sync a windowed `ScrollBox`.** It holds the ring's rows
-  as ordinary children rather than as `rows`, because what a windowed list cannot
-  do today is exactly this: "a list that has to grow while nobody is scrolling is
-  left for a later tier -- it needs a way to ask for a re-sync, which is a second
-  mechanism beside `onScroll` and has no caller yet". This is that caller, and
-  adding the mechanism is a change to `ScrollBox`'s contract taken inside a ticket
-  about a debug pane. At five hundred rows the cost is an arrange of five hundred
-  one-cell texts while the pane is **open**, which measured against the recorded
-  10,000-row figures is a couple of milliseconds; closed it is `display: none` and
-  is not laid out at all. The day somebody wants a ten-thousand-line ring is the
-  day to add the re-sync and pass `rows`.
+- **The pane holds its ring as ordinary children rather than as `rows`, and the
+  reason is no longer a missing mechanism.** It was: "a list that has to grow
+  while nobody is scrolling is left for a later tier -- it needs a way to ask for
+  a re-sync", and adding one inside a ticket about a debug pane would have been a
+  change to `ScrollBox`'s contract taken for a pane. SIG-209 added it --
+  `scrollControl(host).resync()` -- and the pane still does not switch, because
+  what is left is cost rather than capability. At five hundred rows the pane
+  costs an arrange of five hundred one-cell texts while it is **open**, which
+  against the recorded 10,000-row figures is a couple of milliseconds; closed it
+  is `display: none` and not laid out at all. Switching is not one line either:
+  the follow is `scrollIntoView()` on the last row's **box**, and a windowed ring
+  has no last row built until the window reaches it, so the follow becomes a
+  `resync()` and a `scrollTo()` of the range's end, the drop from the front of
+  the ring becomes a count that shrinks under a window, and both want tests of
+  their own. The day somebody wants a ten-thousand-line ring is still the day to
+  pass `rows` -- it is now a refactor of this file, not a feature of another one.
 
 ### The built-in components
 
@@ -6832,28 +6838,31 @@ does.
   sideways shift -- so paging through a long document without searching kept every
   row ever built, and the slot each one still points at, which is the windowing
   given back: a million-line log paged with Space held a million element trees,
-  and the next search walked them all. The wrapped `onScroll` prunes after the
-  scroll box has re-windowed, which is the one moment what it took out is known,
-  and the resize hook does the same after its sync. Found in review.
+  and the next search walked them all. The pager's `onScroll` prunes after the
+  scroll box has re-windowed -- which is when the box calls it, and the one
+  moment what it took out is known -- and its `onResize` does the same after its
+  `resync()`. Found in review.
   `should forget the rows a page down scrolled out of the window` counts a
   search's reads of `parent` on rows already off screen, which is what an unbounded
   map costs that a picture cannot show; with the scroll-time prune deleted it reads
   24 of them.
-- **`scrollViewport()` is exported from `scroll-box.ts`, and it is a `WeakMap`
-  rather than a walk for the class.** A component built on a scroll box needs the
-  viewport -- the offset lives there, so `scrollTo()` and reading `scroll` back
-  want it -- and the host is all `ScrollBox()` returns. The class is a theme's
-  hook and an app may add to it, so a lookup by class is one a stylesheet could
-  break. On the components barrel, so an ejected `pager.ts` still resolves it.
-- **The viewport's two hooks are wrapped, not replaced, and the order inside
-  `onResize` matters.** The pager reads each hook and installs one that calls what
-  it found, which is the rule this repository gives for one-function hooks. On a
-  resize it refolds, redraws the rows on screen and puts the window back on the
-  line and offset it started on **before** it calls the scroll box's own sync,
-  because that sync reads the new count; the other order builds a window for a
-  count that is about to change. Sabotaged: without the refold-then-redraw the
-  `page()` resize test fails, and without the re-anchor the reader is left on a
-  row number that now means a different line.
+- **The pager reaches its scroll box through `scrollControl()` and hears it
+  through `onScroll` and `onResize`.** It used to find the viewport with
+  `scrollViewport()` and **wrap** both of the viewport's hooks -- read each one,
+  install one that called what it found -- with the order inside `onResize`
+  load bearing: refold, redraw and re-anchor first, and only then the scroll
+  box's own sync, because that sync reads the new count. That worked and was
+  tested, and every word of it was knowledge of another component's internals,
+  which a third component on a scroll box would have had to learn again.
+  SIG-209 replaced it, under "A scroll box heard from outside" below; what the
+  pager owes the box now is one call. The box re-windows before it calls the
+  pager's `onResize`, so for a width that moved it has windowed the **old**
+  count, and the pager refolds, redraws, re-anchors and **then** calls
+  `resync()`. Sabotaged both ways: `resync()` moved above the refold, or left out,
+  fails `should re-window for the count a new fold came to, where the top row
+  stayed` -- at the top the re-anchor writes no offset, so nothing else would
+  make the window read the new count, and the spacer below measured forty rows of
+  a thirty-row document.
 - **The keys follow the scroll box's rules where they overlap.** A scrolling key
   is claimed only where the document is longer than the window, so a document
   that fits hands Space on, and is claimed even where the move is zero, so `g` at
@@ -6904,8 +6913,9 @@ does.
   character, and the piped write.
 - **Not done:** carrying the input's colour through; incremental search; `-F`
   (quit when it fits on one screen); a follow mode that tails a growing input --
-  the content is read once, and a `ScrollRows.count` that grows while nobody is
-  scrolling is the re-sync the scroll box records as a later tier; marks; `&` to
+  the content is read once, which is now the whole of the reason: the count that
+  grows while nobody scrolls is `resync()` since SIG-209, so what is left is a
+  `content` that can be appended to, and that is the pager's own API; marks; `&` to
   filter to matching lines; a horizontal scrollbar for `wrap: false`.
 
 ### A tree: `tree()`, `selectTree()` and `directoryTree()`
@@ -7022,3 +7032,108 @@ that prompt over a directory.
   every directory already read); a live `createTree()` (`outline()` has one because
   its ticket asked for one; this one did not); several answers; typing to filter;
   a guide style past `plain` and `rounded`, which is one more row in a table.
+
+### A scroll box heard from outside: `onScroll`, `onResize` and `resync()`
+
+`src/components/scroll-box.ts`. SIG-209. A component built on a `ScrollBox` used
+to hear it by wrapping the viewport's own `Element.onScroll` and
+`Element.onResize`, knowing the order inside them, and finding the viewport
+through `scrollViewport()`. The pager was the first such component and did all
+three. The public surface that replaced it is two props and one lookup:
+
+```js
+const rows = { count: lines.length, height: 1, row };
+const host = ScrollBox({ onResize, onScroll, props, rows });
+const { resync, viewport } = scrollControl(host);
+```
+
+- **The scroll hook is an option, one function, and not a subscription.** The
+  ticket's first question. An option is the house rule -- every hook here is one
+  function, declared by whoever built the thing -- and a subscription on a handle
+  would bring a list, an order between its entries, and an unsubscribe for a box
+  that usually lives as long as the app. What the option gives up is a component
+  that hears a box **somebody else** built and declared, and there is none: the
+  pager and the debug overlay both build their own. A component that takes a
+  caller's `ScrollBoxProps` and builds the box composes the caller's `onScroll`
+  with its own before building, which is composing a function it was handed
+  rather than wrapping a hook it found on an element -- and it never needs to know
+  which element hook carries it.
+- **`onResize` came with it, because the pager could not stop wrapping without
+  one.** The ticket asked for a scroll hook and a re-sync, and the pager's resize
+  wrap was the half that refolds at a new width. Without a public resize hook the
+  pager would have had to keep wrapping `viewport.onResize`, or put a hook on an
+  element whose size merely _usually_ moves with the viewport's -- an inference
+  about geometry standing in for a contract. It is `ResizeHandler`'s shape passed
+  on, return value included: it says whether it changed the tree, because a frame
+  lays out again before it paints only where something said so. Measured: a
+  handler that edits a label on a width-only resize, where the window has nothing
+  to report, leaves the label at the box of the layout before it when its answer
+  is dropped.
+- **Both hooks run after the window, and that order lives in one place.** The
+  viewport's two element hooks are the box's, installed by `ScrollBox()`, and each
+  runs the window's `sync()` first and the caller's hook after it. So what a hook
+  reads -- which rows are built, the spacers, the offset, the viewport's size --
+  is the state that will be laid out. `onResize` running _before_ the sync was the
+  other candidate, because then a hook that changes `count` would need no
+  `resync()`; it was refused because it splits the two hooks' timing in two, and
+  makes "before the box re-windows" a contract a second party has to know --
+  which is the very thing the ticket is about. After, uniformly, and a count that
+  moved is said with `resync()`. What that costs is one window computed for the
+  old count on a width that changed the fold, which is a viewport of rows on a
+  terminal resize. The caller's hook is called whatever the sync answered, and the
+  two answers are OR-ed: `settleResized()`'s own rule, one level down, that a
+  handler being told its box moved is not skipped because another said yes.
+- **Every writer of the offset reaches `onScroll`, on a `children` box as well as
+  a `rows` one.** It is reached through `Element.onScroll`, which `scrollTo()`
+  dispatches and `scrollTo()` is the only writer there is -- so the keys, the
+  wheel, a click on the track, a dragged thumb, `scrollIntoView()` and an app's
+  own `scrollTo()` and `scrollBy()` all arrive. `should hear every writer of the
+  offset` drives a key, a wheel notch, a click on the track, `scrollIntoView()`,
+  `scrollBy()` and `scrollTo()` on both shapes, and asks for exactly one call per
+  write, carrying the new offset, and none for a write that moved nothing. A `children` box installs the
+  element hooks only where a prop asks for them, so a plain one is still not
+  collected by `arrange()` at all.
+- **The re-sync is a method, not an effect over `count`.** The second question.
+  `sync()` is arithmetic over four numbers that runs inside `scrollTo()` and inside
+  a frame's resize pass, and both of those are synchronous on purpose: the window
+  the frame arranges is the window the offset asked for. A signal dependency in
+  it would add a third schedule that is neither, and it would only ever notice a
+  count that somebody kept in a signal -- neither caller here does: the pager's
+  count is a getter over an array, and the overlay's ring has a version number.
+  An app whose count is a signal writes `createEffect(() => { count.get();
+  control.resync(); })` in its own graph, which is one line. `resync()` returns
+  whether the window changed, which is what an `onResize` that called it adds to
+  its own answer, and goes through the same unchanged-window guard as the hooks --
+  so a call per appended log line is a `rowWindow()` until the line lands in view.
+  On a `children` box it is a no-op that answers `false`.
+- **`scrollControl()` replaced `scrollViewport()`, and the lookup did not grow a
+  sibling.** `{ resync, viewport }`, frozen, from the same `WeakMap` and for the
+  same reason the map exists -- a lookup by class is one a stylesheet could
+  break. Retired rather than kept beside it, because two lookups over one map are
+  two answers to "what does a component built on a scroll box hold", and the
+  first one is `control.viewport`. **It never reached a release**: it landed in
+  #234, after `0.0.1`, the only version published, so no ejected `pager.ts` from a
+  release imports it -- one ejected from `main` in between would, and its import
+  fails loudly at load rather than quietly at run time. The control is handed to
+  both hooks as well, so one hook can answer for several boxes without a closure
+  per box, which is why `Element`'s hooks are handed the element.
+- **A hook that is not a function is refused where the box is built.** A string
+  `onScroll` would otherwise throw from inside somebody's `scrollTo()`, naming
+  nothing the caller wrote, at the first scroll -- which for a list nobody touches
+  is never.
+- **A scroll of the same box from inside its own `onScroll` is written and not
+  dispatched**, which is `Element.scrollTo()`'s latch passed on unchanged rather
+  than worked around: the latch is what bounds the recursion. A hook that moves
+  its own box calls `resync()` after it, and the prop says so.
+- **The debug overlay still holds its ring as children**, now for cost rather than
+  capability; the entry under "A debug overlay" says what switching would take.
+  `demos/element/09-virtual.js` is the caller this ticket's own mechanism needed:
+  `+` adds a thousand rows while nothing scrolls, and `resync()` is the whole of
+  what the demo does about it.
+- **Twelve sabotages, twelve caught, each type-checking.** A `children` box
+  installing no `onScroll`; the wheel skipping the element hook; `resync()` a
+  no-op; the caller's `onResize` before the sync, and its `onScroll`; the
+  caller's resize answer dropped; the type check on a hook removed; the pager's
+  `resync()` moved above the refold, and left out; the pager's scroll-time prune
+  and status redraw each removed; and the caller's `onResize` skipped where the
+  sync said yes.

@@ -1002,7 +1002,7 @@ layout engine, the cascade, the paint walk or `scrollRange()` knows a window is 
 play. `node packages/sigil/scripts/benchmark-virtual-list.mjs` is what measures
 it, and it asserts three sides paint the same frame before it times any of them.
 
-Three things to try, and the last is the tier's honest edge. Scroll it every way —
+Four things to try, and Tab is the tier's honest edge. Scroll it every way —
 Home and End are the sharpest, because the thumb reaches the very top and the very
 bottom, which it could not do if the range came from what was built. **Resize the
 terminal**, which writes no scroll offset at all: the window is rebuilt for the
@@ -1014,7 +1014,9 @@ is SIG-132. Then press Tab: the rows are focusable and Tab walks the ones that
 failure `scrollIntoView()` is wired to the focus ring to prevent, and a window
 makes it unreachable rather than fixed. What it costs is the other direction:
 tabbing past the last visible row wraps instead of scrolling on, because a row
-nobody built is not in the ring.
+nobody built is not in the ring. And press `+`, which adds a thousand rows while
+nothing scrolls — a log growing — and the thumb shrinks at once: the count is the
+app's own number, so the app says it moved, with `scrollControl(log).resync()`.
 
 Each of the three mouse demos is for a claim the others cannot make.
 

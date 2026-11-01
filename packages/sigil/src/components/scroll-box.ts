@@ -98,10 +98,10 @@ export interface ScrollRows {
    * is the line a command's own declaration draws: `choices` and `default` are
    * read on every parse while `name` and `format` built the registry lookups. So
    * a list that grows picks the new count up the next time the window is
-   * computed, which is the next time the offset moves. A log that has to grow
-   * while nobody is scrolling is left for a later tier -- it needs a way to ask
-   * for a re-sync, which is a second mechanism beside `onScroll` and has no
-   * caller yet.
+   * computed: the next time the offset moves, the next time a layout gives the
+   * viewport a new height, or the moment somebody calls
+   * {@link ScrollControl.resync} -- which is the one to use for a log that grows
+   * while nobody is scrolling, since nothing else is going to ask.
    */
   count: number;
   /**
@@ -168,6 +168,56 @@ export interface RowWindow {
   length: number;
 }
 
+/**
+ * What a component built **on** a scroll box holds it by: the viewport, and a way
+ * to ask a windowed list to re-window.
+ *
+ * Reached with {@link scrollControl} from the host `ScrollBox()` returned, and
+ * handed to `onScroll` and `onResize` as well, so a hook needs no lookup and one
+ * hook can answer for several boxes without a closure per box -- the reason
+ * `Element`'s own hooks are handed the element.
+ */
+export interface ScrollControl {
+  /**
+   * Re-windows a windowed list against what it holds **now**: its `count`, the
+   * offset, and the viewport's height.
+   *
+   * The one thing the scroll box cannot learn by itself. The offset has
+   * `scrollTo()` to say it moved and the height has a frame's resize dispatch,
+   * but `count` is the caller's number, read rather than written -- so a list
+   * that grew while nobody scrolled went on describing the old one, with the
+   * spacer below at its old height, until something scrolled. Call it after the
+   * count moved; a mark and a frame follow from the elements it changed, the way
+   * they follow from any other edit to the tree.
+   *
+   * A method rather than an effect over `count`, and deliberately: `sync()` is
+   * arithmetic over four numbers, it runs inside `scrollTo()` and inside a frame's
+   * resize pass, and a signal dependency in it would make the window re-run on a
+   * schedule that is neither -- and would only ever notice a count somebody kept
+   * in a signal, which neither caller here does. An app whose count *is* a signal
+   * writes the effect itself, in one line, in a graph it owns.
+   *
+   * Cheap where nothing moved: the window's unchanged-window guard answers, so a
+   * call per appended line costs a `rowWindow()` until the line lands in view.
+   * And it is a no-op, answering `false`, on a box built from `children`, which
+   * has no window to recompute.
+   *
+   * @returns Whether the window changed -- what an `onResize` that called it says
+   *   about the tree.
+   */
+  resync(): boolean;
+  /**
+   * The clipping box: the element that owns the offset.
+   *
+   * The offset lives here rather than on the host (see "It holds no state of its
+   * own"), so `scrollTo()`, `scrollBy()` and reading `scroll` and `content` back
+   * all want this element, and the host is the only one `ScrollBox()` hands out.
+   * Its `onScroll` and `onResize` are the scroll box's own and are **not** for
+   * wrapping -- the props of the same names are the public half.
+   */
+  readonly viewport: Element;
+}
+
 export interface ScrollBoxProps {
   /**
    * Which axes scroll. Defaults to `vertical`.
@@ -179,6 +229,58 @@ export interface ScrollBoxProps {
   axis?: ScrollAxis;
   /** The content. Built once, like any component's children. */
   children?: () => Element;
+  /**
+   * Called when a layout gave the viewport a size it had not been told about,
+   * **after** a windowed list has re-windowed for it.
+   *
+   * The resize half of `onScroll`, and what a component that lays its own content
+   * out against the viewport -- a pager folding text at its width -- needs to hear.
+   * Dispatched by a frame after its layout, exactly as `Element.onResize` is, so
+   * a bare `arrange()` calls nothing.
+   *
+   * After rather than before, for the reason `onScroll` is: what the handler reads
+   * is the window on screen. A handler that changes `count` in answer -- a new
+   * fold is a new count -- calls `control.resync()` once it has, which is the
+   * whole of the ordering a second party needs to know: the window is recomputed
+   * when the caller says the count moved, not at a point inside somebody else's
+   * hook.
+   *
+   * It **returns whether it changed the tree**, which is `ResizeHandler`'s own
+   * rule: a frame lays out again before it paints only where something said so,
+   * and the handler is the only thing that knows. A `resync()` it made is part of
+   * that answer.
+   *
+   * One function, like every hook here, and read once.
+   */
+  onResize?: (control: ScrollControl) => boolean;
+  /**
+   * Called when the offset moved, **after** a windowed list has re-windowed for
+   * it.
+   *
+   * Every writer of the offset arrives here, because they all arrive at
+   * `scrollTo()` first: the keys, the wheel, a dragged thumb or a clicked track,
+   * `scrollIntoView()` from the focus ring, and an app's own `scrollTo()` or
+   * `scrollBy()` on the viewport. Fired on a box built from `children` as well as
+   * from `rows`, and not fired by a write that moved nothing.
+   *
+   * After the window, so that what the handler reads -- which rows are built,
+   * the spacers, the offset -- is the state that will be laid out. And
+   * synchronously, inside `scrollTo()`, which is `Element.onScroll`'s rule passed
+   * on: a scroll **of this same box** from inside the handler is written and not
+   * dispatched again, so a handler that moves its own box calls
+   * `control.resync()` after it.
+   *
+   * An option rather than a subscription on {@link ScrollControl}, and that is the
+   * house rule rather than a default: one function, declared by whoever built the
+   * box. A component that takes a caller's `ScrollBoxProps` and builds the box
+   * composes the caller's `onScroll` with its own before building, which is
+   * composing a function it was handed rather than wrapping a hook it found on an
+   * element. Hearing a box somebody else built and declared is the one thing that
+   * gives up, and it has no caller.
+   *
+   * One function, and read once.
+   */
+  onScroll?: (control: ScrollControl) => void;
   /**
    * A windowed list in place of `children`: only the visible rows are built.
    *
@@ -442,31 +544,35 @@ function declaredHeight(props: ElementProps | undefined): number {
 }
 
 /**
- * Each scroll box's viewport, keyed by the host `ScrollBox()` returned.
+ * Each scroll box's control, keyed by the host `ScrollBox()` returned.
  *
  * A `WeakMap` rather than a walk for a class, because the class is a theme's hook
  * and an app may add to it -- a lookup that found the viewport by what it was
  * called would be a lookup a stylesheet could break. Weak, so a box nobody holds
  * any more takes its entry with it.
  */
-const viewports = new WeakMap<Element, Element>();
+const controls = new WeakMap<Element, ScrollControl>();
 
 /**
- * The clipping box inside a scroll box: the element that owns the offset.
+ * The control of a scroll box: its viewport, and the window's `resync()`.
  *
- * What a component built **on** a scroll box needs, and the reason it is exported
- * rather than left a detail: the offset lives on the viewport rather than on the
- * host (see "It holds no state of its own"), so `scrollBy()`, `scrollTo()` and
- * reading `scroll` back all want this element, and the host is the only one the
- * caller was handed. `createPager()` is the first such component -- it moves the
- * offset from keys the scroll box does not claim, and chains the viewport's
- * `onScroll` and `onResize` to learn when the window it draws moved.
+ * What a component built **on** a scroll box holds it by, and the reason it is
+ * exported rather than left a detail: the offset lives on the viewport rather than
+ * on the host (see "It holds no state of its own"), and the host is the only
+ * element the caller was handed. `createPager()` is the first such component -- it
+ * moves the offset from keys the scroll box does not claim, hears the box through
+ * `onScroll` and `onResize`, and calls `resync()` after a fold at a new width
+ * changed its count.
+ *
+ * It replaced `scrollViewport()`, which handed back the viewport alone and never
+ * reached a release: two lookups over one map is two answers to "what does a
+ * component built on a scroll box hold", and the viewport is `control.viewport`.
  *
  * @param host - What `ScrollBox()` returned.
- * @returns The viewport, or `undefined` for an element no scroll box built.
+ * @returns The control, or `undefined` for an element no scroll box built.
  */
-export function scrollViewport(host: Element): Element | undefined {
-  return viewports.get(host);
+export function scrollControl(host: Element): ScrollControl | undefined {
+  return controls.get(host);
 }
 
 /**
@@ -484,6 +590,15 @@ export function ScrollBox(props: ScrollBoxProps): Element {
   if ((props.children === undefined) === (props.rows === undefined)) {
     throw new Error('A scroll box takes either children or rows, and not both');
   }
+  // refused here rather than at the first scroll, which is deep inside somebody's
+  // `scrollTo()` and names nothing the caller wrote
+  for (const name of ['onResize', 'onScroll'] as const) {
+    if (props[name] !== undefined && typeof props[name] !== 'function') {
+      throw new TypeError(`Expected scroll box ${name} to be a function`);
+    }
+  }
+  // read once, like everything else here but `rows.count`
+  const { onResize, onScroll } = props;
 
   const content = box({
     class: 'sigil-scroll-content',
@@ -554,7 +669,6 @@ export function ScrollBox(props: ScrollBoxProps): Element {
   // silently take its class away would be a component a theme cannot reach
   host.addClass('sigil-scroll');
   host.append(row);
-  viewports.set(host, viewport);
 
   if (bars && vertical) {
     row.append(scrollbar('vertical', viewport, false));
@@ -569,8 +683,41 @@ export function ScrollBox(props: ScrollBoxProps): Element {
 
   wireKeys(host, viewport, { horizontal, vertical });
   wireWheel(host, viewport, { horizontal, vertical });
-  if (props.rows) {
-    wireRows(viewport, content, props.rows, declaredHeight(props.props));
+  const sync = props.rows
+    ? wireRows(viewport, content, props.rows, declaredHeight(props.props))
+    : undefined;
+
+  const control: ScrollControl = Object.freeze({
+    resync: (): boolean => sync?.() ?? false,
+    viewport,
+  });
+  controls.set(host, control);
+
+  // the viewport's two hooks are the scroll box's, and each runs the window first
+  // and the caller's hook after it. That order is the contract the two props
+  // document, and it is here -- in one place, owned by the box -- so that a
+  // component built on one never has to know which element hook carries it, what
+  // order things run in inside it, or that it is one function to wrap: what the
+  // pager had to know before this existed, and what a third component would have
+  // had to learn again.
+  //
+  // Installed only where something listens, so a plain `children` box carries
+  // neither hook and is not collected by `arrange()` at all
+  if (sync || onScroll) {
+    viewport.onScroll = (): void => {
+      sync?.();
+      onScroll?.(control);
+    };
+  }
+  if (sync || onResize) {
+    viewport.onResize = (): boolean => {
+      // both asked, whatever the first says: a handler is being told its box
+      // moved, and one that is skipped is a component describing a size that is
+      // not there any more -- `settleResized()`'s own rule, one level down
+      const synced = sync?.() ?? false;
+      const theirs = onResize?.(control) === true;
+      return synced || theirs;
+    };
   }
 
   return host;
@@ -579,11 +726,14 @@ export function ScrollBox(props: ScrollBoxProps): Element {
 /**
  * Keeps the content box holding exactly the rows the viewport can see.
  *
- * A window is `rowWindow()` of four numbers, and **two** of them move: the offset
- * and the viewport's height. So there are two hooks and one handler, because there
- * is one question -- `scrollTo()` is the only writer of `scroll` and `arrange()` is
- * the only writer of `content`, so each number has exactly one place that can say
- * it moved, and `sync()` recomputes from both whenever it is called by either.
+ * A window is `rowWindow()` of four numbers, and **three** of them move: the
+ * offset, the viewport's height and the count. So there are two hooks, one method
+ * and one handler, because there is one question -- `scrollTo()` is the only
+ * writer of `scroll` and `arrange()` is the only writer of `content`, so each of
+ * those has exactly one place that can say it moved, while `count` is the caller's
+ * own number, read rather than written, and only the caller can say it moved:
+ * that is `ScrollControl.resync()`. `sync()` recomputes from all three whenever
+ * any of them calls it.
  *
  * `onScroll` is the offset's. It is the only hook that half needs because
  * `scrollTo()` is the only writer: the keys, the wheel, a dragged thumb and
@@ -619,8 +769,15 @@ export function ScrollBox(props: ScrollBoxProps): Element {
  * @param content - The box the rows go in.
  * @param rows - The count, the row height and the row builder.
  * @param bound - A floor under the viewport's height: the host's declared one.
+ * @returns The sync, which is what the viewport's two hooks and
+ *   `ScrollControl.resync()` all call, and which says whether the window moved.
  */
-function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: number): void {
+function wireRows(
+  viewport: Element,
+  content: Element,
+  rows: ScrollRows,
+  bound: number
+): () => boolean {
   const built = new Map<number, Element>();
   // the spacers stand in for the rows that are not built: ordinary boxes with a
   // declared height, which is what makes the content box's extent -- and so the
@@ -768,15 +925,16 @@ function wireRows(viewport: Element, content: Element, rows: ScrollRows, bound: 
     return true;
   };
 
-  viewport.onScroll = sync;
-  // the same function on the other hook, because the window is one answer to one
-  // question and the two hooks are the two numbers it is computed from: the offset,
-  // which `scrollTo()` writes, and the viewport's height, which `arrange()` writes.
-  // `sync()` already recomputes from both every time it is called, so there is
-  // nothing to add here beyond somebody calling it after a layout -- and its own
-  // unchanged-window guard is what makes a resize that moved no row free
-  viewport.onResize = sync;
+  // the same function behind both hooks and behind `resync()`, because the window
+  // is one answer to one question and the three are the three numbers it is
+  // computed from that can move: the offset, which `scrollTo()` writes, the
+  // viewport's height, which `arrange()` writes, and the count, which only the
+  // caller knows it changed. `sync()` already recomputes from all of them every
+  // time it is called, so there is nothing to add beyond somebody calling it --
+  // and its own unchanged-window guard is what makes a call that moved no row free.
+  // `ScrollBox()` installs it on the viewport, ahead of the caller's own hooks
   sync();
+  return sync;
 }
 
 /**

@@ -9,8 +9,8 @@ import {
   searchLines,
   softWrap,
 } from '../../src/components/pager.js';
-import { scrollViewport } from '../../src/components/scroll-box.js';
-import { Element, renderToLines } from '../../src/element/index.js';
+import { scrollControl } from '../../src/components/scroll-box.js';
+import { Element, renderToLines, scrollRange } from '../../src/element/index.js';
 import { __, loadCatalog } from '../../src/i18n/index.js';
 import { createInput, type KeyEvent } from '../../src/input/index.js';
 import { createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
@@ -47,6 +47,7 @@ function laid(
   key: (name: string, mods?: Partial<Key>) => boolean;
   pager: ReturnType<typeof createPager>;
   top: () => number;
+  viewport: Element;
 } {
   const height = size.height ?? 6;
   const pager = createPager({ content: DOC, ...opts, props: { height, ...opts.props } });
@@ -67,8 +68,8 @@ function laid(
     draw();
     return event.claimed();
   };
-  const viewport = scrollViewport(pager.element.children[0]!)!;
-  return { draw, key, pager, top: () => viewport.scroll?.y ?? 0 };
+  const { viewport } = scrollControl(pager.element.children[0]!)!;
+  return { draw, key, pager, top: () => viewport.scroll?.y ?? 0, viewport };
 }
 
 /** A key event as the router builds one, with a record of whether it was stopped. */
@@ -662,6 +663,29 @@ describe('createPager()', () => {
       // wider: nothing folds now, and the top line is the one it was
       const after = strip(draw(60)[0] ?? '');
       expect(after.trim().startsWith(`${line} `)).to.equal(true);
+    });
+
+    it('should re-window for the count a new fold came to, where the top row stayed', () => {
+      // the order the pager owes the scroll box, which re-windowed for the old
+      // count before telling it about the width: refold, then `resync()`. At the
+      // top the re-anchor lands where the window already is and writes no
+      // offset, so nothing else would make the window read the new count -- and
+      // the spacer below went on measuring forty rows of a thirty-row document
+      const { draw, top, viewport } = laid();
+      // ten of the thirty lines fold at 23 columns, in a window of five rows
+      expect(scrollRange(viewport).y).toBe(40 - 5);
+      draw(60);
+      expect(top()).toBe(0);
+      expect(scrollRange(viewport).y).toBe(30 - 5);
+    });
+
+    it('should hear the scroll box re-window on a scroll, and say where it is', () => {
+      // the status line is redrawn from `onScroll`, so a writer the pager does not
+      // own -- here an app's own `scrollTo()` -- still moves the percentage
+      const { draw, viewport } = laid();
+      expect(draw().at(-1)).toMatch(/13%$/);
+      viewport.scrollTo(0, 35);
+      expect(draw().at(-1)).toMatch(/100%$/);
     });
 
     it('should keep a wide line inside the room it was given', () => {
