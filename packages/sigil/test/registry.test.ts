@@ -49,6 +49,13 @@ const published = new Set(
 
 const names = Object.keys(manifest.entries);
 
+/**
+ * The entries that are data for a component rather than a component, so draw
+ * nothing and carry no class. `spinner-frames` is the long tail of spinner sets,
+ * which ships here rather than in the bundle so that no app pays for them.
+ */
+const DATA = new Set(['spinner-frames']);
+
 describe('the registry', () => {
   it('should have been built', () => {
     // a missing registry is a build that did not run, not a passing test
@@ -163,8 +170,11 @@ describe('the registry', () => {
     // a component styles itself with classes and never with colour props,
     // because a prop beats a sheet per property and a colour written into a
     // template is one a theme cannot reach without `!important`. Listing them
-    // is what makes the rule checkable by whoever copied the component in
-    expect(entry.classes.length).toBeGreaterThan(0);
+    // is what makes the rule checkable by whoever copied the component in.
+    // An entry that is data draws nothing and so has nothing to list -- and
+    // which entries those are is a list rather than an inference, so that a
+    // component that lost its classes still fails here
+    expect(entry.classes.length > 0).toBe(!DATA.has(name));
     for (const cls of entry.classes) {
       expect(cls).toMatch(/^sigil-[a-z-]+$/);
     }

@@ -3500,6 +3500,40 @@ spinner.succeed('Compiled 2 files');
 `succeed`, `fail`, `warn`, and `info` each stop and leave one marked line.
 `stop()` erases and leaves nothing.
 
+`frames` takes one of the sets below, each with the interval it looks right at,
+or an array of your own (at 80 ms unless `interval` says otherwise). `interval`
+beats a set's own.
+
+```js
+import { ARC, createSpinner } from '@ttylabs/sigil/components';
+
+createSpinner({ frames: ARC, text: 'Resolving' }).start();
+```
+
+| Set            | Frames                | Interval |
+| -------------- | --------------------- | -------- |
+| `DOTS`         | `⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏` | 80 ms    |
+| `LINE`         | `- \ \| /`            | 130 ms   |
+| `ARC`          | `◜ ◠ ◝ ◞ ◡ ◟`         | 100 ms   |
+| `CIRCLE`       | `◴ ◷ ◶ ◵`             | 120 ms   |
+| `GROW`         | `▁ ▃ ▄ ▅ ▆ ▇ ▆ ▅ ▄ ▃` | 120 ms   |
+| `ARROW`        | `← ↖ ↑ ↗ → ↘ ↓ ↙`     | 100 ms   |
+| `BOUNCING_BAR` | `[    ]` `[=   ]` …   | 80 ms    |
+
+The default is `DOTS`, or `LINE` where `unicodeSupported()` says the terminal
+cannot be trusted with braille -- a Linux console, `TERM=dumb`, or a Windows
+console that is not one of the known ones. `ascii: true` or `false` decides it
+outright, and `env` and `platform` name the terminal to ask about. Frames you pass
+always win, so an app that wants `ARC` where it can and ASCII where it cannot says
+`frames: unicodeSupported() ? ARC : LINE`.
+
+Every frame of a set is the same width, and every set that is not ASCII is one
+cell, so the text after it never moves. That is why there is no emoji set: an
+emoji is two columns on a terminal that knows it is one and one on a terminal that
+does not. More sets -- dots variants, a star, a triangle, sand, a toggle -- are
+data in the registry rather than code in the package, so they cost nothing until
+`sigil add spinner-frames` copies them in.
+
 #### Progress
 
 ```js
@@ -3658,8 +3692,8 @@ the middle of `mycli --format json | jq`.
 - `--quiet` drops `info`, `success`, `step` and `message`. `warn` and `error` are
   never dropped, since neither is progress.
 - `ascii: true` swaps in `LOG_SYMBOLS_ASCII`, and `symbols: { warn: '!!' }`
-  replaces one glyph. Nothing detects a terminal that needs ASCII; the caller
-  chooses, as it does a spinner's `LINE` frames.
+  replaces one glyph. Nothing here detects a terminal that needs ASCII; the
+  caller chooses.
 
 `createLog({ terminal, ascii, symbols, quiet, theme, timestamp })` builds one over
 another terminal; `log` is the process's.
