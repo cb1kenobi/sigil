@@ -371,6 +371,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/42-group-back.js`](components/42-group-back.js)                             | Escape back a step in a group, and a prompt that opens on an answer      |
 | [`components/43-concurrent-tasks.js`](components/43-concurrent-tasks.js)                 | Tasks side by side, subtasks under a parent, a retry, and `failFast`     |
 | [`components/44-editor.js`](components/44-editor.js)                                     | An editor prompt: the answer is written in `$VISUAL` or `$EDITOR`        |
+| [`components/45-multiline-extras.js`](components/45-multiline-extras.js)                 | A multiline field with line numbers, a gutter, a limit and highlighting  |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -488,6 +489,15 @@ again with `--as-editor`: a real child process, opened through the shell exactly
 `$EDITOR` is, that saves `wip` the first time and a real message the second. The
 screen is printed at each step -- the question, the waiting line, the rejection
 under the question, and the settled answer's first line.
+
+`45-multiline-extras.js` is the multiline field asking for a snippet of code, with
+`lineNumbers`, a `│ ` gutter mark, a `charLimit` of 120 and a `highlight` hook made
+of two regular expressions -- keywords and comments, which the framework draws in
+the accent and muted with no stylesheet. The block comment it opens with runs over
+a line break, which is why the hook is handed the whole value rather than a line.
+Piped, a scripted keyboard adds a comment long enough to soft wrap -- numbered once,
+on its first row -- and then pastes more than fits, so the paste is cut and the
+count reads `120/120`.
 
 ### Try them without a terminal
 

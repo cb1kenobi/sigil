@@ -116,6 +116,11 @@ export const FRAMEWORK_CSS = `
  *   .sigil-prompt-message  .sigil-prompt-hint  .sigil-prompt-answer
  *   .sigil-prompt-placeholder  .sigil-prompt-error  .sigil-prompt-multiline
  *   .sigil-prompt-number  .sigil-prompt-keys
+ *   .sigil-prompt-gutter  .sigil-prompt-gutter-active  .sigil-prompt-count
+ *   .sigil-token  and a .sigil-token-NAME per token a highlight names, of which
+ *   .sigil-token-comment  .sigil-token-function  .sigil-token-invalid
+ *   .sigil-token-keyword  .sigil-token-number  .sigil-token-string
+ *   .sigil-token-type  also carry a role
  *   .sigil-choice  .sigil-choice-pointer  .sigil-choice-mark  .sigil-choice-hint
  *   .sigil-choice-heading  .sigil-choice-separator  .sigil-choice-description
  *   .sigil-choice-group

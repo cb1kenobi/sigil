@@ -3069,6 +3069,62 @@ keeps the caret visible.
 > what makes a paste submit half an address. Keeping them is the entire point of
 > having more than one line.
 
+The field can number its lines, draw a gutter mark, cap how much it takes, and
+highlight what it holds:
+
+```js
+const KEYWORDS = /\b(?:const|let|return|function|if|else)\b/g;
+
+const snippet = await multiline({
+  message: 'Transform',
+  lineNumbers: true,
+  gutter: '│ ',
+  charLimit: 500,
+  highlight: (value) => [
+    ...[...value.matchAll(KEYWORDS)].map((m) => ({
+      start: m.index,
+      end: m.index + m[0].length,
+      token: 'keyword',
+    })),
+    ...[...value.matchAll(/\/\*[^]*?\*\/|\/\/.*/g)].map((m) => ({
+      start: m.index,
+      end: m.index + m[0].length,
+      token: 'comment',
+    })),
+  ],
+});
+```
+
+`lineNumbers` numbers each line of the value on its first row, so a line that
+soft wraps is numbered once; the caret's line is drawn in the ordinary
+foreground and the rest muted, and the gutter holds two digits from the start so
+the tenth line does not shift the text. `gutter` is a mark drawn on every row
+after the number. Neither is part of the answer, and neither is copied with the
+field's text by a selection.
+
+`charLimit` counts what the caret steps over — grapheme clusters, with a line
+break as one — so `👨‍👩‍👧` is one character. Typing at the limit inserts nothing, a
+paste is cut to what fits, and a count under the field (`42/500`) turns to the
+warning colour when it is full. An `initial` over the limit is refused; a `value`
+over it is dropped for `initial`, the way every prompt drops a `value` it cannot
+show.
+
+`highlight` is a seam rather than a grammar: there are no dependencies to bring
+one in, so the field asks the app. It is handed the **whole value** whenever it
+changes and returns spans of offsets into it, so a block comment or a string can
+run over a line break. Each span's `token` becomes the class `sigil-token-<token>`
+on the cells it covers; `comment`, `function`, `invalid`, `keyword`, `number`,
+`string` and `type` also draw in a role — muted, bold, the error, accent, info,
+success and warning colours — so they are coloured with no stylesheet, and any
+other name is a hook for one. Where two spans overlap the later wins.
+
+| Option        | Meaning                                                                 |
+| ------------- | ----------------------------------------------------------------------- |
+| `lineNumbers` | Number each line down the left of the field                             |
+| `gutter`      | A mark drawn at the start of every row, after the number                |
+| `charLimit`   | The most characters the answer may hold, counted as clusters            |
+| `highlight`   | `(value) => [{ start, end, token }]`, called whenever the value changes |
+
 #### An answer written in the editor
 
 ```js

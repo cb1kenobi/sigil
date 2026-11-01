@@ -144,6 +144,7 @@ export {
   confirm,
   type ConfirmOptions,
   ESCAPE_TIMEOUT,
+  type HighlightSpan,
   multiline,
   type MultilineOptions,
   multiselect,
