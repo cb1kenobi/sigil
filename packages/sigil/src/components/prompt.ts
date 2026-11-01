@@ -1179,7 +1179,61 @@ export interface SubmitKey {
   name: string;
 }
 
+/**
+ * A stretch of a multiline value that a `highlight` hook says is a token.
+ *
+ * Offsets into the **whole value** rather than into one line, so a block comment
+ * or a string that runs over a line break can be one span -- which a hook handed
+ * one line at a time cannot say at all. A highlighter that does work line by line
+ * is a `split('\n')` and a running offset away from this shape; one that needs
+ * the lines above it has no way back from the other.
+ */
+export interface HighlightSpan {
+  /** The offset the span ends before. */
+  end: number;
+  /** The offset the span starts at. */
+  start: number;
+  /**
+   * What it is, which becomes the class `sigil-token-<token>` on the cells it
+   * covers. `comment`, `function`, `invalid`, `keyword`, `number`, `string` and
+   * `type` also draw in a role, so they are coloured with no stylesheet at all;
+   * any other name is a hook for the app's own sheet. A letter, then letters,
+   * digits and dashes.
+   */
+  token: string;
+}
+
 export interface MultilineOptions extends PromptOptions {
+  /**
+   * The most characters the answer may hold, counted as what the caret steps
+   * over -- grapheme clusters, with a line break as one. Typing at the limit
+   * inserts nothing, a paste is cut to what fits, and a count under the field
+   * says how many are left. A whole number of at least one.
+   */
+  charLimit?: number;
+  /**
+   * A mark drawn at the start of every row of the field, after the line number
+   * when there is one -- `'│ '` or `'> '`. Drawn muted, and never part of the
+   * value.
+   */
+  gutter?: string;
+  /**
+   * Says which stretches of the value are which tokens, for syntax highlighting.
+   * Called with the whole value whenever it changes and never when only the caret
+   * moved. Spans are clipped to the value; where two cover one character the
+   * later one wins.
+   *
+   * There is no grammar in here and there will not be one: a runtime with no
+   * dependencies cannot carry a grammar set, so this is the seam an app fills
+   * with whatever highlighter it already has.
+   */
+  highlight?: (value: string) => readonly HighlightSpan[];
+  /**
+   * Numbers each line of the value down the left of the field. A line soft
+   * wrapped over several rows is numbered on its first, and the caret's line is
+   * drawn in the ordinary foreground while the rest are muted.
+   */
+  lineNumbers?: boolean;
   /**
    * What the field starts with, which the person can then edit.
    *
@@ -1213,7 +1267,8 @@ export interface MultilineOptions extends PromptOptions {
   validate?: (value: string) => string | undefined | false | Promise<string | undefined | false>;
   /**
    * An answer to start from: the field opens holding it, editable, as it does
-   * `initial`. Beats `initial`.
+   * `initial`. Beats `initial`, and is dropped for it when it holds more than
+   * `charLimit` allows.
    */
   value?: string;
 }
@@ -1272,6 +1327,12 @@ export interface FieldLayout {
 /** What the two layers of a field read: the rows, the window, and the caret. */
 export interface FieldFrame {
   layout: FieldLayout;
+  /**
+   * The token each offset of the value was highlighted as, where it was. A cell
+   * whose cluster starts at a highlighted offset is left to the layer for that
+   * token rather than painted by the field, so whoever sets this draws those cells.
+   */
+  tokens?: readonly (string | undefined)[];
   /** The first row on screen, when the value is taller than the field. */
   top: number;
   /** How many of its rows are on screen. */
@@ -1693,7 +1754,7 @@ export function fieldLayers(read: () => FieldFrame): { caret: Element; field: El
         };
       },
       paint: (painter, area, element) => {
-        const { layout, top, visible } = read();
+        const { layout, tokens, top, visible } = read();
         const style = cellStyle(element.style);
 
         // the window rather than the box, and a `Math.min` of the two was written
@@ -1708,8 +1769,15 @@ export function fieldLayers(read: () => FieldFrame): { caret: Element; field: El
             // character rather than dropping it, and a throw from inside paint
             // takes the frame and the renderer with it. `clusterText()` already
             // gives one no text, so nothing the field itself produces reaches
-            // this -- what does is a `FieldCell` somebody else built
-            if (cell.width > 0) {
+            // this -- what does is a `FieldCell` somebody else built.
+            //
+            // A highlighted cell is skipped rather than painted under its token's
+            // layer, which is the decrypt's two layers again: a `raw` leaves the
+            // cells it does not want alone. **Declared rather than claimed** -- the
+            // token layer paints after the field, so a cell painted by both comes
+            // out the same, and the sabotage that drops this is equivalent. What
+            // it buys is one writer per cell, which is the shape to reason about
+            if (cell.width > 0 && tokens?.[cell.at] === undefined) {
               painter.text(area.x + cell.x, area.y + row, cell.text, style);
             }
           }
@@ -1757,6 +1825,358 @@ export function fieldLayers(read: () => FieldFrame): { caret: Element; field: El
   );
 
   return { caret, field };
+}
+
+/**
+ * The role a token draws in, for the handful of names every highlighter has.
+ *
+ * **A role rather than a declaration**, which is the rule the framework sheet
+ * keeps everywhere: a declaration two built-ins share lives on a role, and the
+ * component class beside it is the narrower hook. So a keyword is the accent
+ * because a theme that recoloured the accent meant it, and `.sigil-token-keyword`
+ * is there for a sheet that wants keywords alone. Seven, because those are the
+ * seven every highlighter emits under one spelling or another and each has a role
+ * that reads right for it -- de-emphasis for a comment, the error role for what
+ * the highlighter could not parse. Anything else is a hook with no default.
+ *
+ * A `Map`, for the reason a registry's lookup table is null-prototype: a token
+ * is a name an app chose, and `constructor` reads back truthy off a plain object.
+ */
+const TOKEN_ROLE = new Map([
+  ['comment', 'sigil-muted'],
+  ['function', 'sigil-heading'],
+  ['invalid', 'sigil-error'],
+  ['keyword', 'sigil-accent'],
+  ['number', 'sigil-info'],
+  ['string', 'sigil-success'],
+  ['type', 'sigil-warn'],
+]);
+
+/**
+ * What a token may be called, which is what a class may be called.
+ *
+ * Refused rather than cleaned up, because a name is spliced into a class list:
+ * `'a b'` would be two classes and reach rules written for neither, and a name
+ * that has to be rewritten to be usable is one a sheet cannot be written against.
+ */
+const TOKEN_NAME = /^[A-Za-z][\w-]*$/;
+
+/**
+ * The token each offset of a value is, from what a `highlight` hook said.
+ *
+ * **Clipped rather than refused**, which is the other half of the rule above and
+ * differs from it on purpose: an offset is arithmetic a highlighter does over a
+ * value it was just handed, and one a little past the end is a slip that marks
+ * nothing, while a bad name is a bug in a sheet nobody can write. A `NaN` offset
+ * marks nothing either, since every comparison against one is false.
+ *
+ * @param value - What the spans are offsets into.
+ * @param spans - What the hook said.
+ * @returns A token per offset, `undefined` where none was named.
+ * @throws {PromptError} When a span names a token no class can carry.
+ */
+export function tokensOf(value: string, spans: readonly HighlightSpan[]): (string | undefined)[] {
+  const tokens: (string | undefined)[] = Array.from({ length: value.length });
+
+  for (const span of spans) {
+    if (typeof span.token !== 'string' || !TOKEN_NAME.test(span.token)) {
+      throw new PromptError(
+        `A highlight span names a token no class can carry: ${JSON.stringify(span.token)}`
+      );
+    }
+    const to = Math.min(value.length, span.end);
+    for (let at = Math.max(0, Math.ceil(span.start)); at < to; at++) {
+      tokens[at] = span.token;
+    }
+  }
+
+  return tokens;
+}
+
+/**
+ * The layer one token's cells are drawn in.
+ *
+ * **One layer per token, because one element cannot resolve two styles** -- the
+ * caret's reason, the scroll bar's and the decrypt's. A layer carries
+ * `sigil-token-<token>` and, for the names in `TOKEN_ROLE`, the role beside it,
+ * so the cascade decides its colour: a theme reaches it, the light half reaches
+ * it, and at colour level 0 it is plain text like everything else. Absolute over
+ * the field with all four insets, painting at the field's box for the reason the
+ * caret does, and painting only the cells the field skipped.
+ *
+ * @param read - The frame to draw.
+ * @param field - The field the cells are in, whose box is where they go.
+ * @param token - The token this layer draws.
+ * @returns The layer.
+ */
+export function tokenLayer(read: () => FieldFrame, field: Element, token: string): Element {
+  const role = TOKEN_ROLE.get(token);
+
+  return raw(
+    {
+      drawsText: true,
+      measure: () => ({ height: 0, width: 0 }),
+      paint: (painter, _area, element) => {
+        const { layout, tokens, top, visible } = read();
+        const area = field.content ?? field.box;
+        if (!area || !tokens) {
+          return;
+        }
+        const style = cellStyle(element.style);
+        for (let row = 0; row < visible && top + row < layout.rows.length; row++) {
+          for (const cell of layout.rows[top + row].cells) {
+            if (cell.width > 0 && tokens[cell.at] === token) {
+              painter.text(area.x + cell.x, area.y + row, cell.text, style);
+            }
+          }
+        }
+      },
+    },
+    {
+      bottom: 0,
+      class: `sigil-token sigil-token-${token}${role ? ` ${role}` : ''}`,
+      left: 0,
+      position: 'absolute',
+      right: 0,
+      top: 0,
+    }
+  );
+}
+
+/** What the gutter beside a field reads. */
+export interface GutterFrame {
+  /** The row whose number is drawn in the ordinary foreground, if it is numbered. */
+  active: number | undefined;
+  /** How many columns the numbers take, or zero when there are none. */
+  digits: number;
+  /** What is drawn on every row after the number. */
+  mark: string;
+  /** The line number each row starts, or `undefined` for a row a soft wrap made. */
+  numbers: readonly (number | undefined)[];
+  /** The first row on screen. */
+  top: number;
+  /** How many rows are on screen. */
+  visible: number;
+}
+
+/**
+ * The line number each row of a field starts, and nothing for a row that
+ * continues one.
+ *
+ * **A line is numbered on its first row only**, which is what every editor that
+ * soft wraps does: the number is the value's line, and a row is where the field
+ * drew a break rather than anything in the value. Numbering rows instead would
+ * make the numbers change when the terminal was resized.
+ *
+ * A row starts a line when it is the first or the offset before it is a newline,
+ * which is the one thing `layoutField()` promises about a row's `start`: a soft
+ * break is never at a line's first cluster, because a row is only ever broken
+ * once something is on it.
+ *
+ * @param value - What was laid out. The placeholder is laid out as one line, so
+ *   a field showing it is handed `''` and numbers its first row alone.
+ * @param layout - The rows.
+ * @returns A number or nothing, per row.
+ */
+export function gutterOf(value: string, layout: FieldLayout): (number | undefined)[] {
+  const numbers: (number | undefined)[] = [];
+  let line = 0;
+
+  for (const [index, row] of layout.rows.entries()) {
+    if (index === 0 || value[row.start - 1] === '\n') {
+      line++;
+      numbers.push(line);
+    } else {
+      numbers.push(undefined);
+    }
+  }
+
+  return numbers;
+}
+
+/**
+ * How many columns a gutter takes.
+ *
+ * **Two digits at the least**, so the field does not move a column right at the
+ * tenth line: ten is the field's default row cap, which makes the tenth line one
+ * an ordinary answer reaches, and a gutter that widened there would shift every
+ * character already typed while somebody was typing. A hundred lines widen it,
+ * which is a paste rather than a sentence.
+ *
+ * @param lines - How many lines the value has.
+ * @param numbered - Whether lines are numbered at all.
+ * @param mark - What is drawn on every row.
+ * @returns The digits, and the whole width with the gap after them and the mark.
+ */
+function gutterWidth(
+  lines: number,
+  numbered: boolean,
+  mark: string
+): { digits: number; width: number } {
+  const digits = numbered ? Math.max(2, String(lines).length) : 0;
+  return { digits, width: gutterColumns(digits, mark) };
+}
+
+/** The columns a gutter of so many digits and this mark takes: the gap is one. */
+function gutterColumns(digits: number, mark: string): number {
+  return (digits > 0 ? digits + 1 : 0) + stringWidth(mark);
+}
+
+/**
+ * The gutter beside a field, as two `raw` elements over one rectangle.
+ *
+ * The gutter is muted and in flow, so it is what reserves the columns; the
+ * caret's line number is the second layer, absolute over it, because one element
+ * cannot resolve two styles and the line the caret is on is the one number that
+ * should not be de-emphasised. The same shape as the field and its caret, and
+ * the active layer paints at the gutter's box for the reason the caret paints at
+ * the field's.
+ *
+ * @param read - The frame to draw.
+ * @returns The two elements, the gutter named first because it is the one in flow.
+ */
+export function gutterLayers(read: () => GutterFrame): { active: Element; gutter: Element } {
+  /** Right-aligned in the digits, or nothing for a row a soft wrap made. */
+  const label = (frame: GutterFrame, row: number): string | undefined => {
+    const number = frame.numbers[row];
+    return number === undefined || frame.digits === 0
+      ? undefined
+      : String(number).padStart(frame.digits);
+  };
+
+  const gutter = raw(
+    {
+      measure: () => {
+        const frame = read();
+        const columns = gutterColumns(frame.digits, frame.mark);
+        return {
+          height: frame.visible,
+          minHeight: frame.visible,
+          minWidth: columns,
+          width: columns,
+        };
+      },
+      paint: (painter, area, element) => {
+        const frame = read();
+        const style = cellStyle(element.style);
+        const after = frame.digits > 0 ? frame.digits + 1 : 0;
+
+        for (let row = 0; row < frame.visible && frame.top + row < frame.numbers.length; row++) {
+          const at = frame.top + row;
+          const text = label(frame, at);
+          // the caret's line is the other layer's, and left to it for the reason
+          // the field leaves a highlighted cell to its token: one writer per cell.
+          // Equivalent under sabotage, since that layer paints over this one
+          if (text !== undefined && at !== frame.active) {
+            painter.text(area.x, area.y + row, text, style);
+          }
+          if (frame.mark !== '') {
+            painter.text(area.x + after, area.y + row, frame.mark, style);
+          }
+        }
+      },
+    },
+    { class: 'sigil-prompt-gutter sigil-muted' }
+  );
+
+  const active = raw(
+    {
+      measure: () => ({ height: 0, width: 0 }),
+      paint: (painter, _area, element) => {
+        const frame = read();
+        const area = gutter.content ?? gutter.box;
+        const row = frame.active === undefined ? -1 : frame.active - frame.top;
+        const text = frame.active === undefined ? undefined : label(frame, frame.active);
+        if (!area || text === undefined || row < 0 || row >= frame.visible) {
+          return;
+        }
+        painter.text(area.x, area.y + row, text, cellStyle(element.style));
+      },
+    },
+    {
+      bottom: 0,
+      class: 'sigil-prompt-gutter-active',
+      left: 0,
+      position: 'absolute',
+      right: 0,
+      top: 0,
+    }
+  );
+
+  return { active, gutter };
+}
+
+/**
+ * The box a field and its gutter sit in, under the question.
+ *
+ * `position: relative` with no insets moves nothing and is what gives the caret
+ * layer a containing block to resolve its own against. Without a gutter this is
+ * the tree the field always had.
+ *
+ * **With one, the gutter and the field each get a positioned box of their own**,
+ * and that is about the selection rather than the paint. Every layer over the
+ * field is absolute with all four insets, so it covers its containing block --
+ * and the caret's `drawsText` over a block that also held the gutter put the line
+ * numbers back into what a selection copies, which is the thing the gutter not
+ * drawing text is there to prevent. Found by the test that asks, which is why
+ * this is a function rather than inline in `multiline()`.
+ *
+ * @param layers - The field and its caret.
+ * @param gutter - The gutter and its active number, when there is one.
+ * @returns The box to put under the question, and the one a token layer joins.
+ */
+export function fieldBox(
+  layers: { caret: Element; field: Element },
+  gutter?: { active: Element; gutter: Element }
+): { area: Element; host: Element } {
+  if (!gutter) {
+    const host = box(
+      { class: 'sigil-prompt-multiline', 'padding-left': 2, position: 'relative' },
+      layers.field,
+      layers.caret
+    );
+    return { area: host, host };
+  }
+
+  const host = box({ position: 'relative' }, layers.field, layers.caret);
+  const area = box(
+    { class: 'sigil-prompt-multiline', 'padding-left': 2 },
+    box({ position: 'relative' }, gutter.gutter, gutter.active),
+    host
+  );
+  return { area, host };
+}
+
+/**
+ * What an insertion becomes under a character limit: as much of it as fits, cut
+ * at a cluster.
+ *
+ * **The insertion's own clusters are what is counted, and that is enough.** It
+ * looks like the result should be counted instead, since the two disagree --
+ * a combining mark typed after an `e` is a cluster on its own and adds none to
+ * the value -- and the first version of this did count the result, in a loop
+ * that cut one cluster at a time until it fitted. The loop never ran. Inserting
+ * at a cluster boundary can only *join* clusters, never split one more than it
+ * joins: every segmentation rule but one forbids a break rather than making one,
+ * and the one that does -- regional indicators pairing off from the start of a
+ * run -- splits a pair only by joining the indicator in front of it into another.
+ * So the value after an insertion of `n` clusters holds at most `n` more, and
+ * taking the room's worth is always within the limit. `should never let a cut
+ * insertion past the limit` is the property, walked over the joins there are.
+ *
+ * What it costs is that a mark that would join the last cluster of a full field
+ * is refused, since it is a cluster of its own until it lands. A count that says
+ * full and a field that changed anyway would be the stranger of the two.
+ *
+ * @param value - What has been typed.
+ * @param inserted - What is being inserted, already normalized.
+ * @param limit - The most clusters the value may hold.
+ * @returns What to insert, which may be nothing.
+ */
+export function fitted(value: string, inserted: string, limit: number): string {
+  const room = limit - graphemes(value).length;
+  const clusters = graphemes(inserted);
+  return room >= clusters.length ? inserted : clusters.slice(0, Math.max(0, room)).join('');
 }
 
 /**
@@ -1827,9 +2247,45 @@ export function multiline(opts: MultilineOptions): Promise<string> {
       new PromptError(`"${opts.message}" has no key to submit with: \`submit.name\` is empty`)
     );
   }
+  // a limit of no characters is a field nobody can type in, and a fraction or a
+  // `NaN` is a limit nothing can be counted against -- refused rather than read as
+  // no limit, because a caller who set one is relying on the answer keeping to it.
+  // `Infinity` is no limit, the way it is no row cap
+  const limit = opts.charLimit;
+  if (limit !== undefined && limit !== Infinity && !(Number.isInteger(limit) && limit >= 1)) {
+    return Promise.reject(
+      new PromptError(
+        `"${opts.message}" has a \`charLimit\` that is not a whole number of at least one: ${limit}`
+      )
+    );
+  }
+  const counted = limit !== undefined && limit !== Infinity;
+  /** Whether a value keeps to the limit, which is every value when there is none. */
+  const fits = (candidate: string): boolean =>
+    !counted || graphemes(candidate).length <= (limit as number);
+
+  // a mark is drawn on every row, and `CellBuffer.put()` throws on a control
+  // character -- so one here would take the first frame down rather than draw
+  const mark = opts.gutter ?? '';
+  if (/\p{Cc}/u.test(mark)) {
+    return Promise.reject(
+      new PromptError(`"${opts.message}" has a \`gutter\` holding a control character`)
+    );
+  }
+
   // through the same normalizer a paste goes through, so that the value holds
   // one spelling of a line break and every rule below can split on it
-  let value = pastedBlock(typeof opts.value === 'string' ? opts.value : (opts.initial ?? ''));
+  const initial = pastedBlock(opts.initial ?? '');
+  // an `initial` is something somebody wrote, so one over the limit is a bug and is
+  // refused; a `value` is usually an earlier answer to a question that has changed
+  // since, so one over it is dropped for `initial` -- the rule every prompt keeps
+  if (!fits(initial)) {
+    return Promise.reject(
+      new PromptError(`"${opts.message}" has an \`initial\` longer than its \`charLimit\``)
+    );
+  }
+  const given = typeof opts.value === 'string' ? pastedBlock(opts.value) : undefined;
+  let value = given !== undefined && fits(given) ? given : initial;
   let cursor = value.length;
   let error: string | undefined;
   /**
@@ -1845,7 +2301,7 @@ export function multiline(opts: MultilineOptions): Promise<string> {
   return run<string>(opts, () => {
     const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const head = headWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark } = promptHead(opts.message, head.message, answer);
+    const { line, mark: headMark } = promptHead(opts.message, head.message, answer);
     const complaint = note('sigil-prompt-error sigil-error');
 
     // the one key this field has that nobody would guess, and the only one it
@@ -1867,20 +2323,32 @@ export function multiline(opts: MultilineOptions): Promise<string> {
       { description: __`submit` }
     );
     const footer = promptFooter(keys, terminal.width, opts.back);
+    /** How many characters there are and may be, when there is a limit. */
+    const count = textNode('', {
+      class: 'sigil-prompt-count sigil-muted',
+      display: counted ? 'flex' : 'none',
+    });
 
-    /** The columns the field has, once the indent under the question is taken. */
-    const room = Math.max(1, Math.max(1, terminal.width) - 2);
+    /** The columns under the question, before the gutter takes its share. */
+    const indent = Math.max(1, Math.max(1, terminal.width) - 2);
+    /**
+     * The columns the field has, once the indent and the gutter are taken.
+     *
+     * Worked out again on every draw, because the gutter widens at a hundred lines
+     * -- and computed rather than measured, for the reason the layout is.
+     */
+    let room = indent;
     /**
      * The rows the field may take before it scrolls.
      *
      * Capped by what is left under the question and over the error line and the
      * footer, which are reserved either way so that showing an error does not
      * push the last row of the field off the screen -- the rule the choice list
-     * already keeps.
+     * already keeps. The count is a row of its own when there is one.
      */
     const cap = Math.max(
       1,
-      Math.min(rowCap(opts.rows), Math.max(1, terminal.height) - head.lines - 2)
+      Math.min(rowCap(opts.rows), Math.max(1, terminal.height) - head.lines - 2 - (counted ? 1 : 0))
     );
 
     /**
@@ -1894,19 +2362,41 @@ export function multiline(opts: MultilineOptions): Promise<string> {
     let layout = layoutField(value, cursor, room);
     /** How many of its rows are on screen. */
     let visible = 1;
+    /** The token per offset of what is on screen, or nothing while it is not highlighted. */
+    let tokens: (string | undefined)[] | undefined;
+    /**
+     * The value the hook was last asked about, and what it said.
+     *
+     * Kept so a key that only moves the caret does not run a highlighter over the
+     * whole value again: the tokens are a function of the value, and nothing else.
+     */
+    let highlighted: { tokens: (string | undefined)[]; value: string } | undefined;
 
-    const { caret: caretLayer, field } = fieldLayers(() => ({ layout, top, visible }));
+    const frame = (): FieldFrame => ({ layout, tokens, top, visible });
+    const { caret: caretLayer, field } = fieldLayers(frame);
+    /** A layer per token the hook has named, made the first time it names one. */
+    const layers = new Map<string, Element>();
+
+    const numbered = opts.lineNumbers === true;
+    let gutterFrame: GutterFrame = {
+      active: undefined,
+      digits: 0,
+      mark,
+      numbers: [],
+      top: 0,
+      visible: 1,
+    };
+    // no gutter at all unless one was asked for, so a field without one is the
+    // tree it always was
+    const gutter = numbered || mark !== '' ? gutterLayers(() => gutterFrame) : undefined;
+
+    const { area, host } = fieldBox({ caret: caretLayer, field }, gutter);
 
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
-      // `position: relative` with no insets moves nothing and is what gives the
-      // caret layer a containing block to resolve its own against
-      box(
-        { class: 'sigil-prompt-multiline', 'padding-left': 2, position: 'relative' },
-        field,
-        caretLayer
-      ),
+      area,
+      box({ 'padding-left': 2 }, count),
       box({ 'padding-left': 2 }, complaint),
       footer
     );
@@ -1918,9 +2408,55 @@ export function multiline(opts: MultilineOptions): Promise<string> {
       // by a layer of its own: one element cannot resolve two styles, and there
       // is only ever one of the two to draw
       const shown = value === '' ? opts.placeholder : undefined;
+
+      // the placeholder is never highlighted, since it is not code anybody wrote
+      tokens = undefined;
+      if (opts.highlight && shown === undefined) {
+        if (highlighted?.value !== value) {
+          highlighted = { tokens: tokensOf(value, opts.highlight(value)), value };
+          for (const token of new Set(highlighted.tokens)) {
+            if (token !== undefined && !layers.has(token)) {
+              const layer = tokenLayer(frame, field, token);
+              layers.set(token, layer);
+              // before the caret, which paints over whatever it marks
+              host.insertBefore(layer, caretLayer);
+            }
+          }
+        }
+        tokens = highlighted.tokens;
+      }
+
+      const lines = shown === undefined ? value.split('\n').length : 1;
+      const widths = gutter ? gutterWidth(lines, numbered, mark) : { digits: 0, width: 0 };
+      room = Math.max(1, indent - widths.width);
+
       layout = layoutField(shown ?? value, shown === undefined ? cursor : 0, room);
       visible = Math.max(1, Math.min(layout.rows.length, cap));
       top = windowStart(layout.rows.length, layout.caret.row, visible, top);
+
+      if (gutter) {
+        // the placeholder is one line however it wraps, so it is numbered as `''`
+        const numbers = gutterOf(shown === undefined ? value : '', layout);
+        // the caret's line is numbered on the row it starts on, which is the
+        // nearest numbered row at or above the caret's
+        let active: number | undefined;
+        for (let row = layout.caret.row; row >= 0 && active === undefined; row--) {
+          active = numbers[row] === undefined ? undefined : row;
+        }
+        gutterFrame = { active, digits: widths.digits, mark, numbers, top, visible };
+        gutter.gutter.invalidateMeasure();
+        gutter.active.invalidatePaint();
+      }
+
+      if (counted) {
+        const used = graphemes(value).length;
+        count.setText(`${used}/${limit}`);
+        // the warning role at the limit, because a key that inserts nothing there
+        // otherwise reads as a key that did not work
+        count.setProps({
+          class: `sigil-prompt-count ${used >= (limit as number) ? 'sigil-warn' : 'sigil-muted'}`,
+        });
+      }
 
       field.setProps({
         class:
@@ -1929,7 +2465,20 @@ export function multiline(opts: MultilineOptions): Promise<string> {
             : 'sigil-prompt-field sigil-prompt-placeholder sigil-muted',
       });
       field.invalidateMeasure();
+      for (const layer of layers.values()) {
+        layer.invalidatePaint();
+      }
       caretLayer.invalidatePaint();
+    }
+
+    /**
+     * What of an insertion the limit lets in, which is all of it when there is none.
+     *
+     * @param inserted - What a key or a paste would insert.
+     * @returns What to insert.
+     */
+    function admit(inserted: string): string {
+      return counted ? fitted(value, inserted, limit as number) : inserted;
     }
 
     /**
@@ -1999,7 +2548,7 @@ export function multiline(opts: MultilineOptions): Promise<string> {
         const word = k.ctrl || k.meta;
 
         if (k.name === 'enter') {
-          ({ cursor, value } = insertAt(value, cursor, '\n'));
+          ({ cursor, value } = insertAt(value, cursor, admit('\n')));
         } else if (k.name === 'backspace') {
           ({ cursor, value } = word
             ? deleteRange(value, wordBefore(value, cursor), cursor)
@@ -2037,7 +2586,7 @@ export function multiline(opts: MultilineOptions): Promise<string> {
         } else if (k.ctrl && k.name === 'k') {
           ({ cursor, value } = deleteRange(value, cursor, lineEnd(value, cursor)));
         } else {
-          ({ cursor, value } = insertAt(value, cursor, typedText(k) ?? ''));
+          ({ cursor, value } = insertAt(value, cursor, admit(typedText(k) ?? '')));
         }
 
         // a run of vertical moves keeps the column it is aiming for and
@@ -2053,19 +2602,29 @@ export function multiline(opts: MultilineOptions): Promise<string> {
       paste(block: string): void {
         // the opposite of what `text()` does with a block, and the reason is
         // under `pastedBlock()`: the breaks are what a multiline field is for
-        ({ cursor, value } = insertAt(value, cursor, pastedBlock(block)));
+        // under `pastedBlock()`: the breaks are what a multiline field is for.
+        // Cut to what the limit lets in, at a cluster, so a paste that does not
+        // fit keeps its beginning rather than being refused whole
+        ({ cursor, value } = insertAt(value, cursor, admit(pastedBlock(block))));
         goal = undefined;
         draw();
       },
 
       settle(written: string): void {
-        answered(mark);
+        answered(headMark);
         footer.setProps({ display: 'none' });
         // one line in the log, for the reason `summaryOf()` records
         answer.setText(summaryOf(written));
         answer.setProps({ display: 'flex' });
-        field.setProps({ display: 'none' });
-        caretLayer.setProps({ display: 'none' });
+        for (const layer of [
+          field,
+          caretLayer,
+          count,
+          ...layers.values(),
+          ...(gutter ? [gutter.gutter, gutter.active] : []),
+        ]) {
+          layer.setProps({ display: 'none' });
+        }
         setNote(complaint, undefined);
       },
 

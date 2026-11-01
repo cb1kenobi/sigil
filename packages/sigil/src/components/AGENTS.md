@@ -3313,6 +3313,104 @@ constraint is worth recording because it shaped every edit.
   ring needs a yank key and a rotation and nothing has asked for either. What
   they do is what every one-line prompt in this library already does.
 
+#### Textarea extras: line numbers, a gutter, a limit, and a highlight seam
+
+SIG-196. `lineNumbers`, `gutter`, `charLimit` and `highlight` on `multiline()`.
+The field asked for none of them is the tree it always was, and
+`multiline.test.ts` was not edited -- the check the extraction above used, used
+again. The new tests are `test/components/multiline-extras.test.ts`.
+
+- **On the prompt, and there is no full-screen editor to put them on instead.**
+  The ticket asked whether any of this is wanted by a prompt. It is: a prompt that
+  asks for a snippet, a query or a config fragment is the case, and a field that
+  numbers its lines is how somebody pasting forty of them finds line twelve. A
+  full-screen editor is `editor()` (SIG-171), which hands the terminal to the
+  person's own; writing a second one here would be the wrong answer to a question
+  that one already answers. An app building its own still has `layoutField()` and
+  `fieldLayers()`, which are published.
+- **`highlight` is handed the whole value, not a line, and that is a departure
+  from the ticket's `highlight(line) => runs`.** A block comment or a string that
+  runs over a line break is a span a per-line hook cannot express at all, and
+  going the other way is three lines -- a highlighter that works by line splits
+  on `\n` and keeps a running offset. So the shape that can say more is the one
+  given. It is called whenever the value changes and **not** when only the caret
+  moves, because the spans are a function of the value alone, and never for the
+  placeholder, which is not code anybody wrote.
+- **A span names a token, and a token is a class -- never a colour.** A span
+  carrying a colour would be a colour the cascade never saw: a theme could not
+  reach it, the light half could not correct it, and `NO_COLOR` could not take it
+  away, which is everything the theme entries say a built-in's colour must go
+  through. So a token becomes `sigil-token-<token>`, and the seven names every
+  highlighter emits under some spelling -- `comment`, `function`, `invalid`,
+  `keyword`, `number`, `string`, `type` -- also carry a role, so they are coloured
+  with no sheet and **no declaration was added to `FRAMEWORK_CSS`**. That is the
+  role rule kept rather than excepted. What it costs is that `.sigil-success`
+  recolours strings along with every success mark; a theme that wants them apart
+  writes `.sigil-token-string`, which is what the narrower hook is for.
+- **One `raw` layer per token, made the first time the hook names it.** One
+  element cannot resolve two styles, which is the caret's reason, the scroll
+  bar's and the decrypt's. The layers are absolute over the field's box and paint
+  only their own cells. A layer is never removed when its token stops appearing:
+  it paints nothing then, and taking it out would be churn for an empty layer.
+- **A bad token name is refused; a bad offset is clipped.** The name is spliced
+  into a class list, so `'a b'` would be two classes and reach rules written for
+  neither -- refused with a `PromptError`. An offset is arithmetic over a value the
+  hook was just handed, so one past the end marks nothing past the end, a `NaN`
+  marks nothing, and where spans overlap the later one wins. A hook that throws
+  rejects the prompt with what it threw, because the hook is the caller's code.
+- **A line is numbered on its first row only.** The number is the value's line,
+  and a row is where the field drew a break; numbering rows would renumber
+  everything on a resize. `gutterOf()` relies on the one thing `layoutField()`
+  promises about a row's `start`: a soft break never falls on a line's first
+  cluster, because a row is only broken once something is on it.
+- **Two digits from the start.** Ten is the default row cap, so the tenth line is
+  one an ordinary answer reaches, and a gutter that widened there would shift
+  every character already typed. A hundred lines widen it, which is a paste.
+- **The caret's line number is the one not muted, as a second layer.** It is what
+  says which line a caret on a continuation row belongs to.
+- **The gutter is not copied with the text, and a test found that the first tree
+  copied it.** The gutter does not set `drawsText`, so a selection skips it --
+  copying lines out of a numbered field and getting the numbers is what every
+  editor's gutter exists to avoid. But the caret and token layers are absolute
+  with all four insets, so in one positioned box with the gutter their
+  `drawsText` covered the gutter's cells and put the numbers back. `fieldBox()`
+  gives the gutter and the field a positioned box each, and is a function so that
+  `should leave the gutter out of what a selection copies` asks about the tree the
+  prompt really builds.
+- **`charLimit` counts grapheme clusters, a line break included.** It is the unit
+  the caret steps over and the one the count on screen has to agree with, so
+  `👨‍👩‍👧` is one. A store that needs code points or bytes checks that in
+  `validate`, which already exists for exactly that. A typed key at the limit
+  inserts nothing and a paste is cut to what fits rather than refused whole.
+- **An `initial` over the limit is refused, a `value` over it is dropped.** That
+  is the rule SIG-204 records for every prompt, applied here rather than made up:
+  an `initial` is something somebody wrote, and a `value` is usually an earlier
+  answer to a question that has changed since.
+- **Counting the insertion is enough, and the loop that counted the result is
+  gone.** The first `fitted()` cut one cluster at a time until the whole value
+  fitted, for "joins that make a value hold more clusters than its parts". There
+  are none: at a cluster boundary, segmentation only ever joins -- every rule but
+  one forbids a break, and regional indicators re-pairing split a pair only by
+  joining the indicator in front of it into another. The loop never ran.
+  `should never let a cut insertion past the limit` walks that property over the
+  joins there are, at every boundary of every value. One consequence is kept on
+  purpose: a combining mark typed into a full field is refused, though it would
+  have joined the last cluster, because a count that says full over a field that
+  changed anyway is the stranger answer.
+- **The count is a row of its own, muted, and the warning role at the limit.**
+  A key that inserts nothing otherwise reads as a key that did not work. The row
+  cap reserves it, for the reason it already reserves the error line. No catalog
+  key: `42/500` has no words in it.
+- **Two guards are declared rather than claimed.** The field skips a highlighted
+  cell, and the gutter skips the caret's line number, each leaving the cell to the
+  layer that paints after it. Both sabotages are **equivalent** -- the later layer
+  repaints the cell whole -- so no test can tell; they are kept so that each cell
+  has one writer. The sabotage pass on the rest failed a test for every claim.
+
+What is deliberately out: a bundled grammar (the hard constraint); an async
+`highlight`, which would need a frame to show while it is pending and nothing has
+asked for one; a count without a limit; and a limit in any unit but clusters.
+
 #### A QR code: the encoder, and the two forms a module can be square in
 
 The ticket was two sentences -- "Compact version is like 36 characters by 18
