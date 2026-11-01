@@ -10,7 +10,7 @@ import {
   softWrap,
 } from '../../src/components/pager.js';
 import { scrollViewport } from '../../src/components/scroll-box.js';
-import { renderToLines } from '../../src/element/index.js';
+import { Element, renderToLines } from '../../src/element/index.js';
 import { __, loadCatalog } from '../../src/i18n/index.js';
 import { createInput, type KeyEvent } from '../../src/input/index.js';
 import { createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
@@ -88,6 +88,27 @@ function keyEvent(name: string, mods: Partial<Key> = {}): KeyEvent & { claimed: 
     },
     target: undefined,
   };
+}
+
+/** `Element.parent` as the prototype defines it, for reading past a shadowed one. */
+const PARENT = Object.getOwnPropertyDescriptor(Element.prototype, 'parent')!.get! as (
+  this: Element
+) => Element | undefined;
+
+/** The pager's row elements currently in the tree, in document order. */
+function pagerRows(root: Element): Element[] {
+  const out: Element[] = [];
+  const walk = (element: Element): void => {
+    if (element.classes.includes('sigil-pager-line')) {
+      out.push(element);
+      return;
+    }
+    for (const child of element.children) {
+      walk(child);
+    }
+  };
+  walk(root);
+  return out;
 }
 
 /** Types a search the way a reader does: `/`, the query, Enter. */
@@ -587,6 +608,46 @@ describe('createPager()', () => {
     it('should leave Left and Right alone where lines fold', () => {
       const { key } = laid();
       expect(key('right')).to.equal(false);
+    });
+
+    it('should forget the rows a page down scrolled out of the window', () => {
+      const { key, pager } = laid();
+      // every row built on the way down, with its `parent` getter shadowed so
+      // that the pager's own reads of it are counted; the tree reads the private
+      // field and is not affected
+      const reads = new Map<Element, number>();
+      const watch = (): void => {
+        for (const row of pagerRows(pager.element)) {
+          if (reads.has(row)) {
+            continue;
+          }
+          reads.set(row, 0);
+          Object.defineProperty(row, 'parent', {
+            configurable: true,
+            get(this: Element) {
+              reads.set(this, (reads.get(this) ?? 0) + 1);
+              return PARENT.call(this);
+            },
+          });
+        }
+      };
+      watch();
+      for (let i = 0; i < 6; i++) {
+        key('space');
+        watch();
+      }
+
+      // a row stays in its slot; it is the slot the scroll box takes out
+      const gone = [...reads.keys()].filter((row) => !PARENT.call(PARENT.call(row)!));
+      expect(gone.length).to.be.greaterThan(10);
+      for (const row of reads.keys()) {
+        reads.set(row, 0);
+      }
+
+      // a search redraws every row the pager still holds; one it let go of on
+      // the scroll that took it out is never looked at again
+      pager.search('line');
+      expect(gone.filter((row) => reads.get(row)! > 0)).to.deep.equal([]);
     });
   });
 

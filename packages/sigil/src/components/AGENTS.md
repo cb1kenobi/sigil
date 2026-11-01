@@ -6701,6 +6701,18 @@ does.
   of the three -- pruning the ones whose slot the scroll box has since taken out,
   which is a slot with no parent. `count` is a getter, since `ScrollRows.count`
   is read on every window and a fold at a new width is a new count.
+- **That map is pruned on every scroll, not only before a redraw.** The first
+  version pruned inside the redraw alone, which runs on a search, a resize and a
+  sideways shift -- so paging through a long document without searching kept every
+  row ever built, and the slot each one still points at, which is the windowing
+  given back: a million-line log paged with Space held a million element trees,
+  and the next search walked them all. The wrapped `onScroll` prunes after the
+  scroll box has re-windowed, which is the one moment what it took out is known,
+  and the resize hook does the same after its sync. Found in review.
+  `should forget the rows a page down scrolled out of the window` counts a
+  search's reads of `parent` on rows already off screen, which is what an unbounded
+  map costs that a picture cannot show; with the scroll-time prune deleted it reads
+  24 of them.
 - **`scrollViewport()` is exported from `scroll-box.ts`, and it is a `WeakMap`
   rather than a walk for the class.** A component built on a scroll box needs the
   viewport -- the offset lives there, so `scrollTo()` and reading `scroll` back

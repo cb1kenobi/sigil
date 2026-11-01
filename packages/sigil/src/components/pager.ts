@@ -510,9 +510,19 @@ export function createPager(opts: PagerOptions): Pager {
    * The rows on screen, by index, so a search or a resize can redraw them.
    *
    * Filled by the scroll box's `row()` and pruned of the ones whose slot it has
-   * since taken out -- a slot that has left the content box has no parent.
+   * since taken out -- a slot that has left the content box has no parent. Pruned
+   * after every scroll as well as before a redraw, because paging through a long
+   * document without searching would otherwise keep every row it ever built.
    */
   const live = new Map<number, Element>();
+
+  const prune = (): void => {
+    for (const [index, row] of live) {
+      if (!row.parent?.parent) {
+        live.delete(index);
+      }
+    }
+  };
 
   const layoutRows = (): void => {
     rows = [];
@@ -591,11 +601,8 @@ export function createPager(opts: PagerOptions): Pager {
   };
 
   const refresh = (): void => {
+    prune();
     for (const [index, row] of live) {
-      if (!row.parent?.parent) {
-        live.delete(index);
-        continue;
-      }
       empty(row);
       row.append(...rowContent(index));
     }
@@ -817,6 +824,8 @@ export function createPager(opts: PagerOptions): Pager {
   const scrolled = viewport.onScroll;
   viewport.onScroll = (element: Element): void => {
     scrolled?.(element);
+    // the scroll box has rebuilt its window by now, so what it took out is known
+    prune();
     drawStatus();
   };
   const resized = viewport.onResize;
@@ -846,6 +855,7 @@ export function createPager(opts: PagerOptions): Pager {
       goTo(maxTop());
     }
     const synced = resized?.(element) ?? false;
+    prune();
     drawStatus();
     return changed || synced;
   };
