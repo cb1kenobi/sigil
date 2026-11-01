@@ -1253,6 +1253,50 @@ describe('tasks() with subtasks', () => {
     expect(ui.log).to.deep.equal(['✖ Verify', 'ℹ Install (cancelled)']);
   });
 
+  // the results are filled by index, so a cancelled subtask before one that
+  // succeeded left a gap that did not shorten them, and read as every one run
+  it('should cancel the parent when a subtask is cancelled and the one listed after it succeeded', async () => {
+    const ui = screenSetup();
+    let continued = false;
+
+    await expect(
+      tasks(
+        [
+          {
+            async task({ tasks: sub }) {
+              await sub(
+                [
+                  {
+                    task: ({ signal }) =>
+                      new Promise<void>((_resolve, reject) => {
+                        signal.addEventListener('abort', () => reject(signal.reason));
+                      }),
+                    title: 'download',
+                  },
+                  { task: () => undefined, title: 'link' },
+                ],
+                { concurrency: 2 }
+              );
+              continued = true;
+            },
+            title: 'Install',
+          },
+          {
+            async task() {
+              await tick();
+              throw new Error('lockfile is stale');
+            },
+            title: 'Verify',
+          },
+        ],
+        { ansi: ui.ansi, concurrency: 2, terminal: ui.terminal }
+      )
+    ).rejects.toThrow('lockfile is stale');
+
+    expect(continued).to.equal(false);
+    expect(ui.log).to.deep.equal(['✖ Verify', 'ℹ Install (cancelled)']);
+  });
+
   it('should indent subtasks in a pipe and write the parent last', async () => {
     const { stdout, terminal } = setup({ isTTY: false });
 

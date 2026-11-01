@@ -1185,8 +1185,11 @@ async function runList(
     signal: controller.signal,
   };
 
+  // filled by index, so it has a gap wherever a task was cancelled and its
+  // length is not how many finished -- `done` is
   const results: TaskOutcome[] = [];
   const failures: { at: number; error: unknown }[] = [];
+  let done = 0;
   let next = 0;
 
   async function one(at: number): Promise<Ran> {
@@ -1224,6 +1227,7 @@ async function runList(
       const ran = await one(at);
       if (ran.ok) {
         results[at] = ran.outcome;
+        done++;
       } else if (!ran.cancelled) {
         failures.push({ at, error: ran.error });
         if (failFast) {
@@ -1254,7 +1258,7 @@ async function runList(
     );
   }
 
-  if (controller.signal.aborted && results.length < enabled.length) {
+  if (controller.signal.aborted && done < enabled.length) {
     // stopped from outside before every task ran, which is not a success: the
     // parent this belongs to is being cancelled, and says so with the reason
     throw controller.signal.reason;
