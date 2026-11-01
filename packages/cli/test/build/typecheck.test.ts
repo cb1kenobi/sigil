@@ -1,7 +1,7 @@
 import { displayPath, formatDiagnostic, isFatal } from '../../src/build/diagnostic.js';
 import { typeCheck } from '../../src/build/typecheck.js';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from '../temp.js';
+import { writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
@@ -79,7 +79,7 @@ describe('type-checking an app', () => {
     it('should skip, and say why, when the app has no typescript to check with', () => {
       // outside the workspace entirely, so there is no `node_modules` chain to
       // resolve a compiler through
-      const away = mkdtempSync(join(tmpdir(), 'sigil-typecheck-'));
+      const away = tempDir('sigil-typecheck-');
       writeFileSync(join(away, 'tsconfig.json'), '{}', 'utf-8');
 
       const result = typeCheck({ cwd: away });
@@ -100,7 +100,7 @@ describe('type-checking an app', () => {
     // it could not do the job -- a `composite` project that cannot be told
     // `--noEmit`, an option it does not know. Swallowing that reports a clean
     // type-check for a check that never happened
-    const away = mkdtempSync(join(tmpdir(), 'sigil-typecheck-'));
+    const away = tempDir('sigil-typecheck-');
     writeFileSync(join(away, 'tsconfig.json'), '{}', 'utf-8');
     const refuses = join(away, 'refuses.js');
     writeFileSync(refuses, 'console.error("I will not"); process.exit(3);', 'utf-8');

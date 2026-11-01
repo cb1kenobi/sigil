@@ -1,15 +1,15 @@
 import { xml } from '../src/index.js';
 import { absent, file, read } from './helpers.js';
+import { tempDir } from './temp.js';
 import { createConfig, createConfigSync, isWritableStore, json } from '@ttylabs/sigil/config';
 import type { ConfigSchema } from '@ttylabs/sigil/config';
-import { chmodSync, lstatSync, mkdtempSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, lstatSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /** A directory where a file was named, which every platform reads as `EISDIR`. */
 function dir(): string {
-  return mkdtempSync(join(tmpdir(), 'sigil-xml-'));
+  return tempDir('sigil-xml-');
 }
 
 describe('the store', () => {
@@ -229,7 +229,7 @@ describe('the store', () => {
     // ordinary state, so they are worth an end-to-end assertion from a store
     // that writes real files
     it('should write through a symlink rather than replacing it', () => {
-      const dir = mkdtempSync(join(tmpdir(), 'sigil-xml-'));
+      const dir = tempDir('sigil-xml-');
       const real = join(dir, 'real.xml');
       const link = join(dir, 'config.xml');
       writeFileSync(real, `<config>\n  <!-- keep -->\n  <a>1</a>\n</config>\n`);
@@ -242,7 +242,7 @@ describe('the store', () => {
     });
 
     it('should create the target of a dangling symlink rather than replacing it', () => {
-      const dir = mkdtempSync(join(tmpdir(), 'sigil-xml-'));
+      const dir = tempDir('sigil-xml-');
       const target = join(dir, 'not-there.xml');
       const link = join(dir, 'config.xml');
       symlinkSync(target, link);

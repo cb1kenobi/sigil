@@ -1,9 +1,7 @@
 import { yaml } from '../src/index.js';
 import { absent, file, read } from './helpers.js';
+import { tempDir } from './temp.js';
 import { createConfig, createConfigSync, isWritableStore } from '@ttylabs/sigil/config';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('the store', () => {
@@ -220,7 +218,7 @@ describe('the store', () => {
     // `ENOENT` alone is "the file is not there", which is `isMissing()`'s own
     // rule -- and the two halves are two real implementations, so each needs
     // its own answer
-    const dir = mkdtempSync(join(tmpdir(), 'sigil-yaml-'));
+    const dir = tempDir('sigil-yaml-');
     expect(() => yaml(dir).readSync()).toThrow(/Failed to read/);
     await expect(yaml(dir).read()).rejects.toThrow(/Failed to read/);
   });

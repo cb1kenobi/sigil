@@ -1,9 +1,7 @@
 import { yaml } from '../src/index.js';
 import { absent, file } from './helpers.js';
+import { tempDir } from './temp.js';
 import { createConfigSync } from '@ttylabs/sigil/config';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('reading a document', () => {
@@ -237,7 +235,7 @@ describe('reading a document', () => {
       // `ENOENT` alone is "the file is not there", which is `isMissing()`'s own
       // rule: reading every error that way is what handed a `0o600` config back
       // world-readable in the runtime
-      const dir = mkdtempSync(join(tmpdir(), 'sigil-yaml-'));
+      const dir = tempDir('sigil-yaml-');
       expect(() => yaml(dir).readSync()).toThrow(/Failed to read/);
     });
   });

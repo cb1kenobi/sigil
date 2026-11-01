@@ -398,3 +398,102 @@ sentence under "The extraction, and what it was allowed to touch" in
   and the usage line reads the registry. Left alone deliberately -- it is a
   question about what help prints for an app with no commands of its own, which
   is help's to answer and not a dispatch rule.
+
+### The suite removes every directory it makes
+
+SIG-208. `file-picker.test.ts > should leave the root for its parent unless
+confined` failed in four of eight full runs and passed every time on its own.
+The flake was the symptom. The cause was the rest of the suite: tests in every
+package made directories under `os.tmpdir()` and never removed them, and the
+test that flaked was the one that read tmpdir itself. On the machine where it
+failed, tmpdir held **520,146 entries**, 312,506 of them `sigil-yaml-` and
+195,491 `sigil-xml-`. One run of the four projects left **811**: 510, 277, 4
+and 20. macOS clears `$TMPDIR` only on reboot, so they piled up across every
+pre-commit hook and every local run.
+
+- **Each package has a `test/temp.ts` with `tempDir(prefix)`, and a
+  `test/setup.ts` that removes what it made in an `afterAll`.** `setupFiles` in
+  each package's `vitest.config.ts` runs that file before every test file, so
+  the hook is registered on each file whether or not the file remembers to. A
+  helper module that registered `afterAll` at its own top level would also
+  work under vitest's default isolation. Under `isolate: false` it would be
+  evaluated once per worker, so only the first file would get the hook. A setup
+  file is re-run for every file either way.
+- **Removal is per file, not per test.** `afterEach` would remove a directory a
+  `beforeAll` made, or one made at module level like `runtimes-cache.test.ts`'s
+  `box`, before the second test could use it. Per-test isolation already comes
+  from each test getting a directory of its own from `mkdtemp`. Removing it
+  between tests was never what kept two tests apart.
+- **Each directory is tracked, and none of them are nested under a shared
+  root.** A per-worker root removed in `afterAll` was the other proposal. It
+  saves nothing, because a recursive `rmSync` of one root unlinks the same 510
+  directories that 510 calls do. It would also change every path. A path one
+  level deeper is a longer path, and two things here already depend on length:
+  the file picker's question line, below, and Windows' 260-character limit
+  under a `node_modules` tree a cli fixture builds. With `tempDir()` the
+  directory is the same one `mkdtempSync()` made before, with the same prefix.
+  The only change is that something removes it.
+- **One copy per package, not one shared helper.** The four packages are
+  separate packages. `@ttylabs/cli` and the config stores reach
+  `@ttylabs/sigil` only through its `exports` map. `@ttylabs/sigil/testing` is
+  published API for apps, and a helper that needs vitest's `afterAll` does not
+  belong in a module that is runner-agnostic on purpose. A file outside every
+  package would sit outside each package's `tsconfig` `include`. The file is
+  about fifty lines, and the four copies are identical so they can be diffed.
+- **A directory that cannot be removed fails the file.** `rmSync` gets
+  `maxRetries: 5` for Windows, where a directory a child has just let go of can
+  answer `EBUSY` or `EPERM` for a moment. After that the error is thrown. A
+  cleanup that swallows its own failure is a leak nobody hears about, and that
+  is the failure this exists to stop.
+- **Not every `mkdtempSync` was converted.** The sites that already removed what
+  they made, in a `finally` or an `afterEach`, were left alone. Only the leaking
+  sites moved to `tempDir()`: the config stores' `helpers.ts` and three stray
+  calls, `updates.test.ts`, `terminal/signals.test.ts`, and six cli files.
+  Rewriting correct cleanup for consistency would be churn, and
+  `pnpm test:leaks` is what holds the line from now on.
+
+Two leaks were not a missing cleanup, and they are the ones worth remembering.
+
+- **`updates-auto.test.ts` removed its cache before the check had read it.**
+  After a command that fails, `main()` does not wait for the update check,
+  which is correct, because the notice is skipped. But `check()` awaits
+  `compiledHost()` before it reads the cache, so `afterEach` removed the seeded
+  cache first. The check then found nothing fresh, recreated the directory, and
+  spawned a worker that fetched `mycli` from the **real npm registry** and
+  wrote the answer into a directory nothing would remove again. That happened
+  two times per run, from a file whose header says every case is offline. The
+  file now wraps `check()` through `vi.mock` to remember each promise, and both
+  `afterEach` hooks await them before removing anything. The wrapper changes
+  nothing the check does.
+- **A detached worker writing after the file has finished is safe.**
+  `updates.test.ts`'s fire-and-forget case returns before its worker has
+  written. The worker never creates the cache directory, which is the
+  parent's job (`check()` makes it before spawning). So a write that lands
+  after `afterAll` fails in the worker and leaves nothing behind. A write that
+  lands before it is removed with the rest. `maxRetries` covers the moment in
+  between, when a recursive `rmSync` can meet `ENOTEMPTY`.
+
+**The file picker's fixture is one level below a directory the test owns.**
+Left from the root goes to its parent and the picker reads and stats it. With
+the fixture straight under tmpdir, the parent was tmpdir itself, so the test's
+cost was the machine's tmpdir size: 549 ms of `until()`'s 2,000 against 520k
+entries on an idle machine, and past the deadline under a full run's load. The
+parent now holds `root/` and nothing else. The test asserts the listing is
+exactly that, and that `readdir` was never handed `tmpdir()`. The same change
+widened its screen to fit the fixture's path. The question line is the
+directory being browsed, cut from the left when it does not fit, and a fixed
+120 columns failed six tests outright once `TMPDIR` was a long path. That was
+the second way the test depended on the machine, and nobody had seen it because
+macOS's own tmpdir is short.
+
+**`pnpm test:leaks` is the guard, and it is a script because a test cannot be
+one.** A test that counted tmpdir before and after would count every other
+process on the machine as well, and it would flake the moment two runs
+overlapped. `scripts/temp-leaks.mjs` builds with the build half of the root
+`test` script, then runs one project at a time with `TMPDIR`, `TEMP` and `TMP`
+pointed at an empty directory of its own. That makes the count exact, and it
+also reaches the children a test spawns, which an `afterEach` cannot see. It
+prints what was left grouped by prefix, which names the test that made it, and
+it exits 1. One project at a time, so that a leak is charged to the package that
+made it. The measurements and the sabotage passes are in
+[docs/history/the-suite-removes-every-directory-it-makes.md](../../../../docs/history/the-suite-removes-every-directory-it-makes.md).
