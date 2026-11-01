@@ -505,6 +505,67 @@ describe('a prompt given a value it cannot show', () => {
 
     expect(await settled).to.deep.equal({ value: join(root, 'sub', 'aaa.txt') });
   });
+
+  // SIG-204: an Enter typed before the reads landed closed the root instead,
+  // because the key cancelled the jump and acted on the row it arrived on
+  it('should answer a directoryTree with its value on an Enter typed before the reads landed', async () => {
+    const ui = screenSetup({ columns: 60, rows: 16 });
+    const settled = settle(directoryTree({ ...base(ui), message: 'Q?', root, value: file }));
+
+    ui.stdin.send(ENTER);
+
+    expect(await settled).to.deep.equal({ value: file });
+  });
+
+  it('should move a directoryTree from its value on a key typed before the reads landed', async () => {
+    const ui = screenSetup({ columns: 60, rows: 16 });
+    const settled = settle(directoryTree({ ...base(ui), message: 'Q?', root, value: file }));
+
+    ui.stdin.send('\u001b[A');
+    await settleDown();
+    ui.stdin.send(ENTER);
+
+    expect(await settled).to.deep.equal({ value: join(root, 'sub', 'aaa.txt') });
+  });
+
+  it('should not jump a directoryTree to its value once Left moved before the reads landed', async () => {
+    const ui = screenSetup({ columns: 60, rows: 16 });
+    const settled = settle(directoryTree({ ...base(ui), message: 'Q?', root, value: file }));
+
+    // Left closes the root without waiting, and Right opens it again with the
+    // cursor on it -- so two Downs reach `aaa.txt`, where a jump to the value
+    // when the reads land would have put them past `zzz.txt` onto `first.txt`
+    for (const key of ['\u001b[D', '\u001b[C', '\u001b[B', '\u001b[B', ENTER]) {
+      ui.stdin.send(key);
+      await settleDown();
+    }
+
+    expect(await settled).to.deep.equal({ value: join(root, 'sub', 'aaa.txt') });
+  });
+
+  it('should not jump to a selectTree value a branch opened after a key turns up', async () => {
+    const ui = screenSetup({ columns: 60, rows: 16 });
+    const settled = settle(
+      selectTree({
+        ...base(ui),
+        items: [{ items: () => Promise.resolve(['x', 'y']), text: 'a' }, 'b'],
+        message: 'Q?',
+        value: 'y',
+      })
+    );
+
+    // Down and back puts the cursor on `a` by hand, and Right reads the branch
+    // the value is in -- which must not take the cursor there once a key has acted
+    ui.stdin.send('\u001b[B');
+    await settleDown();
+    ui.stdin.send('\u001b[A');
+    await settleDown();
+    ui.stdin.send('\u001b[C');
+    await settleDown();
+    ui.stdin.send(ENTER);
+
+    expect(await settled).to.deep.equal({ value: 'a' });
+  });
 });
 
 describe('a prompt given back', () => {

@@ -638,8 +638,14 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
       ) => Promise<{ value: T } | void> | void
     ) => {
       return async (): Promise<{ value: T } | void> => {
-        const node = active as TreeNode<T>;
         await opened();
+        // the starting answer is placed before the key acts, so an Enter typed
+        // before the reads on the way down to it landed still takes it --
+        // `filePicker()`'s rule. Once a key has acted the person has moved, and
+        // a later read is not one to jump to
+        place();
+        want = undefined;
+        const node = active as TreeNode<T>;
         const rows = visible();
         return step(node, rows, rows.indexOf(node));
       };
@@ -658,6 +664,9 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     const toggles = (): boolean => active?.branch === true;
 
     keys.on('left', () => {
+      // waits for nothing, so the person has moved before any starting answer
+      // still being read for could be placed
+      want = undefined;
       const node = active as TreeNode<T>;
       if (node.branch && node.expanded) {
         node.expanded = false;
@@ -801,9 +810,6 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     return {
       async key(k) {
         error = undefined;
-        // the person has moved, so a starting answer still being read for is
-        // not one to jump to when it lands
-        want = undefined;
         if (active === undefined) {
           return;
         }

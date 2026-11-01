@@ -7197,7 +7197,13 @@ takes a `value` now, `run()` reads a `back` option, and a step is handed both.
   `selectTree()` highlights the node and opens the branches above it, but reads no
   lazy branch to look for it, so a node under an unread branch is found only once
   something opens that branch. `directoryTree()` opens the directories on the
-  path, because the path says which ones they are. `filePicker()` opens in the
+  path, because the path says which ones they are. A key typed before those reads
+  land waits for them, the value is placed, and only then does the key act, which
+  is `filePicker()`'s rule. The first version dropped the value on any key and
+  acted on the row the key arrived on, so an Enter typed early closed the root
+  and the prompt never answered: the timeout CI hit on Windows and on one Ubuntu
+  job. Left waits for nothing, so it drops the value at once. After any key has
+  acted, a read that turns up the value later does not move the cursor. `filePicker()` opens in the
   directory that holds the value and goes back to `root` if that directory no
   longer has it, and `confine` applies. `autocomplete()` highlights it in the
   first list it offers. On a source, `autocompleteMultiselect()` ticks values it
