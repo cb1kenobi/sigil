@@ -41,16 +41,16 @@ function animate(ms: number): void {
 describe('createSpinner()', () => {
   it('should draw nothing until it is started', () => {
     const ui = screenSetup();
-    createSpinner({ ansi: ui.ansi, terminal: ui.terminal, text: 'Building' });
+    createSpinner({ ansi: ui.ansi, ascii: false, terminal: ui.terminal, text: 'Building' });
 
     expect(ui.log).to.deep.equal([]);
   });
 
   it('should draw a frame and the text when started', () => {
     const ui = screenSetup();
-    createSpinner({ ansi: ui.ansi, terminal: ui.terminal, text: 'Building' }).start();
+    createSpinner({ ansi: ui.ansi, ascii: false, terminal: ui.terminal, text: 'Building' }).start();
 
-    expect(ui.frame).to.equal(`${DOTS[0]} Building`);
+    expect(ui.frame).to.equal(`${DOTS.frames[0]} Building`);
   });
 
   it('should advance a frame per interval', () => {
@@ -62,6 +62,7 @@ describe('createSpinner()', () => {
       // only the spinner's own interval would be reading the frame before last
       createSpinner({
         ansi: ui.ansi,
+        ascii: false,
         frameMs: 0,
         interval: 10,
         terminal: ui.terminal,
@@ -69,10 +70,10 @@ describe('createSpinner()', () => {
       }).start();
 
       animate(10);
-      expect(ui.frame).to.equal(`${DOTS[1]} Building`);
+      expect(ui.frame).to.equal(`${DOTS.frames[1]} Building`);
 
       animate(10);
-      expect(ui.frame).to.equal(`${DOTS[2]} Building`);
+      expect(ui.frame).to.equal(`${DOTS.frames[2]} Building`);
     } finally {
       vi.useRealTimers();
     }
@@ -84,6 +85,7 @@ describe('createSpinner()', () => {
       const ui = screenSetup();
       createSpinner({
         ansi: ui.ansi,
+        ascii: false,
         frameMs: 0,
         frames: LINE,
         interval: 10,
@@ -91,9 +93,9 @@ describe('createSpinner()', () => {
         text: 'x',
       }).start();
 
-      animate(10 * LINE.length);
+      animate(10 * LINE.frames.length);
 
-      expect(ui.frame).to.equal(`${LINE[0]} x`);
+      expect(ui.frame).to.equal(`${LINE.frames[0]} x`);
     } finally {
       vi.useRealTimers();
     }
@@ -101,11 +103,16 @@ describe('createSpinner()', () => {
 
   it('should redraw when the text changes', () => {
     const ui = screenSetup();
-    const spinner = createSpinner({ ansi: ui.ansi, terminal: ui.terminal, text: 'One' }).start();
+    const spinner = createSpinner({
+      ansi: ui.ansi,
+      ascii: false,
+      terminal: ui.terminal,
+      text: 'One',
+    }).start();
 
     spinner.text = 'Two';
 
-    expect(ui.frame).to.equal(`${DOTS[0]} Two`);
+    expect(ui.frame).to.equal(`${DOTS.frames[0]} Two`);
     expect(spinner.text).to.equal('Two');
   });
 
@@ -118,6 +125,7 @@ describe('createSpinner()', () => {
     const ui = screenSetup();
     const spinner = createSpinner({
       ansi: ui.ansi,
+      ascii: false,
       terminal: ui.terminal,
       text: 'Working',
     }).start();
@@ -130,7 +138,9 @@ describe('createSpinner()', () => {
 
   it('should keep the current text when settled with nothing', () => {
     const ui = screenSetup();
-    createSpinner({ ansi: ui.ansi, terminal: ui.terminal, text: 'Working' }).start().succeed();
+    createSpinner({ ansi: ui.ansi, ascii: false, terminal: ui.terminal, text: 'Working' })
+      .start()
+      .succeed();
 
     expect(ui.log).to.contain('✔ Working');
   });
@@ -139,6 +149,7 @@ describe('createSpinner()', () => {
     const ui = screenSetup();
     const spinner = createSpinner({
       ansi: ui.ansi,
+      ascii: false,
       terminal: ui.terminal,
       text: 'Working',
     }).start();
@@ -152,36 +163,47 @@ describe('createSpinner()', () => {
     const ui = screenSetup();
     const spinner = createSpinner({
       ansi: ui.ansi,
+      ascii: false,
       terminal: ui.terminal,
       text: 'Building',
     }).start();
 
     spinner.write('compiled foo.js');
 
-    expect(ui.log).to.deep.equal(['compiled foo.js', `${DOTS[0]} Building`]);
+    expect(ui.log).to.deep.equal(['compiled foo.js', `${DOTS.frames[0]} Building`]);
   });
 
   // a disposed renderer paints nothing ever again, so keeping it made `start()`
   // after a settle a call that set `spinning` and changed the screen not at all
   it('should start again after it has settled', () => {
     const ui = screenSetup();
-    const spinner = createSpinner({ ansi: ui.ansi, terminal: ui.terminal, text: 'One' }).start();
+    const spinner = createSpinner({
+      ansi: ui.ansi,
+      ascii: false,
+      terminal: ui.terminal,
+      text: 'One',
+    }).start();
 
     spinner.succeed('First done');
     spinner.start('Two');
 
     expect(spinner.spinning).to.equal(true);
-    expect(ui.log).to.deep.equal(['\u2714 First done', `${DOTS[0]} Two`]);
+    expect(ui.log).to.deep.equal(['\u2714 First done', `${DOTS.frames[0]} Two`]);
   });
 
   it('should start again after it was stopped', () => {
     const ui = screenSetup();
-    const spinner = createSpinner({ ansi: ui.ansi, terminal: ui.terminal, text: 'One' }).start();
+    const spinner = createSpinner({
+      ansi: ui.ansi,
+      ascii: false,
+      terminal: ui.terminal,
+      text: 'One',
+    }).start();
 
     spinner.stop();
     spinner.start('Two');
 
-    expect(ui.log).to.deep.equal([`${DOTS[0]} Two`]);
+    expect(ui.log).to.deep.equal([`${DOTS.frames[0]} Two`]);
   });
 
   describe('when there is no terminal', () => {

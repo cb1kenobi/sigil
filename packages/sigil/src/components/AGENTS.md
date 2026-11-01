@@ -6441,3 +6441,91 @@ its own.
   owns a region; sub-second readouts (`tick` redraws faster and the format still
   speaks whole seconds); a `ref: false` for a countdown that should not hold the
   process.
+
+### More spinner frame sets: seven in the package, the rest as data
+
+`src/components/spinner.ts` and `src/components/spinner-frames.ts`. SIG-183.
+
+- **The two questions the ticket left open, settled.** _How many?_ Seven in
+  `@ttylabs/sigil/components` -- `DOTS`, `LINE`, `ARC`, `CIRCLE`, `GROW`, `ARROW`
+  and `BOUNCING_BAR`, which is the ticket's own short list less the moon -- and
+  twelve more in `spinner-frames.ts`, a registry entry nothing imports. They cost
+  **803 B** on the components graph as of this change (337,387 to 338,190 over the
+  same 31 modules, the option handling and the width fix included) and nothing on
+  the root entry, which stayed at 12,269. That is small enough that the split is
+  not really about bytes, and it is worth saying so: what it buys is an entry that
+  is a choice rather than a catalogue, and a long tail an app owns once it copies
+  it, the way it owns any ejected component. _Frame width?_ One cell everywhere,
+  read as the three checks below, and the moon does not ship.
+- **"One cell everywhere" is three checks, and the third is the one a width
+  cannot say.** Every frame of a set is the same width, so the label never moves.
+  Every set that is not plain ASCII is exactly one cell by `stringWidth()`, which
+  counts an emoji as two -- that is what refuses the moon, and it would be refused
+  even at a constant two, because an emoji is two columns on a terminal whose
+  width table knows it and one on a terminal whose table does not. And a set does
+  not mix East Asian **Ambiguous** characters with narrow ones: `stringWidth()`
+  counts Ambiguous as one, which `src/width/` decided and which is right for a CLI,
+  but a terminal in a CJK locale draws it as two, and a set that alternates the two
+  kinds jitters there where a set that is all one kind is merely wider. That is
+  what refuses `◐◓◑◒` -- the first and third are Ambiguous -- and why `CIRCLE` is
+  the quarter-filled `◴◷◶◵`. `GROW` and `ARROW` are all Ambiguous and ship: wider
+  in a CJK terminal, still steady. `BOUNCING_BAR` is the one set wider than a cell,
+  which is safe because it is ASCII.
+- **The test reads a transcribed table, and fails on anything outside it.**
+  `test/components/spinner-frames.test.ts` carries the `A` ranges of the seven
+  blocks a set draws from, out of `EastAsianWidth.txt` 17.0.0 -- test data rather
+  than runtime data, since the runtime counts them as one and has no use for the
+  list. A character outside those blocks fails rather than being read as narrow by
+  default. Every exported set of both files is enumerated rather than listed, so a
+  new one is measured without anybody adding it, and two sets that _must_ fail --
+  the moon and the circle halves -- are asked of the same checker, so the checker
+  cannot pass by checking nothing.
+- **`ARROW`'s diagonals are emoji with a text default, as `OUTCOME_SYMBOLS` are.**
+  `↖↗↘↙` carry the Emoji property and draw as text unless a `U+FE0F` asks
+  otherwise, which nothing here writes. `✔`, `✖`, `⚠` and `ℹ` are the same kind and
+  have been on every settled line since the spinner was written, so refusing the
+  arrows would be a rule the package does not otherwise keep.
+- **`LINE` is now the default where `unicodeSupported()` says no, and it was
+  opt-in before.** The ticket asked for an ASCII fallback, and the fallback was
+  already there; what was missing was anything choosing it. `spinnerFrames()` asks
+  `unicodeSupported()` -- the one place that is decided, as the note, the rule, the
+  charts, the outline and the paginator already ask it -- and takes `ascii`, `env`
+  and `platform` the way they do. Explicit `frames` always win, as an explicit
+  `border` does on a note: an app that asked for `ARC` gets `ARC`, and one that
+  wants a fallback says `frames: unicodeSupported() ? ARC : LINE`. So the
+  parentheticals in the session and `log` entries above that call the spinner's
+  `LINE` opt-in describe the spinner before this change.
+- **`DOTS` and `LINE` changed shape, from an array to `{ frames, interval }`.** One
+  shape for every set is what lets each carry its interval, which the ticket asked
+  for, and `frames` takes either a set or an array, so `frames: DOTS` reads as it
+  always did. What breaks is a reader of `DOTS[0]`, which is now `DOTS.frames[0]`;
+  `display.test.ts` was the only one in the repository. `LINE` runs at 130 ms where
+  it inherited 80, because four frames at 80 is a blur. A set of the caller's own
+  with an interval that is not positive takes 80 rather than a timer that never
+  yields, the question the option was already asked.
+- **The lead is as wide as what it draws, because a text drops the whitespace at
+  the end of its last line.** `'.  '` drew one column, `'.. '` two and `'   '`
+  none, so `SIMPLE_DOTS` moved the label every tick -- and so did any array of a
+  caller's own with a trailing space, which nothing had tried. The first fix
+  written was `white-space: pre`, on the belief that `[    ]` collapsed to `[ ]`;
+  the sabotage pass showed that neither was true -- an interior run is kept either
+  way and `pre` keeps no trailing one -- so it was taken out rather than left as a
+  declaration that does nothing. The declared width is the paginator's answer to
+  the same rule, and it is set on the settled mark too, since a width left over
+  from a six-cell frame would pad `✔` out to six.
+- **The long tail is a registry entry that is data, and the registry test says
+  which.** `should say what %s can be themed with` asserted every entry lists a
+  class, and an entry that draws nothing has none. It is an explicit `DATA` list
+  rather than an inference, so a component that lost its classes still fails. One
+  trap found on the way: the generator rewrites every relative `from '...'` in an
+  entry, a doc comment's example included, so the file's own usage example came
+  out importing `DOTS_2` from `@ttylabs/sigil/components`, which does not export
+  it. The example is written without a specifier now. `test/dist.test.ts` asks
+  every shipped file for a glyph only the long tail draws, which is what keeps it
+  out of the bundle -- exporting it from the barrel fails all five.
+- **Not done:** the settled marks under `ascii` (`✔` and the rest stay as they
+  are; `LOG_SYMBOLS_ASCII` is the obvious source, and swapping them is a change to
+  what every settled line says that this ticket did not ask for); a spinner named
+  by a string, `spinner: 'arc'`, which would put every set in a bundled app's
+  graph for want of a static reference to shake by; and a set that carries its own
+  ASCII fallback.

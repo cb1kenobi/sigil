@@ -364,6 +364,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/35-file-picker.js`](components/35-file-picker.js)                           | A file picker: browse a directory tree with the arrows                   |
 | [`components/36-select-row.js`](components/36-select-row.js)                             | An interactive table: pick a row, sort by a column                       |
 | [`components/37-clock.js`](components/37-clock.js)                                       | A stopwatch beside a spinner, and a countdown before an action           |
+| [`components/38-spinners.js`](components/38-spinners.js)                                 | Every spinner frame set in the package, and the ASCII fallback           |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -433,6 +434,11 @@ tree. On a terminal the spinner reads `Installing... 1s` and the countdown ticks
 `00:02`, `00:01`; piped, neither ticks and neither draws a number -- a stopwatch in
 a log would say `0s` once -- while the countdown still runs out and the demo ends
 at `Deployed`.
+
+`38-spinners.js` runs each of the seven frame sets the package ships for a second,
+at its own interval, and then one spinner with `ascii: true`, which is what a
+terminal that cannot draw braille gets by default. Piped, a spinner draws no
+frames, so it is one line per set and does not wait.
 
 ### Try them without a terminal
 

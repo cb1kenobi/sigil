@@ -67,6 +67,10 @@ const ENTRIES = [
     name: 'spinner',
   },
   {
+    desc: 'More spinner frame sets -- dots variants, a star, a triangle, sand and the rest -- as data to copy in',
+    name: 'spinner-frames',
+  },
+  {
     desc: 'A progress bar that falls back to a percentage where there is no terminal',
     name: 'progress',
   },

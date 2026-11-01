@@ -2,17 +2,88 @@ import { box, type Element, text as textNode } from '../element/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
+import { stringWidth } from '../width/index.js';
 import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
+import { unicodeSupported } from './note.js';
+
+/**
+ * A spinner's frames, and how long each one lasts.
+ *
+ * Every frame of a set is the same width, so the text after it never moves, and
+ * every set that is not plain ASCII is one cell wide -- which is why there is no
+ * emoji set: an emoji is two columns where a terminal knows it is one and one
+ * where it does not. `test/components/spinner-frames.test.ts` measures every
+ * frame of every set this package ships.
+ */
+export interface SpinnerFrames {
+  /** The frames, in order. */
+  readonly frames: readonly string[];
+  /** How long each frame lasts, in milliseconds. */
+  readonly interval: number;
+}
 
 /**
  * The default frames, which are Braille dots: they animate smoothly, sit inside
  * one column, and are far more widely rendered than the block characters a
  * fancier spinner would use.
  */
-export const DOTS: readonly string[] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+export const DOTS: SpinnerFrames = {
+  frames: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
+  interval: 80,
+};
 
-/** Frames for a terminal that cannot be trusted with anything but ASCII. */
-export const LINE: readonly string[] = ['-', '\\', '|', '/'];
+/**
+ * Frames for a terminal that cannot be trusted with anything but ASCII, and the
+ * default on one: `createSpinner()` draws these wherever `unicodeSupported()`
+ * says no.
+ */
+export const LINE: SpinnerFrames = { frames: ['-', '\\', '|', '/'], interval: 130 };
+
+/** A quarter circle that sweeps round. */
+export const ARC: SpinnerFrames = { frames: ['◜', '◠', '◝', '◞', '◡', '◟'], interval: 100 };
+
+/** A circle with a quarter filled, turning. */
+export const CIRCLE: SpinnerFrames = { frames: ['◴', '◷', '◶', '◵'], interval: 120 };
+
+/** A bar that grows and shrinks inside one cell. */
+export const GROW: SpinnerFrames = {
+  frames: ['▁', '▃', '▄', '▅', '▆', '▇', '▆', '▅', '▄', '▃'],
+  interval: 120,
+};
+
+/** An arrow pointing round the compass. */
+export const ARROW: SpinnerFrames = {
+  frames: ['←', '↖', '↑', '↗', '→', '↘', '↓', '↙'],
+  interval: 100,
+};
+
+/**
+ * A bar bouncing between brackets, in ASCII.
+ *
+ * The one set wider than a cell, which is safe because it is ASCII: its width is
+ * the same on every terminal there is.
+ */
+export const BOUNCING_BAR: SpinnerFrames = {
+  frames: [
+    '[    ]',
+    '[=   ]',
+    '[==  ]',
+    '[=== ]',
+    '[====]',
+    '[ ===]',
+    '[  ==]',
+    '[   =]',
+    '[    ]',
+    '[   =]',
+    '[  ==]',
+    '[ ===]',
+    '[====]',
+    '[=== ]',
+    '[==  ]',
+    '[=   ]',
+  ],
+  interval: 80,
+};
 
 /**
  * How a spinner ends, and the mark it leaves.
@@ -31,12 +102,28 @@ export const OUTCOME_SYMBOLS = {
 export type SpinnerOutcome = keyof typeof OUTCOME_SYMBOLS;
 
 export interface SpinnerOptions extends MountOptions {
-  /** How long each frame lasts, in milliseconds. Defaults to 80. */
+  /**
+   * Draw the ASCII frames, `LINE`, when no `frames` are given. Defaults to what
+   * `unicodeSupported()` says of `env` and `platform`, since a terminal that
+   * cannot draw box drawing cannot draw braille either. Explicit `frames` win.
+   */
+  ascii?: boolean;
+  /** The environment to read the terminal from. Defaults to `process.env`. */
+  env?: Record<string, string | undefined>;
+  /**
+   * How long each frame lasts, in milliseconds. Defaults to the set's own
+   * interval, or 80 for a bare array.
+   */
   interval?: number;
+  /** The platform to detect for. Defaults to `process.platform`. */
+  platform?: string;
   /** What it is doing, shown after the spinner. */
   text?: string;
-  /** The frames to cycle. Defaults to `DOTS`. */
-  frames?: readonly string[];
+  /**
+   * The frames to cycle: a set such as `ARC`, or an array of your own. Defaults
+   * to `DOTS`, or to `LINE` where the terminal cannot be trusted with braille.
+   */
+  frames?: readonly string[] | SpinnerFrames;
 }
 
 export interface Spinner {
@@ -93,11 +180,21 @@ export function spinnerState(label = ''): SpinnerState {
  * and `display: none` is what keeps its margin from becoming a leading space in
  * a line somebody greps.
  *
+ * The lead is given the width of what it draws, because a text drops the
+ * whitespace at the end of its last line -- `white-space: pre` included -- so a
+ * frame such as `'.  '` was drawn one column wide, `'.. '` two and `'   '` none,
+ * and the label jumped on every tick of a set whose frames were all three. The
+ * rule is the paginator's, for the same reason.
+ *
  * @param state - What it reads.
- * @param frames - The frames to cycle.
+ * @param frames - The frames to cycle: a set, or an array.
  * @returns The tree.
  */
-export function spinnerView(state: SpinnerState, frames: readonly string[] = DOTS): Element {
+export function spinnerView(
+  state: SpinnerState,
+  frames: readonly string[] | SpinnerFrames = DOTS
+): Element {
+  const list = 'frames' in frames ? frames.frames : frames;
   const lead = textNode('', { 'margin-right': 1 });
   const label = textNode(state.label.get(), { class: 'sigil-spinner-text' });
 
@@ -106,14 +203,24 @@ export function spinnerView(state: SpinnerState, frames: readonly string[] = DOT
     const frame = state.frame.get();
 
     if (outcome) {
-      lead.setText(OUTCOME_SYMBOLS[outcome]);
-      lead.setProps({ class: `sigil-symbol is-${outcome} sigil-${outcome}`, display: 'flex' });
+      const mark = OUTCOME_SYMBOLS[outcome];
+      lead.setText(mark);
+      lead.setProps({
+        class: `sigil-symbol is-${outcome} sigil-${outcome}`,
+        display: 'flex',
+        width: stringWidth(mark),
+      });
     } else if (frame === undefined) {
       lead.setText('');
       lead.setProps({ class: 'sigil-spinner-frame sigil-accent', display: 'none' });
     } else {
-      lead.setText(frames[frame % frames.length]);
-      lead.setProps({ class: 'sigil-spinner-frame sigil-accent', display: 'flex' });
+      const drawn = list[frame % list.length] as string;
+      lead.setText(drawn);
+      lead.setProps({
+        class: 'sigil-spinner-frame sigil-accent',
+        display: 'flex',
+        width: stringWidth(drawn),
+      });
     }
   });
 
@@ -122,6 +229,30 @@ export function spinnerView(state: SpinnerState, frames: readonly string[] = DOT
   });
 
   return box({ class: 'sigil-spinner' }, lead, label);
+}
+
+/**
+ * The frames a spinner draws and how fast, out of its options.
+ *
+ * An explicit set or array always wins, the way an explicit `border` does on a
+ * note: an app that asked for `ARC` gets `ARC`. Only the default follows the
+ * terminal, through `unicodeSupported()` -- the one place that is decided, as the
+ * charts, the note and the rule already ask it -- so a Linux console or
+ * `TERM=dumb` spins `LINE` rather than a column of boxes. An empty array is no
+ * frames at all and takes the default, as it always has.
+ *
+ * @param opts - The spinner's options.
+ * @returns The set.
+ */
+export function spinnerFrames(opts: SpinnerOptions = {}): SpinnerFrames {
+  const given = opts.frames;
+  const set = given === undefined || 'frames' in given ? given : { frames: given, interval: 80 };
+
+  if (set && set.frames.length > 0) {
+    return set;
+  }
+
+  return (opts.ascii ?? !unicodeSupported(opts.env, opts.platform)) ? LINE : DOTS;
 }
 
 /**
@@ -138,8 +269,11 @@ export function spinnerView(state: SpinnerState, frames: readonly string[] = DOT
  * @returns The spinner, not yet started.
  */
 export function createSpinner(opts: SpinnerOptions = {}): Spinner {
-  const frames = opts.frames?.length ? opts.frames : DOTS;
-  const interval = opts.interval && opts.interval > 0 ? opts.interval : 80;
+  const frames = spinnerFrames(opts);
+  // a set of the caller's own is asked the same question as the option, since
+  // an interval of zero is a timer that never lets the process breathe
+  const interval =
+    opts.interval && opts.interval > 0 ? opts.interval : frames.interval > 0 ? frames.interval : 80;
   const state = spinnerState(opts.text ?? '');
   const running = new State(false);
   const terminal = opts.terminal ?? defaultTerminal;
