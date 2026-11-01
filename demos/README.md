@@ -368,7 +368,8 @@ waits for it rather than reporting a silence that is not one.
 | [`components/39-tree.js`](components/39-tree.js)                                         | A tree printed with guides, a prompt over one, and a directory tree      |
 | [`components/40-pager.js`](components/40-pager.js)                                       | A pager: `less` keys, line numbers, and `/` search with highlights       |
 | [`components/41-collapsible.js`](components/41-collapsible.js)                           | A section that opens and closes, and an accordion of them                |
-| [`components/42-concurrent-tasks.js`](components/42-concurrent-tasks.js)                 | Tasks side by side, subtasks under a parent, a retry, and `failFast`     |
+| [`components/42-group-back.js`](components/42-group-back.js)                             | Escape back a step in a group, and a prompt that opens on an answer      |
+| [`components/43-concurrent-tasks.js`](components/43-concurrent-tasks.js)                 | Tasks side by side, subtasks under a parent, a retry, and `failFast`     |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -563,7 +564,7 @@ there is no window: each title, each line of output and each settled line is
 written once, so the success has all ten lines in the log and the failure has them
 plus the error.
 
-`42-concurrent-tasks.js` is `15-tasks.js` with the list run three at a time.
+`43-concurrent-tasks.js` is `15-tasks.js` with the list run three at a time.
 Five fetches run as subtasks of one install, three at once, each a row under the
 parent, and the install collapses to one line when the last of them lands; a
 registry check beside it fails twice and its row says which retry it is on; a
@@ -623,6 +624,15 @@ it builds a test terminal, sends the keys a person would have typed and prints t
 screen after each step: once answering everything, once pressing Ctrl-C at the
 second question, where `onCancel` is handed the one answer given and `cancel()`
 closes the session.
+
+`42-group-back.js` is the same kind of flow with Escape in it. Each step spreads
+the `{ back, value }` it is handed into its prompt, so Escape goes back a step and
+the step comes back on its earlier answer. Piped, it answers four questions, goes
+back three times -- the name still holding what was typed, the list still on
+`pnpm` -- and changes the first answer from `node` to `bun`, whose list has no
+`pnpm` in it: the package manager is asked again rather than skipped, and the
+earlier answer it cannot show is dropped. The screen is a transcript, so the first
+pass stays above the second.
 
 `08-large-text.js` is the one where the answer is that nothing changes: a banner
 is static text, so there is no cursor to move and a pipe gets byte for byte what
@@ -1014,7 +1024,7 @@ layout engine, the cascade, the paint walk or `scrollRange()` knows a window is 
 play. `node packages/sigil/scripts/benchmark-virtual-list.mjs` is what measures
 it, and it asserts three sides paint the same frame before it times any of them.
 
-Three things to try, and the last is the tier's honest edge. Scroll it every way —
+Four things to try, and Tab is the tier's honest edge. Scroll it every way —
 Home and End are the sharpest, because the thumb reaches the very top and the very
 bottom, which it could not do if the range came from what was built. **Resize the
 terminal**, which writes no scroll offset at all: the window is rebuilt for the
@@ -1026,7 +1036,9 @@ is SIG-132. Then press Tab: the rows are focusable and Tab walks the ones that
 failure `scrollIntoView()` is wired to the focus ring to prevent, and a window
 makes it unreachable rather than fixed. What it costs is the other direction:
 tabbing past the last visible row wraps instead of scrolling on, because a row
-nobody built is not in the ring.
+nobody built is not in the ring. And press `+`, which adds a thousand rows while
+nothing scrolls — a log growing — and the thumb shrinks at once: the count is the
+app's own number, so the app says it moved, with `scrollControl(log).resync()`.
 
 Each of the three mouse demos is for a claim the others cannot make.
 

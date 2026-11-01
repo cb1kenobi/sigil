@@ -777,9 +777,10 @@ not building it addresses the 72ms." This is not building it.
   spacer below at its old height. That case needs a row **taller than a cell** to
   reach at all, because at one cell every offset is a different window and the
   guard never answers -- which is why the first test for it was vacuous and
-  survived its sabotage. A list that has to grow while nobody is scrolling is
-  left for a later tier: it needs a way to ask for a re-sync, which is a second
-  mechanism beside `onScroll` and has no caller yet.
+  survived its sabotage. A list that has to grow while nobody is scrolling was
+  left for a later tier here, because it needed a way to ask for a re-sync -- a
+  second mechanism beside `onScroll`, with no caller yet. SIG-209 is that tier:
+  `scrollControl(host).resync()`, under "A scroll box heard from outside" below.
 
 - **A vertically windowed list's _horizontal_ extent is the widest row that was
   built, and `rows.width` is what closes it.** Found by probing `axis: 'both'`
@@ -1047,8 +1048,8 @@ not building it addresses the 72ms." This is not building it.
   lost is reaching the ones that do not. A **windowed horizontal** axis, which
   is the same mechanism turned ninety degrees and has no caller -- and which is
   not the cross-axis extent above, since that one is answered by `rows.width`
-  rather than deferred. **A list that grows while nobody is scrolling**, for the
-  reason the `count` entry gives. And
+  rather than deferred. **A list that grows while nobody is scrolling** was here
+  for the reason the `count` entry gives, and is `resync()` now (SIG-209). And
   **overscan**, which is one more number than the design needs: a window rebuild
   is 0.26ms of cascade over eighty elements, and rows that stay in the window
   are kept rather than rebuilt, so what a notch costs is the rows that newly
@@ -1491,17 +1492,22 @@ patch, a pane, and three additions to the renderer that the pane needs.
   overlay whose teardown order decides whether `console.log` still works. The app
   owns the pairing, which is what makes `installed` a statement it can act on.
 
-- **The pane does not re-sync a windowed `ScrollBox`.** It holds the ring's rows
-  as ordinary children rather than as `rows`, because what a windowed list cannot
-  do today is exactly this: "a list that has to grow while nobody is scrolling is
-  left for a later tier -- it needs a way to ask for a re-sync, which is a second
-  mechanism beside `onScroll` and has no caller yet". This is that caller, and
-  adding the mechanism is a change to `ScrollBox`'s contract taken inside a ticket
-  about a debug pane. At five hundred rows the cost is an arrange of five hundred
-  one-cell texts while the pane is **open**, which measured against the recorded
-  10,000-row figures is a couple of milliseconds; closed it is `display: none` and
-  is not laid out at all. The day somebody wants a ten-thousand-line ring is the
-  day to add the re-sync and pass `rows`.
+- **The pane holds its ring as ordinary children rather than as `rows`, and the
+  reason is no longer a missing mechanism.** It was: "a list that has to grow
+  while nobody is scrolling is left for a later tier -- it needs a way to ask for
+  a re-sync", and adding one inside a ticket about a debug pane would have been a
+  change to `ScrollBox`'s contract taken for a pane. SIG-209 added it --
+  `scrollControl(host).resync()` -- and the pane still does not switch, because
+  what is left is cost rather than capability. At five hundred rows the pane
+  costs an arrange of five hundred one-cell texts while it is **open**, which
+  against the recorded 10,000-row figures is a couple of milliseconds; closed it
+  is `display: none` and not laid out at all. Switching is not one line either:
+  the follow is `scrollIntoView()` on the last row's **box**, and a windowed ring
+  has no last row built until the window reaches it, so the follow becomes a
+  `resync()` and a `scrollTo()` of the range's end, the drop from the front of
+  the ring becomes a count that shrinks under a window, and both want tests of
+  their own. The day somebody wants a ten-thousand-line ring is still the day to
+  pass `rows` -- it is now a refactor of this file, not a feature of another one.
 
 ### The built-in components
 
@@ -4678,8 +4684,9 @@ SIG-160. `src/components/group.ts` is the whole of it: `group()`, `isCancel()`,
   an opt-in), so one here would be the first rather than the pattern.
 - **Deliberately not done.** Going back a step -- it needs a step to be re-asked
   with its old answer shown, which no prompt can do without an `initial` the
-  existing ones do not take, and they are not edited here. Blank lines around the
-  frame, so a session adds no rows beyond the three it writes.
+  existing ones do not take, and they are not edited here. (SIG-204 did both; see
+  "Going back a step" below, and note it is `value` rather than `initial`.) Blank
+  lines around the frame, so a session adds no rows beyond the three it writes.
 
 ### A note: a titled, bordered block
 
@@ -5727,7 +5734,7 @@ the window a task writes a subprocess's output to. SIG-161.
 
 `src/components/tasks.ts` again: `concurrency` and `failFast` on `tasks()`,
 `context.tasks()` for subtasks, `retry` on a task, and `context.signal`. SIG-203.
-The demo is `demos/components/42-concurrent-tasks.js`.
+The demo is `demos/components/43-concurrent-tasks.js`.
 
 - **One live region holding a row per task, driven by one clock -- not a spinner
   per task.** A spinner per task is the problem SIG-161 avoided by running one at
@@ -6220,6 +6227,9 @@ to a string, each with a `*View()` returning `{ element, width }`, and the split
   between columns or an empty stretch of a bar vanished and the columns ran
   together (`buildtestlint`). Every segment has `width: stringWidth(text)` and
   `white-space: pre` for that reason; `chart.test.ts` pins the columns line up.
+  Of the two, the width was the one doing the work: `pre` was read as `normal`
+  until SIG-207 and dropped the same trailing space. It keeps it now, so the
+  two say the same thing and neither was taken out. See `white-space` in [`src/element/AGENTS.md`](../element/AGENTS.md).
 - **Colour is a role on the data and nothing on the labels.** `role` is `accent` by
   default, the same role a progress bar's bar takes, and `none` leaves the
   terminal's foreground. A gauge's empty part is `.sigil-muted`, and its bar
@@ -6528,7 +6538,9 @@ rule; a label on both sides; and a style set to a pattern such as `- -`.
   about where a space goes or when dots give way to a number. They are separate
   text nodes because each takes its own role, and each is `white-space: pre` with a
   width, since a text drops the whitespace at the end of its last line and the space
-  that separates a run from the next would otherwise be nothing at all.
+  that separates a run from the next would otherwise be nothing at all. Until
+  SIG-207 that was true of `pre` too and the width alone held the space; `pre`
+  keeps it now, and the width is what it would measure anyway. See `white-space` in [`src/element/AGENTS.md`](../element/AGENTS.md).
 - **The glyphs follow `unicodeSupported()`.** `●` and `○` are not safe where box
   drawing is not, so a Linux console or `TERM=dumb` gets `*` and `.`, as the charts
   do; `ascii` overrides it either way.
@@ -6786,7 +6798,11 @@ its own.
   way and `pre` keeps no trailing one -- so it was taken out rather than left as a
   declaration that does nothing. The declared width is the paginator's answer to
   the same rule, and it is set on the settled mark too, since a width left over
-  from a six-cell frame would pad `✔` out to six.
+  from a six-cell frame would pad `✔` out to six. That measurement was right for
+  its day and stopped being so in SIG-207: `pre` was `normal` under another name,
+  and it keeps a trailing space now. The width stays: it is set per frame to what
+  the frame measures, which is exactly what a `pre` lead would come to, so moving
+  onto `pre` would change no output and would be a second way of saying it. See `white-space` in [`src/element/AGENTS.md`](../element/AGENTS.md).
 - **The long tail is a registry entry that is data, and the registry test says
   which.** `should say what %s can be themed with` asserted every entry lists a
   class, and an entry that draws nothing has none. It is an explicit `DATA` list
@@ -6896,7 +6912,11 @@ not answer anything: it sits in a tree beside other things and stays there.
   reason. It is the sixth declared exception in `test/theme.test.ts`'s role
   invariant, beside the caret and for the caret's reason: no role is inversion. The marker's one-cell margin is not inverted, since a margin is cells
   nothing paints -- a trailing space in the marker's text was tried instead and is
-  measured away.
+  measured away. Re-measured in SIG-207 and that is true only of `normal`: the
+  marker is `nowrap`, and a `nowrap` (or now `pre`) `'▸ '` keeps its space, so the
+  gap could be inverted with no new property. Left as it is, since whether the
+  focus bar should span the gap is a design question rather than a defect.
+  See `white-space` in [`src/element/AGENTS.md`](../element/AGENTS.md).
 - **Not done:** moving the focus to the title when a section is closed by
   something other than its title (an app writing the state, or a group) while the
   focus is inside its body -- an element cannot move the focus, so the focus stays
@@ -6980,28 +7000,31 @@ does.
   sideways shift -- so paging through a long document without searching kept every
   row ever built, and the slot each one still points at, which is the windowing
   given back: a million-line log paged with Space held a million element trees,
-  and the next search walked them all. The wrapped `onScroll` prunes after the
-  scroll box has re-windowed, which is the one moment what it took out is known,
-  and the resize hook does the same after its sync. Found in review.
+  and the next search walked them all. The pager's `onScroll` prunes after the
+  scroll box has re-windowed -- which is when the box calls it, and the one
+  moment what it took out is known -- and its `onResize` does the same after its
+  `resync()`. Found in review.
   `should forget the rows a page down scrolled out of the window` counts a
   search's reads of `parent` on rows already off screen, which is what an unbounded
   map costs that a picture cannot show; with the scroll-time prune deleted it reads
   24 of them.
-- **`scrollViewport()` is exported from `scroll-box.ts`, and it is a `WeakMap`
-  rather than a walk for the class.** A component built on a scroll box needs the
-  viewport -- the offset lives there, so `scrollTo()` and reading `scroll` back
-  want it -- and the host is all `ScrollBox()` returns. The class is a theme's
-  hook and an app may add to it, so a lookup by class is one a stylesheet could
-  break. On the components barrel, so an ejected `pager.ts` still resolves it.
-- **The viewport's two hooks are wrapped, not replaced, and the order inside
-  `onResize` matters.** The pager reads each hook and installs one that calls what
-  it found, which is the rule this repository gives for one-function hooks. On a
-  resize it refolds, redraws the rows on screen and puts the window back on the
-  line and offset it started on **before** it calls the scroll box's own sync,
-  because that sync reads the new count; the other order builds a window for a
-  count that is about to change. Sabotaged: without the refold-then-redraw the
-  `page()` resize test fails, and without the re-anchor the reader is left on a
-  row number that now means a different line.
+- **The pager reaches its scroll box through `scrollControl()` and hears it
+  through `onScroll` and `onResize`.** It used to find the viewport with
+  `scrollViewport()` and **wrap** both of the viewport's hooks -- read each one,
+  install one that called what it found -- with the order inside `onResize`
+  load bearing: refold, redraw and re-anchor first, and only then the scroll
+  box's own sync, because that sync reads the new count. That worked and was
+  tested, and every word of it was knowledge of another component's internals,
+  which a third component on a scroll box would have had to learn again.
+  SIG-209 replaced it, under "A scroll box heard from outside" below; what the
+  pager owes the box now is one call. The box re-windows before it calls the
+  pager's `onResize`, so for a width that moved it has windowed the **old**
+  count, and the pager refolds, redraws, re-anchors and **then** calls
+  `resync()`. Sabotaged both ways: `resync()` moved above the refold, or left out,
+  fails `should re-window for the count a new fold came to, where the top row
+  stayed` -- at the top the re-anchor writes no offset, so nothing else would
+  make the window read the new count, and the spacer below measured forty rows of
+  a thirty-row document.
 - **The keys follow the scroll box's rules where they overlap.** A scrolling key
   is claimed only where the document is longer than the window, so a document
   that fits hands Space on, and is claimed even where the move is zero, so `g` at
@@ -7052,8 +7075,9 @@ does.
   character, and the piped write.
 - **Not done:** carrying the input's colour through; incremental search; `-F`
   (quit when it fits on one screen); a follow mode that tails a growing input --
-  the content is read once, and a `ScrollRows.count` that grows while nobody is
-  scrolling is the re-sync the scroll box records as a later tier; marks; `&` to
+  the content is read once, which is now the whole of the reason: the count that
+  grows while nobody scrolls is `resync()` since SIG-209, so what is left is a
+  `content` that can be appended to, and that is the pager's own API; marks; `&` to
   filter to matching lines; a horizontal scrollbar for `wrap: false`.
 
 ### A tree: `tree()`, `selectTree()` and `directoryTree()`
@@ -7107,7 +7131,9 @@ that prompt over a directory.
 - **The runs of a line are `white-space: nowrap`, not `pre`.** A guide below the
   last sibling is all spaces, and measured: a `pre` text of `'│   '` beside `'x'`
   renders `│x`, while `nowrap` keeps the four columns. The line is already wrapped,
-  so `nowrap` loses nothing.
+  so `nowrap` loses nothing. That was `pre` read as `normal`, fixed in SIG-207:
+  the two now measure alike, and `nowrap` is kept because it was never wrong.
+  See `white-space` in [`src/element/AGENTS.md`](../element/AGENTS.md).
 - **Right opens, and on an open branch steps in; Left closes, and on anything
   else steps out.** Textual's and every file manager's tree. Space toggles. Enter
   answers with the highlighted node's `value` -- a branch included, because a tree
@@ -7168,3 +7194,266 @@ that prompt over a directory.
   every directory already read); a live `createTree()` (`outline()` has one because
   its ticket asked for one; this one did not); several answers; typing to filter;
   a guide style past `plain` and `rounded`, which is one more row in a table.
+
+### A scroll box heard from outside: `onScroll`, `onResize` and `resync()`
+
+`src/components/scroll-box.ts`. SIG-209. A component built on a `ScrollBox` used
+to hear it by wrapping the viewport's own `Element.onScroll` and
+`Element.onResize`, knowing the order inside them, and finding the viewport
+through `scrollViewport()`. The pager was the first such component and did all
+three. The public surface that replaced it is two props and one lookup:
+
+```js
+const rows = { count: lines.length, height: 1, row };
+const host = ScrollBox({ onResize, onScroll, props, rows });
+const { resync, viewport } = scrollControl(host);
+```
+
+- **The scroll hook is an option, one function, and not a subscription.** The
+  ticket's first question. An option is the house rule -- every hook here is one
+  function, declared by whoever built the thing -- and a subscription on a handle
+  would bring a list, an order between its entries, and an unsubscribe for a box
+  that usually lives as long as the app. What the option gives up is a component
+  that hears a box **somebody else** built and declared, and there is none: the
+  pager and the debug overlay both build their own. A component that takes a
+  caller's `ScrollBoxProps` and builds the box composes the caller's `onScroll`
+  with its own before building, which is composing a function it was handed
+  rather than wrapping a hook it found on an element -- and it never needs to know
+  which element hook carries it.
+- **`onResize` came with it, because the pager could not stop wrapping without
+  one.** The ticket asked for a scroll hook and a re-sync, and the pager's resize
+  wrap was the half that refolds at a new width. Without a public resize hook the
+  pager would have had to keep wrapping `viewport.onResize`, or put a hook on an
+  element whose size merely _usually_ moves with the viewport's -- an inference
+  about geometry standing in for a contract. It is `ResizeHandler`'s shape passed
+  on, return value included: it says whether it changed the tree, because a frame
+  lays out again before it paints only where something said so. Measured: a
+  handler that edits a label on a width-only resize, where the window has nothing
+  to report, leaves the label at the box of the layout before it when its answer
+  is dropped.
+- **Both hooks run after the window, and that order lives in one place.** The
+  viewport's two element hooks are the box's, installed by `ScrollBox()`, and each
+  runs the window's `sync()` first and the caller's hook after it. So what a hook
+  reads -- which rows are built, the spacers, the offset, the viewport's size --
+  is the state that will be laid out. `onResize` running _before_ the sync was the
+  other candidate, because then a hook that changes `count` would need no
+  `resync()`; it was refused because it splits the two hooks' timing in two, and
+  makes "before the box re-windows" a contract a second party has to know --
+  which is the very thing the ticket is about. After, uniformly, and a count that
+  moved is said with `resync()`. What that costs is one window computed for the
+  old count on a width that changed the fold, which is a viewport of rows on a
+  terminal resize. The caller's hook is called whatever the sync answered, and the
+  two answers are OR-ed: `settleResized()`'s own rule, one level down, that a
+  handler being told its box moved is not skipped because another said yes.
+- **Every writer of the offset reaches `onScroll`, on a `children` box as well as
+  a `rows` one.** It is reached through `Element.onScroll`, which `scrollTo()`
+  dispatches and `scrollTo()` is the only writer there is -- so the keys, the
+  wheel, a click on the track, a dragged thumb, `scrollIntoView()` and an app's
+  own `scrollTo()` and `scrollBy()` all arrive. `should hear every writer of the
+  offset` drives a key, a wheel notch, a click on the track, `scrollIntoView()`,
+  `scrollBy()` and `scrollTo()` on both shapes, and asks for exactly one call per
+  write, carrying the new offset, and none for a write that moved nothing. A `children` box installs the
+  element hooks only where a prop asks for them, so a plain one is still not
+  collected by `arrange()` at all.
+- **The re-sync is a method, not an effect over `count`.** The second question.
+  `sync()` is arithmetic over four numbers that runs inside `scrollTo()` and inside
+  a frame's resize pass, and both of those are synchronous on purpose: the window
+  the frame arranges is the window the offset asked for. A signal dependency in
+  it would add a third schedule that is neither, and it would only ever notice a
+  count that somebody kept in a signal -- neither caller here does: the pager's
+  count is a getter over an array, and the overlay's ring has a version number.
+  An app whose count is a signal writes `createEffect(() => { count.get();
+  control.resync(); })` in its own graph, which is one line. `resync()` returns
+  whether the window changed, which is what an `onResize` that called it adds to
+  its own answer, and goes through the same unchanged-window guard as the hooks --
+  so a call per appended log line is a `rowWindow()` until the line lands in view.
+  On a `children` box it is a no-op that answers `false`.
+- **`scrollControl()` replaced `scrollViewport()`, and the lookup did not grow a
+  sibling.** `{ resync, viewport }`, frozen, from the same `WeakMap` and for the
+  same reason the map exists -- a lookup by class is one a stylesheet could
+  break. Retired rather than kept beside it, because two lookups over one map are
+  two answers to "what does a component built on a scroll box hold", and the
+  first one is `control.viewport`. **It never reached a release**: it landed in
+  #234, after `0.0.1`, the only version published, so no ejected `pager.ts` from a
+  release imports it -- one ejected from `main` in between would, and its import
+  fails loudly at load rather than quietly at run time. The control is handed to
+  both hooks as well, so one hook can answer for several boxes without a closure
+  per box, which is why `Element`'s hooks are handed the element.
+- **A hook that is not a function is refused where the box is built.** A string
+  `onScroll` would otherwise throw from inside somebody's `scrollTo()`, naming
+  nothing the caller wrote, at the first scroll -- which for a list nobody touches
+  is never.
+- **A scroll of the same box from inside its own `onScroll` is written and not
+  dispatched**, which is `Element.scrollTo()`'s latch passed on unchanged rather
+  than worked around: the latch is what bounds the recursion. A hook that moves
+  its own box calls `resync()` after it, and the prop says so.
+- **The debug overlay still holds its ring as children**, now for cost rather than
+  capability; the entry under "A debug overlay" says what switching would take.
+  `demos/element/09-virtual.js` is the caller this ticket's own mechanism needed:
+  `+` adds a thousand rows while nothing scrolls, and `resync()` is the whole of
+  what the demo does about it.
+- **Twelve sabotages, twelve caught, each type-checking.** A `children` box
+  installing no `onScroll`; the wheel skipping the element hook; `resync()` a
+  no-op; the caller's `onResize` before the sync, and its `onScroll`; the
+  caller's resize answer dropped; the type check on a hook removed; the pager's
+  `resync()` moved above the refold, and left out; the pager's scroll-time prune
+  and status redraw each removed; and the caller's `onResize` skipped where the
+  sync said yes.
+
+### Going back a step: `value` on every prompt, and Escape in a group
+
+SIG-204. `group()` goes back a step on Escape. The work was not in `group()`: going
+back means asking a question again with its answer already given, and there was no
+one way to say "start from this answer" to a prompt. Every value-answering prompt
+takes a `value` now, `run()` reads a `back` option, and a step is handed both.
+
+- **One option on every prompt, named `value`, typed as the prompt's answer.** The
+  alternative was each prompt's own existing option, with `group()` knowing the
+  mapping -- `default` for `text()`, an index `initial` for `select()`, `selected`
+  per choice for `multiselect()`. Refused because `group()` never sees the prompt:
+  a step is an arbitrary function, so the only thing a group can hand it is
+  something the step passes on, and that only works if one spelling means the
+  same thing to whichever prompt the step asks. An app that runs its own loop
+  needs the same thing. `value` is it: `text({ ...step })` and
+  `select({ ...step })` read it the same way.
+- **Not `initial`, because `initial` already means two things.** It is an index on
+  `select()`, `multiselect()`, `sort()` and `selectRow()`, and the starting text or
+  state on `multiline()`, `number()`, `date()`, `pickDate()`, `list()`,
+  `maskedText()`, `path()`, `toggle()` and `autocomplete()` (where it is filter
+  text, not the answer). Making it uniform would have changed the index ones to
+  take a value, which on a `select<number>()` cannot be told apart at runtime: an
+  app passing `initial: 2` as an index would silently start on the choice whose
+  value is 2. `initial` and `selected` keep what they meant, and `value` beats
+  them. Where `initial` already was the answer (number, date, toggle, ...) the two
+  overlap, and that redundancy is the cost of not breaking the index ones. `value`
+  follows the HTML control's attribute, and on a choice list it lines up with
+  `Choice.value`: the option names the choice by what it answers with. No option
+  was renamed and no existing option changed meaning, so nothing breaks.
+- **A choice is found by `promptSameValue()`, which compares the way a `Map`
+  compares keys.** That is how `autocompleteMultiselect()` already told ticks
+  apart, so it is the existing rule rather than a new one. Objects match only
+  themselves, so a step that builds fresh choice objects every time it runs has
+  answers that cannot be found again. Deep equality was not added: the answer
+  already holds whatever the caller put in `value`, and a primitive or a stable
+  object is how to make it findable. `selectRow()` finds its row by identity for
+  the same reason.
+- **A `value` the prompt cannot show is dropped, not refused, and that differs
+  from `initial` on purpose.** `list()` and `maskedText()` refuse an `initial` that
+  does not round-trip or fit, `toggle()` refuses a non-boolean, and `number()`
+  refuses a fraction without `float`. A `value` falls back to what the prompt
+  would have opened on in all of those cases, and on a choice list when no choice
+  on offer holds it (a disabled one does not count). An `initial` is something
+  somebody wrote, so a bad one is a bug. A `value` is usually an earlier answer to
+  a question that has changed since, so a bad one is the expected case when going
+  back, and refusing it would make Escape throw. The one thing still refused is an
+  `initial` that is itself wrong (`selectKey()`'s `initial` naming no key), even
+  beside a `value` that is fine.
+- **What each prompt does with it.** Fields open holding it with the caret at the
+  end (`text()` flattens a line break the way a paste is flattened). `confirm()`
+  reads it as what Enter alone means, so on that prompt it is `default` under a
+  second name. On the multiselects it replaces every `selected`, and `[]` means
+  nothing is ticked. `sort()` puts the rows it names first, in its order, and the
+  rest after them in theirs, so a row added since the last answer lands last and a
+  pinned row stays put. `selectKey()` makes it the choice Enter takes.
+  `selectTree()` highlights the node and opens the branches above it, but reads no
+  lazy branch to look for it, so a node under an unread branch is found only once
+  something opens that branch. `directoryTree()` opens the directories on the
+  path, because the path says which ones they are. A key typed before those reads
+  land waits for them, the value is placed, and only then does the key act, which
+  is `filePicker()`'s rule. The first version dropped the value on any key and
+  acted on the row the key arrived on, so an Enter typed early closed the root
+  and the prompt never answered: the timeout CI hit on Windows and on one Ubuntu
+  job. Left waits for nothing, so it drops the value at once. After any key has
+  acted, a read that turns up the value later does not move the cursor. `filePicker()` opens in the
+  directory that holds the value and goes back to `root` if that directory no
+  longer has it, and `confine` applies. `autocomplete()` highlights it in the
+  first list it offers. On a source, `autocompleteMultiselect()` ticks values it
+  has never been shown, labelled by `String()` until the source returns the
+  choice that holds them. Otherwise the answer would lose ticks nobody removed.
+- **`commandPalette()` takes neither option, and the types say so.** It is not
+  asked for a value: it dispatches, and Escape already dismisses it.
+  `PaletteOptions` omits `back`. If it did not, `run()` would take Escape before
+  the palette could dismiss.
+- **The back key is Escape, and only for a prompt asked with `back: true`.**
+  Shift-Tab is the usual "previous field" key, and it was the obvious candidate.
+  `date()` uses it to go back a segment and `toggle()` uses it to flip, so taking
+  it would have cost two prompts a key whenever they ran in a group. A chord, such
+  as Ctrl-B, is a key nobody would try. No prompt reads Escape ("Escape does
+  nothing in any prompt here"), so taking it costs nothing. "Close this and return
+  to where I was" is also what Escape already means to the palette and the pager.
+  The earlier decision stands everywhere `back` is not set: a lone prompt still
+  ignores Escape, autocomplete still does not answer `undefined`, and sort still
+  does not put a carried row back. Inside a group, Escape while carrying a row
+  goes back a step and drops the carry.
+- **`run()` takes it, before the prompt's own keys, the way Ctrl-C is taken.** It
+  does not wait in the one-key queue, since giving up needs nothing from the
+  state. It matches only a bare Escape, because Alt-x arrives as `ESC x`. In
+  `multiline()` with an Alt-Enter submit, Escape and then Enter pressed more than
+  `ESCAPE_TIMEOUT` apart is now a back and then a newline. That case is accepted:
+  it only arises in a group, and the Alt-Enter spelling still submits.
+- **It rejects with `PromptBack`, which is not a `PromptError`.** The person has
+  not left and the program is not miswired, which are the two things
+  `PromptError` reports. A `catch` that reads every `PromptError` as "give up"
+  must not swallow a back, so `isCancel()` is false for it. `isBack()` sits beside
+  `isCancel()` for an app's own loop. Resolving with a sentinel was refused for
+  the reason SIG-160 refused one for cancel: it changes every prompt's return
+  type.
+- **It is listed where a footer is drawn, from the same flag `run()` reads.**
+  `promptFooter(keys, columns, back)` appends `esc back` at priority 1, so it is
+  dropped before Space and Enter. It is added to what the footer reads rather than
+  registered in the key table, because a table entry would be a handler that can
+  never run, since `run()` takes Escape first. `text()`, `select()` and
+  `confirm()` draw no footer, so nothing there names the key. The README says to
+  mention it, and growing a footer under every question was SIG-205's call and is
+  not reopened here.
+- **A step is handed `(answers, step)`, and `step` is prompt options.** It is
+  `{ back?: true, value?: T[K] }`, frozen, and each key is present only when it
+  says something. That makes the spread safe on either side:
+  `{ value: suggestion, ...step }` opens on the suggestion the first time and on
+  the earlier answer after that, where an `undefined` would have overwritten the
+  suggestion. `back` is absent on the first step, so Escape there does nothing. A
+  `PromptBack` from the first step can only come from a step that asked for `back`
+  on its own; it is rethrown untouched as a bug, rather than re-asked, which could
+  loop forever. Making the answers argument `Partial<T>` so a step could read its
+  own key was the alternative. It was refused because it mixes "an answer" with
+  "what I said last time", and the type test that a step cannot read its own
+  answer still holds.
+- **The dependent-answer rule: going back never skips a step on the way forward,
+  and an old answer is a suggestion, never an answer.** After going back from
+  step k to step j, every step from j to k is asked again, each handed what it
+  last answered as `value`. `answers` holds only the steps before the one being
+  asked, so a re-asked step never sees an answer given after it. Two
+  alternatives were refused:
+  - Keeping later answers that "still hold", so forward skips them. `group()`
+    cannot tell which steps read the answer that changed, and keeping one that
+    did returns an answer the person never confirmed against the new earlier one.
+  - Clearing later answers. That throws away work on every step that did not
+    depend on the change.
+
+  A suggestion that still holds costs one Enter. One that no longer does is
+  dropped by the prompt: a list that lost the choice, a mask that changed. A
+  step that knows its old answer means nothing now has both answers in hand and
+  can leave `value` out. Only answers are remembered: a step left with Escape
+  before it was answered has nothing to show when it comes back. `onCancel` is
+  handed the answers that stand, without any unanswered step's old answer.
+
+- **A step that answers without asking makes Escape look stuck.** Going back to
+  it re-runs it, it answers at once, and the step that pressed Escape is asked
+  again. `group()` cannot tell a step that prompted from one that computed.
+  Detecting whether the step read `back` from what it was handed would be magic.
+  Put a computed value inside the step that uses it.
+- **The screen is a transcript.** The question being left is erased by `stop()`,
+  as on a cancel. The earlier step's settled line stays, and the re-asked
+  question is drawn below it. Erasing upward is not done: the region gave those
+  rows back at `done()`, nothing records how many there were, and a log line or a
+  spinner may have written below them since.
+- **How it is pinned.** `test/components/prompt-value.test.ts` has three tables
+  over all 22 prompts: answers with `value` on the submit key alone (each `value`
+  is chosen so that it is not where the prompt would have opened anyway), rejects
+  with a `PromptBack` on Escape when given `back` and leaves an empty screen, and
+  ignores Escape without it. Further cases cover the drop rule per prompt, the
+  footer listing, Alt-x and Shift-Tab not being Escape, and the types.
+  `test/components/group.test.ts` has the back step, the dependent-answer rule
+  with a scripted step, a real `text`/`select`/`confirm` flow driven with Escape,
+  and the type of `step`. `demos/components/42-group-back.js` changes the first
+  answer, so the second list drops an old answer it no longer offers.

@@ -3,6 +3,7 @@ import { discoverApp, readAppCommands } from '../../src/build/discover.js';
 import { parseModule } from '../../src/build/parse-module.js';
 import { resolveCommandTree } from '../../src/build/tree.js';
 import { readSigilConfig } from '../../src/config.js';
+import { tempDir } from '../temp.js';
 import { spawnSync } from 'node:child_process';
 import {
   cpSync,
@@ -279,7 +280,7 @@ describe('two builds of one app at once', () => {
 
 describe('bundling an app', () => {
   beforeAll(async () => {
-    out = mkdtempSync(join(tmpdir(), 'sigil-build-'));
+    out = tempDir('sigil-build-');
 
     const found = discoverApp(app);
     const declared = readAppCommands(found);

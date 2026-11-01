@@ -1,8 +1,8 @@
 /**
  * Tasks side by side, subtasks under a parent, a retry, and a failure policy.
  *
- *   node demos/components/42-concurrent-tasks.js
- *   node demos/components/42-concurrent-tasks.js | cat     <- the same run, with no terminal
+ *   node demos/components/43-concurrent-tasks.js
+ *   node demos/components/43-concurrent-tasks.js | cat     <- the same run, with no terminal
  *
  * `tasks()` with a `concurrency` runs that many at once, each with a row of its
  * own -- in one live region, driven by one clock, so the rows never evict each

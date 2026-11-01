@@ -62,6 +62,12 @@ export interface PathOptions extends PromptOptions {
   hidden?: boolean;
   /** What the field starts with. */
   initial?: string;
+  /**
+   * An answer to start from: the field opens holding it, as it does `initial`,
+   * which it beats. An answer is absolute when `root` was given, and a field that
+   * starts with an absolute path completes from there like any other.
+   */
+  value?: string;
   /** Shown dimmed when nothing has been typed. */
   placeholder?: string;
   /**
@@ -452,7 +458,7 @@ export function path(opts: PathOptions): Promise<string> {
    */
   const cache = entryCache();
 
-  let value = opts.initial ?? '';
+  let value = typeof opts.value === 'string' ? opts.value : (opts.initial ?? '');
   let cursor = value.length;
   let active = -1;
   let start = 0;

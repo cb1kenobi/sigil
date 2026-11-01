@@ -1,4 +1,3 @@
-import { tmp } from '../src/paths.js';
 import {
   check,
   githubChecker,
@@ -9,16 +8,25 @@ import {
 import { cacheFileName, distTagsURL } from '../src/updates/registry.js';
 import { workerSource } from '../src/updates/worker-source.js';
 import { WORKER_ARGV, WORKER_ENTRY } from '../src/updates/worker.js';
+import { tempDir } from './temp.js';
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 
+/**
+ * A cache directory of the test's own, removed once the file has finished.
+ *
+ * It used to be a path under a shared `test-sigil/` in tmpdir that nothing ever
+ * removed, so every run added five more to it. A fire-and-forget check's worker
+ * can still be writing when the file finishes, and that is safe: the worker
+ * does not create the directory, so a write that lands after the removal fails
+ * in the worker and leaves nothing behind.
+ */
 async function generateTmpDir() {
-  return tmp('test-sigil', randomUUID().slice(0, 8)) as string;
+  return tempDir('sigil-updates-');
 }
 
 /**

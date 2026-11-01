@@ -48,6 +48,12 @@ export interface DateOptions extends PromptOptions {
    * quiet move to the nearest bound.
    */
   initial?: Date;
+  /**
+   * An answer to start from: where the field starts, beating `initial` and taken
+   * as it is the same way. One that is not a valid date is dropped rather than
+   * refused, leaving `initial` to decide.
+   */
+  value?: Date;
   /** The earliest answer, inclusive at the precision shown. */
   min?: Date;
   /** The latest answer, inclusive at the precision shown. */
@@ -202,7 +208,11 @@ export function date(opts: DateOptions): Promise<Date> {
   }
 
   const start = bounded(partsOf(new Date()));
-  let parts: Parts = opts.initial ? partsOf(opts.initial) : start;
+  // a starting answer that is not a date is dropped rather than refused, for the
+  // reason `number()` drops one: it is an answer handed back, not an option
+  const given =
+    opts.value instanceof Date && !Number.isNaN(opts.value.getTime()) ? opts.value : opts.initial;
+  let parts: Parts = given ? partsOf(given) : start;
   let focus = 0;
   let pending = '';
   let error: string | undefined;
