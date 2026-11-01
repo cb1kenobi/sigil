@@ -365,6 +365,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/36-select-row.js`](components/36-select-row.js)                             | An interactive table: pick a row, sort by a column                       |
 | [`components/37-clock.js`](components/37-clock.js)                                       | A stopwatch beside a spinner, and a countdown before an action           |
 | [`components/38-spinners.js`](components/38-spinners.js)                                 | Every spinner frame set in the package, and the ASCII fallback           |
+| [`components/39-tree.js`](components/39-tree.js)                                         | A tree printed with guides, a prompt over one, and a directory tree      |
 | [`components/40-pager.js`](components/40-pager.js)                                       | A pager: `less` keys, line numbers, and `/` search with highlights       |
 | [`components/41-collapsible.js`](components/41-collapsible.js)                           | A section that opens and closes, and an accordion of them                |
 
@@ -442,6 +443,16 @@ at `Deployed`.
 at its own interval, and then one spinner with `ascii: true`, which is what a
 terminal that cannot draw braille gets by default. Piped, a spinner draws no
 frames, so it is one line per set and does not wait.
+
+`39-tree.js` prints trees as strings first -- a root with its children hung from
+it, the rounded guide numbered with `outline()`'s enumerators, an item wrapping
+with its guide carried down beside it, and the ASCII fallback -- so that half is
+the same on a pipe. The rest is prompts, so piped it drives `selectTree()` and
+`directoryTree()` with a scripted keyboard and prints the screen after each key: a
+branch whose children are read when it opens, Right stepping in and Left coming
+back out, and a directory tree reading `src/` only once it is opened. On a terminal
+it asks for a region out of a tree of continents and then for a file under the
+working directory.
 
 `40-pager.js` pages a made-up changelog on the whole screen with line numbers on,
 or any file named on the command line, and gives the screen back on `q`. Piped, it

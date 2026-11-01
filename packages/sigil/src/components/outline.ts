@@ -210,9 +210,14 @@ function styled(style: OutlineStyle, position: number, ascii: boolean): string {
   }
 }
 
-/** One item, read: its text, and what is nested under it. */
-interface Entry {
-  items: readonly Entry[];
+/**
+ * One item, read: its text with escape sequences dropped, and what is nested under
+ * it. What `outlineEntries()` produces, and what `outlineMarkers()` numbers --
+ * `tree()` reads its items through the same two, so a list and a tree agree about
+ * what an item is and how one is numbered.
+ */
+export interface OutlineEntry {
+  items: readonly OutlineEntry[];
   text: string;
 }
 
@@ -220,12 +225,13 @@ interface Entry {
  * Reads the items a caller wrote into the shape the rest of this uses.
  *
  * Done once and up front, so a malformed entry throws before anything is laid out
- * and with the same words however deep it was.
+ * and with the same words however deep it was. Exported because `tree()` takes the
+ * same items and must refuse the same malformed ones with the same words.
  *
  * @param items - What the caller passed.
  * @returns The entries.
  */
-function read(items: readonly OutlineItem[]): Entry[] {
+export function outlineEntries(items: readonly OutlineItem[]): OutlineEntry[] {
   if (!Array.isArray(items)) {
     throw new TypeError(__`Expected items to be an array`);
   }
@@ -236,7 +242,10 @@ function read(items: readonly OutlineItem[]): Entry[] {
     if (item === null || typeof item !== 'object' || typeof item.text !== 'string') {
       throw new TypeError(__`Expected each item to be a string or an object with a text string`);
     }
-    return { items: item.items === undefined ? [] : read(item.items), text: strip(item.text) };
+    return {
+      items: item.items === undefined ? [] : outlineEntries(item.items),
+      text: strip(item.text),
+    };
   });
 }
 
@@ -247,7 +256,7 @@ function read(items: readonly OutlineItem[]): Entry[] {
  * @param depth - How deep the list is.
  * @returns The enumerator.
  */
-function enumeratorAt(opts: OutlineOptions, depth: number): OutlineEnumerator {
+function enumeratorAt(opts: OutlineMarkerOptions, depth: number): OutlineEnumerator {
   const given = opts.enumerator;
   if (given === undefined) {
     return DEFAULT_ENUMERATOR[depth % DEFAULT_ENUMERATOR.length];
@@ -261,11 +270,16 @@ function enumeratorAt(opts: OutlineOptions, depth: number): OutlineEnumerator {
   return given as OutlineEnumerator;
 }
 
+/** The part of the options a marker is drawn from, which `tree()` shares. */
+export type OutlineMarkerOptions = Pick<OutlineOptions, 'enumerator' | 'start'>;
+
 /**
  * The markers of one list, drawn on one line each and as wide as the widest.
  *
  * Padded on the left so that a counting list lines up on its full stops:
- * `9.` over `10.` would otherwise start its text a column apart.
+ * `9.` over `10.` would otherwise start its text a column apart. Exported for
+ * `tree()`, whose `enumerator` is this one: the same names, the same function, the
+ * same cycling by depth.
  *
  * @param entries - The list.
  * @param depth - How deep it is.
@@ -273,10 +287,10 @@ function enumeratorAt(opts: OutlineOptions, depth: number): OutlineEnumerator {
  * @param ascii - Whether to keep to ASCII.
  * @returns The markers, and the width of the column they make.
  */
-function markers(
-  entries: readonly Entry[],
+export function outlineMarkers(
+  entries: readonly OutlineEntry[],
   depth: number,
-  opts: OutlineOptions,
+  opts: OutlineMarkerOptions,
   ascii: boolean
 ): { column: number; drawn: string[] } {
   const enumerator = enumeratorAt(opts, depth);
@@ -313,12 +327,12 @@ function markers(
  * @returns The list, as a tree.
  */
 function listNode(
-  entries: readonly Entry[],
+  entries: readonly OutlineEntry[],
   depth: number,
   opts: OutlineOptions,
   ascii: boolean
 ): Element {
-  const { column, drawn } = markers(entries, depth, opts, ascii);
+  const { column, drawn } = outlineMarkers(entries, depth, opts, ascii);
 
   return box(
     { class: 'sigil-outline-list', 'flex-direction': 'column' },
@@ -378,7 +392,7 @@ export function outlineView(
   items: readonly OutlineItem[],
   opts: OutlineOptions = {}
 ): { element: Element; width: number } {
-  const entries = read(items);
+  const entries = outlineEntries(items);
   const indent = Math.max(0, Math.floor(opts.indent ?? 0));
   const room = Math.max(
     MIN_WIDTH,
@@ -461,7 +475,7 @@ export function createOutline(
   const base = { ...opts, terminal };
   const shown = new State<readonly OutlineItem[]>(items);
   // read now, so that a malformed list throws where it was handed over
-  read(items);
+  outlineEntries(items);
 
   let current = items;
   let mounted: Mounted | undefined;
@@ -504,7 +518,7 @@ export function createOutline(
     },
 
     update(next: readonly OutlineItem[]): void {
-      read(next);
+      outlineEntries(next);
       if (ended) {
         return;
       }

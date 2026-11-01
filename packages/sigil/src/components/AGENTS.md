@@ -6894,3 +6894,116 @@ does.
   the content is read once, and a `ScrollRows.count` that grows while nobody is
   scrolling is the re-sync the scroll box records as a later tier; marks; `&` to
   filter to matching lines; a horizontal scrollbar for `wrap: false`.
+
+### A tree: `tree()`, `selectTree()` and `directoryTree()`
+
+`src/components/tree.ts`. SIG-182. What Lip Gloss's `tree` prints and what
+Textual's `Tree` and `DirectoryTree` are: nested data drawn with `├──` and `└──`,
+a prompt that opens and closes branches whose children may be read on demand, and
+that prompt over a directory.
+
+- **Both halves shipped in one change, because the interactive one is a list
+  prompt.** The ticket asked whether to ship the static form first and file the
+  interactive one separately. It did not need to be: a tree you pick from is rows
+  rebuilt per draw for a window, a cursor, and keys -- `runPrompt()`,
+  `listWindow()` and `promptRowCap()`, exactly the machinery `filePicker()` and
+  `selectRow()` stand on -- and the directory half is `entryCache()` and
+  `candidatesOf()` from `path.ts`. Nothing below the components layer moved. What
+  the ticket called "a widget with focus" is a prompt here, as every interactive
+  list in this directory is; a focusable element in a full-screen app is a
+  different shape, and an app that has one builds it from `treeView()` and its
+  own `onKey`.
+- **"Rounded" and "plain" are guides, not enumerators, and `enumerator` is
+  `outline()`'s, unchanged.** The second open question asked for enumerator styles
+  shared with the list ticket. In `outline()`'s vocabulary an enumerator is what
+  numbers or bullets an item; the lines a tree draws between items are another
+  thing, and calling both `enumerator` would make one option name mean two things
+  on two sibling components. So the lines are `guide: 'plain' | 'rounded'`, and
+  `enumerator` is the same type with the same names, the same `(info) => string`,
+  the same cycling by depth and the same right-alignment, drawn after the guide:
+  `├── 1. Install`. It is shared by **code**, not by copy: `outlineMarkers()` and
+  `outlineEntries()` are exported from `outline.ts` and put on the barrel for the
+  registry's reason (an ejected `tree.ts` imports them through
+  `@ttylabs/sigil/components`), so a tree refuses a malformed item with
+  `outline()`'s words and numbers a list the way `outline()` does. Lip Gloss
+  shares one `Enumerator` type between the two and lets a tree draw `I.` in place
+  of `├──`; that is why its list and tree can be mixed and also why a tree drawn
+  with a list's enumerator has continuation lines that no longer line up, and it
+  was not copied.
+- **The items are `outline()`'s, so one value prints either way.** A string, or
+  `{ text, items }`. A list starts at the margin; one object is a root, drawn bare
+  on its own line with its children hung from the margin -- Lip Gloss's
+  `Root()`. `selectTree()` reads the same shape and adds what a prompt needs:
+  `value`, `expanded`, and `items` as a function.
+- **The static tree is laid out line by line, not as nested boxes, which is the one
+  way it parts from `outline()`.** A guide is a column beside an item _and
+  everything under it_ that has to turn into `└──` at the last sibling, and a box
+  beside a body of unknown height cannot be told where. So each item's text is
+  wrapped with `wrap()` to the room its guide leaves, and every line after the
+  first carries that item's guide on down -- `│   ` where siblings follow, spaces
+  where none do. Escape sequences are dropped from the text, by `outline()`'s
+  reader, for `outline()`'s reason.
+- **The runs of a line are `white-space: nowrap`, not `pre`.** A guide below the
+  last sibling is all spaces, and measured: a `pre` text of `'│   '` beside `'x'`
+  renders `│x`, while `nowrap` keeps the four columns. The line is already wrapped,
+  so `nowrap` loses nothing.
+- **Right opens, and on an open branch steps in; Left closes, and on anything
+  else steps out.** Textual's and every file manager's tree. Space toggles. Enter
+  answers with the highlighted node's `value` -- a branch included, because a tree
+  of categories is often asked for a category -- and `leaves: true` makes Enter
+  open and close a branch instead, which is what a file picker wants and what
+  `directoryTree()` sets unless it is asked for a directory.
+- **It draws the SIG-205 key footer, and what it lists follows the highlight.**
+  It was written beside that ticket with a hand-written `(enter to pick)` beside
+  the question, which is one of the hints SIG-205 retired, so it took the footer
+  when the two met rather than bringing the key back. Enter is `pick`, or
+  `toggle` on a branch under `leaves`, where picking is not what it does; Space
+  is listed only on a branch, since on a leaf it does nothing, and folds with
+  Enter as `space/enter toggle` when both toggle. The arrows are answered and not
+  listed, by the rule every list prompt keeps -- Left and Right included, which
+  is what every file manager's tree does with them. The keys are a `promptKeys()`
+  table rather than a chain of `k.name` tests, so they are matched modifiers and
+  all, and Left is still the one key that does not wait for an open branch to be
+  read. The window is one row shorter for the footer, which moved the window test
+  by exactly that row.
+- **A function for `items` is called the first time its branch opens, and what it
+  returns is kept.** Collapsing and reopening does not call it again, which is
+  `entryCache()`'s once-per-directory rule and its price: something added after the
+  read is not seen. It is called through a `then`, so a function that throws before
+  returning a promise is a rejection like any other. A rejection closes the branch,
+  shows the message under the question, and is **not** kept: the next Right calls
+  it again, because a branch that failed once (a permission, a network) is the one
+  most worth retrying, and a cached failure would leave it closed for good.
+- **Keys that move or answer wait for an open branch on screen to be read; Left
+  does not.** `filePicker()`'s rule carried over. A Right and a Down typed together
+  land on the first child of what Right opened rather than on the next sibling,
+  because the children are what the Down implied; and Left is the key that gets
+  away from a read that has stalled, so it never waits. A branch closed while its
+  read is in flight is not waited for -- its children would not be on screen --
+  so closing a stalled branch is a way out rather than a way to wedge every later
+  key. `should not hold Left behind a branch that is slow to read` and `should land
+  a Down typed behind a Right on the first child of what it opened` are the two
+  checks; awaiting before Left fails the first and not awaiting fails the second.
+  An open branch still being read is drawn with a trailing `…`.
+- **The highlight is a node, not an index.** A read landing above the cursor, or
+  a branch opening above it, moves rows; the cursor stays on the thing it was on.
+  When what it was on is no longer on screen it falls to the first row.
+- **A branch is a node with `items`, even an empty array.** It draws `▸`, opens to
+  nothing, and is still a branch -- an empty directory is a directory. A node with
+  no `items` is a leaf and draws two spaces where the toggle would be, so leaf and
+  branch text line up.
+- **A hand-built window rather than a `ScrollBox`**, for `filePicker()`'s reason:
+  the rows change wholesale as branches open, so no row stays attached to a node,
+  and a prompt is not mounted in a full-screen canvas.
+- **`directoryTree()` is `selectTree()` and nothing else.** A root node, open, whose
+  `items` is a function that loads the directory through `entryCache()` and filters
+  it through `candidatesOf()` -- so `directory`, `extensions` and `hidden` mean what
+  they mean in `path()` and `filePicker()`, directories come first, and a directory
+  that cannot be read has nothing in it. Each directory is read only when it
+  opens, which a test pins by watching `readdir`. The root row is the root's own
+  name and the answer is an absolute path; in `directory` mode the root is a row
+  like any other, so the directory you started in can be the answer.
+- **Not done:** a `.` key to show dotfiles while open (it would mean refiltering
+  every directory already read); a live `createTree()` (`outline()` has one because
+  its ticket asked for one; this one did not); several answers; typing to filter;
+  a guide style past `plain` and `rounded`, which is one more row in a table.

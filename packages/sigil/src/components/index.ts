@@ -68,9 +68,13 @@ export {
   createOutline,
   outline,
   type Outline,
+  type OutlineEntry,
+  outlineEntries,
   type OutlineEnumerator,
   type OutlineItem,
   type OutlineMarkerInfo,
+  type OutlineMarkerOptions,
+  outlineMarkers,
   type OutlineOptions,
   type OutlineStyle,
   outlineView,
@@ -92,6 +96,22 @@ export {
 } from './paginator.js';
 export { sort, type SortOptions } from './sort.js';
 export { toggle, type ToggleOptions } from './toggle.js';
+export {
+  directoryTree,
+  type DirectoryTreeOptions,
+  selectTree,
+  type SelectTreeOptions,
+  tree,
+  type TreeChildren,
+  type TreeChoice,
+  type TreeChoiceItem,
+  treeGlyphs,
+  type TreeGlyphs,
+  type TreeGuide,
+  type TreeOptions,
+  type TreeRoot,
+  treeView,
+} from './tree.js';
 export {
   type KeyChoice,
   type KeyChoiceEntry,
