@@ -223,7 +223,7 @@ describe('editor()', () => {
     const ui = screenSetup({ columns: 300, rows: 6 });
     // a byte order mark and CRLF, which is what Notepad has written, and two
     // trailing breaks -- one is the file's, the other was typed
-    const ed = fake({ write: '﻿one\r\ntwo\r\n\r\n' });
+    const ed = fake({ write: '\uFEFFone\r\ntwo\r\n\r\n' });
     const answer = settle(open(ui, ed));
 
     await tick();

@@ -257,7 +257,11 @@ interface Edited {
  * @returns How the editor exited, and what was saved if it exited cleanly.
  */
 async function edit(command: string, content: string, postfix: string): Promise<Edited> {
-  const dir = mkdtempSync(join(tmpdir(), 'sigil-editor-'));
+  // `sigil.` rather than `sigil-`, because a `sigil-` token in a component's
+  // source is read as a class it draws with -- by the theme test that holds the
+  // framework sheet to every class a built-in uses, and by the registry's
+  // `classes` list -- and a directory name is not one
+  const dir = mkdtempSync(join(tmpdir(), 'sigil.editor-'));
   const release = hold(dir);
   try {
     const file = join(dir, `edit${postfix}`);
@@ -287,7 +291,7 @@ async function edit(command: string, content: string, postfix: string): Promise<
  * @returns The answer.
  */
 function answerOf(saved: string): string {
-  const text = saved.replace(/^﻿/, '').replaceAll('\r\n', '\n');
+  const text = saved.replace(/^\uFEFF/, '').replaceAll('\r\n', '\n');
   return text.endsWith('\n') ? text.slice(0, -1) : text;
 }
 
