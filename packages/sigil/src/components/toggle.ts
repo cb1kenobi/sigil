@@ -43,6 +43,12 @@ export interface ToggleOptions extends PromptOptions {
   inactive?: string;
   /** The state the prompt starts in. Defaults to `false`, which is the left-hand one. */
   initial?: boolean;
+  /**
+   * An answer to start from: the state the prompt opens in, which beats `initial`.
+   * A value that is not a boolean is dropped rather than refused, since it is an
+   * answer handed back rather than an option somebody wrote.
+   */
+  value?: boolean;
 }
 
 /** Names an option that cannot be used, the way `selectKey()` does. */
@@ -97,7 +103,7 @@ export function toggle(opts: ToggleOptions): Promise<boolean> {
   }
 
   const terminal = opts.terminal ?? defaultTerminal;
-  let value = opts.initial ?? false;
+  let value = typeof opts.value === 'boolean' ? opts.value : (opts.initial ?? false);
 
   return runPrompt<boolean>(opts, () => {
     const left = textNode('', { 'flex-shrink': 0, 'margin-right': 2, 'white-space': 'nowrap' });

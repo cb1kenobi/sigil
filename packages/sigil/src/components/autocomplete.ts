@@ -47,6 +47,7 @@ import {
   type PromptOptions,
   PromptError,
   promptRowCap,
+  promptSameValue,
   promptValue,
   promptWindow,
   runPrompt,
@@ -101,11 +102,18 @@ export interface AutocompleteOptions<T> extends PromptOptions {
    * or anything falsy to accept.
    */
   validate?: (value: T) => string | undefined | false | Promise<string | undefined | false>;
+  /**
+   * An answer to start from: the choice whose `value` this is starts highlighted
+   * in the first list on offer -- the one `choices` gives for `initial`, or what
+   * the source answers first. Compared the way a `Map` compares keys, and dropped
+   * when that list does not hold it or a key is pressed before it arrives.
+   */
+  value?: T;
 }
 
 export interface AutocompleteMultiselectOptions<T> extends Omit<
   AutocompleteOptions<T>,
-  'validate'
+  'validate' | 'value'
 > {
   /** Refuse more than this many. Unlimited if omitted. */
   max?: number;
@@ -118,6 +126,14 @@ export interface AutocompleteMultiselectOptions<T> extends Omit<
    * to refuse them with that message, or anything falsy to accept.
    */
   validate?: (values: T[]) => string | undefined | false | Promise<string | undefined | false>;
+  /**
+   * An answer to start from: these values start ticked, and every `selected` is
+   * ignored. From `choices`, a value no choice holds is dropped. From a source,
+   * which has no list to check against until it is asked, each is ticked as it is
+   * -- shown by its own `String()` until the source hands back the choice that
+   * holds it, which then takes its place.
+   */
+  value?: readonly T[];
 }
 
 /** What `search()` needs to know to be a multiselect, and that it is one. */
@@ -263,8 +279,9 @@ export function autocompleteMultiselect<T = string>(
 }
 
 /** The options both prompts are asked with: `validate` takes either answer. */
-type SearchOptions<T> = Omit<AutocompleteOptions<T>, 'validate'> & {
+type SearchOptions<T> = Omit<AutocompleteOptions<T>, 'validate' | 'value'> & {
   validate?: (answer: never) => string | undefined | false | Promise<string | undefined | false>;
+  value?: T | readonly T[];
 };
 
 /**
@@ -304,11 +321,29 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
    * ticked in.
    */
   const ticked = new Map<unknown, Choice<T>>();
-  for (const choice of fixed ?? []) {
-    if (multi && choice.selected) {
-      ticked.set(promptValue(choice), choice);
+  /** Ticks a starting answer made for a source, whose choice has not been seen yet. */
+  const unseen = new Set<unknown>();
+  const given = multi && Array.isArray(opts.value) ? (opts.value as readonly T[]) : undefined;
+  if (given && fixed) {
+    for (const choice of fixed) {
+      if (given.some((value) => promptSameValue(value, promptValue(choice)))) {
+        ticked.set(promptValue(choice), choice);
+      }
+    }
+  } else if (given) {
+    for (const value of given) {
+      ticked.set(value, { label: String(value), value });
+      unseen.add(value);
+    }
+  } else {
+    for (const choice of fixed ?? []) {
+      if (multi && choice.selected) {
+        ticked.set(promptValue(choice), choice);
+      }
     }
   }
+  /** The single prompt's starting answer, until the first list has been offered. */
+  let want = multi ? undefined : (opts.value as T | undefined);
 
   /** The ticked choices in the order they are answered in. */
   const ticks = (): Choice<T>[] => {
@@ -391,7 +426,7 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
         { description: __`confirm`, priority: 3 }
       );
     }
-    const footer = multi ? promptFooter(keys, terminal.width) : undefined;
+    const footer = multi ? promptFooter(keys, terminal.width, opts.back) : undefined;
 
     const view = box(
       { class: 'sigil-prompt sigil-autocomplete', 'flex-direction': 'column' },
@@ -519,6 +554,7 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
           choice: item,
           matched: match.matched,
         }));
+        place();
         return;
       }
 
@@ -545,6 +581,13 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
             .filter(isOffered)
             .map((choice) => ({ choice, matched: [] }));
           active = 0;
+          for (const { choice } of offers) {
+            const key = promptValue(choice);
+            if (unseen.delete(key) && ticked.has(key)) {
+              ticked.set(key, choice);
+            }
+          }
+          place();
           draw();
         },
         (error: unknown) => {
@@ -561,9 +604,27 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
       );
     }
 
+    /**
+     * Puts the highlight on the starting answer, in the first list there is.
+     *
+     * Once: a starting answer says where the prompt opens, and the list a later
+     * term gives is the person's, with the highlight at its top.
+     */
+    function place(): void {
+      if (want === undefined) {
+        return;
+      }
+      const at = offers.findIndex((offer) => promptSameValue(promptValue(offer.choice), want));
+      want = undefined;
+      if (at >= 0) {
+        active = at;
+      }
+    }
+
     /** A new term is a new list, with the highlight back at the top. */
     function changed(): void {
       active = 0;
+      want = undefined;
       refresh();
     }
 

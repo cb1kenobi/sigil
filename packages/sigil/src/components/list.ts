@@ -44,6 +44,13 @@ export interface ListOptions extends PromptOptions {
    * whitespace around it). Unlike `default`, it is not a fallback.
    */
   initial?: string | readonly string[];
+  /**
+   * An answer to start from: the field opens holding it joined with the
+   * separator, which beats `initial`. One that does not survive being joined and
+   * split -- an answer given under another separator, say -- is dropped rather
+   * than refused, leaving `initial`.
+   */
+  value?: readonly string[];
   /** Shown dimmed when nothing has been typed, in place of `default`. */
   placeholder?: string;
   /**
@@ -127,12 +134,18 @@ function refuse(message: string, what: string): Promise<never> {
   return Promise.reject(new PromptError(`"${message}" cannot be asked: ${what}`));
 }
 
+/** Whether two lists hold the same entries in the same order. */
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((item, i) => item === b[i]);
+}
+
 /**
  * Asks for a list.
  *
  * @param opts - What to ask, and what separates the entries.
  * @returns The entries, trimmed, with the empty ones left out.
  */
+
 export function list(opts: ListOptions): Promise<string[]> {
   const terminal = opts.terminal ?? defaultTerminal;
   const separator = opts.separator ?? ',';
@@ -142,14 +155,19 @@ export function list(opts: ListOptions): Promise<string[]> {
   }
 
   let value = '';
-  if (typeof opts.initial === 'string') {
+  // a starting answer that would not come back as itself is dropped rather than
+  // refused: it is an earlier answer handed back, not an option somebody wrote
+  const given = Array.isArray(opts.value) ? (opts.value as readonly string[]) : undefined;
+  const joined = given === undefined ? undefined : joinList(given, separator);
+  if (joined !== undefined && sameList(splitList(joined, separator), given ?? [])) {
+    value = joined;
+  } else if (typeof opts.initial === 'string') {
     value = opts.initial;
   } else if (opts.initial !== undefined) {
     // an array that does not survive its own line is an `initial` the first Enter
     // would change, and the person would see a different list from the one given
     value = joinList(opts.initial, separator);
-    const back = splitList(value, separator);
-    if (back.length !== opts.initial.length || back.some((item, i) => item !== opts.initial?.[i])) {
+    if (!sameList(splitList(value, separator), opts.initial)) {
       return refuse(
         opts.message,
         '`initial` does not survive being joined and split on `separator`'

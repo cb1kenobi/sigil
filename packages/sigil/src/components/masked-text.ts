@@ -98,6 +98,13 @@ export interface MaskedTextOptions extends PromptOptions {
   /** The shape of the answer. A slot character takes input and any other is drawn as it is. */
   template: string;
   /**
+   * An answer to start from: the field opens holding it, read the way `initial`
+   * is, which it beats. One that does not fit the template -- an answer to a
+   * template that has since changed -- is dropped rather than refused, leaving
+   * `initial`.
+   */
+  value?: string;
+  /**
    * Checks the answer, once every slot is filled. Receives the formatted text.
    * Return a string to reject it with that message, or anything falsy to accept.
    */
@@ -350,7 +357,19 @@ export function maskedText(opts: MaskedTextOptions): Promise<string> {
   }
 
   let cursor = 0;
-  if (opts.initial !== undefined) {
+  let took = false;
+  // tried on a scratch copy, so a starting answer that does not fit leaves the
+  // cells as they were and `initial` is read as though it had not been given
+  if (typeof opts.value === 'string') {
+    const scratch: (string | undefined)[] = Array.from({ length: count });
+    const { dropped, next } = fill(mask, scratch, 0, opts.value, true);
+    if (dropped === 0) {
+      cells.splice(0, count, ...scratch);
+      cursor = next;
+      took = true;
+    }
+  }
+  if (!took && opts.initial !== undefined) {
     const { dropped, next } = fill(mask, cells, 0, opts.initial, true);
     if (dropped > 0) {
       return refuse(opts.message, '`initial` has characters that do not fit the template');

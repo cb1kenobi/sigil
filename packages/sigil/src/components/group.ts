@@ -4,7 +4,7 @@ import { __ } from '../i18n/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { mountLevel } from './mount.js';
-import { PromptError } from './prompt.js';
+import { PromptBack, PromptError } from './prompt.js';
 
 /**
  * Whether something a prompt rejected with is a person leaving.
@@ -20,6 +20,44 @@ import { PromptError } from './prompt.js';
  */
 export function isCancel(error: unknown): error is PromptError {
   return error instanceof PromptError && error.aborted;
+}
+
+/**
+ * Whether something a prompt rejected with is a person going back a step.
+ *
+ * Only a prompt asked with `back: true` rejects with one, which `group()` does for
+ * every step after its first -- so this is for an app that runs its own loop over
+ * prompts and wants Escape to mean what it means in a group.
+ *
+ * @param error - Whatever was caught.
+ * @returns `true` for a `PromptBack`.
+ */
+export function isBack(error: unknown): error is PromptBack {
+  return error instanceof PromptBack;
+}
+
+/**
+ * What a group hands a step besides the answers before it: the two options that
+ * let a prompt go back a step and come back to an answer.
+ *
+ * Shaped as prompt options on purpose, so a step spreads it into whatever prompt it
+ * asks -- `text({ message, ...step })` -- and every prompt reads both the same way.
+ * Each is present only when it says something, which is what makes the spread safe
+ * in either position: `{ value: suggestion, ...step }` keeps the suggestion the
+ * first time the step is asked and shows the earlier answer every time after.
+ */
+export interface GroupStep<V> {
+  /** `true` on every step after the first: Escape goes back to the one before. */
+  readonly back?: true;
+  /**
+   * What this step answered last time, when it is being asked again -- because
+   * the person went back to it, or back past it to an earlier one.
+   *
+   * A starting point and never an answer: a step that is asked again is answered
+   * again. A prompt that cannot show it drops it, and a step that knows it no
+   * longer means anything after an earlier answer changed can leave it out.
+   */
+  readonly value?: V;
 }
 
 /**
@@ -40,7 +78,7 @@ export function isCancel(error: unknown): error is PromptError {
  * argument is still inferred.
  */
 export type GroupSteps<T> = {
-  [K in keyof T]: (answers: Partial<Omit<T, K>>) => Promise<T[K]> | T[K];
+  [K in keyof T]: (answers: Partial<Omit<T, K>>, step: GroupStep<T[K]>) => Promise<T[K]> | T[K];
 };
 
 export interface GroupOptions<T> {
@@ -72,27 +110,63 @@ export interface GroupOptions<T> {
  * not told, because "the person left" and "the program is wrong" are different
  * things to report.
  *
- * Going back a step is not offered.
+ * **Escape goes back a step**, in every step after the first that spreads the
+ * {@link GroupStep} it is handed into its prompt. The step before is asked again
+ * with its earlier answer shown, and so is every step after it on the way forward
+ * again: going back never skips a step on the way forward, because a step may
+ * depend on the answer that was just changed and nothing here can tell which ones
+ * do. What each re-asked step is handed as `value` is only a place to start --
+ * still right, it costs one Enter; no longer on offer, the prompt drops it.
  *
  * @param steps - The named steps.
  * @param opts - What to do on a cancel.
  * @returns The answers, keyed by step.
  */
 export async function group<T>(steps: GroupSteps<T>, opts: GroupOptions<T> = {}): Promise<T> {
+  const keys = Object.keys(steps) as (keyof T & string)[];
+  /** The answers of the steps before the one being asked, and nothing else. */
   const answers: Partial<T> = {};
+  /**
+   * What each step answered last, kept across going back. Separate from `answers`
+   * because it is not an answer: a step past the one being asked has not been
+   * answered since everything before it was settled.
+   */
+  const earlier = new Map<keyof T & string, unknown>();
 
-  for (const key of Object.keys(steps) as (keyof T & string)[]) {
+  let at = 0;
+  while (at < keys.length) {
+    const key = keys[at] as keyof T & string;
     const step = steps[key];
     if (typeof step !== 'function') {
       throw new TypeError(`group() step "${key}" must be a function`);
+    }
+
+    // only what is true goes in, so a step can spread it after options of its own
+    // without an `undefined` overwriting them
+    const handed: { back?: true; value?: T[keyof T & string] } = {};
+    if (at > 0) {
+      handed.back = true;
+    }
+    if (earlier.has(key)) {
+      handed.value = earlier.get(key) as T[keyof T & string];
     }
 
     let value: T[keyof T & string];
     try {
       // a copy, so a step that writes to what it was handed cannot change an
       // answer a later step reads
-      value = await step({ ...answers });
+      value = await step({ ...answers }, Object.freeze(handed));
     } catch (error) {
+      // back from the first step is a step that asked for `back` on its own,
+      // where there is nothing to go back to: a bug in the step, so it is left
+      // alone the way any other one is
+      if (isBack(error) && at > 0) {
+        at--;
+        // the step being gone back to is not answered any more; what it said is
+        // still in `earlier`, which is where its re-ask reads it from
+        delete answers[keys[at] as keyof T & string];
+        continue;
+      }
       if (!isCancel(error)) {
         throw error;
       }
@@ -109,6 +183,8 @@ export async function group<T>(steps: GroupSteps<T>, opts: GroupOptions<T> = {})
       value,
       writable: true,
     });
+    earlier.set(key, value);
+    at++;
   }
 
   return answers as T;

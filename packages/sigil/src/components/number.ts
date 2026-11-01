@@ -50,6 +50,13 @@ export interface NumberOptions extends PromptOptions {
   float?: boolean;
   /** What the field starts with, editable. Unlike `default`, it is not a fallback. */
   initial?: number;
+  /**
+   * An answer to start from: the field opens holding it, as it does `initial`,
+   * which it beats. One the field could not hold -- not finite, or a fraction
+   * without `float` -- is dropped rather than refused, leaving `initial`. One out
+   * of range is kept, and Enter says so, as it does for an `initial`.
+   */
+  value?: number;
   /** The largest answer. Up stops here, and Enter above it is an error. */
   max?: number;
   /**
@@ -135,7 +142,16 @@ export function number(opts: NumberOptions): Promise<number> {
   }
 
   const signed = min === undefined || min < 0;
-  let value = opts.initial === undefined ? '' : (format(opts.initial) ?? '');
+  // a starting answer is an earlier answer handed back, which may have been given
+  // to a question that has since changed -- so one this field cannot hold is
+  // dropped rather than refused the way the options above are
+  const given =
+    typeof opts.value === 'number' &&
+    Number.isFinite(opts.value) &&
+    (float || Number.isSafeInteger(opts.value))
+      ? opts.value
+      : opts.initial;
+  let value = given === undefined ? '' : (format(given) ?? '');
   let cursor = value.length;
   let error: string | undefined;
   /** The first row on screen, for the answer too long for the room. */

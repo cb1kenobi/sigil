@@ -34,6 +34,7 @@ import {
   promptNote,
   type PromptOptions,
   PromptError,
+  promptSameValue,
   promptValue,
   runPrompt,
   setPromptNote,
@@ -67,6 +68,12 @@ export interface GroupMultiselectOptions<T> extends PromptOptions {
    * be ticked.
    */
   selectableGroups?: boolean;
+  /**
+   * An answer to start from: exactly the choices on offer whose `value` is in it
+   * start ticked, and every `selected` is ignored -- what `multiselect()` does with
+   * one. A value no choice on offer holds is dropped.
+   */
+  value?: readonly T[];
 }
 
 /** One line of the list: a group, or a choice under one. */
@@ -152,9 +159,15 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
 
   const loop = opts.loop ?? true;
   const terminal = opts.terminal ?? defaultTerminal;
-  // a disabled choice is never ticked, whatever `selected` says
+  // a disabled choice is never ticked, whatever `selected` or a starting answer says
+  const given = Array.isArray(opts.value) ? (opts.value as readonly T[]) : undefined;
   const ticked = new Set<number>(
-    options.filter((i) => (rows[i] as Extract<Row<T>, { kind: 'option' }>).choice.selected)
+    options.filter((i) => {
+      const { choice } = rows[i] as Extract<Row<T>, { kind: 'option' }>;
+      return given
+        ? given.some((value) => promptSameValue(value, promptValue(choice)))
+        : choice.selected;
+    })
   );
   let active = offeredRows[0];
   let error: string | undefined;
@@ -334,7 +347,7 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
       { description: __`confirm`, priority: 3 }
     );
 
-    const footer = promptFooter(keys, terminal.width);
+    const footer = promptFooter(keys, terminal.width, opts.back);
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,

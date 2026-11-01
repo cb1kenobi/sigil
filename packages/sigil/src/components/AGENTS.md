@@ -4684,8 +4684,9 @@ SIG-160. `src/components/group.ts` is the whole of it: `group()`, `isCancel()`,
   an opt-in), so one here would be the first rather than the pattern.
 - **Deliberately not done.** Going back a step -- it needs a step to be re-asked
   with its old answer shown, which no prompt can do without an `initial` the
-  existing ones do not take, and they are not edited here. Blank lines around the
-  frame, so a session adds no rows beyond the three it writes.
+  existing ones do not take, and they are not edited here. (SIG-204 did both; see
+  "Going back a step" below, and note it is `value` rather than `initial`.) Blank
+  lines around the frame, so a session adds no rows beyond the three it writes.
 
 ### A note: a titled, bordered block
 
@@ -7137,3 +7138,161 @@ const { resync, viewport } = scrollControl(host);
   `resync()` moved above the refold, and left out; the pager's scroll-time prune
   and status redraw each removed; and the caller's `onResize` skipped where the
   sync said yes.
+
+### Going back a step: `value` on every prompt, and Escape in a group
+
+SIG-204. `group()` goes back a step on Escape. The work was not in `group()`: going
+back means asking a question again with its answer already given, and there was no
+one way to say "start from this answer" to a prompt. Every value-answering prompt
+takes a `value` now, `run()` reads a `back` option, and a step is handed both.
+
+- **One option on every prompt, named `value`, typed as the prompt's answer.** The
+  alternative was each prompt's own existing option, with `group()` knowing the
+  mapping -- `default` for `text()`, an index `initial` for `select()`, `selected`
+  per choice for `multiselect()`. Refused because `group()` never sees the prompt:
+  a step is an arbitrary function, so the only thing a group can hand it is
+  something the step passes on, and that only works if one spelling means the
+  same thing to whichever prompt the step asks. An app that runs its own loop
+  needs the same thing. `value` is it: `text({ ...step })` and
+  `select({ ...step })` read it the same way.
+- **Not `initial`, because `initial` already means two things.** It is an index on
+  `select()`, `multiselect()`, `sort()` and `selectRow()`, and the starting text or
+  state on `multiline()`, `number()`, `date()`, `pickDate()`, `list()`,
+  `maskedText()`, `path()`, `toggle()` and `autocomplete()` (where it is filter
+  text, not the answer). Making it uniform would have changed the index ones to
+  take a value, which on a `select<number>()` cannot be told apart at runtime: an
+  app passing `initial: 2` as an index would silently start on the choice whose
+  value is 2. `initial` and `selected` keep what they meant, and `value` beats
+  them. Where `initial` already was the answer (number, date, toggle, ...) the two
+  overlap, and that redundancy is the cost of not breaking the index ones. `value`
+  follows the HTML control's attribute, and on a choice list it lines up with
+  `Choice.value`: the option names the choice by what it answers with. No option
+  was renamed and no existing option changed meaning, so nothing breaks.
+- **A choice is found by `promptSameValue()`, which compares the way a `Map`
+  compares keys.** That is how `autocompleteMultiselect()` already told ticks
+  apart, so it is the existing rule rather than a new one. Objects match only
+  themselves, so a step that builds fresh choice objects every time it runs has
+  answers that cannot be found again. Deep equality was not added: the answer
+  already holds whatever the caller put in `value`, and a primitive or a stable
+  object is how to make it findable. `selectRow()` finds its row by identity for
+  the same reason.
+- **A `value` the prompt cannot show is dropped, not refused, and that differs
+  from `initial` on purpose.** `list()` and `maskedText()` refuse an `initial` that
+  does not round-trip or fit, `toggle()` refuses a non-boolean, and `number()`
+  refuses a fraction without `float`. A `value` falls back to what the prompt
+  would have opened on in all of those cases, and on a choice list when no choice
+  on offer holds it (a disabled one does not count). An `initial` is something
+  somebody wrote, so a bad one is a bug. A `value` is usually an earlier answer to
+  a question that has changed since, so a bad one is the expected case when going
+  back, and refusing it would make Escape throw. The one thing still refused is an
+  `initial` that is itself wrong (`selectKey()`'s `initial` naming no key), even
+  beside a `value` that is fine.
+- **What each prompt does with it.** Fields open holding it with the caret at the
+  end (`text()` flattens a line break the way a paste is flattened). `confirm()`
+  reads it as what Enter alone means, so on that prompt it is `default` under a
+  second name. On the multiselects it replaces every `selected`, and `[]` means
+  nothing is ticked. `sort()` puts the rows it names first, in its order, and the
+  rest after them in theirs, so a row added since the last answer lands last and a
+  pinned row stays put. `selectKey()` makes it the choice Enter takes.
+  `selectTree()` highlights the node and opens the branches above it, but reads no
+  lazy branch to look for it, so a node under an unread branch is found only once
+  something opens that branch. `directoryTree()` opens the directories on the
+  path, because the path says which ones they are. A key typed before those reads
+  land waits for them, the value is placed, and only then does the key act, which
+  is `filePicker()`'s rule. The first version dropped the value on any key and
+  acted on the row the key arrived on, so an Enter typed early closed the root
+  and the prompt never answered: the timeout CI hit on Windows and on one Ubuntu
+  job. Left waits for nothing, so it drops the value at once. After any key has
+  acted, a read that turns up the value later does not move the cursor. `filePicker()` opens in the
+  directory that holds the value and goes back to `root` if that directory no
+  longer has it, and `confine` applies. `autocomplete()` highlights it in the
+  first list it offers. On a source, `autocompleteMultiselect()` ticks values it
+  has never been shown, labelled by `String()` until the source returns the
+  choice that holds them. Otherwise the answer would lose ticks nobody removed.
+- **`commandPalette()` takes neither option, and the types say so.** It is not
+  asked for a value: it dispatches, and Escape already dismisses it.
+  `PaletteOptions` omits `back`. If it did not, `run()` would take Escape before
+  the palette could dismiss.
+- **The back key is Escape, and only for a prompt asked with `back: true`.**
+  Shift-Tab is the usual "previous field" key, and it was the obvious candidate.
+  `date()` uses it to go back a segment and `toggle()` uses it to flip, so taking
+  it would have cost two prompts a key whenever they ran in a group. A chord, such
+  as Ctrl-B, is a key nobody would try. No prompt reads Escape ("Escape does
+  nothing in any prompt here"), so taking it costs nothing. "Close this and return
+  to where I was" is also what Escape already means to the palette and the pager.
+  The earlier decision stands everywhere `back` is not set: a lone prompt still
+  ignores Escape, autocomplete still does not answer `undefined`, and sort still
+  does not put a carried row back. Inside a group, Escape while carrying a row
+  goes back a step and drops the carry.
+- **`run()` takes it, before the prompt's own keys, the way Ctrl-C is taken.** It
+  does not wait in the one-key queue, since giving up needs nothing from the
+  state. It matches only a bare Escape, because Alt-x arrives as `ESC x`. In
+  `multiline()` with an Alt-Enter submit, Escape and then Enter pressed more than
+  `ESCAPE_TIMEOUT` apart is now a back and then a newline. That case is accepted:
+  it only arises in a group, and the Alt-Enter spelling still submits.
+- **It rejects with `PromptBack`, which is not a `PromptError`.** The person has
+  not left and the program is not miswired, which are the two things
+  `PromptError` reports. A `catch` that reads every `PromptError` as "give up"
+  must not swallow a back, so `isCancel()` is false for it. `isBack()` sits beside
+  `isCancel()` for an app's own loop. Resolving with a sentinel was refused for
+  the reason SIG-160 refused one for cancel: it changes every prompt's return
+  type.
+- **It is listed where a footer is drawn, from the same flag `run()` reads.**
+  `promptFooter(keys, columns, back)` appends `esc back` at priority 1, so it is
+  dropped before Space and Enter. It is added to what the footer reads rather than
+  registered in the key table, because a table entry would be a handler that can
+  never run, since `run()` takes Escape first. `text()`, `select()` and
+  `confirm()` draw no footer, so nothing there names the key. The README says to
+  mention it, and growing a footer under every question was SIG-205's call and is
+  not reopened here.
+- **A step is handed `(answers, step)`, and `step` is prompt options.** It is
+  `{ back?: true, value?: T[K] }`, frozen, and each key is present only when it
+  says something. That makes the spread safe on either side:
+  `{ value: suggestion, ...step }` opens on the suggestion the first time and on
+  the earlier answer after that, where an `undefined` would have overwritten the
+  suggestion. `back` is absent on the first step, so Escape there does nothing. A
+  `PromptBack` from the first step can only come from a step that asked for `back`
+  on its own; it is rethrown untouched as a bug, rather than re-asked, which could
+  loop forever. Making the answers argument `Partial<T>` so a step could read its
+  own key was the alternative. It was refused because it mixes "an answer" with
+  "what I said last time", and the type test that a step cannot read its own
+  answer still holds.
+- **The dependent-answer rule: going back never skips a step on the way forward,
+  and an old answer is a suggestion, never an answer.** After going back from
+  step k to step j, every step from j to k is asked again, each handed what it
+  last answered as `value`. `answers` holds only the steps before the one being
+  asked, so a re-asked step never sees an answer given after it. Two
+  alternatives were refused:
+  - Keeping later answers that "still hold", so forward skips them. `group()`
+    cannot tell which steps read the answer that changed, and keeping one that
+    did returns an answer the person never confirmed against the new earlier one.
+  - Clearing later answers. That throws away work on every step that did not
+    depend on the change.
+
+  A suggestion that still holds costs one Enter. One that no longer does is
+  dropped by the prompt: a list that lost the choice, a mask that changed. A
+  step that knows its old answer means nothing now has both answers in hand and
+  can leave `value` out. Only answers are remembered: a step left with Escape
+  before it was answered has nothing to show when it comes back. `onCancel` is
+  handed the answers that stand, without any unanswered step's old answer.
+
+- **A step that answers without asking makes Escape look stuck.** Going back to
+  it re-runs it, it answers at once, and the step that pressed Escape is asked
+  again. `group()` cannot tell a step that prompted from one that computed.
+  Detecting whether the step read `back` from what it was handed would be magic.
+  Put a computed value inside the step that uses it.
+- **The screen is a transcript.** The question being left is erased by `stop()`,
+  as on a cancel. The earlier step's settled line stays, and the re-asked
+  question is drawn below it. Erasing upward is not done: the region gave those
+  rows back at `done()`, nothing records how many there were, and a log line or a
+  spinner may have written below them since.
+- **How it is pinned.** `test/components/prompt-value.test.ts` has three tables
+  over all 22 prompts: answers with `value` on the submit key alone (each `value`
+  is chosen so that it is not where the prompt would have opened anyway), rejects
+  with a `PromptBack` on Escape when given `back` and leaves an empty screen, and
+  ignores Escape without it. Further cases cover the drop rule per prompt, the
+  footer listing, Alt-x and Shift-Tab not being Escape, and the types.
+  `test/components/group.test.ts` has the back step, the dependent-answer rule
+  with a scripted step, a real `text`/`select`/`confirm` flow driven with Escape,
+  and the type of `step`. `demos/components/42-group-back.js` changes the first
+  answer, so the second list drops an old answer it no longer offers.

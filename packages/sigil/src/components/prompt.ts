@@ -64,6 +64,25 @@ export class PromptError extends Error {
   }
 }
 
+/**
+ * Thrown when a prompt asked with `back` is left with Escape, to go back a step.
+ *
+ * Not a {@link PromptError}, because it is neither of the two things that is: the
+ * person has not left and the program is not wired wrong. They asked to see the
+ * question before this one again, which is a request to whatever is asking the
+ * questions -- `group()`, or an app's own loop -- and a `catch` that reads every
+ * `PromptError` as "give up" must not read it as that.
+ *
+ * Only a prompt given `back: true` throws one, so code that never asks for it never
+ * sees one.
+ */
+export class PromptBack extends Error {
+  constructor(message: string = __`Went back`) {
+    super(message);
+    this.name = 'PromptBack';
+  }
+}
+
 /** A choice offered by `select()` and `multiselect()`. */
 export interface Choice<T = unknown> {
   /**
@@ -112,6 +131,17 @@ export function separator(label = '────────'): Separator {
 }
 
 export interface PromptOptions extends MountOptions {
+  /**
+   * Whether Escape leaves the prompt to go back a step. Defaults to `false`, where
+   * Escape does nothing, as it always has.
+   *
+   * Given, Escape rejects with a {@link PromptBack} and takes the prompt off the
+   * screen, the way Ctrl-C does with a `PromptError`. It is what `group()` hands
+   * every step after its first, and it is checked before the prompt's own keys, so
+   * no prompt can take Escape back from it. A prompt that draws a key-help footer
+   * lists it there.
+   */
+  back?: boolean;
   /** What is being asked. */
   message: string;
   /**
@@ -158,11 +188,19 @@ export interface TextOptions extends PromptOptions {
    * anything falsy to accept.
    */
   validate?: (value: string) => string | undefined | false | Promise<string | undefined | false>;
+  /**
+   * An answer to start from: the field opens holding it, editable, with the caret
+   * at its end. Unlike `default`, it is not a fallback -- emptying the field and
+   * pressing Enter answers with `default`, not with this.
+   */
+  value?: string;
 }
 
 export interface ConfirmOptions extends PromptOptions {
   /** What Enter alone means. Defaults to `true`. */
   default?: boolean;
+  /** An answer to start from, which is what Enter alone means. Beats `default`. */
+  value?: boolean;
 }
 
 export interface SelectOptions<T> extends PromptOptions {
@@ -178,15 +216,28 @@ export interface SelectOptions<T> extends PromptOptions {
    * `true`; `false` stops it at the first and last choice on offer.
    */
   loop?: boolean;
+  /**
+   * An answer to start from: the choice whose `value` this is starts highlighted,
+   * and beats `initial`. Compared the way a `Map` compares keys. A value no choice
+   * on offer holds is dropped rather than refused, and `initial` decides instead.
+   */
+  value?: T;
 }
 
-export interface MultiselectOptions<T> extends SelectOptions<T> {
+export interface MultiselectOptions<T> extends Omit<SelectOptions<T>, 'value'> {
   /** Refuse more than this many. Unlimited if omitted. */
   max?: number;
   /** Refuse fewer than this many. Defaults to 0, or 1 when `required`. */
   min?: number;
   /** Refuse an empty selection. Defaults to `false`. Same as `min: 1`. */
   required?: boolean;
+  /**
+   * An answer to start from: exactly the choices on offer whose `value` is in it
+   * start ticked, and every `selected` is ignored. Compared the way a `Map`
+   * compares keys; a value no choice on offer holds is dropped. An empty array is
+   * an answer of nothing, so nothing starts ticked.
+   */
+  value?: readonly T[];
 }
 
 /**
@@ -307,6 +358,24 @@ function edge<T>(items: readonly Item<T>[], direction: 1 | -1): number {
 
 function valueOf<T>(choice: Choice<T>): T {
   return 'value' in choice ? (choice.value as T) : (choice.label as T);
+}
+
+/**
+ * Whether two answers are one, the way a `Map` compares keys.
+ *
+ * Which is how a starting `value` finds the choice it names, in every prompt that
+ * has choices, and how `autocompleteMultiselect()` already told one tick from
+ * another: `NaN` is itself, `0` is `-0`, and an object is only ever itself -- so a
+ * step that builds fresh choice objects every time it runs cannot have its answer
+ * found again, and a value that is a string or a stable object can.
+ *
+ * @param a - One answer.
+ * @param b - The other.
+ * @returns Whether they are the same.
+ */
+function sameValue(a: unknown, b: unknown): boolean {
+  // `Object.is()` for `NaN`, and `===` for the zeroes it tells apart
+  return a === b || Object.is(a, b);
 }
 
 /** What a choice reads as once the question is answered. */
@@ -513,6 +582,15 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
       // claimable, for the reason `Handlers.claims` records
       if (isAbort(key) && !(key.name === 'd' && handlers.claims?.(key))) {
         fail(new PromptError(__`Cancelled`, true));
+        return;
+      }
+
+      // going back does not wait its turn either, for the same reason: it gives
+      // the prompt up and needs nothing from the state. Asked before the prompt's
+      // own keys, so a prompt cannot take Escape back from a group -- and only a
+      // bare Escape, since Alt-x arrives as ESC x and is a different key
+      if (opts.back && key.name === 'escape' && !key.ctrl && !key.meta && !key.shift) {
+        fail(new PromptBack());
         return;
       }
 
@@ -865,12 +943,30 @@ function promptKeys<R>(): PromptKeys<R> {
  *
  * @param keys - The prompt's key table.
  * @param columns - The terminal's width.
+ * @param back - Whether Escape goes back a step, which is the prompt's `back`.
  * @returns The footer, in a box to hide once the prompt is answered.
  */
-function promptFooter(keys: KeyHelpSource, columns: number): Element {
+function promptFooter(keys: KeyHelpSource, columns: number, back = false): Element {
+  // the back key is `run()`'s rather than the table's, so it is added to what is
+  // listed here rather than to the table: an entry there would be a handler that
+  // can never run, and this reads the same `back` that `run()` does
+  const source: KeyHelpSource = back
+    ? {
+        bindings: () => [
+          ...keys.bindings(),
+          Object.freeze({
+            description: __`back`,
+            group: undefined,
+            keys: 'escape',
+            priority: 1,
+            scope: undefined,
+          }),
+        ],
+      }
+    : keys;
   return box(
     { class: 'sigil-prompt-keys', 'padding-left': 2 },
-    keyHelp(keys, { width: Math.max(0, columns - 2) })
+    keyHelp(source, { width: Math.max(0, columns - 2) })
   );
 }
 
@@ -882,8 +978,10 @@ function promptFooter(keys: KeyHelpSource, columns: number): Element {
  */
 export function text(opts: TextOptions): Promise<string> {
   const terminal = opts.terminal ?? defaultTerminal;
-  let value = '';
-  let cursor = 0;
+  // flattened the way a paste is, because it is put in the field the way a paste
+  // is: a one-line field cannot hold a line break whoever handed it one
+  let value = typeof opts.value === 'string' ? pastedLine(opts.value) : '';
+  let cursor = value.length;
   let error: string | undefined;
 
   return run<string>(opts, () => {
@@ -1090,6 +1188,11 @@ export interface MultilineOptions extends PromptOptions {
    * anything falsy to accept.
    */
   validate?: (value: string) => string | undefined | false | Promise<string | undefined | false>;
+  /**
+   * An answer to start from: the field opens holding it, editable, as it does
+   * `initial`. Beats `initial`.
+   */
+  value?: string;
 }
 
 /**
@@ -1703,7 +1806,7 @@ export function multiline(opts: MultilineOptions): Promise<string> {
   }
   // through the same normalizer a paste goes through, so that the value holds
   // one spelling of a line break and every rule below can split on it
-  let value = pastedBlock(opts.initial ?? '');
+  let value = pastedBlock(typeof opts.value === 'string' ? opts.value : (opts.initial ?? ''));
   let cursor = value.length;
   let error: string | undefined;
   /**
@@ -1740,7 +1843,7 @@ export function multiline(opts: MultilineOptions): Promise<string> {
       },
       { description: __`submit` }
     );
-    const footer = promptFooter(keys, terminal.width);
+    const footer = promptFooter(keys, terminal.width, opts.back);
 
     /** The columns the field has, once the indent under the question is taken. */
     const room = Math.max(1, Math.max(1, terminal.width) - 2);
@@ -1966,7 +2069,9 @@ export function multiline(opts: MultilineOptions): Promise<string> {
  * @returns The answer.
  */
 export function confirm(opts: ConfirmOptions): Promise<boolean> {
-  const fallback = opts.default ?? true;
+  // a starting answer is what Enter alone means, which is what `default` already
+  // is -- so the two are one setting here, and the answer a person gave wins
+  const fallback = typeof opts.value === 'boolean' ? opts.value : (opts.default ?? true);
 
   return run<boolean>(opts, () => {
     // one catalog entry decides both what is drawn and what is accepted, so the
@@ -2219,11 +2324,21 @@ function paintChoices(
  * The list a prompt was handed, checked and ready to walk.
  *
  * @param opts - The prompt's options.
+ * @param value - An answer to start the cursor on. `undefined` is none.
  * @returns The items and where the cursor starts, or the error to reject with.
  */
-function offering<T>(opts: SelectOptions<T>): { active: number; items: Item<T>[] } | PromptError {
+function offering<T>(
+  opts: Omit<SelectOptions<T>, 'value'>,
+  value?: T
+): { active: number; items: Item<T>[] } | PromptError {
   const items = toItems<T>(opts.choices);
-  const wanted = Math.min(Math.max(0, opts.initial ?? 0), items.length - 1);
+  // a starting answer names a choice by what it answers with, and is dropped when
+  // none on offer does: it may be an earlier answer to a list that has changed
+  const named =
+    value === undefined
+      ? -1
+      : items.findIndex((item) => isOffered(item) && sameValue(valueOf(item.choice), value));
+  const wanted = named >= 0 ? named : Math.min(Math.max(0, opts.initial ?? 0), items.length - 1);
   const active = firstOffered(items, wanted);
 
   // a list with nothing in it and a list with nothing on offer are the same
@@ -2241,7 +2356,7 @@ function offering<T>(opts: SelectOptions<T>): { active: number; items: Item<T>[]
  * @returns The chosen value.
  */
 export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
-  const offer = offering(opts);
+  const offer = offering(opts, opts.value);
 
   if (offer instanceof PromptError) {
     return Promise.reject(offer);
@@ -2347,9 +2462,14 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
   const { items } = offer;
   let { active } = offer;
   const offered = items.flatMap((item, i) => (isOffered(item) ? [i] : []));
-  // a disabled choice is never ticked, whatever `selected` says
+  // a disabled choice is never ticked, whatever `selected` says -- or a starting
+  // answer, which replaces every `selected` when there is one
+  const given = Array.isArray(opts.value) ? (opts.value as readonly T[]) : undefined;
   const ticked = new Set<number>(
-    offered.filter((i) => (items[i] as Extract<Item<T>, { kind: 'choice' }>).choice.selected)
+    offered.filter((i) => {
+      const choice = (items[i] as Extract<Item<T>, { kind: 'choice' }>).choice;
+      return given ? given.some((value) => sameValue(value, valueOf(choice))) : choice.selected;
+    })
   );
   const loop = opts.loop ?? true;
   let error: string | undefined;
@@ -2438,7 +2558,7 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
       { description: __`confirm`, priority: 3 }
     );
 
-    const footer = promptFooter(keys, terminal.width);
+    const footer = promptFooter(keys, terminal.width, opts.back);
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
@@ -2520,6 +2640,7 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
  */
 export {
   answered as promptAnswered,
+  sameValue as promptSameValue,
   promptFooter,
   promptKeys,
   rowCap as promptRowCap,
