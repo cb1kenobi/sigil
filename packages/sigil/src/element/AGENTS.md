@@ -55,14 +55,16 @@ the entry it belongs to.
   measurement together, because they are one answer to one question, and
   `wrapped()` is public for the same reason `displayText` is: paint lives in
   another module and asking here is what makes the answer one answer.
-- **A `nowrap` text is cached under one key rather than one per width.** It is
-  one line per newline whatever room it was offered, so a key per width was many
+- **A `nowrap` or `pre` text is cached under one key rather than one per width.**
+  It is one line per newline whatever room it was offered, so a key per width was many
   entries holding the same answer -- and worse, layout and paint asking about
   different widths each missed the other's, so a table, whose cells are all
   `nowrap`, paid for the wrap twice over and got slower when the lines were
   first cached. The longest word is worked out only where it can be used, since
   a `nowrap` text cannot be squeezed to it and scanning for it was an answer
-  thrown away.
+  thrown away. `pre` joined it in SIG-207, when it stopped being `normal` under
+  another name -- its answer does not depend on the width either, and keying it
+  per width would have reopened the miss for every chart, rule and paginator.
 - **A text's measurement is cached per width and keyed on the resolved style
   _object_.** The cascade hands back a new `Style` when anything about it changed
   and the same one when nothing did, so comparing the reference answers "does
@@ -94,6 +96,62 @@ the entry it belongs to.
   a description placed it twice as wide as it draws, with everything after it
   pushed along. The width was already the widest line; only the minimum
   disagreed.
+- **`white-space` is three values, only `normal` wraps, and `pre` and `nowrap`
+  are the same answer here.** `Text.#wrap()` is the one place a text reads the
+  property, and it asked `whiteSpace === 'nowrap'` -- so `pre` went through
+  `wrap()` with `normal`, broke at the box's width and dropped the spaces at a line
+  end, and a `'│   '` beside an `x` rendered `│x` (SIG-207). What each value means
+  now, and where it departs from CSS:
+
+  | value    | wraps at the box | a space at a line end | a run of spaces | a `\n` |
+  | -------- | ---------------- | --------------------- | --------------- | ------ |
+  | `normal` | yes              | dropped               | kept            | breaks |
+  | `pre`    | no               | kept                  | kept            | breaks |
+  | `nowrap` | no               | kept                  | kept            | breaks |
+
+  `pre` is CSS's `pre`, exactly: every space kept, a break only at a newline. A
+  line wider than its box is not wrapped and is cut by `text-overflow` where the
+  box clips it, which is what not wrapping costs in CSS too.
+
+  `nowrap` departs from CSS and is **left that way on purpose.** CSS's `nowrap`
+  collapses a run of spaces to one, drops them at a line end, and reads a newline
+  as a space; here it keeps all three, which is what made it the value everything
+  that needed a space to survive reached for while `pre` did not work. Every table
+  cell, the tree's guides, the prompts' `before`/`caret`/`after` halves, the
+  badge's padding and the key-help footer are `nowrap` and rely on it keeping
+  spaces, and the collapse would move all of them to buy fidelity to a name. So
+  the two differ only in what the author meant: `pre` says the spaces are content,
+  `nowrap` says the line must not break. Neither is to be "fixed" toward the
+  other, and a built-in already written with one is not to be moved to the other
+  for its own sake -- the tree's entry records why it is `nowrap`, and that reason
+  did not become wrong.
+
+  `normal` departs from CSS the other way, also on purpose: it is `wrap()`'s rule,
+  which keeps leading indentation and interior runs where CSS collapses both, so a
+  command inside a note keeps its indent. The one CSS rule it does keep is the
+  one with consequences: the whitespace at a line end goes, so a text of nothing
+  but spaces measures **zero**. The choice list's pointer column, the palette's
+  pointer, the toggle's refused blank names and the typewriter's visible cursor
+  are each written around that, and it stays -- a `normal` text that held its
+  trailing spaces would be a text that cannot be wrapped without leaving a
+  column of them down the right edge.
+
+  The four built-ins that already wrote `pre` -- `chart.ts`, `paginator.ts`,
+  `rule.ts` and `calendar.ts` -- were checked by rendering each before and after
+  at colour levels 0 and 3, and every byte is the same: each also declares a
+  `width` equal to what it draws, which was the half doing the work while `pre`
+  was not, and is what `pre` now measures anyway. Their widths stay.
+
+  What `pre` does **not** reach is the template's own whitespace rule. The `ui` tag
+  and JSX both join a run that crosses a source line break into one space before
+  the string reaches a text, so a literal multi-line `<text white-space="pre">` is
+  one line, not HTML's `<pre>` -- the newlines have to arrive through an
+  interpolation, which is passed through as it is. That rule is the template's and
+  is recorded there. The other reader of the property is `decrypt()`'s
+  `limitAt()`, which honours `nowrap` and not `pre`, over a whitespace model of its
+  own that drops a trailing gap under either; it is the component's to settle. See
+  `test/element/white-space.test.ts`.
+
 - **`resolveStyles()` with no sheets is the degenerate case of the cascade, not a
   second way of resolving a style.** It builds a `Restyler` over no stylesheets,
   which is props and inheritance with nothing matched -- so `box({ padding: '1' })`

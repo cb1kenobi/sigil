@@ -240,13 +240,14 @@ export interface WrappedText {
 }
 
 /**
- * The cache key a `nowrap` text is held under, which no real width can be.
+ * The cache key a `pre` or `nowrap` text is held under, which no real width can
+ * be.
  *
  * Such a text is one line per newline whatever width it is offered, so a key per
  * width would be many entries holding one answer -- and layout and paint asking
  * about different widths would each miss the other's.
  */
-const NOWRAP = -1;
+const UNWRAPPED = -1;
 
 /** The narrowest a wrapping text can be squeezed to: its longest word. */
 function longestWord(content: string): number {
@@ -945,13 +946,16 @@ export class Element implements LayoutNode {
       this.#measuredFor = { style: this.style, text: this.#text };
     }
 
-    // a `nowrap` text is the same answer at every width -- it is one line per
-    // newline whatever room it was offered -- so it is cached under one key
-    // rather than once per width it is asked about. Without that, layout and
-    // paint asking about different widths each missed the other's entry, and a
-    // table, whose cells are all `nowrap`, paid for the wrap twice over
-    const nowrap = this.style.whiteSpace === 'nowrap';
-    const key = nowrap ? NOWRAP : Math.max(0, availableWidth);
+    // only `normal` wraps. `pre` and `nowrap` both keep every space and break
+    // only at a newline, which is CSS's `pre` -- and asking `=== 'nowrap'` here
+    // is what made `pre` a second spelling of `normal`, wrapped at the box and
+    // with its trailing spaces dropped (SIG-207). Either is the same answer at
+    // every width, so it is cached under one key rather than once per width it
+    // is asked about. Without that, layout and paint asking about different
+    // widths each missed the other's entry, and a table, whose cells are all
+    // `nowrap`, paid for the wrap twice over
+    const unwrapped = this.style.whiteSpace !== 'normal';
+    const key = unwrapped ? UNWRAPPED : Math.max(0, availableWidth);
 
     const hit = this.#measured.get(key);
     if (hit) {
@@ -964,7 +968,7 @@ export class Element implements LayoutNode {
 
     // the same branch paint used to take for itself, taken once
     const lines =
-      nowrap || availableWidth <= 0
+      unwrapped || availableWidth <= 0
         ? content.split('\n')
         : wrap(content, { width: availableWidth }).split('\n');
     const widths = lines.map((line) => stringWidth(line));
@@ -982,9 +986,9 @@ export class Element implements LayoutNode {
         // added together as the narrowest it could be -- and a row placed it
         // twice as wide as it draws, with everything after it pushed along.
         // The longest word is what a wrapping text can be squeezed to, and it
-        // is worked out only there: a `nowrap` text cannot be squeezed at all,
-        // so scanning its words was work whose answer was thrown away
-        minWidth: nowrap ? widest : longestWord(content),
+        // is worked out only there: a `pre` or `nowrap` text cannot be squeezed
+        // at all, so scanning its words was work whose answer was thrown away
+        minWidth: unwrapped ? widest : longestWord(content),
         width: widest,
       },
       widths,

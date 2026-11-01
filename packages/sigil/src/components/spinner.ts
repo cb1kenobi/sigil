@@ -180,9 +180,9 @@ export function spinnerState(label = ''): SpinnerState {
  * and `display: none` is what keeps its margin from becoming a leading space in
  * a line somebody greps.
  *
- * The lead is given the width of what it draws, because a text drops the
- * whitespace at the end of its last line -- `white-space: pre` included -- so a
- * frame such as `'.  '` was drawn one column wide, `'.. '` two and `'   '` none,
+ * The lead is given the width of what it draws, because a `normal` text drops
+ * the whitespace at the end of its last line -- and so did `pre`, until SIG-207 --
+ * so a frame such as `'.  '` was drawn one column wide, `'.. '` two and `'   '` none,
  * and the label jumped on every tick of a set whose frames were all three. The
  * rule is the paginator's, for the same reason.
  *
