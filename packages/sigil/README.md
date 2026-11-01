@@ -3828,7 +3828,74 @@ await tasks([
 each task ended. A task that returns a string settles on it in place of its
 title; one that returns `skip(reason?)` settles as `ℹ title (skipped: reason)`;
 one that throws leaves `✖ title` on screen, runs nothing after it, and rethrows
-to the caller. Tasks do not run concurrently and do not nest.
+to the caller.
+
+##### Side by side, and subtasks
+
+```js
+await tasks(
+  [
+    {
+      title: 'Installing',
+      // a task that is only a group returns its subtasks
+      task: ({ tasks }) =>
+        tasks(
+          packages.map((name) => ({
+            title: `Fetching ${name}`,
+            task: ({ signal }) => fetchPackage(name, { signal }),
+            retry: { tries: 2, delay: 500 },
+          })),
+          { concurrency: 3 }
+        ),
+    },
+    { title: 'Generating types', task: generate },
+  ],
+  { concurrency: 2 }
+);
+```
+
+```
+✔ Generating types
+⠹ Installing
+  ✔ Fetching react
+  ⠹ Fetching typescript
+  ⠹ Fetching vite
+```
+
+- **`concurrency`** is how many tasks run at once: 1 by default, any positive
+  integer, or `Infinity`. Every running task has a row, and every row is in one
+  live region driven by one timer -- so a spinner per task, which would evict
+  each other, is never what you get.
+- **A task that finishes leaves the frame and is written above it**, so lines
+  land in the order tasks finished, and the frame is only as tall as what is
+  running. When even that does not fit the screen, the rows that do not fit are
+  cut and the last row says `… 7 more running`.
+- **`context.tasks(list, { concurrency, failFast })`** runs subtasks one level
+  further in, as deep as you nest it. While the parent runs its subtasks are
+  shown under it, settled ones included. A parent that succeeds collapses to its
+  one line; a parent that fails keeps every subtask below its `✖` line, as each
+  one ended.
+- **A subtask's failure fails its parent** because it rejects `context.tasks()`,
+  and nothing else decides it: a parent that catches the rejection settles
+  however it returns. A skipped subtask does not skip its parent.
+- **`failFast`** is `true` by default: the first failure starts nothing new,
+  aborts `context.signal` for the tasks still running, waits for them, and
+  rethrows the first error. A task that rejects with the abort settles as
+  `ℹ title (cancelled)`. With `failFast: false` every task runs, each failure
+  stays on screen, and the list rejects with an `AggregateError` holding every
+  failure in list order.
+- **`retry`** on a task is a number of further attempts, or
+  `{ tries, delay }`. The row reads `title (retry 1 of 2)` while it tries again,
+  and a window it opened starts over. A `skip()` is not retried, nor is a task
+  cancelled by a sibling's failure.
+
+Piped, there is no frame: each task writes a line when it starts and one when it
+settles, indented under its parent, in the order it happened. Where tasks run
+side by side their lines interleave, so a line of a task's output is labelled
+with its title (`Fetching react: 200 OK`), and a subtask's lines carry its
+parent's (`✔ Installing: Fetching react`) instead of an indent that would place
+them under the wrong one. A quiet run writes nothing, and still runs the tasks
+and rejects.
 
 `taskLog()` is the window a task writes a subprocess's output to, and works on
 its own:

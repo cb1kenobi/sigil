@@ -368,6 +368,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/39-tree.js`](components/39-tree.js)                                         | A tree printed with guides, a prompt over one, and a directory tree      |
 | [`components/40-pager.js`](components/40-pager.js)                                       | A pager: `less` keys, line numbers, and `/` search with highlights       |
 | [`components/41-collapsible.js`](components/41-collapsible.js)                           | A section that opens and closes, and an accordion of them                |
+| [`components/42-concurrent-tasks.js`](components/42-concurrent-tasks.js)                 | Tasks side by side, subtasks under a parent, a retry, and `failFast`     |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -561,6 +562,17 @@ catches that one rejection by message so any other throw still fails it. Piped
 there is no window: each title, each line of output and each settled line is
 written once, so the success has all ten lines in the log and the failure has them
 plus the error.
+
+`42-concurrent-tasks.js` is `15-tasks.js` with the list run three at a time.
+Five fetches run as subtasks of one install, three at once, each a row under the
+parent, and the install collapses to one line when the last of them lands; a
+registry check beside it fails twice and its row says which retry it is on; a
+window of output and a skip run alongside. Then a second list runs with
+`failFast: false`, so the type check fails while the lint and the tests still
+finish, and the demo catches the `AggregateError` by type so that any other
+throw still fails it. Piped there is no frame, and every line is written as it
+happens -- which is why an output line carries its task's title and a subtask's
+lines carry the parent's, since the line above them may be anybody's.
 
 `21-list.js` is a prompt too, so it plays the same three prompts through
 `createTestTerminal()` and prints the screen after each key: an `initial` array

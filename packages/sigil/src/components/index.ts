@@ -305,10 +305,13 @@ export {
   type TaskContext,
   type TaskLog,
   taskLog,
+  type TaskListOptions,
   type TaskLogOptions,
   type TaskOutcome,
-  tasks,
   type TaskResultValue,
+  type TaskRetry,
+  tasks,
+  type TasksOptions,
 } from './tasks.js';
 export { decodeKeys, isAbort, type Key, pendingLength } from './keys.js';
 export {
