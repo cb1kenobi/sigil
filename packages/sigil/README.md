@@ -4189,6 +4189,56 @@ the static one behind the string. The current dot is `.sigil-accent` and the res
 the theme hooks. Nothing is bound to a key: a paginator is state, and which keys
 turn the page is the app's.
 
+#### A collapsible
+
+```js
+import { Collapsible, collapsibleGroup, describeCollapsible } from '@ttylabs/sigil/components';
+import { text } from '@ttylabs/sigil/element';
+
+const stack = Collapsible({ title: 'Show stack', children: () => text(err.stack) });
+
+const faq = collapsibleGroup();
+const answers = questions.map((q) =>
+  Collapsible({ title: q.title, group: faq, children: () => text(q.answer) })
+);
+
+describeCollapsible(input, stack, ...answers); // for keyHelp(), once the router exists
+```
+
+```
+▸ Show stack
+▾ Why did it fail?
+  Run it again with --verbose to see each step.
+▸ Where do logs go?
+```
+
+A section whose title opens and closes what is under it: the long details of a
+result, or the advanced half of a form. The title is focusable; **Enter** and
+**Space** flip it, **Right** opens it and **Left** closes it, and a left click on
+it flips it. An arrow that would change nothing -- Right on an open section -- is
+left for the pane around it, and Up, Down and Tab are never claimed, so Tab walks
+the titles and a section inside a `ScrollBox` still scrolls.
+
+`open` is a boolean to start from, or a `State<boolean>` that the keys and the
+mouse write and the app may write too. `children` is built **once** and hidden
+with `display: none` while closed, so what is inside -- a scroll offset, a
+field's contents -- is still there when it opens, and a closed body is not in the
+focus ring. Opening and closing is instant: there is no height animation.
+
+`collapsibleGroup()` makes an accordion: opening a member, by key, by click or by
+writing its state, closes the others, and closing the open one leaves none open.
+`group.closeAll()` closes them all.
+
+`describeCollapsible(input, ...sections)` describes the four keys scoped to each
+title, so a `keyHelp()` footer lists `enter/space toggle · → open · ← close` while
+a title holds the focus; it returns a function that takes them off again. A
+separate call because the router is built from the tree the section is in.
+
+The marker is `.sigil-accent`, and `▸`/`▾` or `>`/`v` where `unicodeSupported()`
+says no (or `ascii: true`). A focused title is drawn inverse by the framework
+sheet. `.sigil-collapsible` (with `is-open` while open), `-title`, `-marker`,
+`-label` and `-body` are the theme hooks, and `props` goes on the host.
+
 #### A key-help footer
 
 ```js

@@ -147,6 +147,10 @@ const ENTRIES = [
     name: 'scroll-box',
   },
   {
+    desc: 'A collapsible section: a focusable title that opens and closes its body, alone or as an accordion',
+    name: 'collapsible',
+  },
+  {
     desc: 'A typewriter that reveals text a grapheme, word or line at a time',
     name: 'typewriter',
   },

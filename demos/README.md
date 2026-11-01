@@ -364,6 +364,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/35-file-picker.js`](components/35-file-picker.js)                           | A file picker: browse a directory tree with the arrows                   |
 | [`components/36-select-row.js`](components/36-select-row.js)                             | An interactive table: pick a row, sort by a column                       |
 | [`components/37-clock.js`](components/37-clock.js)                                       | A stopwatch beside a spinner, and a countdown before an action           |
+| [`components/41-collapsible.js`](components/41-collapsible.js)                           | A section that opens and closes, and an accordion of them                |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -433,6 +434,16 @@ tree. On a terminal the spinner reads `Installing... 1s` and the countdown ticks
 `00:02`, `00:01`; piped, neither ticks and neither draws a number -- a stopwatch in
 a log would say `0s` once -- while the countdown still runs out and the demo ends
 at `Deployed`.
+
+`41-collapsible.js` is a failed deploy with its stack folded under `Show stack`,
+and an accordion of three questions where opening one closes the open one. On a
+terminal Tab walks the titles, Enter and Space flip one, Right opens and Left
+closes, a click flips the title it lands on, and the footer lists those keys while
+a title has the focus. Piped, a scripted keyboard drives the same tree and the
+demo prints it after each step, with the focus said in words, since the inverse
+that marks it on a terminal is an attribute a pipe drops. The last step tabs into
+a field inside the open answer, which is in the ring only while its section is
+open.
 
 ### Try them without a terminal
 
