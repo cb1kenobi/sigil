@@ -203,6 +203,7 @@ describe('what importing the package costs', () => {
     'PromptError',
     'renderBar',
     'ScrollBox',
+    'createPager',
     'tableView',
     'enableDebugOverlay',
     'qrcodeView',

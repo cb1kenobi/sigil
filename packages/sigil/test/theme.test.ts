@@ -55,9 +55,11 @@ describe('the framework sheet', () => {
    * `.sigil-prompt-hint { dim: true }` added back here is a declaration the
    * light half does not cover, and it looks like every other rule in the file.
    *
-   * The five exceptions are declared rather than discovered. `.sigil-caret` is
+   * The six exceptions are declared rather than discovered. `.sigil-caret` is
    * `inverse` and no role is inversion, and `.sigil-badge` is `inverse` for the
    * same reason: it is how a role's colour becomes a background.
+   * `.sigil-pager-match` is `inverse` a third time, because a search highlight
+   * is the terminal's two colours swapped -- standout -- rather than a colour.
    * `.sigil-scroll-track` is the one grey
    * here that is not de-emphasised *text*, so it must not be `.sigil-muted` --
    * that role is `dim` on a dark terminal, and a dim track is not a track.
@@ -70,7 +72,7 @@ describe('the framework sheet', () => {
    * than borrowing either: neither of them is de-emphasis, a state or an accent,
    * so no role could carry them.
    */
-  it('should declare on a role, bar five exceptions that say why', () => {
+  it('should declare on a role, bar six exceptions that say why', () => {
     const ROLES = [
       '.sigil-accent',
       '.sigil-muted',
@@ -84,6 +86,7 @@ describe('the framework sheet', () => {
       '.sigil-badge',
       '.sigil-caret',
       '.sigil-debug',
+      '.sigil-pager-match',
       '.sigil-qrcode-paint',
       '.sigil-scroll-track',
     ];

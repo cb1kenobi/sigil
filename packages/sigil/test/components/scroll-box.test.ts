@@ -1,6 +1,11 @@
 import { strip } from '../../src/ansi/index.js';
 import type { Key } from '../../src/components/keys.js';
-import { rowWindow, ScrollBox, thumbExtent } from '../../src/components/scroll-box.js';
+import {
+  rowWindow,
+  ScrollBox,
+  scrollViewport,
+  thumbExtent,
+} from '../../src/components/scroll-box.js';
 import {
   arrange,
   box,
@@ -190,6 +195,14 @@ describe('a scroll box', () => {
       'r2         │',
       'r3         │',
     ]);
+  });
+
+  it('should hand back the viewport that owns the offset, and nothing for any other element', () => {
+    const host = listBox(8);
+    // the same element the class finds, reached without asking a theme's hook
+    expect(scrollViewport(host)).toBe(viewportIn(host));
+    expect(scrollViewport(viewportIn(host))).toBe(undefined);
+    expect(scrollViewport(box())).toBe(undefined);
   });
 
   it('should reserve the gutter whether or not anything can scroll', () => {
