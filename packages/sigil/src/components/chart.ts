@@ -308,8 +308,9 @@ function viewOf(drawing: Drawing): ChartView {
       textNode(segment.text, {
         class: `sigil-chart-${drawing.kind}-part${segment.role ? ` ${segment.role}` : ''}`,
         'flex-shrink': 0,
-        // a text drops the whitespace at the end of its last line, so a segment of
-        // padding is nothing at all unless it is given the room it stands for
+        // the room a segment stands for, which is also what `pre` measures it
+        // at. Written when `pre` was read as `normal` and a segment of padding
+        // measured nothing (SIG-207); the two now say the same thing
         width: stringWidth(segment.text),
         'white-space': 'pre',
       })
