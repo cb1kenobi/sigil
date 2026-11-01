@@ -256,11 +256,18 @@ export {
   logView,
 } from './log.js';
 export {
+  ARC,
+  ARROW,
+  BOUNCING_BAR,
+  CIRCLE,
   createSpinner,
   DOTS,
+  GROW,
   LINE,
   OUTCOME_SYMBOLS,
   type Spinner,
+  type SpinnerFrames,
+  spinnerFrames,
   type SpinnerOptions,
   type SpinnerOutcome,
   type SpinnerState,
@@ -347,6 +354,14 @@ export {
   type Random,
   seeded,
 } from './decrypt.js';
+export {
+  Collapsible,
+  type CollapsibleDescriber,
+  type CollapsibleGroup,
+  collapsibleGroup,
+  type CollapsibleProps,
+  describeCollapsible,
+} from './collapsible.js';
 export {
   type RowWindow,
   rowWindow,

@@ -203,6 +203,7 @@ describe('what importing the package costs', () => {
     'PromptError',
     'renderBar',
     'ScrollBox',
+    'describeCollapsible',
     'createPager',
     'tableView',
     'enableDebugOverlay',
@@ -630,6 +631,21 @@ describe('what importing the package costs', () => {
     const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
     expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(448 * 1024);
+  });
+
+  // SIG-183 put seven spinner sets in the components entry and the rest in the
+  // registry, at 803 B on the graph above (337,387 to 338,190 over the same 31
+  // modules). The point of the split is that the long tail costs an app nothing
+  // until it is copied in, which is true only while nothing in `src/` imports
+  // `spinner-frames.ts` -- so a glyph only that file draws is asked of every
+  // shipped file, beside one from each side of the built-ins as the presence half
+  it.each(['✺', '⊶', '◰', '⣾', '◢'])('should leave the long-tail spinner glyph %s out', (glyph) => {
+    const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
+    expect(carriers(shipped, glyph)).toEqual([]);
+  });
+
+  it.each(['◜', '◴', '↙'])('should ship the built-in spinner glyph %s', (glyph) => {
+    expect(carriers(staticGraph('components.mjs'), glyph)).not.toEqual([]);
   });
 
   // `mouseenter` and the mode sequence rather than `hitTest` and `enableMouse`: a

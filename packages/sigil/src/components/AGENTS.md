@@ -6442,6 +6442,196 @@ its own.
   speaks whole seconds); a `ref: false` for a countdown that should not hold the
   process.
 
+### More spinner frame sets: seven in the package, the rest as data
+
+`src/components/spinner.ts` and `src/components/spinner-frames.ts`. SIG-183.
+
+- **The two questions the ticket left open, settled.** _How many?_ Seven in
+  `@ttylabs/sigil/components` -- `DOTS`, `LINE`, `ARC`, `CIRCLE`, `GROW`, `ARROW`
+  and `BOUNCING_BAR`, which is the ticket's own short list less the moon -- and
+  twelve more in `spinner-frames.ts`, a registry entry nothing imports. They cost
+  **803 B** on the components graph as of this change (337,387 to 338,190 over the
+  same 31 modules, the option handling and the width fix included) and nothing on
+  the root entry, which stayed at 12,269. That is small enough that the split is
+  not really about bytes, and it is worth saying so: what it buys is an entry that
+  is a choice rather than a catalogue, and a long tail an app owns once it copies
+  it, the way it owns any ejected component. _Frame width?_ One cell everywhere,
+  read as the three checks below, and the moon does not ship.
+- **"One cell everywhere" is three checks, and the third is the one a width
+  cannot say.** Every frame of a set is the same width, so the label never moves.
+  Every set that is not plain ASCII is exactly one cell by `stringWidth()`, which
+  counts an emoji as two -- that is what refuses the moon, and it would be refused
+  even at a constant two, because an emoji is two columns on a terminal whose
+  width table knows it and one on a terminal whose table does not. And a set does
+  not mix East Asian **Ambiguous** characters with narrow ones: `stringWidth()`
+  counts Ambiguous as one, which `src/width/` decided and which is right for a CLI,
+  but a terminal in a CJK locale draws it as two, and a set that alternates the two
+  kinds jitters there where a set that is all one kind is merely wider. That is
+  what refuses `◐◓◑◒` -- the first and third are Ambiguous -- and why `CIRCLE` is
+  the quarter-filled `◴◷◶◵`. `GROW` and `ARROW` are all Ambiguous and ship: wider
+  in a CJK terminal, still steady. `BOUNCING_BAR` is the one set wider than a cell,
+  which is safe because it is ASCII.
+- **The test reads a transcribed table, and fails on anything outside it.**
+  `test/components/spinner-frames.test.ts` carries the `A` ranges of the seven
+  blocks a set draws from, out of `EastAsianWidth.txt` 17.0.0 -- test data rather
+  than runtime data, since the runtime counts them as one and has no use for the
+  list. A character outside those blocks fails rather than being read as narrow by
+  default. Every exported set of both files is enumerated rather than listed, so a
+  new one is measured without anybody adding it, and two sets that _must_ fail --
+  the moon and the circle halves -- are asked of the same checker, so the checker
+  cannot pass by checking nothing.
+- **`ARROW`'s diagonals are emoji with a text default, as `OUTCOME_SYMBOLS` are.**
+  `↖↗↘↙` carry the Emoji property and draw as text unless a `U+FE0F` asks
+  otherwise, which nothing here writes. `✔`, `✖`, `⚠` and `ℹ` are the same kind and
+  have been on every settled line since the spinner was written, so refusing the
+  arrows would be a rule the package does not otherwise keep.
+- **`LINE` is now the default where `unicodeSupported()` says no, and it was
+  opt-in before.** The ticket asked for an ASCII fallback, and the fallback was
+  already there; what was missing was anything choosing it. `spinnerFrames()` asks
+  `unicodeSupported()` -- the one place that is decided, as the note, the rule, the
+  charts, the outline and the paginator already ask it -- and takes `ascii`, `env`
+  and `platform` the way they do. Explicit `frames` always win, as an explicit
+  `border` does on a note: an app that asked for `ARC` gets `ARC`, and one that
+  wants a fallback says `frames: unicodeSupported() ? ARC : LINE`. So the
+  parentheticals in the session and `log` entries above that call the spinner's
+  `LINE` opt-in describe the spinner before this change.
+- **`DOTS` and `LINE` changed shape, from an array to `{ frames, interval }`.** One
+  shape for every set is what lets each carry its interval, which the ticket asked
+  for, and `frames` takes either a set or an array, so `frames: DOTS` reads as it
+  always did. What breaks is a reader of `DOTS[0]`, which is now `DOTS.frames[0]`;
+  `display.test.ts` was the only one in the repository. `LINE` runs at 130 ms where
+  it inherited 80, because four frames at 80 is a blur. A set of the caller's own
+  with an interval that is not positive takes 80 rather than a timer that never
+  yields, the question the option was already asked.
+- **The lead is as wide as what it draws, because a text drops the whitespace at
+  the end of its last line.** `'.  '` drew one column, `'.. '` two and `'   '`
+  none, so `SIMPLE_DOTS` moved the label every tick -- and so did any array of a
+  caller's own with a trailing space, which nothing had tried. The first fix
+  written was `white-space: pre`, on the belief that `[    ]` collapsed to `[ ]`;
+  the sabotage pass showed that neither was true -- an interior run is kept either
+  way and `pre` keeps no trailing one -- so it was taken out rather than left as a
+  declaration that does nothing. The declared width is the paginator's answer to
+  the same rule, and it is set on the settled mark too, since a width left over
+  from a six-cell frame would pad `✔` out to six.
+- **The long tail is a registry entry that is data, and the registry test says
+  which.** `should say what %s can be themed with` asserted every entry lists a
+  class, and an entry that draws nothing has none. It is an explicit `DATA` list
+  rather than an inference, so a component that lost its classes still fails. One
+  trap found on the way: the generator rewrites every relative `from '...'` in an
+  entry, a doc comment's example included, so the file's own usage example came
+  out importing `DOTS_2` from `@ttylabs/sigil/components`, which does not export
+  it. The example is written without a specifier now. `test/dist.test.ts` asks
+  every shipped file for a glyph only the long tail draws, which is what keeps it
+  out of the bundle -- exporting it from the barrel fails all five.
+- **Not done:** the settled marks under `ascii` (`✔` and the rest stay as they
+  are; `LOG_SYMBOLS_ASCII` is the obvious source, and swapping them is a change to
+  what every settled line says that this ticket did not ask for); a spinner named
+  by a string, `spinner: 'arc'`, which would put every set in a bundled app's
+  graph for want of a static reference to shake by; and a set that carries its own
+  ASCII fallback.
+
+### A collapsible: a title that opens and closes, and an accordion of them
+
+`src/components/collapsible.ts`. SIG-192. Textual's `Collapsible`: a focusable
+title over a body that is shown or hidden. It is an element-tree component in the
+shape `ScrollBox` is -- a function of props that returns the host, with its keys
+in `onKey` and its click in `onMouse` -- and not a prompt, because a section does
+not answer anything: it sits in a tree beside other things and stays there.
+
+- **The three questions the ticket left open, settled.** _Keys:_ Enter and Space
+  flip the focused title, Right opens it and Left closes it -- the tree-view
+  convention, and the one `filePicker()` already uses for into and out of a
+  directory. Up and Down are **not** bound: moving between the titles of an
+  accordion is what the ARIA pattern does with them, and it needs the focus ring,
+  which an element does not hold -- a component that wanted it would have to be
+  handed the router, which does not exist while the tree that makes it is being
+  built. Tab already walks the titles, since a closed body is `display: none` and
+  the ring skips it. _Accordion:_ in, as `collapsibleGroup()` handed to each
+  member, because it is a dozen lines over the state each member already has and
+  the ticket's own description of an accordion is "several of them, one open".
+  _Animated height:_ **no**, and instant is the recommendation rather than a
+  deferral -- the next bullet is why.
+- **Instant, because a height animation here buys little and costs three
+  things.** `height: auto` does not interpolate: `mixLength()` snaps between
+  `auto` and cells, as CSS does, because `auto` is a question the layout answers
+  and not a number. So animating would mean measuring the body after a layout,
+  pinning `height` to that many cells, easing from zero, and unpinning at the end
+  -- a body that grows while it is open (a log, a lazily filled list) would be
+  clipped by the pin until the end, and the first frame would be one layout late,
+  which is the lag `ScrollBox` draws its thumb with a `raw` element to avoid. Every
+  frame of it also moves **every row below the section**, so the canvas diff,
+  which is cheap exactly where little changes, repaints the rest of the screen
+  per frame -- over ssh, for a reveal that is three to ten whole-cell states at
+  most. And it would be one more thing for reduced motion and quiet to switch off,
+  which they would, since the animator does not start a transition under
+  `reduce`; instant is what both of those come to anyway. Textual's own
+  `Collapsible` does not animate either. An app that wants motion can still put a
+  `transition` on the title's colour through the theme hooks.
+- **The body is built once and hidden, not unmounted.** `children` runs when the
+  section is built, open or not, and closing sets `display: none` on the body. So
+  what is inside it -- a scroll offset, a text field's contents, a row windowed by
+  a `ScrollBox` -- is the same when it opens again, and the cost is the body's
+  elements existing while nobody can see them, which for "show stack" is a few
+  texts. Building on first open was the alternative, and it would make the first
+  open the one that is different from every other.
+- **The title is what is focused, not the host.** A key reaches the focused
+  element and then its ancestors. With the handler on the host, Enter typed into
+  a field inside an open body would bubble up and close the section around it; on
+  the title, which is the body's sibling, it never arrives there. The click is on
+  the title for the same reason.
+- **`open` is a boolean or a `State<boolean>`, and the state is the one truth.**
+  `keyHelp()`'s `expanded` already has that shape. The keys and the click write
+  the state; one effect reads it and sets the body's `display`, the marker and the
+  `is-open` class. So an app that writes the state opens the section, and nothing
+  holds a second copy for the two to disagree about. Anything else for `open` is
+  refused where the section is built: a truthy string would read as open and then
+  never be `true` again, which is the hole `toggle()` refuses its `initial` over.
+- **A group closes the others in that same effect, not in the key handler.** That
+  is what makes the rule hold for an app writing a member's state as well as for a
+  key or a click. Two members built open leave the later one open, because each
+  closes the others as its effect first runs. Closing the open member leaves none
+  open: the ARIA accordion allows either and "at least one" would need a rule for
+  which one when the app closes them all, which `closeAll()` does. A member built
+  inside a component leaves the group with it, through `onCleanup`; one built
+  outside any owner stays a member, and closing a section nobody can see costs a
+  write.
+- **An arrow that would change nothing is not claimed; Enter and Space always
+  are.** Right on an open section and Left on a closed one go on to whatever is
+  around it -- a horizontal `ScrollBox` gets its arrows back. That is the opposite
+  of `ScrollBox`'s own rule, which claims Home at the top, and the difference is
+  that a scroll box at its end is still the thing those keys are about, while a
+  section that is already open is not what Right is asking for. A key with Ctrl,
+  Alt or Shift, and a key that arrived in a paste, are left alone: a pasted line
+  ending in a newline is not an Enter on whatever happened to have the focus.
+- **The click toggles, not the press.** The press is left to bubble so its default
+  action -- focusing the title -- still happens, and a press dragged off the title
+  toggles nothing. Only the left button; a wheel goes on to whatever scrolls.
+- **Its keys are described by a helper, `describeCollapsible()`.** The key-help
+  footer can only list what `describe()` declared, and the router a section would
+  describe to is built from the tree the section is in, so it cannot be an option.
+  The helper scopes the four keys to each title, which is exactly where they work,
+  and returns one disposer. The descriptions go through `__`, as the framework's
+  own strings do.
+- **The framework sheet has its first `:focus` rule.** `.sigil-collapsible-title:focus
+  { inverse: true }`. Without it a Tab onto a title looks like a Tab that did
+  nothing -- a scroll box shows its focus by scrolling, a title has nothing else to
+  show it by. It is `(0,2,0)` where every other rule there is `(0,1,0)`, which
+  costs a theme nothing, because the cascade decides origin before specificity. At
+  colour level 0 attributes are dropped and the focus is not shown, which is true
+  of any `:focus` rule; the demo says the focus in words when piped for that
+  reason. It is the sixth declared exception in `test/theme.test.ts`'s role
+  invariant, beside the caret and for the caret's reason: no role is inversion. The marker's one-cell margin is not inverted, since a margin is cells
+  nothing paints -- a trailing space in the marker's text was tried instead and is
+  measured away.
+- **Not done:** moving the focus to the title when a section is closed by
+  something other than its title (an app writing the state, or a group) while the
+  focus is inside its body -- an element cannot move the focus, so the focus stays
+  on a hidden element until Tab, which is the same thing an app hiding any
+  focused subtree gets; Up and Down between an accordion's titles; a `disabled`
+  section; a title that is an element rather than a string; and opening by
+  default where there is no terminal -- the app knows whether it built a router,
+  and a section nobody can open is one it should build open.
+
 ### A pager: `less` keys, line numbers, and `/` search over a scroll box
 
 `src/components/pager.ts`. SIG-195. `createPager()` is the element and `page()`

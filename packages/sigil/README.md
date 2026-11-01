@@ -3500,6 +3500,40 @@ spinner.succeed('Compiled 2 files');
 `succeed`, `fail`, `warn`, and `info` each stop and leave one marked line.
 `stop()` erases and leaves nothing.
 
+`frames` takes one of the sets below, each with the interval it looks right at,
+or an array of your own (at 80 ms unless `interval` says otherwise). `interval`
+beats a set's own.
+
+```js
+import { ARC, createSpinner } from '@ttylabs/sigil/components';
+
+createSpinner({ frames: ARC, text: 'Resolving' }).start();
+```
+
+| Set            | Frames                | Interval |
+| -------------- | --------------------- | -------- |
+| `DOTS`         | `⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏` | 80 ms    |
+| `LINE`         | `- \ \| /`            | 130 ms   |
+| `ARC`          | `◜ ◠ ◝ ◞ ◡ ◟`         | 100 ms   |
+| `CIRCLE`       | `◴ ◷ ◶ ◵`             | 120 ms   |
+| `GROW`         | `▁ ▃ ▄ ▅ ▆ ▇ ▆ ▅ ▄ ▃` | 120 ms   |
+| `ARROW`        | `← ↖ ↑ ↗ → ↘ ↓ ↙`     | 100 ms   |
+| `BOUNCING_BAR` | `[    ]` `[=   ]` …   | 80 ms    |
+
+The default is `DOTS`, or `LINE` where `unicodeSupported()` says the terminal
+cannot be trusted with braille -- a Linux console, `TERM=dumb`, or a Windows
+console that is not one of the known ones. `ascii: true` or `false` decides it
+outright, and `env` and `platform` name the terminal to ask about. Frames you pass
+always win, so an app that wants `ARC` where it can and ASCII where it cannot says
+`frames: unicodeSupported() ? ARC : LINE`.
+
+Every frame of a set is the same width, and every set that is not ASCII is one
+cell, so the text after it never moves. That is why there is no emoji set: an
+emoji is two columns on a terminal that knows it is one and one on a terminal that
+does not. More sets -- dots variants, a star, a triangle, sand, a toggle -- are
+data in the registry rather than code in the package, so they cost nothing until
+`sigil add spinner-frames` copies them in.
+
 #### Progress
 
 ```js
@@ -3658,8 +3692,8 @@ the middle of `mycli --format json | jq`.
 - `--quiet` drops `info`, `success`, `step` and `message`. `warn` and `error` are
   never dropped, since neither is progress.
 - `ascii: true` swaps in `LOG_SYMBOLS_ASCII`, and `symbols: { warn: '!!' }`
-  replaces one glyph. Nothing detects a terminal that needs ASCII; the caller
-  chooses, as it does a spinner's `LINE` frames.
+  replaces one glyph. Nothing here detects a terminal that needs ASCII; the
+  caller chooses.
 
 `createLog({ terminal, ascii, symbols, quiet, theme, timestamp })` builds one over
 another terminal; `log` is the process's.
@@ -4188,6 +4222,56 @@ the static one behind the string. The current dot is `.sigil-accent` and the res
 `.sigil-muted`, with `.sigil-paginator`, `-active`, `-inactive` and `-numeric` as
 the theme hooks. Nothing is bound to a key: a paginator is state, and which keys
 turn the page is the app's.
+
+#### A collapsible
+
+```js
+import { Collapsible, collapsibleGroup, describeCollapsible } from '@ttylabs/sigil/components';
+import { text } from '@ttylabs/sigil/element';
+
+const stack = Collapsible({ title: 'Show stack', children: () => text(err.stack) });
+
+const faq = collapsibleGroup();
+const answers = questions.map((q) =>
+  Collapsible({ title: q.title, group: faq, children: () => text(q.answer) })
+);
+
+describeCollapsible(input, stack, ...answers); // for keyHelp(), once the router exists
+```
+
+```
+▸ Show stack
+▾ Why did it fail?
+  Run it again with --verbose to see each step.
+▸ Where do logs go?
+```
+
+A section whose title opens and closes what is under it: the long details of a
+result, or the advanced half of a form. The title is focusable; **Enter** and
+**Space** flip it, **Right** opens it and **Left** closes it, and a left click on
+it flips it. An arrow that would change nothing -- Right on an open section -- is
+left for the pane around it, and Up, Down and Tab are never claimed, so Tab walks
+the titles and a section inside a `ScrollBox` still scrolls.
+
+`open` is a boolean to start from, or a `State<boolean>` that the keys and the
+mouse write and the app may write too. `children` is built **once** and hidden
+with `display: none` while closed, so what is inside -- a scroll offset, a
+field's contents -- is still there when it opens, and a closed body is not in the
+focus ring. Opening and closing is instant: there is no height animation.
+
+`collapsibleGroup()` makes an accordion: opening a member, by key, by click or by
+writing its state, closes the others, and closing the open one leaves none open.
+`group.closeAll()` closes them all.
+
+`describeCollapsible(input, ...sections)` describes the four keys scoped to each
+title, so a `keyHelp()` footer lists `enter/space toggle · → open · ← close` while
+a title holds the focus; it returns a function that takes them off again. A
+separate call because the router is built from the tree the section is in.
+
+The marker is `.sigil-accent`, and `▸`/`▾` or `>`/`v` where `unicodeSupported()`
+says no (or `ascii: true`). A focused title is drawn inverse by the framework
+sheet. `.sigil-collapsible` (with `is-open` while open), `-title`, `-marker`,
+`-label` and `-body` are the theme hooks, and `props` goes on the host.
 
 #### A key-help footer
 
