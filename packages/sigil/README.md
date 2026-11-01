@@ -4471,6 +4471,37 @@ and resolves, which is what `less` does when it is piped. It leaves the mouse
 alone unless you pass `mouse: true`, because a terminal reporting the mouse stops
 doing its own selection, and copying a line out is half of what a pager is for.
 
+#### Building on a scroll box
+
+The pager is a component built on `ScrollBox`, and what it uses to hear one is
+public:
+
+```js
+import { ScrollBox, scrollControl } from '@ttylabs/sigil/components';
+
+const rows = { count: 0, height: 1, row: (i) => text(lines[i]) };
+const view = ScrollBox({
+  onScroll: (control) => status.setText(`row ${control.viewport.scroll?.y ?? 0}`),
+  props: { height: 20 },
+  rows,
+});
+
+// a log that grows while nobody scrolls: the count is yours, so say it moved
+lines.push(line);
+rows.count = lines.length;
+scrollControl(view).resync();
+```
+
+`onScroll` is called whenever the offset moved -- the keys, the wheel, the thumb,
+`scrollIntoView()` from the focus ring, or your own `scrollTo()` -- and
+`onResize` whenever a frame gave the viewport a new size, each **after** a
+windowed list has rebuilt its window, so what they read is what is on screen.
+`onResize` returns whether it changed the tree, so the frame lays out again
+before it paints. `scrollControl()` hands back the viewport, which owns the
+offset, and `resync()`, which re-windows a `rows` list against its `count` now:
+the offset and the viewport's size each have a writer the box hears, and the
+count is the one number only you can say moved.
+
 `sigil/components` also exports `decodeKeys()` and `renderBar()`, and the state
 and the element tree behind each component -- `spinnerView()`, `progressView()`
 `tableView()` and `noteView()`, with `spinnerState()` and `progressState()` driving the two
