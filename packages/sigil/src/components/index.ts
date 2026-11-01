@@ -139,11 +139,13 @@ export {
   parentOf,
 } from './file-picker.js';
 export {
+  type AccessibleOptions,
   type Choice,
   type ChoiceEntry,
   confirm,
   type ConfirmOptions,
   ESCAPE_TIMEOUT,
+  forcedAccessible,
   type HighlightSpan,
   multiline,
   type MultilineOptions,

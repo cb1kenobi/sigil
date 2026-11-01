@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 200 keys, which is what a catalog has to carry to translate sigil's own
+ * 208 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -21,23 +21,30 @@
 export const SIGIL_KEYS: readonly string[] = [
   '"{0}" in {1} is not a list',
   '"{0}" in {1} is not an object',
+  '"{0}" is not a number from 1 to {1}',
   '(+{0} more line)',
+  '(at most {0} character)',
   '(choices: {0})',
   '(default: {0})',
   '(empty)',
   '(skip)',
+  '({0} to submit)',
   '<command>',
   'A new version of {0} is available: {1} → {2}',
   'Added a block to {0}',
   'Alias:',
+  'Answer {0} or {1}',
   'Arguments:',
   'Cancelled',
   'Cannot delete "{0}": it is set in {1}, which is read-only.\n  Set it in {2} to override the value, or\n  remove it from {3}.',
   'Cannot open an editor for "{0}": set $VISUAL or $EDITOR',
   'Cannot prompt for "{0}" because the input is not a terminal',
+  'Choose a number from 1 to {0}',
   'Choose at least one',
   'Choose at least {0}',
   'Choose at most {0}',
+  'Choose numbers from 1 to {0}, separated by commas',
+  'Chosen: {0}',
   'Commands:',
   'Could not open {0}: {1}',
   'Count is too large to be exact: {0}',
@@ -45,6 +52,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Date must not be before {0}',
   'ETA {0}',
   'Enter a number',
+  'Enter a number from 1 to {0}',
   'Error: {0}',
   'Examples:',
   'Expected a collapsible title to be a string',
@@ -222,7 +230,7 @@ export const SIGIL_KEYS: readonly string[] = [
 ];
 
 /**
- * The 4 of those whose catalog entry is an object of plural categories
+ * The 5 of those whose catalog entry is an object of plural categories
  * rather than a string.
  *
  * A catalog may answer either -- a plain string is taken for a language with
@@ -232,6 +240,7 @@ export const SIGIL_KEYS: readonly string[] = [
  */
 export const SIGIL_PLURAL_KEYS: readonly string[] = [
   '(+{0} more line)',
+  '(at most {0} character)',
   'Alias:',
   '{0} task failed',
   '… {0} more running',

@@ -38,7 +38,7 @@ import {
   wordAfter,
   wordBefore,
 } from './editing.js';
-import { keyHelp, type KeyHelpSource } from './key-help.js';
+import { keyHelp, type KeyHelpSource, keyLabel } from './key-help.js';
 import { type Mounted, type MountOptions, mountLive } from './mount.js';
 
 export { ESCAPE_TIMEOUT } from '../input/index.js';
@@ -176,7 +176,26 @@ export interface PromptOptions extends MountOptions {
   signal?: AbortSignal;
 }
 
-export interface TextOptions extends PromptOptions {
+/**
+ * The one option that turns a prompt into lines, on the six prompts that have a
+ * line form: `text()`, `password()`, `multiline()`, `confirm()`, `select()` and
+ * `multiselect()`.
+ */
+export interface AccessibleOptions {
+  /**
+   * Asks with plain lines in and lines out rather than a region that redraws,
+   * for a screen reader: the question is written once, what is typed is echoed
+   * where it is typed, and nothing already written is ever moved or erased.
+   *
+   * Unset, `SIGIL_ACCESSIBLE` decides, and unset there too it is off. It is never
+   * inferred -- see {@link forcedAccessible} -- and it does not lift the rule that
+   * a prompt needs a terminal at both ends: a line form over a pipe would read
+   * whatever the pipe carries as the answers.
+   */
+  accessible?: boolean;
+}
+
+export interface TextOptions extends PromptOptions, AccessibleOptions {
   /** Used when the answer is empty. */
   default?: string;
   /** Shown in place of what is typed, for a password. */
@@ -196,14 +215,14 @@ export interface TextOptions extends PromptOptions {
   value?: string;
 }
 
-export interface ConfirmOptions extends PromptOptions {
+export interface ConfirmOptions extends PromptOptions, AccessibleOptions {
   /** What Enter alone means. Defaults to `true`. */
   default?: boolean;
   /** An answer to start from, which is what Enter alone means. Beats `default`. */
   value?: boolean;
 }
 
-export interface SelectOptions<T> extends PromptOptions {
+export interface SelectOptions<T> extends PromptOptions, AccessibleOptions {
   /** What to offer. */
   choices: readonly ChoiceEntry<T>[];
   /**
@@ -1004,6 +1023,9 @@ export function text(opts: TextOptions): Promise<string> {
   // flattened the way a paste is, because it is put in the field the way a paste
   // is: a one-line field cannot hold a line break whoever handed it one
   let value = typeof opts.value === 'string' ? pastedLine(opts.value) : '';
+  if (asLines(opts)) {
+    return lineText(opts, value);
+  }
   let cursor = value.length;
   let error: string | undefined;
 
@@ -1203,7 +1225,7 @@ export interface HighlightSpan {
   token: string;
 }
 
-export interface MultilineOptions extends PromptOptions {
+export interface MultilineOptions extends PromptOptions, AccessibleOptions {
   /**
    * The most characters the answer may hold, counted as what the caret steps
    * over -- grapheme clusters, with a line break as one. Typing at the limit
@@ -2286,6 +2308,11 @@ export function multiline(opts: MultilineOptions): Promise<string> {
   }
   const given = typeof opts.value === 'string' ? pastedBlock(opts.value) : undefined;
   let value = given !== undefined && fits(given) ? given : initial;
+  // after every refusal above, which are about the options rather than about how
+  // the question is drawn, and before anything a drawn field needs
+  if (asLines(opts)) {
+    return lineMultiline(opts, submit, value, counted ? (limit as number) : undefined);
+  }
   let cursor = value.length;
   let error: string | undefined;
   /**
@@ -2643,6 +2670,9 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
   // a starting answer is what Enter alone means, which is what `default` already
   // is -- so the two are one setting here, and the answer a person gave wins
   const fallback = typeof opts.value === 'boolean' ? opts.value : (opts.default ?? true);
+  if (asLines(opts)) {
+    return lineConfirm(opts, fallback);
+  }
 
   return run<boolean>(opts, () => {
     // one catalog entry decides both what is drawn and what is accepted, so the
@@ -2933,6 +2963,10 @@ export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
     return Promise.reject(offer);
   }
 
+  if (asLines(opts)) {
+    return lineSelect(opts, offer.items, offer.active);
+  }
+
   const { items } = offer;
   let { active } = offer;
   let start = 0;
@@ -3042,6 +3076,9 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
       return given ? given.some((value) => sameValue(value, valueOf(choice))) : choice.selected;
     })
   );
+  if (asLines(opts)) {
+    return lineMultiselect(opts, items, ticked, complaint);
+  }
   const loop = opts.loop ?? true;
   let error: string | undefined;
   let start = 0;
@@ -3055,12 +3092,12 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
     return [...ticked].sort((a, b) => a - b).map((i) => valueOf(choiceAt(i)));
   }
 
-  /** What is wrong with the selection as it stands, if anything. */
-  function complaint(): string | undefined {
-    if (ticked.size < min) {
+  /** What is wrong with a selection of this many, by default the one as it stands. */
+  function complaint(count = ticked.size): string | undefined {
+    if (count < min) {
       return min === 1 ? __`Choose at least one` : __`Choose at least ${min}`;
     }
-    if (ticked.size > max) {
+    if (count > max) {
       return __`Choose at most ${max}`;
     }
     return undefined;
@@ -3183,6 +3220,561 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
 
       view,
     };
+  });
+}
+
+/**
+ * Whether the person asked for line prompts, or `undefined` where nobody said.
+ *
+ * `SIGIL_ACCESSIBLE` is the third `SIGIL_` variable and is namespaced for the
+ * reason `SIGIL_REDUCED_MOTION` is: there is no cross-tool convention for it,
+ * so an unnamespaced name would be claiming a standard that does not exist. It
+ * is a variable at all, where quiet deliberately is not one, because quiet is a
+ * statement about one invocation and argv is where that goes; this is a
+ * statement about the person, true of every invocation of every app they run,
+ * which is what a shell profile is for. Nothing guesses it -- there is no
+ * reliable way to ask whether a screen reader is listening, and a guess that
+ * came out wrong would hand a sighted person a numbered list for every question.
+ *
+ * It reads the vocabulary a boolean property does, `1`, `on`, `yes`, `true` and
+ * their opposites. A value that is neither falls through rather than deciding,
+ * and an empty variable is unset, the two rules `forcedMotion()` keeps.
+ *
+ * ```js
+ * import { forcedAccessible } from '@ttylabs/sigil/components';
+ *
+ * forcedAccessible(); // true with SIGIL_ACCESSIBLE=1, else undefined
+ * ```
+ *
+ * @param env - The environment. The process's, by default.
+ * @returns The preference, or `undefined` where nobody said.
+ */
+export function forcedAccessible(
+  env: Record<string, string | undefined> = process.env
+): boolean | undefined {
+  const raw = env.SIGIL_ACCESSIBLE?.trim().toLowerCase();
+  if (!raw) {
+    return undefined;
+  }
+  if (raw === '1' || raw === 'on' || raw === 'yes' || raw === 'true') {
+    return true;
+  }
+  if (raw === '0' || raw === 'off' || raw === 'no' || raw === 'false') {
+    return false;
+  }
+  return undefined;
+}
+
+/**
+ * Whether a prompt is asked as lines.
+ *
+ * The option beats the variable, which is the most-specific-source rule every
+ * fold here keeps. Read strictly rather than as truthy, because `'false'` is a
+ * string somebody passes and reading it as on is the trap `setQuiet()` records.
+ */
+function asLines(opts: AccessibleOptions): boolean {
+  return typeof opts.accessible === 'boolean' ? opts.accessible : (forcedAccessible() ?? false);
+}
+
+/** How a line form asks, and how it reads what comes back. */
+interface LineForm<T> {
+  /** The line the reply is typed after, written again after every complaint. */
+  ask: string;
+  /** Lines written once, above the first ask: the list a number is chosen from. */
+  before?: readonly string[];
+  /** Whether what is typed is written back. Off for a masked field. */
+  echo: boolean;
+  /** Cuts what is typed to what may be added to the reply, for a character limit. */
+  fit?(reply: string, inserted: string): string;
+  /** Whether a refused reply is handed back to edit, rather than asked for afresh. */
+  keep?: boolean;
+  /**
+   * Reads a reply: the answer, and a line saying what it was when the reply alone
+   * does not -- a `2` -- or a complaint to write before asking again.
+   */
+  read(reply: string): LineRead<T> | string | Promise<LineRead<T> | string>;
+  /** What the reply starts holding, written out as though it had been typed. */
+  start?: string;
+  /** The key that submits a multiline reply, where Enter is a line break. */
+  submit?: SubmitKey;
+}
+
+/** An answer a line form read, and what to say about it. */
+interface LineRead<T> {
+  said?: string;
+  value: T;
+}
+
+/** A line break, spelled for a terminal whatever its output translation is. */
+const NEWLINE = '\r\n';
+
+/** Text as it is written back, which is the same text with its breaks spelled. */
+function echoed(text: string): string {
+  return text.replaceAll('\n', NEWLINE);
+}
+
+/** Whether a key is a multiline field's submit key, modifiers and all. */
+function submits(k: Key, submit: SubmitKey | undefined): boolean {
+  return (
+    submit !== undefined &&
+    k.name === submit.name &&
+    k.ctrl === (submit.ctrl ?? false) &&
+    k.meta === (submit.meta ?? false) &&
+    !k.shift
+  );
+}
+
+/**
+ * The question as the line a reply is typed after.
+ *
+ * No `?` mark in front and no colour on any of it: a screen reader reads a glyph
+ * aloud, and a role drawn in colour is one it cannot hear. What is typed
+ * follows one space after it, which is where the drawn prompt puts its field.
+ */
+function question(message: string, hint?: string): string {
+  return hint ? `${message} ${hint} ` : `${message} `;
+}
+
+/**
+ * Runs a prompt as lines: written once, echoed as typed, never redrawn.
+ *
+ * The drawn prompts' `run()` with everything that repaints taken out, and
+ * nothing else changed about what a prompt is: the same terminal check, the same
+ * router -- raw mode, the paste markers, Ctrl-C as a key -- the same abort and
+ * back rules, and stdin given back the same way however it ends. Raw rather than
+ * the terminal's own cooked mode because cooked mode cannot hide a password, sends
+ * Ctrl-C as a signal that kills the process rather than a key that cancels, and
+ * ends the stream for good on a Ctrl-D, so the next prompt would have nothing to
+ * read. What cooked mode gives a screen reader is kept by hand: characters are
+ * echoed where they are typed, and Backspace writes `\b \b`, the very bytes the
+ * terminal's own echo writes, and never past the start of the line.
+ *
+ * @param opts - Where to read and write.
+ * @param form - What to ask and how to read the reply.
+ * @returns The answer.
+ */
+function runLine<T>(opts: PromptOptions, form: LineForm<T>): Promise<T> {
+  const terminal = opts.terminal ?? defaultTerminal;
+  const stdin = opts.stdin ?? (terminal.stdin as InputStream | undefined);
+
+  // the rule the drawn prompts keep, and asked first for their reason. Asking as
+  // lines is a different way to draw a question, not a different answer to
+  // whether anybody is there to read one
+  if (!terminal.isTTY || !stdin?.isTTY) {
+    return Promise.reject(
+      new PromptError(__`Cannot prompt for "${opts.message}" because the input is not a terminal`)
+    );
+  }
+  if (opts.signal?.aborted) {
+    return Promise.reject(opts.signal.reason);
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    let router: InputRouter;
+    const ownRouter = opts.router === undefined;
+    try {
+      router = opts.router ?? createInput({ stdin, terminal });
+    } catch (error) {
+      // nothing has been written yet, so there is nothing to finish the line of
+      reject(error);
+      return;
+    }
+
+    let settled = false;
+    let reply = form.start ?? '';
+    /** One key at a time, for the reason `run()` records: a `validate` may be async. */
+    let queue: Promise<void> = Promise.resolve();
+    const write = (chunk: string): void => void terminal.write(chunk);
+
+    function end(): void {
+      settled = true;
+      stop();
+    }
+
+    function fail(error: unknown): void {
+      if (settled) {
+        return;
+      }
+      end();
+      // what was written stays where it is, the question and whatever was typed
+      // after it, and the next output starts under it: taking nothing back is the
+      // whole of this form, and it holds for a cancel as much as for an answer
+      write(NEWLINE);
+      reject(error);
+    }
+
+    function ask(): void {
+      write(form.ask);
+      if (form.echo) {
+        write(echoed(reply));
+      }
+    }
+
+    /** Types text at the end of the reply, which is the only place a line has. */
+    function type(input: string): void {
+      const admitted = form.fit ? form.fit(reply, input) : input;
+      if (admitted === '') {
+        return;
+      }
+      reply += admitted;
+      if (form.echo) {
+        write(echoed(admitted));
+      }
+    }
+
+    /**
+     * Takes clusters off the end of the line being typed, never past its start.
+     *
+     * A line already ended is a line already read, which is cooked mode's rule
+     * and the only one a transcript can keep: going back up a row to erase it is
+     * a redraw.
+     */
+    function erase(count: number): void {
+      const start = reply.lastIndexOf('\n') + 1;
+      for (let n = 0; n < count && reply.length > start; n++) {
+        const at = boundary(reply, reply.length, -1);
+        const width = stringWidth(reply.slice(at));
+        reply = reply.slice(0, at);
+        if (form.echo && width > 0) {
+          write('\b'.repeat(width) + ' '.repeat(width) + '\b'.repeat(width));
+        }
+      }
+    }
+
+    async function submit(): Promise<void> {
+      write(NEWLINE);
+      const read = await form.read(reply);
+      // an abort can land while a `validate` is still out
+      if (settled) {
+        return;
+      }
+      if (typeof read === 'string') {
+        write(`${read}${NEWLINE}`);
+        if (!form.keep) {
+          reply = '';
+        }
+        ask();
+        return;
+      }
+      end();
+      if (read.said) {
+        write(`${read.said}${NEWLINE}`);
+      }
+      resolve(read.value);
+    }
+
+    function press(k: Key, submitting: boolean): Promise<void> | void {
+      if (form.submit ? submitting : k.name === 'enter') {
+        return submit();
+      }
+      if (k.name === 'enter') {
+        type('\n');
+      } else if (k.name === 'backspace') {
+        erase(1);
+      } else if (k.ctrl && k.name === 'u') {
+        erase(Infinity);
+      } else {
+        // the arrows, Home, End and Delete edit somewhere other than the end of
+        // the line, which a line that is never redrawn has no way to show -- so
+        // they do nothing, as they do nothing in cooked mode
+        type(typedText(k) ?? '');
+      }
+    }
+
+    const offEnd = router.onEnd((error) => {
+      fail(error ?? new PromptError(__`Input ended before the prompt was answered`));
+    });
+    const offKey = router.bind((event) => {
+      event.stop();
+      const k = event.key;
+      const submitting = submits(k, form.submit);
+
+      if (isAbort(k) && !(k.name === 'd' && submitting)) {
+        fail(new PromptError(__`Cancelled`, true));
+        return;
+      }
+      if (opts.back && k.name === 'escape' && !k.ctrl && !k.meta && !k.shift) {
+        fail(new PromptBack());
+        return;
+      }
+
+      queue = queue
+        .then(() => {
+          if (!settled) {
+            return press(k, submitting);
+          }
+        })
+        .catch(fail);
+    });
+    const offPaste = router.onPaste((event) => {
+      event.stop();
+      const block = event.text;
+      queue = queue
+        .then(() => {
+          if (!settled) {
+            type(form.submit ? pastedBlock(block) : pastedLine(block));
+          }
+        })
+        .catch(fail);
+    });
+    const onAbort = (): void => fail(opts.signal?.reason);
+    opts.signal?.addEventListener('abort', onAbort, { once: true });
+
+    function stop(): void {
+      offEnd();
+      offKey();
+      offPaste();
+      opts.signal?.removeEventListener('abort', onAbort);
+      if (ownRouter) {
+        router.stop();
+      }
+    }
+
+    for (const line of form.before ?? []) {
+      write(`${line}${NEWLINE}`);
+    }
+    ask();
+  });
+}
+
+/** `text()` and `password()` as a line. */
+function lineText(opts: TextOptions, start: string): Promise<string> {
+  // a masked field echoes nothing, so it says nothing about its default either --
+  // read aloud is shown to everyone in the room -- and opens on no earlier answer,
+  // since text nobody can see is not text anybody should be typing after
+  const hidden = opts.mask !== undefined;
+  return runLine<string>(opts, {
+    ask: question(
+      opts.message,
+      opts.default && !hidden ? __`(default: ${opts.default})` : undefined
+    ),
+    echo: !hidden,
+    keep: !hidden,
+    async read(reply) {
+      const answer = reply === '' ? (opts.default ?? '') : reply;
+      const failed = await opts.validate?.(answer);
+      return typeof failed === 'string' && failed ? failed : { value: answer };
+    },
+    start: hidden ? '' : start,
+  });
+}
+
+/** `multiline()` as lines, ended by its submit key rather than by Enter. */
+function lineMultiline(
+  opts: MultilineOptions,
+  submit: SubmitKey,
+  start: string,
+  limit: number | undefined
+): Promise<string> {
+  // spelled the way the drawn field's footer spells it, `ctrl-d`, through the same
+  // translated labels -- one name for one key whichever form is asking
+  const key = formatKey({
+    ctrl: submit.ctrl ?? false,
+    meta: submit.meta ?? false,
+    name: submit.name,
+    shift: false,
+  });
+  const hints = [__`(${keyLabel(key)} to submit)`];
+  if (limit !== undefined) {
+    hints.unshift(__n(limit, '(at most {0} character)', '(at most {0} characters)'));
+  }
+  return runLine<string>(opts, {
+    // the reply starts on a line of its own, since it is several of them
+    ask: `${question(opts.message, hints.join(' ')).trimEnd()}${NEWLINE}`,
+    echo: true,
+    fit: limit === undefined ? undefined : (reply, inserted) => fitted(reply, inserted, limit),
+    keep: true,
+    async read(reply) {
+      const failed = await opts.validate?.(reply);
+      return typeof failed === 'string' && failed ? failed : { value: reply };
+    },
+    start,
+    submit,
+  });
+}
+
+/** `confirm()` as a line: a word, or Enter alone for the default. */
+function lineConfirm(opts: ConfirmOptions, fallback: boolean): Promise<boolean> {
+  // the catalog entry the drawn prompt reads, so the hint is the same `(Y/n)` and
+  // the keys it names are the keys accepted -- each as a whole reply here, beside
+  // the word it stands for, in the catalog's language and in English
+  const keys = confirmKeys(__`y/n`, fallback);
+  const yes = new Set([...keys.yes, __`yes`.toLowerCase(), 'yes']);
+  const no = new Set([...keys.no, __`no`.toLowerCase(), 'no']);
+  return runLine<boolean>(opts, {
+    ask: question(opts.message, keys.hint),
+    echo: true,
+    read(reply) {
+      const said = reply.trim().toLowerCase();
+      if (said === '') {
+        return { value: fallback };
+      }
+      if (yes.has(said)) {
+        return { value: true };
+      }
+      if (no.has(said)) {
+        return { value: false };
+      }
+      return __`Answer ${keys.yes[0]} or ${keys.no[0]}`;
+    },
+  });
+}
+
+/**
+ * A choice list written out as lines, numbering what can be chosen.
+ *
+ * Only a choice on offer is numbered, so the numbers run without a gap and a
+ * number is always something that can be picked; a disabled one is still listed,
+ * after a dash, because why it cannot be chosen is worth hearing. A separator
+ * with words in it is a heading and is listed; one without -- the default rule
+ * of box-drawing characters -- is a picture, and a screen reader reads each of
+ * its characters aloud by name.
+ *
+ * @param items - The choices and the separators between them.
+ * @returns The lines, and which item each number names.
+ */
+function numberedList<T>(items: readonly Item<T>[]): { lines: string[]; numbered: number[] } {
+  const lines: string[] = [];
+  const numbered: number[] = [];
+
+  for (const [i, item] of items.entries()) {
+    if (item.kind === 'separator') {
+      if (/[\p{L}\p{N}]/u.test(item.label)) {
+        lines.push(`  ${item.label}`);
+      }
+      continue;
+    }
+
+    const { choice } = item;
+    const reason =
+      typeof choice.disabled === 'string' && choice.disabled
+        ? choice.disabled
+        : choice.disabled
+          ? __`disabled`
+          : choice.hint;
+    const label = reason ? `${choice.label} (${reason})` : choice.label;
+    if (item.offered) {
+      numbered.push(i);
+      lines.push(`  ${numbered.length}. ${label}`);
+    } else {
+      lines.push(`  - ${label}`);
+    }
+    if (choice.description) {
+      lines.push(`    ${choice.description}`);
+    }
+  }
+
+  return { lines, numbered };
+}
+
+/** A whole number from 1 to `count` as typed, or `undefined`. */
+function numberIn(token: string, count: number): number | undefined {
+  if (!/^\d+$/.test(token)) {
+    return undefined;
+  }
+  const n = Number(token);
+  return n >= 1 && n <= count ? n : undefined;
+}
+
+/** `select()` as a numbered list and a number. */
+function lineSelect<T>(
+  opts: SelectOptions<T>,
+  items: readonly Item<T>[],
+  active: number
+): Promise<T> {
+  const { lines, numbered } = numberedList(items);
+  const count = numbered.length;
+  // `active` is always on offer -- `offering()` lands on nothing else -- so the
+  // highlight the drawn list would open on has a number, and it is the default
+  const fallback = numbered.indexOf(active) + 1;
+
+  return runLine<T>(opts, {
+    ask: question(__`Choose a number from 1 to ${count}`, __`(default: ${fallback})`),
+    before: [opts.message, ...lines],
+    echo: true,
+    read(reply) {
+      const said = reply.trim();
+      const n = said === '' ? fallback : numberIn(said, count);
+      if (n === undefined) {
+        return __`Enter a number from 1 to ${count}`;
+      }
+      const choice = (items[numbered[n - 1] as number] as Extract<Item<T>, { kind: 'choice' }>)
+        .choice;
+      return { said: __`Chosen: ${shortOf(choice)}`, value: valueOf(choice) };
+    },
+  });
+}
+
+/**
+ * `multiselect()` as a numbered list and a reply of numbers.
+ *
+ * The reply **replaces** the selection rather than toggling it: a list of what is
+ * wanted is a statement that stands on its own, where a toggle means holding the
+ * current state in your head across a transcript. Enter alone keeps what was
+ * already ticked, and the word `none` -- the one the drawn prompt settles on for
+ * an empty answer -- is how to say nothing when something was.
+ *
+ * @param opts - What to ask.
+ * @param items - The choices.
+ * @param ticked - What starts ticked, which is what Enter alone answers.
+ * @param complaint - What is wrong with a selection of a given size, if anything.
+ * @returns The chosen values, in the order they are listed.
+ */
+function lineMultiselect<T>(
+  opts: MultiselectOptions<T>,
+  items: readonly Item<T>[],
+  ticked: ReadonlySet<number>,
+  complaint: (count: number) => string | undefined
+): Promise<T[]> {
+  const { lines, numbered } = numberedList(items);
+  const count = numbered.length;
+  const none = __`none`;
+  const start = numbered.flatMap((item, at) => (ticked.has(item) ? [at + 1] : []));
+
+  return runLine<T[]>(opts, {
+    ask: question(
+      __`Choose numbers from 1 to ${count}, separated by commas`,
+      __`(default: ${start.length ? start.join(', ') : none})`
+    ),
+    before: [opts.message, ...lines],
+    echo: true,
+    read(reply) {
+      const said = reply.trim();
+      let chosen: Set<number>;
+      if (said === '') {
+        chosen = new Set(start);
+      } else if (said.toLowerCase() === none.toLowerCase() || said.toLowerCase() === 'none') {
+        chosen = new Set();
+      } else {
+        chosen = new Set();
+        for (const token of said.split(/[\s,]+/).filter(Boolean)) {
+          // a range, so that most of a long list is not typed a number at a time
+          const range = /^(\d+)-(\d+)$/.exec(token);
+          const from = numberIn(range ? (range[1] as string) : token, count);
+          const to = range ? numberIn(range[2] as string, count) : from;
+          if (from === undefined || to === undefined) {
+            return __`"${token}" is not a number from 1 to ${count}`;
+          }
+          for (let n = Math.min(from, to); n <= Math.max(from, to); n++) {
+            chosen.add(n);
+          }
+        }
+      }
+
+      const problem = complaint(chosen.size);
+      if (problem) {
+        return problem;
+      }
+      const picked = [...chosen]
+        .sort((a, b) => a - b)
+        .map(
+          (n) => (items[numbered[n - 1] as number] as Extract<Item<T>, { kind: 'choice' }>).choice
+        );
+      return {
+        said: __`Chosen: ${picked.length ? picked.map(shortOf).join(', ') : none}`,
+        value: picked.map(valueOf),
+      };
+    },
   });
 }
 

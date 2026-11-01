@@ -372,6 +372,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/43-concurrent-tasks.js`](components/43-concurrent-tasks.js)                 | Tasks side by side, subtasks under a parent, a retry, and `failFast`     |
 | [`components/44-editor.js`](components/44-editor.js)                                     | An editor prompt: the answer is written in `$VISUAL` or `$EDITOR`        |
 | [`components/45-multiline-extras.js`](components/45-multiline-extras.js)                 | A multiline field with line numbers, a gutter, a limit and highlighting  |
+| [`components/46-accessible.js`](components/46-accessible.js)                             | Accessible mode: the prompts as plain lines, for a screen reader         |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -498,6 +499,13 @@ a line break, which is why the hook is handed the whole value rather than a line
 Piped, a scripted keyboard adds a comment long enough to soft wrap -- numbered once,
 on its first row -- and then pastes more than fits, so the paste is cut and the
 count reads `120/120`.
+
+`46-accessible.js` asks four questions as plain lines -- a name, a layout from a
+numbered list, extras as numbers with a range, and a yes or no -- which is what
+`SIGIL_ACCESSIBLE=1` gives every app. Nothing is redrawn: the question is written
+once, what you type is echoed after it, and a refused name gets its reason on the
+next line and the question again. Piped, a scripted keyboard answers, starting with
+a name the validator refuses, and the transcript is printed whole.
 
 ### Try them without a terminal
 
