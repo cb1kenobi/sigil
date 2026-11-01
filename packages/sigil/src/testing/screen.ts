@@ -436,6 +436,18 @@ export class Screen {
         continue;
       }
 
+      // a backspace moves the cursor one column left and erases nothing, which is
+      // how a terminal's own echo rubs a character out: `\b \b`. It stops at the
+      // first column, since nothing here models reverse wrap. A wrap that is
+      // pending leaves the cursor on the last column, so one column left of
+      // that is where it goes, which is what xterm does
+      if (ch === '\b') {
+        this.column = Math.max(0, this.column - 1);
+        this.wrapPending = false;
+        i++;
+        continue;
+      }
+
       if (ch === '\n') {
         this.#down();
         this.wrapPending = false;
@@ -653,7 +665,7 @@ export class Screen {
   #nextControl(output: string, from: number): number {
     for (let at = from + 1; at < output.length; at++) {
       const ch = output[at];
-      if (ch === '\r' || ch === '\n' || ch === ESC) {
+      if (ch === '\r' || ch === '\n' || ch === '\b' || ch === ESC) {
         return at;
       }
     }

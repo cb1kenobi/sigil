@@ -170,6 +170,49 @@ describe('a wide cluster on a screen', () => {
   });
 });
 
+describe('a backspace on a screen', () => {
+  // what a terminal's own echo writes to rub a character out, and what the line
+  // prompts write for the same reason. It used to take no cell and move nothing,
+  // so `ab\b \b` read as `ab ` -- the model losing an edit a terminal shows
+  it('should move one column left and erase nothing, so \\b \\b rubs out', () => {
+    const screen = new Screen(10, 2);
+
+    screen.write('ab\b');
+    expect(screen.column).toBe(1);
+    expect(screen.viewport[0]).toBe('ab');
+
+    screen.write(' \b');
+    expect(screen.viewport[0]).toBe('a');
+    expect(screen.column).toBe(1);
+  });
+
+  it('should rub out a wide cluster with two of them', () => {
+    const screen = new Screen(10, 2);
+
+    screen.write('a日\b\b  \b\b');
+
+    expect(screen.viewport[0]).toBe('a');
+    expect(screen.column).toBe(1);
+  });
+
+  it('should stop at the first column', () => {
+    const screen = new Screen(10, 2);
+
+    screen.write('\b\ba');
+
+    expect(screen.viewport[0]).toBe('a');
+  });
+
+  it('should take a pending wrap back to the column before the last', () => {
+    const screen = new Screen(3, 2);
+
+    screen.write('abc\bx');
+
+    expect(screen.wrapPending).toBe(false);
+    expect(screen.viewport).toEqual(['axc', '']);
+  });
+});
+
 describe('the screen model as it was', () => {
   it('should still defer the wrap at the last column', () => {
     const screen = new Screen(3, 2);

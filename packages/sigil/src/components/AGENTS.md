@@ -7701,3 +7701,118 @@ the answer.
   out the alternate-screen question; `$VISUAL` skipped on a dumb terminal (git's
   rule, and a prompt does not draw on one anyway); a way to accept the default
   without opening the editor.
+
+### Accessible mode: the six prompts as lines in and lines out
+
+SIG-177. `asLines()`, `runLine()` and the six line forms are at the end of
+`src/components/prompt.ts`; `test/components/prompt-accessible.test.ts` and
+`demos/components/46-accessible.js`. Huh's `WithAccessible(true)` is the shape: a
+screen reader reads what is written and cannot follow a region that repaints, so
+the question is written once, what is typed is echoed where it is typed, and
+nothing already written is moved, erased or coloured.
+
+- **The trigger is `accessible` on the prompt, then `SIGIL_ACCESSIBLE`, and never
+  a guess.** There is no reliable way to ask whether a screen reader is listening,
+  and a guess that came out wrong would hand a sighted person a numbered list for
+  every question. A variable at all, where quiet deliberately has none, because the
+  two are statements about different things: quiet is about **one invocation**,
+  and argv is where that goes; this is about **the person**, true of every
+  invocation of every app they run, which is what a shell profile is for. Asking a
+  screen-reader user to type `--accessible` on every command of every app is the
+  wrong place for it. Namespaced for `SIGIL_REDUCED_MOTION`'s reason -- no
+  cross-tool convention exists -- and read with its vocabulary: `1`, `on`, `yes`,
+  `true` and their opposites, an empty value unset, anything else undecided. The
+  option beats the variable, the most-specific-source rule every fold here keeps,
+  and is read strictly, so `accessible: 'false'` falls through to the variable
+  rather than reading as on (the `setQuiet('false')` trap). `forcedAccessible()`
+  is exported so an app can ask, which is `forcedMotion()`'s shape.
+- **It does not lift the non-TTY rule, and that answers the ticket's "does it work
+  over a pipe".** No. The rule is about whether anybody is there to answer, and
+  the line form is a different way to draw a question, not a different answer to
+  that. Over a pipe it would be worse than hanging: it would read whatever the pipe
+  carries as answers, and the variable is exported to every process in a pipeline,
+  so `cat notes.txt | mycli init` from a screen-reader user's shell would answer
+  every question with a line of `notes.txt`. Huh's accessible mode does read a
+  pipe; sigil's answer to scripting a prompt is `value` and a flag, not a stdin of
+  answers. Both ends are checked as before, with the same message.
+- **Raw mode, not the terminal's own cooked mode, with cooked mode's echo done by
+  hand.** Cooked mode is what a screen reader is built against, and it was the
+  obvious choice. It cannot hide a password; it sends Ctrl-C as SIGINT, which kills
+  the process instead of rejecting with an aborted `PromptError`; and a Ctrl-D at
+  the start of a line is end of file, after which node's stdin has ended for good
+  and the next prompt has nothing to read. So the router reads keys exactly as it
+  does for a drawn prompt -- Ctrl-C a key, Escape for `back`, the paste markers, the
+  one-key-at-a-time queue for an async `validate` -- and the line form writes back
+  what cooked mode would have: the character where it was typed, and `\b \b` for a
+  Backspace, which are the very bytes the kernel's `ECHOE` writes. A wide cluster
+  is rubbed out with two of each, by `stringWidth()`.
+- **Editing is at the end of the line only, and never past its start.** Left,
+  Right, Home, End and Delete do nothing, because an edit in the middle of a line
+  that is never redrawn has nowhere to be shown -- which is also what they do in
+  cooked mode. Backspace and Ctrl-U erase back to the start of the line being typed
+  and no further: in `multiline()` a line already ended is a line already read, and
+  going back up a row to erase it would be a redraw. So a `value` a multiline
+  opens on can be added to and its last line edited, and that limitation is
+  accepted rather than worked around.
+- **No glyph, no colour, no sequence but the paste markers.** The `?` mark is
+  dropped, because a screen reader reads a glyph aloud by name, and so is every
+  role drawn in colour, since a role in colour is one it cannot hear. The cursor is
+  never hidden, which a magnifier follows. `should write no escape sequence but the
+  paste markers` reads the bytes, which is the precise form of "never redrawn". A
+  separator is listed when it has a letter or a digit in it and skipped when it
+  does not: the default `separator()` is eight box-drawing characters, read aloud
+  one name at a time.
+- **What each prompt is as a line.** The six that existed when the ticket was
+  written, and the six `prompt.ts` holds.
+  - `text()`: the question, `(default: x)` when there is one -- the key `--help`
+    already uses -- and the reply. A refusal writes `validate`'s message on the next
+    line and asks again **holding the refused reply**, as the drawn field keeps its
+    value, so a typo is a Backspace rather than a retype.
+  - `password()` (any `mask`): nothing echoed, the default not said -- read aloud is
+    shown to everyone in the room -- and a `value` dropped, since text nobody can
+    see is not text anybody should be typing after. A refusal asks afresh.
+  - `multiline()`: the question names the submit key the way the drawn footer
+    spells it (`keyLabel()`, so `ctrl-d`, translated), and a `charLimit`; the reply
+    starts on a line of its own; Enter is a line break and the submit key answers.
+    The limit is kept by `fitted()`, the drawn field's own cut. Its option refusals
+    -- an empty submit name, a bad `charLimit` -- happen first, before anything is
+    written, because they are about the options and not about how they are drawn.
+  - `confirm()`: the same `(Y/n)` from the same catalog entry, and a whole reply of
+    a key or a word -- `y`, `yes`, the catalog's own `yes` -- so `yellow` is
+    refused rather than read as yes. Enter alone is the default.
+  - `select()`: the list, numbering only what is on offer so the numbers run without
+    a gap and every number can be picked; a disabled choice is listed after a dash
+    with its reason, a description indented under its choice. Enter alone takes the
+    choice the drawn list would have opened on, so `value` and `initial` mean what
+    they meant. Numbers only, not labels: a list of versions labelled `18`, `20`,
+    `22` makes a reply of `20` mean two things. `Chosen: Multi` follows, because a
+    transcript reading `2` does not say what was chosen.
+  - `multiselect()`: the same list, and numbers separated by commas or spaces, with
+    ranges. The reply **replaces** the selection rather than toggling it, because a
+    list of what is wanted stands on its own, where a toggle means holding the
+    current ticks in your head across a transcript. Enter alone keeps what was
+    ticked, `none` -- the word the drawn prompt already settles on for an empty
+    answer -- answers nothing, and `min`, `max` and `required` refuse with the drawn
+    prompt's own messages.
+- **The other seventeen have no line form yet and are drawn as usual.** The option
+  is on `AccessibleOptions`, which only the six options interfaces extend, so the
+  types do not offer it where it would do nothing; the variable cannot be scoped
+  that way and is ignored by the rest, which the README says. Refusing them would
+  be worse: an app the person cannot use at all, over a preference they set to make
+  apps usable. Several map onto these six directly -- `toggle()` and `selectKey()`
+  onto `confirm()` and `select()`, `number()`, `list()`, `path()` and `maskedText()`
+  onto `text()` with their own parse -- and that is a follow-up ticket's work.
+- **The screen model learned Backspace.** `src/testing/screen.ts` took `\b` as a
+  zero-width control and moved nothing, so `ab\b \b` read as `ab `, which is the
+  model losing an edit a terminal shows. It moves one column left, stops at the
+  first, and from a pending wrap goes to the column before the last, as xterm
+  does. `test/testing/screen.test.ts` has the four cases.
+- **`test/setup.ts` deletes `SIGIL_ACCESSIBLE`.** The suite drives the drawn
+  prompts, and the person most likely to have the variable exported is a developer
+  who uses a screen reader -- for whom hundreds of prompt tests would otherwise
+  fail. The line-form tests stub it themselves.
+- **Not done.** A line form for the other seventeen; saying the keys a line form
+  takes beyond what answering needs (`esc` to go back is not announced, as
+  `text()` draws no footer for it either); a spinner or a bar that is running while
+  a line prompt asks is not evicted, since a line prompt claims no live region; the
+  progress components' own accessible form, which is the quiet axis's question.
