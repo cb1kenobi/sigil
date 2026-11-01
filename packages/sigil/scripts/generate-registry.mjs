@@ -95,6 +95,10 @@ const ENTRIES = [
     name: 'prompt',
   },
   {
+    desc: 'An editor prompt: write the answer in $VISUAL or $EDITOR, from a temporary file removed on every exit',
+    name: 'editor',
+  },
+  {
     desc: 'autocomplete() and autocompleteMultiselect(): type to filter a list, or search an async source',
     name: 'autocomplete',
   },

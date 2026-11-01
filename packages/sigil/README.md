@@ -3056,6 +3056,58 @@ keeps the caret visible.
 > what makes a paste submit half an address. Keeping them is the entire point of
 > having more than one line.
 
+#### An answer written in the editor
+
+```js
+import { editor } from '@ttylabs/sigil/components';
+
+const message = await editor({
+  message: 'Commit message',
+  default: 'Summary line\n\nWhat changed, and why.\n',
+  postfix: '.md',
+  validate: (value) => (value.trim() === '' ? 'Write something' : undefined),
+});
+```
+
+For a commit message or a config blob, which want the person's own editor rather
+than a few lines inside the prompt. The question is drawn and **Enter opens the
+editor** on a temporary file that starts with `default`; saving and quitting
+answers with what was saved. A `validate` that rejects it shows the reason under
+the question, and Enter reopens the editor on exactly what was saved.
+
+The editor is `editor` if given, then **`$VISUAL`, then `$EDITOR`**, then `vi` --
+`notepad` on Windows -- and the platform default is offered only if `which()` finds
+it. The variables are **shell commands**, run through `sh` (`cmd.exe` on Windows)
+the way git runs them, so `code --wait`, `vim -u NONE` and a quoted path with a
+space in it all work; with none of them and no `vi`, the prompt rejects naming the
+two variables before anything is drawn.
+
+While the editor is open the prompt **holds nothing**: the live region is given up,
+stdin is paused with raw mode off, the cursor is shown, and Ctrl-C belongs to the
+editor. `Waiting for your editor to close the file…` stays on screen, which is what
+shows behind an editor that opens a window, and is erased when it closes.
+
+| Option     | Meaning                                                                              |
+| ---------- | ------------------------------------------------------------------------------------ |
+| `message`  | What is being asked                                                                  |
+| `default`  | What the file starts with. Not a fallback: an empty file answers `''`                |
+| `postfix`  | The end of the file's name, so the editor picks a syntax mode. Default `.txt`        |
+| `editor`   | A command to run ahead of `$VISUAL` and `$EDITOR`, for an app with its own setting   |
+| `validate` | Checks the answer; return a string to reject it with that message. May be async      |
+| `signal`   | An `AbortSignal`. Honoured once the editor closes, since another program has the tty |
+
+The answer has a byte order mark, CRLF line breaks and **one** trailing line break
+taken off, which are how an editor encodes a file rather than what was written --
+so an untouched `default` comes back the same from vim, which adds a final newline,
+and from Notepad, which does not. The file is in a private directory of its own,
+removed on every way out: an answer, a cancel, an editor that exits non-zero, and
+the process exiting or being sent SIGTERM or SIGHUP while the editor is open.
+
+An editor that exits non-zero rejects with a `PromptError` naming the command and
+the code -- `:cq` in vim is that -- and one that dies of SIGINT, or exits 130, is a
+cancel (`err.aborted` is `true`). `router` is refused: a router the app owns keeps
+reading stdin, which would take keys out from under the editor.
+
 #### A number
 
 ```js

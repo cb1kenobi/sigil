@@ -368,6 +368,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/39-tree.js`](components/39-tree.js)                                         | A tree printed with guides, a prompt over one, and a directory tree      |
 | [`components/40-pager.js`](components/40-pager.js)                                       | A pager: `less` keys, line numbers, and `/` search with highlights       |
 | [`components/41-collapsible.js`](components/41-collapsible.js)                           | A section that opens and closes, and an accordion of them                |
+| [`components/42-editor.js`](components/42-editor.js)                                     | An editor prompt: the answer is written in `$VISUAL` or `$EDITOR`        |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -473,6 +474,18 @@ demo prints it after each step, with the focus said in words, since the inverse
 that marks it on a terminal is an attribute a pipe drops. The last step tabs into
 a field inside the open answer, which is in the ring only while its section is
 open.
+
+`42-editor.js` asks for a commit message in your own editor -- `$VISUAL`, then
+`$EDITOR`, then `vi` (Notepad on Windows) -- on a temporary `.md` file that starts
+with a draft, and rejects a message that still starts with `wip`. While the editor
+is open the prompt holds nothing and leaves `Waiting for your editor to close the
+file…` on screen, which is what you see behind an editor that opens a window
+(`EDITOR='code --wait'`). Piped, there is nobody to type and no editor to look at,
+so a scripted keyboard drives the prompt and the editor is the demo itself run
+again with `--as-editor`: a real child process, opened through the shell exactly as
+`$EDITOR` is, that saves `wip` the first time and a real message the second. The
+screen is printed at each step -- the question, the waiting line, the rejection
+under the question, and the settled answer's first line.
 
 ### Try them without a terminal
 
