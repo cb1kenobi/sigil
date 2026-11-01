@@ -68,10 +68,13 @@ function screen(ui: ScreenHarness): string[] {
   return ui.log.map((line) => line.trimEnd()).filter(Boolean);
 }
 
-/** The body rows on screen, without the heading and the pointer. */
+/**
+ * The body rows on screen, without the heading and the pointer -- and without the
+ * key footer, which is the last row while the prompt is open.
+ */
 function body(ui: ScreenHarness): string[] {
   return screen(ui)
-    .slice(2)
+    .slice(2, -1)
     .filter((line) => !/^\s+\d+\/\d+$/.test(line))
     .map((line) => line.replace(/^(❯| ) /, ''));
 }
@@ -91,12 +94,15 @@ describe('selectRow()', () => {
     await tick();
 
     expect(screen(ui)).toEqual([
-      '? Which deployment? (enter to pick, 1-3 to sort)',
+      '? Which deployment?',
       '  Name    Region      Age',
       '❯ web     eu-west      12',
       '  api     us-east       3',
       '  Worker  ap-south     40',
       '  db      us-east       7',
+      // only the columns that sort get a digit, so the line names none that does
+      // nothing
+      '  enter pick · 1/2/3 sort',
     ]);
 
     await type(ui.stdin, CTRL_C);
@@ -115,7 +121,7 @@ describe('selectRow()', () => {
     // which is the only way the two differ
     expect(
       screen(ui)
-        .slice(1)
+        .slice(1, -1)
         .map((line) => line.slice(2))
     ).toEqual(
       table(
@@ -168,7 +174,7 @@ describe('selectRow()', () => {
 
     await tick();
 
-    expect(screen(ui).slice(1)).toEqual(['  id    tag', '❯ 1     x']);
+    expect(screen(ui).slice(1, -1)).toEqual(['  id    tag', '❯ 1     x']);
 
     await type(ui.stdin, CTRL_C);
     await answer;
@@ -351,7 +357,7 @@ describe('selectRow()', () => {
       await answer;
     });
 
-    it('should leave a column alone when it is marked not sortable, and say so in the hint', async () => {
+    it('should leave a column alone when it is marked not sortable, and say so in the footer', async () => {
       const ui = screenSetup({ columns: 70, rows: 10 });
       const answer = settle(
         open(ui, {
@@ -363,11 +369,33 @@ describe('selectRow()', () => {
       );
 
       await tick();
-      expect(screen(ui)[0]).toBe('? Which deployment? (enter to pick, 1 to sort)');
+      expect(screen(ui).at(-1)).toBe('  enter pick · 1 sort');
 
       await type(ui.stdin, '2');
       expect(body(ui).map((line) => line.split(/\s+/)[0])).toEqual(['web', 'api', 'Worker', 'db']);
       expect(screen(ui)[1]).toBe('  Name    Region');
+
+      await type(ui.stdin, CTRL_C);
+      await answer;
+    });
+
+    it('should name in the footer only the digits that sort', async () => {
+      // the hint this replaced said `1-3` for a table whose second column did not
+      // sort, which named a key that did nothing. Each digit is a binding of its
+      // own, registered only where its column sorts, so the line cannot
+      const ui = screenSetup({ columns: 70, rows: 10 });
+      const answer = settle(
+        open(ui, {
+          columns: [
+            { header: 'Name', key: 'name' },
+            { header: 'Region', key: 'region', sortable: false },
+            { header: 'Age', key: 'age' },
+          ],
+        })
+      );
+
+      await tick();
+      expect(screen(ui).at(-1)).toBe('  enter pick · 1/3 sort');
 
       await type(ui.stdin, CTRL_C);
       await answer;
@@ -378,7 +406,7 @@ describe('selectRow()', () => {
       const answer = settle(open(ui, { columns: [{ key: 'name', sortable: false }] }));
 
       await tick();
-      expect(screen(ui)[0]).toBe('? Which deployment? (enter to pick)');
+      expect(screen(ui).at(-1)).toBe('  enter pick');
 
       await type(ui.stdin, CTRL_C);
       await answer;
@@ -453,25 +481,23 @@ describe('selectRow()', () => {
       const answer = settle(selectRow(base(ui)));
 
       await tick();
-      // eight rows: the question, the heading, a position line, and four of thirty
+      // eight rows: the question, the heading, a position line, the key footer,
+      // and four of thirty
       expect(screen(ui)).toEqual([
-        '? Pick (enter to pick, 1-2 to sort)',
+        '? Pick',
         '  Id    Name',
         '❯ 0     row 0',
         '  1     row 1',
         '  2     row 2',
         '  3     row 3',
-        '  4     row 4',
         '  1/30',
+        '  enter pick · 1/2 sort',
       ]);
 
       await type(ui.stdin, END);
-      expect(screen(ui).slice(0, 2)).toEqual([
-        '? Pick (enter to pick, 1-2 to sort)',
-        '  Id    Name',
-      ]);
-      expect(screen(ui).at(-1)).toBe('  30/30');
-      expect(screen(ui).at(-2)).toBe('❯ 29    row 29');
+      expect(screen(ui).slice(0, 2)).toEqual(['? Pick', '  Id    Name']);
+      expect(screen(ui).at(-2)).toBe('  30/30');
+      expect(screen(ui).at(-3)).toBe('❯ 29    row 29');
 
       await type(ui.stdin, CTRL_C);
       await answer;
@@ -493,11 +519,13 @@ describe('selectRow()', () => {
       const ui = screenSetup({ columns: 40, rows: 8 });
       const answer = settle(selectRow(base(ui)));
 
+      // four body rows under the question, the heading, the position line and
+      // the key footer, and a page is the window less one
       await type(ui.stdin, PAGEDOWN);
-      expect(pointed(ui)).toBe('4');
+      expect(pointed(ui)).toBe('3');
 
       await type(ui.stdin, HOME, PAGEDOWN, PAGEDOWN, PAGEDOWN);
-      expect(pointed(ui)).toBe('12');
+      expect(pointed(ui)).toBe('9');
 
       await type(ui.stdin, CTRL_C);
       await answer;
@@ -542,7 +570,7 @@ describe('selectRow()', () => {
 
       await type(ui.stdin, '1', '1');
       expect(pointed(ui)).toBe('0');
-      expect(screen(ui).at(-1)).toBe('  30/30');
+      expect(screen(ui).at(-2)).toBe('  30/30');
 
       await type(ui.stdin, ENTER);
       expect((await answer).value).toBe(MANY[0]);

@@ -197,7 +197,13 @@ async function until(check: () => void): Promise<void> {
 
 /** The rows under the question, with the pointer column taken off. */
 function rows(ui: ScreenHarness): string[] {
-  return ui.log.slice(1).map((line) => line.slice(2));
+  // the question above, and the key footer below
+  return ui.log.slice(1, -1).map((line) => line.slice(2));
+}
+
+/** The key footer, which is the last line until the prompt is answered. */
+function footer(ui: ScreenHarness): string | undefined {
+  return ui.log.at(-1)?.trim();
 }
 
 /** The highlighted row, pointer column taken off. */
@@ -243,6 +249,36 @@ describe('selectTree()', () => {
     expect(rows(ui)).toEqual(['├──   index.ts', '├── ▸ parser', '└── ▸ help']);
     expect(highlighted(ui)).toBe('├──   index.ts');
     ui.stdin.send(CTRL_C);
+  });
+
+  it('should list the keys in a footer that follows the highlight', async () => {
+    const { ui } = ask(SRC.items);
+    await tick(3);
+
+    // a leaf has nothing for Space to do, so Space is not listed there
+    expect(footer(ui)).toBe('enter pick');
+    await type(ui, DOWN);
+    expect(footer(ui)).toBe('space toggle · enter pick');
+    ui.stdin.send(CTRL_C);
+  });
+
+  it('should say Enter toggles a branch under leaves, and picks a leaf', async () => {
+    const { ui } = ask(SRC.items, { leaves: true });
+    await tick(3);
+
+    expect(footer(ui)).toBe('enter pick');
+    await type(ui, DOWN);
+    expect(footer(ui)).toBe('space/enter toggle');
+    ui.stdin.send(CTRL_C);
+  });
+
+  it('should take the footer down once it is answered', async () => {
+    const { answer, ui } = ask(SRC.items);
+    await tick(3);
+
+    await type(ui, ENTER);
+    await answer;
+    expect(ui.log.join('\n')).not.toContain('enter pick');
   });
 
   it('should draw a root bare, with its children hung from the margin', async () => {
@@ -411,11 +447,13 @@ describe('selectTree()', () => {
     const { ui } = ask([{ expanded: true, items: many, text: 'big' }], {}, { rows: 6 });
     await tick(3);
 
-    expect(rows(ui)).toHaveLength(5);
+    // six rows less the question and the key footer
+    expect(rows(ui)).toHaveLength(4);
     expect(rows(ui)[0]).toBe('└── ▾ big');
+    expect(footer(ui)).toBe('space toggle · enter pick');
 
     await type(ui, END);
-    expect(rows(ui)).toHaveLength(5);
+    expect(rows(ui)).toHaveLength(4);
     expect(highlighted(ui)).toBe('└──   n29');
     expect(rows(ui)).not.toContain('└── ▾ big');
     ui.stdin.send(CTRL_C);

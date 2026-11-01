@@ -1506,8 +1506,9 @@ lists the command by name alone.
 
 ### The prompts, and what a translated `confirm` accepts
 
-The affordances translate like everything else — the submit hint, the
-multiselect hint, the settled answers, `Choose at least one`, and the command
+The affordances translate like everything else — the key footer's descriptions
+(`select`, `all`, `invert`, `confirm`, `submit`, `grab`, `drop`, `move`, `pick`,
+`sort`) and its key names, the settled answers, `Choose at least one`, and the command
 palette's own `Run a command`, `No commands match` and `(skip)` — and `confirm`
 is the one with a twist, because its hint names the keys it reads. Translating the
 hint on its own would give a prompt that displays `(J/n)` and ignores `j`.
@@ -1541,11 +1542,12 @@ What does **not** move is `argv`. `--force=y` and `type: 'yesno'` accept
 mean something different under another `LANG`. A keystroke at an interactive
 prompt is the other case, which is why only the prompt's keys gain anything.
 
-Key names are English and modifiers are not: `ctrl-{0}`, `alt-{0}` and
-`ctrl-alt-{0}` are keys, so a German catalog writes `Strg+{0}` and the hint reads
-`(Strg+d zum Absenden)`. The separator is the catalog's too. The key's own name
-stays English, because the letter on the cap — and `enter`, and `tab` — is
-printed the same on essentially every keyboard sold.
+A footer's modifiers are keys, `ctrl-{0}`, `alt-{0}` and `shift-{0}`, and they
+nest, so a German catalog writes `Strg+{0}` and `Alt+{0}` once each and the
+multiline footer reads `Strg+d absenden` -- or `Strg+Alt+s absenden` for a
+Ctrl-Alt submit key. The separator is the catalog's too. A letter on a key cap is
+printed as it is, while the names that are words -- `enter`, `space`, `tab`,
+`esc` -- are keys, because a footer prints them beside translated words.
 
 ### A missing translation
 
@@ -2768,6 +2770,26 @@ async — return a string to reject the answer with that message. Editing keys
 are the usual ones: arrows, Home/End, Ctrl-A/E/U, Backspace, Delete. A paste
 arrives as one chunk and is read as the keys it carries, not just the first.
 
+A prompt whose keys a reader would not guess draws them in a **key footer** under
+the list — the [key-help footer](#a-key-help-footer), read off the prompt's own
+key table, so the line names the keys the prompt answers and nothing else:
+
+```
+? Features
+❯ ◉ TypeScript
+  ◯ Tests
+  space select · a all · i invert · enter confirm
+```
+
+That is `multiselect()`, `groupMultiselect()`, `autocompleteMultiselect()`,
+`multiline()`, `sort()` and `selectRow()`. It is one row at every width: what does
+not fit is dropped whole, least important first, and the row ends in `…`. It goes
+once the prompt is answered, so the log keeps the question and the answer. The
+arrows are not listed, since they are the keys nobody has to be told, and `text()`,
+`select()` and `confirm()` draw no footer — `confirm()`'s `(Y/n)` already names its
+keys. A key is matched the way `bind()` matches one, modifiers and all, so
+Shift-Down is not Down.
+
 Every prompt takes a `signal`. Aborting it gives the prompt up the way Ctrl-C
 does — the screen, the cursor and stdin are put back — but the promise rejects
 with the signal's own `reason`, not a `PromptError`, so a program's decision is
@@ -2917,7 +2939,8 @@ nothing on offer is refused the way an empty one is. A disabled choice is never
 ticked, whatever its `selected` says.
 
 In `multiselect()`, `a` ticks every choice on offer (or clears them if they all
-already are), `i` flips each one, and Ctrl-A is `a` still. Enter checks `min` and
+already are), `i` flips each one, and Ctrl-A is `a` still — the footer lists `a`
+and `i`, and leaves Ctrl-A out. Enter checks `min` and
 `max` — `required` is `min: 1` — and says how many it wanted: `Choose at least 2`.
 Neither is checked while ticking, so a `max` of 3 does not stop the fourth Space,
 only the Enter.
@@ -3013,8 +3036,8 @@ const notes = await multiline({
 ```
 
 Enter inserts a newline, so **Ctrl-D is what submits** — `submit` names another
-key, and the hint the field draws is generated from it so the two cannot
-disagree. `{ meta: true, name: 'enter' }` is Alt-Enter, which is also what
+key, and the footer under the field (`ctrl-d submit`) is generated from it so the
+two cannot disagree. `{ meta: true, name: 'enter' }` is Alt-Enter, which is also what
 Escape-then-Enter arrives as when the two are pressed in quick succession.
 
 The field **soft wraps**: it wraps for display and the value keeps exactly the
@@ -3259,7 +3282,8 @@ highlighted label into the field.
 screen, so narrowing the list past a ticked choice does not untick it, and Enter
 answers with it all the same. The line under the list says how many are ticked and how
 many of those the term is hiding (`Selected: 3, 1 not shown`); clearing the term brings
-the rows back with their ticks. `min` and `max` count the hidden ones too.
+the rows back with their ticks. `min` and `max` count the hidden ones too. That line
+says nothing until something is ticked; the footer under it names Space and Enter.
 
 A choice is ticked **by its `value`**, compared as a `Map` compares keys — strings and
 numbers, or the same object. A `source` that builds a new object for the same thing on
@@ -3428,7 +3452,9 @@ top or the bottom and Page Up and Page Down carry it a screen at a time; with
 nothing in hand they move the highlight. **Enter answers** whether or not a row
 is still in hand, so it stays where it was carried to. Alt or Shift with Up or
 Down moves a row one place without picking it up, for a hand that knows the keys.
-A carried row stops at either end rather than wrapping.
+A carried row stops at either end rather than wrapping. The footer follows the
+grab: `space grab · enter confirm` with nothing in hand, and `↑/↓ move · space drop
+· enter confirm` while a row is carried.
 
 A choice marked `disabled` is **pinned**: it keeps its place in the list, the
 highlight steps over it, it cannot be picked up, and the rows around it move past
@@ -3499,6 +3525,40 @@ spinner.succeed('Compiled 2 files');
 
 `succeed`, `fail`, `warn`, and `info` each stop and leave one marked line.
 `stop()` erases and leaves nothing.
+
+`frames` takes one of the sets below, each with the interval it looks right at,
+or an array of your own (at 80 ms unless `interval` says otherwise). `interval`
+beats a set's own.
+
+```js
+import { ARC, createSpinner } from '@ttylabs/sigil/components';
+
+createSpinner({ frames: ARC, text: 'Resolving' }).start();
+```
+
+| Set            | Frames                | Interval |
+| -------------- | --------------------- | -------- |
+| `DOTS`         | `⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏` | 80 ms    |
+| `LINE`         | `- \ \| /`            | 130 ms   |
+| `ARC`          | `◜ ◠ ◝ ◞ ◡ ◟`         | 100 ms   |
+| `CIRCLE`       | `◴ ◷ ◶ ◵`             | 120 ms   |
+| `GROW`         | `▁ ▃ ▄ ▅ ▆ ▇ ▆ ▅ ▄ ▃` | 120 ms   |
+| `ARROW`        | `← ↖ ↑ ↗ → ↘ ↓ ↙`     | 100 ms   |
+| `BOUNCING_BAR` | `[    ]` `[=   ]` …   | 80 ms    |
+
+The default is `DOTS`, or `LINE` where `unicodeSupported()` says the terminal
+cannot be trusted with braille -- a Linux console, `TERM=dumb`, or a Windows
+console that is not one of the known ones. `ascii: true` or `false` decides it
+outright, and `env` and `platform` name the terminal to ask about. Frames you pass
+always win, so an app that wants `ARC` where it can and ASCII where it cannot says
+`frames: unicodeSupported() ? ARC : LINE`.
+
+Every frame of a set is the same width, and every set that is not ASCII is one
+cell, so the text after it never moves. That is why there is no emoji set: an
+emoji is two columns on a terminal that knows it is one and one on a terminal that
+does not. More sets -- dots variants, a star, a triangle, sand, a toggle -- are
+data in the registry rather than code in the package, so they cost nothing until
+`sigil add spinner-frames` copies them in.
 
 #### Progress
 
@@ -3658,8 +3718,8 @@ the middle of `mycli --format json | jq`.
 - `--quiet` drops `info`, `success`, `step` and `message`. `warn` and `error` are
   never dropped, since neither is progress.
 - `ascii: true` swaps in `LOG_SYMBOLS_ASCII`, and `symbols: { warn: '!!' }`
-  replaces one glyph. Nothing detects a terminal that needs ASCII; the caller
-  chooses, as it does a spinner's `LINE` frames.
+  replaces one glyph. Nothing here detects a terminal that needs ASCII; the
+  caller chooses.
 
 `createLog({ terminal, ascii, symbols, quiet, theme, timestamp })` builds one over
 another terminal; `log` is the process's.
@@ -3853,7 +3913,8 @@ hold: numbers, bigints, dates and booleans order as what they are, so `9` comes
 before `10`, and anything else orders as text, case folded and then by code unit.
 That is not locale-aware, because that needs `Intl`; a column that wants a locale,
 a version or a size with a unit gives its own `compare(a, b)`, and `sortable:
-false` takes a column out of it.
+false` takes a column out of it. The footer names the digits that sort and no
+other -- `enter pick · 1/3 sort` where the second column is not sortable.
 
 | Option    | Meaning                                                                      |
 | --------- | ---------------------------------------------------------------------------- |
@@ -4120,7 +4181,8 @@ opens a branch and on an open one steps to its first child, **Left** closes an
 open branch and otherwise goes to the parent, **Space** toggles, and **Enter**
 answers with the node's `value` (its `text` if it has none). A branch's `items` may
 be a function, called the first time it opens and kept after -- a read on demand.
-The rows are a window over what is open.
+The rows are a window over what is open, with the key footer under them: `enter
+pick`, and `space toggle` while the highlight is on a branch.
 
 ```js
 const region = await selectTree({
@@ -4267,6 +4329,56 @@ the static one behind the string. The current dot is `.sigil-accent` and the res
 the theme hooks. Nothing is bound to a key: a paginator is state, and which keys
 turn the page is the app's.
 
+#### A collapsible
+
+```js
+import { Collapsible, collapsibleGroup, describeCollapsible } from '@ttylabs/sigil/components';
+import { text } from '@ttylabs/sigil/element';
+
+const stack = Collapsible({ title: 'Show stack', children: () => text(err.stack) });
+
+const faq = collapsibleGroup();
+const answers = questions.map((q) =>
+  Collapsible({ title: q.title, group: faq, children: () => text(q.answer) })
+);
+
+describeCollapsible(input, stack, ...answers); // for keyHelp(), once the router exists
+```
+
+```
+▸ Show stack
+▾ Why did it fail?
+  Run it again with --verbose to see each step.
+▸ Where do logs go?
+```
+
+A section whose title opens and closes what is under it: the long details of a
+result, or the advanced half of a form. The title is focusable; **Enter** and
+**Space** flip it, **Right** opens it and **Left** closes it, and a left click on
+it flips it. An arrow that would change nothing -- Right on an open section -- is
+left for the pane around it, and Up, Down and Tab are never claimed, so Tab walks
+the titles and a section inside a `ScrollBox` still scrolls.
+
+`open` is a boolean to start from, or a `State<boolean>` that the keys and the
+mouse write and the app may write too. `children` is built **once** and hidden
+with `display: none` while closed, so what is inside -- a scroll offset, a
+field's contents -- is still there when it opens, and a closed body is not in the
+focus ring. Opening and closing is instant: there is no height animation.
+
+`collapsibleGroup()` makes an accordion: opening a member, by key, by click or by
+writing its state, closes the others, and closing the open one leaves none open.
+`group.closeAll()` closes them all.
+
+`describeCollapsible(input, ...sections)` describes the four keys scoped to each
+title, so a `keyHelp()` footer lists `enter/space toggle · → open · ← close` while
+a title holds the focus; it returns a function that takes them off again. A
+separate call because the router is built from the tree the section is in.
+
+The marker is `.sigil-accent`, and `▸`/`▾` or `>`/`v` where `unicodeSupported()`
+says no (or `ascii: true`). A focused title is drawn inverse by the framework
+sheet. `.sigil-collapsible` (with `is-open` while open), `-title`, `-marker`,
+`-label` and `-body` are the theme hooks, and `props` goes on the host.
+
 #### A key-help footer
 
 ```js
@@ -4302,7 +4414,62 @@ under its `group`, one to a line. Binding `?` to that signal is the app's job.
 Key names that are words (`enter`, `esc`, `tab`, ...) and the `ctrl-`/`alt-`/
 `shift-` prefixes go through the catalog; arrows are glyphs. Descriptions are
 whatever the app passes, so it translates them where it writes them. The built-in
-prompts keep their own hint lines.
+prompts draw this footer too, from a key table of their own rather than from a
+router -- see [Prompts](#prompts).
+
+#### A pager
+
+```js
+import { createPager, keyHelp, page } from '@ttylabs/sigil/components';
+
+// the whole screen until q, like `gum pager`; piped, it writes the text out
+await page(readFileSync('CHANGELOG.md', 'utf8'), { lineNumbers: true });
+
+// or an element in a tree of your own, with its keys in the footer
+const pager = createPager({ content: log, props: { height: 20 }, wrap: false });
+pager.describe(input);
+root.append(pager.element, keyHelp(input));
+```
+
+```
+ 1 ## 0.4.0                                                █
+ 2                                                         █
+ 3 - Add a pager: `less` keys, line numbers, and `/` search│
+ 4 - Fix the pager status line at narrow widths            │
+/pager  match 2 of 2                                     40%
+```
+
+A document in a `ScrollBox` with the keys `less` taught
+everybody: Space, `f` and PgDn page down and `b` and PgUp page up (a window less a
+row, so a line of what you were reading survives the jump), `d` and `u` move half
+a window, `j`, `k`, Enter and the arrows move a line, `g`/Home and `G`/End go to
+either end, and `q` calls `onQuit` -- which `page()` passes, and which an element
+in a bigger app leaves out so that `q` reaches the app. A scrolling key is claimed
+only where the document is longer than the window, which is the scroll box's own
+rule.
+
+`/` opens a search on the status line; Enter runs it, Escape gives it up, and an
+empty Enter repeats the last one. Every match is drawn reversed and the current
+one in the accent as well, `n` and `N` step through them and wrap at the ends, and
+after paging away `n` finds the next match below where you are rather than going
+back to where you were. A query is **literal** by default, so `.` and `(` mean
+themselves, and **smart case** -- lower case matches either case, a capital
+matches exactly. `search: 'regex'` reads it as a regular expression: one that
+does not compile is reported on the status line rather than thrown, and a
+zero-length match counts once per line, so `^$` steps through the blank lines.
+
+Lines **fold** at the window's edge by default, at the column rather than the
+word, so every character is shown in order; `wrap: false` cuts them at the edge
+instead and Left and Right shift the view by half a window, which is what a log
+or a table wants. `lineNumbers: true` adds a gutter, numbering a folded line once.
+Escape sequences in the input are stripped rather than drawn, and tabs go to the
+next stop of eight.
+
+`page()` takes the alternate screen and gives it back on `q` or Ctrl-C. Where the
+output or the input is not a terminal it writes the document out as it was given
+and resolves, which is what `less` does when it is piped. It leaves the mouse
+alone unless you pass `mouse: true`, because a terminal reporting the mouse stops
+doing its own selection, and copying a line out is half of what a pager is for.
 
 `sigil/components` also exports `decodeKeys()` and `renderBar()`, and the state
 and the element tree behind each component -- `spinnerView()`, `progressView()`

@@ -16,6 +16,10 @@
  * rather than landing on them; Home and End go to the first and last row that is
  * on offer; `a` ticks everything that can be ticked and `i` flips it; and Enter
  * with too few or too many ticked says how many it wanted.
+ *
+ * The multiselect's last row is its key footer, `space select · a all · i invert
+ * · enter confirm`, read off the keys the prompt answers rather than written as a
+ * hint beside the question. The select has none: its keys are the arrows.
  */
 import { multiselect, PromptError, select, separator } from '@ttylabs/sigil/components';
 import { createTestTerminal, KEYS, tick } from '@ttylabs/sigil/testing';

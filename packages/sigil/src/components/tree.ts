@@ -45,8 +45,10 @@ import {
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
+  promptFooter,
   promptHeadLine,
   promptHeadWidths,
+  promptKeys,
   PromptError,
   type PromptOptions,
   promptNote,
@@ -570,23 +572,121 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     }
     active = top[0];
 
-    const hintText = __`(enter to pick)`;
-    const hint = textNode(hintText, { class: 'sigil-prompt-hint sigil-muted' });
-    const head = promptHeadWidths(opts.message, Math.max(1, terminal.width), hintText);
-    const { line, mark } = promptHeadLine(opts.message, head.message, hint);
+    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
+    const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
+    const { line, mark } = promptHeadLine(opts.message, head.message, answer);
     const complaint = promptNote('sigil-prompt-error sigil-error');
     const list = box({ class: 'sigil-tree-list', 'flex-direction': 'column' });
+
+    // Left closes, or goes up, without waiting for anything: it is the key that
+    // gets away from a branch whose read has stalled, and holding it behind that
+    // read is the freeze `filePicker()` records. Every other key waits for the
+    // open branches on screen, so it lands on the rows that will be drawn. What
+    // the footer says follows the highlight: Enter toggles a branch under
+    // `leaves`, and Space is listed only on a branch, where it does something.
+    // The arrows and the paging keys are answered and not listed, as in every
+    // list prompt
+    const keys = promptKeys<Promise<{ value: T } | void> | void>();
+    const settled = (
+      step: (
+        node: TreeNode<T>,
+        rows: TreeNode<T>[],
+        at: number
+      ) => Promise<{ value: T } | void> | void
+    ) => {
+      return async (): Promise<{ value: T } | void> => {
+        const node = active as TreeNode<T>;
+        await opened();
+        const rows = visible();
+        return step(node, rows, rows.indexOf(node));
+      };
+    };
+    const go = (rows: TreeNode<T>[], to: number): void => {
+      active = rows[Math.min(Math.max(0, to), rows.length - 1)];
+    };
+    /** Opens a branch that is closed, and closes one that is open. */
+    const flip = (node: TreeNode<T>): void => {
+      if (node.branch && node.expanded) {
+        node.expanded = false;
+      } else {
+        open(node);
+      }
+    };
+    const toggles = (): boolean => active?.branch === true;
+
+    keys.on('left', () => {
+      const node = active as TreeNode<T>;
+      if (node.branch && node.expanded) {
+        node.expanded = false;
+      } else if (node.parent) {
+        active = node.parent;
+      }
+    });
+    keys.on(
+      'right',
+      settled((node) => {
+        if (node.branch && !node.expanded) {
+          open(node);
+        } else if (node.expanded && node.children && node.children.length > 0) {
+          active = node.children[0];
+        }
+      })
+    );
+    keys.on(
+      'up',
+      settled((_, rows, at) => go(rows, loop ? (at - 1 + rows.length) % rows.length : at - 1))
+    );
+    keys.on(
+      'down',
+      settled((_, rows, at) => go(rows, loop ? (at + 1) % rows.length : at + 1))
+    );
+    keys.on(
+      'home',
+      settled((_, rows) => go(rows, 0))
+    );
+    keys.on(
+      'end',
+      settled((_, rows) => go(rows, rows.length - 1))
+    );
+    keys.on(
+      'pageup',
+      settled((_, rows, at) => go(rows, at - page()))
+    );
+    keys.on(
+      'pagedown',
+      settled((_, rows, at) => go(rows, at + page()))
+    );
+    keys.on(
+      'space',
+      settled((node) => flip(node)),
+      () => (toggles() ? { description: __`toggle`, priority: 2 } : undefined)
+    );
+    keys.on(
+      'enter',
+      settled((node) => (node.branch && opts.leaves ? flip(node) : choose(node))),
+      () =>
+        toggles() && opts.leaves
+          ? { description: __`toggle`, priority: 3 }
+          : { description: __`pick`, priority: 3 }
+    );
+
+    const footer = promptFooter(keys, terminal.width);
     const view = box(
       { class: 'sigil-prompt sigil-tree-select', 'flex-direction': 'column' },
       line,
       box({ 'padding-left': 2 }, complaint),
-      list
+      list,
+      footer
     );
 
+    // the footer's row is kept back with the question's and the error line's
     const room = (): number => {
-      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines - (error ? 1 : 0));
+      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines - (error ? 1 : 0) - 1);
       return Math.max(1, Math.min(promptRowCap(opts.rows, avail), avail));
     };
+
+    /** A page, in rows: the window less one, so a row stays in view. */
+    const page = (): number => Math.max(1, room() - 1);
 
     /** One row: the pointer, the guide, whether it is open, the marker and the text. */
     function row(node: TreeNode<T>, current: boolean): Element {
@@ -624,6 +724,7 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
         active = rows[0];
       }
       const at = active === undefined ? 0 : rows.indexOf(active);
+      keys.refresh();
       setPromptNote(complaint, error);
       const space = room();
       first = listWindow(rows.length, at, space, first);
@@ -656,76 +757,23 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     return {
       async key(k) {
         error = undefined;
-        const node = active;
-        if (node === undefined) {
+        if (active === undefined) {
           return;
         }
-
-        // Left closes, or goes up, without waiting for anything: it is the key
-        // that gets away from a branch whose read has stalled, and holding it
-        // behind that read is the freeze `filePicker()` records
-        if (k.name === 'left') {
-          if (node.branch && node.expanded) {
-            node.expanded = false;
-          } else if (node.parent) {
-            active = node.parent;
-          }
-          draw();
-          return;
+        const done = await keys.match(k)?.(k);
+        if (done) {
+          return done;
         }
-
-        await opened();
-        const rows = visible();
-        const at = rows.indexOf(node);
-        const page = Math.max(1, room() - 1);
-        const go = (to: number): void => {
-          active = rows[Math.min(Math.max(0, to), rows.length - 1)];
-        };
-
-        if (k.name === 'enter') {
-          if (node.branch && opts.leaves) {
-            if (node.expanded) {
-              node.expanded = false;
-            } else {
-              open(node);
-            }
-          } else {
-            return choose(node);
-          }
-        } else if (k.name === 'right') {
-          if (node.branch && !node.expanded) {
-            open(node);
-          } else if (node.expanded && node.children && node.children.length > 0) {
-            active = node.children[0];
-          }
-        } else if (k.name === 'space') {
-          if (node.branch && node.expanded) {
-            node.expanded = false;
-          } else {
-            open(node);
-          }
-        } else if (k.name === 'up' || k.name === 'down') {
-          const next = at + (k.name === 'up' ? -1 : 1);
-          go(loop ? (next + rows.length) % rows.length : next);
-        } else if (k.name === 'home') {
-          go(0);
-        } else if (k.name === 'end') {
-          go(rows.length - 1);
-        } else if (k.name === 'pageup') {
-          go(at - page);
-        } else if (k.name === 'pagedown') {
-          go(at + page);
-        }
-
         draw();
       },
 
       settle(): void {
         finished = true;
         promptAnswered(mark);
-        hint.setText(chosen);
-        hint.setProps({ class: 'sigil-prompt-answer sigil-muted' });
+        answer.setText(chosen);
+        answer.setProps({ display: 'flex' });
         setPromptNote(complaint, undefined);
+        footer.setProps({ display: 'none' });
         list.setProps({ display: 'none' });
       },
 

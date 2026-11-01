@@ -170,6 +170,10 @@ export {
   promptHeadLine,
   promptHeadWidths,
   promptChoice,
+  promptFooter,
+  type PromptKeyHelp,
+  type PromptKeys,
+  promptKeys,
   promptNote,
   promptRowCap,
   type PromptSymbols,
@@ -276,11 +280,18 @@ export {
   logView,
 } from './log.js';
 export {
+  ARC,
+  ARROW,
+  BOUNCING_BAR,
+  CIRCLE,
   createSpinner,
   DOTS,
+  GROW,
   LINE,
   OUTCOME_SYMBOLS,
   type Spinner,
+  type SpinnerFrames,
+  spinnerFrames,
   type SpinnerOptions,
   type SpinnerOutcome,
   type SpinnerState,
@@ -368,14 +379,37 @@ export {
   seeded,
 } from './decrypt.js';
 export {
+  Collapsible,
+  type CollapsibleDescriber,
+  type CollapsibleGroup,
+  collapsibleGroup,
+  type CollapsibleProps,
+  describeCollapsible,
+} from './collapsible.js';
+export {
   type RowWindow,
   rowWindow,
   type ScrollAxis,
   ScrollBox,
   type ScrollBoxProps,
   type ScrollRows,
+  scrollViewport,
   thumbExtent,
 } from './scroll-box.js';
+export {
+  createPager,
+  MAX_MATCHES,
+  page,
+  type PageOptions,
+  type Pager,
+  pagerLines,
+  type PagerMatch,
+  type PagerOptions,
+  type PagerSearchMode,
+  type PagerSearchResult,
+  searchLines,
+  softWrap,
+} from './pager.js';
 export {
   byLine,
   byWord,

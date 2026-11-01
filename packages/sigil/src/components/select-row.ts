@@ -33,8 +33,10 @@ import {
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
+  promptFooter,
   promptHeadLine,
   promptHeadWidths,
+  promptKeys,
   type PromptOptions,
   PromptError,
   promptRowCap,
@@ -212,7 +214,6 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
   const sortable = columns.map(
     (column, i) => i < DIGITS && (column as SelectRowColumn).sortable !== false
   );
-  const lastSortable = sortable.lastIndexOf(true);
   // measured over every row rather than over the ones on screen, so a column does
   // not change width as the window moves. A sortable heading keeps two columns
   // back for its arrow, which is what it costs for the table not to jump when a
@@ -279,33 +280,69 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
   }
 
   return runPrompt<R>(opts, () => {
-    const sortHint =
-      lastSortable < 0
-        ? undefined
-        : lastSortable === 0
-          ? __`(enter to pick, 1 to sort)`
-          : __`(enter to pick, 1-${lastSortable + 1} to sort)`;
-    const pickHint = __`(enter to pick)`;
-    const hintText = sortHint ?? pickHint;
-    const hint = textNode(hintText, { class: 'sigil-prompt-hint sigil-muted' });
+    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const header = head
       ? box({
           class: 'sigil-table-select-head',
           'padding-left': stringWidth(PROMPT_SYMBOLS.cursor) + 1,
         })
       : undefined;
-    const headRoom = promptHeadWidths(opts.message, Math.max(1, terminal.width), hintText);
-    const { line, mark } = promptHeadLine(opts.message, headRoom.message, hint);
+    const headRoom = promptHeadWidths(opts.message, Math.max(1, terminal.width));
+    const { line, mark } = promptHeadLine(opts.message, headRoom.message, answer);
     const list = box({ class: 'sigil-table-select-list', 'flex-direction': 'column' });
     const position = textNode('', {
       class: 'sigil-table-position sigil-muted',
       display: 'none',
       'padding-left': stringWidth(PROMPT_SYMBOLS.cursor) + 1,
     });
+
+    // a digit per sortable column, each one a binding of its own with the same
+    // description, which the footer folds into one line -- `1/2/3 sort`. Only the
+    // columns that sort are bound, so the line names no digit that does nothing,
+    // which the `1-3` this replaced did for a column between two that sort.
+    // The arrows and the paging keys are answered and not listed, as in every
+    // list prompt
+    const keys = promptKeys<{ value: R } | void>();
+    keys.on('up', () => moveBy(-1));
+    keys.on('down', () => moveBy(1));
+    keys.on('home', () => void (at = 0));
+    keys.on('end', () => void (at = order.length - 1));
+    keys.on('pageup', () => void (at = Math.max(0, at - page())));
+    keys.on('pagedown', () => void (at = Math.min(order.length - 1, at + page())));
+    keys.on('enter', () => ({ value: data[under()] as R }), {
+      description: __`pick`,
+      priority: 2,
+    });
+    for (const [column, sorts] of sortable.entries()) {
+      if (sorts) {
+        keys.on(String(column + 1), () => sortOn(column), {
+          description: __`sort`,
+          priority: 1,
+        });
+      }
+    }
+
+    const footer = promptFooter(keys, terminal.width);
     const view = box(
       { class: 'sigil-prompt sigil-table-select', 'flex-direction': 'column' },
-      ...[line, header, list, position].filter((part): part is Element => part !== undefined)
+      ...[line, header, list, position, footer].filter(
+        (part): part is Element => part !== undefined
+      )
     );
+
+    /** Up or Down, wrapping if it may. */
+    function moveBy(by: -1 | 1): void {
+      const next = at + by;
+      at =
+        next < 0 || next >= order.length
+          ? loop
+            ? (next + order.length) % order.length
+            : at
+          : next;
+    }
+
+    /** A page, in rows: the window less one, so a row stays in view. */
+    const page = (): number => Math.max(1, room().rows - 1);
 
     /**
      * How many body rows there are room for, and whether a line goes to saying
@@ -313,7 +350,8 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
      * screen, so a table that fits is the table and nothing else.
      */
     const room = (): { footer: boolean; rows: number } => {
-      const avail = Math.max(1, Math.max(1, terminal.height) - headRoom.lines - (head ? 1 : 0));
+      // the key footer's row is kept back with the question's and the heading's
+      const avail = Math.max(1, Math.max(1, terminal.height) - headRoom.lines - (head ? 1 : 0) - 1);
       const fits = Math.max(1, Math.min(promptRowCap(opts.height, avail), avail));
       const footer = data.length > fits && fits > 1;
       return { footer, rows: footer ? fits - 1 : fits };
@@ -375,39 +413,16 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
 
     return {
       key(k) {
-        if (k.name === 'enter') {
-          return { value: data[under()] as R };
+        const done = keys.match(k)?.(k);
+        if (done) {
+          return done;
         }
-
-        const page = Math.max(1, room().rows - 1);
-
-        if (k.name === 'up' || k.name === 'down') {
-          const next = at + (k.name === 'up' ? -1 : 1);
-          at =
-            next < 0 || next >= order.length
-              ? loop
-                ? (next + order.length) % order.length
-                : at
-              : next;
-        } else if (k.name === 'home') {
-          at = 0;
-        } else if (k.name === 'end') {
-          at = order.length - 1;
-        } else if (k.name === 'pageup' || k.name === 'pagedown') {
-          at = Math.min(Math.max(0, at + (k.name === 'pageup' ? -page : page)), order.length - 1);
-        } else if (!k.ctrl && !k.meta && /^[1-9]$/.test(k.name)) {
-          const column = Number(k.name) - 1;
-          if (sortable[column]) {
-            sortOn(column);
-          }
-        }
-
         draw();
       },
 
       settle(row): void {
         promptAnswered(mark);
-        hint.setText(
+        answer.setText(
           opts.short
             ? opts.short(row)
             : (cells[data.indexOf(row)] as TableCell[])
@@ -415,8 +430,9 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
                 .filter(Boolean)
                 .join(', ')
         );
-        hint.setProps({ class: 'sigil-prompt-answer sigil-muted' });
+        answer.setProps({ display: 'flex' });
         header?.setProps({ display: 'none' });
+        footer.setProps({ display: 'none' });
         list.setProps({ display: 'none' });
         position.setProps({ display: 'none' });
       },

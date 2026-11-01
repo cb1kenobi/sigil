@@ -67,6 +67,10 @@ const ENTRIES = [
     name: 'spinner',
   },
   {
+    desc: 'More spinner frame sets -- dots variants, a star, a triangle, sand and the rest -- as data to copy in',
+    name: 'spinner-frames',
+  },
+  {
     desc: 'A progress bar that falls back to a percentage where there is no terminal',
     name: 'progress',
   },
@@ -145,6 +149,14 @@ const ENTRIES = [
   {
     desc: 'A scrolling viewport with a scrollbar, keyboard, wheel and a draggable thumb',
     name: 'scroll-box',
+  },
+  {
+    desc: 'A collapsible section: a focusable title that opens and closes its body, alone or as an accordion',
+    name: 'collapsible',
+  },
+  {
+    desc: 'A pager over a scroll box: less keys, line numbers, and / search with highlighted matches',
+    name: 'pager',
   },
   {
     desc: 'A typewriter that reveals text a grapheme, word or line at a time',

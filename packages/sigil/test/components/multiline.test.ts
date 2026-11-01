@@ -88,14 +88,15 @@ function caretAt(ui: ScreenHarness): { column: number; row: number } | undefined
 /**
  * The rows of the field, which start two columns in under the question.
  *
- * Every test that reads this uses a terminal wide enough for the question and
- * its hint to fit on one row, so the field starts on the second. Which is also
+ * Every test that reads this uses a terminal wide enough for the question to fit
+ * on one row, so the field starts on the second -- and ends on the row above the
+ * key footer, which is the last row while the field is open. Which is also
  * why the wrapping claims are made against `layoutField()` instead: narrowing
  * the terminal to force a wrap wraps the *question* too, and then a test is
  * counting rows of something it is not about.
  */
 function fieldRows(ui: ScreenHarness): string[] {
-  return ui.log.slice(1).map((row) => row.slice(2));
+  return ui.log.slice(1, -1).map((row) => row.slice(2));
 }
 
 const ENTER = '\r';
@@ -158,7 +159,7 @@ describe('multiline()', () => {
       });
 
       await type(ui.stdin, 'a');
-      expect(ui.log[0]).to.contain('(alt-enter to submit)');
+      expect(ui.log.at(-1)).to.equal('  alt-enter submit');
 
       await type(ui.stdin, '\u001b\r');
 
@@ -1201,10 +1202,10 @@ describe('multiline()', () => {
       const answer = multiline({ ansi: ui.ansi, message: 'Hm', rows: 5, terminal: ui.terminal });
 
       await type(ui.stdin, 'a');
-      expect(ui.log).to.have.length(2);
+      expect(fieldRows(ui)).to.have.length(1);
 
       await type(ui.stdin, ENTER, 'b');
-      expect(ui.log).to.have.length(3);
+      expect(fieldRows(ui)).to.have.length(2);
 
       await type(ui.stdin, CTRL_D);
       await answer;
@@ -1305,7 +1306,7 @@ describe('multiline()', () => {
         expect(at?.row, `the caret is above the field after ${label}`).to.be.greaterThanOrEqual(1);
         expect(at?.row, `the caret is below the window after ${label}`).to.be.lessThanOrEqual(3);
         expect(
-          ui.log.length - 1,
+          fieldRows(ui).length,
           `the field drew more rows than it asked for after ${label}`
         ).to.be.lessThanOrEqual(3);
       }
@@ -1316,7 +1317,8 @@ describe('multiline()', () => {
 
     it('should cap the rows by what the terminal has left under the question', async () => {
       // the cap is the smaller of what was asked for and what is there, and the
-      // error line is reserved either way
+      // error line and the key footer are reserved either way -- five rows less
+      // the question, the error line and the footer is two
       const ui = screenSetup({ rows: 5 });
       const answer = multiline({
         ansi: ui.ansi,
@@ -1327,7 +1329,7 @@ describe('multiline()', () => {
       });
 
       await type(ui.stdin, LEFT);
-      expect(fieldRows(ui)).to.deep.equal(['4', '5', '6']);
+      expect(fieldRows(ui)).to.deep.equal(['5', '6']);
 
       await type(ui.stdin, CTRL_D);
       await answer;

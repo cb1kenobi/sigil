@@ -68,11 +68,12 @@ describe('sort()', () => {
     await tick();
 
     expect(ui.log.map((line) => line.trimEnd()).filter(Boolean)).toEqual([
-      '? Order (space to grab, enter to confirm)',
+      '? Order',
       '❯ 1. lint',
       '  2. build',
       '  3. test',
       '  4. deploy',
+      '  space grab · enter confirm',
     ]);
 
     await type(ui.stdin, CTRL_C);
@@ -124,14 +125,17 @@ describe('sort()', () => {
   });
 
   it('should say how to put the row down while one is held', async () => {
+    // the footer follows the grab: Space is listed as what it will do next, and
+    // the arrows are listed only while they carry a row, which is when they do
+    // something nobody would guess
     const ui = screenSetup({ columns: 60, rows: 10 });
     const answer = settle(open(ui, { choices: STEPS }));
 
     await type(ui.stdin, SPACE);
-    expect(ui.log[0]).toContain('(up/down to move, space to drop)');
+    expect(ui.log.at(-1)).toBe('  ↑/↓ move · space drop · enter confirm');
 
     await type(ui.stdin, SPACE);
-    expect(ui.log[0]).toContain('(space to grab, enter to confirm)');
+    expect(ui.log.at(-1)).toBe('  space grab · enter confirm');
 
     await type(ui.stdin, CTRL_C);
     await answer;
@@ -211,7 +215,7 @@ describe('sort()', () => {
 
     await type(ui.stdin, SHIFT_UP);
     expect(labels(ui)).toEqual(['build', 'lint', 'test', 'deploy']);
-    expect(ui.log[0]).toContain('(space to grab, enter to confirm)');
+    expect(ui.log.at(-1)).toBe('  space grab · enter confirm');
 
     await type(ui.stdin, ENTER);
     expect((await answer).value).toEqual(['build', 'lint', 'test', 'deploy']);
@@ -352,16 +356,17 @@ describe('sort() over a list longer than the screen', () => {
   const MANY = Array.from({ length: 12 }, (_, i) => `item-${i + 1}`);
 
   it('should window the list and follow the highlight', async () => {
+    // six rows less the question and the key footer is four
     const ui = screenSetup({ columns: 60, rows: 6 });
     const answer = settle(open(ui, { choices: MANY }));
 
     await tick();
-    expect(labels(ui)).toEqual(['item-1', 'item-2', 'item-3', 'item-4', 'item-5']);
+    expect(labels(ui)).toEqual(['item-1', 'item-2', 'item-3', 'item-4']);
 
     await type(ui.stdin, END);
     expect(pointed(ui)).toBe('item-12');
     expect(labels(ui).at(-1)).toBe('item-12');
-    expect(labels(ui)).toHaveLength(5);
+    expect(labels(ui)).toHaveLength(4);
 
     await type(ui.stdin, ENTER);
     await answer;
@@ -404,8 +409,10 @@ describe('sort() over a list longer than the screen', () => {
     const ui = screenSetup({ columns: 60, rows: 6 });
     const answer = settle(open(ui, { choices: MANY }));
 
+    // a page is the window less one, and the window is four rows under the
+    // question and over the key footer
     await type(ui.stdin, PAGEDOWN);
-    expect(pointed(ui)).toBe('item-5');
+    expect(pointed(ui)).toBe('item-4');
 
     await type(ui.stdin, PAGEUP);
     expect(pointed(ui)).toBe('item-1');
@@ -416,7 +423,7 @@ describe('sort() over a list longer than the screen', () => {
 
     await type(ui.stdin, ENTER);
     const value = (await answer).value as string[];
-    expect(value.indexOf('item-1')).toBe(4);
+    expect(value.indexOf('item-1')).toBe(3);
   });
 });
 
