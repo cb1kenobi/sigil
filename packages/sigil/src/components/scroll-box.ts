@@ -442,6 +442,34 @@ function declaredHeight(props: ElementProps | undefined): number {
 }
 
 /**
+ * Each scroll box's viewport, keyed by the host `ScrollBox()` returned.
+ *
+ * A `WeakMap` rather than a walk for a class, because the class is a theme's hook
+ * and an app may add to it -- a lookup that found the viewport by what it was
+ * called would be a lookup a stylesheet could break. Weak, so a box nobody holds
+ * any more takes its entry with it.
+ */
+const viewports = new WeakMap<Element, Element>();
+
+/**
+ * The clipping box inside a scroll box: the element that owns the offset.
+ *
+ * What a component built **on** a scroll box needs, and the reason it is exported
+ * rather than left a detail: the offset lives on the viewport rather than on the
+ * host (see "It holds no state of its own"), so `scrollBy()`, `scrollTo()` and
+ * reading `scroll` back all want this element, and the host is the only one the
+ * caller was handed. `createPager()` is the first such component -- it moves the
+ * offset from keys the scroll box does not claim, and chains the viewport's
+ * `onScroll` and `onResize` to learn when the window it draws moved.
+ *
+ * @param host - What `ScrollBox()` returned.
+ * @returns The viewport, or `undefined` for an element no scroll box built.
+ */
+export function scrollViewport(host: Element): Element | undefined {
+  return viewports.get(host);
+}
+
+/**
  * Builds a scroll box.
  *
  * @param props - The content, the axes, and the host's own props.
@@ -526,6 +554,7 @@ export function ScrollBox(props: ScrollBoxProps): Element {
   // silently take its class away would be a component a theme cannot reach
   host.addClass('sigil-scroll');
   host.append(row);
+  viewports.set(host, viewport);
 
   if (bars && vertical) {
     row.append(scrollbar('vertical', viewport, false));

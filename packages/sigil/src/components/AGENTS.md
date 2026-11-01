@@ -6554,3 +6554,343 @@ its own.
   owns a region; sub-second readouts (`tick` redraws faster and the format still
   speaks whole seconds); a `ref: false` for a countdown that should not hold the
   process.
+
+### More spinner frame sets: seven in the package, the rest as data
+
+`src/components/spinner.ts` and `src/components/spinner-frames.ts`. SIG-183.
+
+- **The two questions the ticket left open, settled.** _How many?_ Seven in
+  `@ttylabs/sigil/components` -- `DOTS`, `LINE`, `ARC`, `CIRCLE`, `GROW`, `ARROW`
+  and `BOUNCING_BAR`, which is the ticket's own short list less the moon -- and
+  twelve more in `spinner-frames.ts`, a registry entry nothing imports. They cost
+  **803 B** on the components graph as of this change (337,387 to 338,190 over the
+  same 31 modules, the option handling and the width fix included) and nothing on
+  the root entry, which stayed at 12,269. That is small enough that the split is
+  not really about bytes, and it is worth saying so: what it buys is an entry that
+  is a choice rather than a catalogue, and a long tail an app owns once it copies
+  it, the way it owns any ejected component. _Frame width?_ One cell everywhere,
+  read as the three checks below, and the moon does not ship.
+- **"One cell everywhere" is three checks, and the third is the one a width
+  cannot say.** Every frame of a set is the same width, so the label never moves.
+  Every set that is not plain ASCII is exactly one cell by `stringWidth()`, which
+  counts an emoji as two -- that is what refuses the moon, and it would be refused
+  even at a constant two, because an emoji is two columns on a terminal whose
+  width table knows it and one on a terminal whose table does not. And a set does
+  not mix East Asian **Ambiguous** characters with narrow ones: `stringWidth()`
+  counts Ambiguous as one, which `src/width/` decided and which is right for a CLI,
+  but a terminal in a CJK locale draws it as two, and a set that alternates the two
+  kinds jitters there where a set that is all one kind is merely wider. That is
+  what refuses `◐◓◑◒` -- the first and third are Ambiguous -- and why `CIRCLE` is
+  the quarter-filled `◴◷◶◵`. `GROW` and `ARROW` are all Ambiguous and ship: wider
+  in a CJK terminal, still steady. `BOUNCING_BAR` is the one set wider than a cell,
+  which is safe because it is ASCII.
+- **The test reads a transcribed table, and fails on anything outside it.**
+  `test/components/spinner-frames.test.ts` carries the `A` ranges of the seven
+  blocks a set draws from, out of `EastAsianWidth.txt` 17.0.0 -- test data rather
+  than runtime data, since the runtime counts them as one and has no use for the
+  list. A character outside those blocks fails rather than being read as narrow by
+  default. Every exported set of both files is enumerated rather than listed, so a
+  new one is measured without anybody adding it, and two sets that _must_ fail --
+  the moon and the circle halves -- are asked of the same checker, so the checker
+  cannot pass by checking nothing.
+- **`ARROW`'s diagonals are emoji with a text default, as `OUTCOME_SYMBOLS` are.**
+  `↖↗↘↙` carry the Emoji property and draw as text unless a `U+FE0F` asks
+  otherwise, which nothing here writes. `✔`, `✖`, `⚠` and `ℹ` are the same kind and
+  have been on every settled line since the spinner was written, so refusing the
+  arrows would be a rule the package does not otherwise keep.
+- **`LINE` is now the default where `unicodeSupported()` says no, and it was
+  opt-in before.** The ticket asked for an ASCII fallback, and the fallback was
+  already there; what was missing was anything choosing it. `spinnerFrames()` asks
+  `unicodeSupported()` -- the one place that is decided, as the note, the rule, the
+  charts, the outline and the paginator already ask it -- and takes `ascii`, `env`
+  and `platform` the way they do. Explicit `frames` always win, as an explicit
+  `border` does on a note: an app that asked for `ARC` gets `ARC`, and one that
+  wants a fallback says `frames: unicodeSupported() ? ARC : LINE`. So the
+  parentheticals in the session and `log` entries above that call the spinner's
+  `LINE` opt-in describe the spinner before this change.
+- **`DOTS` and `LINE` changed shape, from an array to `{ frames, interval }`.** One
+  shape for every set is what lets each carry its interval, which the ticket asked
+  for, and `frames` takes either a set or an array, so `frames: DOTS` reads as it
+  always did. What breaks is a reader of `DOTS[0]`, which is now `DOTS.frames[0]`;
+  `display.test.ts` was the only one in the repository. `LINE` runs at 130 ms where
+  it inherited 80, because four frames at 80 is a blur. A set of the caller's own
+  with an interval that is not positive takes 80 rather than a timer that never
+  yields, the question the option was already asked.
+- **The lead is as wide as what it draws, because a text drops the whitespace at
+  the end of its last line.** `'.  '` drew one column, `'.. '` two and `'   '`
+  none, so `SIMPLE_DOTS` moved the label every tick -- and so did any array of a
+  caller's own with a trailing space, which nothing had tried. The first fix
+  written was `white-space: pre`, on the belief that `[    ]` collapsed to `[ ]`;
+  the sabotage pass showed that neither was true -- an interior run is kept either
+  way and `pre` keeps no trailing one -- so it was taken out rather than left as a
+  declaration that does nothing. The declared width is the paginator's answer to
+  the same rule, and it is set on the settled mark too, since a width left over
+  from a six-cell frame would pad `✔` out to six.
+- **The long tail is a registry entry that is data, and the registry test says
+  which.** `should say what %s can be themed with` asserted every entry lists a
+  class, and an entry that draws nothing has none. It is an explicit `DATA` list
+  rather than an inference, so a component that lost its classes still fails. One
+  trap found on the way: the generator rewrites every relative `from '...'` in an
+  entry, a doc comment's example included, so the file's own usage example came
+  out importing `DOTS_2` from `@ttylabs/sigil/components`, which does not export
+  it. The example is written without a specifier now. `test/dist.test.ts` asks
+  every shipped file for a glyph only the long tail draws, which is what keeps it
+  out of the bundle -- exporting it from the barrel fails all five.
+- **Not done:** the settled marks under `ascii` (`✔` and the rest stay as they
+  are; `LOG_SYMBOLS_ASCII` is the obvious source, and swapping them is a change to
+  what every settled line says that this ticket did not ask for); a spinner named
+  by a string, `spinner: 'arc'`, which would put every set in a bundled app's
+  graph for want of a static reference to shake by; and a set that carries its own
+  ASCII fallback.
+
+### A collapsible: a title that opens and closes, and an accordion of them
+
+`src/components/collapsible.ts`. SIG-192. Textual's `Collapsible`: a focusable
+title over a body that is shown or hidden. It is an element-tree component in the
+shape `ScrollBox` is -- a function of props that returns the host, with its keys
+in `onKey` and its click in `onMouse` -- and not a prompt, because a section does
+not answer anything: it sits in a tree beside other things and stays there.
+
+- **The three questions the ticket left open, settled.** _Keys:_ Enter and Space
+  flip the focused title, Right opens it and Left closes it -- the tree-view
+  convention, and the one `filePicker()` already uses for into and out of a
+  directory. Up and Down are **not** bound: moving between the titles of an
+  accordion is what the ARIA pattern does with them, and it needs the focus ring,
+  which an element does not hold -- a component that wanted it would have to be
+  handed the router, which does not exist while the tree that makes it is being
+  built. Tab already walks the titles, since a closed body is `display: none` and
+  the ring skips it. _Accordion:_ in, as `collapsibleGroup()` handed to each
+  member, because it is a dozen lines over the state each member already has and
+  the ticket's own description of an accordion is "several of them, one open".
+  _Animated height:_ **no**, and instant is the recommendation rather than a
+  deferral -- the next bullet is why.
+- **Instant, because a height animation here buys little and costs three
+  things.** `height: auto` does not interpolate: `mixLength()` snaps between
+  `auto` and cells, as CSS does, because `auto` is a question the layout answers
+  and not a number. So animating would mean measuring the body after a layout,
+  pinning `height` to that many cells, easing from zero, and unpinning at the end
+  -- a body that grows while it is open (a log, a lazily filled list) would be
+  clipped by the pin until the end, and the first frame would be one layout late,
+  which is the lag `ScrollBox` draws its thumb with a `raw` element to avoid. Every
+  frame of it also moves **every row below the section**, so the canvas diff,
+  which is cheap exactly where little changes, repaints the rest of the screen
+  per frame -- over ssh, for a reveal that is three to ten whole-cell states at
+  most. And it would be one more thing for reduced motion and quiet to switch off,
+  which they would, since the animator does not start a transition under
+  `reduce`; instant is what both of those come to anyway. Textual's own
+  `Collapsible` does not animate either. An app that wants motion can still put a
+  `transition` on the title's colour through the theme hooks.
+- **The body is built once and hidden, not unmounted.** `children` runs when the
+  section is built, open or not, and closing sets `display: none` on the body. So
+  what is inside it -- a scroll offset, a text field's contents, a row windowed by
+  a `ScrollBox` -- is the same when it opens again, and the cost is the body's
+  elements existing while nobody can see them, which for "show stack" is a few
+  texts. Building on first open was the alternative, and it would make the first
+  open the one that is different from every other.
+- **The title is what is focused, not the host.** A key reaches the focused
+  element and then its ancestors. With the handler on the host, Enter typed into
+  a field inside an open body would bubble up and close the section around it; on
+  the title, which is the body's sibling, it never arrives there. The click is on
+  the title for the same reason.
+- **`open` is a boolean or a `State<boolean>`, and the state is the one truth.**
+  `keyHelp()`'s `expanded` already has that shape. The keys and the click write
+  the state; one effect reads it and sets the body's `display`, the marker and the
+  `is-open` class. So an app that writes the state opens the section, and nothing
+  holds a second copy for the two to disagree about. Anything else for `open` is
+  refused where the section is built: a truthy string would read as open and then
+  never be `true` again, which is the hole `toggle()` refuses its `initial` over.
+- **A group closes the others in that same effect, not in the key handler.** That
+  is what makes the rule hold for an app writing a member's state as well as for a
+  key or a click. Two members built open leave the later one open, because each
+  closes the others as its effect first runs. Closing the open member leaves none
+  open: the ARIA accordion allows either and "at least one" would need a rule for
+  which one when the app closes them all, which `closeAll()` does. A member built
+  inside a component leaves the group with it, through `onCleanup`; one built
+  outside any owner stays a member, and closing a section nobody can see costs a
+  write.
+- **An arrow that would change nothing is not claimed; Enter and Space always
+  are.** Right on an open section and Left on a closed one go on to whatever is
+  around it -- a horizontal `ScrollBox` gets its arrows back. That is the opposite
+  of `ScrollBox`'s own rule, which claims Home at the top, and the difference is
+  that a scroll box at its end is still the thing those keys are about, while a
+  section that is already open is not what Right is asking for. A key with Ctrl,
+  Alt or Shift, and a key that arrived in a paste, are left alone: a pasted line
+  ending in a newline is not an Enter on whatever happened to have the focus.
+- **The click toggles, not the press.** The press is left to bubble so its default
+  action -- focusing the title -- still happens, and a press dragged off the title
+  toggles nothing. Only the left button; a wheel goes on to whatever scrolls.
+- **Its keys are described by a helper, `describeCollapsible()`.** The key-help
+  footer can only list what `describe()` declared, and the router a section would
+  describe to is built from the tree the section is in, so it cannot be an option.
+  The helper scopes the four keys to each title, which is exactly where they work,
+  and returns one disposer. The descriptions go through `__`, as the framework's
+  own strings do.
+- **The framework sheet has its first `:focus` rule.** `.sigil-collapsible-title:focus
+  { inverse: true }`. Without it a Tab onto a title looks like a Tab that did
+  nothing -- a scroll box shows its focus by scrolling, a title has nothing else to
+  show it by. It is `(0,2,0)` where every other rule there is `(0,1,0)`, which
+  costs a theme nothing, because the cascade decides origin before specificity. At
+  colour level 0 attributes are dropped and the focus is not shown, which is true
+  of any `:focus` rule; the demo says the focus in words when piped for that
+  reason. It is the sixth declared exception in `test/theme.test.ts`'s role
+  invariant, beside the caret and for the caret's reason: no role is inversion. The marker's one-cell margin is not inverted, since a margin is cells
+  nothing paints -- a trailing space in the marker's text was tried instead and is
+  measured away.
+- **Not done:** moving the focus to the title when a section is closed by
+  something other than its title (an app writing the state, or a group) while the
+  focus is inside its body -- an element cannot move the focus, so the focus stays
+  on a hidden element until Tab, which is the same thing an app hiding any
+  focused subtree gets; Up and Down between an accordion's titles; a `disabled`
+  section; a title that is an element rather than a string; and opening by
+  default where there is no terminal -- the app knows whether it built a router,
+  and a section nobody can open is one it should build open.
+
+### A pager: `less` keys, line numbers, and `/` search over a scroll box
+
+`src/components/pager.ts`. SIG-195. `createPager()` is the element and `page()`
+is the facade that puts one on the whole screen until `q`, the way `gum pager`
+does.
+
+- **Its own component, not props on `ScrollBox`.** The ticket's first question.
+  A scroll box holds no state -- the first decision recorded for it above -- and
+  holds any element at all; a pager holds a query, its matches, which one is
+  current and whether a search is being typed, and what it holds is text, which
+  is the only thing a search can run over. Props would make `ScrollBox` a text
+  component with a state. And the keys settle it on their own: `space`, `b`, `d`,
+  `u`, `g` and `/` on every scroll box would take the letters from any text field
+  inside one. So the pager builds a scroll box with `rows` -- windowed, so ten
+  thousand lines cost what the window does -- and adds the keymap, the gutter and
+  the search over it, the way `selectRow()` builds on `table()`'s pieces.
+- **Search is literal by default, smart case, and a regular expression is the
+  app's to turn on.** The second question. What a reader types into a pager is
+  mostly text -- a function name, a path, a version -- and `.`, `(` and `[` are in
+  all three. `search: 'regex'` reads the query with the `u` flag. Smart case is
+  `rg -S`'s: a query with no capital matches either case, one with a capital
+  matches exactly, and an escape like `\S` is not counted as a capital somebody
+  typed. The regex is an **opt-in rather than a default** because of the one
+  hazard nothing here can bound: a pattern that backtracks catastrophically runs
+  on this thread and no engine can interrupt a match once started. Everything
+  else is bounded -- a pattern that does not compile is reported on the status
+  line, an engine error mid-match is caught and reported the same way, and the
+  matches stop at `MAX_MATCHES` (100,000, with the count shown as `100000+`).
+  It runs on Enter, not per keystroke: an incremental search would run every
+  prefix of a pattern, half of which do not compile, and would pay the hazard
+  once per key rather than once.
+- **A zero-length match counts once per line, and only on a line with no other
+  match.** So `^$` steps through the blank lines, as it does in `less`, and `a*`
+  -- which matches empty at every column -- steps line by line rather than column
+  by column, and on a line with a real `aaa` counts only that. It is drawn as
+  nothing, since there is nothing to reverse. `matchAll()` is what makes it safe:
+  it advances past an empty match itself, so there is no `lastIndex` loop here to
+  get wrong.
+- **`n` steps from where the reader is.** The match after the current one while
+  the current one is on screen, otherwise the first one at or below the top of the
+  window -- and `N` the mirror. So `n` after paging away finds the next match
+  below you, which is `less`, rather than dragging you back to where you last
+  searched. Both wrap at the ends. A new search lands on the first match at or
+  below the top of the window for the same reason.
+- **A match is revealed at the top of the window, and only if it is off screen.**
+  The top because what follows a match is what the reader went looking for, which
+  is `less` again. A folded line is shown from its **first** row where that still
+  leaves the match on screen, so a match on a line's second row does not arrive
+  with the start of its sentence scrolled off above it. With `wrap: false` the
+  view also shifts sideways to put a match past the edge half a window in.
+- **Soft wrap by default, at the column and not the word.** The third question.
+  `less` folds by default, and a CLI pages help, changelogs and diffs more than
+  it pages tables. At the column because `wrap()` breaks prose at words and drops
+  the whitespace it breaks at, which is right for a help screen and wrong here:
+  a pager shows every character of the file in order, and a match maps to a row
+  by offset only when no character moved. `softWrap()` folds by grapheme cluster,
+  sends a wide character that would straddle the edge to the next row, and gives
+  an empty line one empty row. `wrap: false` is one row per line cut at the edge,
+  with Left and Right shifting by half a window -- **the pager's own column
+  offset, not the scroll box's horizontal axis**, so the gutter stays put while
+  the text moves, which a horizontally scrolled content box could not do.
+- **The rows on screen are redrawn in place, because the scroll box keeps them.**
+  A windowed list builds a row when it enters the window and keeps it while it
+  stays, which is right for the focus and means a highlight that changes, a fold
+  at a new width or a sideways shift would otherwise never be seen. So the pager
+  keeps the rows `row()` handed out, by index, and rebuilds their children on any
+  of the three -- pruning the ones whose slot the scroll box has since taken out,
+  which is a slot with no parent. `count` is a getter, since `ScrollRows.count`
+  is read on every window and a fold at a new width is a new count.
+- **That map is pruned on every scroll, not only before a redraw.** The first
+  version pruned inside the redraw alone, which runs on a search, a resize and a
+  sideways shift -- so paging through a long document without searching kept every
+  row ever built, and the slot each one still points at, which is the windowing
+  given back: a million-line log paged with Space held a million element trees,
+  and the next search walked them all. The wrapped `onScroll` prunes after the
+  scroll box has re-windowed, which is the one moment what it took out is known,
+  and the resize hook does the same after its sync. Found in review.
+  `should forget the rows a page down scrolled out of the window` counts a
+  search's reads of `parent` on rows already off screen, which is what an unbounded
+  map costs that a picture cannot show; with the scroll-time prune deleted it reads
+  24 of them.
+- **`scrollViewport()` is exported from `scroll-box.ts`, and it is a `WeakMap`
+  rather than a walk for the class.** A component built on a scroll box needs the
+  viewport -- the offset lives there, so `scrollTo()` and reading `scroll` back
+  want it -- and the host is all `ScrollBox()` returns. The class is a theme's
+  hook and an app may add to it, so a lookup by class is one a stylesheet could
+  break. On the components barrel, so an ejected `pager.ts` still resolves it.
+- **The viewport's two hooks are wrapped, not replaced, and the order inside
+  `onResize` matters.** The pager reads each hook and installs one that calls what
+  it found, which is the rule this repository gives for one-function hooks. On a
+  resize it refolds, redraws the rows on screen and puts the window back on the
+  line and offset it started on **before** it calls the scroll box's own sync,
+  because that sync reads the new count; the other order builds a window for a
+  count that is about to change. Sabotaged: without the refold-then-redraw the
+  `page()` resize test fails, and without the re-anchor the reader is left on a
+  row number that now means a different line.
+- **The keys follow the scroll box's rules where they overlap.** A scrolling key
+  is claimed only where the document is longer than the window, so a document
+  that fits hands Space on, and is claimed even where the move is zero, so `g` at
+  the top is still the pager's. A page is the window less a row -- the scroll
+  box's own rule, and one line more than `less` keeps. `d` and `u` are half a
+  window. Ctrl and Alt chords are left alone, so `ctrl+d` is the app's. `q` is
+  claimed only where there is an `onQuit`, so an element in a bigger app lets `q`
+  reach the app. Escape clears a search and is not claimed with none to clear.
+  While a query is being typed every printable key is the field's, pager letters
+  included, and a key the field has no use for -- Tab, a chord -- is left to
+  bubble. An empty Enter repeats the last search; Backspace on an empty field
+  leaves it.
+- **`describe(router)` lists the keys rather than binding them.** They are an
+  `onKey`'s, so they are described with `scope` set to the pager, and the key-help
+  footer lists them while the pager holds the focus -- the SIG-166 mechanism as it
+  was built. The descriptions go through `__` because the component writes them;
+  `q` is listed only with an `onQuit`, and Left/Right only with `wrap: false`.
+- **A match is reversed, and the current one is the accent reversed.** The sixth
+  declared exception to the role rule in `theme/index.ts`, and the same
+  declaration as the caret and the badge: standout is what a search highlight has
+  been since more(1), it reads on any background, and no role is a reversal. The
+  current match adds `.sigil-accent`, so a theme moves it by restyling the accent.
+  A highlight that would split a grapheme cluster is widened to whole clusters,
+  for the reason `highlightRuns()` gives: a lone combining mark is not drawn.
+- **Escape sequences in the input are stripped, not drawn.** Carrying an input's
+  own colour through means turning SGR into styled runs, which is a second
+  renderer inside one component. Tabs go to the next stop of eight, measured in
+  columns, and every other control character is dropped by the rule a `text`
+  element already applies. One trailing newline ends the last line rather than
+  adding an empty one.
+- **`page()` writes the document straight through where either side is not a
+  terminal.** Unchanged, escape sequences included, which is what `less` does when
+  its output is piped -- the reader is somebody's `grep`, and what they want is the
+  text. On a terminal it takes the alternate screen and gives it back on `q` or
+  Ctrl-C, both of which **resolve**: leaving is the only thing either can mean, so
+  there is no cancel for a caller to tell apart. The mouse is **off** unless asked
+  for, because a terminal reporting the mouse stops doing its own selection and
+  copying a line out is half of what a pager is for; `less` asks for `--mouse`
+  for the same reason. The facade builds its own router rather than taking one,
+  since the router's root has to be the tree the pager is in.
+- **Twenty-two sabotages, twenty-two caught.** Each named test was broken against
+  its code and failed alone or with its neighbours: the zero-length rule, the
+  compile guard, the mid-match catch, the literal escaping, smart case and its
+  escape skip, the cap, the re-anchor, the refold redraw, `n` from where the reader
+  is, the reveal-only-off-screen and first-row rules, the cluster snap, the
+  claim-only-where-it-scrolls rule, `q` without `onQuit`, a key the field does not
+  want, the page size, the trailing newline, tabs by column, a straddling wide
+  character, and the piped write.
+- **Not done:** carrying the input's colour through; incremental search; `-F`
+  (quit when it fits on one screen); a follow mode that tails a growing input --
+  the content is read once, and a `ScrollRows.count` that grows while nobody is
+  scrolling is the re-sync the scroll box records as a later tier; marks; `&` to
+  filter to matching lines; a horizontal scrollbar for `wrap: false`.
