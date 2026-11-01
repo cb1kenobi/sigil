@@ -50,7 +50,7 @@ import {
 } from './prompt.js';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { constants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 export interface EditorOptions extends Omit<PromptOptions, 'router'> {
@@ -144,6 +144,33 @@ interface Exit {
  */
 const INTERRUPTED = new Set([130, 0xc000013a]);
 
+/** Each signal's name by its number, the first name where two share one. */
+const SIGNAL_NAMES = new Map<number, NodeJS.Signals>();
+for (const [name, number] of Object.entries(constants.signals)) {
+  if (!SIGNAL_NAMES.has(number)) {
+    SIGNAL_NAMES.set(number, name as NodeJS.Signals);
+  }
+}
+
+/**
+ * How the editor ended, read back through the shell that ran it.
+ *
+ * `/bin/sh` is bash on macOS, which execs the last command of a `-c` string, so a
+ * signal that kills the editor reaches this process as a signal. On Debian and
+ * Ubuntu it is dash, which waits for the editor instead and exits `128 + n` when
+ * the editor dies of signal `n`. So an editor killed by SIGTERM came back as
+ * `exited with code 143`. That is the convention 130 in `INTERRUPTED` already
+ * reads, and here it is read the same way for every signal. Not on Windows, where
+ * `cmd.exe` has no such convention and a code above 128 is just a code.
+ */
+function throughShell(exit: Exit): Exit {
+  const name =
+    exit.signal === null && exit.code !== null && exit.code > 128
+      ? SIGNAL_NAMES.get(exit.code - 128)
+      : undefined;
+  return name === undefined ? exit : { code: null, signal: name };
+}
+
 /**
  * Runs the editor on a file and waits for it to exit.
  *
@@ -171,7 +198,9 @@ function launch(command: string, file: string): Promise<Exit> {
 
   return new Promise((resolve, reject) => {
     child.once('error', reject);
-    child.once('exit', (code, signal) => resolve({ code, signal }));
+    child.once('exit', (code, signal) =>
+      resolve(process.platform === 'win32' ? { code, signal } : throughShell({ code, signal }))
+    );
   });
 }
 

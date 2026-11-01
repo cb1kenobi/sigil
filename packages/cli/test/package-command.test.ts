@@ -96,7 +96,7 @@ describe('sigil package', () => {
 
   afterEach(() => {
     process.exitCode = exitCode;
-    rmSync(out, { force: true, recursive: true });
+    rmSync(out, { force: true, maxRetries: 5, recursive: true });
     vi.restoreAllMocks();
   });
 
@@ -161,7 +161,7 @@ describe('sigil package', () => {
 
         expect(flagged.err).not.toContain('Using bun from');
       } finally {
-        rmSync(app, { force: true, recursive: true });
+        rmSync(app, { force: true, maxRetries: 5, recursive: true });
       }
     }, 60_000);
 
@@ -192,7 +192,7 @@ describe('sigil package', () => {
         expect(err).toContain('deno');
         expect(process.exitCode).toBeTruthy();
       } finally {
-        rmSync(app, { force: true, recursive: true });
+        rmSync(app, { force: true, maxRetries: 5, recursive: true });
       }
     }, 60_000);
 
@@ -235,7 +235,7 @@ describe('sigil package', () => {
         const fromFile = await sigil('package', app, '--out', out, '--target', 'windows-arm64');
         expect(fromFile.err).not.toContain('Bun cannot build');
       } finally {
-        rmSync(app, { force: true, recursive: true });
+        rmSync(app, { force: true, maxRetries: 5, recursive: true });
       }
     }, 120_000);
   });
@@ -277,7 +277,7 @@ describe('sigil package', () => {
 
     afterEach(() => {
       process.env.PATH = path;
-      rmSync(fakebin, { force: true, recursive: true });
+      rmSync(fakebin, { force: true, maxRetries: 5, recursive: true });
     });
 
     it.skipIf(process.platform === 'win32')(
@@ -395,7 +395,7 @@ describe('sigil package', () => {
       // the build can see coming is a build error. Asserted as the *absence of
       // output*, because a refusal that arrives after the bundle is a refusal
       // that charged for a type-check and a bundle first
-      rmSync(out, { force: true, recursive: true });
+      rmSync(out, { force: true, maxRetries: 5, recursive: true });
 
       const { err } = await sigil(
         'package',
@@ -424,7 +424,7 @@ describe('sigil package', () => {
       // thing anybody typed with `No such built-in module`. That is the
       // build-reported-success-executable-dies class three other gates in this
       // package already exist for.
-      rmSync(out, { force: true, recursive: true });
+      rmSync(out, { force: true, maxRetries: 5, recursive: true });
 
       const { err } = await sigil(
         'package',
@@ -476,7 +476,7 @@ describe('sigil package', () => {
         expect(err).toContain('Cannot package an app with external packages');
         expect(err).toContain('oxc-parser');
       } finally {
-        rmSync(app, { force: true, recursive: true });
+        rmSync(app, { force: true, maxRetries: 5, recursive: true });
       }
     }, 60_000);
 
@@ -484,7 +484,7 @@ describe('sigil package', () => {
       // `codesign` is macOS's, so an identity with no darwin target is a
       // request that cannot be honoured -- and it used to be accepted and
       // dropped in silence, which is the half that matters
-      rmSync(out, { force: true, recursive: true });
+      rmSync(out, { force: true, maxRetries: 5, recursive: true });
 
       const { err } = await sigil(
         'package',
@@ -516,7 +516,7 @@ describe('sigil package', () => {
       // target is one Bun has no runtime for at all -- so the run still refuses,
       // for a reason that is about the target rather than about `PATH`.
       const path = process.env.PATH;
-      rmSync(out, { force: true, recursive: true });
+      rmSync(out, { force: true, maxRetries: 5, recursive: true });
 
       try {
         process.env.PATH = '';
@@ -544,7 +544,7 @@ describe('sigil package', () => {
       // `--sign=` is how a value gets deliberately emptied, and it used to pass
       // all three checks that read an identity -- reaching `codesign` as
       // `: no identity found` after the bundle and an 85 MB compile had run
-      rmSync(out, { force: true, recursive: true });
+      rmSync(out, { force: true, maxRetries: 5, recursive: true });
 
       const { err } = await sigil(
         'package',
@@ -621,7 +621,7 @@ describe('sigil package', () => {
           expect(unpackaged.status, unpackaged.stderr).toBe(0);
           expect(help.stdout).toBe(unpackaged.stdout);
         } finally {
-          rmSync(built, { force: true, recursive: true });
+          rmSync(built, { force: true, maxRetries: 5, recursive: true });
         }
 
         // and a lazily loaded command, which is the thing a flattened or
@@ -693,7 +693,7 @@ describe('sigil package', () => {
           expect(unpackaged.status, unpackaged.stderr).toBe(0);
           expect(help.stdout).toBe(unpackaged.stdout);
         } finally {
-          rmSync(built, { force: true, recursive: true });
+          rmSync(built, { force: true, maxRetries: 5, recursive: true });
         }
 
         const cmd = spawnSync(binary, ['greet', 'Ada'], { encoding: 'utf-8' });
@@ -781,7 +781,7 @@ describe('sigil package', () => {
       // refusal leaves the directory as it found it -- and the `stamp()` guard
       // inside the loop is defensive against a race, which its own comment
       // says rather than implying a test covers it.
-      rmSync(out, { force: true, recursive: true });
+      rmSync(out, { force: true, maxRetries: 5, recursive: true });
       mkdirSync(out, { recursive: true });
       writeFileSync(join(out, 'buildable-linux-x64'), 'PREVIOUS GOOD RELEASE', 'utf-8');
       writeFileSync(join(out, 'keepme.txt'), 'bystander', 'utf-8');

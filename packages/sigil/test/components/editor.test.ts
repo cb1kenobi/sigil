@@ -396,6 +396,21 @@ describe('editor()', () => {
       expect(existsSync(dirOf(ed.runs()[0]))).toBe(false);
     });
 
+    // dash, which is /bin/sh on Ubuntu, waits for the editor rather than exec'ing
+    // it, so a SIGTERM came back as `exited with code 143` there and not on macOS.
+    // An editor that exits 143 is that report on every platform
+    it.skipIf(WINDOWS)('should read 128 plus a signal from the shell as that signal', async () => {
+      const ui = screenSetup({ columns: 300, rows: 6 });
+      const ed = fake({ exit: 143 });
+      const answer = settle(open(ui, ed));
+
+      await tick();
+      ui.stdin.send(ENTER);
+      const { error } = await answer;
+
+      expect((error as PromptError).message).toBe(`${ed.command} was stopped by SIGTERM`);
+    });
+
     it('should never be made when the prompt is cancelled before the editor opens', async () => {
       const ui = screenSetup({ columns: 300, rows: 6 });
       const ed = fake({});
