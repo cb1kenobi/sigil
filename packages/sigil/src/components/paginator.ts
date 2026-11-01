@@ -346,9 +346,10 @@ interface Nodes {
 /**
  * Writes the runs into the nodes.
  *
- * A text drops the whitespace at the end of its last line, so a run of dots and
- * the space that separates it from the next is nothing at all unless it is given
- * the room it stands for: `pre` keeps the space and the width holds it.
+ * `pre` keeps the space that separates a run of dots from the next, and the
+ * width is the room the run stands for. The width was the half that did the work
+ * while `pre` was read as `normal` and dropped a trailing space (SIG-207); the
+ * two now say the same thing.
  *
  * @param nodes - What to write into.
  * @param slots - What to write.

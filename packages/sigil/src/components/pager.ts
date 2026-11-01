@@ -57,7 +57,7 @@ import { render } from '../renderer/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { graphemes, graphemeWidth, stringWidth } from '../width/index.js';
-import { ScrollBox, scrollViewport } from './scroll-box.js';
+import { ScrollBox, scrollControl, type ScrollControl } from './scroll-box.js';
 
 /** How a query is read. */
 export type PagerSearchMode = 'literal' | 'regex';
@@ -609,6 +609,11 @@ export function createPager(opts: PagerOptions): Pager {
   };
 
   const scroll = ScrollBox({
+    // both after the scroll box has re-windowed, and both called only once
+    // something has laid the tree out -- so the closures they name, declared
+    // below, exist by then
+    onResize: (control) => resized(control),
+    onScroll: () => scrolled(),
     props: {
       // the pager's host is the focus stop; two of them for one widget would be
       // a Tab that seems to do nothing
@@ -635,7 +640,7 @@ export function createPager(opts: PagerOptions): Pager {
     },
     scrollbar: opts.scrollbar ?? true,
   });
-  const viewport = scrollViewport(scroll)!;
+  const { viewport } = scrollControl(scroll)!;
 
   // the message gives way to the position rather than the other way round: a
   // long query is cut at the edge, and where the reader is stays readable
@@ -818,19 +823,25 @@ export function createPager(opts: PagerOptions): Pager {
     drawStatus();
   };
 
-  // the viewport's two hooks are the scroll box's, and they are wrapped rather
-  // than replaced -- read the hook, replace it with one that calls what it found,
-  // which is how a second party adds to one-function hooks here
-  const scrolled = viewport.onScroll;
-  viewport.onScroll = (element: Element): void => {
-    scrolled?.(element);
-    // the scroll box has rebuilt its window by now, so what it took out is known
+  /** The scroll box moved the offset and has re-windowed for it. */
+  const scrolled = (): void => {
+    // so what it took out is known, which is the one moment the map can be pruned
+    // without being told which rows went
     prune();
     drawStatus();
   };
-  const resized = viewport.onResize;
-  viewport.onResize = (element: Element): boolean => {
-    const size = element.content ?? element.box;
+
+  /**
+   * The viewport has a new size, and the scroll box has re-windowed for it.
+   *
+   * For the **old** count, where the width moved and the lines fold differently:
+   * the box cannot know a fold is a new count, so it is told, with `resync()`,
+   * once the refold has happened. That call is the whole of the ordering -- the
+   * refold, the redraw and the re-anchor first, then the resync, because it reads
+   * the count the refold produced.
+   */
+  const resized = (control: ScrollControl): boolean => {
+    const size = viewport.content ?? viewport.box;
     const width = Math.max(0, (size?.width ?? 0) - gutter);
     let changed = false;
     if (width !== textWidth) {
@@ -854,7 +865,10 @@ export function createPager(opts: PagerOptions): Pager {
     } else if (top() > maxTop()) {
       goTo(maxTop());
     }
-    const synced = resized?.(element) ?? false;
+    // asked even where the re-anchor scrolled, which re-windowed already: a
+    // re-anchor that lands on the row the window was on writes no offset, and the
+    // spacer below would go on measuring the old fold
+    const synced = control.resync();
     prune();
     drawStatus();
     return changed || synced;

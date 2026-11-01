@@ -12,6 +12,7 @@ import {
 import { binaryName, hostTarget } from '../src/build/index.ts';
 import { readSigilConfig, type SigilConfig } from '../src/config.ts';
 import { run } from '../src/index.ts';
+import { tempDir } from './temp.js';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -134,7 +135,7 @@ async function sigil(...argv: string[]): Promise<{ code: unknown; err: string }>
 
 /** Builds an app root and hands back the executable. */
 async function build(root: string): Promise<string> {
-  const out = mkdtempSync(join(tmpdir(), 'sigil-upd-'));
+  const out = tempDir('sigil-upd-');
   const { code, err } = await sigil('build', root, '--out', out);
   expect(code, err).toBeFalsy();
   return join(out, 'fixture-updates.mjs');
@@ -146,7 +147,7 @@ function runApp(bin: string): string {
     encoding: 'utf-8',
     env: {
       ...process.env,
-      UPDATE_CACHE_DIR: mkdtempSync(join(tmpdir(), 'sigil-upd-cache-')),
+      UPDATE_CACHE_DIR: tempDir('sigil-upd-cache-'),
       UPDATE_REGISTRY: 'https://127.0.0.1:1',
     },
   });
@@ -474,7 +475,7 @@ describe('a packaged binary', () => {
         encoding: 'utf-8',
         env: {
           ...process.env,
-          UPDATE_CACHE_DIR: mkdtempSync(join(tmpdir(), 'sigil-upd-cache-')),
+          UPDATE_CACHE_DIR: tempDir('sigil-upd-cache-'),
         },
       });
       const text = `${result.stdout}${result.stderr}`;

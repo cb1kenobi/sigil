@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from './temp.js';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * `vi.mock` is hoisted and module-wide.
  */
 
-const box = mkdtempSync(join(tmpdir(), 'sigil-listing-'));
+const box = tempDir('sigil-listing-');
 
 vi.mock('@ttylabs/sigil/paths', () => ({
   cache: (...paths: string[]) => join(box, ...paths),

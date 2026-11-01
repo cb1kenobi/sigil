@@ -396,8 +396,9 @@ export {
   type ScrollAxis,
   ScrollBox,
   type ScrollBoxProps,
+  scrollControl,
+  type ScrollControl,
   type ScrollRows,
-  scrollViewport,
   thumbExtent,
 } from './scroll-box.js';
 export {

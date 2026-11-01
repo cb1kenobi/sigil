@@ -23,8 +23,8 @@
  * expect.
  */
 
-import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tempDir } from '../temp.js';
+import { existsSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
@@ -114,7 +114,7 @@ async function build(out: string, closeFails = false): Promise<string> {
 
 /** An `--out` that is an existing file, which is what makes `write()` reject. */
 function outIsAFile(): string {
-  const file = join(mkdtempSync(join(tmpdir(), 'sigil-close-')), 'afile');
+  const file = join(tempDir('sigil-close-'), 'afile');
   writeFileSync(file, 'x');
   return file;
 }
@@ -139,7 +139,7 @@ describe('closing the bundle', () => {
   it('should close the bundle exactly once when the build worked', async () => {
     // the other half: the `finally` replaced the eager call rather than joining
     // it, because two closes is two answers even where the second is a no-op
-    const out = mkdtempSync(join(tmpdir(), 'sigil-close-ok-'));
+    const out = tempDir('sigil-close-ok-');
     const failure = await build(out);
 
     expect(failure).toBe('(the build succeeded)');
@@ -167,7 +167,7 @@ describe('closing the bundle', () => {
     // asymmetry would have to be stated as "releasing the bundle is fatal only
     // when everything else worked", and what it produces is a refused build
     // beside a bundle that is complete, escaped and executable
-    const out = mkdtempSync(join(tmpdir(), 'sigil-close-late-'));
+    const out = tempDir('sigil-close-late-');
     const failure = await build(out, true);
 
     expect(failure).toBe('(the build succeeded)');
