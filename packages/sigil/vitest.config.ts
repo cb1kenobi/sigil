@@ -15,6 +15,7 @@ const config: ViteUserConfig = defineConfig({
     include: ['test/**/*.test.ts'],
     pool: 'threads',
     reporters: ['verbose'],
+    setupFiles: ['./test/setup.ts'],
     silent: false,
     testTimeout: 10000,
     watch: false,

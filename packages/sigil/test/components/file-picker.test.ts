@@ -4,7 +4,7 @@ import { PROMPT_SYMBOLS, PromptError } from '../../src/components/prompt.js';
 import { type ScreenHarness, screenSetup, tick } from './helpers.js';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, posix, sep, win32 } from 'node:path';
+import { basename, join, posix, sep, win32 } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** A `readdir` that can be watched and held, for `path.test.ts`'s reason. */
@@ -69,18 +69,30 @@ async function until(check: () => void): Promise<void> {
   await vi.waitFor(check, { interval: 5, timeout: 2000 });
 }
 
+/** The directory the test owns, which is what Left from the root lands in. */
+let parent: string;
 let root: string;
 
 /**
- * A directory to browse, under the OS temp directory.
+ * A directory to browse, one level below a directory of the test's own.
  *
- *   alpha/ (inner.txt, deep/ (leaf.txt))   empty/   src/ (index.ts, util.ts)
- *   alphabet.md   beta.json   beta.yaml   notes.TXT   .hidden/   .env
+ *   <parent>/root/
+ *     alpha/ (inner.txt, deep/ (leaf.txt))   empty/   src/ (index.ts, util.ts)
+ *     alphabet.md   beta.json   beta.yaml   notes.TXT   .hidden/   .env
+ *
+ * Nested rather than made straight under the OS temp directory, because the
+ * picker reads and stats whatever directory Left goes to. With the fixture at
+ * the top of tmpdir, that was tmpdir itself, which on the machine where this
+ * test flaked held 520,146 entries the rest of the suite had leaked. Reading
+ * those took 549 ms of `until()`'s 2,000 on an idle machine, and a full run
+ * pushed it past the deadline. `parent` holds `root/` and nothing else, so the
+ * test now costs the same on every machine.
  */
 beforeEach(async () => {
   spy.calls.length = 0;
   spy.gate = undefined;
-  root = await mkdtemp(join(tmpdir(), 'sigil-filepicker-'));
+  parent = await mkdtemp(join(tmpdir(), 'sigil-filepicker-'));
+  root = join(parent, 'root');
   await mkdir(join(root, 'alpha', 'deep'), { recursive: true });
   await mkdir(join(root, 'empty'));
   await mkdir(join(root, 'src'));
@@ -101,12 +113,20 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(root, { force: true, recursive: true });
+  await rm(parent, { force: true, recursive: true });
 });
 
-/** The picker over the fixture, on a screen big enough for the list. */
+/**
+ * The picker over the fixture, on a screen big enough for the list.
+ *
+ * Wide enough for the question line to show the whole of the deepest path, too.
+ * That line is the directory being browsed, and it is cut from the left when it
+ * does not fit. The fixture's path starts with whatever tmpdir is, which is
+ * about 50 columns on macOS and can be as long as anybody sets `TMPDIR` to, so
+ * a fixed width made the assertions on it depend on the machine.
+ */
 function open(opts: Record<string, unknown> = {}, rows = 14) {
-  const ui = screenSetup({ columns: 120, rows });
+  const ui = screenSetup({ columns: Math.max(120, root.length + 40), rows });
   const answer = filePicker({
     ansi: ui.ansi,
     message: 'Pick?',
@@ -250,9 +270,12 @@ describe('filePicker()', () => {
 
       await type(ui.stdin, LEFT);
 
-      await until(() => expect(listed(ui)).toContain(`${basename(root)}${sep}`));
+      // the parent is the test's own directory, so it lists the root and
+      // nothing else: nothing here depends on what else is in tmpdir
+      await until(() => expect(listed(ui)).toEqual([`${basename(root)}${sep}`]));
       expect(highlighted(ui)).toBe(`${basename(root)}${sep}`);
-      expect(ui.log[0]).toContain(dirname(root));
+      expect(ui.log[0]).toContain(parent);
+      expect(spy.calls).not.toContain(tmpdir());
     });
 
     it('should stay in the root when confined', async () => {

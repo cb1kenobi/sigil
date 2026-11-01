@@ -19,6 +19,40 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const tty = { isTTY: true, write: vi.fn() };
 
+/**
+ * Every `check()` this file has started, so a test can wait for them to settle
+ * before it removes the cache they read.
+ *
+ * `main()` hands back nothing to wait on, and after a command that failed it
+ * never waits for the check itself, which is the point of the notice being
+ * skipped. The check had not read its cache yet when the test returned,
+ * because it awaits `compiledHost()` first. So `afterEach` removed the seeded
+ * cache, the check then found nothing there, recreated the directory and
+ * spawned a worker that fetched `mycli` from the real npm registry and wrote the
+ * answer into a directory nothing would remove. Two `sigil-auto-main-`
+ * directories leaked per run that way, from a file that says it never leaves the
+ * machine. Wrapping `check()` changes nothing it does. It only remembers the
+ * promise.
+ */
+const checks = vi.hoisted(() => [] as Promise<unknown>[]);
+
+vi.mock('../src/updates/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/updates/index.js')>();
+  return {
+    ...actual,
+    check: (...args: Parameters<typeof actual.check>) => {
+      const pending = actual.check(...args);
+      checks.push(pending.catch(() => undefined));
+      return pending;
+    },
+  };
+});
+
+/** Waits for every check started so far, so its cache can be removed after it. */
+async function settled(): Promise<void> {
+  await Promise.all(checks.splice(0));
+}
+
 /** A cache holding what `check()` would have found yesterday. */
 function seed(dir: string, name: string, latest: string): void {
   mkdirSync(dir, { recursive: true });
@@ -171,7 +205,10 @@ describe('beginUpdateCheck', () => {
     dir = join(tmpdir(), `sigil-auto-${randomUUID().slice(0, 8)}`);
   });
 
-  afterEach(() => rmSync(dir, { force: true, recursive: true }));
+  afterEach(async () => {
+    await settled();
+    rmSync(dir, { force: true, recursive: true });
+  });
 
   /** Starts a check for a schema and runs the notice, returning what was written. */
   async function notice(
@@ -359,7 +396,8 @@ describe('main() with updateCheck', () => {
     vi.spyOn(process.stdout, 'write').mockImplementation((() => true) as never);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await settled();
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
     if (original) {
