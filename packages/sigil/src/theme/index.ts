@@ -125,6 +125,9 @@ export const FRAMEWORK_CSS = `
  *   .sigil-scroll-bar  .sigil-scroll-slot  .sigil-scroll-spacer
  *   .sigil-collapsible  .sigil-collapsible-marker  .sigil-collapsible-label
  *   .sigil-collapsible-body
+ *   .sigil-pager  .sigil-pager-line  .sigil-pager-number  .sigil-pager-text
+ *   .sigil-pager-status  .sigil-pager-message  .sigil-pager-query
+ *   .sigil-pager-count  .sigil-pager-error  .sigil-pager-position
  *   .sigil-typewriter  .sigil-typewriter-text
  *   .sigil-large-text  .sigil-large-text-body
  *   .sigil-decrypt  .sigil-decrypt-plain  .sigil-decrypt-cipher
@@ -208,6 +211,21 @@ export const FRAMEWORK_CSS = `
  * which is true of every :focus rule an app writes as well.
  */
 .sigil-collapsible-title:focus { inverse: true }
+
+/*
+ * a pager
+ *
+ * A match is inverse, which is the seventh declared exception to the role rule and
+ * the same declaration as the caret and the badge: no role is a reversal, and a
+ * reversal is what a search highlight has been in every pager since more(1) --
+ * standout, in termcap's word. It reads on any background and at any colour
+ * level above zero, because it is the terminal's own two colours swapped rather
+ * than a colour somebody picked. The current match carries .sigil-accent beside
+ * it, so it is the accent reversed: a cyan block among the plain ones, and a
+ * theme moves it by restyling the accent. The line numbers are .sigil-muted and
+ * the status line is roles throughout, so neither needs a rule here.
+ */
+.sigil-pager-match { inverse: true }
 
 /*
  * the debug overlay

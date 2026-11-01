@@ -155,6 +155,10 @@ const ENTRIES = [
     name: 'collapsible',
   },
   {
+    desc: 'A pager over a scroll box: less keys, line numbers, and / search with highlighted matches',
+    name: 'pager',
+  },
+  {
     desc: 'A typewriter that reveals text a grapheme, word or line at a time',
     name: 'typewriter',
   },

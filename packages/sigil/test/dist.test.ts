@@ -204,6 +204,7 @@ describe('what importing the package costs', () => {
     'renderBar',
     'ScrollBox',
     'describeCollapsible',
+    'createPager',
     'tableView',
     'enableDebugOverlay',
     'qrcodeView',

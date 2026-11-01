@@ -4310,6 +4310,60 @@ Key names that are words (`enter`, `esc`, `tab`, ...) and the `ctrl-`/`alt-`/
 whatever the app passes, so it translates them where it writes them. The built-in
 prompts keep their own hint lines.
 
+#### A pager
+
+```js
+import { createPager, keyHelp, page } from '@ttylabs/sigil/components';
+
+// the whole screen until q, like `gum pager`; piped, it writes the text out
+await page(readFileSync('CHANGELOG.md', 'utf8'), { lineNumbers: true });
+
+// or an element in a tree of your own, with its keys in the footer
+const pager = createPager({ content: log, props: { height: 20 }, wrap: false });
+pager.describe(input);
+root.append(pager.element, keyHelp(input));
+```
+
+```
+ 1 ## 0.4.0                                                █
+ 2                                                         █
+ 3 - Add a pager: `less` keys, line numbers, and `/` search│
+ 4 - Fix the pager status line at narrow widths            │
+/pager  match 2 of 2                                     40%
+```
+
+A document in a `ScrollBox` with the keys `less` taught
+everybody: Space, `f` and PgDn page down and `b` and PgUp page up (a window less a
+row, so a line of what you were reading survives the jump), `d` and `u` move half
+a window, `j`, `k`, Enter and the arrows move a line, `g`/Home and `G`/End go to
+either end, and `q` calls `onQuit` -- which `page()` passes, and which an element
+in a bigger app leaves out so that `q` reaches the app. A scrolling key is claimed
+only where the document is longer than the window, which is the scroll box's own
+rule.
+
+`/` opens a search on the status line; Enter runs it, Escape gives it up, and an
+empty Enter repeats the last one. Every match is drawn reversed and the current
+one in the accent as well, `n` and `N` step through them and wrap at the ends, and
+after paging away `n` finds the next match below where you are rather than going
+back to where you were. A query is **literal** by default, so `.` and `(` mean
+themselves, and **smart case** -- lower case matches either case, a capital
+matches exactly. `search: 'regex'` reads it as a regular expression: one that
+does not compile is reported on the status line rather than thrown, and a
+zero-length match counts once per line, so `^$` steps through the blank lines.
+
+Lines **fold** at the window's edge by default, at the column rather than the
+word, so every character is shown in order; `wrap: false` cuts them at the edge
+instead and Left and Right shift the view by half a window, which is what a log
+or a table wants. `lineNumbers: true` adds a gutter, numbering a folded line once.
+Escape sequences in the input are stripped rather than drawn, and tabs go to the
+next stop of eight.
+
+`page()` takes the alternate screen and gives it back on `q` or Ctrl-C. Where the
+output or the input is not a terminal it writes the document out as it was given
+and resolves, which is what `less` does when it is piped. It leaves the mouse
+alone unless you pass `mouse: true`, because a terminal reporting the mouse stops
+doing its own selection, and copying a line out is half of what a pager is for.
+
 `sigil/components` also exports `decodeKeys()` and `renderBar()`, and the state
 and the element tree behind each component -- `spinnerView()`, `progressView()`
 `tableView()` and `noteView()`, with `spinnerState()` and `progressState()` driving the two

@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 167 keys, which is what a catalog has to carry to translate sigil's own
+ * 182 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -80,6 +80,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Invalid date: "{0}"',
   'Invalid integer: {0}',
   'Invalid number: {0}',
+  'Invalid pattern: {0}',
   'Invalid string: {0}',
   'Invalid value "{0}" for {1}',
   'Invalid value for "{0}" in {1}: {2}',
@@ -98,6 +99,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Name the shell to remove completion for {0} from:',
   'No commands match',
   'No matches',
+  'No matches for {0}',
   'Nothing to do.',
   'Options:',
   'Present the result as JSON',
@@ -143,6 +145,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'alt-{0}',
   'argument <{0}>',
   'backspace',
+  'bottom',
   'close',
   'ctrl-alt-{0}',
   'ctrl-{0}',
@@ -152,20 +155,32 @@ export const SIGIL_KEYS: readonly string[] = [
   'enter',
   'esc',
   'from $SHELL',
+  'half page down',
+  'half page up',
   'home',
+  'match {0} of {1}',
+  'next match',
   'no',
   'none',
   'off',
   'on',
   'open',
   'option {0}',
+  'page down',
+  'page up',
   'pgdn',
   'pgup',
+  'previous match',
+  'quit',
+  'scroll',
+  'scroll sideways',
+  'search',
   'setting "{0}"',
   'shift-{0}',
   'space',
   'tab',
   'toggle',
+  'top',
   'y/n',
   'yes',
   '{0} (skipped)',

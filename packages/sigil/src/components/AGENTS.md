@@ -6631,3 +6631,153 @@ not answer anything: it sits in a tree beside other things and stays there.
   section; a title that is an element rather than a string; and opening by
   default where there is no terminal -- the app knows whether it built a router,
   and a section nobody can open is one it should build open.
+
+### A pager: `less` keys, line numbers, and `/` search over a scroll box
+
+`src/components/pager.ts`. SIG-195. `createPager()` is the element and `page()`
+is the facade that puts one on the whole screen until `q`, the way `gum pager`
+does.
+
+- **Its own component, not props on `ScrollBox`.** The ticket's first question.
+  A scroll box holds no state -- the first decision recorded for it above -- and
+  holds any element at all; a pager holds a query, its matches, which one is
+  current and whether a search is being typed, and what it holds is text, which
+  is the only thing a search can run over. Props would make `ScrollBox` a text
+  component with a state. And the keys settle it on their own: `space`, `b`, `d`,
+  `u`, `g` and `/` on every scroll box would take the letters from any text field
+  inside one. So the pager builds a scroll box with `rows` -- windowed, so ten
+  thousand lines cost what the window does -- and adds the keymap, the gutter and
+  the search over it, the way `selectRow()` builds on `table()`'s pieces.
+- **Search is literal by default, smart case, and a regular expression is the
+  app's to turn on.** The second question. What a reader types into a pager is
+  mostly text -- a function name, a path, a version -- and `.`, `(` and `[` are in
+  all three. `search: 'regex'` reads the query with the `u` flag. Smart case is
+  `rg -S`'s: a query with no capital matches either case, one with a capital
+  matches exactly, and an escape like `\S` is not counted as a capital somebody
+  typed. The regex is an **opt-in rather than a default** because of the one
+  hazard nothing here can bound: a pattern that backtracks catastrophically runs
+  on this thread and no engine can interrupt a match once started. Everything
+  else is bounded -- a pattern that does not compile is reported on the status
+  line, an engine error mid-match is caught and reported the same way, and the
+  matches stop at `MAX_MATCHES` (100,000, with the count shown as `100000+`).
+  It runs on Enter, not per keystroke: an incremental search would run every
+  prefix of a pattern, half of which do not compile, and would pay the hazard
+  once per key rather than once.
+- **A zero-length match counts once per line, and only on a line with no other
+  match.** So `^$` steps through the blank lines, as it does in `less`, and `a*`
+  -- which matches empty at every column -- steps line by line rather than column
+  by column, and on a line with a real `aaa` counts only that. It is drawn as
+  nothing, since there is nothing to reverse. `matchAll()` is what makes it safe:
+  it advances past an empty match itself, so there is no `lastIndex` loop here to
+  get wrong.
+- **`n` steps from where the reader is.** The match after the current one while
+  the current one is on screen, otherwise the first one at or below the top of the
+  window -- and `N` the mirror. So `n` after paging away finds the next match
+  below you, which is `less`, rather than dragging you back to where you last
+  searched. Both wrap at the ends. A new search lands on the first match at or
+  below the top of the window for the same reason.
+- **A match is revealed at the top of the window, and only if it is off screen.**
+  The top because what follows a match is what the reader went looking for, which
+  is `less` again. A folded line is shown from its **first** row where that still
+  leaves the match on screen, so a match on a line's second row does not arrive
+  with the start of its sentence scrolled off above it. With `wrap: false` the
+  view also shifts sideways to put a match past the edge half a window in.
+- **Soft wrap by default, at the column and not the word.** The third question.
+  `less` folds by default, and a CLI pages help, changelogs and diffs more than
+  it pages tables. At the column because `wrap()` breaks prose at words and drops
+  the whitespace it breaks at, which is right for a help screen and wrong here:
+  a pager shows every character of the file in order, and a match maps to a row
+  by offset only when no character moved. `softWrap()` folds by grapheme cluster,
+  sends a wide character that would straddle the edge to the next row, and gives
+  an empty line one empty row. `wrap: false` is one row per line cut at the edge,
+  with Left and Right shifting by half a window -- **the pager's own column
+  offset, not the scroll box's horizontal axis**, so the gutter stays put while
+  the text moves, which a horizontally scrolled content box could not do.
+- **The rows on screen are redrawn in place, because the scroll box keeps them.**
+  A windowed list builds a row when it enters the window and keeps it while it
+  stays, which is right for the focus and means a highlight that changes, a fold
+  at a new width or a sideways shift would otherwise never be seen. So the pager
+  keeps the rows `row()` handed out, by index, and rebuilds their children on any
+  of the three -- pruning the ones whose slot the scroll box has since taken out,
+  which is a slot with no parent. `count` is a getter, since `ScrollRows.count`
+  is read on every window and a fold at a new width is a new count.
+- **That map is pruned on every scroll, not only before a redraw.** The first
+  version pruned inside the redraw alone, which runs on a search, a resize and a
+  sideways shift -- so paging through a long document without searching kept every
+  row ever built, and the slot each one still points at, which is the windowing
+  given back: a million-line log paged with Space held a million element trees,
+  and the next search walked them all. The wrapped `onScroll` prunes after the
+  scroll box has re-windowed, which is the one moment what it took out is known,
+  and the resize hook does the same after its sync. Found in review.
+  `should forget the rows a page down scrolled out of the window` counts a
+  search's reads of `parent` on rows already off screen, which is what an unbounded
+  map costs that a picture cannot show; with the scroll-time prune deleted it reads
+  24 of them.
+- **`scrollViewport()` is exported from `scroll-box.ts`, and it is a `WeakMap`
+  rather than a walk for the class.** A component built on a scroll box needs the
+  viewport -- the offset lives there, so `scrollTo()` and reading `scroll` back
+  want it -- and the host is all `ScrollBox()` returns. The class is a theme's
+  hook and an app may add to it, so a lookup by class is one a stylesheet could
+  break. On the components barrel, so an ejected `pager.ts` still resolves it.
+- **The viewport's two hooks are wrapped, not replaced, and the order inside
+  `onResize` matters.** The pager reads each hook and installs one that calls what
+  it found, which is the rule this repository gives for one-function hooks. On a
+  resize it refolds, redraws the rows on screen and puts the window back on the
+  line and offset it started on **before** it calls the scroll box's own sync,
+  because that sync reads the new count; the other order builds a window for a
+  count that is about to change. Sabotaged: without the refold-then-redraw the
+  `page()` resize test fails, and without the re-anchor the reader is left on a
+  row number that now means a different line.
+- **The keys follow the scroll box's rules where they overlap.** A scrolling key
+  is claimed only where the document is longer than the window, so a document
+  that fits hands Space on, and is claimed even where the move is zero, so `g` at
+  the top is still the pager's. A page is the window less a row -- the scroll
+  box's own rule, and one line more than `less` keeps. `d` and `u` are half a
+  window. Ctrl and Alt chords are left alone, so `ctrl+d` is the app's. `q` is
+  claimed only where there is an `onQuit`, so an element in a bigger app lets `q`
+  reach the app. Escape clears a search and is not claimed with none to clear.
+  While a query is being typed every printable key is the field's, pager letters
+  included, and a key the field has no use for -- Tab, a chord -- is left to
+  bubble. An empty Enter repeats the last search; Backspace on an empty field
+  leaves it.
+- **`describe(router)` lists the keys rather than binding them.** They are an
+  `onKey`'s, so they are described with `scope` set to the pager, and the key-help
+  footer lists them while the pager holds the focus -- the SIG-166 mechanism as it
+  was built. The descriptions go through `__` because the component writes them;
+  `q` is listed only with an `onQuit`, and Left/Right only with `wrap: false`.
+- **A match is reversed, and the current one is the accent reversed.** The sixth
+  declared exception to the role rule in `theme/index.ts`, and the same
+  declaration as the caret and the badge: standout is what a search highlight has
+  been since more(1), it reads on any background, and no role is a reversal. The
+  current match adds `.sigil-accent`, so a theme moves it by restyling the accent.
+  A highlight that would split a grapheme cluster is widened to whole clusters,
+  for the reason `highlightRuns()` gives: a lone combining mark is not drawn.
+- **Escape sequences in the input are stripped, not drawn.** Carrying an input's
+  own colour through means turning SGR into styled runs, which is a second
+  renderer inside one component. Tabs go to the next stop of eight, measured in
+  columns, and every other control character is dropped by the rule a `text`
+  element already applies. One trailing newline ends the last line rather than
+  adding an empty one.
+- **`page()` writes the document straight through where either side is not a
+  terminal.** Unchanged, escape sequences included, which is what `less` does when
+  its output is piped -- the reader is somebody's `grep`, and what they want is the
+  text. On a terminal it takes the alternate screen and gives it back on `q` or
+  Ctrl-C, both of which **resolve**: leaving is the only thing either can mean, so
+  there is no cancel for a caller to tell apart. The mouse is **off** unless asked
+  for, because a terminal reporting the mouse stops doing its own selection and
+  copying a line out is half of what a pager is for; `less` asks for `--mouse`
+  for the same reason. The facade builds its own router rather than taking one,
+  since the router's root has to be the tree the pager is in.
+- **Twenty-two sabotages, twenty-two caught.** Each named test was broken against
+  its code and failed alone or with its neighbours: the zero-length rule, the
+  compile guard, the mid-match catch, the literal escaping, smart case and its
+  escape skip, the cap, the re-anchor, the refold redraw, `n` from where the reader
+  is, the reveal-only-off-screen and first-row rules, the cluster snap, the
+  claim-only-where-it-scrolls rule, `q` without `onQuit`, a key the field does not
+  want, the page size, the trailing newline, tabs by column, a straddling wide
+  character, and the piped write.
+- **Not done:** carrying the input's colour through; incremental search; `-F`
+  (quit when it fits on one screen); a follow mode that tails a growing input --
+  the content is read once, and a `ScrollRows.count` that grows while nobody is
+  scrolling is the re-sync the scroll box records as a later tier; marks; `&` to
+  filter to matching lines; a horizontal scrollbar for `wrap: false`.

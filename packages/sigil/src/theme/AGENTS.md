@@ -63,8 +63,8 @@ the entry it belongs to.
   which is the one emission that computes its class.
 
   `.sigil-caret`, `.sigil-scroll-track`, `.sigil-debug`, `.sigil-qrcode-paint`,
-  `.sigil-badge` and `.sigil-collapsible-title:focus` are the six declared
-  exceptions: no role is inversion; the track is the one
+  `.sigil-badge`, `.sigil-collapsible-title:focus` and `.sigil-pager-match` are
+  the seven declared exceptions: no role is inversion; the track is the one
   grey here that is not de-emphasised _text_, so it must not be `.sigil-muted` --
   that role is `dim` on a dark terminal, and a dim track is not a track;
   `.sigil-debug` is a **background** rather than a foreground, which no role is
@@ -73,8 +73,10 @@ the entry it belongs to.
   way round, so neither of the two is de-emphasis, a state or an accent. The sixth
   (SIG-192) is the one rule keyed on a state rather than a class, and is the
   caret's reason again: a focused collapsible title is drawn inverse, because
-  nothing else says which title the keys go to. `should
-  declare on a role, bar six exceptions that say why` is the invariant, and it
+  nothing else says which title the keys go to. The seventh (SIG-195) is
+  `.sigil-pager-match`, `inverse` a third time: a search highlight is standout,
+  the terminal's own two colours swapped, rather than a colour anybody picked. `should
+  declare on a role, bar seven exceptions that say why` is the invariant, and it
   reads the **parsed** sheet rather than the source, because the comment listing
   the component classes as hooks would otherwise be mistaken for a rule. It was
   three until SIG-136, and the sentence here still said three for a commit after

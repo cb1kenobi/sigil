@@ -365,6 +365,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/36-select-row.js`](components/36-select-row.js)                             | An interactive table: pick a row, sort by a column                       |
 | [`components/37-clock.js`](components/37-clock.js)                                       | A stopwatch beside a spinner, and a countdown before an action           |
 | [`components/38-spinners.js`](components/38-spinners.js)                                 | Every spinner frame set in the package, and the ASCII fallback           |
+| [`components/40-pager.js`](components/40-pager.js)                                       | A pager: `less` keys, line numbers, and `/` search with highlights       |
 | [`components/41-collapsible.js`](components/41-collapsible.js)                           | A section that opens and closes, and an accordion of them                |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
@@ -440,6 +441,16 @@ at `Deployed`.
 at its own interval, and then one spinner with `ascii: true`, which is what a
 terminal that cannot draw braille gets by default. Piped, a spinner draws no
 frames, so it is one line per set and does not wait.
+
+`40-pager.js` pages a made-up changelog on the whole screen with line numbers on,
+or any file named on the command line, and gives the screen back on `q`. Piped, it
+plays the same `page()` against an in-process terminal and prints the screen after
+each key: a folded line numbered once, Space keeping one line of context, a
+smart-case `/fix` landing on the first match on screen, `n` moving the window only
+when the next match is off it, `n` after `G` finding the next match from where you
+are rather than from the last one, and `(pager` searched literally. It ends with
+`page()` on a piped output, which writes the document straight through, the way
+`less` does.
 
 `41-collapsible.js` is a failed deploy with its stack folded under `Show stack`,
 and an accordion of three questions where opening one closes the open one. On a
