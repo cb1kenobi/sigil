@@ -368,6 +368,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/39-tree.js`](components/39-tree.js)                                         | A tree printed with guides, a prompt over one, and a directory tree      |
 | [`components/40-pager.js`](components/40-pager.js)                                       | A pager: `less` keys, line numbers, and `/` search with highlights       |
 | [`components/41-collapsible.js`](components/41-collapsible.js)                           | A section that opens and closes, and an accordion of them                |
+| [`components/42-group-back.js`](components/42-group-back.js)                             | Escape back a step in a group, and a prompt that opens on an answer      |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -611,6 +612,15 @@ it builds a test terminal, sends the keys a person would have typed and prints t
 screen after each step: once answering everything, once pressing Ctrl-C at the
 second question, where `onCancel` is handed the one answer given and `cancel()`
 closes the session.
+
+`42-group-back.js` is the same kind of flow with Escape in it. Each step spreads
+the `{ back, value }` it is handed into its prompt, so Escape goes back a step and
+the step comes back on its earlier answer. Piped, it answers four questions, goes
+back three times -- the name still holding what was typed, the list still on
+`pnpm` -- and changes the first answer from `node` to `bun`, whose list has no
+`pnpm` in it: the package manager is asked again rather than skipped, and the
+earlier answer it cannot show is dropped. The screen is a transcript, so the first
+pass stays above the second.
 
 `08-large-text.js` is the one where the answer is that nothing changes: a banner
 is static text, so there is no cursor to move and a pipe gets byte for byte what

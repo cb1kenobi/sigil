@@ -2766,7 +2766,19 @@ const features = await multiselect({
 ```
 
 `text()` takes `default`, `placeholder`, `mask`, and a `validate` that may be
-async — return a string to reject the answer with that message. Editing keys
+async — return a string to reject the answer with that message.
+
+**Every prompt takes a `value`: an answer to start from**, typed as the answer it
+gives, so one name works whatever is being asked -- the field opens holding it, a
+list with that choice highlighted, a multiselect with exactly those ticked, a sort
+in that order, a file picker in the directory holding it. A choice is found by its
+`value`, compared the way a `Map` compares keys. It beats `initial` (which stays
+what it was: an index on `select()`, `sort()` and `selectRow()`, starting text on
+the fields) and `selected`, and on `confirm()` it is what Enter alone means. A
+`value` a prompt cannot show -- no choice holds it, a fraction on an integer
+field, text that does not fit a mask -- is dropped rather than refused, because it
+is usually an earlier answer to a question that has since changed.
+`commandPalette()` takes none: it is not asked for a value. Editing keys
 are the usual ones: arrows, Home/End, Ctrl-A/E/U, Backspace, Delete. A paste
 arrives as one chunk and is read as the keys it carries, not just the first.
 
@@ -2787,7 +2799,8 @@ not fit is dropped whole, least important first, and the row ends in `…`. It g
 once the prompt is answered, so the log keeps the question and the answer. The
 arrows are not listed, since they are the keys nobody has to be told, and `text()`,
 `select()` and `confirm()` draw no footer — `confirm()`'s `(Y/n)` already names its
-keys. A key is matched the way `bind()` matches one, modifiers and all, so
+keys. A prompt asked with `back: true`, which is what `group()` does, adds
+`esc back` to its footer. A key is matched the way `bind()` matches one, modifiers and all, so
 Shift-Down is not Down.
 
 Every prompt takes a `signal`. Aborting it gives the prompt up the way Ctrl-C
@@ -3135,7 +3148,32 @@ the answers so far. Cancelling is still a `PromptError` rejection --
 and `onCancel(partial, err)` is called first with what had been answered. It may
 throw, or return an `Error`, to replace the rejection; it cannot swallow it. A
 step that fails for any other reason is rethrown untouched and `onCancel` is not
-called. There is no going back a step.
+called.
+
+**Escape goes back a step.** Each step is handed a second argument, `step`, shaped
+as prompt options: `back: true` on every step after the first, and `value` -- what
+the step answered last time -- whenever it is being asked again. Spread it into
+the prompt and that prompt goes back on Escape and opens on its earlier answer:
+
+```js
+const answers = await group({
+  name: (_, step) => text({ message: 'Project name', value: 'my-app', ...step }),
+  pm: ({ name }, step) =>
+    select({ message: `Package manager for ${name}`, choices: ['npm', 'pnpm'], ...step }),
+  ok: (_, step) => confirm({ message: 'Create it?', ...step }),
+});
+```
+
+Each key is present only when it says something, so `{ value: suggestion, ...step }`
+opens on the suggestion the first time and on the earlier answer every time after.
+Going back never skips a step on the way forward: every step after the one gone
+back to is asked again, because a step may depend on the answer that changed. A
+re-asked step's old answer is only where it opens -- a list that no longer offers
+it drops it -- and a step that knows it no longer means anything can leave `value`
+out of what it spreads. The screen is a transcript: what was answered before going
+back stays above the question asked again. `isBack(err)` is true for the
+`PromptBack` a prompt asked with `back: true` rejects with, for an app that runs its
+own loop over prompts.
 
 In TypeScript, a step that reads its argument stops `T` being inferred from what
 the steps return, so name the shape: `group<{ name: string; ok: boolean }>({ ... })`.

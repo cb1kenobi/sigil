@@ -44,6 +44,7 @@ import {
   promptHeadWidths,
   type PromptOptions,
   PromptError,
+  promptSameValue,
   promptValue,
   runPrompt,
   type Separator,
@@ -85,6 +86,13 @@ export interface SelectKeyOptions<T> extends PromptOptions {
    * A choice past the ninth has no single digit to be and needs a key of its own.
    */
   numbered?: boolean;
+  /**
+   * An answer to start from: the choice whose `value` this is becomes the one
+   * Enter answers with, and beats `initial`. Compared the way a `Map` compares
+   * keys, and dropped -- leaving `initial` to decide -- when no choice on offer
+   * holds it.
+   */
+  value?: T;
 }
 
 /** The keys `expand` keeps for itself. */
@@ -195,9 +203,16 @@ export function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T> {
   }
 
   const byKey = new Map(offered.map((line) => [line.key, line]));
-  const fallback = opts.initial === undefined ? undefined : byKey.get(fold(opts.initial));
+  const named =
+    opts.value === undefined
+      ? undefined
+      : offered.find((line) => promptSameValue(promptValue(line.choice), opts.value));
+  const fallback =
+    named ?? (opts.initial === undefined ? undefined : byKey.get(fold(opts.initial)));
 
-  if (opts.initial !== undefined && fallback === undefined) {
+  // an `initial` that names nothing is refused even beside a `value` that does:
+  // it is a mistake in the program, whatever the earlier answer happened to be
+  if (opts.initial !== undefined && !byKey.has(fold(opts.initial))) {
     return refuse(
       opts.message,
       `\`initial\` ${JSON.stringify(opts.initial)} is not the key of a choice on offer`

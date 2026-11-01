@@ -95,6 +95,13 @@ export interface FilePickerOptions extends PromptOptions {
    * returned in: an absolute path.
    */
   validate?: (value: string) => string | undefined | false | Promise<string | undefined | false>;
+  /**
+   * An answer to start from: a path, so the picker opens in the directory holding
+   * it with it highlighted. Dropped -- the picker opens in `root` -- when that
+   * directory turns out not to hold it any more, or, with `confine`, when it is
+   * outside `root`.
+   */
+  value?: string;
 }
 
 /** The part of `node:path` the picker reads, so a test can hand it the other platform's. */
@@ -185,6 +192,24 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
   // a name to land on once the directory has been read, which is how Left comes
   // back out onto the directory it left without waiting for the read to say so
   let want: string | undefined;
+  /** Whether `want` is a starting answer, which goes back to `root` if it is gone. */
+  let starting = false;
+
+  if (typeof opts.value === 'string') {
+    const target = flavour.resolve(base, opts.value);
+    const holder = flavour.dirname(target);
+    const inside = flavour.relative(base, holder);
+    // `confine` is a rule about where the picker may be, and a starting answer is
+    // not an exception to it
+    if (
+      target !== holder &&
+      (!opts.confine || inside === '' || (!inside.startsWith('..') && !flavour.isAbsolute(inside)))
+    ) {
+      dir = holder;
+      want = flavour.basename(target);
+      starting = true;
+    }
+  }
   let error: string | undefined;
   let finished = false;
 
@@ -199,17 +224,28 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
     return opts.directory ? [HERE, ...found] : found;
   }
 
-  /** Puts the highlight where it was asked to be, once there is a list to be on. */
-  function place(): void {
+  /**
+   * Puts the highlight where it was asked to be, once there is a list to be on.
+   *
+   * @returns Whether the picker moved back to `root` instead, because the
+   *   directory a starting answer named does not hold it any more.
+   */
+  function place(): boolean {
     if (want === undefined || !cache.has(dir)) {
-      return;
+      return false;
     }
     const name = want;
     want = undefined;
-    active = Math.max(
-      0,
-      listing().findIndex((entry) => sameName(entry.name, name, flavour))
-    );
+    const at = listing().findIndex((entry) => sameName(entry.name, name, flavour));
+    if (at < 0 && starting) {
+      starting = false;
+      dir = base;
+      active = 0;
+      return true;
+    }
+    starting = false;
+    active = Math.max(0, at);
+    return false;
   }
 
   return runPrompt<string>(opts, () => {
@@ -271,7 +307,10 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
     }
 
     function draw(): void {
-      place();
+      if (place()) {
+        redraw();
+        return;
+      }
       const rows = listing();
       active = Math.min(active, Math.max(0, rows.length - 1));
 
@@ -323,6 +362,7 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
     return {
       async key(k) {
         error = undefined;
+        starting = false;
 
         // Left leaves a directory without reading it. A key that acts on the
         // list waits for the list, but this is the one that gets away from a
