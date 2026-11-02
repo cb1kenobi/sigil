@@ -188,6 +188,8 @@ export {
   promptSameValue,
   promptSummary,
   type PromptSymbols,
+  promptTailFits,
+  promptUnderHead,
   promptWindow,
   type PromptWindow,
   promptValue,

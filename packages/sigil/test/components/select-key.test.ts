@@ -662,3 +662,78 @@ describe('selectKey() expanded', () => {
     expect((await answer).value).toBe('Green');
   });
 });
+
+describe('selectKey() expanded at a narrow width', () => {
+  const LONG = 'Overwrite the existing configuration file';
+
+  // the head caps what it reserves for a tail at half the line, and the expand
+  // line cannot wrap -- so at 20 columns it was cut to `(o/S/d/h`, a line of keys
+  // that named some of them and not the rest
+  it('should put the expand line under the question rather than cut it', async () => {
+    const ui = screenSetup({ columns: 20, rows: 10 });
+    const answer = settle(
+      open(ui, { choices: ACTIONS, expand: true, initial: 's', message: LONG })
+    );
+
+    await tick();
+
+    expect(rows(ui)).toEqual([
+      '? Overwrite the',
+      '  existing',
+      '  configuration',
+      '  file',
+      '  (o/S/d/h)',
+    ]);
+
+    await type(ui.stdin, 'd');
+
+    expect((await answer).value).toBe('diff');
+    // the answer settles in the line's place, whole, rather than in a head that
+    // reserved nothing for it
+    expect(rows(ui)).toEqual([
+      '? Overwrite the',
+      '  existing',
+      '  configuration',
+      '  file',
+      '  Show the diff',
+    ]);
+  });
+
+  it('should open the list straight under the question once the line has gone', async () => {
+    const ui = screenSetup({ columns: 20, rows: 10 });
+    const answer = settle(
+      open(ui, { choices: ACTIONS, expand: true, initial: 's', message: LONG })
+    );
+
+    await type(ui.stdin, 'h');
+
+    expect(rows(ui)).toEqual([
+      '? Overwrite the',
+      '  existing',
+      '  configuration',
+      '  file',
+      '  o) Overwrite',
+      '❯ s) Skip',
+      '  d) Show the diff',
+    ]);
+
+    await type(ui.stdin, CTRL_C);
+    await answer;
+  });
+
+  it('should keep the expand line beside a question that leaves it room', async () => {
+    // the question wraps for it, which is the head's cap doing its job: only a
+    // line the cap would cut moves
+    const ui = screenSetup({ columns: 24, rows: 10 });
+    const answer = settle(
+      open(ui, { choices: ACTIONS, expand: true, initial: 's', message: LONG })
+    );
+
+    await tick();
+
+    expect(rows(ui)[0]).toBe('? Overwrite    (o/S/d/h)');
+
+    await type(ui.stdin, CTRL_C);
+    await answer;
+  });
+});

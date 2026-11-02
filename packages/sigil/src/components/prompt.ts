@@ -840,6 +840,42 @@ function promptHead(
   };
 }
 
+/**
+ * Whether a tail that has to be drawn whole fits beside the question.
+ *
+ * `headWidths()` caps what it reserves for a tail at half the line, which is right
+ * for a tail that can wrap and wrong for one that cannot: the canvas clips what
+ * runs past its edge, so at 20 columns `selectKey()`'s expand line drew
+ * `(o/S/d/h` and a date field drew `2024-06-`, and at 40 a date with seconds
+ * lost them. Such a tail goes beside the question only where the head leaves it
+ * every column it needs, and on a line of its own under the question --
+ * `underHead()` -- where it would not. Asked of the same arithmetic the head is
+ * laid out by, so the answer cannot disagree with what is drawn.
+ *
+ * A tail the cap always holds whole needs none of this: `confirm()`'s `(Y/n)` is
+ * five columns and is whole down to the 13-column floor.
+ *
+ * @param message - What is being asked.
+ * @param room - The columns the whole line has.
+ * @param tail - The tail at its widest.
+ * @returns Whether the head would leave the tail whole beside the question.
+ */
+function fitsBeside(message: string, room: number, tail: string): boolean {
+  return headWidths(message, room, tail).rest >= stringWidth(toDisplayText(tail));
+}
+
+/**
+ * A tail on a line of its own under the question, where `fitsBeside()` said it
+ * would be cut beside it. Indented to where the message starts.
+ *
+ * @param tail - What could not go beside the question, and whatever settles in
+ *   its place.
+ * @returns The row to put under the head.
+ */
+function underHead(...tail: Element[]): Element {
+  return box({ 'margin-left': stringWidth(SYMBOL.question) + 1 }, ...tail);
+}
+
 /** Marks the head as answered, which is the only thing every prompt settles. */
 function answered(mark: Element): void {
   mark.setProps({ class: 'sigil-symbol is-success sigil-success' });
@@ -3808,8 +3844,10 @@ export {
   promptKeys,
   rowCap as promptRowCap,
   headWidths as promptHeadWidths,
+  fitsBeside as promptTailFits,
   note as promptNote,
   promptHead as promptHeadLine,
+  underHead as promptUnderHead,
   run as runPrompt,
   setNote as setPromptNote,
   summaryOf as promptSummary,

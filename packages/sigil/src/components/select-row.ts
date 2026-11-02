@@ -58,10 +58,16 @@ export interface SelectRowColumn extends Column {
    * How two values of this column are ordered, for a column whose values are not
    * ordered the way `compareCells()` would order them: a version, a size with a
    * unit, a name in some locale. It is handed the values the rows hold rather than
-   * the text drawn, and is never handed an empty one.
+   * the text drawn, and is never handed an empty one. A `TableCellView` is a
+   * value here, handed over as the row holds it, so a view that carries what it
+   * stands for -- `{ ...badgeView('FAIL'), rank: 2 }` -- can be ordered by that.
    */
   compare?: (a: unknown, b: unknown) => number;
-  /** Whether a digit sorts by this column. Defaults to `true`. */
+  /**
+   * Whether a digit sorts by this column. Defaults to `true`, except for a column
+   * whose every cell is a `TableCellView` and which gives no `compare`: the default
+   * order cannot read a view, so its digit would move nothing.
+   */
   sortable?: boolean;
 }
 
@@ -95,7 +101,8 @@ export interface SelectRowOptions<R extends object = TableRow> extends PromptOpt
   rows: readonly R[];
   /**
    * What is shown once answered, for a row whose cells joined with commas are too
-   * long a line to leave behind.
+   * long a line to leave behind. A `TableCellView` cell has no text to join, so
+   * the default leaves it out; a row whose view is the point of it says so here.
    */
   short?: (row: R) => string;
   /**
@@ -218,9 +225,17 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
   const gap = opts.gap === undefined ? 2 : Math.max(0, Math.floor(opts.gap));
   const { cells, columns, headers } = tableCells(asRows, { columns: opts.columns });
   const head = opts.head ?? columns.some((column) => column.header !== undefined);
-  const sortable = columns.map(
-    (column, i) => i < DIGITS && (column as SelectRowColumn).sortable !== false
-  );
+  // a column of views and nothing else has nothing the default order can read, so
+  // its digit would draw an arrow and move no row: it sorts only when it says so,
+  // or gives the `compare` that knows what the views stand for
+  const sortable = columns.map((column, i) => {
+    const { compare, sortable: asked } = column as SelectRowColumn;
+    return (
+      i < DIGITS &&
+      (asked ??
+        (compare !== undefined || cells.some((row) => (row[i] as TableCell).view === undefined)))
+    );
+  });
   // measured over every row rather than over the ones on screen, so a column does
   // not change width as the window moves. A sortable heading keeps two columns
   // back for its arrow, which is what it costs for the table not to jump when a
@@ -260,13 +275,23 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
       order = unsorted;
     } else {
       const column = sortBy;
-      const compare = (columns[column] as SelectRowColumn).compare ?? compareCells;
+      const own = (columns[column] as SelectRowColumn).compare;
+      const compare = own ?? compareCells;
       const flip = descending ? -1 : 1;
+      // a view is a tree and has no order of its own, so the default puts it with
+      // the empty cells -- where `String()` would have filed every one of them
+      // under `[object Object]`, between the texts. A column's own `compare` is
+      // handed it as the value the row holds, since whoever built the view knows
+      // what it stands for
+      const present = (row: number): boolean =>
+        ((cells[row] as TableCell[])[column] as TableCell).view === undefined
+          ? hasValue((values[row] as unknown[])[column])
+          : own !== undefined;
       order = [...unsorted].sort((a, b) => {
         const x = (values[a] as unknown[])[column];
         const y = (values[b] as unknown[])[column];
-        if (!hasValue(x) || !hasValue(y)) {
-          return hasValue(x) ? -1 : hasValue(y) ? 1 : 0;
+        if (!present(a) || !present(b)) {
+          return present(a) ? -1 : present(b) ? 1 : 0;
         }
         return compare(x, y) * flip;
       });

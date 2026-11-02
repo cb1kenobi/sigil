@@ -6464,9 +6464,8 @@ way `confirm()` does, and is not `confirm()` with labels.
   answer colour, and the mark goes to success, as `confirm()` does.
 - **`signal` is `run()`'s, and nothing here handles it.** Every prompt goes through
   `runPrompt()`, which reads `PromptOptions.signal` (SIG-176); `toggle.test.ts` asserts
-  a mid-prompt abort, an already-aborted signal and `AbortSignal.timeout()`.
-  `prompt-signal.test.ts`'s every-prompt table was not edited, for the reason
-  `sort()`, `list()` and `selectKey()` are not in it either.
+  a mid-prompt abort, an already-aborted signal and `AbortSignal.timeout()`, and
+  since SIG-211 so does `prompt-signal.test.ts`'s every-prompt table.
 - **Not done:** the key-help footer (SIG-166) -- no prompt has adopted it, and its entry
   says adopting it is a decision about whether a prompt grows a router; `y`/`n`
   shortcuts (that is `confirm()`); vim `h`/`l`; clicking a state with the mouse;
@@ -8116,6 +8115,175 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   dialog in accessible mode, which draws prompts as lines and has no screen to lay
   one over; blocking `onPaste` and a `mousedown` bubble, as above; and a drag
   handle. A toast and a tooltip are SIG-213 and SIG-214.
+
+### A styled cell outside `table()`: where a `TableCellView` is wanted
+
+SIG-212. SIG-178 let a `table()` cell be a `TableCellView` -- `{ element, width }`
+-- so a badge keeps its colour in one; this asked which other places that lay out
+text in cells want the same. The survey answer is **one**, and it already had it.
+
+- **`selectRow()` is the only site, and it took views the day it was written.**
+  It builds its cells with `tableCells()`, `tableWidths()` and `tableRowView()`, so
+  a view was measured by its `width`, aligned by `align` and cut at `maxWidth` with
+  no change -- one implementation of "a cell is a string or a view", shared rather
+  than copied, which SIG-193's export of those pieces had already made true. What
+  was wrong was the two places `selectRow()` reads a cell as a **value**: the sort,
+  and the answered line.
+- **A view has no order, so the default sort puts it with the empty cells.**
+  `compareCells()` reads an unknown object as `String()` of it, so every view was
+  `[object Object]` -- a tie with every other view, and filed _before_ every
+  lower-case text, since `[` sorts before a letter. A view in a mixed column now
+  goes last both ways, which is the empty-cell rule. It is the **sorter** that
+  says so, as it already is for an empty value, and it asks the cell (`.view`)
+  rather than the value, because the shape test is `table.ts`'s and a second copy
+  of it here is how the two come to disagree.
+- **A column's own `compare` is handed the view, not refused it.** Whoever built
+  the view knows what it stands for, and a view is checked by shape, so it can
+  carry that: `{ ...badgeView('FAIL'), rank: 2 }` is a cell and a sort key.
+  Treating a view as empty for `compare` too would make a status column
+  unsortable by any means short of a second column holding the status as text.
+- **A column of nothing but views gets no digit unless it asks for one.** Its
+  digit would draw an arrow and move no row, which is the "the footer names no
+  digit that does nothing" rule SIG-193 already keeps; a `compare` or an explicit
+  `sortable: true` binds it. Decided once, from the cells the prompt was handed --
+  the rows are never changed, so it cannot go stale.
+- **The answered line leaves a view out.** It is a string, and a view has no text
+  form; `short` is the lever and its doc says so. Inventing one -- an optional
+  `text` on `TableCellView` -- would be API with one reader.
+- **The colour level stays the caller's.** A view is built at the level it was
+  asked for and neither `table()` nor `selectRow()` passes its own down: a view is
+  an already-built tree, and rebuilding it at another level needs the function
+  that made it, which a `{ element, width }` does not carry. The badge entry
+  already says to pass the same `colorLevel` to both, and the cost of not doing so
+  is a shape, not a width.
+
+**The sites that do not want one, and why:**
+
+- **`tasks()` titles** are a spinner's label: one string that is also the piped
+  line, the `TaskOutcome.title` handed back, and the prefix on interleaved output.
+  A view has no text for three of those four.
+- **`log` fields** are logfmt data for grep, written to a file unwrapped; a field
+  value is a value, and a styled one is the opposite of what the quoting is for.
+- **`outline()` items** are paragraphs that wrap with a hanging indent, not cells
+  -- and a badge _inside_ an item, which is the case anybody would want, is a run
+  in a paragraph rather than a whole-item view.
+- **Prompt choice labels** are not changed here, and they are the one place a view
+  is plausibly wanted: a status beside a choice. Not as the label, which is what
+  `autocomplete()` filters on, what accessible mode reads out and what the answered
+  line prints -- as a separate slot beside it. A follow-up, because `prompt.ts` is
+  shared and that is a choice-row change of its own.
+- **Labels in `bars()` and `createMultiProgress()`, tree labels and tab labels**
+  were looked at for the same reason and are text a person reads, measured and cut
+  as text; nothing asks for a badge in one.
+
+**Deliberately not done: the longer fix.** A cell that is styled text in general
+-- a `paragraph()` of runs -- would make `TableCellView` unnecessary rather than
+extend it, and it is what three of the refusals above actually want: a badge
+inside a log message, a task title or an outline item. It is a change to how a
+`text` holds content rather than to `table()`, and it is the follow-up to file.
+
+### Which exports are prompts: the signal table, derived from the barrel
+
+SIG-211. `test/components/prompt-signal.test.ts` gives every prompt the same
+checks: aborted mid-prompt, already aborted, `AbortSignal.timeout()`, and the
+screen left as a cancel leaves it. The prompts added after SIG-176 were missing
+from it. They all honoured the signal, because they all go through
+`runPrompt()`; the table is what would say so the day one stopped.
+
+- **"Is a prompt" is a type computed from the barrel, not a list.** `PromptName`
+  maps every export of `src/components/index.ts` and keeps each function that
+  answers with a promise and takes an options object whose `signal` is an
+  `AbortSignal`. `prompts` is `satisfies Record<Exclude<PromptName, keyof typeof
+  EXEMPT>, Ask>`, so a prompt exported without a row is a type error that names
+  it. The alternative a list invites is classifying every barrel export as prompt
+  or not-prompt. That puts the burden on whoever adds an element, a view or a
+  helper, which is most exports, and it is how the classifying list itself gets
+  forgotten. Here a non-prompt is out of the union by its own signature, and
+  nobody touches the test for it.
+- **The guard is `tsc`, not the runner.** A runtime cannot see a type, so
+  `pnpm check` is what fails; vitest alone does not. The routing types set that
+  precedent. `IMPLEMENTATIONS` in `dist.test.ts` could not be derived, because the
+  barrel exports state builders beside each implementation. This list can, because
+  "takes a signal and answers with a promise" is a property of the signature.
+- **The value's type is checked as well as the key.** `resolveEditor()` takes a
+  `Record<string, string | undefined>`, and `'signal'` is a key of that too.
+- **`satisfies` cannot catch an empty union, so there is a second check.** Every
+  object satisfies an empty record, so a predicate that stopped matching anything
+  would let the table pass with every row in place. `expectTypeOf` over the
+  table's keys plus the exemptions, compared with `PromptName`, checks the other
+  direction.
+- **`decrypt()` is the one exemption, and its reason is in the map.** It takes a
+  signal and answers with a promise, but it is an animation: an abort erases it
+  and resolves. An exemption is an entry with a reason, never an omission.
+- **`editor()` and `runPrompt()` are rows, not exemptions.** The editor asks its
+  question through `runPrompt()` before it spawns anything, so all three checks
+  apply, with a command that is never run. An abort while the editor is open is a
+  different contract, and `editor.test.ts` covers it. `runPrompt()` is the engine
+  and gets a row of its own with an empty handler set.
+- **`toggle.test.ts` keeps its own signal tests.** The table's checks cover
+  everything they assert and more, but the two are not identical, so neither was
+  deleted.
+- **Not done:** accessible mode. It is a second path, `runLine()`, with its own
+  abort handling, and `prompt-accessible.test.ts` checks one mid-prompt abort on
+  `text()`. Running the table a second time with `accessible: true` would cover
+  the six prompts that have a line form. That is a separate change.
+
+### A tail that cannot be cut goes under the question (SIG-210)
+
+`toggle()` found that the head's half-line cap clips a tail that cannot wrap, and
+fixed itself. SIG-210 asked which other prompts had the same defect.
+`promptTailFits()` and `promptUnderHead()` in `prompt.ts` are the fix, and
+`selectKey()`, `date()` and `pickDate()` use them.
+
+- **It was measured first, because SIG-205 and SIG-177 had rewritten the hint
+  lines since the ticket was filed.** Every head that reserves a tail was rendered
+  at 20, 24 and 40 columns under a question long enough to fill the line.
+  `confirm()` **did not reproduce**: `(Y/n)` is five columns and the cap keeps it
+  whole down to the 13-column floor, which `should keep the hint whole where the
+  message has to wrap for it` already pins. So it is unchanged. Three prompts did
+  reproduce. `selectKey()`'s expand line came out as `(o/S/d/h` at 20 columns. A
+  `date()` field came out as `2024-06-` at 20 and 22, and with `seconds` it lost its
+  last digit at **40**, where 19 columns met a cap of 18. `pickDate()`'s field was
+  cut the same way as `date()`'s. Every other head reserves nothing, because its
+  tail is a field that scrolls or an answer, so it has no fixed tail to cut.
+- **The rule is the cut itself, not `toggle()`'s rule.** `promptTailFits()` asks
+  the head's own arithmetic whether `rest` covers the tail. So a tail moves only
+  where the cap would have cut it, and a question that wraps to keep the tail beside
+  it, which is the decision `confirm()`'s test is named after, still does. Moving
+  any tail that does not fit on one line with the whole question would also have
+  changed every one of these prompts at widths where nothing was wrong. `toggle()`
+  keeps its stricter rule and is not migrated. That rule implies this one, because
+  states drawn beside a question that fits on one line are never cut, and it is a
+  layout choice the toggle's own entry records, with tests.
+- **Where the answer settles is decided per prompt, by whether it fits on the
+  question's line.** `toggle()` puts the answer back on the head line and reserves
+  the longer of its two names, which costs the question a few columns. For
+  `selectKey()` that reservation would be the longest label, which takes up to
+  half the line from the question for as long as it is asked. So its answer
+  settles in the expand line's place, under the question. A date field is the
+  answer, so it settles where it was drawn. Putting it back on the head line would
+  cut it again: ten columns against a cap of eight at 20.
+- **The row under the head is indented to the message's column.** That is the
+  mark's width plus its margin, worked out from `PROMPT_SYMBOLS` rather than
+  written as `2`. In `selectKey()` it holds the hint and the answer, both hidden
+  after `h`. A row whose children are all hidden takes no height, so the list opens
+  straight under the question with no blank line between. A test pins that.
+- **Sabotage: twelve of twelve caught.** The breaks were: the predicate forced
+  either way, made off by one, and made blind to the tail's width; the row
+  unindented; each prompt never moving its tail; each prompt still reserving the
+  tail once it moved; and `selectKey()`'s answer left out of the row. The off-by-one
+  is caught only by the beside case at 24 columns. That case is the boundary,
+  because a long question beside a tail that fits leaves `rest` exactly the tail's
+  width.
+- **Not done.** A prompt that reserves nothing for its answer draws that answer in
+  whatever is left. Under a question as wide as the line, that is one column, so
+  `selectKey()` without `expand` settled `Show the diff` down the right edge as
+  `S`, `t`, `d`. `select()` does the same at 40 columns, which was measured, and
+  the other list prompts share the arithmetic, which was not. It is
+  about the answer rather than a fixed tail, it predates this ticket, and fixing it
+  means choosing how much of the question an answer may take in every list prompt,
+  so it is left for a ticket of its own. `confirm()` below 13 columns is under the
+  floor the head already declares.
 
 ### A text field: the prompt's editor as an element
 

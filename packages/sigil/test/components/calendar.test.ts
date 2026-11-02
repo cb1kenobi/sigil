@@ -505,3 +505,23 @@ describe('date() with a calendar', () => {
     await expect(answer).rejects.toThrow(/weekStart/);
   });
 });
+
+describe('pickDate() at a narrow width', () => {
+  // the head caps what it reserves for a tail at half the line, and the field
+  // cannot wrap: at 20 columns it was cut to `2026-10-`
+  it('should put the field under the question rather than cut it', async () => {
+    const { answer, ui } = ask(
+      { message: 'When does the release go out?' },
+      { columns: 20, rows: 14 }
+    );
+
+    await tick();
+    expect(ui.log.slice(0, 3)).toEqual(['? When does the', '  release go out?', '  2026-10-15']);
+
+    await type(ui.stdin, RIGHT, ENTER);
+
+    expect(await answer).toEqual(new Date(2026, 9, 16));
+    // it is the answer, so it settles where it was drawn
+    expect(ui.log).toEqual(['? When does the', '  release go out?', '  2026-10-16']);
+  });
+});
