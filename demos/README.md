@@ -373,6 +373,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/44-editor.js`](components/44-editor.js)                                     | An editor prompt: the answer is written in `$VISUAL` or `$EDITOR`        |
 | [`components/45-multiline-extras.js`](components/45-multiline-extras.js)                 | A multiline field with line numbers, a gutter, a limit and highlighting  |
 | [`components/46-accessible.js`](components/46-accessible.js)                             | Accessible mode: the prompts as plain lines, for a screen reader         |
+| [`components/47-diff.js`](components/47-diff.js)                                         | A diff view: unified or side by side, a patch, and a highlight seam      |
 | [`components/48-tabs.js`](components/48-tabs.js)                                         | Tabs: a row of labels that scrolls, and the panel each one shows         |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
@@ -518,6 +519,14 @@ numbered list, extras as numbers with a range, and a yes or no -- which is what
 once, what you type is echoed after it, and a refused name gets its reason on the
 next line and the question again. Piped, a scripted keyboard answers, starting with
 a name the validator refuses, and the transcript is printed whole.
+
+`47-diff.js` is a string like the rule: it passes a `width` so that it prints the
+same thing in any terminal. It draws one edit to a function as a unified diff, then
+side by side at a width that has the room for it, then asks for side by side at 59
+columns to show it fall back to unified; it reads a patch the way `git diff` prints
+one, passes a keyword highlighter to show the seam, and folds a line of wide
+characters. It needs no terminal, so piped it prints the same lines minus the
+colour.
 
 ### Try them without a terminal
 

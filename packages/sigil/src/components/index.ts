@@ -162,6 +162,8 @@ export {
   type SubmitKey,
   text,
   type TextOptions,
+  TOKEN_ROLE,
+  tokensOf,
 } from './prompt.js';
 export {
   fieldLayers,
@@ -493,6 +495,26 @@ export {
   noteView,
   unicodeSupported,
 } from './note.js';
+export {
+  DIFF_SIDE_BY_SIDE_MIN_WIDTH,
+  diff,
+  type DiffChange,
+  type DiffFile,
+  type DiffHunk,
+  diffHunks,
+  type DiffInput,
+  diffInline,
+  type DiffLayout,
+  type DiffLine,
+  type DiffLineKind,
+  diffLines,
+  type DiffOp,
+  type DiffOptions,
+  diffSequence,
+  type DiffView,
+  diffView,
+  parsePatch,
+} from './diff.js';
 export {
   rule,
   type RuleAlign,

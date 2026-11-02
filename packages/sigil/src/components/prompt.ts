@@ -1864,7 +1864,7 @@ export function fieldLayers(read: () => FieldFrame): { caret: Element; field: El
  * A `Map`, for the reason a registry's lookup table is null-prototype: a token
  * is a name an app chose, and `constructor` reads back truthy off a plain object.
  */
-const TOKEN_ROLE = new Map([
+export const TOKEN_ROLE: ReadonlyMap<string, string> = new Map([
   ['comment', 'sigil-muted'],
   ['function', 'sigil-heading'],
   ['invalid', 'sigil-error'],
