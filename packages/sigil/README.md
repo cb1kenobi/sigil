@@ -4648,6 +4648,66 @@ says no (or `ascii: true`). A focused title is drawn inverse by the framework
 sheet. `.sigil-collapsible` (with `is-open` while open), `-title`, `-marker`,
 `-label` and `-body` are the theme hooks, and `props` goes on the host.
 
+#### Tabs
+
+```js
+import { describeTabs, Tabs } from '@ttylabs/sigil/components';
+import { text } from '@ttylabs/sigil/element';
+import { State } from '@ttylabs/sigil/signals';
+
+const active = new State(0);
+const tabs = Tabs({
+  active,
+  tabs: [
+    { label: 'Logs', children: () => logPane() },
+    { label: 'Settings', children: () => text('...') },
+    { label: 'Summary', children: () => text('...') },
+  ],
+});
+
+describeTabs(input, tabs); // for keyHelp(), once the router exists
+```
+
+```
+ Logs  Settings  Summary
+──────━━━━━━━━━━──────────────
+(the Settings panel)
+```
+
+A row of labels with one active, and the panel that follows it -- how a
+full-screen app holds several views on one screen. The row is focusable:
+**Left** and **Right** move to the previous and next tab, **Home** and **End** to
+the first and last, `1` to `9` to that tab, and a left click on a label picks it.
+A key that would change nothing -- Right on the last tab, `5` with four tabs -- is
+left for the pane around the row. The keys act while the **row** has the focus, so
+a digit typed into a field inside a panel stays in the field.
+
+`active` is a number to start from, or a `State<number>` that the keys and the
+mouse write and the app may write too; an index past either end reads as the
+nearest tab. `tabsActive(tabs)` hands back the state either way, so an app that
+passed a number can still read and set the tab. Every panel is built **once**, and
+the inactive ones are `display: none`: a panel keeps its scroll offset and its
+fields while another shows, and a hidden panel is neither laid out nor in the
+focus ring. A tab with no `children` is a label only.
+
+`tabRowView({ labels, active })` is the row alone, for an app that draws the
+panels itself. Under the labels runs a rule with the active tab's stretch drawn
+heavy, which still says which tab is active where there is no colour. When the
+labels do not fit the width the layout gives the row, it scrolls to keep the
+active tab in view and shows `‹` or `›` on the side that is clipped (`<` and `>`
+in ASCII); a label wider than the row is cut with an ellipsis. Labels are measured
+by display width, so a wide character takes the cells it takes. Put the row in a
+column, or give it a width: in a flex row with no width it is as wide as its labels
+and never overflows.
+
+The active label is `.sigil-accent` and `.sigil-heading` and the rest
+`.sigil-muted`; while the row has the focus the active label is also drawn
+inverse by the framework sheet. `.sigil-tabs` (the host), `-row`, `-labels`,
+`-tab` (with `-active`), `-more`, `-rules`, `-rule`, `-panels` and `-panel` (with
+`is-active`) are the theme hooks, and `props` goes on the host.
+`describeTabs(input, ...tabs)` describes Left, Right, Home and End scoped to the
+row and returns a function that takes them off again.
+
 #### A key-help footer
 
 ```js

@@ -373,6 +373,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/44-editor.js`](components/44-editor.js)                                     | An editor prompt: the answer is written in `$VISUAL` or `$EDITOR`        |
 | [`components/45-multiline-extras.js`](components/45-multiline-extras.js)                 | A multiline field with line numbers, a gutter, a limit and highlighting  |
 | [`components/46-accessible.js`](components/46-accessible.js)                             | Accessible mode: the prompts as plain lines, for a screen reader         |
+| [`components/48-tabs.js`](components/48-tabs.js)                                         | Tabs: a row of labels that scrolls, and the panel each one shows         |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -478,6 +479,17 @@ demo prints it after each step, with the focus said in words, since the inverse
 that marks it on a terminal is an attribute a pipe drops. The last step tabs into
 a field inside the open answer, which is in the ring only while its section is
 open.
+
+`48-tabs.js` is six tabs in forty columns, which is two more than fit: the row
+scrolls to keep the active tab in view and shows `‹` or `›` on the side that is
+clipped, and a heavy stretch of the rule under the labels marks the active one.
+On a terminal Tab puts the focus on the row, Left and Right move one tab, Home and
+End go to the ends, `1` to `6` go to that tab, and a click on a label picks it; the
+footer lists the arrows and Home and End while the row has the focus. Only the
+active panel is laid out, so the field in the "Settings" panel is in the Tab ring
+only while that panel is showing. Piped, a scripted keyboard drives the same tree
+and the demo prints it after each step, with the focus said in words, since the
+inverse that marks it on a terminal is an attribute a pipe drops.
 
 `44-editor.js` asks for a commit message in your own editor -- `$VISUAL`, then
 `$EDITOR`, then `vi` (Notepad on Windows) -- on a temporary `.md` file that starts
