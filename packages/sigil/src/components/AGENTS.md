@@ -7816,3 +7816,92 @@ nothing already written is moved, erased or coloured.
   `text()` draws no footer for it either); a spinner or a bar that is running while
   a line prompt asks is not evicted, since a line prompt claims no live region; the
   progress components' own accessible form, which is the quiet axis's question.
+
+### A diff view: `diff()`, a Myers diff written here, and a highlight seam it shares
+
+`src/components/diff.ts`. SIG-198. `diff()` and `diffView()` are `rule()` and
+`ruleView()`'s split; the algorithm, the patch reader and the intra-line pass are
+exported beside them as pure functions.
+
+- **The diff is computed here, because the dependency is not an option.** A small
+  Myers, `O(ND)` with a trace for the walk back, after the common head and tail are
+  trimmed -- which is what makes the ordinary case, a few lines changed in a long
+  file, cost the trim and nothing else. It is capped at `MAX_EDITS` (2048): past it
+  the middle is reported as removed and then added, a **correct** script that is not
+  the shortest, because the trace is `O(D^2)` memory and two files that different
+  are not worth it. Pinned by replaying the script over both sides, and by comparing
+  its length with `n + m - 2 * LCS` for every pair of lists up to four items over
+  three letters -- the property, rather than a handful of examples.
+- **Input is two texts or a unified patch, and the patch reader is the narrow cut.**
+  `---`/`+++` name a file, `@@` opens a hunk, and **the hunk's own counts say where
+  it ends**: that is the only way to tell a removed line that starts `-- ` (whose
+  patch line is `--- `) from a file header. Everything outside a file header and a
+  hunk is skipped, so `diff --git`, `index` and a commit message are harmless, and
+  `\ No newline at end of file` is dropped. Not read: renames and binary files as
+  anything but skipped text, combined diffs, the context format, and the
+  no-newline fact itself -- two texts that differ only in a final newline are the
+  same lines here.
+- **A patch carries its own context, two texts get `context` (3).** Hunks that
+  would meet are one hunk, as a patch writes them, and an empty side starts at the
+  line before (`@@ -0,0 +1,2 @@`).
+- **Intra-line emphasis is by word, and a pair of lines that share under a third of
+  their text gets none.** A character diff of two edited lines matches the letters
+  the words happen to share and comes out as confetti; a word is a run of letters,
+  a run of space or a mark. When the lines are not edits of each other, marking all
+  of both is no emphasis at all, so it marks nothing (`SIMILAR`, 0.3). A gap of only
+  whitespace between two changed stretches is part of the change, or `call one two`
+  against `call 1 2` is three islands. Removed and added lines are paired in order
+  within each run of changes, and a surplus on either side is drawn whole.
+- **The emphasis is bold, from `sigil-heading`, and that is the whole of the
+  styling cost: no new declaration and no eighth exception.** Every colour is a
+  role -- added `sigil-success`, removed `sigil-error`, context `sigil-muted` -- and
+  the changed span is the line's role plus the role that is `font-weight: bold`, so
+  `theme/index.ts` gained class names in its vocabulary comment and nothing in
+  `FRAMEWORK_CSS`, and `should declare on a role, bar seven exceptions` is
+  untouched. The honest cost: a theme that gives `.sigil-heading` a colour recolours
+  the changed words too, and `.sigil-diff-change` is the hook to put that right.
+  At colour level 0 the bold goes with every other attribute, and what is left
+  saying which line is which is the `+`/`-` marker. A background was the other
+  candidate, refused for being the sheet's eighth exception for what bold does.
+- **Every row is a row of fixed-width `white-space: pre` texts, folded by columns
+  before it is built.** There is no inline layout, so the gutter, the marker and each
+  run of differently-looking cells are siblings that have already been fitted (the
+  rule's shape and the paginator's reason), and leading spaces survive because `pre`
+  keeps them. Folding is by column and not by word, because it is code and the
+  reader should be able to count; a fold row has a blank gutter and no marker so a
+  continuation reads as one. A wide character that does not fit starts the next row,
+  and one wider than the room is drawn alone and clipped rather than looped on. A
+  tab is four columns wherever it falls, because the grid has no tab stops.
+- **Side by side needs `DIFF_SIDE_BY_SIDE_MIN_WIDTH` (60) and draws unified under
+  it, and the view says which it drew.** Sixty leaves each half about 28 columns, of
+  which the gutter, the marker and the separator take a third; under that two lines
+  cannot be compared, which is the only reason to put them side by side. The same
+  call is therefore safe in a terminal of any width, and `DiffView.layout` tells an
+  app which one it got. A removed line sits against the added line that replaces it
+  and a surplus leaves the other half blank; the halves fold independently and the
+  shorter is padded, so the separator stays in one column.
+- **`highlight` is `multiline()`'s hook, with `HighlightSpan` and `tokensOf()`
+  shared, and it is called with whole sides.** The old text and the new text for two
+  texts -- once each, not once per hunk, because a block comment can begin above a
+  hunk and end inside it -- and each hunk's old and new side for a patch, which has
+  nothing between its hunks. Line endings arrive as `\n`. A bad token name throws
+  the same `PromptError` `multiline()` throws, which is a slightly odd name for a
+  non-prompt and was kept to have one validator. `TOKEN_ROLE` is exported from
+  `prompt.ts` for it -- the only edit there -- and with `tokensOf()` from the
+  components barrel, because the registry test requires an ejected file to import
+  only what the package publishes. So both are public now, which suits an app that
+  writes a highlighter of its own for a third component.
+- **A token is drawn in its role on a changed line and left muted on a context
+  line.** On a changed line the token's role replaces the line's colour for those
+  cells, so a keyword reads as a keyword and the `+`/`-` and the gutter carry which
+  side the line is on; on context the diff is the background and a keyword in full
+  colour would be louder than the lines that changed. A token with no role, such as
+  an app's own, takes the line's role and carries its class for the app's sheet.
+- **String form only, ignoring `--quiet`, and nothing at all for texts that are the
+  same.** `diff()` of two equal texts is `''`, like `table([])`, with no
+  "no differences" line: that sentence is the caller's to choose and translate.
+
+What is deliberately not done: a grammar or a highlighter; a hunk-level fold
+("12 unchanged lines"); word wrapping of code; collapsing identical files in a
+multi-file patch; a patch writer; a character-level pass; and a stateful view that
+scrolls (a `diffView()` tree sits in a `ScrollBox` or the pager like any other).

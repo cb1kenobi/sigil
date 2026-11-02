@@ -4342,6 +4342,65 @@ on the result side of `--quiet`. `ruleView()` is the element tree behind it, for
 an app that wants one inside its own tree; its width is fixed when it is built,
 so a layout that resizes builds it again.
 
+#### Diff
+
+```js
+import { diff } from '@ttylabs/sigil/components';
+
+console.log(
+  diff({ old: 'one\ntwo\nthree\n', new: 'one\nthree and a half\nthree\n' }, { width: 32 })
+);
+```
+
+```
+@@ -1,3 +1,3 @@
+1 1  one
+2   -two
+  2 +three and a half
+3 3  three
+```
+
+A diff of two texts, or of a unified patch (`{ patch }`, as `diff -u` and
+`git diff` print one), drawn with the removed lines in the error role, the added
+lines in the success role and the context muted. Inside a line that was edited,
+the words that changed are set in bold, so `foo(1)` against `bar(1)` shows which
+word moved and not only that the line did. `diff()` returns a string and the
+caller does the writing, like `rule()`, so it ignores `--quiet`; `diffView()` is
+the element tree behind it, and also says which layout it ended up with.
+
+| Option        | Meaning                                                        |
+| ------------- | -------------------------------------------------------------- |
+| `layout`      | `unified` (default) or `side-by-side`                          |
+| `width`       | How many columns it spans. Defaults to `terminalWidth()`       |
+| `lineNumbers` | Number the lines. Defaults to `true`                           |
+| `context`     | Lines kept around a change when given two texts. Defaults to 3 |
+| `intraline`   | Set the edited words apart. Defaults to `true`                 |
+| `highlight`   | `(text) => HighlightSpan[]`, the same hook `multiline()` takes |
+
+Side by side needs `DIFF_SIDE_BY_SIDE_MIN_WIDTH` (60) columns and draws unified
+below it, so the same call is safe in a narrow terminal. A line wider than its room
+is folded by columns onto the rows below, under the code and not the gutter, and
+wide characters are measured as the columns they take. A tab is four columns.
+
+The diff is computed here, by Myers' algorithm, and is exported on its own:
+`diffLines()` and `diffSequence()` give the edit script, `diffHunks()` the hunks
+with their context, `parsePatch()` reads a patch, and `diffInline()` finds the
+changed words of two lines. Past about two thousand edits `diffSequence()` stops
+searching and reports the middle as replaced, which is a correct script and not the
+shortest one.
+
+There is no grammar in the package. `highlight` is the seam an app fills with
+whatever highlighter it already has: it is called with a whole side of the diff --
+the old text and the new text, or the two sides of a hunk when the input is a patch
+-- so a span can run across lines, and the tokens it names become the classes
+`sigil-token-<name>` on the cells they cover. On an added or removed line a token
+is drawn in its own role (`keyword`, `string`, `comment` and the rest of
+`multiline()`'s seven); on a context line it stays muted. The theme reaches the
+view through the roles and through `.sigil-diff-add`, `.sigil-diff-remove`,
+`.sigil-diff-context`, `.sigil-diff-change`, `.sigil-diff-number`,
+`.sigil-diff-marker` and `.sigil-diff-hunk`. At colour level 0 the colours and the
+bold are gone and the `+` and `-` markers say which side a line is on.
+
 #### Outline
 
 ```js

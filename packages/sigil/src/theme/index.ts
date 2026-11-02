@@ -181,6 +181,9 @@ export const FRAMEWORK_CSS = `
  *   .sigil-chart  .sigil-chart-sparkline  .sigil-chart-bar  .sigil-chart-line
  *   .sigil-chart-gauge  and a -row and a -part of each
  *   .sigil-rule  .sigil-rule-line  .sigil-rule-label
+ *   .sigil-diff  .sigil-diff-file  .sigil-diff-hunk  .sigil-diff-row
+ *   .sigil-diff-number  .sigil-diff-marker  .sigil-diff-text  .sigil-diff-change
+ *   .sigil-diff-separator  .sigil-diff-add  .sigil-diff-remove  .sigil-diff-context
  * A class with no rule is still a hook; giving it an empty rule would be a
  * declaration that says nothing and a line for somebody to wonder about. Most of
  * them are here because a role carries what they used to say, which is the point

@@ -218,6 +218,10 @@ const ENTRIES = [
     desc: 'A horizontal divider across the terminal, with an optional label set into it',
     name: 'rule',
   },
+  {
+    desc: 'A diff view: unified or side by side, over two texts or a unified patch, with the edited words set apart',
+    name: 'diff',
+  },
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */
