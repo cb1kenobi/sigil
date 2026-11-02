@@ -6464,9 +6464,8 @@ way `confirm()` does, and is not `confirm()` with labels.
   answer colour, and the mark goes to success, as `confirm()` does.
 - **`signal` is `run()`'s, and nothing here handles it.** Every prompt goes through
   `runPrompt()`, which reads `PromptOptions.signal` (SIG-176); `toggle.test.ts` asserts
-  a mid-prompt abort, an already-aborted signal and `AbortSignal.timeout()`.
-  `prompt-signal.test.ts`'s every-prompt table was not edited, for the reason
-  `sort()`, `list()` and `selectKey()` are not in it either.
+  a mid-prompt abort, an already-aborted signal and `AbortSignal.timeout()`, and
+  since SIG-211 so does `prompt-signal.test.ts`'s every-prompt table.
 - **Not done:** the key-help footer (SIG-166) -- no prompt has adopted it, and its entry
   says adopting it is a decision about whether a prompt grows a router; `y`/`n`
   shortcuts (that is `confirm()`); vim `h`/`l`; clicking a state with the mouse;
@@ -8116,3 +8115,49 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   dialog in accessible mode, which draws prompts as lines and has no screen to lay
   one over; blocking `onPaste` and a `mousedown` bubble, as above; and a drag
   handle. A toast and a tooltip are SIG-213 and SIG-214.
+
+### Which exports are prompts: the signal table, derived from the barrel
+
+SIG-211. `test/components/prompt-signal.test.ts` gives every prompt the same
+checks: aborted mid-prompt, already aborted, `AbortSignal.timeout()`, and the
+screen left as a cancel leaves it. The prompts added after SIG-176 were missing
+from it. They all honoured the signal, because they all go through
+`runPrompt()`; the table is what would say so the day one stopped.
+
+- **"Is a prompt" is a type computed from the barrel, not a list.** `PromptName`
+  maps every export of `src/components/index.ts` and keeps each function that
+  answers with a promise and takes an options object whose `signal` is an
+  `AbortSignal`. `prompts` is `satisfies Record<Exclude<PromptName, keyof typeof
+  EXEMPT>, Ask>`, so a prompt exported without a row is a type error that names
+  it. The alternative a list invites is classifying every barrel export as prompt
+  or not-prompt. That puts the burden on whoever adds an element, a view or a
+  helper, which is most exports, and it is how the classifying list itself gets
+  forgotten. Here a non-prompt is out of the union by its own signature, and
+  nobody touches the test for it.
+- **The guard is `tsc`, not the runner.** A runtime cannot see a type, so
+  `pnpm check` is what fails; vitest alone does not. The routing types set that
+  precedent. `IMPLEMENTATIONS` in `dist.test.ts` could not be derived, because the
+  barrel exports state builders beside each implementation. This list can, because
+  "takes a signal and answers with a promise" is a property of the signature.
+- **The value's type is checked as well as the key.** `resolveEditor()` takes a
+  `Record<string, string | undefined>`, and `'signal'` is a key of that too.
+- **`satisfies` cannot catch an empty union, so there is a second check.** Every
+  object satisfies an empty record, so a predicate that stopped matching anything
+  would let the table pass with every row in place. `expectTypeOf` over the
+  table's keys plus the exemptions, compared with `PromptName`, checks the other
+  direction.
+- **`decrypt()` is the one exemption, and its reason is in the map.** It takes a
+  signal and answers with a promise, but it is an animation: an abort erases it
+  and resolves. An exemption is an entry with a reason, never an omission.
+- **`editor()` and `runPrompt()` are rows, not exemptions.** The editor asks its
+  question through `runPrompt()` before it spawns anything, so all three checks
+  apply, with a command that is never run. An abort while the editor is open is a
+  different contract, and `editor.test.ts` covers it. `runPrompt()` is the engine
+  and gets a row of its own with an empty handler set.
+- **`toggle.test.ts` keeps its own signal tests.** The table's checks cover
+  everything they assert and more, but the two are not identical, so neither was
+  deleted.
+- **Not done:** accessible mode. It is a second path, `runLine()`, with its own
+  abort handling, and `prompt-accessible.test.ts` checks one mid-prompt abort on
+  `text()`. Running the table a second time with `accessible: true` would cover
+  the six prompts that have a line form. That is a separate change.
