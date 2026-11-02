@@ -4342,6 +4342,65 @@ on the result side of `--quiet`. `ruleView()` is the element tree behind it, for
 an app that wants one inside its own tree; its width is fixed when it is built,
 so a layout that resizes builds it again.
 
+#### Diff
+
+```js
+import { diff } from '@ttylabs/sigil/components';
+
+console.log(
+  diff({ old: 'one\ntwo\nthree\n', new: 'one\nthree and a half\nthree\n' }, { width: 32 })
+);
+```
+
+```
+@@ -1,3 +1,3 @@
+1 1  one
+2   -two
+  2 +three and a half
+3 3  three
+```
+
+A diff of two texts, or of a unified patch (`{ patch }`, as `diff -u` and
+`git diff` print one), drawn with the removed lines in the error role, the added
+lines in the success role and the context muted. Inside a line that was edited,
+the words that changed are set in bold, so `foo(1)` against `bar(1)` shows which
+word moved and not only that the line did. `diff()` returns a string and the
+caller does the writing, like `rule()`, so it ignores `--quiet`; `diffView()` is
+the element tree behind it, and also says which layout it ended up with.
+
+| Option        | Meaning                                                        |
+| ------------- | -------------------------------------------------------------- |
+| `layout`      | `unified` (default) or `side-by-side`                          |
+| `width`       | How many columns it spans. Defaults to `terminalWidth()`       |
+| `lineNumbers` | Number the lines. Defaults to `true`                           |
+| `context`     | Lines kept around a change when given two texts. Defaults to 3 |
+| `intraline`   | Set the edited words apart. Defaults to `true`                 |
+| `highlight`   | `(text) => HighlightSpan[]`, the same hook `multiline()` takes |
+
+Side by side needs `DIFF_SIDE_BY_SIDE_MIN_WIDTH` (60) columns and draws unified
+below it, so the same call is safe in a narrow terminal. A line wider than its room
+is folded by columns onto the rows below, under the code and not the gutter, and
+wide characters are measured as the columns they take. A tab is four columns.
+
+The diff is computed here, by Myers' algorithm, and is exported on its own:
+`diffLines()` and `diffSequence()` give the edit script, `diffHunks()` the hunks
+with their context, `parsePatch()` reads a patch, and `diffInline()` finds the
+changed words of two lines. Past about two thousand edits `diffSequence()` stops
+searching and reports the middle as replaced, which is a correct script and not the
+shortest one.
+
+There is no grammar in the package. `highlight` is the seam an app fills with
+whatever highlighter it already has: it is called with a whole side of the diff --
+the old text and the new text, or the two sides of a hunk when the input is a patch
+-- so a span can run across lines, and the tokens it names become the classes
+`sigil-token-<name>` on the cells they cover. On an added or removed line a token
+is drawn in its own role (`keyword`, `string`, `comment` and the rest of
+`multiline()`'s seven); on a context line it stays muted. The theme reaches the
+view through the roles and through `.sigil-diff-add`, `.sigil-diff-remove`,
+`.sigil-diff-context`, `.sigil-diff-change`, `.sigil-diff-number`,
+`.sigil-diff-marker` and `.sigil-diff-hunk`. At colour level 0 the colours and the
+bold are gone and the `+` and `-` markers say which side a line is on.
+
 #### Outline
 
 ```js
@@ -4647,6 +4706,66 @@ The marker is `.sigil-accent`, and `▸`/`▾` or `>`/`v` where `unicodeSupporte
 says no (or `ascii: true`). A focused title is drawn inverse by the framework
 sheet. `.sigil-collapsible` (with `is-open` while open), `-title`, `-marker`,
 `-label` and `-body` are the theme hooks, and `props` goes on the host.
+
+#### Tabs
+
+```js
+import { describeTabs, Tabs } from '@ttylabs/sigil/components';
+import { text } from '@ttylabs/sigil/element';
+import { State } from '@ttylabs/sigil/signals';
+
+const active = new State(0);
+const tabs = Tabs({
+  active,
+  tabs: [
+    { label: 'Logs', children: () => logPane() },
+    { label: 'Settings', children: () => text('...') },
+    { label: 'Summary', children: () => text('...') },
+  ],
+});
+
+describeTabs(input, tabs); // for keyHelp(), once the router exists
+```
+
+```
+ Logs  Settings  Summary
+──────━━━━━━━━━━──────────────
+(the Settings panel)
+```
+
+A row of labels with one active, and the panel that follows it -- how a
+full-screen app holds several views on one screen. The row is focusable:
+**Left** and **Right** move to the previous and next tab, **Home** and **End** to
+the first and last, `1` to `9` to that tab, and a left click on a label picks it.
+A key that would change nothing -- Right on the last tab, `5` with four tabs -- is
+left for the pane around the row. The keys act while the **row** has the focus, so
+a digit typed into a field inside a panel stays in the field.
+
+`active` is a number to start from, or a `State<number>` that the keys and the
+mouse write and the app may write too; an index past either end reads as the
+nearest tab. `tabsActive(tabs)` hands back the state either way, so an app that
+passed a number can still read and set the tab. Every panel is built **once**, and
+the inactive ones are `display: none`: a panel keeps its scroll offset and its
+fields while another shows, and a hidden panel is neither laid out nor in the
+focus ring. A tab with no `children` is a label only.
+
+`tabRowView({ labels, active })` is the row alone, for an app that draws the
+panels itself. Under the labels runs a rule with the active tab's stretch drawn
+heavy, which still says which tab is active where there is no colour. When the
+labels do not fit the width the layout gives the row, it scrolls to keep the
+active tab in view and shows `‹` or `›` on the side that is clipped (`<` and `>`
+in ASCII); a label wider than the row is cut with an ellipsis. Labels are measured
+by display width, so a wide character takes the cells it takes. Put the row in a
+column, or give it a width: in a flex row with no width it is as wide as its labels
+and never overflows.
+
+The active label is `.sigil-accent` and `.sigil-heading` and the rest
+`.sigil-muted`; while the row has the focus the active label is also drawn
+inverse by the framework sheet. `.sigil-tabs` (the host), `-row`, `-labels`,
+`-tab` (with `-active`), `-more`, `-rules`, `-rule`, `-panels` and `-panel` (with
+`is-active`) are the theme hooks, and `props` goes on the host.
+`describeTabs(input, ...tabs)` describes Left, Right, Home and End scoped to the
+row and returns a function that takes them off again.
 
 #### A modal
 
@@ -5426,6 +5545,57 @@ summary nor the two tables of what it produced. `sigil new --quiet` deliberately
 does nothing beyond reaching its prompts — the install it runs writes through
 `stdio: 'inherit'`, so suppressing our one progress line while the package
 manager went on writing its own would be worse than leaving both.
+
+#### Gradients: a colour ramp across a string, and around a box
+
+`gradient()` returns its text coloured along a list of stops, and `gradientBox()`
+draws a border whose cells are coloured the same way. They are helpers that hand
+a string back, not a `color: linear-gradient(...)` — a property would be a new
+value type the cascade, the animator and the canvas would each have to learn, for
+an effect whose use is a banner.
+
+```js
+import { gradient, gradientBox, gradientColors } from '@ttylabs/sigil/style';
+
+const stops = ['#ff5f6d', '#ffc371', '#47e1c8'];
+
+console.log(gradient('Sigil builds command line apps', stops));
+console.log(gradientBox('Deployed in 4.2 seconds', stops, { border: 'round' }));
+
+gradient('abc', stops, { level: 2 }); // pinned to a depth, for a test or another stream
+gradientColors(stops, 12); // twelve colours, for something painting its own cells
+```
+
+Stops are hex or `rgb()` colours (or a value built with `rgb()`), evenly spaced,
+and mixed in Oklab — the mix a transition uses, so a red-to-blue ramp does not
+dip through grey. A stop has to be a 24-bit colour: a palette colour such as
+`red` is whatever the user's theme says, has no channels to blend, and is refused
+at every level rather than only on the terminals where it would show.
+
+A string is ramped per grapheme cluster and by display column, so an emoji or a
+wide character is never split and takes two columns of the ramp. Several lines
+share one ramp across the widest of them, so a column is one colour. Escape
+sequences already in the text are kept and take no column; the ramp owns the
+foreground of what it covers.
+
+The depth is the one the cascade degrades to, and it is an option rather than a
+global: `level` defaults to `ansi.level`, the level detected for stdout.
+
+| level | what comes back                                                        |
+| ----- | ---------------------------------------------------------------------- |
+| 3     | a colour per cell                                                      |
+| 2     | the same ramp, each cell quantized to the xterm cube like any colour   |
+| 1     | **one** colour: the first stop's nearest of the sixteen, never banding |
+| 0     | the text, unchanged — which is a pipe, and `NO_COLOR`                  |
+
+`gradientBox()` takes `border` (`round` by default; `single`, `double`, `bold`,
+`ascii`) and `padding`. The ramp runs across the columns of the whole box, so the
+top and bottom edges blend from the first stop to the last, the left edge is the
+first stop and the right edge the last, and the text inside is untouched. It does
+not wrap, so wrap to the width wanted first.
+
+Neither reads `--quiet`: each returns a string and the caller does the writing,
+which puts them on `table()`'s side of the line.
 
 ### `sigil/themes`
 

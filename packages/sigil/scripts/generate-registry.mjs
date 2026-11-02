@@ -159,6 +159,10 @@ const ENTRIES = [
     name: 'collapsible',
   },
   {
+    desc: 'Tabs: a row of labels with one active, and the panels it switches',
+    name: 'tabs',
+  },
+  {
     desc: 'A pager over a scroll box: less keys, line numbers, and / search with highlighted matches',
     name: 'pager',
   },
@@ -221,6 +225,10 @@ const ENTRIES = [
   {
     desc: 'A horizontal divider across the terminal, with an optional label set into it',
     name: 'rule',
+  },
+  {
+    desc: 'A diff view: unified or side by side, over two texts or a unified patch, with the edited words set apart',
+    name: 'diff',
   },
 ];
 

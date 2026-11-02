@@ -7817,6 +7817,197 @@ nothing already written is moved, erased or coloured.
   a line prompt asks is not evicted, since a line prompt claims no live region; the
   progress components' own accessible form, which is the quiet axis's question.
 
+### Tabs: a row of labels, and the panels it switches
+
+`src/components/tabs.ts`. SIG-189. Textual's `TabbedContent`: `Tabs()` owns the row
+and the panels, `tabRowView()` is the row alone, and `describeTabs()` and
+`tabsActive()` are the two helpers a router and an app need. An element-tree
+component in the shape `Collapsible` is -- a function of props that returns the
+host, keys in `onKey`, the click in `onMouse` -- and not a prompt: it answers
+nothing and stays in the tree.
+
+- **One component for both halves, and the row exported on its own.** The
+  ticket's first question. A row plus a signal the app binds leaves every app
+  writing the `Show` per panel and the key map it was filed to avoid, and the row
+  has nothing to say without the panels it switches. The row is separable because
+  an app drawing its own panels (a router, a `ScrollBox`) wants the labels and the
+  keys and nothing else, and it costs nothing: `Tabs()` is `tabRowView()` plus a
+  box and one effect.
+- **The panels are built once and hidden with `display: none`, not `Show`.**
+  `Show` builds on presence and tears the branch down on absence, so switching
+  tabs would throw away a panel's scroll offset, a field's contents and a
+  `ScrollBox`'s window -- exactly what someone switching to Settings and back does
+  not expect to lose. `display: none` is what `Collapsible` already uses for the
+  same reason and gets the same two things for free: the engine lays a hidden
+  subtree out as nothing, and the focus ring skips it, so Tab walks the row and
+  then the showing panel only. The cost is every panel's elements existing while
+  nobody sees them; a panel that is expensive to build is the app's to build
+  lazily inside its own `children`. Building on first visit was refused as it was
+  for the collapsible: it makes the first visit the one that is different.
+- **One focusable element, the row; digits and arrows act only there.** Focusing
+  each label would make Tab a tab-by-tab walk of the row and need the focus ring
+  held by the component. The row takes Left, Right, Home, End and `1` to `9`, and
+  the keys reach it only while it is focused, so a digit typed into a field in a
+  panel stays in the field -- the reason the handler is on the row and not on the
+  host. The cost is that a keyboard user is on the row to switch, then Tab down
+  into the panel; there is no binding that switches tabs from inside a panel, and
+  it is the app's (`tabsActive(tabs).set()`). A key that changes nothing is not
+  claimed, the `Collapsible` rule: Right on the last tab goes to the pane around
+  it, and a number with no tab behind it is not ours. A number for the tab already
+  showing **is** claimed -- it is a tab key, whatever it did. Paste and modifiers
+  are left alone.
+- **The click is on each label; no coordinates are read.** Every label is its own
+  element with an `onMouse`, so the router's hit test has already decided which
+  one was hit and nothing here maps an x to a tab -- which would be a second
+  answer to where the labels are, and wrong the moment the row scrolls. The click,
+  not the press, as `Collapsible` does, so the press still focuses the row.
+- **`active` is a number or a `State<number>`; the state is the one truth.**
+  `Collapsible`'s `open` shape, for the same reasons. The keys and the mouse write
+  it, one effect reads it, and an app that writes it switches tabs. An index out
+  of range reads as the nearest tab rather than throwing, because it is written at
+  run time by an app and a refusal there has nowhere to land; a non-number is
+  refused at construction. `tabsActive(host)` hands back the state even when a
+  number was passed, which is the answer to "read and set the active tab" for an
+  app that did not make one -- the collapsible has no such door and an `onChange`
+  was not added: the state is already the subscription.
+- **The row learns its width through `onResize`, not a prop.** A width prop would
+  be right for a static `*View()` and wrong here, where the layout decides: a row
+  in a column is the width the parent gives it and changes when the terminal does.
+  `Element.onResize` is the hook that exists for a component whose content depends
+  on the size the layout gave it (the windowed list's), so the row records the
+  width, redraws which labels are in and returns whether it changed the tree.
+  Before the first layout, and in a bare `arrange()`, the width is unknown and
+  every label is drawn -- the status quo the windowed list records for its first
+  layout. A row whose parent sizes it to its content (a flex row with no width)
+  never overflows by construction.
+- **Overflow is a window of whole labels, with a cell reserved at each end.** The
+  narrowest design that works: when the labels (each is its text and a space either
+  side) come to more than the width, two cells are kept back for the indicators --
+  `‹` on the left when tabs are hidden there, `›` on the right, blanks otherwise,
+  `<` and `>` in ASCII -- so a label does not move a column when an indicator
+  appears. The first visible tab is **kept** between draws and moves only when the
+  active tab would otherwise be out of view, so Right through a long row slides it
+  a tab at a time rather than re-centring on every key; when the window reaches the
+  last tab it pulls back to use the room it has, so a wide terminal after a narrow
+  one does not leave a gap. A label wider than the room is cut with an ellipsis
+  rather than clipped. Nothing was windowed with an offset and `overflow: hidden`:
+  the indicators need to know which side is clipped, and `scrollIntoView()` needs a
+  box the layout has not given a hidden label.
+- **The active tab is said by a rule, as well as by colour.** Under the labels runs
+  a rule with the active label's stretch drawn heavy (`━`, `=` in ASCII) and in the
+  accent. It is the one cue that survives colour level 0 and a screen with no
+  attributes, which is where this is read when piped, and it makes the demo's
+  output say which tab is active. The labels carry `.sigil-accent` and
+  `.sigil-heading` on the active one and `.sigil-muted` on the others: roles only,
+  no colour in props.
+- **The eighth declared exception to the role rule, and it is needed.**
+  `.sigil-tabs-row:focus .sigil-tabs-active { inverse: true }`. The row is the
+  focusable element and nothing else shows that a Tab landed on it; there is no
+  `onFocus` to toggle a role class from, and no role is inversion, so the sheet is
+  the only place. It is a descendant selector keyed on the row's state so that only
+  the active label inverts -- inverting the row would shout over every label and the
+  rule. The count moves everywhere it is written: the test name and list in
+  `test/theme.test.ts`, `src/theme/AGENTS.md`, and the sheet's comment.
+- **Labels are one line and measured by display width.** `oneLine()` takes escape
+  sequences and line breaks out, `stringWidth()` measures, and each label is a
+  fixed-width `white-space: pre` text with `flex-shrink: 0`, the shape `ruleView()`
+  uses, so a wide character takes its two cells in the row and in the rule beneath.
+- **Not done:** wrapping the row onto a second line (Textual scrolls, so does
+  this); a `disabled` tab; closing or adding a tab at run time (the tabs are read
+  once, the way a table's columns are); a vertical or bottom-edge row; lazy
+  panels; switching from inside a panel (Ctrl-PageDown); and moving the focus to
+  the row when a panel the focus was in is hidden by an app writing the state --
+  the same gap as the collapsible's, since an element cannot move the focus.
+
+### A diff view: `diff()`, a Myers diff written here, and a highlight seam it shares
+
+`src/components/diff.ts`. SIG-198. `diff()` and `diffView()` are `rule()` and
+`ruleView()`'s split; the algorithm, the patch reader and the intra-line pass are
+exported beside them as pure functions.
+
+- **The diff is computed here, because the dependency is not an option.** A small
+  Myers, `O(ND)` with a trace for the walk back, after the common head and tail are
+  trimmed -- which is what makes the ordinary case, a few lines changed in a long
+  file, cost the trim and nothing else. It is capped at `MAX_EDITS` (2048): past it
+  the middle is reported as removed and then added, a **correct** script that is not
+  the shortest, because the trace is `O(D^2)` memory and two files that different
+  are not worth it. Pinned by replaying the script over both sides, and by comparing
+  its length with `n + m - 2 * LCS` for every pair of lists up to four items over
+  three letters -- the property, rather than a handful of examples.
+- **Input is two texts or a unified patch, and the patch reader is the narrow cut.**
+  `---`/`+++` name a file, `@@` opens a hunk, and **the hunk's own counts say where
+  it ends**: that is the only way to tell a removed line that starts `-- ` (whose
+  patch line is `--- `) from a file header. Everything outside a file header and a
+  hunk is skipped, so `diff --git`, `index` and a commit message are harmless, and
+  `\ No newline at end of file` is dropped. Not read: renames and binary files as
+  anything but skipped text, combined diffs, the context format, and the
+  no-newline fact itself -- two texts that differ only in a final newline are the
+  same lines here.
+- **A patch carries its own context, two texts get `context` (3).** Hunks that
+  would meet are one hunk, as a patch writes them, and an empty side starts at the
+  line before (`@@ -0,0 +1,2 @@`).
+- **Intra-line emphasis is by word, and a pair of lines that share under a third of
+  their text gets none.** A character diff of two edited lines matches the letters
+  the words happen to share and comes out as confetti; a word is a run of letters,
+  a run of space or a mark. When the lines are not edits of each other, marking all
+  of both is no emphasis at all, so it marks nothing (`SIMILAR`, 0.3). A gap of only
+  whitespace between two changed stretches is part of the change, or `call one two`
+  against `call 1 2` is three islands. Removed and added lines are paired in order
+  within each run of changes, and a surplus on either side is drawn whole.
+- **The emphasis is bold, from `sigil-heading`, and that is the whole of the
+  styling cost: no new declaration and no eighth exception.** Every colour is a
+  role -- added `sigil-success`, removed `sigil-error`, context `sigil-muted` -- and
+  the changed span is the line's role plus the role that is `font-weight: bold`, so
+  `theme/index.ts` gained class names in its vocabulary comment and nothing in
+  `FRAMEWORK_CSS`, and `should declare on a role, bar seven exceptions` is
+  untouched. The honest cost: a theme that gives `.sigil-heading` a colour recolours
+  the changed words too, and `.sigil-diff-change` is the hook to put that right.
+  At colour level 0 the bold goes with every other attribute, and what is left
+  saying which line is which is the `+`/`-` marker. A background was the other
+  candidate, refused for being the sheet's eighth exception for what bold does.
+- **Every row is a row of fixed-width `white-space: pre` texts, folded by columns
+  before it is built.** There is no inline layout, so the gutter, the marker and each
+  run of differently-looking cells are siblings that have already been fitted (the
+  rule's shape and the paginator's reason), and leading spaces survive because `pre`
+  keeps them. Folding is by column and not by word, because it is code and the
+  reader should be able to count; a fold row has a blank gutter and no marker so a
+  continuation reads as one. A wide character that does not fit starts the next row,
+  and one wider than the room is drawn alone and clipped rather than looped on. A
+  tab is four columns wherever it falls, because the grid has no tab stops.
+- **Side by side needs `DIFF_SIDE_BY_SIDE_MIN_WIDTH` (60) and draws unified under
+  it, and the view says which it drew.** Sixty leaves each half about 28 columns, of
+  which the gutter, the marker and the separator take a third; under that two lines
+  cannot be compared, which is the only reason to put them side by side. The same
+  call is therefore safe in a terminal of any width, and `DiffView.layout` tells an
+  app which one it got. A removed line sits against the added line that replaces it
+  and a surplus leaves the other half blank; the halves fold independently and the
+  shorter is padded, so the separator stays in one column.
+- **`highlight` is `multiline()`'s hook, with `HighlightSpan` and `tokensOf()`
+  shared, and it is called with whole sides.** The old text and the new text for two
+  texts -- once each, not once per hunk, because a block comment can begin above a
+  hunk and end inside it -- and each hunk's old and new side for a patch, which has
+  nothing between its hunks. Line endings arrive as `\n`. A bad token name throws
+  the same `PromptError` `multiline()` throws, which is a slightly odd name for a
+  non-prompt and was kept to have one validator. `TOKEN_ROLE` is exported from
+  `prompt.ts` for it -- the only edit there -- and with `tokensOf()` from the
+  components barrel, because the registry test requires an ejected file to import
+  only what the package publishes. So both are public now, which suits an app that
+  writes a highlighter of its own for a third component.
+- **A token is drawn in its role on a changed line and left muted on a context
+  line.** On a changed line the token's role replaces the line's colour for those
+  cells, so a keyword reads as a keyword and the `+`/`-` and the gutter carry which
+  side the line is on; on context the diff is the background and a keyword in full
+  colour would be louder than the lines that changed. A token with no role, such as
+  an app's own, takes the line's role and carries its class for the app's sheet.
+- **String form only, ignoring `--quiet`, and nothing at all for texts that are the
+  same.** `diff()` of two equal texts is `''`, like `table([])`, with no
+  "no differences" line: that sentence is the caller's to choose and translate.
+
+What is deliberately not done: a grammar or a highlighter; a hunk-level fold
+("12 unchanged lines"); word wrapping of code; collapsing identical files in a
+multi-file patch; a patch writer; a character-level pass; and a stateful view that
+scrolls (a `diffView()` tree sits in a `ScrollBox` or the pager like any other).
+
 ### A modal: a dialog over the screen, and who has the input while it is open
 
 `src/components/modal.ts`. SIG-191. `openModal()` and `confirmModal()`: the canvas
