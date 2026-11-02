@@ -763,6 +763,7 @@ what is left is the characters changing, which is the whole effect.
 | [`style/03-animation.js`](style/03-animation.js)           | Transitions and keyframes, over whole cells       |
 | [`style/04-theme-switcher.js`](style/04-theme-switcher.js) | The themes sigil ships, swapped live              |
 | [`style/05-quiet.js`](style/05-quiet.js)                   | `live`, `reduce` and `quiet`, which is one axis   |
+| [`style/06-gradient.js`](style/06-gradient.js)             | A colour ramp over a string and a border          |
 
 `01-cascade.js` prints its answers rather than drawing them, because the contest
 is the point. Each section is one contest between two declarations that both reach the
@@ -838,6 +839,14 @@ the thirty a second a loop without that would have drawn.
 Piped, nothing moves: a pipe, a file and a CI log have no frames, so every
 animation collapses to the state it would have ended on.
 `SIGIL_REDUCED_MOTION=1` says the same thing on a terminal.
+
+`06-gradient.js` is a helper that returns a string, not a style property, so a
+pipe shows it fine: it names each colour level itself and prints the escape
+sequences it wrote for `abc` at every one. Truecolor is a different colour per
+cell, 256 colours is the same ramp quantized through the cascade's degrader, 16
+colours is **one** colour -- the first stop's nearest of the sixteen, never
+bands of unrelated hues -- and level 0 is the text and nothing else. The first
+block asks for no level and gets the detected one, so `NO_COLOR=1` makes it plain.
 
 ## The canvas
 
