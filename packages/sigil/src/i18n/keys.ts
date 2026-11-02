@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 228 keys, which is what a catalog has to carry to translate sigil's own
+ * 233 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -63,6 +63,10 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a modal input to be a router',
   'Expected a modal title to be a string',
   'Expected a retry delay in milliseconds',
+  'Expected a text field mask to be a non-empty string',
+  'Expected a text field placeholder to be a string',
+  'Expected a text field value to be a string or a State',
+  'Expected a text field width to be a positive whole number',
   'Expected an element that Collapsible() returned',
   'Expected an element that Tabs() or tabRowView() returned',
   'Expected an enumerator to return a string',
@@ -83,6 +87,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected tab labels to be a non-empty array of strings',
   'Expected tabs active to be a number or a State',
   'Expected tabs to be a non-empty array',
+  'Expected text field disabled to be a boolean or a State',
   'Expected weekStart to be an integer from 0 to 6',
   'Expected {0} to be a valid Date',
   'Extra arguments are not allowed: {0}',

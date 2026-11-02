@@ -4839,6 +4839,60 @@ which is what keeps Ctrl-C working; one made after it does not see them, and
 neither does a key sequence. A `mousedown` on the panel still bubbles, so that a
 button can take the focus.
 
+#### A text field
+
+```js
+import { openModal, TextField } from '@ttylabs/sigil/components';
+import { State } from '@ttylabs/sigil/signals';
+
+const name = new State('draft.md');
+const dialog = openModal(view, {
+  actions: [{ label: 'Rename', value: true }, { label: 'Cancel' }],
+  body: TextField({ value: name, onSubmit: () => dialog.close(true) }),
+  input,
+  title: 'Rename',
+});
+if (await dialog.result) rename(name.get());
+```
+
+```
+╭──────────────────────────────────────╮
+│ Rename                               │
+│ draft.md                             │
+│                                      │
+│                [ Rename ]   Cancel   │
+╰──────────────────────────────────────╯
+```
+
+One line of editable text as an element, so it can sit in a form, a dialog or
+any other tree -- the `text()` prompt's editor without the prompt's live region
+around it. It is focusable, and while it has the focus it draws a caret; a field
+without the focus draws none, so a form of several shows one.
+
+`value` is a string to start from or a `State<string>` that is the value itself:
+the keys write it, and a write the app makes is shown at once with the caret moved
+to the end. `onChange(value)` is called after every edit that changed it, and
+`onSubmit(value)` on Enter. `placeholder` is shown, muted, while the value is
+empty; `mask: '•'` draws a password; `disabled` (a boolean or a `State<boolean>`)
+takes it out of the focus ring and mutes it; `width` is its columns, and without
+one it takes what the layout gives it -- the whole width in a column. What is
+wider than the field scrolls sideways to keep the caret in view.
+
+The keys are the prompt's: Left and Right by a character and with Ctrl or Alt by a
+word, Home and End (Ctrl-A, Ctrl-E), Backspace and Delete by a character or with
+Ctrl or Alt by a word, Ctrl-W and Alt-D, Ctrl-U and Ctrl-K, and Alt-B and Alt-F. A
+bracketed paste goes in at the caret with its line breaks flattened, and reaches
+the field before any `onPaste()` handler on the router -- inside a modal, before
+one under the dialog.
+
+**Tab and Escape are never the field's**, so inside a modal Tab still cycles
+through the field and the buttons and Escape still dismisses. **Enter is the
+field's only when it was given `onSubmit`**; without one it goes on to whatever is
+around it. Up, Down and Ctrl-C are left alone too. Validation and an error line
+are the form's or the caller's, not the field's. `.sigil-text-field`, `-before`,
+`-caret`, `-after` and `-placeholder` are the theme hooks, and the caret is
+`inverse` under the field's `:focus`.
+
 #### A key-help footer
 
 ```js
@@ -5152,7 +5206,7 @@ input.bind((event) => {
   if (event.key.ctrl && event.key.name === 'c') quit();
 });
 
-input.onPaste((text) => insert(text)); // a bracketed paste, arriving whole
+input.onPaste((event) => insert(event.text)); // a bracketed paste the tree did not take
 input.onResize(({ width, height }) => redraw());
 input.stop(); // puts back only what it turned on
 ```
@@ -5162,6 +5216,13 @@ the default action. Bindings come first so that quitting always works — an app
 that cannot be quit because a focused text input swallowed Ctrl-C is the failure
 that ordering prevents. **Tab is last**, so a component that wants Tab keeps it
 by stopping the event rather than by asking to be left out of the focus ring.
+
+A bracketed paste goes the other way round, which is the mouse's order: the
+focused element's `onPaste` and then each ancestor's are offered it first, the
+router's `onPaste()` handlers see what none of them stopped, and what nothing
+stops is typed in as keys flagged `paste`. So a focused [text field](#a-text-field)
+has a paste that an app-wide handler registered at startup would otherwise have
+taken. A paste cannot quit anything, so nothing about it needs the bindings first.
 
 A router refuses to exist where stdin is not a terminal. It exists to read keys,
 so one that never can is a bug in the app rather than a state to carry through

@@ -376,6 +376,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/47-diff.js`](components/47-diff.js)                                         | A diff view: unified or side by side, a patch, and a highlight seam      |
 | [`components/48-tabs.js`](components/48-tabs.js)                                         | Tabs: a row of labels that scrolls, and the panel each one shows         |
 | [`components/49-modal.js`](components/49-modal.js)                                       | A confirm dialog over a list, with a focus trap and a stack of two       |
+| [`components/50-text-field.js`](components/50-text-field.js)                             | A rename dialog with a text field in it, and a paste the field keeps     |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -539,6 +540,15 @@ scripted keyboard drives the same tree and the demo prints it after each step, w
 the focus said in words; it also opens a second dialog over the first, which has no
 key in the terminal session, and shows Escape closing only the top one and the one
 below having the keys again.
+
+`50-text-field.js` is the same list with `r` opening a rename dialog that holds a
+`TextField`, focused, with the row's name in it. The field joins the dialog's trap,
+so Tab cycles through it and the two buttons; Enter in the field renames, because it
+was given `onSubmit`; and Escape still dismisses, because Tab and Escape are never
+the field's. The app registered a paste handler of its own at startup, and a paste
+on the list reaches it -- while a paste with the field focused goes into the field
+and the app's handler never hears of it. Piped, a scripted keyboard drives the same
+tree and the focus is said in words, since the caret is an inverse cell a pipe drops.
 
 ### Try them without a terminal
 
