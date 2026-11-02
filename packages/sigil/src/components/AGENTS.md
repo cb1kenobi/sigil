@@ -8116,3 +8116,60 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   dialog in accessible mode, which draws prompts as lines and has no screen to lay
   one over; blocking `onPaste` and a `mousedown` bubble, as above; and a drag
   handle. A toast and a tooltip are SIG-213 and SIG-214.
+
+### A tail that cannot be cut goes under the question (SIG-210)
+
+`toggle()` found that the head's half-line cap clips a tail that cannot wrap, and
+fixed itself. SIG-210 asked which other prompts had the same defect.
+`promptTailFits()` and `promptUnderHead()` in `prompt.ts` are the fix, and
+`selectKey()`, `date()` and `pickDate()` use them.
+
+- **It was measured first, because SIG-205 and SIG-177 had rewritten the hint
+  lines since the ticket was filed.** Every head that reserves a tail was rendered
+  at 20, 24 and 40 columns under a question long enough to fill the line.
+  `confirm()` **did not reproduce**: `(Y/n)` is five columns and the cap keeps it
+  whole down to the 13-column floor, which `should keep the hint whole where the
+  message has to wrap for it` already pins. So it is unchanged. Three prompts did
+  reproduce. `selectKey()`'s expand line came out as `(o/S/d/h` at 20 columns. A
+  `date()` field came out as `2024-06-` at 20 and 22, and with `seconds` it lost its
+  last digit at **40**, where 19 columns met a cap of 18. `pickDate()`'s field was
+  cut the same way as `date()`'s. Every other head reserves nothing, because its
+  tail is a field that scrolls or an answer, so it has no fixed tail to cut.
+- **The rule is the cut itself, not `toggle()`'s rule.** `promptTailFits()` asks
+  the head's own arithmetic whether `rest` covers the tail. So a tail moves only
+  where the cap would have cut it, and a question that wraps to keep the tail beside
+  it, which is the decision `confirm()`'s test is named after, still does. Moving
+  any tail that does not fit on one line with the whole question would also have
+  changed every one of these prompts at widths where nothing was wrong. `toggle()`
+  keeps its stricter rule and is not migrated. That rule implies this one, because
+  states drawn beside a question that fits on one line are never cut, and it is a
+  layout choice the toggle's own entry records, with tests.
+- **Where the answer settles is decided per prompt, by whether it fits on the
+  question's line.** `toggle()` puts the answer back on the head line and reserves
+  the longer of its two names, which costs the question a few columns. For
+  `selectKey()` that reservation would be the longest label, which takes up to
+  half the line from the question for as long as it is asked. So its answer
+  settles in the expand line's place, under the question. A date field is the
+  answer, so it settles where it was drawn. Putting it back on the head line would
+  cut it again: ten columns against a cap of eight at 20.
+- **The row under the head is indented to the message's column.** That is the
+  mark's width plus its margin, worked out from `PROMPT_SYMBOLS` rather than
+  written as `2`. In `selectKey()` it holds the hint and the answer, both hidden
+  after `h`. A row whose children are all hidden takes no height, so the list opens
+  straight under the question with no blank line between. A test pins that.
+- **Sabotage: twelve of twelve caught.** The breaks were: the predicate forced
+  either way, made off by one, and made blind to the tail's width; the row
+  unindented; each prompt never moving its tail; each prompt still reserving the
+  tail once it moved; and `selectKey()`'s answer left out of the row. The off-by-one
+  is caught only by the beside case at 24 columns. That case is the boundary,
+  because a long question beside a tail that fits leaves `rest` exactly the tail's
+  width.
+- **Not done.** A prompt that reserves nothing for its answer draws that answer in
+  whatever is left. Under a question as wide as the line, that is one column, so
+  `selectKey()` without `expand` settled `Show the diff` down the right edge as
+  `S`, `t`, `d`. `select()` does the same at 40 columns, which was measured, and
+  the other list prompts share the arithmetic, which was not. It is
+  about the answer rather than a fixed tail, it predates this ticket, and fixing it
+  means choosing how much of the question an answer may take in every list prompt,
+  so it is left for a ticket of its own. `confirm()` below 13 columns is under the
+  floor the head already declares.

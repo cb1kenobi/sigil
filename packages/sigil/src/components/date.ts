@@ -25,6 +25,8 @@ import {
   promptHeadWidths,
   promptNote,
   type PromptOptions,
+  promptTailFits,
+  promptUnderHead,
   runPrompt,
   setPromptNote,
 } from './prompt.js';
@@ -235,16 +237,19 @@ export function date(opts: DateOptions): Promise<Date> {
       ? calendarGrid(opts.calendar === true ? {} : opts.calendar, 2)
       : undefined;
     // reserved at its widest, so the head gives the field the room it will need
-    const head = promptHeadWidths(
-      opts.message,
-      Math.max(1, terminal.width),
-      shownText(partsOf(new Date(0)))
-    );
-    const { line, mark } = promptHeadLine(opts.message, head.message, field);
+    // -- and where that is more than the head can give, the field is on a line of
+    // its own under the question rather than cut to `2024-06-`. It settles where
+    // it was drawn, because it is the answer
+    const widest = shownText(partsOf(new Date(0)));
+    const room = Math.max(1, terminal.width);
+    const beside = promptTailFits(opts.message, room, widest);
+    const head = promptHeadWidths(opts.message, room, beside ? widest : '');
+    const { line, mark } = promptHeadLine(opts.message, head.message, ...(beside ? [field] : []));
     const complaint = promptNote('sigil-prompt-error sigil-error');
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
+      ...(beside ? [] : [promptUnderHead(field)]),
       ...(grid ? [grid.element] : []),
       box({ 'padding-left': 2 }, complaint)
     );

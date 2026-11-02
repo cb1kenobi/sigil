@@ -20,6 +20,8 @@ import {
   promptHeadLine,
   promptHeadWidths,
   type PromptOptions,
+  promptTailFits,
+  promptUnderHead,
   runPrompt,
 } from './prompt.js';
 
@@ -495,9 +497,18 @@ export function pickDate(opts: PickDateOptions): Promise<Date> {
     const grid = calendarGrid(opts, 2);
     const iso = textNode('', { 'white-space': 'nowrap' });
     const field = box({ class: 'sigil-prompt-field' }, iso);
-    const head = promptHeadWidths(opts.message, Math.max(1, terminal.width), '0000-00-00');
-    const { line, mark } = promptHeadLine(opts.message, head.message, field);
-    const view = box({ class: 'sigil-prompt', 'flex-direction': 'column' }, line, grid.element);
+    // the field is the answer and is never cut: under the question where it would
+    // be cut beside it, as `date()`'s is, and it settles where it was drawn
+    const room = Math.max(1, terminal.width);
+    const beside = promptTailFits(opts.message, room, '0000-00-00');
+    const head = promptHeadWidths(opts.message, room, beside ? '0000-00-00' : '');
+    const { line, mark } = promptHeadLine(opts.message, head.message, ...(beside ? [field] : []));
+    const view = box(
+      { class: 'sigil-prompt', 'flex-direction': 'column' },
+      line,
+      ...(beside ? [] : [promptUnderHead(field)]),
+      grid.element
+    );
 
     function draw(): void {
       iso.setText(isoOf(cursor));

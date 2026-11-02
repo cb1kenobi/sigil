@@ -45,6 +45,8 @@ import {
   type PromptOptions,
   PromptError,
   promptSameValue,
+  promptTailFits,
+  promptUnderHead,
   promptValue,
   runPrompt,
   type Separator,
@@ -233,8 +235,20 @@ export function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T> {
       class: 'sigil-prompt-hint sigil-muted',
       display: expand ? 'flex' : 'none',
     });
-    const head = promptHeadWidths(opts.message, Math.max(1, terminal.width), expand ? summary : '');
-    const { line, mark } = promptHeadLine(opts.message, head.message, hint, answer);
+    const room = Math.max(1, terminal.width);
+    // the expand line is the keys, so a cut one names keys that are not there:
+    // it goes on a line of its own under the question where it does not fit
+    // beside it. The answer then settles on that line, in the hint's place,
+    // rather than in the head as `toggle()`'s does: that one reserves the longer
+    // of two short names, and reserving the longest label here would take up to
+    // half the line from the question for as long as it is asked
+    const beside = !expand || promptTailFits(opts.message, room, summary);
+    const head = promptHeadWidths(opts.message, room, expand && beside ? summary : '');
+    const { line, mark } = promptHeadLine(
+      opts.message,
+      head.message,
+      ...(beside ? [hint, answer] : [])
+    );
 
     const rows = all.map((entry) => {
       if (entry.kind === 'separator') {
@@ -277,7 +291,12 @@ export function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T> {
     });
 
     const list = box({ 'flex-direction': 'column', display: shown ? 'flex' : 'none' }, ...rows);
-    const view = box({ class: 'sigil-prompt', 'flex-direction': 'column' }, line, list);
+    const view = box(
+      { class: 'sigil-prompt', 'flex-direction': 'column' },
+      line,
+      ...(beside ? [] : [promptUnderHead(hint, answer)]),
+      list
+    );
 
     return {
       key(k) {
