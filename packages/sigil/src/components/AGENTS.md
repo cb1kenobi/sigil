@@ -8116,6 +8116,72 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   one over; blocking `onPaste` and a `mousedown` bubble, as above; and a drag
   handle. A toast and a tooltip are SIG-213 and SIG-214.
 
+### A styled cell outside `table()`: where a `TableCellView` is wanted
+
+SIG-212. SIG-178 let a `table()` cell be a `TableCellView` -- `{ element, width }`
+-- so a badge keeps its colour in one; this asked which other places that lay out
+text in cells want the same. The survey answer is **one**, and it already had it.
+
+- **`selectRow()` is the only site, and it took views the day it was written.**
+  It builds its cells with `tableCells()`, `tableWidths()` and `tableRowView()`, so
+  a view was measured by its `width`, aligned by `align` and cut at `maxWidth` with
+  no change -- one implementation of "a cell is a string or a view", shared rather
+  than copied, which SIG-193's export of those pieces had already made true. What
+  was wrong was the two places `selectRow()` reads a cell as a **value**: the sort,
+  and the answered line.
+- **A view has no order, so the default sort puts it with the empty cells.**
+  `compareCells()` reads an unknown object as `String()` of it, so every view was
+  `[object Object]` -- a tie with every other view, and filed _before_ every
+  lower-case text, since `[` sorts before a letter. A view in a mixed column now
+  goes last both ways, which is the empty-cell rule. It is the **sorter** that
+  says so, as it already is for an empty value, and it asks the cell (`.view`)
+  rather than the value, because the shape test is `table.ts`'s and a second copy
+  of it here is how the two come to disagree.
+- **A column's own `compare` is handed the view, not refused it.** Whoever built
+  the view knows what it stands for, and a view is checked by shape, so it can
+  carry that: `{ ...badgeView('FAIL'), rank: 2 }` is a cell and a sort key.
+  Treating a view as empty for `compare` too would make a status column
+  unsortable by any means short of a second column holding the status as text.
+- **A column of nothing but views gets no digit unless it asks for one.** Its
+  digit would draw an arrow and move no row, which is the "the footer names no
+  digit that does nothing" rule SIG-193 already keeps; a `compare` or an explicit
+  `sortable: true` binds it. Decided once, from the cells the prompt was handed --
+  the rows are never changed, so it cannot go stale.
+- **The answered line leaves a view out.** It is a string, and a view has no text
+  form; `short` is the lever and its doc says so. Inventing one -- an optional
+  `text` on `TableCellView` -- would be API with one reader.
+- **The colour level stays the caller's.** A view is built at the level it was
+  asked for and neither `table()` nor `selectRow()` passes its own down: a view is
+  an already-built tree, and rebuilding it at another level needs the function
+  that made it, which a `{ element, width }` does not carry. The badge entry
+  already says to pass the same `colorLevel` to both, and the cost of not doing so
+  is a shape, not a width.
+
+**The sites that do not want one, and why:**
+
+- **`tasks()` titles** are a spinner's label: one string that is also the piped
+  line, the `TaskOutcome.title` handed back, and the prefix on interleaved output.
+  A view has no text for three of those four.
+- **`log` fields** are logfmt data for grep, written to a file unwrapped; a field
+  value is a value, and a styled one is the opposite of what the quoting is for.
+- **`outline()` items** are paragraphs that wrap with a hanging indent, not cells
+  -- and a badge _inside_ an item, which is the case anybody would want, is a run
+  in a paragraph rather than a whole-item view.
+- **Prompt choice labels** are not changed here, and they are the one place a view
+  is plausibly wanted: a status beside a choice. Not as the label, which is what
+  `autocomplete()` filters on, what accessible mode reads out and what the answered
+  line prints -- as a separate slot beside it. A follow-up, because `prompt.ts` is
+  shared and that is a choice-row change of its own.
+- **Labels in `bars()` and `createMultiProgress()`, tree labels and tab labels**
+  were looked at for the same reason and are text a person reads, measured and cut
+  as text; nothing asks for a badge in one.
+
+**Deliberately not done: the longer fix.** A cell that is styled text in general
+-- a `paragraph()` of runs -- would make `TableCellView` unnecessary rather than
+extend it, and it is what three of the refusals above actually want: a badge
+inside a log message, a task title or an outline item. It is a change to how a
+`text` holds content rather than to `table()`, and it is the follow-up to file.
+
 ### Which exports are prompts: the signal table, derived from the barrel
 
 SIG-211. `test/components/prompt-signal.test.ts` gives every prompt the same

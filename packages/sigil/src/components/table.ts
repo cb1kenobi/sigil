@@ -42,6 +42,11 @@ export interface TableOptions extends StyledOptions {
  * keeps its own styling, and its `width` is what the column is measured with --
  * the table cannot ask a tree how wide it is without laying it out, which is the
  * work the declared widths exist to avoid.
+ *
+ * `selectRow()` takes one in a cell as well, since its cells are these. It is
+ * built at whatever colour level it was asked for: neither passes its own down,
+ * because a built tree cannot be rebuilt at another level without the function
+ * that made it.
  */
 export interface TableCellView {
   /** The cell's tree. */

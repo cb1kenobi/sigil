@@ -4144,6 +4144,13 @@ characters would not, and `maxWidth` truncates on grapheme clusters rather
 than slicing a surrogate pair in half. No borders — a table in a build log
 sits next to everything else that was printed, and rules around it are noise.
 
+A cell is text, and its escape sequences are dropped. A cell that has to keep
+its own styling -- a [badge](#badge) -- is a `TableCellView` instead, the
+`{ element, width }` every `*View()` returns: the column is sized by its
+`width`, the tree is aligned by `align`, and it is cut at `maxWidth`. A view is
+built at whatever colour level it was asked for, so pass the same `colorLevel`
+to it and to the table if you override either.
+
 #### Select a row
 
 ```js
@@ -4184,6 +4191,14 @@ That is not locale-aware, because that needs `Intl`; a column that wants a local
 a version or a size with a unit gives its own `compare(a, b)`, and `sortable:
 false` takes a column out of it. The footer names the digits that sort and no
 other -- `enter pick · 1/3 sort` where the second column is not sortable.
+
+**A cell may be a `TableCellView`**, as in `table()` -- `badgeView()` is the usual
+one -- and is measured, aligned and cut the same way. A view has no order of its
+own, so the default sort puts it after every value, both ways, and a column of
+nothing but views gets no digit unless it gives a `compare` (which is handed the
+views as the rows hold them, so `{ ...badgeView('FAIL'), rank: 2 }` sorts by
+`rank`) or says `sortable: true`. The answered line is text, so it leaves a view
+out; `short` is how a row whose view matters says what it was.
 
 | Option    | Meaning                                                                      |
 | --------- | ---------------------------------------------------------------------------- |
