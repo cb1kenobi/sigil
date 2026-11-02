@@ -208,6 +208,7 @@ describe('what importing the package costs', () => {
     'createPager',
     'tableView',
     'enableDebugOverlay',
+    'openModal',
     'qrcodeView',
     'commandPalette',
     'noteView',

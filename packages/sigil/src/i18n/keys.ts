@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 218 keys, which is what a catalog has to carry to translate sigil's own
+ * 228 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -57,6 +57,11 @@ export const SIGIL_KEYS: readonly string[] = [
   'Examples:',
   'Expected a collapsible title to be a string',
   'Expected a list of values',
+  'Expected a modal action to have a label',
+  'Expected a modal body to be a string or an element',
+  'Expected a modal host to be an element or a renderer',
+  'Expected a modal input to be a router',
+  'Expected a modal title to be a string',
   'Expected a retry delay in milliseconds',
   'Expected an element that Collapsible() returned',
   'Expected an element that Tabs() or tabRowView() returned',
@@ -71,6 +76,8 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected items to be an array',
   'Expected locale to be a valid language tag',
   'Expected min to be no later than max',
+  'Expected modal actions to be an array',
+  'Expected modal initial to be the position of an action',
   'Expected retry to be a whole number of tries',
   'Expected tab children to be a function that builds the panel',
   'Expected tab labels to be a non-empty array of strings',
@@ -109,10 +116,12 @@ export const SIGIL_KEYS: readonly string[] = [
   'Name a shell to remove completion for {0} from:',
   'Name a shell to set up completion for {0}:',
   'Name the shell to remove completion for {0} from:',
+  'No',
   'No commands match',
   'No matches',
   'No matches for {0}',
   'Nothing to do.',
+  'OK',
   'Options:',
   'Present the result as JSON',
   'Present the result in this format',
@@ -156,6 +165,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Went back',
   'Which shell?',
   'Wrote {0}',
+  'Yes',
   '[command]',
   '[options]',
   'all',

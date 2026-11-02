@@ -175,6 +175,10 @@ const ENTRIES = [
     name: 'decrypt',
   },
   {
+    desc: 'A modal: a dialog over the screen with a focus trap, Escape to dismiss, and a yes-or-no helper',
+    name: 'modal',
+  },
+  {
     desc: 'A debug overlay: captured console output and frame stats, inside the app',
     name: 'debug-overlay',
   },

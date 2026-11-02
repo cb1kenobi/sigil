@@ -411,6 +411,15 @@ export {
   tabsActive,
 } from './tabs.js';
 export {
+  confirmModal,
+  type ConfirmModalOptions,
+  type ModalAction,
+  type ModalHandle,
+  type ModalHost,
+  type ModalOptions,
+  openModal,
+} from './modal.js';
+export {
   type RowWindow,
   rowWindow,
   type ScrollAxis,

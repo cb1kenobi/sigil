@@ -375,6 +375,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/46-accessible.js`](components/46-accessible.js)                             | Accessible mode: the prompts as plain lines, for a screen reader         |
 | [`components/47-diff.js`](components/47-diff.js)                                         | A diff view: unified or side by side, a patch, and a highlight seam      |
 | [`components/48-tabs.js`](components/48-tabs.js)                                         | Tabs: a row of labels that scrolls, and the panel each one shows         |
+| [`components/49-modal.js`](components/49-modal.js)                                       | A confirm dialog over a list, with a focus trap and a stack of two       |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -527,6 +528,17 @@ columns to show it fall back to unified; it reads a patch the way `git diff` pri
 one, passes a keyword highlighter to show the seam, and folds a line of wide
 characters. It needs no terminal, so piped it prints the same lines minus the
 colour.
+
+`49-modal.js` is a three-row file list with `d` asking before it deletes. The confirm
+opens over the list on `No`, and while it is open Tab and Shift-Tab cycle through
+its two buttons and never reach a row, a key typed at it goes to its button and no
+further, and Escape dismisses it as a no -- after which the focus is back on the row
+it was opened from. On a terminal it is a small full-screen app and a click outside
+the panel lands on the transparent box under it rather than on a row. Piped, a
+scripted keyboard drives the same tree and the demo prints it after each step, with
+the focus said in words; it also opens a second dialog over the first, which has no
+key in the terminal session, and shows Escape closing only the top one and the one
+below having the keys again.
 
 ### Try them without a terminal
 

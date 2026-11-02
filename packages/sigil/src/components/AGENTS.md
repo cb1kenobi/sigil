@@ -8007,3 +8007,112 @@ What is deliberately not done: a grammar or a highlighter; a hunk-level fold
 ("12 unchanged lines"); word wrapping of code; collapsing identical files in a
 multi-file patch; a patch writer; a character-level pass; and a stateful view that
 scrolls (a `diffView()` tree sits in a `ScrollBox` or the pager like any other).
+
+### A modal: a dialog over the screen, and who has the input while it is open
+
+`src/components/modal.ts`. SIG-191. `openModal()` and `confirmModal()`: the canvas
+could already composite a box above the app and the layout could already take one
+out of flow, so the component is the part that was missing -- which keys and which
+mouse reports reach what, and where the focus goes afterwards. The toast and the
+tooltip were split off as SIG-213 and SIG-214 and are not here.
+
+- **Both, as the ticket recommended: the input is blocked, not only the focus
+  trapped. The router can do it for keys and not for the mouse, and each is done
+  with the narrowest thing that works.** A function `bind()` sees every key first,
+  so the modal's binding takes the key, hands it to the focused element and its
+  ancestors **up to the panel** itself, and stops the real event. The router's own
+  walk would carry on to the root and the sequence trie sits before it -- both are
+  what is below -- so the dialog does that walk over a mirror of the event and the
+  router's never happens. An app's `bind('q', quit)` sequence therefore stays quiet
+  while a dialog is open, and a row's `onKey` is not reached.
+- **The mouse is cut off with a box, not with the router.** Mouse events are
+  delivered to the tree before any router-level handler, so there is nothing the
+  router could be told that would keep a click off a button under the dialog. The
+  hit test is topmost first and a box with no background is hittable, so a
+  transparent `position: fixed` box the size of the screen, under the panel,
+  catches every report: it lands on the backdrop or inside the panel and on
+  nothing below. The backdrop stops what reaches it -- except a `mousedown` that
+  came from inside the panel, which is left to bubble because stopping it
+  suppresses click-to-focus and a button is focused by being pressed. What leaks
+  is that: the press bubbles to the root and to the router's own `onMouse`
+  handlers. Narrower than the keys, recorded rather than closed.
+- **What a function binding registered _before_ the dialog still sees, and that is
+  the Ctrl-C rule rather than a gap.** Bindings run in registration order and a
+  later one cannot go first. An app's quit binding is made at startup and sees
+  every key first, as it must; a binding made after the dialog opened sees none.
+  `isAbort()` keys are not taken by the dialog at all, so a later quit binding
+  works as well. Pastes are not blocked: an `onPaste` handler made earlier still
+  sees pasted text, and an unclaimed paste is typed in as keys, which the dialog
+  takes. Blocking `onPaste` is not possible without making a paste into a dialog's
+  own field impossible, and nobody has asked.
+- **Tab is the dialog's own, and the ring is the router's.** The binding moves the
+  focus along `input.focus.ring()` filtered to what is inside the panel, wrapping
+  and starting from the first element when the focus is outside -- the router's own
+  `step()` rule, applied to a subset. Shift-Tab is the same the other way. If the
+  focus has got out (an app called `focus()`, or something unmounted) the next key
+  puts it back at the initial button before the key is delivered, so a key is never
+  handed to a row under the dialog.
+- **Focus goes back to what had it, and falls back inside the dialog below.** It is
+  recorded at open and restored at close **only if the focus is still inside the
+  dialog being closed**: closing a lower dialog under an upper one must not take
+  the focus off the upper, and an app that moved the focus on deliberately before
+  closing keeps where it put it. If the recorded element has gone or is no longer
+  focusable the first element of the pool takes it, and the pool is the ring of the
+  dialog now on top rather than the whole ring -- a fallback that stepped out of
+  the dialog below would be the escape the trap exists to prevent. Nothing focused
+  when it opened is restored as nothing focused.
+- **A stack is a per-router list, and only the top answers.** Each dialog registers
+  its own binding; every one checks that it is the top and stands aside otherwise,
+  so a lower dialog's binding runs first, does nothing, and the upper one's takes
+  the key. Escape closes the top only. The list is a `WeakMap` keyed on the router
+  rather than module state, so two routers do not share a stack.
+- **Escape is the dialog's even when a focused field inside would have wanted it.**
+  The binding sees the key before the field does, so a text field inside a dialog
+  cannot use Escape to clear itself. `dismissible: false` is the opt-out and the
+  buttons are then the only way out.
+- **`dispose()` is `close()` with no answer, and `result` always settles.** A
+  promise that never settled would hang an `await`, so closing from outside
+  resolves it with `undefined`, and closing twice does nothing -- a button and an
+  Escape that arrive together settle it once. It takes the binding off the router,
+  stops the focus effect, removes the backdrop and then restores the focus.
+- **The dialog is opaque with no colour declared, so the sheet gains no exception.**
+  A box with no background paints nothing in its empty cells and the debug pane's
+  answer is a background colour in the sheet, which is dropped at colour level 0 --
+  documented there as the pane being transparent for a user who asked for no
+  colour. For a dialog that is the failure rather than a footnote, so the panel
+  carries a `raw` first child, absolutely placed over its whole padding box, that
+  fills it with blank cells. The grid counts a painted blank as drawn (that is what
+  occupancy is for), so the app is hidden at every level, in the terminal's own
+  colours. Nothing is declared, so the role invariant's exception count is
+  untouched; `.sigil-modal-fill` is the hook for a theme that wants a colour behind
+  a dialog, and `cellStyle()` is read off it so that one rule reaches the fill.
+- **A focused button is bracketed, not inverted.** `[ Yes ]` against `  No  `, in
+  the accent, written by one effect on the focus signal. The collapsible's inverse
+  focus would need a `:focus` rule in the sheet, which is another exception, and it
+  is invisible at level 0 where the bracket is not. The effect reads the signal
+  rather than the Tab handler setting it, because a Tab, a click and an app calling
+  `focus()` are three routes to one change.
+- **The quiet axis is not consulted, which is the prompt rule and the debug
+  overlay's.** A dialogue is not progress: a quiet run still shows a dialog it
+  opened, and a dialog that vanished under `--quiet` would leave a program waiting
+  on an answer nobody was shown. It is the app's own tree, not a mount beside an
+  answer, so it is on `render()`'s side of the line `output.ts` draws. There is
+  no motion either -- it appears and goes in one frame -- so `reduce` has nothing
+  to switch off. Pinned by a test that opens one under `setQuiet(true)`.
+- **Under the debug overlay, always.** The backdrop is `z-index: 900` and the pane
+  is `1000`, so the instrument stays readable over a dialog whichever was appended
+  last. A dialog is above anything the app did not give a `z-index`.
+- **`confirmModal()` is a dozen lines over it and is in.** Two buttons, `true` and
+  `false`, `initial: 'yes' | 'no'` (default `yes`; a destructive question wants
+  `'no'`), and a dismissal is `false` because leaving a question unanswered has
+  never meant "go ahead". It is not a second implementation of a dialog.
+- **The host is the renderer or any element.** `openModal(view, ...)` and
+  `openModal(root, ...)` both work, because all it needs is the element to append
+  to and the router whose ring contains it. The latter is what the piped demo and
+  the tests use, with no renderer.
+- **Not done:** a dimmed scrim behind the dialog (no `opacity`, and a transparent
+  box is what keeps the app visible); resizing the panel to its content (it has a
+  declared `width`, capped at the screen, and grows in height); announcing a
+  dialog in accessible mode, which draws prompts as lines and has no screen to lay
+  one over; blocking `onPaste` and a `mousedown` bubble, as above; and a drag
+  handle. A toast and a tooltip are SIG-213 and SIG-214.
