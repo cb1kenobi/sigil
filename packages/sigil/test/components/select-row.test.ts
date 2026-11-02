@@ -1,3 +1,5 @@
+import { type ColorLevel, createAnsi } from '../../src/ansi/index.js';
+import { badgeView } from '../../src/components/badge.js';
 import { PromptError } from '../../src/components/prompt.js';
 import { compareCells, selectRow, type SelectRowOptions } from '../../src/components/select-row.js';
 import { table } from '../../src/components/table.js';
@@ -574,6 +576,214 @@ describe('selectRow()', () => {
 
       await type(ui.stdin, ENTER);
       expect((await answer).value).toBe(MANY[0]);
+    });
+  });
+
+  describe('a cell that is a view', () => {
+    const ESC = '\u001b';
+
+    interface Check {
+      name: string;
+      status: unknown;
+    }
+
+    /** A badge that carries what it stands for, which is what a `compare` reads. */
+    const status = (label: string, rank: number, level: ColorLevel = 0) => ({
+      ...badgeView(label, {
+        colorLevel: level,
+        variant: label === 'PASS' ? ('success' as const) : ('error' as const),
+      }),
+      rank,
+    });
+
+    /** A prompt over checks whose second column is views. */
+    function checks(ui: ScreenHarness, rows: Check[], opts: Partial<SelectRowOptions<Check>> = {}) {
+      return selectRow<Check>({
+        ansi: ui.ansi,
+        columns: [
+          { header: 'Check', key: 'name' },
+          { header: 'Status', key: 'status' },
+        ],
+        frameMs: 0,
+        message: 'Which check?',
+        rows,
+        terminal: ui.terminal,
+        ...opts,
+      });
+    }
+
+    it('should draw a view with its own styling, as table() does', async () => {
+      const ui = screenSetup({ columns: 60, rows: 10 });
+      const answer = settle(
+        checks(
+          ui,
+          [
+            { name: 'build', status: status('PASS', 0, 1) },
+            { name: 'lint', status: status('FAIL', 1, 1) },
+          ],
+          { ansi: createAnsi({ level: 1 }) }
+        )
+      );
+
+      await tick();
+
+      // a string cell has its escape sequences dropped, so a colour that reached
+      // the screen is one the view brought with it
+      expect(ui.output).toContain(`${ESC}[7;32m PASS `);
+      expect(ui.output).toContain(`${ESC}[7;31m FAIL `);
+
+      await type(ui.stdin, CTRL_C);
+      await answer;
+    });
+
+    it('should measure the column by the width the view declares', async () => {
+      const ui = screenSetup({ columns: 60, rows: 10 });
+      const answer = settle(
+        checks(
+          ui,
+          [
+            { name: 'build', status: status('PASS', 0) },
+            { name: 'lint', status: status('FAILING', 1) },
+          ],
+          {
+            columns: [
+              { header: 'Status', key: 'status', sortable: false },
+              { header: 'Check', key: 'name', sortable: false },
+            ],
+          }
+        )
+      );
+
+      await tick();
+
+      // `[FAILING]` is nine columns, so the second column starts at nine and two
+      expect(screen(ui).slice(1, 4)).toEqual([
+        '  Status     Check',
+        '❯ [PASS]     build',
+        '  [FAILING]  lint',
+      ]);
+
+      await type(ui.stdin, CTRL_C);
+      await answer;
+    });
+
+    it('should cut a view wider than its column at the column', async () => {
+      const ui = screenSetup({ columns: 60, rows: 10 });
+      const answer = settle(
+        checks(ui, [{ name: 'lint', status: status('FAILING', 1) }], {
+          columns: [
+            { key: 'status', maxWidth: 4, sortable: false },
+            { key: 'name', sortable: false },
+          ],
+        })
+      );
+
+      await tick();
+
+      expect(screen(ui)[1]).toBe('❯ [FAI  lint');
+
+      await type(ui.stdin, CTRL_C);
+      await answer;
+    });
+
+    it('should put a view after every value under the default order, both ways', async () => {
+      const ui = screenSetup({ columns: 60, rows: 10 });
+      const rows = [
+        { name: 'b', status: status('PASS', 0) },
+        { name: 'c', status: 'queued' },
+        { name: 'a', status: status('FAIL', 1) },
+        { name: 'd', status: 'done' },
+      ];
+      const answer = settle(checks(ui, rows));
+      const names = (): string[] => body(ui).map((line) => line.split(/\s+/)[0] as string);
+
+      // as `String()` a view is `[object Object]`, and a `[` sorts before every
+      // letter -- so read as text, the views would come first rather than last
+      await type(ui.stdin, '2');
+      expect(names()).toEqual(['d', 'c', 'b', 'a']);
+
+      await type(ui.stdin, '2');
+      expect(names()).toEqual(['c', 'd', 'b', 'a']);
+
+      await type(ui.stdin, CTRL_C);
+      await answer;
+    });
+
+    it('should hand a view to the column own compare, as the value the row holds', async () => {
+      const ui = screenSetup({ columns: 60, rows: 10 });
+      const rows = [
+        { name: 'a', status: status('FAIL', 2) },
+        { name: 'b', status: status('PASS', 0) },
+        { name: 'c', status: status('FAIL', 1) },
+      ];
+      const answer = settle(
+        checks(ui, rows, {
+          columns: [
+            { header: 'Check', key: 'name' },
+            {
+              compare: (x, y) => (x as { rank: number }).rank - (y as { rank: number }).rank,
+              header: 'Status',
+              key: 'status',
+            },
+          ],
+        })
+      );
+
+      await type(ui.stdin, '2');
+
+      expect(body(ui).map((line) => line.split(/\s+/)[0])).toEqual(['b', 'c', 'a']);
+
+      await type(ui.stdin, CTRL_C);
+      await answer;
+    });
+
+    it('should not bind a digit for a column of views with no compare', async () => {
+      const ui = screenSetup({ columns: 60, rows: 10 });
+      const rows = [
+        { name: 'b', status: status('PASS', 0) },
+        { name: 'a', status: status('FAIL', 1) },
+      ];
+      const answer = settle(checks(ui, rows));
+
+      await tick();
+      // the heading keeps no room for an arrow it will never draw, either
+      expect(screen(ui)[1]).toBe('  Check    Status');
+      expect(screen(ui).at(-1)).toBe('  enter pick · 1 sort');
+
+      await type(ui.stdin, '2');
+      expect(body(ui).map((line) => line.split(/\s+/)[0])).toEqual(['b', 'a']);
+
+      await type(ui.stdin, CTRL_C);
+      await answer;
+    });
+
+    it('should bind the digit anyway when the column asks to sort', async () => {
+      const ui = screenSetup({ columns: 60, rows: 10 });
+      const rows = [{ name: 'b', status: status('PASS', 0) }];
+      const answer = settle(
+        checks(ui, rows, {
+          columns: [
+            { header: 'Check', key: 'name' },
+            { header: 'Status', key: 'status', sortable: true },
+          ],
+        })
+      );
+
+      await tick();
+      expect(screen(ui).at(-1)).toBe('  enter pick · 1/2 sort');
+
+      await type(ui.stdin, CTRL_C);
+      await answer;
+    });
+
+    it('should leave a view out of the answered line, which is text', async () => {
+      const ui = screenSetup({ columns: 60, rows: 10 });
+      const answer = settle(checks(ui, [{ name: 'lint', status: status('FAIL', 1) }]));
+
+      await type(ui.stdin, ENTER);
+      await answer;
+
+      expect(screen(ui)).toEqual(['? Which check? lint']);
     });
   });
 
