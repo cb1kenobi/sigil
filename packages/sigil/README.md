@@ -4648,6 +4648,78 @@ says no (or `ascii: true`). A focused title is drawn inverse by the framework
 sheet. `.sigil-collapsible` (with `is-open` while open), `-title`, `-marker`,
 `-label` and `-body` are the theme hooks, and `props` goes on the host.
 
+#### A modal
+
+```js
+import { confirmModal, openModal } from '@ttylabs/sigil/components';
+
+const sure = await confirmModal(view, {
+  input,
+  message: 'The branch has unpushed commits.',
+  title: 'Delete it anyway?',
+});
+
+const dialog = openModal(view, {
+  actions: [
+    { label: 'Save', value: 'save' },
+    { label: 'Discard', value: 'discard' },
+  ],
+  input,
+  title: 'Unsaved changes',
+});
+const choice = await dialog.result; // 'save', 'discard', or undefined if dismissed
+```
+
+```
+╭────────────────────────────────╮
+│ Delete it?                     │
+│ canvas.ts will be gone for     │
+│ good.                          │
+│                                │
+│                   Yes   [ No ] │
+╰────────────────────────────────╯
+```
+
+A dialog drawn over the current screen. It is appended to the root of the
+renderer (or to any element the router was built over) and is `position: fixed`,
+so it takes no space and moves nothing under it. While it is open **it has the
+input**: Tab and Shift-Tab cycle through the dialog's own focusable elements and
+nothing else, **Escape** dismisses it, a key typed at it reaches its focused
+element and no further, and a click or a wheel turn outside the panel lands on a
+transparent box the size of the screen instead of on whatever is beneath. When it
+closes the focus goes back to the element that had it when it opened -- or, if
+that element has gone, to the first focusable element that is left.
+
+`openModal(host, opts)` takes the router as `input`, because the keys and the
+focus are the router's. `actions` are the buttons (`OK` if there are none), each
+with a `label` and a `value`; Enter, Space or a click presses the focused one and
+`result` settles with its value. An empty list is allowed, and then the panel
+holds the focus itself. `initial` is which button starts focused, by position;
+`dismissible: false` makes Escape do nothing, for a dialog that must be answered;
+`closeOnClickOutside: true` makes a click off the panel dismiss it. `body` is a
+string, which wraps, or an element, whose focusable parts join the trap.
+`handle.close(value)` and `handle.dispose()` close it from outside, and closing
+twice does nothing.
+
+Open a second one and the topmost owns the input; closing it hands the keys and
+the focus back to the one below.
+
+`confirmModal(host, opts)` is a yes-or-no over the same thing: `message`, `yes`,
+`no` and `initial: 'yes' | 'no'`, settling `true` or `false`. A dismissal is a
+`false`.
+
+The dialog is opaque without a colour: the panel fills itself with blank cells, so
+the app does not show through between the words at colour level 0 either. A
+focused button is bracketed, `[ Yes ]`, and in the accent. `.sigil-modal`,
+`-backdrop`, `-fill`, `-title`, `-body`, `-actions` and `-action` are the theme
+hooks; a background on `.sigil-modal-fill` colours the whole panel. A dialogue is
+not progress, so `--quiet` does not hide one.
+
+An app-wide `bind()` made **before** the dialog opened still sees every key first,
+which is what keeps Ctrl-C working; one made after it does not see them, and
+neither does a key sequence. A `mousedown` on the panel still bubbles, so that a
+button can take the focus.
+
 #### A key-help footer
 
 ```js

@@ -373,6 +373,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/44-editor.js`](components/44-editor.js)                                     | An editor prompt: the answer is written in `$VISUAL` or `$EDITOR`        |
 | [`components/45-multiline-extras.js`](components/45-multiline-extras.js)                 | A multiline field with line numbers, a gutter, a limit and highlighting  |
 | [`components/46-accessible.js`](components/46-accessible.js)                             | Accessible mode: the prompts as plain lines, for a screen reader         |
+| [`components/49-modal.js`](components/49-modal.js)                                       | A confirm dialog over a list, with a focus trap and a stack of two       |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -506,6 +507,17 @@ numbered list, extras as numbers with a range, and a yes or no -- which is what
 once, what you type is echoed after it, and a refused name gets its reason on the
 next line and the question again. Piped, a scripted keyboard answers, starting with
 a name the validator refuses, and the transcript is printed whole.
+
+`49-modal.js` is a three-row file list with `d` asking before it deletes. The confirm
+opens over the list on `No`, and while it is open Tab and Shift-Tab cycle through
+its two buttons and never reach a row, a key typed at it goes to its button and no
+further, and Escape dismisses it as a no -- after which the focus is back on the row
+it was opened from. On a terminal it is a small full-screen app and a click outside
+the panel lands on the transparent box under it rather than on a row. Piped, a
+scripted keyboard drives the same tree and the demo prints it after each step, with
+the focus said in words; it also opens a second dialog over the first, which has no
+key in the terminal session, and shows Escape closing only the top one and the one
+below having the keys again.
 
 ### Try them without a terminal
 
