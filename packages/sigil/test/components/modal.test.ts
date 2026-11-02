@@ -124,32 +124,43 @@ describe('openModal()', () => {
     expect(picture(s.root)[1]).to.equal(before[1]);
   });
 
-  it('should draw above the app, hiding what is under the panel even with no colour', async () => {
-    const s = scene();
-    // a wall of the app under where the panel will sit
-    for (let row = 0; row < 8; row++) {
-      s.root.append(text('#'.repeat(WIDTH)));
-    }
-    modalOn(s, { body: 'x', title: 'T', width: 20 });
-    await settle();
+  // `ascii` is passed rather than left to `unicodeSupported()`, which reads the
+  // platform: a Windows runner draws the ASCII set, so a test that only knew the
+  // round one found no border there. Both sets are what somebody sees.
+  it.each([
+    { ascii: false, edge: '│', top: '╭', bottom: '╰', end: ['│', '╮', '╯'] },
+    { ascii: true, edge: '|', top: '+', bottom: '+', end: ['|', '+'] },
+  ])(
+    'should draw above the app, hiding what is under the panel even with no colour (ascii: $ascii)',
+    async ({ ascii, bottom: lower, edge, end, top: upper }) => {
+      const s = scene();
+      // a wall of the app under where the panel will sit
+      for (let row = 0; row < 8; row++) {
+        s.root.append(text('#'.repeat(WIDTH)));
+      }
+      modalOn(s, { ascii, body: 'x', title: 'T', width: 20 });
+      await settle();
 
-    // colour level 0, so a background colour would have been dropped: it is the
-    // blank cells the panel fills itself with that keep the wall from showing
-    const lines = picture(s.root);
-    const top = lines.findIndex((line) => line.includes('┌') || line.includes('╭'));
-    const bottom = lines.findIndex((line) => line.includes('└') || line.includes('╰'));
-    expect(top).to.be.greaterThan(-1);
-    expect(bottom).to.be.greaterThan(top);
-    for (const line of lines.slice(top, bottom + 1)) {
-      const left = line.search(/[│╭╰┌└]/);
-      const right = Math.max(...['│', '╮', '╯', '┐', '┘'].map((glyph) => line.lastIndexOf(glyph)));
-      const inside = line.slice(left + 1, right);
-      expect(inside).to.not.include('#');
+      // colour level 0, so a background colour would have been dropped: it is the
+      // blank cells the panel fills itself with that keep the wall from showing
+      const lines = picture(s.root);
+      const top = lines.findIndex((line) => line.includes(upper));
+      const bottom = lines.findLastIndex((line) => line.includes(lower));
+      expect(top).to.be.greaterThan(-1);
+      expect(bottom).to.be.greaterThan(top);
+      for (const line of lines.slice(top, bottom + 1)) {
+        const left = Math.min(
+          ...[edge, upper, lower].map((glyph) => line.indexOf(glyph)).filter((at) => at >= 0)
+        );
+        const right = Math.max(...end.map((glyph) => line.lastIndexOf(glyph)));
+        const inside = line.slice(left + 1, right);
+        expect(inside).to.not.include('#');
+      }
+      // and the wall outside the panel is still there
+      expect(lines[top]?.startsWith('#')).to.equal(true);
+      expect(lines[0]).to.include('first row');
     }
-    // and the wall outside the panel is still there
-    expect(lines[top]?.startsWith('#')).to.equal(true);
-    expect(lines[0]).to.include('first row');
-  });
+  );
 
   it('should bracket the button that has the focus, so it reads without colour', async () => {
     const s = scene();
