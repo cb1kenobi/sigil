@@ -5355,6 +5355,57 @@ does nothing beyond reaching its prompts — the install it runs writes through
 `stdio: 'inherit'`, so suppressing our one progress line while the package
 manager went on writing its own would be worse than leaving both.
 
+#### Gradients: a colour ramp across a string, and around a box
+
+`gradient()` returns its text coloured along a list of stops, and `gradientBox()`
+draws a border whose cells are coloured the same way. They are helpers that hand
+a string back, not a `color: linear-gradient(...)` — a property would be a new
+value type the cascade, the animator and the canvas would each have to learn, for
+an effect whose use is a banner.
+
+```js
+import { gradient, gradientBox, gradientColors } from '@ttylabs/sigil/style';
+
+const stops = ['#ff5f6d', '#ffc371', '#47e1c8'];
+
+console.log(gradient('Sigil builds command line apps', stops));
+console.log(gradientBox('Deployed in 4.2 seconds', stops, { border: 'round' }));
+
+gradient('abc', stops, { level: 2 }); // pinned to a depth, for a test or another stream
+gradientColors(stops, 12); // twelve colours, for something painting its own cells
+```
+
+Stops are hex or `rgb()` colours (or a value built with `rgb()`), evenly spaced,
+and mixed in Oklab — the mix a transition uses, so a red-to-blue ramp does not
+dip through grey. A stop has to be a 24-bit colour: a palette colour such as
+`red` is whatever the user's theme says, has no channels to blend, and is refused
+at every level rather than only on the terminals where it would show.
+
+A string is ramped per grapheme cluster and by display column, so an emoji or a
+wide character is never split and takes two columns of the ramp. Several lines
+share one ramp across the widest of them, so a column is one colour. Escape
+sequences already in the text are kept and take no column; the ramp owns the
+foreground of what it covers.
+
+The depth is the one the cascade degrades to, and it is an option rather than a
+global: `level` defaults to `ansi.level`, the level detected for stdout.
+
+| level | what comes back                                                        |
+| ----- | ---------------------------------------------------------------------- |
+| 3     | a colour per cell                                                      |
+| 2     | the same ramp, each cell quantized to the xterm cube like any colour   |
+| 1     | **one** colour: the first stop's nearest of the sixteen, never banding |
+| 0     | the text, unchanged — which is a pipe, and `NO_COLOR`                  |
+
+`gradientBox()` takes `border` (`round` by default; `single`, `double`, `bold`,
+`ascii`) and `padding`. The ramp runs across the columns of the whole box, so the
+top and bottom edges blend from the first stop to the last, the left edge is the
+first stop and the right edge the last, and the text inside is untouched. It does
+not wrap, so wrap to the width wanted first.
+
+Neither reads `--quiet`: each returns a string and the caller does the writing,
+which puts them on `table()`'s side of the line.
+
 ### `sigil/themes`
 
 Themes sigil ships, as the CSS an app hands to `themedCascade({ theme })`.

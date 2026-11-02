@@ -1744,3 +1744,76 @@ reach for.
 - **An interpolation that can produce a value the property would refuse.** The
   overshoot refusal above is the general form: there is no clamp table, so the
   grammar is held where the value is read.
+
+### Gradients: a helper over two existing functions
+
+`src/style/gradient.ts` colours a string along a list of stops (`gradient()`),
+draws a box whose border is coloured the same way (`gradientBox()`), and exposes
+the colours themselves (`gradientColors()`). The owner's decision on the ticket's
+first question was a helper and not a property, and it holds up: a
+`linear-gradient()` value would reach the cascade, inheritance, the animator and
+the canvas, for something whose use is a banner, and a string already carries its
+own colours so none of them has to know.
+
+- **It lives in `style/` because both halves of the colour model do.** The mix is
+  `mixColors()` and the depth is `degradeColor()`, so a gradient is a third caller
+  of two pure functions. `ansi/` was the other candidate for a string-in,
+  string-out surface and was refused: `ansi` has its own, different downsampling
+  (`rgbToBasic()`, `rgbToAnsi256()`), and a gradient there would have been a
+  second colour model beside the Oklab one, with a ramp that quantized differently
+  from the same colour in a stylesheet. The only change outside this file is
+  `colorParams()` in `canvas/style.ts` gaining an `export`, so the SGR a cell is
+  emitted with is the canvas's own spelling rather than a copy.
+- **The stops must be 24-bit, at every level.** `mixColors()` refuses a palette
+  index for the reason a transition does, and a transition answers that by
+  snapping at the midpoint. For a ramp that is two bands, which is the one thing a
+  gradient is not, so it is an error -- and at all four levels, because a stop list
+  that works on a truecolor terminal and throws on a 16-colour one is the worse
+  failure.
+- **Level 1 is one colour, the first stop's, and level 0 is the text.** Quantizing
+  a ramp onto the sixteen gives bands of unrelated hues, which reads as a
+  rendering fault where a single colour reads as a choice. "First" rather than
+  "nearest to the average" or "the middle": it is the one an author controls, and
+  it is the colour the ramp starts as on every other terminal. Level 0 is a pipe
+  and `NO_COLOR`, as it is everywhere else, and returns the string unchanged --
+  validated first, so a bad stop does not hide behind a pipe.
+- **The level is an option defaulting to `ansi.level`, not read from the cascade.**
+  A helper that returns a string has no `media` to ask, and `ansi.level` is the
+  detection the styler already uses. The helper keeps no state of its own.
+- **It does not read the quiet axis.** It returns a string and the caller does the
+  writing, which is `table()`'s side of the line `output.ts` draws.
+- **A cluster is coloured by the middle of its columns.** So a narrow character is
+  exactly its column and the first and last cells are the first and last stops,
+  while a wide character at an end is within half a cell of the stop. Starting
+  columns would have left a trailing wide character a whole cell short. Several
+  lines ramp over the widest, so a column is one colour down a block.
+- **The ramp owns the foreground; every other sequence is kept.** The text is
+  split with the same matcher `strip()` uses, sequences pass through and take no
+  column, and the ramp forgets what it last wrote after one, since the text's own
+  reset may have undone it. A line closes with `ESC[39m` and not a full reset, so
+  an outer bold or link survives.
+- **The memo behind `degradeColor()` is used, not bypassed.** The "Colour
+  degradation" entry says a gradient painted cell by cell goes to the canvas and
+  never through the memo; this one does go through it, because it has no canvas to
+  go to. The cost is up to one entry per distinct ramp colour at level 2, and a
+  ramp is a function of its stops and its width, so a repeated one hits. Not
+  evicting is still right for the reason given there; a caller generating
+  thousands of different stops would be the case to revisit.
+- **There is no special case for the ends.** `mixColors()` at 1 came back exact for
+  every pair of a sweep of the cube, and a cell on a stop returns that stop as
+  written, so a guard for a round trip landing a channel off was written, found
+  nothing could fail it, and was taken out.
+- **Borders are a column ramp, nothing more.** The narrowest cut that needs no
+  property: the five glyph sets `border-style` draws (a second spelling of
+  `element/paint.ts`'s table, kept honest by a test that renders a real bordered
+  box beside each, since `style/` cannot import `element/`), each cell coloured by
+  its column across the whole box. So the left edge is the first stop all the way
+  down and the right edge the last.
+- **Deliberately not done.** A perimeter ramp that runs round the box (it has a
+  seam where the end meets the start, and wants a direction option); vertical and
+  angled ramps; stop positions (`#f00 30%`); a title set into the border (that is
+  `note()`'s); wrapping; a background ramp; a `border-color` or `color:
+  linear-gradient()` value, which is the style property the owner declined. Palette
+  stops that blend through the xterm defaults, for the reason above. Not registered
+  for `sigil add`: the registry lists component files an app edits, and this is a
+  runtime helper with nothing to eject.
