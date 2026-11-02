@@ -63,8 +63,8 @@ the entry it belongs to.
   which is the one emission that computes its class.
 
   `.sigil-caret`, `.sigil-scroll-track`, `.sigil-debug`, `.sigil-qrcode-paint`,
-  `.sigil-badge`, `.sigil-collapsible-title:focus` and `.sigil-pager-match` are
-  the seven declared exceptions: no role is inversion; the track is the one
+  `.sigil-badge`, `.sigil-collapsible-title:focus`, `.sigil-pager-match` and
+  `.sigil-tabs-row:focus .sigil-tabs-active` are the eight declared exceptions: no role is inversion; the track is the one
   grey here that is not de-emphasised _text_, so it must not be `.sigil-muted` --
   that role is `dim` on a dark terminal, and a dim track is not a track;
   `.sigil-debug` is a **background** rather than a foreground, which no role is
@@ -75,8 +75,11 @@ the entry it belongs to.
   caret's reason again: a focused collapsible title is drawn inverse, because
   nothing else says which title the keys go to. The seventh (SIG-195) is
   `.sigil-pager-match`, `inverse` a third time: a search highlight is standout,
-  the terminal's own two colours swapped, rather than a colour anybody picked. `should
-  declare on a role, bar seven exceptions that say why` is the invariant, and it
+  the terminal's own two colours swapped, rather than a colour anybody picked. The eighth (SIG-189) is the
+  active tab's, `inverse` a fourth time and a descendant of the row's `:focus`: the
+  row is the focusable element and the active label is the one thing its keys
+  change, so only that label shows the focus. `should
+  declare on a role, bar eight exceptions that say why` is the invariant, and it
   reads the **parsed** sheet rather than the source, because the comment listing
   the component classes as hooks would otherwise be mistaken for a rule. It was
   three until SIG-136, and the sentence here still said three for a commit after

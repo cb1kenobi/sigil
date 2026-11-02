@@ -374,6 +374,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/45-multiline-extras.js`](components/45-multiline-extras.js)                 | A multiline field with line numbers, a gutter, a limit and highlighting  |
 | [`components/46-accessible.js`](components/46-accessible.js)                             | Accessible mode: the prompts as plain lines, for a screen reader         |
 | [`components/47-diff.js`](components/47-diff.js)                                         | A diff view: unified or side by side, a patch, and a highlight seam      |
+| [`components/48-tabs.js`](components/48-tabs.js)                                         | Tabs: a row of labels that scrolls, and the panel each one shows         |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -479,6 +480,17 @@ demo prints it after each step, with the focus said in words, since the inverse
 that marks it on a terminal is an attribute a pipe drops. The last step tabs into
 a field inside the open answer, which is in the ring only while its section is
 open.
+
+`48-tabs.js` is six tabs in forty columns, which is two more than fit: the row
+scrolls to keep the active tab in view and shows `‹` or `›` on the side that is
+clipped, and a heavy stretch of the rule under the labels marks the active one.
+On a terminal Tab puts the focus on the row, Left and Right move one tab, Home and
+End go to the ends, `1` to `6` go to that tab, and a click on a label picks it; the
+footer lists the arrows and Home and End while the row has the focus. Only the
+active panel is laid out, so the field in the "Settings" panel is in the Tab ring
+only while that panel is showing. Piped, a scripted keyboard drives the same tree
+and the demo prints it after each step, with the focus said in words, since the
+inverse that marks it on a terminal is an attribute a pipe drops.
 
 `44-editor.js` asks for a commit message in your own editor -- `$VISUAL`, then
 `$EDITOR`, then `vi` (Notepad on Windows) -- on a temporary `.md` file that starts
@@ -772,6 +784,7 @@ what is left is the characters changing, which is the whole effect.
 | [`style/03-animation.js`](style/03-animation.js)           | Transitions and keyframes, over whole cells       |
 | [`style/04-theme-switcher.js`](style/04-theme-switcher.js) | The themes sigil ships, swapped live              |
 | [`style/05-quiet.js`](style/05-quiet.js)                   | `live`, `reduce` and `quiet`, which is one axis   |
+| [`style/06-gradient.js`](style/06-gradient.js)             | A colour ramp over a string and a border          |
 
 `01-cascade.js` prints its answers rather than drawing them, because the contest
 is the point. Each section is one contest between two declarations that both reach the
@@ -847,6 +860,14 @@ the thirty a second a loop without that would have drawn.
 Piped, nothing moves: a pipe, a file and a CI log have no frames, so every
 animation collapses to the state it would have ended on.
 `SIGIL_REDUCED_MOTION=1` says the same thing on a terminal.
+
+`06-gradient.js` is a helper that returns a string, not a style property, so a
+pipe shows it fine: it names each colour level itself and prints the escape
+sequences it wrote for `abc` at every one. Truecolor is a different colour per
+cell, 256 colours is the same ramp quantized through the cascade's degrader, 16
+colours is **one** colour -- the first stop's nearest of the sixteen, never
+bands of unrelated hues -- and level 0 is the text and nothing else. The first
+block asks for no level and gets the detected one, so `NO_COLOR=1` makes it plain.
 
 ## The canvas
 

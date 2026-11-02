@@ -159,6 +159,10 @@ const ENTRIES = [
     name: 'collapsible',
   },
   {
+    desc: 'Tabs: a row of labels with one active, and the panels it switches',
+    name: 'tabs',
+  },
+  {
     desc: 'A pager over a scroll box: less keys, line numbers, and / search with highlighted matches',
     name: 'pager',
   },

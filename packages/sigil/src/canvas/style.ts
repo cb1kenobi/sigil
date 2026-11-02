@@ -348,7 +348,7 @@ function key(style: Style): string {
  * @param background - Whether this is the background.
  * @returns The parameters, without the CSI or the trailing `m`.
  */
-function colorParams(color: Color, background: boolean): string {
+export function colorParams(color: Color, background: boolean): string {
   const base = background ? 40 : 30;
 
   if (color === DEFAULT_COLOR) {

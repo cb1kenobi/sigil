@@ -94,6 +94,15 @@ export {
   rgbFromOklab,
 } from './degrade.js';
 export { ease, type Easing, LINEAR, parseEasing, type StepPosition } from './easing.js';
+export {
+  type GradientBorder,
+  type GradientBoxOptions,
+  type GradientOptions,
+  type GradientStop,
+  gradient,
+  gradientBox,
+  gradientColors,
+} from './gradient.js';
 export { interpolate } from './interpolate.js';
 export { forcedMotion, type ReducedMotion, resolveMotion } from './motion.js';
 export { type OutputLevel, getQuiet, setQuiet, resolveOutput } from './output.js';
