@@ -1,82 +1,213 @@
-import { autocomplete } from '../../src/components/autocomplete.js';
-import { date } from '../../src/components/date.js';
-import { number } from '../../src/components/number.js';
-import { commandPalette } from '../../src/components/palette.js';
-import { path } from '../../src/components/path.js';
 import {
+  autocomplete,
+  autocompleteMultiselect,
   confirm,
+  date,
+  directoryTree,
+  editor,
+  filePicker,
+  groupMultiselect,
+  list,
+  maskedText,
   multiline,
   multiselect,
+  number,
   password,
+  path,
+  pickDate,
   PromptError,
+  runPrompt,
   select,
+  selectKey,
+  selectRow,
+  selectTree,
+  sort,
   text,
-} from '../../src/components/prompt.js';
+  toggle,
+} from '../../src/components/index.js';
+import type * as Components from '../../src/components/index.js';
+import { commandPalette } from '../../src/components/palette.js';
+import { box, text as textNode } from '../../src/element/index.js';
 import { createInput } from '../../src/input/index.js';
 import { parse } from '../../src/parser/parse.js';
 import { type ScreenHarness, screenSetup, tick } from './helpers.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+
+/** Asks one prompt the smallest question it will take, under `signal`. */
+type Ask = (ui: ScreenHarness, signal: AbortSignal) => Promise<unknown>;
+
+/**
+ * Whether an argument is an options object that takes an `AbortSignal`.
+ *
+ * The value's type is asked as well as the key, because `resolveEditor()` takes
+ * a `Record<string, string | undefined>` and `'signal'` is a key of that too.
+ */
+type TakesSignal<P> = P extends object
+  ? 'signal' extends keyof P
+    ? [AbortSignal] extends [P['signal' & keyof P]]
+      ? true
+      : never
+    : never
+  : never;
+
+/**
+ * Every export of `@ttylabs/sigil/components` that is a prompt, worked out from
+ * the barrel rather than written down: a function that answers with a promise
+ * and takes an `AbortSignal` in its options.
+ *
+ * Derived, so that the list is the one thing nobody can forget to update. A
+ * prompt is in this union the moment it is exported, and `prompts` below fails
+ * the type-check until it has a row there or a reason in `EXEMPT`. Everything
+ * else the barrel exports -- an element, a view, a helper, a type -- answers
+ * with no promise or takes no signal, so it is out of the union without anybody
+ * having to say so. The guard is `tsc` rather than the runner: `pnpm check`
+ * covers `./test`, and a runtime cannot see a type.
+ */
+type PromptName = {
+  [K in keyof typeof Components]: (typeof Components)[K] extends (
+    ...args: infer A
+  ) => Promise<unknown>
+    ? [TakesSignal<NonNullable<A[number]>>] extends [never]
+      ? never
+      : K
+    : never;
+}[keyof typeof Components];
+
+/** What answers with a promise and takes a signal and is still not a prompt, and why. */
+const EXEMPT = {
+  decrypt:
+    'an animation rather than a question: an abort erases it and resolves, which ' +
+    'decrypt.test.ts pins, where a prompt rejects with the reason',
+} satisfies Partial<Record<PromptName, string>>;
 
 /** Every prompt, asked the smallest question it will take. */
-const prompts: [string, (ui: ScreenHarness, signal: AbortSignal) => Promise<unknown>][] = [
-  ['text', (ui, signal) => text({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal })],
-  [
-    'password',
-    (ui, signal) => password({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
-  ],
-  [
-    'multiline',
-    (ui, signal) => multiline({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
-  ],
-  [
-    'confirm',
-    (ui, signal) => confirm({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
-  ],
-  [
-    'select',
-    (ui, signal) =>
-      select({ ansi: ui.ansi, choices: ['a', 'b'], message: 'Q?', signal, terminal: ui.terminal }),
-  ],
-  [
-    'multiselect',
-    (ui, signal) =>
-      multiselect({
-        ansi: ui.ansi,
-        choices: ['a', 'b'],
-        message: 'Q?',
-        signal,
-        terminal: ui.terminal,
-      }),
-  ],
-  [
-    'number',
-    (ui, signal) => number({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
-  ],
-  ['date', (ui, signal) => date({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal })],
-  [
-    'autocomplete',
-    (ui, signal) =>
-      autocomplete({
-        ansi: ui.ansi,
-        choices: ['a', 'b'],
-        message: 'Q?',
-        signal,
-        terminal: ui.terminal,
-      }),
-  ],
-  ['path', (ui, signal) => path({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal })],
-  [
-    'commandPalette',
-    async (ui, signal) => {
-      const state = await parse({
-        argv: [],
-        env: {},
-        schema: { commands: { build: { run(): void {} } }, completion: false, help: false },
-      });
-      return commandPalette(state, { ansi: ui.ansi, signal, terminal: ui.terminal });
-    },
-  ],
-];
+const prompts = {
+  autocomplete: (ui, signal) =>
+    autocomplete({
+      ansi: ui.ansi,
+      choices: ['a', 'b'],
+      message: 'Q?',
+      signal,
+      terminal: ui.terminal,
+    }),
+  autocompleteMultiselect: (ui, signal) =>
+    autocompleteMultiselect({
+      ansi: ui.ansi,
+      choices: ['a', 'b'],
+      message: 'Q?',
+      signal,
+      terminal: ui.terminal,
+    }),
+  commandPalette: async (ui, signal) => {
+    const state = await parse({
+      argv: [],
+      env: {},
+      schema: { commands: { build: { run(): void {} } }, completion: false, help: false },
+    });
+    return commandPalette(state, { ansi: ui.ansi, signal, terminal: ui.terminal });
+  },
+  confirm: (ui, signal) => confirm({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
+  date: (ui, signal) => date({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
+  // read only, and the directory this file is in is there on every platform
+  directoryTree: (ui, signal) =>
+    directoryTree({
+      ansi: ui.ansi,
+      message: 'Q?',
+      root: import.meta.dirname,
+      signal,
+      terminal: ui.terminal,
+    }),
+  // the signal is asked about while the question is up, which is before
+  // anything is spawned -- so the command is one that must never run, and none
+  // does. An abort while an editor is open is `editor.test.ts`'s
+  editor: (ui, signal) =>
+    editor({
+      ansi: ui.ansi,
+      editor: 'sigil-test-never-spawned',
+      message: 'Q?',
+      signal,
+      terminal: ui.terminal,
+    }),
+  filePicker: (ui, signal) =>
+    filePicker({
+      ansi: ui.ansi,
+      message: 'Q?',
+      root: import.meta.dirname,
+      signal,
+      terminal: ui.terminal,
+    }),
+  groupMultiselect: (ui, signal) =>
+    groupMultiselect({
+      ansi: ui.ansi,
+      choices: { G: ['a', 'b'] },
+      message: 'Q?',
+      signal,
+      terminal: ui.terminal,
+    }),
+  list: (ui, signal) => list({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
+  maskedText: (ui, signal) =>
+    maskedText({
+      ansi: ui.ansi,
+      message: 'Q?',
+      signal,
+      template: '###',
+      terminal: ui.terminal,
+    }),
+  multiline: (ui, signal) =>
+    multiline({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
+  multiselect: (ui, signal) =>
+    multiselect({
+      ansi: ui.ansi,
+      choices: ['a', 'b'],
+      message: 'Q?',
+      signal,
+      terminal: ui.terminal,
+    }),
+  number: (ui, signal) => number({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
+  password: (ui, signal) =>
+    password({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
+  path: (ui, signal) => path({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
+  pickDate: (ui, signal) =>
+    pickDate({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
+  // the engine every other row is built on, asked directly as well
+  runPrompt: (ui, signal) =>
+    runPrompt({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }, () => ({
+      key(): void {},
+      settle(): void {},
+      view: box({}, textNode('Q?')),
+    })),
+  select: (ui, signal) =>
+    select({ ansi: ui.ansi, choices: ['a', 'b'], message: 'Q?', signal, terminal: ui.terminal }),
+  selectKey: (ui, signal) =>
+    selectKey({
+      ansi: ui.ansi,
+      choices: [{ key: 'a', label: 'All' }],
+      message: 'Q?',
+      signal,
+      terminal: ui.terminal,
+    }),
+  selectRow: (ui, signal) =>
+    selectRow({
+      ansi: ui.ansi,
+      columns: [{ header: 'Name', key: 'name' }],
+      message: 'Q?',
+      rows: [{ name: 'a' }, { name: 'b' }],
+      signal,
+      terminal: ui.terminal,
+    }),
+  selectTree: (ui, signal) =>
+    selectTree({
+      ansi: ui.ansi,
+      items: [{ items: ['a'], text: 'g' }],
+      message: 'Q?',
+      signal,
+      terminal: ui.terminal,
+    }),
+  sort: (ui, signal) =>
+    sort({ ansi: ui.ansi, choices: ['a', 'b'], message: 'Q?', signal, terminal: ui.terminal }),
+  text: (ui, signal) => text({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
+  toggle: (ui, signal) => toggle({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
+} satisfies Record<Exclude<PromptName, keyof typeof EXEMPT>, Ask>;
 
 /** How a prompt settled, with the handler attached before anything can reject. */
 function settle(promise: Promise<unknown>): Promise<{ error?: unknown; value?: unknown }> {
@@ -86,8 +217,18 @@ function settle(promise: Promise<unknown>): Promise<{ error?: unknown; value?: u
   );
 }
 
+describe('the table of prompts', () => {
+  it('should hold a row or an exemption for every prompt the barrel exports', () => {
+    // the `satisfies` on `prompts` is what names a missing row. This is the
+    // other direction, and it is not the same check: every object satisfies an
+    // empty record, so a `PromptName` that came out empty -- a predicate that
+    // stopped matching -- would pass the `satisfies` with every row in place
+    expectTypeOf<keyof typeof prompts | keyof typeof EXEMPT>().toEqualTypeOf<PromptName>();
+  });
+});
+
 describe('a prompt given an AbortSignal', () => {
-  describe.each(prompts)('%s()', (_name, ask) => {
+  describe.each(Object.entries(prompts) as [string, Ask][])('%s()', (_name, ask) => {
     it('should reject with the signal reason when it aborts', async () => {
       const ui = screenSetup({ rows: 12 });
       const controller = new AbortController();
@@ -134,22 +275,17 @@ describe('a prompt given an AbortSignal', () => {
       expect(ui.output).to.equal('');
       expect(ui.stdin.rawMode).to.equal(false);
     });
-  });
 
-  it('should reject with a TimeoutError from AbortSignal.timeout', async () => {
-    const ui = screenSetup();
-    const answer = settle(
-      confirm({
-        ansi: ui.ansi,
-        message: 'Continue?',
-        signal: AbortSignal.timeout(20),
-        terminal: ui.terminal,
-      })
-    );
+    it('should reject with a TimeoutError from AbortSignal.timeout', async () => {
+      const ui = screenSetup({ rows: 12 });
 
-    const { error } = await answer;
-    expect((error as Error).name).to.equal('TimeoutError');
-    expect(ui.log).to.deep.equal([]);
+      const { error } = await settle(ask(ui, AbortSignal.timeout(20)));
+
+      expect((error as Error).name).to.equal('TimeoutError');
+      expect(ui.log).to.deep.equal([]);
+      expect(ui.stdin.rawMode).to.equal(false);
+      expect(ui.screen.cursorHidden).to.equal(false);
+    });
   });
 
   it('should reject with an AbortError when aborted with no reason', async () => {
