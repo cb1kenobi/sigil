@@ -55,7 +55,7 @@ describe('the framework sheet', () => {
    * `.sigil-prompt-hint { dim: true }` added back here is a declaration the
    * light half does not cover, and it looks like every other rule in the file.
    *
-   * The seven exceptions are declared rather than discovered. `.sigil-caret` is
+   * The eight exceptions are declared rather than discovered. `.sigil-caret` is
    * `inverse` and no role is inversion, and `.sigil-badge` is `inverse` for the
    * same reason: it is how a role's colour becomes a background.
    * `.sigil-pager-match` is `inverse` a third time, because a search highlight
@@ -72,9 +72,11 @@ describe('the framework sheet', () => {
    * than borrowing either: neither of them is de-emphasis, a state or an accent,
    * so no role could carry them. `.sigil-collapsible-title:focus` is `inverse`
    * like the caret, and is the one rule here keyed on a state rather than a
-   * class: nothing else says which title the keys go to.
+   * class: nothing else says which title the keys go to. `.sigil-tabs-row:focus
+   * .sigil-tabs-active` is `inverse` a fourth time and keyed on the row's state
+   * for the same reason: only the active label is inverted.
    */
-  it('should declare on a role, bar seven exceptions that say why', () => {
+  it('should declare on a role, bar eight exceptions that say why', () => {
     const ROLES = [
       '.sigil-accent',
       '.sigil-muted',
@@ -92,6 +94,7 @@ describe('the framework sheet', () => {
       '.sigil-pager-match',
       '.sigil-qrcode-paint',
       '.sigil-scroll-track',
+      '.sigil-tabs-row:focus .sigil-tabs-active',
     ];
 
     // the selectors that carry a declaration, read off the parsed sheet rather

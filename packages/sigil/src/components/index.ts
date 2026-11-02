@@ -399,6 +399,16 @@ export {
   describeCollapsible,
 } from './collapsible.js';
 export {
+  describeTabs,
+  type Tab,
+  type TabRowProps,
+  Tabs,
+  tabRowView,
+  type TabsDescriber,
+  type TabsProps,
+  tabsActive,
+} from './tabs.js';
+export {
   type RowWindow,
   rowWindow,
   type ScrollAxis,

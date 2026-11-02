@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 208 keys, which is what a catalog has to carry to translate sigil's own
+ * 218 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -59,6 +59,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a list of values',
   'Expected a retry delay in milliseconds',
   'Expected an element that Collapsible() returned',
+  'Expected an element that Tabs() or tabRowView() returned',
   'Expected an enumerator to return a string',
   'Expected collapsible children to be a function that builds the body',
   'Expected collapsible group to come from collapsibleGroup()',
@@ -66,10 +67,15 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected concurrency to be a positive integer or Infinity',
   'Expected each item to be a string or an object with a text string',
   'Expected enumerator to hold at least one entry',
+  'Expected every tab to have a label that is a string',
   'Expected items to be an array',
   'Expected locale to be a valid language tag',
   'Expected min to be no later than max',
   'Expected retry to be a whole number of tries',
+  'Expected tab children to be a function that builds the panel',
+  'Expected tab labels to be a non-empty array of strings',
+  'Expected tabs active to be a number or a State',
+  'Expected tabs to be a non-empty array',
   'Expected weekStart to be an integer from 0 to 6',
   'Expected {0} to be a valid Date',
   'Extra arguments are not allowed: {0}',
@@ -167,15 +173,18 @@ export const SIGIL_KEYS: readonly string[] = [
   'end',
   'enter',
   'esc',
+  'first tab',
   'from $SHELL',
   'grab',
   'half page down',
   'half page up',
   'home',
   'invert',
+  'last tab',
   'match {0} of {1}',
   'move',
   'next match',
+  'next tab',
   'no',
   'none',
   'off',
@@ -188,6 +197,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'pgup',
   'pick',
   'previous match',
+  'previous tab',
   'quit',
   'scroll',
   'scroll sideways',
