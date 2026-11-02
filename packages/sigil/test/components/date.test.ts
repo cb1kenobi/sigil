@@ -530,3 +530,55 @@ describe('date()', () => {
     });
   });
 });
+
+describe('date() at a narrow width', () => {
+  const LONG = 'When does the release go out?';
+
+  // the head caps what it reserves for a tail at half the line, and a field
+  // cannot wrap: at 20 columns it was cut to `2024-06-`, so the day being edited
+  // was off the screen
+  it('should put the field under the question rather than cut it', async () => {
+    const { answer, ui } = ask(
+      { initial: new Date(2024, 5, 15), message: LONG },
+      { columns: 20, rows: 8 }
+    );
+
+    await tick();
+    expect(ui.log).toEqual(['? When does the', '  release go out?', '  2024-06-15']);
+
+    await type(ui.stdin, TAB, TAB, UP);
+    expect(caret(ui)).toBe('16');
+
+    await type(ui.stdin, ENTER);
+    expect(await answer).toEqual(new Date(2024, 5, 16));
+    // it is the answer, so it settles where it was drawn
+    expect(ui.log).toEqual(['? When does the', '  release go out?', '  2024-06-16']);
+  });
+
+  it('should keep the seconds of a date-time at forty columns', async () => {
+    // nineteen columns against a cap of eighteen, so the last digit went
+    const { answer, ui } = ask(
+      { initial: new Date(2024, 5, 15, 13, 45, 30), message: LONG, seconds: true },
+      { columns: 40, rows: 8 }
+    );
+
+    await tick();
+    expect(ui.log).toEqual(['? When does the release go out?', '  2024-06-15 13:45:30']);
+
+    await type(ui.stdin, ENTER);
+    await answer;
+  });
+
+  it('should keep the field beside a question that leaves it room', async () => {
+    const { answer, ui } = ask(
+      { initial: new Date(2024, 5, 15), message: LONG },
+      { columns: 44, rows: 8 }
+    );
+
+    await tick();
+    expect(ui.log).toEqual(['? When does the release go out? 2024-06-15']);
+
+    await type(ui.stdin, ENTER);
+    await answer;
+  });
+});
