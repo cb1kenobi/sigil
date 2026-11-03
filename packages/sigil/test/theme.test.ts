@@ -55,7 +55,7 @@ describe('the framework sheet', () => {
    * `.sigil-prompt-hint { dim: true }` added back here is a declaration the
    * light half does not cover, and it looks like every other rule in the file.
    *
-   * The nine exceptions are declared rather than discovered. `.sigil-caret` is
+   * The ten exceptions are declared rather than discovered. `.sigil-caret` is
    * `inverse` and no role is inversion, and `.sigil-badge` is `inverse` for the
    * same reason: it is how a role's colour becomes a background.
    * `.sigil-pager-match` is `inverse` a third time, because a search highlight
@@ -77,8 +77,11 @@ describe('the framework sheet', () => {
    * for the same reason: only the active label is inverted. `.sigil-text-field:focus
    * .sigil-text-field-caret` is `inverse` a fifth time, keyed on the field's state
    * because a form holds several fields and only the focused one may show a caret.
+   * And `.sigil-text-field` is a background a second time, for the overlay's
+   * reason -- no role is one -- and because without it a field at rest is the same
+   * bytes as a label: it is what says the field is there before anything focuses it.
    */
-  it('should declare on a role, bar nine exceptions that say why', () => {
+  it('should declare on a role, bar ten exceptions that say why', () => {
     const ROLES = [
       '.sigil-accent',
       '.sigil-muted',
@@ -97,6 +100,7 @@ describe('the framework sheet', () => {
       '.sigil-qrcode-paint',
       '.sigil-scroll-track',
       '.sigil-tabs-row:focus .sigil-tabs-active',
+      '.sigil-text-field',
       '.sigil-text-field:focus .sigil-text-field-caret',
     ];
 

@@ -1,9 +1,28 @@
-import { strip } from '../../src/ansi/index.js';
+import { type ColorLevel, strip } from '../../src/ansi/index.js';
+import {
+  ATTR,
+  CellBuffer,
+  DEFAULT_COLOR,
+  Painter,
+  palette,
+  type Style,
+  StyleTable,
+} from '../../src/canvas/index.js';
 import { openModal } from '../../src/components/modal.js';
 import { TextField } from '../../src/components/text-field.js';
-import { box, type Element, renderToLines, renderToString, text } from '../../src/element/index.js';
+import {
+  arrange,
+  box,
+  type Element,
+  paint,
+  renderToLines,
+  renderToString,
+  resolveStyles,
+  text,
+} from '../../src/element/index.js';
 import { createInput, ESCAPE_TIMEOUT, type KeyEvent } from '../../src/input/index.js';
 import { flush, State } from '../../src/signals/index.js';
+import { type ColorScheme, Restyler } from '../../src/style/index.js';
 import { alt, createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -68,9 +87,10 @@ describe('TextField()', () => {
 
   it('should draw the placeholder in the muted role, the caret cell included', () => {
     // unfocused, a hint whose first letter alone is at full strength reads as
-    // something typed
+    // something typed. The field's own background is on every cell, so the dim is
+    // opened with it and closed after the fourth letter, the caret's cell among them
     const out = coloured(TextField({ placeholder: 'Find' }));
-    expect(out).toBe(`${ESC}[2mFind${ESC}[0m`);
+    expect(out).toMatch(new RegExp(`^${ESC}\\[2;\\d+mFind${ESC}\\[22m`));
   });
 
   it('should draw the caret only while it has the focus', async () => {
@@ -102,6 +122,151 @@ describe('TextField()', () => {
   it('should keep a class the caller gave it', () => {
     const field = TextField({ props: { class: 'name' } });
     expect(field.classes).toEqual(['name', 'sigil-text-field']);
+  });
+});
+
+/**
+ * A field at rest: what says it is a field before anything focuses it.
+ *
+ * Read off the cell grid rather than off a string, because the question is the
+ * background of each cell -- including the room to the right of the value, which a
+ * string with its trailing blanks trimmed cannot see -- and both schemes are asked,
+ * because the pair is different in each and a light terminal is the half nobody
+ * looks at.
+ */
+describe('a field at rest', () => {
+  const W = 16;
+
+  /** A label over the field, painted, and the cells of both rows read back. */
+  function cells(
+    field: Element,
+    colorScheme: ColorScheme,
+    opts: { colorLevel?: ColorLevel; sheets?: string[]; theme?: string } = {}
+  ) {
+    const cascade = themedCascade({ colorScheme, sheets: opts.sheets, theme: opts.theme });
+    if (opts.colorLevel !== undefined) {
+      cascade.media = { ...cascade.media, colorLevel: opts.colorLevel };
+    }
+    const styles = new StyleTable();
+    const buffer = new CellBuffer(W, 2);
+    const root = box({ 'flex-direction': 'column', width: W }, text('Name'), field);
+    resolveStyles(root, new Restyler(cascade));
+    arrange(root, { height: 2, width: W });
+    paint(root, new Painter(buffer, styles));
+
+    const row = (y: number): Style[] =>
+      Array.from({ length: W }, (_, x) => styles.get(buffer.styleAt(x, y)));
+    return { field: row(1), label: row(0), line: buffer.toLines()[1] ?? '' };
+  }
+
+  const PAIR = { dark: palette(8), light: palette(7) } as const;
+  const SCHEMES = ['dark', 'light'] as const;
+
+  it('should not be the same bytes as a label', () => {
+    // the defect as filed: an unfocused field was its value and nothing else
+    expect(coloured(TextField({ value: 'parser.ts' }))).not.toBe(coloured(text('parser.ts')));
+  });
+
+  it('should paint gray behind a field on a dark terminal and white on a light one', () => {
+    for (const scheme of SCHEMES) {
+      const g = cells(TextField({ value: 'parser.ts' }), scheme);
+
+      expect(g.line, scheme).toBe('parser.ts       ');
+      // every cell of the row, the room to the right of the value included, which
+      // is where the typing goes and what an underline would have left unmarked
+      expect(
+        g.field.map((cell) => cell.bg),
+        scheme
+      ).toEqual(Array(W).fill(PAIR[scheme]));
+      // and the label above it is on the terminal's own background
+      expect(
+        g.label.map((cell) => cell.bg),
+        scheme
+      ).toEqual(Array(W).fill(DEFAULT_COLOR));
+    }
+  });
+
+  it('should keep the background when the field takes the focus', () => {
+    // the caret already says which field the keys go to, so the focus adds the
+    // caret and nothing else
+    for (const scheme of SCHEMES) {
+      const field = TextField({ value: 'parser.ts' });
+      field.setState('focus', true);
+      flush();
+      const g = cells(field, scheme);
+
+      expect(
+        g.field.map((cell) => cell.bg),
+        scheme
+      ).toEqual(Array(W).fill(PAIR[scheme]));
+      expect(g.field[9]?.attrs, scheme).toBe(ATTR.inverse);
+      expect(g.field[8]?.attrs, scheme).toBe(ATTR.none);
+    }
+  });
+
+  it('should keep the placeholder muted on the background', () => {
+    // dim on a dark terminal and gray on a light one, which is the muted role's
+    // own pair -- on white, gray is a different index from the background, so the
+    // hint is not drawn in the colour it sits on
+    const dark = cells(TextField({ placeholder: 'name' }), 'dark').field.slice(0, 4);
+    expect(dark.map((cell) => [cell.bg, cell.attrs])).toEqual(
+      Array(4).fill([palette(8), ATTR.dim])
+    );
+
+    const light = cells(TextField({ placeholder: 'name' }), 'light').field.slice(0, 4);
+    expect(light.map((cell) => [cell.bg, cell.fg, cell.attrs])).toEqual(
+      Array(4).fill([palette(7), palette(8), ATTR.none])
+    );
+  });
+
+  it('should keep the background on a disabled field, and mute its value', () => {
+    // a field that cannot be edited now is still a field; the muted value is what
+    // says not now
+    for (const scheme of SCHEMES) {
+      const g = cells(TextField({ disabled: true, value: 'parser.ts' }), scheme);
+
+      expect(
+        g.field.map((cell) => cell.bg),
+        scheme
+      ).toEqual(Array(W).fill(PAIR[scheme]));
+      expect(g.field[0], scheme).toMatchObject(
+        scheme === 'dark' ? { attrs: ATTR.dim } : { attrs: ATTR.none, fg: palette(8) }
+      );
+    }
+  });
+
+  it('should drop the background at colour level 0, where a field at rest is its value again', () => {
+    // the known cost: degradation drops every colour there, the caret's inverse
+    // with it, and nothing in the sheet can say otherwise
+    for (const scheme of SCHEMES) {
+      const g = cells(TextField({ value: 'parser.ts' }), scheme, { colorLevel: 0 });
+      expect(
+        g.field.map((cell) => cell.bg),
+        scheme
+      ).toEqual(Array(W).fill(DEFAULT_COLOR));
+    }
+    const plain = { cascade: themedCascade(), colorLevel: 0 as const, width: W };
+    expect(renderToString(TextField({ value: 'parser.ts' }), plain)).toBe(
+      renderToString(text('parser.ts'), plain)
+    );
+  });
+
+  it('should let a theme restyle the background and an app take it away', () => {
+    for (const scheme of SCHEMES) {
+      const themed = cells(TextField({ value: 'ab' }), scheme, {
+        theme: '.sigil-text-field { background-color: blue }',
+      });
+      expect(themed.field[0]?.bg, scheme).toBe(palette(4));
+
+      // an ordinary one-class rule at origin app, with no specificity contest
+      const bare = cells(TextField({ value: 'ab' }), scheme, {
+        sheets: ['.sigil-text-field { background-color: default }'],
+      });
+      expect(
+        bare.field.map((cell) => cell.bg),
+        scheme
+      ).toEqual(Array(W).fill(DEFAULT_COLOR));
+    }
   });
 });
 
