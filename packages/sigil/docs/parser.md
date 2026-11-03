@@ -73,7 +73,11 @@ ignored, and a name string with no label at all throws.
 Aliases can also be given as a property. A property alias answers to argv like
 any other but is never printed in help — not on the command's row and not in
 its `Alias:` block — so it is the spelling for a name that should work without
-being advertised, such as an old name kept for compatibility:
+being advertised, such as an old name kept for compatibility. The other
+listings follow help: shell completion does not offer it, though a typed one
+still completes the command's options, and the `sigil reference` markdown does
+not list it. The surface snapshot does record it, because it is still something
+argv accepts:
 
 ```js
 const schema = {

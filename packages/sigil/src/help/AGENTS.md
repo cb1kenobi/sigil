@@ -235,3 +235,14 @@ the entry it belongs to.
   name-string syntax is a mistake to say out loud rather than to guess at. Only
   the first character is checked: `l!` is a name, if an odd one. Covered by
   `test/help/help.test.ts` and `test/parser/regressions.test.ts`.
+
+  **The label is read by one function, and help is one of three readers.**
+  SIG-225 left shell completion and the `sigil reference` markdown listing
+  every alias, and SIG-229 brought both in line, because each is a listing. The
+  split that was `helpNames()` here is `labelNames()` in
+  `src/parser/command/label.ts` now, so the menu, the reference and this screen
+  ask one function which names a command publishes rather than each splitting
+  `label` themselves. What still reads `aliases` is everything that matches a
+  typed word -- the parser, "did you mean", the palette's search, the
+  completion script's resolving arms -- and the surface snapshot, which records
+  what argv accepts rather than what a screen lists.

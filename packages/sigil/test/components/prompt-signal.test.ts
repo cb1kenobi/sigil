@@ -196,9 +196,6 @@ type LineName = {
     : K;
 }[PromptName];
 
-/** Every reason a prompt with no line form gives, by what it would take to have one. */
-const LIKE_TEXT = 'no line form yet; one is text() with its own parse, which is follow-up work';
-
 /**
  * The rows that are drawn even with accessible mode on, and why.
  *
@@ -214,15 +211,9 @@ const DRAWN_ONLY = {
   editor:
     'its question is drawn, and what it is for is handing the terminal to another ' +
     'program, which no line form can stand in for',
-  list: LIKE_TEXT,
-  maskedText: LIKE_TEXT,
-  number: LIKE_TEXT,
-  path: LIKE_TEXT,
   runPrompt:
-    'the engine of the drawn path; the line forms run on runLine(), which is not ' +
-    'exported, and every row below is the line path asked through its prompt',
-  selectKey: 'no line form yet; one is select() numbered by its keys, which is follow-up work',
-  toggle: 'no line form yet; one is confirm() with its two names, which is follow-up work',
+    'the engine of the drawn path; its line twin is runLinePrompt(), exempt above, ' +
+    'and every row below is the line path asked through its prompt',
 } satisfies Record<Exclude<keyof typeof prompts, LineName>, string>;
 
 /** How a prompt settled, with the handler attached before anything can reject. */

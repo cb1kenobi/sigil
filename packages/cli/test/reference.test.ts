@@ -276,6 +276,32 @@ describe('the markdown reference', () => {
     expect(JSON.stringify(snapshotOf(it))).toContain('"--clean"');
   });
 
+  it('should list a name-string alias and leave an alias property out', async () => {
+    // help's rule: the `alias` property is the spelling that answers without
+    // being advertised, and a reference is a listing, so it follows
+    const it = await surface({
+      commands: { 'remove, rm': { alias: 'del', run() {} }, undo: { alias: 'u', run() {} } },
+    });
+    const pages = referencePages(it);
+    const remove = pageFor(pages, 'remove.md');
+
+    expect(remove).toContain('## Aliases\n\n- `mycli rm`');
+    expect(remove).not.toContain('del');
+    // a command whose only alias is a property one has no aliases to list, so
+    // no heading over an empty list
+    expect(pageFor(pages, 'undo.md')).not.toContain('## Aliases');
+    expect(referenceDocument(it)).not.toMatch(/mycli (?:del|u)`/u);
+    // and the *snapshot* keeps both, because both still reach the command:
+    // removing a property alias breaks every script that typed it
+    const tokens = (snapshotOf(it) as { commands: { path: string[]; tokens: string[] }[] }).commands
+      .filter((cmd) => cmd.path.length === 1)
+      .map((cmd) => cmd.tokens);
+    expect(tokens).toStrictEqual([
+      ['remove', 'del', 'rm'],
+      ['undo', 'u'],
+    ]);
+  });
+
   it('should refuse two commands that want one file', async () => {
     // a flat directory has no separator a route name cannot contain, so this is
     // reachable by a command genuinely called `db-migrate` beside a `db migrate`
@@ -823,7 +849,7 @@ describe('the markdown reference', () => {
   it('should spell an alias at the position it is typed in', async () => {
     const body = pageFor(
       referencePages(
-        await surface({ commands: { db: { commands: { migrate: { alias: 'm', run() {} } } } } })
+        await surface({ commands: { db: { commands: { 'migrate, m': { run() {} } } } } })
       ),
       'db-migrate.md'
     );
@@ -875,6 +901,7 @@ describe('the command surface snapshot', () => {
       desc: undefined,
       examples: [],
       hidden: false,
+      listed: path.slice(-1),
       options: [],
       path,
       runnable: true,

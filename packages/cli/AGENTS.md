@@ -3658,7 +3658,7 @@ second reader of what a surface is, wrong about half the cases. The check says
 the surface moved; the diff says which way; the list above says which way is
 which.
 
-#### Three places the two readers deliberately disagree
+#### Four places the two readers deliberately disagree
 
 The markdown and the snapshot read one surface, and each drops what the other
 needs. Which is the design rather than a wart, and it is why the walk is
@@ -3677,6 +3677,26 @@ row because printing both reads as two options that mean opposite things while
 the description describes one of them. A reference is a listing, so it follows.
 The snapshot keeps both, because both resolve: dropping `--clean` from what argv
 accepts would be a surface change, and hiding a row is not.
+
+**A property alias is printed nowhere and recorded.** The same shape as the
+negated flag's positive spelling, one level up. The `alias` property is the
+spelling that answers without being advertised, and help leaves it off both the
+row and the `Alias:` block -- "The help label is the name string's" in
+`packages/sigil/src/help` -- so the markdown's `## Aliases` follows, since a
+reference is a listing. The snapshot keeps it, because it still reaches the
+command: removing one breaks every script that typed it, and that is the change
+the check exists to catch. Until SIG-229 the markdown listed every token, which
+was help's own drift carried one surface further.
+
+Unlike the negated twin, the line is not one a printer can draw from what the
+surface already said: a token does not say whether a name string or the
+property declared it. So `SurfaceCommand` carries `listed` beside `tokens` --
+the part of `tokens` the help label publishes, answered by
+`listedTokens()` from the completion spec, which asks `labelNames()`, which is
+what help reads -- and the filter is the printer's choice of list rather than a
+model that forgot the property alias. The snapshot reads `tokens` and nothing
+else, which `should list a name-string alias and leave an alias property out`
+asserts from both sides.
 
 **Order is faithful in the surface and normalized in the snapshot.** Which
 spelling a declaration wrote first is a fact about the declaration, so the walk

@@ -390,6 +390,20 @@ describe('the command surface', () => {
       expect(at(it, 'remove').tokens).toStrictEqual(['remove', 'del', 'rm']);
     });
 
+    it('should list a name-string alias and keep a property alias out of the listing', async () => {
+      // two lists, because the two printers need different ones: the markdown
+      // follows help, where a property alias is the spelling that answers
+      // without being advertised, and the snapshot keeps every token, because
+      // removing one changes what argv accepts
+      const it = await surface({
+        commands: { 'remove, rm': { alias: 'del', run() {} } },
+      });
+
+      expect(at(it, 'remove').tokens).toStrictEqual(['remove', 'del', 'rm']);
+      expect(at(it, 'remove').listed).toStrictEqual(['remove', 'rm']);
+      expect(at(it, '').listed).toStrictEqual([]);
+    });
+
     it('should not record an alias a sibling answers to', async () => {
       // the registry keys its lookup by name *and* alias and a later
       // registration overwrites, so an alias a sibling also answers to belongs

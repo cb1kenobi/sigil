@@ -1278,7 +1278,7 @@ Everything the schema already said, at every level of the tree:
 
 | At                         | You get                                               |
 | -------------------------- | ----------------------------------------------------- |
-| `mycli <TAB>`              | the commands and every alias                          |
+| `mycli <TAB>`              | the commands and the aliases help lists               |
 | `mycli db <TAB>`           | `db`'s subcommands                                    |
 | `mycli build --<TAB>`      | `build`'s options **and** everything above it         |
 | `mycli build --mode <TAB>` | that option's `choices`                               |
@@ -1293,11 +1293,16 @@ That `--yes` row is a `bool` that **takes a value** -- `'--yes [v]'` or a
 `choices` list, which implies one. A bare flag takes nothing, so there is no
 value after it to complete and the next tab offers the next thing on the line.
 
-An **alias** is offered beside the name it belongs to, and typing one still
-completes the right subtree: `remove, rm` means `mycli rm --<TAB>` lists
-`remove`'s options. That is the one place this differs from what a palette
-lists -- a palette shows one row per command, and a completion menu is a list of
-tokens, so every token the parser takes is in it.
+An **alias** in the name string is offered beside the name it belongs to, and
+typing one still completes the right subtree: `remove, rm` means
+`mycli rm --<TAB>` lists `remove`'s options. That is the one place this differs
+from what a palette lists -- a palette shows one row per command, and a
+completion menu is a list of tokens.
+
+An alias in the `alias` property is **not** offered, which is the rule help
+keeps: it is the name that works without being listed, and a completion menu is
+a listing. It still resolves once typed, so `remove: { alias: 'del' }` leaves
+`del` out of the menu and `mycli del --<TAB>` still lists `remove`'s options.
 
 A `hidden` command is not offered, and neither is anything under it; nor is a
 `hidden` option. `--help`, `--version`, `--quiet` and a command's own `--format`
@@ -2833,8 +2838,9 @@ await select({ message: 'Target', choices, signal: controller.signal });
 
 A prompt that redraws a region is unusable with a screen reader, which reads what
 is written and cannot follow a repaint. **`accessible: true`**, or
-**`SIGIL_ACCESSIBLE=1`** in the environment, asks the six prompts above as plain
-lines in and lines out instead: each question is written once, what is typed is
+**`SIGIL_ACCESSIBLE=1`** in the environment, asks the six prompts above, and
+`number()`, `list()`, `path()`, `maskedText()`, `toggle()` and `selectKey()`, as
+plain lines in and lines out instead: each question is written once, what is typed is
 echoed where it is typed, and nothing already written is moved, erased or
 coloured. The cursor stays visible, so a magnifier can follow it.
 
@@ -2863,6 +2869,12 @@ Create it? (Y/n) y
 | `confirm()`                       | `(Y/n)`, then `y`, `yes`, `n` or `no` -- or the catalog's own -- and Enter alone for the default                                    |
 | `select()`                        | A numbered list and a number. Enter alone takes the choice the drawn list would open on                                             |
 | `multiselect()`                   | The same list and numbers separated by commas, with ranges (`1-3, 5`). Enter alone keeps what was ticked and `none` answers nothing |
+| `number()`                        | `text()`'s line, read by the parser and held to `min` and `max` on Enter. Up and Down do not step                                   |
+| `list()`                          | `text()`'s line, split on the separator the way the drawn field splits it                                                           |
+| `path()`                          | `text()`'s line, with `~` expanded and `root` applied. There is no completion and no list of candidates                             |
+| `maskedText()`                    | The template said once, `(format: (___) ___-____)`, and the reply read raw or formatted. A character no slot takes is refused       |
+| `toggle()`                        | Both names, `(off/on) (default: off)`, and a whole name as the reply                                                                |
+| `selectKey()`                     | The list lettered by its keys, `o) Overwrite`, and one key as the reply: not a label or a position. `expand` still lists            |
 | `selectRow()`                     | `select()` over the rows, each read as `Heading: value` pairs on one line                                                           |
 | `groupMultiselect()`              | `multiselect()` with each group as a heading that names its numbers, `Frontend (3-5)`, so a group is a range                        |
 | `sort()`                          | The list numbered, and the order wanted as those numbers (`3 1 2`); any left out follow in their order                              |
@@ -2887,8 +2899,10 @@ answers what it says.
 
 It does **not** lift the rule that a prompt needs a terminal at both ends. A line
 prompt reading a pipe would take whatever the pipe carries as its answers, and the
-variable is exported to every process in a pipeline. A prompt with no line form
-yet is drawn as usual.
+variable is exported to every process in a pipeline. Every prompt has a line form
+but two: the command palette's list of commands and `editor()`'s question are
+drawn as usual, since one is a list of commands rather than a question and the
+other hands the terminal to another program.
 
 #### A date
 
@@ -6233,11 +6247,13 @@ const surface = await commandSurface(schema);
 
 surface.program; // 'mycli'
 surface.commands; // the root first, then depth-first in name order
-surface.commands[1]; // { path: ['build'], tokens: ['build', 'b'], args, options, … }
+surface.commands[1]; // { path: ['build'], tokens: ['build', 'b'], listed: ['build', 'b'], … }
 ```
 
 Your app's whole command surface as plain data: every argv path, every token
-that reaches it, and what each one accepts. It is what
+that reaches it, and what each one accepts. `listed` is the part of `tokens`
+help prints, so it leaves out a name from the `alias` property; the markdown
+reference prints `listed` and the snapshot records `tokens`. It is what
 [`sigil reference`](../cli#the-command-reference-and-the-surface-snapshot)
 prints as markdown for a reader and as a sorted JSON snapshot for a diff, and it
 is a third reader of the registries beside `commandCatalog()` and the completion

@@ -179,8 +179,8 @@ export interface PromptOptions extends MountOptions {
 /**
  * The one option that turns a prompt into lines, on the prompts that have a line
  * form: `text()`, `password()`, `multiline()`, `confirm()`, `select()` and
- * `multiselect()`, and `number()`, `list()`, `path()`, `maskedText()`, `toggle()`
- * and `selectKey()` in modules of their own.
+ * `multiselect()` here, and every prompt in a module of its own but
+ * `commandPalette()` and `editor()`, which are drawn whatever the mode.
  */
 export interface AccessibleOptions {
   /**
