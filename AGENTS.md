@@ -76,7 +76,7 @@ Paths below are inside `packages/sigil/` unless noted.
 | `src/error-handler.ts`         | Renders an error and sets the exit code                         |
 | `src/error-hooks.ts`           | Fires `beforeError` hooks; carries state on an error            |
 | `scripts/`                     | Run by hand: generators, the terminal probe, benchmarks         |
-| `docs/parser.md`               | Parser reference: syntax, semantics, precedence                 |
+| `docs/`                        | Parser reference, getting started, migrating from cli-kit       |
 | `test/parser/commander/`       | Ported Commander test cases                                     |
 | `test/parser/yargs/`           | Ported yargs-parser test cases                                  |
 
