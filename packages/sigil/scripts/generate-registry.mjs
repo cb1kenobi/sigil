@@ -191,6 +191,10 @@ const ENTRIES = [
     name: 'tooltip',
   },
   {
+    desc: 'Markdown drawn as styled text: headings, emphasis, code, lists, quotes, tables and OSC 8 links, wrapped to the terminal',
+    name: 'markdown',
+  },
+  {
     desc: 'A debug overlay: captured console output and frame stats, inside the app',
     name: 'debug-overlay',
   },

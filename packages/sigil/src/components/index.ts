@@ -555,3 +555,11 @@ export {
   type RuleView,
   ruleView,
 } from './rule.js';
+export {
+  type MarkdownAlign,
+  type MarkdownBlock,
+  type MarkdownInline,
+  markdownText,
+  parseMarkdown,
+} from './markdown-parse.js';
+export { markdown, type MarkdownOptions, type MarkdownView, markdownView } from './markdown.js';

@@ -194,9 +194,15 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
   const buffer = new CellBuffer(grid, height);
   paint(root, new Painter(buffer, styles));
 
+  // level 0 is "write no escape sequences at all", which the cascade already
+  // honours for the colours and the attributes -- and a hyperlink is not style,
+  // so nothing upstream of here can drop it. An OSC 8 in a file is the same
+  // bytes nobody asked for that an SGR would be
+  const plain = colorLevel === 0;
+
   const lines: string[] = [];
   for (let y = 0; y < height; y++) {
-    lines.push(lineOf(buffer, styles, y, grid));
+    lines.push(lineOf(buffer, styles, y, grid, plain));
   }
   return lines;
 }
@@ -219,9 +225,16 @@ export function renderToString(root: Element, opts: RenderStringOptions): string
  * @param styles - What its indices mean.
  * @param y - The row.
  * @param width - How wide the grid is.
+ * @param plain - Whether to leave the hyperlinks out, which colour level 0 asks.
  * @returns The line.
  */
-function lineOf(buffer: CellBuffer, styles: StyleTable, y: number, width: number): string {
+function lineOf(
+  buffer: CellBuffer,
+  styles: StyleTable,
+  y: number,
+  width: number,
+  plain: boolean
+): string {
   let end = width;
   while (end > 0 && isTrailingBlank(buffer, styles, end - 1, y)) {
     end--;
@@ -240,7 +253,8 @@ function lineOf(buffer: CellBuffer, styles: StyleTable, y: number, width: number
       continue;
     }
 
-    const next = styles.get(buffer.styleAt(x, y));
+    const painted = styles.get(buffer.styleAt(x, y));
+    const next = plain && painted.link !== '' ? { ...painted, link: '' } : painted;
 
     // a blank that shows nothing is written in whatever is already open, as
     // long as that also shows nothing on a blank. A paragraph is a row of

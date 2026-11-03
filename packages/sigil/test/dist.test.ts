@@ -212,6 +212,7 @@ describe('what importing the package costs', () => {
     'TextField',
     'showToast',
     'attachTooltip',
+    'markdownView',
     'qrcodeView',
     'commandPalette',
     'noteView',

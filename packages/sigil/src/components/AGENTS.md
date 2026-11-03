@@ -8702,3 +8702,118 @@ slot.
   which is a tail and a decision of its own rather than an answer. A terminal
   resized after a prompt settled keeps the layout it settled in, as every head
   does, because the widths are worked out once when the view is built.
+
+### Markdown: a subset read here, drawn through the theme (SIG-197)
+
+`src/components/markdown-parse.ts` reads, `src/components/markdown.ts` draws.
+`parseMarkdown()` returns a plain tree of blocks and inline runs, `markdownView()`
+builds it into elements and `markdown()` is the string facade, the shape `note()`
+and `noteView()` already have. `supportsHyperlinks()` in `src/ansi/` and `href` on
+a text in `src/element/` are the two pieces it needed below it; the element half
+is recorded in that directory's file.
+
+- **The subset is what a README, a changelog and `sigil reference` are made of,
+  and everything outside it is shown as written.** Read: ATX and setext headings,
+  paragraphs and hard breaks, emphasis and strong emphasis, code spans, fenced and
+  indented code, bulleted and numbered lists that nest, tight and loose, block
+  quotes, GFM pipe tables, thematic breaks, inline, reference and autolinks,
+  images, backslash escapes and eleven named entities plus the numeric ones. Not
+  read, and **not dropped**: raw HTML, `~~strike~~`, footnotes, task boxes, bare
+  URLs. Dropping a construct the parser does not know loses words the author
+  wrote -- a `<details>` block is where a README hides its long answer -- while
+  showing it as typed loses only formatting, and is what the source looks like.
+  Bare URLs are the odd one out, deliberately: a terminal already makes them
+  clickable on its own, so recognising them buys nothing on screen.
+- **The one thing left out is a YAML front matter block at the very top.** It is
+  data for a site generator, and read as CommonMark it is a thematic break
+  followed by a setext heading made of its own keys -- which is exactly what
+  `sigil reference` writes at the top of every page it gives a file of its own, so
+  the renderer the ticket names as a consumer would have drawn each of them with a
+  heading reading `description: ...`. A `---` that never closes is markdown.
+- **Emphasis and links are CommonMark's own algorithm, because nothing else gets
+  the edge cases right.** A recursive "find the closing `*`" is shorter and wrong
+  in exactly the cases the ticket listed as edge cases: delimiter runs with their
+  flanking rules, a `]` that looks back for its `[`, closer-by-closer matching with
+  the rule of three, no link inside a link. So an unterminated `*` is an `*`,
+  `snake_case_name` is one word, `*foo**bar*` is one emphasis, and `***x***` is
+  strong inside emphasis -- each pinned. The openers a closer has failed against
+  are remembered by the token it stopped at, so a long run of unmatched
+  delimiters is not searched per closer. **What is not bounded** is a long run of
+  `](` with no space in it, where every `]` scans to the end for a destination:
+  measured at about a second for 32 KB of `[a](`. The input is the app's own
+  document rather than somebody else's, which is why it is written down rather
+  than paid for with a limit that would refuse a long `data:` image.
+- **The simplifications are uniform rather than case by case.** A tab is expanded
+  to the next stop of four everywhere before anything is read -- CommonMark expands
+  only where a column is being decided, and a tab counted two ways in one line is
+  how two readers come to disagree. A link reference definition is one line. A
+  list is loose when a blank line sits between items or between two blocks of one
+  item, which a blank inside a nested list does not count towards, because the
+  nested list consumes its own.
+- **A word is cut at white space, not at the edge of a run.** A paragraph is a
+  wrapping row of one-word elements -- the construction `paragraph()` uses, which
+  is how inline styling works with no inline layout -- and `paragraph()` makes one
+  element per word _per run_, so `**bold**,` came out as `bold ,`: a gap between
+  the bold word and its comma. Here a word may be several pieces in several styles
+  with no gap between them. A word in several styles that is wider than its line
+  is made one text in the style of its longest piece, because a row of texts
+  breaks only between them: a URL folded over three lines put its full stop on a
+  fourth of its own. In practice that is a written-out URL with punctuation after
+  it, which is muted either way.
+- **A link is OSC 8 only where the terminal is known to draw one, and otherwise
+  its URL is written after its words.** The cost of each wrong guess is not the
+  same size: a hyperlink on a terminal that silently swallows OSC 8 prints the
+  words and loses the address, with nothing on screen to say there was one; a URL
+  written out on a terminal that could have linked it is longer and complete. So
+  `supportsHyperlinks()` is a list of terminals that say yes, an unknown terminal
+  is a no, and `FORCE_HYPERLINK` is the override for the rest. Colour level 0 is
+  always the written-out form, because it means "write no escape sequence", and a
+  hyperlink is one. An autolink does not say its URL twice. A relative link is
+  resolved against `baseUrl` and otherwise shown and **never** linked, since a
+  terminal has nothing to resolve it against; a `#fragment` is its words alone,
+  since it points into a document that is not on screen as one. A URL holding a
+  control character is neither linked nor shown: the element would refuse it, and
+  a text would draw it with the character dropped -- a URL that is not the one the
+  document holds. What OSC 8 cannot carry is percent-encoded.
+- **Each word of a link is linked, and the gaps between them are not.** The gap is
+  an unpainted cell, so the underline and the link close at each space and reopen
+  at the next word. Painting the gaps would mean a link knowing it is several
+  elements, which is inline layout under another name. Clicking any word of it
+  opens it, which is what a link is for.
+- **Every colour is a role, and the three things that are not colours are the
+  sheet's three new exceptions.** A heading is `.sigil-heading`, the first level
+  with `.sigil-accent` too -- a terminal has one size of type, so six levels come
+  out as two looks by default, and a `.sigil-markdown-hN` per level is there for a
+  theme that wants six. Code, inline and in a block, and a link are the accent; a
+  list marker, the quote bar, a written-out URL and an image's description are
+  muted, which is what `outline()` does with its markers. Emphasis, strong emphasis
+  and a link are italic, bold and underlined by `.sigil-markdown-em`, `-strong` and
+  `-link`, recorded under "Themes" in `src/theme`: they are what the author wrote,
+  not a colour, and strong is not the heading role or a magenta heading would take
+  every strong word with it. An image inside a link takes the link's style rather
+  than muted, so that one element never carries two roles that set one property --
+  which the light half of muted (`color: gray`) and the accent both would.
+- **A table is `table()`'s classes and is narrowed to fit.** `.sigil-table`,
+  `-row`, `-cell` and `-head`, so a theme written for one reaches both. Where
+  `table()` lets a long row run past the edge -- a log, where the terminal wraps
+  it -- a document is read in the terminal, so its widest column gives up a column
+  at a time until the table fits, and the cells wrap. A muted rule goes under the
+  heading row, which `table()` does not draw: at colour level 0 bold is gone and
+  nothing else tells the heading from the rows. Columns are measured with
+  `stringWidth()`, so CJK and emoji line up.
+- **Code is folded by columns, not wrapped at a space.** A wrap moves characters,
+  and code is what a reader copies. Folded at build time because a string is laid
+  out as wide as its widest line, and a terminal wrapping a code line instead
+  would start the rest of it at column zero, outside the block.
+- **The quote bar is a `raw`.** It paints its character down however many rows the
+  quote came to, which a text cannot: it would have to know the height before the
+  layout had worked it out. ASCII where `unicodeSupported()` says no, with the
+  bullets and the rules.
+- **What it cost.** `dist/components.mjs` went from 184,052 B to 200,422 B when it
+  landed, the parser and the renderer together -- a measurement of this change,
+  not of the tree.
+- **Deliberately out.** A highlight seam for code blocks: `diff()` and
+  `multiline()` take one, and a block's `info` is carried in the tree for the day
+  this does, but a grammar is the app's and one more seam is one more contract.
+  Multi-line reference definitions, HTML entities beyond the eleven, and anything
+  CommonMark calls an extension.

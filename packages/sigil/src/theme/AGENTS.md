@@ -80,8 +80,16 @@ the entry it belongs to.
   row is the focusable element and the active label is the one thing its keys
   change, so only that label shows the focus. The ninth (SIG-215) is the text
   field's caret, `inverse` a fifth time under the field's `:focus`: a form holds
-  several fields and only the one the keys go to may show a caret. `should
-  declare on a role, bar nine exceptions that say why` is the invariant, and it
+  several fields and only the one the keys go to may show a caret. The tenth,
+  eleventh and twelfth (SIG-197) are markdown's `.sigil-markdown-em`,
+  `-strong` and `-link` -- italic, bold and underline -- and they share one reason
+  that none of the nine before them has: they are what the words _mean_, which the
+  author of the document wrote, rather than a colour anybody picked, and that is
+  the user-agent sheet's answer to `<em>` and `<strong>` too. Strong is not
+  `.sigil-heading` though both are bold, because a role is restyled whole and a
+  theme that coloured headings would have coloured every strong word in a
+  paragraph. Everything else markdown draws is on a role. `should
+  declare on a role, bar twelve exceptions that say why` is the invariant, and it
   reads the **parsed** sheet rather than the source, because the comment listing
   the component classes as hooks would otherwise be mistaken for a rule. It was
   three until SIG-136, and the sentence here still said three for a commit after

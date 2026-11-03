@@ -196,6 +196,15 @@ export const FRAMEWORK_CSS = `
  *   .sigil-toast-message  .sigil-toast-note  .sigil-toast-info
  *   .sigil-toast-success  .sigil-toast-warning  .sigil-toast-error
  *   .sigil-tooltip  .sigil-tooltip-fill  .sigil-tooltip-text
+ *   .sigil-markdown  .sigil-markdown-paragraph  .sigil-markdown-heading
+ *   .sigil-markdown-h1  .sigil-markdown-h2  .sigil-markdown-h3
+ *   .sigil-markdown-h4  .sigil-markdown-h5  .sigil-markdown-h6
+ *   .sigil-markdown-code  .sigil-markdown-code-block  .sigil-markdown-quote
+ *   .sigil-markdown-quote-bar  .sigil-markdown-quote-body  .sigil-markdown-list
+ *   .sigil-markdown-ol  .sigil-markdown-ul  .sigil-markdown-item
+ *   .sigil-markdown-item-body  .sigil-markdown-marker  .sigil-markdown-url
+ *   .sigil-markdown-image  .sigil-markdown-table  .sigil-markdown-table-rule
+ *   .sigil-markdown-cell
  * A class with no rule is still a hook; giving it an empty rule would be a
  * declaration that says nothing and a line for somebody to wonder about. Most of
  * them are here because a role carries what they used to say, which is the point
@@ -280,6 +289,26 @@ export const FRAMEWORK_CSS = `
  * not shown, which is the prompt caret's own answer at that level.
  */
 .sigil-text-field:focus .sigil-text-field-caret { inverse: true }
+
+/*
+ * markdown
+ *
+ * The tenth, eleventh and twelfth declared exceptions to the role rule, and one
+ * reason for all three: they are what the words *mean* rather than a colour
+ * anybody chose. An emphasis is italic, a strong emphasis is bold and a link is
+ * underlined because that is what the author wrote, which is the user-agent
+ * sheet's answer to the same question -- and no role is any of them. The bold one
+ * is not .sigil-heading, which also says bold: a theme that made headings magenta
+ * would have made every strong word in a paragraph magenta with them. Everything
+ * else markdown draws is a role -- a heading is .sigil-heading, code and a link
+ * are .sigil-accent, a list marker, a quote bar and a shown URL are .sigil-muted
+ * -- so these three are the whole of what it adds. At colour level 0 the
+ * attributes are dropped with every other one, and a link says where it goes in
+ * words instead.
+ */
+.sigil-markdown-em { font-style: italic }
+.sigil-markdown-strong { font-weight: bold }
+.sigil-markdown-link { text-decoration: underline }
 
 /*
  * the debug overlay

@@ -198,6 +198,19 @@ export interface ElementProps {
   class?: string | readonly string[];
   /** Whether the focus ring stops here. A `tabindex` implies it. */
   focusable?: boolean;
+  /**
+   * Where a `text` links to, as an OSC 8 hyperlink over the cells it draws.
+   *
+   * Content rather than style, which is why it is a reserved name and not a
+   * property: a URL is not something a theme restyles. Read by a `text` alone and
+   * not inherited -- the cells a link covers are the cells its words draw, so a
+   * box has none of its own to give one. Whether the destination draws a link at
+   * all is the caller's question, `supportsHyperlinks()` answers it, and a string
+   * rendered at colour level 0 leaves the sequence out with the colour. A URL
+   * holding a control character is refused here, where it was given, rather than
+   * at paint, where the canvas would refuse it a frame later and far away.
+   */
+  href?: string;
   id?: string;
   key?: number | string;
   /**
@@ -366,6 +379,7 @@ export class Element implements LayoutNode {
   #text = '';
   #raw: RawOptions | undefined;
   #focusable = false;
+  #href = '';
   #tabIndex: number | undefined;
   #selectable: boolean | undefined;
   #scrolling = false;
@@ -422,6 +436,11 @@ export class Element implements LayoutNode {
    */
   get focusable(): boolean {
     return this.#focusable || this.#tabIndex !== undefined;
+  }
+
+  /** Where a `text` links to, or `''` for nowhere. */
+  get href(): string {
+    return this.#href;
   }
 
   /** Where in the ring this element sits, if it asked not to be in tree order. */
@@ -907,6 +926,20 @@ export class Element implements LayoutNode {
           // paint rather than classes: no selector matches on it and no box
           // moves, and what does change is which cells the selection overlay
           // covers -- which is drawn by the paint pass, from the live selection
+          this.#mark('paint');
+        }
+      } else if (name === 'href') {
+        const next = value === undefined ? '' : String(value);
+        // an OSC sequence runs until its terminator, so one hidden in the URL
+        // ends it early and the rest reaches the terminal as commands -- and a
+        // link built out of somebody's input is the ordinary case
+        if (/\p{Cc}/u.test(next)) {
+          throw new TypeError('Invalid href: control characters would end the link early');
+        }
+        if (next !== this.#href) {
+          this.#href = next;
+          // paint rather than classes: no selector matches on it and no box
+          // moves, and what changes is the style of the cells the text draws
           this.#mark('paint');
         }
       } else if (name === 'tabindex') {

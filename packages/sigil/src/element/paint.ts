@@ -593,7 +593,10 @@ export function paint(root: Element, painter: Painter): void {
 
         const inner = element.content ?? area;
         if (element.type === 'text') {
-          paintText(into, element, inner, cell);
+          // the link is the text's own and goes on its glyphs alone, which is
+          // why it is added here rather than in `cellStyle()`: a background or a
+          // border is the box's, and a fill under a linked word is not a link
+          paintText(into, element, inner, element.href ? { ...cell, link: element.href } : cell);
         } else if (element.type === 'raw') {
           element.rawPaint?.(into, inner, element);
         }
