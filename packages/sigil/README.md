@@ -2838,9 +2838,8 @@ await select({ message: 'Target', choices, signal: controller.signal });
 
 A prompt that redraws a region is unusable with a screen reader, which reads what
 is written and cannot follow a repaint. **`accessible: true`**, or
-**`SIGIL_ACCESSIBLE=1`** in the environment, asks the six prompts above, and
-`number()`, `list()`, `path()`, `maskedText()`, `toggle()` and `selectKey()`, as
-plain lines in and lines out instead: each question is written once, what is typed is
+**`SIGIL_ACCESSIBLE=1`** in the environment, asks every prompt but the command
+palette's list and `editor()` as plain lines in and lines out instead: each question is written once, what is typed is
 echoed where it is typed, and nothing already written is moved, erased or
 coloured. The cursor stays visible, so a magnifier can follow it.
 
