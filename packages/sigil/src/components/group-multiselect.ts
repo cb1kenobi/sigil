@@ -26,6 +26,7 @@ import {
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
+  promptAnswerSlot,
   promptChoice,
   promptFooter,
   promptHeadLine,
@@ -240,9 +241,9 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
   }
 
   return runPrompt<T[]>(opts, () => {
-    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark } = promptHeadLine(opts.message, head.message, answer);
+    const answer = promptAnswerSlot(head.rest);
+    const { line, mark } = promptHeadLine(opts.message, head.message, answer.beside);
 
     const views = rows.map((row): RowView => {
       // the cursor on every row, hidden where it is not the active one, for the
@@ -351,6 +352,7 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
+      answer.under,
       list,
       description,
       box({ 'padding-left': 2 }, problem),
@@ -420,7 +422,7 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
 
       settle(values: T[]): void {
         promptAnswered(mark);
-        answer.setText(
+        answer.show(
           values.length
             ? [...ticked]
                 .sort((a, b) => a - b)
@@ -428,7 +430,6 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
                 .join(', ')
             : __`none`
         );
-        answer.setProps({ display: 'flex' });
         list.setProps({ display: 'none' });
         description.setProps({ display: 'none' });
         footer.setProps({ display: 'none' });

@@ -34,6 +34,7 @@ import {
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
+  promptAnswerSlot,
   promptHeadLine,
   promptHeadWidths,
   type PromptOptions,
@@ -254,7 +255,8 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
       'white-space': 'nowrap',
     });
     const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark } = promptHeadLine(opts.message, head.message, dirText);
+    const settled = promptAnswerSlot(head.rest);
+    const { line, mark } = promptHeadLine(opts.message, head.message, dirText, settled.beside);
     const complaint = promptNote('sigil-prompt-error sigil-error');
     const empty = textNode(__`No matches`, {
       class: 'sigil-filepicker-empty sigil-muted',
@@ -269,6 +271,7 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
     const view = box(
       { class: 'sigil-filepicker', 'flex-direction': 'column' },
       line,
+      settled.under,
       box({ 'padding-left': 2 }, complaint),
       list,
       empty
@@ -437,8 +440,11 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
       settle(answer: string): void {
         finished = true;
         promptAnswered(mark);
-        dirText.setText(answer);
-        dirText.setProps({ class: 'sigil-prompt-answer sigil-muted' });
+        // the directory is cut from the front to fit beside the question, which
+        // is right for where the list is and wrong for the answer: that settles
+        // whole, in the slot every prompt settles in
+        dirText.setProps({ display: 'none' });
+        settled.show(answer);
         setPromptNote(complaint, undefined);
         // what is left is the question and its answer, the one line worth
         // keeping in a log

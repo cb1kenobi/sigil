@@ -25,6 +25,7 @@ import {
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
+  promptAnswerSlot,
   promptChoice,
   promptFooter,
   promptHeadLine,
@@ -255,9 +256,9 @@ export function sort<T = string>(opts: SortOptions<T>): Promise<T[]> {
   }
 
   return runPrompt<T[]>(opts, () => {
-    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark } = promptHeadLine(opts.message, head.message, answer);
+    const answer = promptAnswerSlot(head.rest);
+    const { line, mark } = promptHeadLine(opts.message, head.message, answer.beside);
     const list = box({ class: 'sigil-sort-list', 'flex-direction': 'column' });
 
     /** Moves the highlight, or the row being carried, to a place. */
@@ -315,6 +316,7 @@ export function sort<T = string>(opts: SortOptions<T>): Promise<T[]> {
     const view = box(
       { class: 'sigil-prompt sigil-sort', 'flex-direction': 'column' },
       line,
+      answer.under,
       list,
       footer
     );
@@ -360,8 +362,7 @@ export function sort<T = string>(opts: SortOptions<T>): Promise<T[]> {
 
       settle(): void {
         promptAnswered(mark);
-        answer.setText(order.map((choice) => choice.short ?? choice.label).join(', '));
-        answer.setProps({ display: 'flex' });
+        answer.show(order.map((choice) => choice.short ?? choice.label).join(', '));
         list.setProps({ display: 'none' });
         footer.setProps({ display: 'none' });
       },

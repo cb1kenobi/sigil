@@ -45,6 +45,7 @@ import {
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
+  promptAnswerSlot,
   promptFooter,
   promptHeadLine,
   promptHeadWidths,
@@ -615,9 +616,9 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     }
     active = top[0];
 
-    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark } = promptHeadLine(opts.message, head.message, answer);
+    const answer = promptAnswerSlot(head.rest);
+    const { line, mark } = promptHeadLine(opts.message, head.message, answer.beside);
     const complaint = promptNote('sigil-prompt-error sigil-error');
     const list = box({ class: 'sigil-tree-list', 'flex-direction': 'column' });
 
@@ -726,6 +727,7 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     const view = box(
       { class: 'sigil-prompt sigil-tree-select', 'flex-direction': 'column' },
       line,
+      answer.under,
       box({ 'padding-left': 2 }, complaint),
       list,
       footer
@@ -823,8 +825,7 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
       settle(): void {
         finished = true;
         promptAnswered(mark);
-        answer.setText(chosen);
-        answer.setProps({ display: 'flex' });
+        answer.show(chosen);
         setPromptNote(complaint, undefined);
         footer.setProps({ display: 'none' });
         list.setProps({ display: 'none' });

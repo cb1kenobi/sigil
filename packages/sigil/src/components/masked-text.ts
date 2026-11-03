@@ -30,6 +30,7 @@ import { graphemes } from '../width/index.js';
 import { boundary, pastedLine, typedText } from './editing.js';
 import {
   promptAnswered,
+  promptAnswerSlot,
   promptHeadLine,
   promptHeadWidths,
   PromptError,
@@ -385,11 +386,13 @@ export function maskedText(opts: MaskedTextOptions): Promise<string> {
     const after = textNode('', { 'white-space': 'nowrap' });
     const field = box({ class: 'sigil-prompt-field' }, before, caret, after);
     const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark } = promptHeadLine(opts.message, head.message, field);
+    const settled = promptAnswerSlot(head.rest);
+    const { line, mark } = promptHeadLine(opts.message, head.message, field, settled.beside);
     const complaint = promptNote('sigil-prompt-error sigil-error');
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
+      settled.under,
       box({ 'padding-left': 2 }, complaint)
     );
     const placeholder = opts.placeholder ?? fallback;
@@ -490,11 +493,10 @@ export function maskedText(opts: MaskedTextOptions): Promise<string> {
 
       settle(answer: string): void {
         promptAnswered(mark);
-        before.setText('');
-        caret.setText('');
-        caret.setProps({ class: '' });
-        after.setText(answer);
-        after.setProps({ class: 'sigil-prompt-answer sigil-muted' });
+        // the field is `nowrap` and was cut to what the head left it, so the
+        // answer settles in the slot every prompt settles in, `text()`'s reason
+        field.setProps({ display: 'none' });
+        settled.show(answer);
         setPromptNote(complaint, undefined);
       },
 

@@ -25,53 +25,15 @@ import {
   text,
   toggle,
 } from '../../src/components/index.js';
-import type * as Components from '../../src/components/index.js';
 import { commandPalette } from '../../src/components/palette.js';
 import { box, text as textNode } from '../../src/element/index.js';
 import { createInput } from '../../src/input/index.js';
 import { parse } from '../../src/parser/parse.js';
-import { type ScreenHarness, screenSetup, tick } from './helpers.js';
+import { type PromptName, type ScreenHarness, screenSetup, tick } from './helpers.js';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
 /** Asks one prompt the smallest question it will take, under `signal`. */
 type Ask = (ui: ScreenHarness, signal: AbortSignal) => Promise<unknown>;
-
-/**
- * Whether an argument is an options object that takes an `AbortSignal`.
- *
- * The value's type is asked as well as the key, because `resolveEditor()` takes
- * a `Record<string, string | undefined>` and `'signal'` is a key of that too.
- */
-type TakesSignal<P> = P extends object
-  ? 'signal' extends keyof P
-    ? [AbortSignal] extends [P['signal' & keyof P]]
-      ? true
-      : never
-    : never
-  : never;
-
-/**
- * Every export of `@ttylabs/sigil/components` that is a prompt, worked out from
- * the barrel rather than written down: a function that answers with a promise
- * and takes an `AbortSignal` in its options.
- *
- * Derived, so that the list is the one thing nobody can forget to update. A
- * prompt is in this union the moment it is exported, and `prompts` below fails
- * the type-check until it has a row there or a reason in `EXEMPT`. Everything
- * else the barrel exports -- an element, a view, a helper, a type -- answers
- * with no promise or takes no signal, so it is out of the union without anybody
- * having to say so. The guard is `tsc` rather than the runner: `pnpm check`
- * covers `./test`, and a runtime cannot see a type.
- */
-type PromptName = {
-  [K in keyof typeof Components]: (typeof Components)[K] extends (
-    ...args: infer A
-  ) => Promise<unknown>
-    ? [TakesSignal<NonNullable<A[number]>>] extends [never]
-      ? never
-      : K
-    : never;
-}[keyof typeof Components];
 
 /** What answers with a promise and takes a signal and is still not a prompt, and why. */
 const EXEMPT = {

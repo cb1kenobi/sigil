@@ -33,6 +33,7 @@ import {
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
+  promptAnswerSlot,
   promptFooter,
   promptHeadLine,
   promptHeadWidths,
@@ -314,7 +315,6 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
   }
 
   return runPrompt<R>(opts, () => {
-    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const header = head
       ? box({
           class: 'sigil-table-select-head',
@@ -322,7 +322,8 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
         })
       : undefined;
     const headRoom = promptHeadWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark } = promptHeadLine(opts.message, headRoom.message, answer);
+    const answer = promptAnswerSlot(headRoom.rest);
+    const { line, mark } = promptHeadLine(opts.message, headRoom.message, answer.beside);
     const list = box({ class: 'sigil-table-select-list', 'flex-direction': 'column' });
     const position = textNode('', {
       class: 'sigil-table-position sigil-muted',
@@ -359,7 +360,7 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
     const footer = promptFooter(keys, terminal.width, opts.back);
     const view = box(
       { class: 'sigil-prompt sigil-table-select', 'flex-direction': 'column' },
-      ...[line, header, list, position, footer].filter(
+      ...[line, answer.under, header, list, position, footer].filter(
         (part): part is Element => part !== undefined
       )
     );
@@ -456,7 +457,7 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
 
       settle(row): void {
         promptAnswered(mark);
-        answer.setText(
+        answer.show(
           opts.short
             ? opts.short(row)
             : (cells[data.indexOf(row)] as TableCell[])
@@ -464,7 +465,6 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
                 .filter(Boolean)
                 .join(', ')
         );
-        answer.setProps({ display: 'flex' });
         header?.setProps({ display: 'none' });
         footer.setProps({ display: 'none' });
         list.setProps({ display: 'none' });

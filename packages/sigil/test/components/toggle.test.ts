@@ -335,6 +335,23 @@ describe('toggle()', () => {
       expect(rows(ui).join(' ')).toMatch(/\bon\b/);
     });
 
+    it('should put an answer wider than the room it reserved under the question', async () => {
+      // the longer name is reserved, and the head caps that at half the line: a
+      // name wider than the cap wrapped into what was left of it
+      const ui = screenSetup({ columns: 28, rows: 6 });
+      const answer = settle(
+        open(ui, { active: 'on for every project', message: 'Enable notifications' })
+      );
+
+      await tick();
+      await type(ui.stdin, TAB, ENTER);
+      await answer;
+
+      // the question still wraps for the half line reserved, which is the head's
+      // cap doing its job while the states are up
+      expect(rows(ui)).toEqual(['? Enable', '  notifications', '  on for every project']);
+    });
+
     it('should settle to the question and the answer when the states were under it', async () => {
       const ui = screenSetup({ columns: 28, rows: 6 });
       const answer = settle(open(ui, { message: 'Enable notifications' }));

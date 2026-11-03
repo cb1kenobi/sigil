@@ -38,6 +38,7 @@ import {
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
+  promptAnswerSlot,
   promptChoice,
   promptFooter,
   promptHeadLine,
@@ -358,9 +359,9 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
     const caret = textNode('', { class: 'sigil-caret', 'white-space': 'nowrap' });
     const after = textNode('', { 'white-space': 'nowrap' });
     const field = box({ class: 'sigil-prompt-field' }, before, caret, after);
-    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark } = promptHeadLine(opts.message, head.message, field, answer);
+    const answer = promptAnswerSlot(head.rest);
+    const { line, mark } = promptHeadLine(opts.message, head.message, field, answer.beside);
     const list = box({ class: 'sigil-autocomplete-list', 'flex-direction': 'column' });
     // one line under the list for whatever there is to say about it: a refusal,
     // a lookup in flight, or that nothing matched. They are never true together
@@ -431,6 +432,7 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
     const view = box(
       { class: 'sigil-prompt sigil-autocomplete', 'flex-direction': 'column' },
       line,
+      answer.under,
       box({ 'padding-left': 2 }, list),
       box({ 'padding-left': 2 }, foot),
       ...(multi ? [box({ 'padding-left': 2 }, tally), footer as Element] : [])
@@ -735,14 +737,13 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
         caret.setText('');
         caret.setProps({ class: '' });
         after.setText('');
-        answer.setText(
+        answer.show(
           multi
             ? ticks()
                 .map((choice) => choice.short ?? choice.label)
                 .join(', ') || __`none`
             : (chosen?.label ?? '')
         );
-        answer.setProps({ display: 'flex' });
         // the list goes: what is left is the question and its answer, which is
         // the one line worth keeping in a log
         list.setProps({ display: 'none' });

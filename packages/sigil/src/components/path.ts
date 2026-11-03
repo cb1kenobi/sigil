@@ -27,6 +27,7 @@ import {
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
+  promptAnswerSlot,
   promptHeadLine,
   promptHeadWidths,
   type PromptOptions,
@@ -547,7 +548,8 @@ export function path(opts: PathOptions): Promise<string> {
     const after = textNode('', { 'white-space': 'nowrap' });
     const field = box({ class: 'sigil-prompt-field' }, before, caret, after);
     const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark } = promptHeadLine(opts.message, head.message, field);
+    const settled = promptAnswerSlot(head.rest);
+    const { line, mark } = promptHeadLine(opts.message, head.message, field, settled.beside);
     const complaint = promptNote('sigil-prompt-error sigil-error');
     const empty = textNode(__`No matches`, {
       class: 'sigil-path-empty sigil-muted',
@@ -559,6 +561,7 @@ export function path(opts: PathOptions): Promise<string> {
     const view = box(
       { class: 'sigil-path', 'flex-direction': 'column' },
       line,
+      settled.under,
       box({ 'padding-left': 2 }, complaint),
       list,
       empty
@@ -752,11 +755,10 @@ export function path(opts: PathOptions): Promise<string> {
       settle(answer: string): void {
         finished = true;
         promptAnswered(mark);
-        before.setText('');
-        caret.setText('');
-        caret.setProps({ class: '' });
-        after.setText(answer);
-        after.setProps({ class: 'sigil-prompt-answer sigil-muted' });
+        // the field is `nowrap` and was cut to what the head left it, so the
+        // answer settles in the slot every prompt settles in, `text()`'s reason
+        field.setProps({ display: 'none' });
+        settled.show(answer);
         setPromptNote(complaint, undefined);
         // the list goes: what is left is the question and its answer, which is
         // the one line worth keeping in a log
