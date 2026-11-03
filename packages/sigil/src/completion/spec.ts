@@ -489,16 +489,30 @@ export function tokensFor(parent: InternalCommand, child: InternalCommand): stri
  * both the tokens and the label came from: a placeholder's name string is the
  * one argv routes by, whatever its module calls itself.
  *
+ * A name-string alias a later sibling won was never listed here, because
+ * `tokensFor()` already drops it -- help was the one listing that printed it.
+ * `labelNames()` now asks the registry the same question for help's sake, so
+ * the half of this filter it answers drops it too. That is redundant here and
+ * known to be: removing the registry from it fails no test, since `tokensFor()`
+ * answers first. What stops the three listings drifting apart is `help listed
+ * an alias beside a command it did not run` in
+ * `test/parser/regressions.test.ts`, which compares all three.
+ *
  * Exported for the command surface, which records both lists: the markdown
  * prints this one, and the snapshot keeps every token, because removing a
  * property alias changes what argv accepts even though no listing showed it.
  *
+ * @param parent - The command whose registry holds it.
  * @param child - The subcommand, as the registry holds it.
  * @param tokens - What `tokensFor()` answered for it.
  * @returns The tokens to list, in the order `tokens` holds them.
  */
-export function listedTokens(child: InternalCommand, tokens: readonly string[]): string[] {
-  const published = new Set(labelNames(child));
+export function listedTokens(
+  parent: InternalCommand,
+  child: InternalCommand,
+  tokens: readonly string[]
+): string[] {
+  const published = new Set(labelNames(child, parent[Internal].commands));
   return tokens.filter((token) => published.has(token));
 }
 
@@ -549,7 +563,7 @@ export function segmentFor(
   }
 
   const siblings = parent[Internal].commands;
-  return [...listedTokens(child, tokens), ...tokens].find((token) => !siblings.has(token));
+  return [...listedTokens(parent, child, tokens), ...tokens].find((token) => !siblings.has(token));
 }
 
 /**
@@ -728,7 +742,7 @@ export async function completionSpec(target: CompletionTarget): Promise<Completi
 
       subcommands.push({
         desc: oneLine(loaded.desc),
-        listed: listedTokens(child, tokens),
+        listed: listedTokens(cmd, child, tokens),
         name: segment,
         tokens,
       });

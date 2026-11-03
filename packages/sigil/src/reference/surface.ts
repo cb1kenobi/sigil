@@ -549,7 +549,7 @@ export async function commandSurface(schema: Schema): Promise<CommandSurface> {
       // holds, for the reason the tokens are: its name string is the one argv
       // routes by
       commands.push(
-        commandOf(loaded, here, tokens, listedTokens(child, tokens), fallback === child)
+        commandOf(loaded, here, tokens, listedTokens(cmd, child, tokens), fallback === child)
       );
       await walk(loaded, here);
     }

@@ -246,3 +246,13 @@ the entry it belongs to.
   typed word -- the parser, "did you mean", the palette's search, the
   completion script's resolving arms -- and the surface snapshot, which records
   what argv accepts rather than what a screen lists.
+
+  **And it is handed the parent's registry, because a label is a claim about
+  what a name runs.** SIG-239. Two siblings may share an alias and the later
+  declaration wins it, so `'build, go'` beside a later `'ship, go'` printed `go`
+  on both rows while `go` ran `ship`. `labelNames(cmd, registry)` keeps a label
+  only where `find()` answers with `cmd`, asked while the screen is drawn, so
+  the `Commands:` rows and the described command's `Alias:` block both follow
+  a module that loads and takes a spelling. Why this is a listing rule and not
+  a refusal is under "What is not refused, and the case for it" in
+  `src/parser/AGENTS.md`.
