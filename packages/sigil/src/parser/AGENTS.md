@@ -1000,7 +1000,10 @@ resolution.
   no `run`, the shape this file already calls worse than an error. So the
   loaded command goes back into its parent's registry, which is the mutation a
   `parse` hook is already handed and which carries the placeholder's aliases,
-  label and `default` across. It is also what keeps `subcommandLoaded` firing
+  label and `default` across. It goes back **in the placeholder's place**,
+  through `CommandRegistry.replace()` -- it was an `add()`, which is a
+  registration and so the latest one, and that is "Siblings register in
+  declaration order" below undone for the rest of the parse. It is also what keeps `subcommandLoaded` firing
   exactly once, since the registry hands the loaded command over and nothing
   loads it again.
 
@@ -1173,6 +1176,39 @@ resolution.
   `a_b`, which every collation orders the other way, so they fail under
   `localeCompare` on any machine rather than only on one set to a language that
   disagrees.
+- **A loaded command keeps its placeholder's place, which is where it was
+  declared.** SIG-236. A `:` walk recorded what it loaded with
+  `commands.add(loaded)`, and `add()` is a registration: every spelling the
+  command names is claimed over whoever held it. So a loaded command was the
+  latest registration in its parent, and `{ db: { alias: 'x', load }, other: {
+  alias: 'x' } }` gave `x` to `other` until `db:bogus` had loaded `db`, and to
+  `db` for the rest of that parse. A module renaming the command was the
+  visible half of it -- the loaded command was keyed again at the **end** and
+  the placeholder left where it was, marked loaded, so iterating the registry
+  listed both. `CommandRegistry.replace(placeholder, loaded)` is the write-back
+  now: the same key position (re-keyed in place on a rename, with every
+  spelling that reached the placeholder reaching the renamed command), every
+  spelling the placeholder won kept, and a spelling only the module names
+  settled the way it would have been had the module been read when the schema
+  was built -- taken from a sibling declared earlier, left with one declared
+  later. A registry that no longer holds the placeholder under that name is
+  left alone: something registered a command there during the load, and that
+  is the answer to what the name is.
+- **Every load writes back, through that one operation.** The ordinary match,
+  the `default` dispatch and `help <command>` used to write nothing, so after
+  the same load the registry held the loaded command if argv had spelled it
+  `db:migrate` and the placeholder if it had spelled it `db migrate` -- two
+  registries for one event, and the second is the placeholder-marked-loaded
+  shape the `:` section records as worse than an error. All four call
+  `replace()` when `loadCommand()` hands back a different object, which is
+  also what a `subcommandLoaded` replacement is. A directory command's own
+  level is not a write-back -- `loadCommandDir()` registers the routes it found
+  for the first time, sorted -- and the completion spec and the surface walk
+  load without writing back on purpose: they read the registry's own answer
+  for who owns a token while iterating it, and they are the last reader.
+  Pinned in `a loaded command moved to the end of its parent's registry` in
+  `test/parser/regressions.test.ts`; every collision there is between two
+  aliases.
 
 ### Sharing options between commands
 

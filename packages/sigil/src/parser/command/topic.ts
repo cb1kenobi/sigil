@@ -26,11 +26,12 @@ const { log } = debug('sigil:parser:topic');
  * Loading is the half that cannot be taken back, so what a refused path leaves
  * behind is recorded rather than dropped: a level that had to be read to find
  * out whether the next segment resolves is put **back into its parent's
- * registry** as the command it loaded into. `loadCommand()` answers a second
- * call with the placeholder it was given, so a load whose result was thrown
- * away would mark that placeholder loaded and leave a later match with a
- * command carrying no `run` -- the silent shape of a command that parses and
- * does nothing. Recording it is also what keeps `subcommandLoaded` firing
+ * registry** as the command it loaded into, in the placeholder's place -- the
+ * same position and the same spellings, which is what every other load does
+ * too. `loadCommand()` answers a second call with the placeholder it was
+ * given, so a load whose result was thrown away would mark that placeholder
+ * loaded and leave a later match with a command carrying no `run` -- the
+ * silent shape of a command that parses and does nothing. Recording it is also what keeps `subcommandLoaded` firing
  * exactly once, since the registry hands the loaded command over and nothing
  * loads it again.
  *
@@ -75,8 +76,11 @@ export async function resolveTopic(
       contexts[0] = loaded;
       // the load is recorded where the placeholder was found, so that a path
       // this walk goes on to refuse has still left the registry pointing at
-      // the command that was read rather than at a placeholder marked loaded
-      parent[Internal].commands.add(loaded);
+      // the command that was read rather than at a placeholder marked loaded.
+      // Replaced in place rather than added again: an `add()` is the latest
+      // registration and would hand the loaded command every spelling it
+      // shares with a sibling declared after it
+      parent[Internal].commands.replace(found, loaded);
     }
 
     chain.push(loaded);
