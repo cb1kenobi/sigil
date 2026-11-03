@@ -1,5 +1,6 @@
 import { strip } from '../ansi/strip.js';
 import { wideRanges } from './east-asian-width.js';
+import { segment } from './segment.js';
 
 export { unicodeVersion, wideRanges } from './east-asian-width.js';
 
@@ -54,13 +55,28 @@ const hangulZeroWidth = [
   [0xd7b0, 0xd7ff], // Hangul Jamo Extended-B: the same two, and unassigned tail
 ] as const;
 
-/** Nothing outside printable ASCII, where one code unit is one column. */
+/**
+ * Printable ASCII and nothing else -- `U+0020` to `U+007E`: no control, no tab,
+ * no `ESC`, no `DEL`.
+ *
+ * That is the one set where every code unit is a grapheme cluster of its own and
+ * one column wide, so neither segmenting nor measuring it can say anything that
+ * `str.split('')` and `str.length` do not already say. No grapheme break rule
+ * joins two of these -- `CR LF` is the only pair in ASCII that does, and both
+ * are controls -- and none of them is an emoji or wide. Everything else goes to
+ * the full path rather than being reasoned about: a control has an effect rather
+ * than a width, `ESC` opens a sequence, and a printable character followed by a
+ * combining mark is one cluster with it.
+ *
+ * It is the one definition of plain text in this module, and both
+ * `stringWidth()` and `graphemes()` ask it, so the width and the clusters cannot
+ * disagree about which strings skip the segmenter. Skipping it is the point:
+ * building the first `Intl.Segmenter` in a process loads ICU.
+ */
 const asciiOnly = /^[\x20-\x7E]*$/;
 
 /** The emoji presentation selector, which asks for an emoji rendering. */
 const VS16 = 0xfe0f;
-
-let segmenter: Intl.Segmenter | undefined;
 
 /**
  * How many columns a string occupies in a terminal.
@@ -92,7 +108,7 @@ export function stringWidth(str: string): number {
   }
 
   let width = 0;
-  for (const cluster of graphemes(text)) {
+  for (const cluster of segment(text)) {
     width += graphemeWidth(cluster);
   }
   return width;
@@ -110,16 +126,16 @@ export function stringWidth(str: string): number {
  * out first -- which is the wrapper's job, because it needs them kept and put
  * back, not removed.
  *
+ * Plain ASCII is split by code unit without a segmenter, because that is what
+ * the segmenter would say about it -- see `asciiOnly` -- and building the
+ * first one in a process is what loads ICU. Anything else is segmented, and the
+ * segmenter is built the first time something is.
+ *
  * @param str - The string to split.
  * @returns The clusters, in order.
  */
 export function graphemes(str: string): string[] {
-  segmenter ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-  const clusters: string[] = [];
-  for (const { segment } of segmenter.segment(str)) {
-    clusters.push(segment);
-  }
-  return clusters;
+  return asciiOnly.test(str) ? str.split('') : segment(str);
 }
 
 /**

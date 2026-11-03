@@ -154,7 +154,9 @@ the entry it belongs to.
   agree, at medians of 47.25 against 46.97 and 47.58 against 47.15. A quarter
   to half a millisecond, then: the change stands on the order, and the 4 ms is
   there for whoever gives the wrapper's measurement an ASCII path that never
-  builds a segmenter.
+  builds a segmenter. SIG-243 did, and an all-ASCII `--help` builds none now:
+  the measurement is under "Plain ASCII never builds a segmenter" in
+  `src/width/AGENTS.md`.
 
 - **A lazily loaded command appears in help by name alone** until its module is
   read, because its description and its `hidden` are in that module. Hiding one
