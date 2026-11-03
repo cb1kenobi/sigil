@@ -14,7 +14,8 @@
  * The app also has a paste handler of its own, registered at startup, which says
  * what was pasted on the list. A paste while the field has the focus goes into the
  * field and that handler never hears of it -- a focused element is offered a paste
- * before the router's handlers are.
+ * before the router's handlers are. Nor does it hear a paste on one of the
+ * dialog's buttons, which claim nothing: the dialog stops what reaches it.
  *
  * The field is drawn on a background of its own -- bright black on a dark
  * terminal, white on a light one -- so `parser.ts` in the dialog reads as a name
@@ -184,9 +185,16 @@ if (live) {
   await term.press(KEYS.tab, KEYS.tab, KEYS.tab);
   await show('Tab x3: the field, Rename and Cancel are one ring, and it comes back round');
 
-  await term.press(KEYS.backspace, KEYS.backspace, KEYS.backspace);
+  await term.press(KEYS.tab);
+  await term.paste('todo.md');
+  await show('Tab, then a paste on Rename: the dialog keeps it, and the list hears nothing');
+  // the list's status line is under the dialog, so what it says is said in words:
+  // still the first paste, because this one never reached the app's handler
+  console.log(`the list's status line, under the dialog: ${status.text}\n`);
+
+  await term.press(KEYS.shiftTab, KEYS.backspace, KEYS.backspace, KEYS.backspace);
   await term.paste('.mts');
-  await show('Backspace x3, then a paste: it goes into the field, not to the app');
+  await show('Shift-Tab, Backspace x3, then a paste: it goes into the field, not to the app');
 
   await term.press(KEYS.enter);
   await show('Enter in the field: it was given onSubmit, so that is Rename');
