@@ -7704,7 +7704,7 @@ the answer.
   rule, and a prompt does not draw on one anyway); a way to accept the default
   without opening the editor.
 
-### Accessible mode: the six prompts as lines in and lines out
+### Accessible mode: the prompts as lines in and lines out
 
 SIG-177. `asLines()`, `runLine()` and the six line forms are at the end of
 `src/components/prompt.ts`; `test/components/prompt-accessible.test.ts` and
