@@ -2063,6 +2063,88 @@ describe('regressions', () => {
       expect(result.cmd?.name).to.equal('up');
       expect(result.contexts.map((cmd) => cmd.name)).to.include('boat');
     });
+
+    describe('when the name is a built-in command', () => {
+      // `help` and `completion` are the parser's, added to the root after the
+      // schema's own commands are built, so a module that only says `alias:
+      // 'help'` when it loads meets one -- and "rename one of the two" names a
+      // command the app never declared. The built-in is said to be one, by its
+      // marker rather than its name
+      const builtIn = (owner: string, name: string): string =>
+        `The "${owner}" command's alias "${name}" is the name of the built-in "${name}" command, so remove the alias`;
+
+      it("should say so for a lazily loaded module's alias of help", async () => {
+        const schema = {
+          commands: { docs: { load: () => Promise.resolve({ default: { alias: 'help', run } }) } },
+        };
+        await expect(parse({ argv: ['docs'], schema })).rejects.toThrow(builtIn('docs', 'help'));
+        // and through the built-in itself, which loads `docs` to describe it
+        await expect(parse({ argv: ['help', 'docs'], schema })).rejects.toThrow(
+          builtIn('docs', 'help')
+        );
+      });
+
+      it("should say so for a lazily loaded module's alias of completion", async () => {
+        const schema = {
+          commands: {
+            docs: { load: () => Promise.resolve({ default: { alias: 'completion', run } }) },
+          },
+        };
+        await expect(parse({ argv: ['docs'], schema })).rejects.toThrow(
+          builtIn('docs', 'completion')
+        );
+      });
+
+      it('should say so for a module that renames itself onto a built-in', async () => {
+        const schema = {
+          commands: { docs: { load: () => Promise.resolve({ default: { name: 'help', run } }) } },
+        };
+        await expect(parse({ argv: ['docs'], schema })).rejects.toThrow(
+          'The "docs" command\'s module renames it "help", which is the name of the built-in "help" command, so give it another name'
+        );
+      });
+
+      it('should say so for a subcommandLoaded replacement that brings the alias', async () => {
+        // the schema's own hook, so the parent is the root the built-ins are on
+        const schema = {
+          commands: { docs: { load: () => Promise.resolve({ default: { run } }) } },
+          hooks: {
+            subcommandLoaded: ({ cmd }: { cmd: { name: string } }) =>
+              cmd.name === 'docs' ? { alias: 'help', run } : undefined,
+          },
+        };
+        await expect(parse({ argv: ['docs'], schema })).rejects.toThrow(builtIn('docs', 'help'));
+      });
+
+      it('should not refuse an inline alias, which the built-in steps aside for', async () => {
+        // declared in the schema, the alias is registered before the built-ins
+        // are added, and neither is added over a spelling the app already
+        // claimed -- so there is no built-in for it to take the name of, and
+        // `help` is the app's
+        for (const name of ['help', 'completion']) {
+          for (const commands of [{ docs: { alias: name, run } }, { [`docs, ${name}`]: { run } }]) {
+            const result = await parse({ argv: [name], schema: { commands } });
+            expect(result.cmd?.name).to.equal('docs');
+            expect(result.help).to.equal(undefined);
+            expect(result.contexts[0][Internal].commands.has(name)).to.equal(false);
+          }
+        }
+      });
+
+      it("should keep the sibling message for an app's own command called help", async () => {
+        // the app declared this `help`, so there is no built-in and renaming
+        // either of the two is a real remedy
+        const schema = {
+          commands: {
+            help: { run },
+            docs: { load: () => Promise.resolve({ default: { alias: 'help', run } }) },
+          },
+        };
+        await expect(parse({ argv: ['docs'], schema })).rejects.toThrow(taken('docs', 'help'));
+        const inline = { commands: { help: { run }, docs: { alias: 'help', run } } };
+        await expect(parse({ schema: inline })).rejects.toThrow(taken('docs', 'help'));
+      });
+    });
   });
 
   describe("a loaded command moved to the end of its parent's registry", () => {

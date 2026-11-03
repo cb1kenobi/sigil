@@ -1156,7 +1156,31 @@ resolution.
   name-string alias (`'other, ship'`, `'@ship, other'`, `'other, !ship'`) as
   well as the property. An alias equal to its own command's name is the same
   spelling twice and is left alone. The message names both commands and says to
-  remove the alias or rename one of the two.
+  remove the alias or rename one of the two -- unless the name is a built-in's,
+  which is the entry below.
+- **A built-in is said to be one, and the only remedy offered is the alias.**
+  SIG-240. `help` and `completion` are added to the root by `registerHelp()` and
+  `registerCompletion()` after the schema's own commands are built, so a lazily
+  loaded module that says `alias: 'help'` meets one when it loads, and "rename
+  one of the two" named a command the app never declared. So the message is
+  `The "docs" command's alias "help" is the name of the built-in "help" command,
+  so remove the alias`, and a module renaming itself onto one is told to give it
+  another name. A built-in is known by `cmd[Internal].builtIn`, set by those two
+  functions and nowhere else, rather than by its name: an app's own command
+  called `help` gets no built-in beside it, and an alias taking its name gets the
+  sibling message, since renaming either is then a real remedy. An **inline**
+  alias of `help` is not refused at all, and that is the existing rule rather
+  than a gap: both register functions ask `find()`, which answers for aliases,
+  and add nothing over a spelling the app already claimed -- so the app's `docs`
+  aliased `help` is what `mycli help` runs, and there is no built-in for it to
+  take the name of. Refusing it would undo that rule, whose reason
+  `registerCompletion()` records. What it leaves is an asymmetry worth knowing:
+  the alias declared beside the placeholder works and the same alias declared in
+  the module is refused, because by then the built-in exists. Stepping it aside
+  at load time was not taken here -- that is a change to what `help` is partway
+  through a parse, in a ticket about wording. `help: false` or
+  `completion: false` turns the built-in off, after which the module's alias is
+  an ordinary one.
 - **Asked where siblings meet, and once more when a module loads.**
   `CommandRegistry.assertReachable(cmd, slot)` is the one check, beside the
   default check it mirrors. `add()` calls it, which covers a `commands` object,
