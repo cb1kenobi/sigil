@@ -379,6 +379,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/50-text-field.js`](components/50-text-field.js)                             | A rename dialog with a text field in it, and a paste the field keeps     |
 | [`components/51-toast.js`](components/51-toast.js)                                       | Toasts in a corner over a list: a stack of three, the focus untouched    |
 | [`components/52-tooltip.js`](components/52-tooltip.js)                                   | Tooltips on a toolbar: hover or focus, flipped at an edge, hidden by Esc |
+| [`components/53-settled-answers.js`](components/53-settled-answers.js)                   | Where an answer goes once it is chosen: beside the question, or under it |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -574,6 +575,18 @@ itself; `Open` has no tooltip, so Tab passing through it shows nothing. Escape h
 a bubble and still reaches the app. Piped, a scripted pointer and keyboard drive the
 same tree, the focus is said in words, and the last step sets `--quiet`, under
 which a tooltip is chrome and does not appear.
+
+`53-settled-answers.js` is about the one line a prompt leaves behind once it is
+answered: the question and what was chosen. The answer goes beside the question when
+it fits there whole, and on a line of its own under the question when it does not,
+indented to where the question starts -- rather than squeezed into whatever room the
+question left, which for a question as wide as the line was one column, so a list
+prompt drew `Show the diff` a letter per row down the right-hand edge and a text
+field was cut to its first letter. Piped, `select()`, `sort()` and `text()` are each
+asked one question at 60 columns, where the answer fits beside it, and at 40, where
+it moves under. `toggle()` is the contrast: it reserves room for its longer state
+while it is being asked, so the question wraps instead and the answer stays beside
+it. On a terminal it asks the same four at your own width.
 
 ### Try them without a terminal
 
