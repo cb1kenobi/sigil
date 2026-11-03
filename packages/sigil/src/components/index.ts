@@ -423,6 +423,14 @@ export {
 } from './modal.js';
 export { TextField, type TextFieldProps } from './text-field.js';
 export {
+  showToast,
+  type ToastCloseReason,
+  type ToastHandle,
+  type ToastHost,
+  type ToastOptions,
+  type ToastPosition,
+} from './toast.js';
+export {
   attachTooltip,
   type TooltipHandle,
   type TooltipOptions,

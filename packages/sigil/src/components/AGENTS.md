@@ -8377,6 +8377,136 @@ field joins like anything else focusable.
   `describe` helper for a key-help footer; and blocking an unclaimed paste at the
   modal's backdrop.
 
+### A toast: a timed message in a corner, and nothing it takes
+
+`src/components/toast.ts`. SIG-213, split from SIG-191. `showToast(host, opts)` puts
+a short message in a corner of the screen that goes away by itself. It is the
+modal's arrangement -- appended to the root, `position: fixed`, opaque by filling
+itself with blanks -- with the input question answered the other way: a modal has
+the keys and the mouse while it is open, and a toast has neither, ever.
+
+- **The corner: four of them, `bottom-right` by default, one stack per corner per
+  root.** The default is where a status remark does not cover what the app is
+  showing at the top, and it is where the eye already goes for one. A centred
+  `top` or `bottom` was not asked for and would be a fifth and sixth stack for the
+  same job. Each stack is a `position: fixed` column pinned by the two insets that
+  name its corner, made the first time a toast lands there and taken out of the
+  tree with the last one, so an app with nothing to say has nothing of ours in its
+  tree. The stacks are a `WeakMap` keyed on the root, the modal's per-router list
+  for the same reason: two screens do not share one.
+- **The newest is nearest its corner, at the foot of a bottom stack and the head of
+  a top one.** One rule for both, so the latest message is always in the same place
+  and the eye does not have to find the end of a column. It also decides what a
+  screen too short for the whole stack cuts off: the far end, which is the oldest.
+- **How many: three by default, and a fourth pushes the oldest out rather than
+  waiting.** A toast is about something that just happened, and one held back until
+  there was room would be news by the time it was shown -- "Saved" twelve seconds
+  after the save. `max` is per raise and read when that toast arrives, so a caller
+  that wants one at a time says `max: 1`. A pushed-out toast closes with `overflow`
+  and its timer is cleared there and then.
+- **It never takes the focus, and that is by construction rather than by a guard.**
+  Nothing in a toast is focusable, and what it says is two strings: there is no
+  `body` element, which is what let a modal's field join its trap, and so nothing a
+  caller hands it can bring focusability in. It takes no router -- there is no
+  `input` option at all -- so it cannot move the focus, bind a key or add a ring
+  entry. The tests drive a real router anyway, because the claim is about Tab's
+  default and click-to-focus and neither runs for a handler called by hand: the
+  focus is where it was when a toast arrives and when it goes, the ring is the
+  same with toasts up, Tab walks the app's rows and only those, and a toast raised
+  over a modal leaves the focus inside the dialog.
+- **Every mouse report that lands on a toast ends there, the press included.** A
+  press left to bubble reaches click-to-focus, which focuses the nearest focusable
+  _ancestor_ -- so a toast over a focusable panel would move the focus by being
+  touched, which is exactly the opposite of the modal's reason for letting a press
+  through. A left click dismisses, which is the one thing somebody pointing at a
+  toast can want of it. No key dismisses one: Escape belongs to the app or to an
+  open dialog, and a toast with a binding would be a toast that takes keys.
+- **The stack keeps the toasts at one width, so there is no gap in it for a click
+  to fall into.** The stack box has no background and is hittable over its whole
+  rectangle, so a ragged column would leave cells beside a narrower toast where a
+  click lands on the stack rather than on the app underneath. The default `width`
+  is the same for every toast, so the gap only exists where a caller gives two
+  toasts in one corner two widths; recorded rather than closed.
+- **Above a modal and below the debug overlay: `z-index: 950`.** A toast raised
+  while a dialog is open -- "Copied" from a button inside it -- is still news, and
+  being above the backdrop costs the dialog nothing, because a toast takes no key
+  and stops every mouse report it is given: a click on a toast reaches neither the
+  app nor the backdrop, so the modal's "a click outside reaches nothing under it"
+  still holds. Below the overlay so the instrument stays readable over both.
+- **A toast is a remark beside the answer, so it reads the quiet axis even though
+  it is drawn in `render()`'s tree.** The modal's entry puts a dialog on
+  `render()`'s side of the line `output.ts` draws, and a toast sits in the same
+  tree; what puts it on the other side is its own shape. **It takes itself away,
+  which nothing that is the answer does** -- a table, an error, a dialogue and a
+  screen all stay until something answers them. So `mountLevel()` is asked, with
+  the toast's `quiet` and `terminal`, which is `MountOptions.quiet`'s precedence
+  exactly: `true` hides one, `false` shows one under `--quiet` for a toast the app
+  has decided is part of its answer, and unset is the process-wide request. Under
+  quiet the toast is built but never attached, no timer is started, and it closes
+  at once with `quiet` -- synchronously, inside `showToast()`, because it is closed
+  before the caller has the handle and a deferred `onClose` would say so later than
+  `open` does. `reduce` changes nothing: there is no motion here for it to take
+  away, and a test pins that a pipe and a terminal draw the same toast.
+- **What happens to a toast that outlives the frame it was raised in, which was the
+  ticket's second question, has three halves.** _Quiet is asked once, when it is
+  raised_: a toast already showing when quiet is asked for runs out its own time,
+  and one raised under quiet is not one that turns up when quiet is lifted. That is
+  the mount's "resolved once, so a gate can only suppress", and re-asking per frame
+  would make a toast vanish or appear under somebody who did nothing. _It belongs
+  to whatever owner raised it_: `onCleanup()` is called unconditionally, so a toast
+  raised in a component body goes when the component unmounts, one raised in an
+  effect goes when that effect runs again -- the owner tree's rule for anything
+  created in a run -- and one raised from a key handler or a promise, which have no
+  owner, runs its course. That is what lets the ordinary case work: a form that
+  closes on save raises "Saved" from its key handler, and the toast outlives the
+  form. And _it does not outlive the process_: the timer is `unref()`ed, the
+  spinner's rule and the clock's redraw, so a program that has finished exits with
+  a toast still showing -- the demo ends under a minute-long one to show it.
+- **So `onClose` is a callback and there is no promise.** The clock's entry is why:
+  a promise awaited at the top level that nothing will settle exits with code 13,
+  and an unref'd timer is exactly that. Nothing should wait on a toast anyway. The
+  reasons are `timeout`, `dismiss` (a click, `dismiss()`, `dispose()`, or the owner
+  going), `overflow` and `quiet`, and it is called once.
+- **A host that is disposed is noticed when the timer fires, not when it goes.**
+  Nothing announces a renderer's `dispose()` -- `Renderer` has no hook for it -- so
+  a toast raised from a handler over a renderer that is then torn down keeps its
+  timer until it runs out, and removes itself from a tree nobody is drawing, which
+  is harmless. What it costs is bounded by the timeout and by nothing else:
+  `unref()` means it holds nothing open, and `Infinity` toasts start no timer. A
+  toast raised inside the renderer's own tree goes with it, by the owner rule
+  above. A corner the app takes out of the tree itself -- clearing its screen --
+  is noticed at the next raise there: its toasts are closed, which clears their
+  timers, rather than put back. An eager answer needs a disposal seam on `Renderer`, which is a change to
+  the renderer's surface and not one to take inside this ticket.
+- **`timeout` is a positive number of milliseconds no larger than 2^31 - 1, or
+  `Infinity`.** The bound is the clock's: past it `setTimeout` fires at once, and a
+  toast that vanished the moment it was asked to stay for a month is the wrong
+  answer silently. `Infinity` stays until it is clicked or dismissed and starts no
+  timer, so it is not a long timer but none.
+- **The fill is the modal's, copied rather than shared.** Three lines over a `raw`
+  node, and the reasons are the modal's: a background colour is dropped at colour
+  level 0, so the panel paints blanks the grid counts as drawn, in the terminal's
+  own colours. Sharing it would mean a public export from the barrel for two
+  readers, because a sibling import in an ejected file goes to
+  `@ttylabs/sigil/components`. `.sigil-toast-fill` is the hook for a theme that
+  wants a colour behind a toast.
+- **The variants are `note()`'s, with `note()`'s role table.** `note`, `info`,
+  `success`, `warning`, `error`, and `warning` is `.sigil-warn` so that every one
+  lands on a role the sheet already declares. The role is on the panel, so the
+  border, the title and the message take it together. Escape sequences are dropped
+  from both strings, which is `note()`'s rule too: colour is a role's.
+- **Sabotage: nineteen, all caught, each one type-checking.** A focusable panel, a
+  press left to bubble, no `stop()` at all, no click dismissal, no timer, no
+  `clearTimeout`, no `unref`, quiet ignored, `quiet: false` ignored, no
+  `onCleanup`, overflow dropping the newest, a top stack appending, a `z-index`
+  under the modal's, no fill, the stack's box left behind, a detached corner put
+  back with its old toasts, no `strip`, and `max` and `timeout` unchecked.
+- **Not done:** pausing the timer while the pointer is over a toast; a key that
+  dismisses; a slide-in, which is the thing `reduce` would then have to switch off;
+  centred positions; an action button on a toast, which would need the focus and
+  is a modal; a queue; announcing a toast in accessible mode, which draws prompts
+  as lines and has no screen to put a corner on; and the eager host disposal above.
+
 ### A tooltip: text anchored to an element, on hover or on focus
 
 `src/components/tooltip.ts`. SIG-214, split from SIG-191 with the toast.

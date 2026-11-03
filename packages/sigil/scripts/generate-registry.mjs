@@ -183,6 +183,10 @@ const ENTRIES = [
     name: 'text-field',
   },
   {
+    desc: 'A toast: a timed message in a corner of the screen that stacks, never takes the focus, and stays out of --quiet',
+    name: 'toast',
+  },
+  {
     desc: 'A tooltip: text anchored to an element, shown on hover or focus, flipped to stay on screen',
     name: 'tooltip',
   },

@@ -513,4 +513,111 @@ describe('Painter', () => {
     expect(buffer.toLines()).toEqual(['   ']);
     expect(table.get(buffer.styleAt(1, 0)).bg).toBe(palette(4));
   });
+
+  /**
+   * A glyph with no background of its own lets the one under it show through.
+   *
+   * Read off the grid rather than off a rendered string, because a string with
+   * its colour stripped cannot see a background at all -- which is how text
+   * wiping its container's colour went unnoticed.
+   */
+  describe('a glyph over a background', () => {
+    /** A painter over a grid already filled, left to right, with these backgrounds. */
+    function filled(...bgs: number[]) {
+      const table = new StyleTable();
+      const buffer = new CellBuffer(bgs.length, 1);
+      const painter = new Painter(buffer, table);
+      for (const [x, bg] of bgs.entries()) {
+        painter.fill(x, 0, 1, 1, style({ bg }));
+      }
+      return { at: (x: number) => table.get(buffer.styleAt(x, 0)), buffer, painter, table };
+    }
+
+    it('should keep the background of a cell a glyph with none of its own lands on', () => {
+      const { at, buffer, painter } = filled(palette(8), palette(8), palette(8));
+
+      painter.text(0, 0, 'hi');
+
+      expect(buffer.toLines()).toEqual(['hi ']);
+      expect([at(0).bg, at(1).bg, at(2).bg]).toEqual([palette(8), palette(8), palette(8)]);
+    });
+
+    it('should take only the background, and keep its own foreground and attributes', () => {
+      const { at, painter } = filled(palette(8));
+
+      painter.text(0, 0, 'x', { attrs: ATTR.bold, fg: palette(1), link: 'https://a.test' });
+
+      expect(at(0)).toEqual(
+        style({ attrs: ATTR.bold, bg: palette(8), fg: palette(1), link: 'https://a.test' })
+      );
+    });
+
+    it('should take each cell its own background rather than the first one', () => {
+      // a line that crosses the edge of a box, which is two backgrounds in one run
+      const { at, painter } = filled(palette(8), palette(8), DEFAULT_COLOR, palette(4));
+
+      painter.text(0, 0, 'abcd');
+
+      expect([at(0).bg, at(1).bg, at(2).bg, at(3).bg]).toEqual([
+        palette(8),
+        palette(8),
+        DEFAULT_COLOR,
+        palette(4),
+      ]);
+    });
+
+    it('should paint a background of its own over the one already there', () => {
+      const { at, painter } = filled(palette(8), palette(8));
+
+      painter.text(0, 0, 'ab', { bg: palette(4) });
+
+      expect([at(0).bg, at(1).bg]).toEqual([palette(4), palette(4)]);
+    });
+
+    it('should give both halves of a wide cluster the background under its lead', () => {
+      const { at, buffer, painter } = filled(palette(8), palette(8), palette(8));
+
+      painter.text(0, 0, '漢');
+
+      expect(buffer.charAt(1, 0)).toBe(CONTINUATION);
+      // one style for the two cells, which is what the diff draws the lead with
+      expect(buffer.styleAt(0, 0)).toBe(buffer.styleAt(1, 0));
+      expect(at(0).bg).toBe(palette(8));
+    });
+
+    it('should keep the background under an inverse glyph, which the swap makes its foreground', () => {
+      // the caret and every `:focus { inverse: true }` rule: the terminal swaps
+      // the pair, so the box's colour has to be in the cell for it to be drawn as
+      // the glyph's colour. Lost, the swap is the terminal's own two colours
+      const { at, painter } = filled(palette(8));
+
+      painter.text(0, 0, 'c', { attrs: ATTR.inverse });
+
+      expect(at(0)).toEqual(style({ attrs: ATTR.inverse, bg: palette(8) }));
+    });
+
+    it('should paint an unfilled cell in the terminal background, as before', () => {
+      const { at, painter, table } = filled(DEFAULT_COLOR, DEFAULT_COLOR);
+
+      painter.text(0, 0, 'ab', { fg: palette(2) });
+
+      expect([at(0), at(1)]).toEqual([style({ fg: palette(2) }), style({ fg: palette(2) })]);
+      // and interned nothing on the way: the glyph's own style was the answer
+      expect(table.size).toBe(2);
+    });
+
+    it('should leave fill() opaque, because a fill is a background', () => {
+      // what a modal hides the screen behind: blanks in the terminal's own colours
+      // over whatever the app drew, so a coloured panel of the app's does not tint
+      // the dialog. A fill that let the cell's background through would paint
+      // nothing at all at a default background
+      const { at, buffer, painter } = filled(palette(8), palette(8));
+      painter.text(0, 0, 'ab');
+
+      painter.fill(0, 0, 2, 1);
+
+      expect(buffer.toLines()).toEqual(['  ']);
+      expect([at(0).bg, at(1).bg]).toEqual([DEFAULT_COLOR, DEFAULT_COLOR]);
+    });
+  });
 });
