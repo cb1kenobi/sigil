@@ -19,7 +19,7 @@
  */
 
 import { box, type Element, text as textNode } from '../element/index.js';
-import { __ } from '../i18n/index.js';
+import { __, __n, confirmKeys } from '../i18n/index.js';
 import { baseDir } from '../paths.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
@@ -37,6 +37,7 @@ import {
   promptNote,
   promptWindow,
   promptLineQuestion,
+  type PromptLineKeyQuery,
   runLinePrompt,
   runPrompt,
   setPromptNote,
@@ -841,6 +842,65 @@ export function path(opts: PathOptions): Promise<string> {
 }
 
 /**
+ * How many candidates a second Tab has to find before it asks whether to list
+ * them: at this many or more it asks, and below it lists.
+ *
+ * Readline's `completion-query-items`, its default of 100 and its comparison, so
+ * a directory that makes bash ask makes this ask too. It is not an option on
+ * `path()`, because it is a statement about how much a person is willing to hear
+ * read out, which is theirs rather than the app's -- readline keeps it in the
+ * user's `inputrc`, not in the program -- and an app has nothing to choose it
+ * with that the default does not already know.
+ */
+const ASK_AT = 100;
+
+/**
+ * The question a second Tab asks before listing `count` candidates, and how the
+ * key that answers it is read.
+ *
+ * `(y/N)` is `confirm()`'s catalog entry and `confirmKeys()`'s reading of it, so
+ * the keys are the ones the hint names, translated, with English beside them.
+ * `y` and Space list, as in readline; `n`, Backspace (readline's Delete), the
+ * Delete key, Escape and Enter list nothing. Enter is the default and is no,
+ * because it is the key pressed by habit, and the answer it gives should be the
+ * one that does not read out thousands of lines -- which the capital in the hint
+ * says. Any other key is refused with `confirm()`'s own `Answer y or n` and the
+ * question is asked again: readline rings the bell and waits, and a bell is the
+ * thing a screen reader does not reliably announce, which is `No matches`'s
+ * reason. Refused rather than read as no, because a letter typed by someone who
+ * had not yet heard the question is not an answer to it, and refused rather than
+ * typed into the reply, because Enter and Tab are keys too.
+ *
+ * @param count - How many there are.
+ * @param listed - The lines a yes writes.
+ * @returns The question.
+ */
+function askToList(count: number, listed: readonly string[]): PromptLineKeyQuery {
+  const keys = confirmKeys(__`y/n`, false);
+  return {
+    ask: promptLineQuestion(
+      __n(count, 'Display {0} possibility?', 'Display all {0} possibilities?'),
+      keys.hint
+    ),
+    answer(k) {
+      // a modifier makes it a different key, the rule `confirm()` keeps
+      if (!k.ctrl && !k.meta) {
+        if (k.name === 'space' || keys.yes.includes(k.name.toLowerCase())) {
+          return listed;
+        }
+        if (
+          ['backspace', 'delete', 'enter', 'escape'].includes(k.name) ||
+          keys.no.includes(k.name.toLowerCase())
+        ) {
+          return [];
+        }
+      }
+      return __`Answer ${keys.yes[0]} or ${keys.no[0]}`;
+    },
+  };
+}
+
+/**
  * `path()` as a line: `text()`'s, answered the way the drawn field answers, and
  * completed on Tab the way a shell completes.
  *
@@ -849,7 +909,9 @@ export function path(opts: PathOptions): Promise<string> {
  * what every candidate shares beyond what has been typed, and echoes only that --
  * the one candidate in full, with a separator if it is a directory. A second Tab
  * with nothing more to add writes the candidates on lines of their own under the
- * reply and asks again holding it. Tab with no candidates says `No matches`, the
+ * reply and asks again holding it -- or, with 100 or more of them, asks first,
+ * as readline does: `Display all 2000 possibilities? (y/N)`, answered by one key
+ * (`askToList()`). Tab with no candidates says `No matches`, the
  * drawn field's own words, because a screen-reader user cannot see that nothing
  * happened, and a second Tab would only be nothing again.
  *
@@ -899,7 +961,11 @@ function linePath(
       }
       // the first Tab that adds nothing is silent, as a shell's is, and asking
       // again is how the list is asked for
-      return repeated ? { lines: shown.map((entry) => `  ${labelOf(entry, flavour)}`) } : {};
+      if (!repeated) {
+        return {};
+      }
+      const listed = shown.map((entry) => `  ${labelOf(entry, flavour)}`);
+      return shown.length < ASK_AT ? { lines: listed } : { query: askToList(shown.length, listed) };
     },
     keep: true,
     async read(reply) {

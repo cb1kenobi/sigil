@@ -7820,7 +7820,13 @@ nothing already written is moved, erased or coloured.
     beyond what was typed and echoes only that, the one candidate in full with a
     separator after a directory; a second Tab running, with nothing more to add,
     writes the candidates indented on lines of their own under the reply -- the
-    drawn list's order and labels -- and asks again holding it. A first Tab that
+    drawn list's order and labels -- and asks again holding it. At 100 candidates
+    or more that second Tab **asks first** (SIG-241), readline's
+    `Display all 2000 possibilities?` with `confirm()`'s `(y/N)`, on a line of
+    its own, and waits for one key: `y` or Space lists, `n`, Backspace, Delete,
+    Escape or Enter lists nothing, and either way the question and the reply are
+    written again; any other key is refused with `Answer y or n` and the question
+    asked again. A first Tab that
     adds nothing is silent, as readline's is, since asking again is how the list
     is asked for. The candidates are the drawn field's from one `completer()`,
     the read, `root`, `~`, dotfiles and `directory`/`extensions` included, so
@@ -9382,9 +9388,11 @@ under `a line path() completing on Tab` and `a line form with keys of its own`.
   what it did before; returning `PromptLineKeyDone` -- even `{}` -- takes it.
   `insert` adds to the end of the reply as typing does, through `fit` and `echo`,
   and `lines` are written under the reply, after which the question and the reply
-  so far are written again. Those two are the only things a key can do, because
-  they are the only things a line can do without taking something back: there is
-  no way to replace or shorten the reply from a handler. A form with no `key` is
+  so far are written again. Those two are the only things a key can do to the
+  reply, because they are the only things a line can do without taking something
+  back: there is no way to replace or shorten the reply from a handler. (SIG-241
+  added a third result, `query`, which asks a question of one key and changes
+  the reply not at all -- below.) A form with no `key` is
   pressed through the same synchronous path as before, with nothing awaited, so
   every existing line form is untouched: the one line-form test that changed is
   the one that asserted `path()`'s Tab did nothing. Published as `PromptLineKeyAt` and `PromptLineKeyDone` beside
@@ -9431,8 +9439,75 @@ under `a line path() completing on Tab` and `a line form with keys of its own`.
   prompt, and the drawn Tab now asks it too. `labelOf()` is the drawn row's label,
   which the line's list uses, so a directory is listed with the same separator in
   both. The drawn `path.test.ts` did not move.
-- **Not done.** A threshold before a long list, which readline asks about past
-  100 candidates (`Display all 150 possibilities?`): a directory of thousands is
-  thousands of lines on a second Tab. Completion in any other line form; the
-  engine is ready for one. Shift-Tab is not told apart from Tab, as in the drawn
-  field.
+- **Not done.** Completion in any other line form; the engine is ready for one.
+  Shift-Tab is not told apart from Tab, as in the drawn field. The threshold
+  before a long list was, and is SIG-241's, below.
+
+#### Asking before a long list (SIG-241)
+
+A directory of thousands is thousands of lines on a second Tab, read out one at
+a time with no way to stop it short of Ctrl-C. Bash's readline asks first, and
+so does this. Tests are under `a line path() asking before a long list` and in
+`a line form with keys of its own`.
+
+- **The engine learned to wait for one key, and that is the whole of the engine
+  change.** `PromptLineKeyDone.query` is a `PromptLineKeyQuery` -- `ask`, the
+  line, and `answer(k)` -- asked under the reply, after `lines` and `insert`, in
+  place of the question and reply being written again. Until a key answers it,
+  the next key goes to `answer()` and to nothing else: not the reply, not the
+  form's `key`. `answer()` returns the lines to write, after which the question
+  and the reply are written again -- an empty list writes only those -- or a
+  string, which is a complaint: written on a line of its own, then the query
+  asked again, still waiting. The answering key is **not echoed**, readline's
+  rule, because it answers the question and is not text in the reply; and it
+  counts as a key between, so the next Tab is a first one, not a repeat. Optional
+  and new, so every form that never returns a `query` runs exactly as it did, and
+  no test of an existing form moved. Published as `PromptLineKeyQuery`; no
+  existing name changed.
+- **Ctrl-C, an abort and the end of input behave as they do everywhere else**,
+  because they are answered outside the queue as before: the prompt rejects, the
+  question's line is finished with a line break and left where it is, and an
+  async `answer()` that resolves afterwards is dropped by the same `settled` check
+  as a handler. **Escape is the one key that changes meaning**, and only while a
+  query is on screen: with `back` it would leave the whole prompt, and a question
+  on screen is what Escape is dismissing, so the query gets it. Before the query
+  is written -- a Tab whose read is still out -- Escape goes back as it always did,
+  since nothing is on screen to dismiss.
+- **A paste sets the query aside rather than answering it.** A paste is text and
+  not a key, so `answer()` is not asked; the query's line is ended, the question
+  and the reply are written again, and the paste is typed onto the reply, so
+  nothing pasted is lost. Someone pasting a path is supplying the answer, not
+  asking for the list.
+- **The threshold is 100, readline's `completion-query-items`, with its
+  comparison: at 100 or more it asks.** So a directory that makes bash ask makes
+  this ask too, and the two tests are 99 lists and 100 asks (101 too, to say the
+  count is the count). **It is not an option on `path()`**, which the ticket asked
+  to be considered: how much a person is willing to hear read out is the person's,
+  not the app's -- readline keeps it in the user's `inputrc` rather than in the
+  program -- and an app has nothing to choose it with that the default does not
+  already know. The same reasoning that made `SIGIL_ACCESSIBLE` a variable; a
+  variable for this was not added, since nobody has asked for one.
+- **The question is `confirm()`'s vocabulary, not readline's `(y or n)`.**
+  `Display all {0} possibilities?` is a plural (`__n`), and the hint is
+  `confirmKeys(__`y/n`, false)` -- `(y/N)` -- so the keys accepted are the ones
+  the hint names, translated, with English beside them, and no new catalog entry
+  is needed for them. The capital says Enter is the default, and **the default is
+  no**: Enter is the key pressed by habit, and the answer it gives should be the
+  one that does not read out thousands of lines.
+- **Which keys answer.** `y` and Space list, as in readline. `n`, Escape and
+  Backspace list nothing -- Backspace is readline's `RUBOUT`, which is the byte the
+  Backspace key sends -- and so do the Delete key and Enter. A modifier makes it a
+  different key, `confirm()`'s rule, so Ctrl-Y is not yes. **Any other key is
+  refused** with `confirm()`'s own `Answer y or n` and the question asked again.
+  Readline rings the bell and keeps waiting, and a bell is what a screen reader
+  does not reliably announce -- `No matches`'s reason -- so the refusal is said.
+  Refused rather than read as no, because a letter typed by someone who had not
+  yet heard the question is not an answer to it; and refused rather than handed
+  on to the reply, because Enter and Tab are keys too, and an Enter that submits a
+  reply the person was still completing is the worse surprise.
+- **Nothing here is drawn**, SIG-177's rules: the question is a line of plain
+  text, the complaint another, and `should write exactly the question, then the
+  list or nothing, and no sequence` reads the bytes.
+- **Not done.** A pager for a list that is asked for: readline pages it with
+  `--More--` when `page-completions` is on, and a pager is a redraw. A setting for
+  the threshold, for the reason above.

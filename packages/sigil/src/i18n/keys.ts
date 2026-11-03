@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 270 keys, which is what a catalog has to carry to translate sigil's own
+ * 271 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -56,6 +56,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Count is too large to be exact: {0}',
   'Date must not be after {0}',
   'Date must not be before {0}',
+  'Display {0} possibility?',
   'ETA {0}',
   'Enter a date as {0}',
   'Enter a number',
@@ -292,7 +293,7 @@ export const SIGIL_KEYS: readonly string[] = [
 ];
 
 /**
- * The 5 of those whose catalog entry is an object of plural categories
+ * The 6 of those whose catalog entry is an object of plural categories
  * rather than a string.
  *
  * A catalog may answer either -- a plain string is taken for a language with
@@ -304,6 +305,7 @@ export const SIGIL_PLURAL_KEYS: readonly string[] = [
   '(+{0} more line)',
   '(at most {0} character)',
   'Alias:',
+  'Display {0} possibility?',
   '{0} task failed',
   '… {0} more running',
 ];

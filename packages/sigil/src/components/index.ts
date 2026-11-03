@@ -191,6 +191,7 @@ export {
   type PromptLineForm,
   type PromptLineKeyAt,
   type PromptLineKeyDone,
+  type PromptLineKeyQuery,
   promptNote,
   promptRowCap,
   promptLineChoice,

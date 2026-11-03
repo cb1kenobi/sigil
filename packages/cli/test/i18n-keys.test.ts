@@ -84,14 +84,16 @@ describe('the committed key set', () => {
     expect(SIGIL_KEYS).toContain('Invalid value "{0}" for {1}');
     expect(SIGIL_KEYS).toContain('Usage:');
     expect(SIGIL_KEYS).toContain('option {0}');
-    // five: the multiline field's log line counts lines -- `Alias:` was the
+    // six: the multiline field's log line counts lines -- `Alias:` was the
     // only plural until SIG-135 -- SIG-203's tasks count the failures a
-    // `failFast: false` list rejects with and the running rows a frame cut, and
-    // SIG-177's line form of the multiline field says its character limit
+    // `failFast: false` list rejects with and the running rows a frame cut,
+    // SIG-177's line form of the multiline field says its character limit, and
+    // SIG-241's line path() says how many candidates it is asking to list
     expect(SIGIL_PLURAL_KEYS).toEqual([
       '(+{0} more line)',
       '(at most {0} character)',
       'Alias:',
+      'Display {0} possibility?',
       '{0} task failed',
       '… {0} more running',
     ]);

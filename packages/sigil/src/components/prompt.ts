@@ -3402,7 +3402,9 @@ interface LineForm<T> {
    * Returning nothing hands the key to the engine, which does with it what it
    * does for a form with no handler at all; returning an object, even `{}`, says
    * the key was taken. Only the end of the reply can change, by `insert`, and
-   * only by adding to it, because nothing already written is taken back.
+   * only by adding to it, because nothing already written is taken back. A
+   * handler may also ask a question of one key, `query`, before it says more:
+   * `path()` asking before it lists a directory of thousands.
    *
    * @param k - The key.
    * @param at - The reply as it stands, and whether this key repeats the last.
@@ -3457,11 +3459,50 @@ interface LineKeyDone {
    * above is taken back. An empty list writes nothing and asks nothing again.
    */
   lines?: readonly string[];
+  /**
+   * A question answered by one key, asked under the reply -- after `lines`, if
+   * there are any -- in place of the question and the reply being written again.
+   * Those are written again once it is answered.
+   */
+  query?: LineKeyQuery;
+}
+
+/**
+ * A question of one key that a form's `key` handler asks: readline's `Display all
+ * 2000 possibilities? (y or n)`.
+ *
+ * Its line is written on a line of its own, and the engine then waits: the next
+ * key goes to `answer` rather than to the reply or to the form's `key`, and is not
+ * echoed, since it answers the question rather than being typed. Ctrl-C, an abort
+ * and the end of input are answered as they are everywhere else. Escape is handed
+ * to `answer` even with `back`, because a question on screen is what it is
+ * dismissing. A paste is not a key: it sets the question aside unanswered, with
+ * nothing written for it, and is typed into the reply once that is asked again,
+ * so nothing pasted is lost.
+ */
+interface LineKeyQuery {
+  /**
+   * The line the key is pressed after, written as it is given --
+   * `promptLineQuestion()` makes one.
+   */
+  ask: string;
+  /**
+   * Reads the key that answers. Lines come back to be written under the question,
+   * after which the question being answered and the reply so far are written
+   * again -- an empty list writes only those. A string is not an answer but a
+   * complaint, written on a line of its own, after which this question is asked
+   * again and waits on.
+   *
+   * @param k - The key.
+   * @returns What to write, or why the key does not answer.
+   */
+  answer(k: Key): readonly string[] | string | Promise<readonly string[] | string>;
 }
 
 export type {
   LineKeyAt as PromptLineKeyAt,
   LineKeyDone as PromptLineKeyDone,
+  LineKeyQuery as PromptLineKeyQuery,
   LineRead as PromptLineRead,
   LineReply as PromptLineReply,
 };
@@ -3528,6 +3569,9 @@ function question(message: string, hint?: string): string {
  * key in the queue and may add to the end of the reply or write lines under it
  * and ask again. A form without one is answered exactly as it always was, so the
  * handler is how `path()` completes on Tab and costs every other form nothing.
+ * A handler may instead ask a question of one key (`query`), and the engine then
+ * waits: the next key answers it, unechoed, and is asked of nothing else. Ctrl-C,
+ * an abort and the end of input still end the prompt at once while it waits.
  *
  * @param opts - Where to read and write.
  * @param first - What to ask and how to read the reply, or a function giving it.
@@ -3571,6 +3615,8 @@ function runLine<T>(
     let reply = '';
     /** The key handled before this one in the question being asked, for `repeated`. */
     let last: Key | undefined;
+    /** A question of one key a handler asked, waiting for the key that answers it. */
+    let waiting: LineKeyQuery | undefined;
     /** One key at a time, for the reason `run()` records: a `validate` may be async. */
     let queue: Promise<void> = Promise.resolve();
     const write = (chunk: string): void => void terminal.write(chunk);
@@ -3604,6 +3650,7 @@ function runLine<T>(
       form = next;
       reply = next.start ?? '';
       last = undefined;
+      waiting = undefined;
       for (const line of next.before ?? []) {
         write(`${line}${NEWLINE}`);
       }
@@ -3678,22 +3725,67 @@ function runLine<T>(
       if (done.insert) {
         type(done.insert);
       }
-      if (done.lines?.length) {
+      if (done.lines?.length || done.query) {
         write(NEWLINE);
-        for (const line of done.lines) {
+        for (const line of done.lines ?? []) {
           write(`${line}${NEWLINE}`);
         }
-        ask();
+        if (done.query) {
+          // asked in place of the question, which is written again once a key
+          // has answered it
+          waiting = done.query;
+          write(done.query.ask);
+        } else {
+          ask();
+        }
       }
+    }
+
+    /**
+     * The key that answers a question of one key, or a complaint that it does
+     * not and the question asked again.
+     */
+    function answer(query: LineKeyQuery, k: Key): Promise<void> | void {
+      const said = query.answer(k);
+      if (said instanceof Promise) {
+        return said.then((reading) => {
+          // a Ctrl-C, an abort or the end of input can land while it is out
+          if (!settled) {
+            answered(query, reading);
+          }
+        });
+      }
+      answered(query, said);
+    }
+
+    function answered(query: LineKeyQuery, reading: readonly string[] | string): void {
+      // the key is not echoed, so the question's line ends here either way
+      write(NEWLINE);
+      if (typeof reading === 'string') {
+        write(`${reading}${NEWLINE}`);
+        write(query.ask);
+        return;
+      }
+      waiting = undefined;
+      // the key that answered came between, so the next key repeats nothing
+      last = undefined;
+      for (const line of reading) {
+        write(`${line}${NEWLINE}`);
+      }
+      ask();
     }
 
     /**
      * A key, offered to the form first when it has a handler of its own.
      *
      * A form without one goes straight to `act()` with nothing awaited, so the
-     * engine every other line form stands on is the one it was.
+     * engine every other line form stands on is the one it was. A question of one
+     * key the handler asked takes the next key before either does.
      */
     function press(k: Key, submitting: boolean): Promise<void> | void {
+      if (waiting) {
+        return answer(waiting, k);
+      }
       const repeated = last !== undefined && sameKey(last, k);
       last = k;
       const own = form!.key?.(k, { repeated, reply });
@@ -3741,7 +3833,9 @@ function runLine<T>(
         fail(new PromptError(__`Cancelled`, true));
         return;
       }
-      if (opts.back && k.name === 'escape' && !k.ctrl && !k.meta && !k.shift) {
+      // a question of one key on screen is what Escape dismisses, so it goes to
+      // the question rather than back out of the prompt
+      if (opts.back && !waiting && k.name === 'escape' && !k.ctrl && !k.meta && !k.shift) {
         fail(new PromptBack());
         return;
       }
@@ -3762,6 +3856,13 @@ function runLine<T>(
           if (!settled) {
             // text came between, so the next key repeats nothing
             last = undefined;
+            if (waiting) {
+              // a paste is not a key, so it answers nothing: the question is set
+              // aside and the paste goes where typing goes, so none of it is lost
+              waiting = undefined;
+              write(NEWLINE);
+              ask();
+            }
             type(form!.submit ? pastedBlock(block) : pastedLine(block));
           }
         })
@@ -4167,7 +4268,7 @@ function lineMultiselect<T>(
  * package as it imports `runPrompt()`, so they are published the same way. A form
  * that takes keys of its own -- `path()`'s Tab -- does it through
  * `PromptLineForm.key`, whose argument and result are `PromptLineKeyAt` and
- * `PromptLineKeyDone`.
+ * `PromptLineKeyDone`; a question of one key it asks is a `PromptLineKeyQuery`.
  *
  * The list, tree, picker and search prompts add three more beside them, for a
  * second reading of a numbered list would be a second answer about what `3`
