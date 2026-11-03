@@ -8888,8 +8888,8 @@ is recorded in that directory's file.
   indented code, bulleted and numbered lists that nest, tight and loose, block
   quotes, GFM pipe tables, thematic breaks, inline, reference and autolinks,
   images, backslash escapes and eleven named entities plus the numeric ones. Not
-  read, and **not dropped**: raw HTML, `~~strike~~`, footnotes, task boxes, bare
-  URLs. Dropping a construct the parser does not know loses words the author
+  read, and **not dropped**: raw HTML and bare URLs -- and, until SIG-224 read them
+  (the entry below), `~~strike~~`, footnotes and task boxes. Dropping a construct the parser does not know loses words the author
   wrote -- a `<details>` block is where a README hides its long answer -- while
   showing it as typed loses only formatting, and is what the source looks like.
   Bare URLs are the odd one out, deliberately: a terminal already makes them
@@ -8999,7 +8999,8 @@ is recorded in that directory's file.
   not of the tree.
 - **Deliberately out.** Multi-line reference definitions, HTML entities beyond
   the eleven, and anything CommonMark calls an extension. A highlight seam for code
-  blocks was out here too, and SIG-220 added it: the entry below.
+  blocks was out here too, and SIG-220 added it; SIG-224 took three of GitHub's
+  extensions. Both are entries below.
 
 ### Markdown code blocks take the app's highlighter (SIG-220)
 
@@ -9046,3 +9047,96 @@ it did, and none of SIG-197's tests was edited.
   there is one implementation and a test reads the classes off the tree directly.
 - **Inline code spans are never handed to the hook**, because they carry no
   language, and guessing one from a word is a grammar's job. They stay the accent.
+
+### Markdown: GitHub's extensions (SIG-224)
+
+Task lists, strikethrough and footnotes, beside the pipe tables SIG-197 already
+read. All four are on by default and there is no switch.
+
+- **On by default, because every one of them falls back to what was typed.** A
+  CommonMark-strict document changes meaning under GFM in exactly these four
+  places, and in each the drawing still shows the source's own characters where
+  it cannot do better. An ASCII task box is `[ ]` and `[x]`, the tildes stay round
+  a strikethrough, and a footnote reference with no definition is its brackets.
+  The documents a CLI renders are READMEs, changelogs and release notes, and those
+  are written on GitHub and previewed there. So an opt-in would be a switch whose
+  off position renders them worse than their author saw them. Pipe tables were
+  already on without one. A `gfm: false` is cheap to add if a caller turns up who
+  needs CommonMark-strict.
+- **A strikethrough keeps its tildes on every terminal, and the line is drawn as
+  well where colour is.** SGR 9 is dropped at colour level 0 along with every
+  other attribute (`src/style`, "Level 0 is plain text"), and level 0 is a pipe
+  and `NO_COLOR`. Above level 0 there is still no way to know: no terminal answers
+  a query about SGR 9, and one that does not draw it ignores it silently at full
+  colour, so it cannot be told from one that does. Struck-out words with no mark on them say
+  the opposite of what their author wrote. That is the one failure a reader cannot
+  detect, so the tildes are not conditional on anything. This is the hyperlink
+  entry's argument again, with the same lopsided cost: a redundant mark against an
+  inverted meaning. The tildes are `.sigil-markdown-strike-marker`, outside the
+  struck run, and an app that knows its terminal can write `display: none` for
+  them, which is pinned. They are **muted**, because in the text's own colour a
+  struck `--legacy` read as three pairs of tildes: SGR 9 draws its line at about a
+  hyphen's height, so the flag's struck dashes looked like a third pair between the
+  real ones, and a deprecated flag is the commonest thing a CLI strikes out.
+  Muting them makes them read as markup, the way the footnote reference and a
+  written-out URL already do. Inside a link they keep the link's style instead,
+  the rule an image follows, because muted and the accent both set a colour. `markdownText()` keeps them for the same reason, and so
+  does an image description built with it: plain text has no line to draw, so
+  `a ~~b~~` is `a ~~b~~` there, where dropping them as formatting made it `a b`.
+  The rule is `strikethrough: true` rather than
+  `text-decoration: line-through`, because that shorthand also resets `underline`,
+  and a struck link lost its underline. It is the sheet's fourteenth exception
+  (`src/theme`).
+- **Two tildes, never one.** GitHub takes `~one~` as well. In what a CLI prints,
+  one tilde is "about" (`~5s`) or a home directory (`~/.config`), and two of those
+  in a paragraph would strike out everything between them. Three or more is text.
+  Otherwise it is emphasis's own algorithm: the same flanking rules as `*`, matched
+  closer by closer. The rule of three cannot apply, since two and two is never a
+  multiple of three. A guard for it was written, failed no sabotage, and was taken
+  out as dead code.
+- **A task box is read off the start of an item's first paragraph and nowhere
+  else.** It is taken from the paragraph rather than from the line, so an item that
+  opens with a heading, a quote or indented code is not a task, and a `[x]` mid-sentence or
+  outside a list stays text. It has to be followed by white space and something
+  else, so `- [x]` alone is text. The parser carries it as `checked` on the list,
+  one entry per item and `undefined` for one that is not a task, and only on a list
+  that has a task. A list without one is the same object it was, and no test of
+  SIG-197's had to change for it. It is read before inline content, so it beats a
+  link definition with the label `x`, which is GitHub's order.
+- **The box takes the bullet's place, and comes after a number.** GitHub hides the
+  bullet of a task item, and `• ☐` is two marks for one item. A number can be what
+  a step is referred to by, so it stays, and the boxes are a column of their own
+  after it. An item in that list that is not a task keeps the column empty, so
+  every item's text starts in one place. The glyphs are `☐` and `☒`. Neither is an
+  emoji, while `☑` has an emoji presentation that a terminal can draw two columns
+  wide. And `☒` is literally a box with an `x` in it, which is what was typed. In
+  ASCII they are `[ ]` and `[x]`, three columns against a bullet's one, so an
+  unordered list's markers align left rather than right. Open is `.sigil-muted` and
+  ticked is `.sigil-success`, both of them roles, and the glyph says which as well.
+- **A footnote reference is `[1]`, numbered by where the document first refers to
+  it, and the notes go under a rule at the end.** Superscript digits are a third
+  of a cell high, and a reference exists to be seen. The parser numbers them. It
+  appends one `footnotes` block, so a consumer of `parseMarkdown()` gets a
+  self-contained tree rather than a map to join. A note may refer to another, so
+  the notes are read in number order until nothing new is numbered. A reference
+  with no definition is its brackets, which is what a reference link to nothing
+  already does. **A definition nothing refers to is still drawn**, numbered after
+  the rest. GitHub drops it, but SIG-197's rule is that a construct is never
+  dropped, and a misspelt reference would otherwise lose the note's words with
+  nothing on screen to say so. A definition can interrupt a paragraph. Without
+  that, `[^1]: One` on the line after `[^2]: Two` became lazy continuation text of
+  the note above it.
+- **A reference carries only its own classes.** Inside a link it would otherwise
+  take the link's underline and accent, and its `.sigil-muted` would be a second
+  role on one element, the conflict the image-in-a-link entry avoids. So the link
+  closes before `[1]`.
+- **A table is now drawn with `table.ts`'s pieces.** `tableWidths()` measures the
+  columns and `tableRowView()` builds every row, each cell a `TableCellView`
+  (SIG-212) holding the wrapped words. A markdown table is no longer a second
+  construction beside `table()`, only the same rows with two additions: narrowing
+  to fit, and the rule under the heading. Every SIG-197 table test passed through
+  the change unedited. The GFM checklist was already settled there: the alignment
+  row, inline markup in cells, `\|`, a table wider than the room, and `─` with a
+  `-` fallback. Each one is pinned now, including the right alignment of every
+  line of a wrapped cell. There are still no vertical borders, for `table()`'s
+  reason.

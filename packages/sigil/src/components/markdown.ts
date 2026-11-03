@@ -38,6 +38,7 @@ import {
 import { unicodeSupported } from './note.js';
 import { type HighlightSpan, TOKEN_ROLE, tokensOf } from './prompt.js';
 import { ruleView } from './rule.js';
+import { type Column, tableRowView, tableWidths } from './table.js';
 
 export interface MarkdownOptions extends StyledOptions {
   /**
@@ -92,6 +93,18 @@ const TABLE_GAP = 2;
 /** A bullet per depth, cycling, and what each is where box drawing is not safe. */
 const BULLETS = ['•', '◦', '▪'];
 const ASCII_BULLETS = ['*', '-', '+'];
+
+/**
+ * A task box, open and ticked, and what each is where box drawing is not safe --
+ * which is what the author typed. `☒` rather than a tick because it is the same
+ * thing: a box with an `x` in it. Neither is an emoji, so neither is drawn two
+ * columns wide by a terminal that reads `☑` as one.
+ */
+const BOXES = { off: '☐', on: '☒' };
+const ASCII_BOXES = { off: '[ ]', on: '[x]' };
+
+/** What stands either side of a struck-out run whatever the terminal draws. */
+const STRIKE_MARKER = '~~';
 
 /** What the walk carries down: the room left, and what was settled at the top. */
 interface Context {
@@ -256,6 +269,9 @@ function blockView(block: MarkdownBlock, ctx: Context): Element {
     }
     case 'rule': {
       return ruleView({ env: ctx.env, platform: ctx.platform, width: ctx.room }).element;
+    }
+    case 'footnotes': {
+      return footnotes(block, ctx);
     }
   }
 }
@@ -441,21 +457,37 @@ function quote(blocks: readonly MarkdownBlock[], ctx: Context): Element {
  * same column -- the hanging indent a wrapped item needs, from the layout rather
  * than from arithmetic.
  *
+ * A task's box stands where a bulleted item's bullet would, and after the number
+ * of a numbered one, since the number may be what the steps are referred to by.
+ * In a numbered list holding a task, an item that is not one keeps the box's
+ * column empty, so every item's text still starts in one column.
+ *
  * @param block - The list.
  * @param ctx - The room and the depth.
  * @returns Its tree.
  */
 function list(block: Extract<MarkdownBlock, { type: 'list' }>, ctx: Context): Element {
   const bullets = ctx.unicode ? BULLETS : ASCII_BULLETS;
+  const boxes = ctx.unicode ? BOXES : ASCII_BOXES;
+  const task = (index: number): boolean | undefined => block.checked?.[index];
+  const glyph = (index: number): string => (task(index) ? boxes.on : boxes.off);
   const markers = block.items.map((_, index) =>
-    block.ordered ? `${block.start + index}.` : bullets[ctx.depth % bullets.length]
+    block.ordered
+      ? `${block.start + index}.`
+      : task(index) === undefined
+        ? bullets[ctx.depth % bullets.length]
+        : glyph(index)
   );
   const markerWidth = Math.max(...markers.map((marker) => stringWidth(marker)), 1);
+  // a numbered list's boxes are a column of their own, after the numbers
+  const boxed = block.ordered && block.checked !== undefined;
+  const boxWidth = stringWidth(boxes.off);
   const inner: Context = {
     ...ctx,
     depth: ctx.depth + 1,
-    room: Math.max(1, ctx.room - markerWidth - 1),
+    room: Math.max(1, ctx.room - markerWidth - 1 - (boxed ? boxWidth + 1 : 0)),
   };
+  const fixed = { 'flex-shrink': 0, 'white-space': 'pre' } as const;
 
   return box(
     {
@@ -463,17 +495,83 @@ function list(block: Extract<MarkdownBlock, { type: 'list' }>, ctx: Context): El
       'flex-direction': 'column',
       'row-gap': block.tight ? 0 : 1,
     },
-    ...block.items.map((item, index) =>
-      box(
+    ...block.items.map((item, index) => {
+      const state = task(index);
+      const marker =
+        state === undefined || block.ordered
+          ? 'sigil-markdown-marker sigil-muted'
+          : `sigil-markdown-marker ${taskClasses(state)}`;
+      return box(
         { class: 'sigil-markdown-item', 'column-gap': 1, 'flex-direction': 'row' },
+        // numbers line up on their right; a bullet and a box on their left, which
+        // only differs where an ASCII box is three columns and a bullet one
         textNode(markers[index], {
-          class: 'sigil-markdown-marker sigil-muted',
-          'flex-shrink': 0,
-          'text-align': 'right',
-          'white-space': 'pre',
+          ...fixed,
+          class: marker,
+          'text-align': block.ordered ? 'right' : 'left',
           width: markerWidth,
         }),
+        ...(boxed
+          ? [
+              state === undefined
+                ? textNode('', { ...fixed, width: boxWidth })
+                : textNode(glyph(index), { ...fixed, class: taskClasses(state), width: boxWidth }),
+            ]
+          : []),
         column(item, inner, !block.tight, 'sigil-markdown-item-body')
+      );
+    })
+  );
+}
+
+/**
+ * What a task's box carries: muted while it is open, and the success role once
+ * it is ticked. The glyph says which as well, so neither depends on the colour.
+ */
+function taskClasses(done: boolean): string {
+  return done
+    ? 'sigil-markdown-task sigil-markdown-task-done sigil-success'
+    : 'sigil-markdown-task sigil-muted';
+}
+
+/**
+ * The footnotes, at the end of the document: a rule, then each note's number and
+ * its blocks beside it, the way a numbered list's items are drawn.
+ *
+ * A reference is drawn `[1]` in the text and its note `[1]` here, the same in
+ * every terminal. Superscript digits were the other choice and are worse at the
+ * one thing a reference is for, which is being seen: a terminal draws them a
+ * third the height of a digit, in a cell the same width.
+ *
+ * @param block - The notes.
+ * @param ctx - The room.
+ * @returns Its tree.
+ */
+function footnotes(block: Extract<MarkdownBlock, { type: 'footnotes' }>, ctx: Context): Element {
+  const markers = block.notes.map((note) => `[${note.index}]`);
+  const markerWidth = Math.max(...markers.map((marker) => stringWidth(marker)), 1);
+  const inner: Context = { ...ctx, room: Math.max(1, ctx.room - markerWidth - 1) };
+  // spaced as a list is: a blank line between notes once any note is more than
+  // one block, or a two-paragraph note would read as two notes
+  const loose = block.notes.some((note) => note.children.length > 1);
+
+  return box(
+    { class: 'sigil-markdown-footnotes', 'flex-direction': 'column' },
+    ruleView({ env: ctx.env, platform: ctx.platform, width: ctx.room }).element,
+    box(
+      { 'flex-direction': 'column', 'row-gap': loose ? 1 : 0 },
+      ...block.notes.map((note, index) =>
+        box(
+          { class: 'sigil-markdown-footnote', 'column-gap': 1, 'flex-direction': 'row' },
+          textNode(markers[index], {
+            class: 'sigil-markdown-footnote-marker sigil-muted',
+            'flex-shrink': 0,
+            'text-align': 'right',
+            'white-space': 'pre',
+            width: markerWidth,
+          }),
+          column(note.children, inner, true, 'sigil-markdown-footnote-body')
+        )
       )
     )
   );
@@ -487,49 +585,54 @@ const JUSTIFY: Record<NonNullable<MarkdownAlign>, string> = {
 };
 
 /**
- * A table: measured columns, the heading row bold, and a rule under it.
+ * A table: `table()`'s rows, the heading row bold, and a rule under it.
  *
- * The same shape and the same classes as `table()` -- `.sigil-table`,
- * `.sigil-table-row`, `.sigil-table-cell`, `.sigil-table-head` -- so a theme that
- * restyled a table restyles this one, with `.sigil-markdown-table` beside them as
- * the narrower hook. Where `table()` lets a long row run past the edge, a table
- * in a document is narrowed to the room it has: its widest columns give up width
- * first, and their cells wrap, since a document is read in a terminal rather than
- * kept in a log. The rule under the heading is what still tells it from the rows
- * at colour level 0, where bold is gone.
+ * Built from `table.ts`'s own pieces -- `tableWidths()` measures the columns and
+ * `tableRowView()` draws each row, with every cell a `TableCellView` -- so a
+ * markdown table and `table()` are one construction with one set of classes,
+ * `.sigil-table`, `-row`, `-cell` and `-head`, and a theme that restyled one
+ * restyles the other. What a document adds is two things. Its cells are inline
+ * markup, so each is a view: a run of words that wraps, where `table()` has a
+ * string on one line. And it is narrowed to the room it has: its widest columns
+ * give up width first, and their cells wrap, since a document is read in a
+ * terminal rather than kept in a log. The rule under the heading is what still
+ * tells it from the rows at colour level 0, where bold is gone.
  *
  * @param block - The table.
  * @param ctx - The room.
  * @returns Its tree.
  */
 function tableBlock(block: Extract<MarkdownBlock, { type: 'table' }>, ctx: Context): Element {
-  const head = block.head.map((cell) => words(cell, ctx));
-  const rows = block.rows.map((row) => row.map((cell) => words(cell, ctx)));
-  const natural = head.map((_, i) =>
-    Math.max(1, lineWidth(head[i]), ...rows.map((row) => lineWidth(row[i])))
+  const columns: Column[] = block.align.map((align) => ({ align: align ?? 'left' }));
+  const lines = [block.head, ...block.rows].map((row) => row.map((cell) => words(cell, ctx)));
+  const natural = tableWidths(
+    [],
+    lines.map((row) => row.map((cell) => ({ text: '', width: Math.max(1, lineWidth(cell)) }))),
+    columns,
+    false
   );
   const widths = fit(natural, ctx.room - TABLE_GAP * Math.max(0, natural.length - 1));
   const line = ctx.unicode ? '─' : '-';
 
   const row = (cells: Word[][][], classes: string): Element =>
-    box(
-      { class: 'sigil-table-row', 'column-gap': TABLE_GAP, 'flex-shrink': 0 },
-      ...cells.map((cell, i) =>
-        box(
-          {
-            class: classes,
-            'flex-direction': 'column',
-            'flex-shrink': 0,
-            width: widths[i],
-          },
-          flow(cell, '', JUSTIFY[block.align[i] ?? 'left'], widths[i])
-        )
-      )
+    tableRowView(
+      cells.map((cell, i) => ({
+        text: '',
+        view: {
+          element: flow(cell, '', JUSTIFY[block.align[i] ?? 'left'], widths[i]),
+          width: widths[i],
+        },
+        width: widths[i],
+      })),
+      widths,
+      columns,
+      TABLE_GAP,
+      classes
     );
 
   return box(
     { class: 'sigil-table sigil-markdown-table', 'flex-direction': 'column' },
-    row(head, 'sigil-table-cell sigil-table-head sigil-heading'),
+    row(lines[0], 'sigil-table-cell sigil-table-head sigil-heading'),
     box(
       { class: 'sigil-table-row', 'column-gap': TABLE_GAP, 'flex-shrink': 0 },
       ...widths.map((w) =>
@@ -541,7 +644,7 @@ function tableBlock(block: Extract<MarkdownBlock, { type: 'table' }>, ctx: Conte
         })
       )
     ),
-    ...rows.map((cells) => row(cells, 'sigil-table-cell sigil-markdown-cell'))
+    ...lines.slice(1).map((cells) => row(cells, 'sigil-table-cell sigil-markdown-cell'))
   );
 }
 
@@ -649,6 +752,31 @@ function words(runs: readonly MarkdownInline[], ctx: Context): Word[][] {
         }
         case 'strong': {
           walk(run.children, join(classes, 'sigil-markdown-strong'), href);
+          break;
+        }
+        case 'strikethrough': {
+          // the tildes stay, on every terminal and at every colour level: the
+          // line through the words is an attribute nothing can ask a terminal
+          // whether it drew, and struck-out words with no mark on them say the
+          // opposite of what their author wrote. Muted, so they read as markup:
+          // a struck `--flag` puts the line through its dashes, and in the text's
+          // own colour the tildes beside that read as a third pair. Not inside a
+          // link, for the image's reason: muted and the accent both set a colour
+          const marker = join(
+            classes,
+            classes.includes('sigil-markdown-link')
+              ? 'sigil-markdown-strike-marker'
+              : 'sigil-markdown-strike-marker sigil-muted'
+          );
+          emit(STRIKE_MARKER, marker, href);
+          walk(run.children, join(classes, 'sigil-markdown-strike'), href);
+          emit(STRIKE_MARKER, marker, href);
+          break;
+        }
+        case 'footnote': {
+          // its own classes only: it is not part of a link or an emphasis it
+          // sits inside, and one element carries one role
+          emit(`[${run.index}]`, 'sigil-markdown-footnote-ref sigil-muted', '');
           break;
         }
         case 'link': {
