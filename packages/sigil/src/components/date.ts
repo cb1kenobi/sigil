@@ -20,18 +20,22 @@ import { daysInMonth, transformValue } from '../util/coerce.js';
 import { addMonths, calendarGrid, type CalendarGridOptions, dayKey } from './calendar.js';
 import { typedText } from './editing.js';
 import {
+  type AccessibleOptions,
   promptAnswered,
+  promptAsLines,
+  promptLineQuestion,
   promptHeadLine,
   promptHeadWidths,
   promptNote,
   type PromptOptions,
   promptTailFits,
   promptUnderHead,
+  runLinePrompt,
   runPrompt,
   setPromptNote,
 } from './prompt.js';
 
-export interface DateOptions extends PromptOptions {
+export interface DateOptions extends PromptOptions, AccessibleOptions {
   /**
    * Shows a month grid under the field, with the day the field holds selected.
    * `true` takes the defaults; an object also names the language, the weekday a
@@ -81,6 +85,16 @@ const LEAD: Record<Field, string> = {
   month: '-',
   second: ':',
   year: '',
+};
+
+/** What each segment is called in the picture of the format a line form asks for. */
+const PICTURE: Record<Field, string> = {
+  day: 'DD',
+  hour: 'HH',
+  minute: 'MM',
+  month: 'MM',
+  second: 'SS',
+  year: 'YYYY',
 };
 
 /** The fields in the order they are compared, which is also the order they are drawn. */
@@ -219,6 +233,72 @@ export function date(opts: DateOptions): Promise<Date> {
   let pending = '';
   let error: string | undefined;
 
+  /** What is wrong with an answer, or the `Date` it is: the drawn field's checks, in its order. */
+  async function judged(at: Parts): Promise<Date | string> {
+    if (min && keyOf(at) < keyOf(min)) {
+      return __`Date must not be before ${shownText(min)}`;
+    }
+    if (max && keyOf(at) > keyOf(max)) {
+      return __`Date must not be after ${shownText(max)}`;
+    }
+    let answer: Date;
+    try {
+      // the parser's own reader, which is what refuses a day or a clock that
+      // does not exist -- there is no second copy of that here
+      answer = transformValue(textOf(at), 'date') as Date;
+    } catch (cause) {
+      return (cause as Error).message;
+    }
+    const failed = await opts.validate?.(answer);
+    return typeof failed === 'string' && failed ? failed : answer;
+  }
+
+  if (promptAsLines(opts)) {
+    // the segments typed whole, in the order they are drawn: a date is said as
+    // its digits far more readily than it is stepped to, and a line has no
+    // segment to step. The picture names the format, the range is said rather
+    // than found by refusal -- the drawn grid dims what is outside it, which a
+    // line cannot -- and Enter alone takes where the field would have opened
+    const picture = fields.map((f) => `${LEAD[f]}${PICTURE[f]}`).join('');
+    const shape = new RegExp(
+      `^${fields
+        .map((f) => `${LEAD[f] === ' ' ? '[ T]' : LEAD[f]}(\\d{${f === 'year' ? 4 : '1,2'}})`)
+        .join('')}$`
+    );
+    const range =
+      min && max
+        ? __`from ${shownText(min)} to ${shownText(max)}`
+        : min
+          ? __`from ${shownText(min)}`
+          : max
+            ? __`until ${shownText(max)}`
+            : undefined;
+    const hint = [picture, range, __`default: ${shownText(parts)}`].filter(Boolean).join(', ');
+    const start = parts;
+
+    return runLinePrompt<Date>(opts, {
+      ask: promptLineQuestion(opts.message, `(${hint})`),
+      echo: true,
+      keep: true,
+      async read(reply) {
+        const said = reply.trim();
+        let at = start;
+        if (said !== '') {
+          const match = shape.exec(said);
+          if (!match) {
+            return __`Enter a date as ${picture}`;
+          }
+          at = { ...start };
+          fields.forEach((f, i) => {
+            at[f] = Number(match[i + 1]);
+          });
+        }
+        const answer = await judged(at);
+        return typeof answer === 'string' ? answer : { value: answer };
+      },
+    });
+  }
+
   return runPrompt<Date>(opts, () => {
     const segments = new Map<Field, Element>();
     const children: Element[] = [];
@@ -329,30 +409,11 @@ export function date(opts: DateOptions): Promise<Date> {
         if (k.name === 'enter') {
           commit();
 
-          if (min && keyOf(parts) < keyOf(min)) {
-            error = __`Date must not be before ${shownText(min)}`;
-          } else if (max && keyOf(parts) > keyOf(max)) {
-            error = __`Date must not be after ${shownText(max)}`;
-          } else {
-            let answer: Date | undefined;
-
-            try {
-              // the parser's own reader: it is what refuses a day or a clock
-              // that does not exist, so there is no second copy of that here
-              answer = transformValue(textOf(parts), 'date') as Date;
-            } catch (cause) {
-              error = (cause as Error).message;
-            }
-
-            if (answer) {
-              const failed = await opts.validate?.(answer);
-              if (typeof failed === 'string' && failed) {
-                error = failed;
-              } else {
-                return { value: answer };
-              }
-            }
+          const answer = await judged(parts);
+          if (typeof answer !== 'string') {
+            return { value: answer };
           }
+          error = answer;
         } else if (k.name === 'left' || (k.name === 'tab' && k.shift)) {
           move(focus - 1);
         } else if (k.name === 'right' || k.name === 'tab') {

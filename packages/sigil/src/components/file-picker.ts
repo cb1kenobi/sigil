@@ -31,21 +31,29 @@ import {
   type PathFlavour,
 } from './path.js';
 import {
+  type AccessibleOptions,
+  type ChoiceEntry,
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
   promptAnswerSlot,
+  promptAsLines,
   promptHeadLine,
   promptHeadWidths,
+  PromptError,
+  promptLineChoice,
+  type PromptLineForm,
+  type PromptLineReply,
   type PromptOptions,
   promptNote,
   promptRowCap,
+  runLinePrompt,
   runPrompt,
   setPromptNote,
 } from './prompt.js';
 import nodePath from 'node:path';
 
-export interface FilePickerOptions extends PromptOptions {
+export interface FilePickerOptions extends PromptOptions, AccessibleOptions {
   /**
    * Pick a directory rather than a file. Defaults to `false`.
    *
@@ -247,6 +255,105 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
     starting = false;
     active = Math.max(0, at);
     return false;
+  }
+
+  if (promptAsLines(opts)) {
+    return lineBrowse();
+  }
+
+  /**
+   * The picker as lines: a directory at a time, as a numbered list.
+   *
+   * What the drawn picker is, said rather than drawn: the directory being looked
+   * at, what it offers -- a file is an answer and a directory is gone into, by
+   * the same filter and the same once-per-directory read -- and `..` to come back
+   * out, which is Left, as a number like any other and listed only where Left
+   * goes somewhere. With `directory`, `.` is the directory being looked at, the
+   * drawn picker's first row, so going into one and then answering `.` is how a
+   * directory is picked; the drawn Enter-or-Right split has no line to be drawn
+   * on. Enter alone is what the drawn highlight would have opened on: a starting
+   * answer, the directory just come back out of, or the first row.
+   */
+  function lineBrowse(): Promise<string> {
+    type Step = { go: string } | { pick: string };
+
+    async function listed(at: string, from?: string): Promise<PromptLineForm<string>> {
+      await cache.load(at);
+      const found = candidatesOf(
+        cache.get(at) ?? [],
+        '',
+        { ...filter, hidden: showHidden },
+        flavour
+      );
+      const steps: Step[] = [];
+      const entries: ChoiceEntry<Step>[] = [];
+      const add = (label: string, hint: string | undefined, value: Step): void => {
+        steps.push(value);
+        entries.push({ hint, label, value });
+      };
+
+      if (opts.directory) {
+        add('.', __`this directory`, { pick: at });
+      }
+      for (const entry of found) {
+        const path = entryPath(at, entry, flavour);
+        if (entry.dir) {
+          add(entry.name + flavour.sep, undefined, { go: path });
+        } else {
+          add(entry.name, undefined, { pick: path });
+        }
+      }
+      const up = parentOf(at, opts.confine ? base : undefined, flavour);
+      if (up !== undefined) {
+        add('..', __`up a level`, { go: up });
+      }
+
+      const wanted =
+        from === undefined
+          ? -1
+          : steps.findIndex((s) => sameName('go' in s ? s.go : s.pick, from, flavour));
+      const form = promptLineChoice<Step, string>(opts.message, entries, {
+        heading: [__`In ${at}`, ...(found.length === 0 ? [__`No matches`] : [])],
+        initial: Math.max(0, wanted),
+        pick: (choice) => step(choice.value as Step, at),
+      });
+      if (form instanceof PromptError) {
+        throw form;
+      }
+      return form;
+    }
+
+    async function step(chosen: Step, here: string): Promise<PromptLineReply<string>> {
+      if ('go' in chosen) {
+        // coming back out lands on the directory that was left
+        return listed(chosen.go, flavour.dirname(here) === chosen.go ? here : undefined);
+      }
+      const failed = await opts.validate?.(chosen.pick);
+      if (typeof failed === 'string' && failed) {
+        return failed;
+      }
+      return { said: __`Chosen: ${chosen.pick}`, value: chosen.pick };
+    }
+
+    return runLinePrompt<string>(opts, async () => {
+      // a starting answer names an entry of the directory holding it, and the
+      // picker opens in `root` instead when that directory no longer does
+      if (want !== undefined) {
+        await cache.load(dir);
+        const name = want;
+        const there = candidatesOf(
+          cache.get(dir) ?? [],
+          '',
+          { ...filter, hidden: showHidden },
+          flavour
+        ).some((entry) => sameName(entry.name, name, flavour));
+        if (!there) {
+          return listed(base);
+        }
+        return listed(dir, flavour.join(dir, name));
+      }
+      return listed(dir);
+    }, [opts.message]);
   }
 
   return runPrompt<string>(opts, () => {

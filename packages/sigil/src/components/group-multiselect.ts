@@ -22,11 +22,15 @@ import { box, type Element, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import {
+  type AccessibleOptions,
   type Choice,
+  type ChoiceEntry,
   listWindow,
+  multiselect,
   PROMPT_SYMBOLS,
   promptAnswered,
   promptAnswerSlot,
+  promptAsLines,
   promptChoice,
   promptFooter,
   promptHeadLine,
@@ -38,13 +42,14 @@ import {
   promptSameValue,
   promptValue,
   runPrompt,
+  separator,
   setPromptNote,
 } from './prompt.js';
 
 /** The box of a group with some of its choices ticked and some not. */
 const PARTIAL = '◐';
 
-export interface GroupMultiselectOptions<T> extends PromptOptions {
+export interface GroupMultiselectOptions<T> extends PromptOptions, AccessibleOptions {
   /**
    * What to offer, as group name to the choices under it. Groups are listed in
    * the order the object holds them. A choice is what `multiselect()` takes:
@@ -75,6 +80,41 @@ export interface GroupMultiselectOptions<T> extends PromptOptions {
    * one. A value no choice on offer holds is dropped.
    */
   value?: readonly T[];
+}
+
+/**
+ * The groups as one `multiselect()` list, each under a heading that says which
+ * numbers are its own.
+ *
+ * Which is what ticking a group is as a line: `multiselect()` already reads a
+ * range, so a heading reading `Frontend (1-3)` is the whole group in one reply of
+ * `1-3`, with no second gesture to learn and no number spent on a heading that
+ * is not an answer. Only a choice on offer is numbered, so a group with nothing
+ * on offer names no range.
+ *
+ * @param groups - The groups, in order, with what is under each.
+ * @returns The list.
+ */
+function headed<T>(groups: [string, readonly (Choice<T> | string)[]][]): ChoiceEntry<T>[] {
+  const entries: ChoiceEntry<T>[] = [];
+  let numbered = 0;
+  for (const [label, members] of groups) {
+    const choices = members.map((entry) => promptChoice<T>(entry));
+    const offered = choices.filter((choice) => !choice.disabled).length;
+    const first = numbered + 1;
+    numbered += offered;
+    entries.push(
+      separator(
+        offered === 0
+          ? label
+          : offered === 1
+            ? `${label} (${first})`
+            : `${label} (${first}-${numbered})`
+      ),
+      ...choices
+    );
+  }
+  return entries;
 }
 
 /** One line of the list: a group, or a choice under one. */
@@ -156,6 +196,10 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
   }
   if (min > max) {
     return Promise.reject(new PromptError(`"${opts.message}" has a min greater than its max`));
+  }
+
+  if (promptAsLines(opts)) {
+    return multiselect<T>({ ...opts, accessible: true, choices: headed(groups) });
   }
 
   const loop = opts.loop ?? true;

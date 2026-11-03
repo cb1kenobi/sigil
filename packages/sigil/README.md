@@ -2855,14 +2855,22 @@ Chosen: TypeScript, Tests
 Create it? (Y/n) y
 ```
 
-| Prompt          | As a line                                                                                                                           |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `text()`        | The question, then the reply. Enter alone answers `default`, which is said in the question                                          |
-| `password()`    | Nothing is echoed, and the default is not said                                                                                      |
-| `multiline()`   | The question names the submit key; Enter breaks the line and the submit key answers                                                 |
-| `confirm()`     | `(Y/n)`, then `y`, `yes`, `n` or `no` -- or the catalog's own -- and Enter alone for the default                                    |
-| `select()`      | A numbered list and a number. Enter alone takes the choice the drawn list would open on                                             |
-| `multiselect()` | The same list and numbers separated by commas, with ranges (`1-3, 5`). Enter alone keeps what was ticked and `none` answers nothing |
+| Prompt                            | As a line                                                                                                                           |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `text()`                          | The question, then the reply. Enter alone answers `default`, which is said in the question                                          |
+| `password()`                      | Nothing is echoed, and the default is not said                                                                                      |
+| `multiline()`                     | The question names the submit key; Enter breaks the line and the submit key answers                                                 |
+| `confirm()`                       | `(Y/n)`, then `y`, `yes`, `n` or `no` -- or the catalog's own -- and Enter alone for the default                                    |
+| `select()`                        | A numbered list and a number. Enter alone takes the choice the drawn list would open on                                             |
+| `multiselect()`                   | The same list and numbers separated by commas, with ranges (`1-3, 5`). Enter alone keeps what was ticked and `none` answers nothing |
+| `selectRow()`                     | `select()` over the rows, each read as `Heading: value` pairs on one line                                                           |
+| `groupMultiselect()`              | `multiselect()` with each group as a heading that names its numbers, `Frontend (3-5)`, so a group is a range                        |
+| `sort()`                          | The list numbered, and the order wanted as those numbers (`3 1 2`); any left out follow in their order                              |
+| `date()`, `pickDate()`            | The date typed as `YYYY-MM-DD` (and `HH:MM` with a time); the question says the format, the range and the default                   |
+| `selectTree()`, `directoryTree()` | One level at a time: a leaf answers, a branch is gone into, `Back to` goes up. Without `leaves`, `this one` picks the branch itself |
+| `filePicker()`                    | One directory at a time: a file answers, a directory is gone into, `..` goes up, and `.` picks the directory with `directory`       |
+| `autocomplete()`                  | The term, then what it matches as a numbered list with `Search again` last; a term that leaves one choice answers with it           |
+| `autocompleteMultiselect()`       | The term, then numbers ticking among what it matched; ticks the term hid stay. `Search again`, or Enter alone, to finish            |
 
 Backspace and Ctrl-U erase what is being typed, and never past the start of the
 line; the arrows do nothing, because a line that is never redrawn cannot show an
@@ -2879,9 +2887,8 @@ answers what it says.
 
 It does **not** lift the rule that a prompt needs a terminal at both ends. A line
 prompt reading a pipe would take whatever the pipe carries as its answers, and the
-variable is exported to every process in a pipeline. The other prompts --
-`number()`, `date()`, `autocomplete()` and the rest -- have no line form yet and are
-drawn as usual.
+variable is exported to every process in a pipeline. A prompt with no line form
+yet is drawn as usual.
 
 #### A date
 

@@ -30,10 +30,12 @@ import { terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
 import {
+  type AccessibleOptions,
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
   promptAnswerSlot,
+  promptAsLines,
   promptFooter,
   promptHeadLine,
   promptHeadWidths,
@@ -42,6 +44,7 @@ import {
   PromptError,
   promptRowCap,
   runPrompt,
+  select,
 } from './prompt.js';
 import {
   type Column,
@@ -72,7 +75,8 @@ export interface SelectRowColumn extends Column {
   sortable?: boolean;
 }
 
-export interface SelectRowOptions<R extends object = TableRow> extends PromptOptions {
+export interface SelectRowOptions<R extends object = TableRow>
+  extends PromptOptions, AccessibleOptions {
   /**
    * The columns, as for `table()`. Inferred from the first row's keys when not
    * given.
@@ -259,6 +263,42 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
   let at =
     named >= 0 ? named : Math.min(Math.max(0, Math.floor(opts.initial ?? 0) || 0), data.length - 1);
   let top = 0;
+
+  /** What a row is shown as once answered: its own `short`, or its cells joined. */
+  const shortOf = (index: number): string =>
+    opts.short
+      ? opts.short(data[index] as R)
+      : (cells[index] as TableCell[])
+          .map((cell) => cell.text)
+          .filter(Boolean)
+          .join(', ');
+
+  if (promptAsLines(opts)) {
+    // `select()` over the rows, each read as one line: a cell after its column's
+    // heading, since a row of bare values heard in order is a row of values
+    // nobody can tell apart, and a cell with nothing to say -- empty, or a view
+    // with no text -- left out. No sorting: a digit is a number to choose by
+    // here, and the rows are in the order they were handed over
+    return select<R>({
+      ...opts,
+      accessible: true,
+      choices: data.map((row, index) => ({
+        label: (cells[index] as TableCell[])
+          .flatMap((cell, i) => {
+            if (!cell.text) {
+              return [];
+            }
+            const heading = head ? headers[i] : undefined;
+            return [heading ? `${heading}: ${cell.text}` : cell.text];
+          })
+          .join(', '),
+        short: shortOf(index),
+        value: row,
+      })),
+      initial: at,
+      value: undefined,
+    });
+  }
 
   /** The index into `data` of the row under the cursor. */
   const under = (): number => order[at] as number;
@@ -457,14 +497,7 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
 
       settle(row): void {
         promptAnswered(mark);
-        answer.show(
-          opts.short
-            ? opts.short(row)
-            : (cells[data.indexOf(row)] as TableCell[])
-                .map((cell) => cell.text)
-                .filter(Boolean)
-                .join(', ')
-        );
+        answer.show(shortOf(data.indexOf(row)));
         header?.setProps({ display: 'none' });
         footer.setProps({ display: 'none' });
         list.setProps({ display: 'none' });
