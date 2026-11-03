@@ -1,4 +1,5 @@
 import { strip } from '../../src/ansi/index.js';
+import { ScrollBox, scrollControl } from '../../src/components/scroll-box.js';
 import {
   attachTooltip,
   placeTooltip,
@@ -569,6 +570,40 @@ describe('attachTooltip()', () => {
     expect(picture(s.root)[4]?.slice(2)).toBe('| Writes it to disk |');
   });
 
+  it('should re-place against the right edge when the words grow', async () => {
+    // its own size is one of the three things a place is computed from: left where
+    // it was, a longer bubble would run into the edge and wrap there
+    const s = scene({ at: { x: WIDTH - 4, y: 2 } });
+    const tip = tipOn(s, { delay: 0 });
+    await hover(s);
+    picture(s.root);
+
+    tip.setText('Writes it to disk');
+    let lines = picture(s.root);
+    expect(lines[4]?.endsWith('| Writes it to disk |')).toBe(true);
+    expect(lines[4]?.length).toBe(WIDTH);
+
+    // and every time, not only the first
+    tip.setText('Writes it all to disk');
+    lines = picture(s.root);
+    expect(lines[4]?.endsWith('| Writes it all to disk |')).toBe(true);
+  });
+
+  it('should re-place against a root that narrowed with no resize', async () => {
+    // the screen is the third: a root whose own width moved, which no terminal
+    // resize announced, leaves the bubble running past its new right edge
+    const s = scene({ at: { x: 25, y: 2 } });
+    const tip = tipOn(s, { delay: 0 });
+    await hover(s);
+    picture(s.root);
+
+    s.root.setProp('width', 30);
+    const lines = picture(s.root);
+    expect(lines[4]?.trimEnd().endsWith('| Writes it |')).toBe(true);
+    // ends where the anchor ends, at 29, rather than starting where it starts
+    expect(tip.element?.box).toMatchObject({ width: 13, x: 16, y: 3 });
+  });
+
   it('should wrap at maxWidth', async () => {
     const s = scene();
     tipOn(s, { delay: 0, maxWidth: 12, text: 'Writes the file' });
@@ -589,6 +624,163 @@ describe('attachTooltip()', () => {
     s.term.resize(WIDTH, HEIGHT);
     expect(tip.shown).toBe(true);
     expect(tip.element).not.toBe(before);
+  });
+
+  describe('an anchor that moves while it is shown', () => {
+    /**
+     * Ten rows in a five-row scroll box, the anchor one of them, over a router with
+     * no mouse: the focus shows the bubble, so nothing about the pointer is stale
+     * when the rows move under it. `tall` makes the anchor three rows high.
+     */
+    function scrolled(opts: { tall?: boolean } = {}) {
+      const term = createTestTerminal({ columns: WIDTH, rows: HEIGHT });
+      const anchor = text(opts.tall ? 'one\ntwo\nthree' : 'Anchor', {
+        focusable: true,
+        id: 'anchor',
+      });
+      const rows = Array.from({ length: 10 }, (_, i) =>
+        i === 3 ? anchor : text(`row ${i}`, { id: `r${i}` })
+      );
+      const list = ScrollBox({
+        children: () => box({ 'flex-direction': 'column' }, ...rows),
+        props: { height: 5 },
+      });
+      const root = box({ 'flex-direction': 'column', height: HEIGHT, width: WIDTH }, list);
+      const input = createInput({ root, terminal: term.terminal });
+      routers.push(input);
+      picture(root);
+      const viewport = scrollControl(list)?.viewport as Element;
+      return { anchor, input, list, root, rows, viewport };
+    }
+
+    /** The row a line of the picture holding `words` is on, or -1. */
+    const rowOf = (lines: string[], words: string) =>
+      lines.findIndex((line) => line.includes(words));
+
+    it('should follow an anchor that scrolls, in the layout that moved it', () => {
+      const s = scrolled();
+      const tip = attachTooltip(s.anchor, { ascii: true, delay: 0, input: s.input, text: 'Says' });
+      handles.push(tip);
+      s.input.focus.focus(s.anchor);
+      flush();
+
+      let lines = picture(s.root);
+      expect(rowOf(lines, 'Anchor')).toBe(3);
+      expect(rowOf(lines, '| Says |')).toBe(5);
+
+      // two rows up, by the one writer of the offset -- which is what a key, a
+      // wheel notch and `scrollIntoView()` all reach
+      s.viewport.scrollTo(0, 2);
+      lines = picture(s.root);
+      expect(rowOf(lines, 'Anchor')).toBe(1);
+      expect(rowOf(lines, '| Says |'), 'the bubble stayed where the anchor was').toBe(3);
+      expect(tip.side).toBe('bottom');
+    });
+
+    it('should follow an anchor that moves for a reason that is not a scroll', () => {
+      // a row above it that wraps to two lines: no offset moved, so nothing but a
+      // layout knows the anchor is a row further down
+      const s = scrolled();
+      const tip = attachTooltip(s.anchor, { ascii: true, delay: 0, input: s.input, text: 'Says' });
+      handles.push(tip);
+      s.input.focus.focus(s.anchor);
+      flush();
+      picture(s.root);
+
+      s.rows[1]?.setText('row 1\nand more');
+      const lines = picture(s.root);
+      expect(rowOf(lines, 'Anchor')).toBe(4);
+      expect(rowOf(lines, '| Says |')).toBe(6);
+    });
+
+    it('should hide while the anchor is scrolled out of view, and come back with it', () => {
+      const s = scrolled();
+      const tip = attachTooltip(s.anchor, { ascii: true, delay: 0, input: s.input, text: 'Says' });
+      handles.push(tip);
+      s.input.focus.focus(s.anchor);
+      flush();
+      picture(s.root);
+
+      // the anchor is row 3, and a viewport scrolled to 4 starts below it
+      s.viewport.scrollTo(0, 4);
+      let lines = picture(s.root);
+      expect(rowOf(lines, 'Anchor')).toBe(-1);
+      expect(lines.join('\n'), 'drawn pointing at nothing').not.toContain('Says');
+      expect(tip.side).toBe(undefined);
+      // still shown, so the layout that brings the anchor back brings it too
+      expect(tip.shown).toBe(true);
+
+      s.viewport.scrollTo(0, 1);
+      lines = picture(s.root);
+      expect(rowOf(lines, 'Anchor')).toBe(2);
+      expect(rowOf(lines, '| Says |')).toBe(4);
+      expect(tip.side).toBe('bottom');
+    });
+
+    it('should point at the part of the anchor still in view', () => {
+      // a three-row anchor with its first row scrolled off the top: above it is
+      // above the viewport, so the bubble goes above the part that is left
+      const s = scrolled({ tall: true });
+      const tip = attachTooltip(s.anchor, {
+        ascii: true,
+        delay: 0,
+        input: s.input,
+        side: 'top',
+        text: 'Says',
+      });
+      handles.push(tip);
+      s.input.focus.focus(s.anchor);
+      flush();
+      picture(s.root);
+
+      s.viewport.scrollTo(0, 4);
+      const lines = picture(s.root);
+      expect(rowOf(lines, 'two')).toBe(0);
+      // the visible part starts on row 0, so there is no room above it and the
+      // bubble flips below the part that is left, which ends on row 1
+      expect(tip.side).toBe('bottom');
+      expect(rowOf(lines, '| Says |')).toBe(3);
+    });
+
+    it('should hide for an anchor taken out of the tree while it is shown', () => {
+      // what a windowed list does to a row it scrolled away from
+      const s = scrolled();
+      const tip = attachTooltip(s.anchor, { ascii: true, delay: 0, input: s.input, text: 'Says' });
+      handles.push(tip);
+      s.input.focus.focus(s.anchor);
+      flush();
+      picture(s.root);
+
+      s.anchor.remove();
+      expect(picture(s.root).join('\n')).not.toContain('Says');
+      expect(tip.side).toBe(undefined);
+    });
+
+    it('should lay out once more for a bubble that moved, and not again', () => {
+      // the cost guard: asked after every layout, so one that answered `true` with
+      // nothing moved would spend every pass a frame allows on every frame
+      const s = scrolled();
+      const tip = attachTooltip(s.anchor, { ascii: true, delay: 0, input: s.input, text: 'Says' });
+      handles.push(tip);
+      s.input.focus.focus(s.anchor);
+      flush();
+      picture(s.root);
+
+      const bubble = tip.element as Element;
+      const handler = bubble.onLayout as NonNullable<Element['onLayout']>;
+      const answers: boolean[] = [];
+      bubble.onLayout = (it) => {
+        const said = handler(it);
+        answers.push(said);
+        return said;
+      };
+      picture(s.root);
+      expect(answers, 'nothing moved').toEqual([false]);
+      answers.length = 0;
+      s.viewport.scrollTo(0, 1);
+      picture(s.root);
+      expect(answers, 'moved, then laid out where it moved to').toEqual([true, false]);
+    });
   });
 
   it('should refuse what it cannot use', () => {

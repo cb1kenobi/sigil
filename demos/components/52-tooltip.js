@@ -13,13 +13,18 @@
  * focus is the keyboard's hover -- and the bubble never takes the focus for
  * itself. Escape hides it without being taken from the app.
  *
+ * Below the toolbar is a list in a scroll box, and `notes.md` has a tooltip too.
+ * Tab to it and scroll the list with the arrows or the wheel: the bubble follows
+ * its row in the same frame, is hidden while the row is scrolled out of the box,
+ * and comes back with it.
+ *
  * Piped, there is nobody to point, so a scripted pointer and keyboard drive the
  * same tree and the demo prints it after each step. It also shows `--quiet`, which
  * a tooltip respects: a hint beside the content is chrome, and quiet is for
  * suppressing chrome.
  */
 import { createFullscreenCanvas } from '@ttylabs/sigil/canvas';
-import { attachTooltip } from '@ttylabs/sigil/components';
+import { attachTooltip, ScrollBox } from '@ttylabs/sigil/components';
 import { box, renderToString, text } from '@ttylabs/sigil/element';
 import { createInput, isAbort } from '@ttylabs/sigil/input';
 import { render } from '@ttylabs/sigil/renderer';
@@ -30,15 +35,22 @@ import { themedCascade } from '@ttylabs/sigil/theme';
 const live = process.stdin.isTTY && process.stdout.isTTY;
 
 const WIDTH = 44;
-const HEIGHT = 8;
+const HEIGHT = 10;
 
-/** The toolbar, a body, and a status line on the bottom row. */
+/** The toolbar, a list in a scroll box, and a status line on the bottom row. */
 function scene() {
   const button = (label) => text(`[ ${label} ]`, { class: 'button', focusable: true });
   const save = button('Save');
   const open = button('Open');
   const help = button('Help');
   const status = text('main, 2 changes', { class: 'sigil-muted', focusable: true });
+  // one row of twelve carries a tooltip, and is focusable so the keyboard can reach it
+  const notes = text('notes.md', { class: 'button', focusable: true });
+  const files = Array.from({ length: 12 }, (_, i) => (i === 2 ? notes : text(`file-${i}.txt`)));
+  const list = ScrollBox({
+    children: () => box({ 'flex-direction': 'column' }, ...files),
+    props: { 'flex-grow': 1, 'min-height': 0 },
+  });
   const root = box(
     { 'flex-direction': 'column', height: HEIGHT, width: WIDTH },
     box(
@@ -46,10 +58,11 @@ function scene() {
       box({ 'column-gap': 1, 'flex-direction': 'row' }, save, open),
       help
     ),
-    text('Point at a button, or Tab to one.', { 'flex-grow': 1, 'margin-top': 1 }),
+    text('Point at a button, or Tab to one.', { 'margin-top': 1 }),
+    list,
     status
   );
-  return { help, open, root, save, status };
+  return { help, list, notes, open, root, save, status };
 }
 
 /**
@@ -63,6 +76,7 @@ function attach(ui, input, delay) {
     attachTooltip(ui.save, { delay, input, text: 'Writes the file to disk' }),
     attachTooltip(ui.help, { delay, input, text: 'Opens the manual in a pager' }),
     attachTooltip(ui.status, { delay, input, text: 'The branch, and what is not committed' }),
+    attachTooltip(ui.notes, { delay, input, text: 'Edited a minute ago' }),
   ];
 }
 
@@ -181,6 +195,22 @@ if (live) {
   await sleep(DELAY * 2);
   show('--quiet, and the pointer on Save: a hint is chrome, so nothing');
   setQuiet(undefined);
+
+  await away();
+  // the list: the focus on its row, and the arrows scrolling the box around it --
+  // the keys go from the row up to the box, which is what claims them
+  input.focus.focus(ui.notes);
+  await sleep(DELAY * 2);
+  show('the focus on notes.md, in the list: below its row');
+
+  await term.press(KEYS.down, KEYS.down);
+  show('Down twice: the list scrolled, and the bubble followed its row');
+
+  await term.press(KEYS.down);
+  show('Down once more: the row is scrolled out of the box, so the bubble is hidden');
+
+  await term.press(KEYS.up);
+  show('Up: the row is back, and so is its bubble');
 
   input.stop();
 }

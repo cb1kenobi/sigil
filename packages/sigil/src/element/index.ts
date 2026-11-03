@@ -81,6 +81,14 @@ export type ScrollHandler = (viewport: Element) => void;
 export type ResizeHandler = (element: Element) => boolean;
 
 /**
+ * What an element does after a layout that reached it.
+ *
+ * `ResizeHandler`'s shape and its rule: it returns whether it changed the tree,
+ * and `false` is what keeps a frame at one layout.
+ */
+export type LayoutHandler = (element: Element) => boolean;
+
+/**
  * What a `raw` element is handed to paint with.
  *
  * A type-only import of the canvas's `Painter`: precise about what arrives,
@@ -841,6 +849,30 @@ export class Element implements LayoutNode {
    * A throw propagates to whatever was laying out, as `onScroll`'s does.
    */
   onResize: ResizeHandler | undefined;
+
+  /**
+   * What this element does after **every** layout that reached it.
+   *
+   * `onResize` asks whether this element's own size moved, which is the one
+   * question its own geometry can answer. This is for an element whose place
+   * depends on **another** element's box: a tooltip beside its anchor, which
+   * moves when anything scrolls, wraps or animates the anchor -- and none of
+   * those has a writer the tooltip could hear, nor a hook on the anchor it may
+   * take, since the anchor's hooks are the app's. So nothing is compared here;
+   * the handler compares what it depends on and says whether it changed the tree.
+   *
+   * Dispatched where `onResize` is -- by a frame, after the layout and before the
+   * paint, so a handler that moves something is laid out again in the same frame
+   * and nothing is ever drawn in the place it is leaving. After `onResize` when
+   * an element carries both, because a size is the thing a place is computed
+   * from. A handler that answers `true` is called again after the layout it
+   * asked for, so it must answer `false` once what it read stops moving, or the
+   * frame spends every pass `settleResized()` allows. A bare `arrange()`
+   * dispatches nothing, as for `onResize`.
+   *
+   * A throw propagates to whatever was laying out, as `onResize`'s does.
+   */
+  onLayout: LayoutHandler | undefined;
 
   /** A `raw` element's painter, for the paint walk. */
   get rawPaint(): RawPaint | undefined {

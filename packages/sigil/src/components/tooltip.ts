@@ -20,10 +20,13 @@
  * The bubble is added to the anchor's root as `position: fixed`, so it takes no
  * space, escapes every ancestor's clip, and is placed against the screen once the
  * layout has said how big it came out -- flipped to the other side when it does
- * not fit, and along the edge when its start would run off the end. It is never
- * focusable and never moves the focus.
+ * not fit, and along the edge when its start would run off the end. It follows
+ * the anchor while shown -- a scroll, a reflow, an animation -- and is hidden while
+ * the anchor is scrolled out of view. It is never focusable and never moves the
+ * focus.
  *
- * `AGENTS.md` records the keyboard answer, the flip, and why `--quiet` hides it.
+ * `AGENTS.md` records the keyboard answer, the flip, the following, and why
+ * `--quiet` hides it.
  */
 
 import {
@@ -90,11 +93,15 @@ export interface TooltipHandle {
   hide(): void;
   /** Changes what it says, re-placing the bubble if it is shown. */
   setText(value: string): void;
-  /** Whether the bubble is in the tree. */
+  /**
+   * Whether the bubble is in the tree. Still `true` while the anchor is scrolled
+   * out of view, where the bubble is kept hidden so that it comes back with the
+   * anchor; `side` is what says it is not drawn.
+   */
   readonly shown: boolean;
   /**
    * Where it was placed, which is `side` or the side it flipped to. `undefined`
-   * until the layout has placed it.
+   * until the layout has placed it, and while the anchor is out of view.
    */
   readonly side: TooltipSide | undefined;
 }
@@ -205,6 +212,60 @@ function rootOf(element: Element): Element {
 }
 
 /**
+ * The part of an element anybody can see: its box cut to what clips it, or
+ * `undefined` where nothing of it is left.
+ *
+ * Cut rather than whole, so a tall anchor half scrolled out of its box has its
+ * bubble beside the half that is still there rather than beside the half that is
+ * not. An element with no width or no height is in view where its edge is,
+ * which is the one way a zero-area box can be anywhere.
+ */
+function inView(element: Element): Box | undefined {
+  const at = element.box;
+  const clip = element.clip;
+  if (at === undefined || clip === undefined) {
+    return at;
+  }
+  const x = Math.max(at.x, clip.x);
+  const y = Math.max(at.y, clip.y);
+  const width = Math.min(at.x + at.width, clip.x + clip.width) - x;
+  const height = Math.min(at.y + at.height, clip.y + clip.height) - y;
+  if (width < Math.min(1, at.width) || height < Math.min(1, at.height)) {
+    return undefined;
+  }
+  return { height, width, x, y };
+}
+
+/** What a bubble's place was computed from: the anchor in view, its own size, and the screen. */
+interface Placed {
+  at: Box | undefined;
+  height: number;
+  screen: Box;
+  width: number;
+}
+
+function sameBox(a: Box | undefined, b: Box | undefined): boolean {
+  return (
+    a === b ||
+    (a !== undefined &&
+      b !== undefined &&
+      a.x === b.x &&
+      a.y === b.y &&
+      a.width === b.width &&
+      a.height === b.height)
+  );
+}
+
+function samePlaced(a: Placed, b: Placed): boolean {
+  return (
+    a.width === b.width &&
+    a.height === b.height &&
+    sameBox(a.at, b.at) &&
+    sameBox(a.screen, b.screen)
+  );
+}
+
+/**
  * Anchors a tooltip to an element.
  *
  * Shown after `delay` while the anchor is hovered -- which needs `mouse.motion`,
@@ -294,21 +355,63 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
       label
     );
 
+    /** What this bubble was last placed against, so a layout that moved none of it moves nothing. */
+    let against: Placed | undefined;
+    /** It was sent to the corner by the last layout, to be measured with the whole width. */
+    let measuring = false;
+
     // placed here rather than when it was built, because only the layout knows
-    // how big it came out and where the anchor is. Called for a bubble that is
-    // new and again whenever its size moves, which is what re-places it when the
-    // words change. Moving it never changes its size: the room a `fixed` box is
-    // offered is what lies to the right of its `left`, and the placement never puts
-    // it where that is less than its width
-    element.onResize = (it): boolean => {
-      const at = anchor.box;
-      const screen = rootOf(anchor).box;
-      if (at === undefined || screen === undefined || it.box === undefined) {
+    // how big it came out and where the anchor is -- and asked after **every**
+    // layout, because the anchor moves for reasons nothing tells the tooltip: a
+    // `ScrollBox` around it scrolled by a key or a wheel notch, a sibling that
+    // wrapped, an animation. Each of those lays the tree out, so the frame that
+    // moves the anchor moves the bubble before it paints. Following the anchor
+    // never changes the bubble's size: the room a `fixed` box is offered is what
+    // lies to the right of its `left`, and the placement never puts it where that
+    // is less than its width
+    element.onLayout = (it): boolean => {
+      const root = rootOf(it);
+      const screen = root.box;
+      const size = it.box;
+      if (screen === undefined || size === undefined) {
         return false;
       }
-      const place = placeTooltip(at, it.box, screen, side);
+      // an anchor a window rebuild took out of the tree is not anywhere to point
+      const at = rootOf(anchor) === root ? inView(anchor) : undefined;
+      const now: Placed = { at, height: size.height, screen, width: size.width };
+      if (against !== undefined && samePlaced(against, now)) {
+        return false;
+      }
+      // but its own words growing, or the screen narrowing, can: what it is
+      // offered where it stands may be less than it now wants, so the size it came
+      // out at is a squeezed one. Sent back to the corner it started at, where a
+      // fresh bubble is measured, and placed by the layout after -- which is the
+      // size a bubble built with these words for this screen would have had
+      //
+      // its size alone is asked, and not the screen's: a narrower screen that
+      // squeezes the bubble is a size that moved, and one that does not is a
+      // screen the placement below already answers
+      const resized =
+        against !== undefined && (against.width !== now.width || against.height !== now.height);
+      if (resized && !measuring && at !== undefined) {
+        measuring = true;
+        it.setProps({ left: 0, top: 0 });
+        return true;
+      }
+      measuring = false;
+      against = now;
+
+      // scrolled out of whatever clips it: hidden rather than drawn pointing at
+      // nothing, and kept in the tree, so the layout that brings the anchor back
+      // brings the bubble back with it
+      if (at === undefined) {
+        placedSide = undefined;
+        it.setProp('visibility', 'hidden');
+        return true;
+      }
+      const place = placeTooltip(at, size, screen, side);
       placedSide = place.side;
-      it.setProps({ left: place.x - screen.x, top: place.y - screen.y });
+      it.setProps({ left: place.x - screen.x, top: place.y - screen.y, visibility: undefined });
       return true;
     };
     return element;
@@ -404,9 +507,10 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     }
   });
 
-  // a bubble placed against a screen that has gone is in the wrong place, and its
-  // own size has not moved so nothing would place it again: a fresh one is placed
-  // by the next layout against the screen that is there now
+  // a resize builds a fresh bubble rather than leaving the old one to follow: a
+  // `fixed` box is offered the room to the right of its `left`, so the old one was
+  // sized against a screen that is not there now, and a fresh one is measured from
+  // the corner with the whole width before anything places it
   const offResize = input.onResize(() => {
     if (bubble !== undefined) {
       remove();

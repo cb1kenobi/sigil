@@ -5143,7 +5143,11 @@ not stopped, so the app's own Escape still happens.
 `side` is where it goes when there is room: `bottom` (the default), `top`,
 `left` or `right`. Where it does not fit it **flips** to the other side, and
 where its start would run off the far edge it ends where the anchor ends instead,
-so in a corner it flips both ways; `handle.side` says where it landed. `maxWidth`
+so in a corner it flips both ways; `handle.side` says where it landed. It
+**follows the anchor** while it is shown -- a scroll box scrolled under it, a row
+above it that wrapped, an animation -- in the same frame the anchor moved, and is
+hidden while the anchor is scrolled out of view, coming back when it does.
+`maxWidth`
 (40) is where the words wrap. `placeTooltip(anchor, size, screen, side)` is the
 same arithmetic on its own, for anything else that wants to sit beside a box.
 

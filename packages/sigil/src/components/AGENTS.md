@@ -8730,17 +8730,59 @@ because a dropdown or anything else that sits beside a box wants the same answer
   overlay's `1000`. Opaque with no colour by the modal's own fill, for the modal's
   reason. An anchor with no parent at all has been taken out of the tree, and shows
   nothing rather than putting a bubble inside itself.
-- **It is placed by `onResize`, because only the layout knows the two sizes.** A
+- **It is placed after the layout, because only the layout knows the two sizes.** A
   fresh bubble starts at the root's corner; the first layout measures it, its
   handler places it against the anchor's box and the root's, and the frame lays out
-  again before it paints -- so no frame ever shows it in the wrong place. Moving it
-  never changes its size: a `fixed` box is offered the room to the right of its
-  `left`, and the placement never puts it where that is less than its width. So the
-  handler runs once per bubble, and again only when the words change its size,
-  which is what re-places it after `setText()`. The cost is that a bubble does not
-  follow an anchor that moves while it is shown; a resize is the case that matters
-  and it builds a fresh bubble, which the next layout places against the new
-  screen. A scroll under a shown bubble is left until the pointer moves.
+  again before it paints -- so no frame ever shows it in the wrong place. Following
+  the anchor never changes its size: a `fixed` box is offered the room to the right
+  of its `left`, and the placement never puts it where that is less than its width.
+  A resize builds a fresh bubble, which the next layout places against the new
+  screen. The handler is `Element.onLayout` since SIG-221, which the next entry is
+  about; it was `onResize` before, which is only asked when the bubble's own size
+  moves, so a bubble stayed where it was while a scroll moved its anchor.
+- **It follows its anchor through `Element.onLayout`, a hook added for it (SIG-221),
+  and not through `onScroll` or `Renderer.onFrame()`.** The bubble's own hook is the
+  tooltip's to take, and it is asked after every layout, between the layout and the
+  paint: the handler compares the anchor's box, the bubble's size and the root's
+  box with what it last placed against, and moves the bubble only where one moved.
+  A scroll marks layout, so the frame that scrolls is the frame that re-places.
+  The two the ticket offered both fail. `onScroll` is one function per element and
+  the `ScrollBox` around the anchor already has it -- and an anchor can sit in
+  several scrolling ancestors, none of which the tooltip built. `onFrame()` fires at
+  the **top** of a frame, before the layout, so it reads the boxes of the layout
+  before the scroll: the frame that scrolled would paint the bubble in the old
+  place and nothing would ask for the frame that fixes it. It would also need a
+  renderer the tooltip is never handed, which the `onDispose()` entry below
+  records it does not take. What this costs is one handler call per layout per
+  shown bubble, a walk to the root and four box compares; a frame that lays
+  nothing out asks nothing, and a frame that moves no anchor lays out once.
+- **Following covers every reason the anchor moves, not only a scroll.** The ticket
+  left that open, and the mechanism decides it: the handler compares boxes, so a
+  row above that wrapped, a sibling that grew, an animated `top`, a root whose own
+  width moved and a scroll are one case. Narrowing it to scrolls would have meant
+  hearing scrolls, which is the hook it cannot take.
+- **An anchor scrolled out of view hides the bubble and keeps it in the tree.** "Out
+  of view" is the anchor's box against `element.clip`, the intersection of every
+  ancestor's `overflow`, with no cell left; an anchor taken out of the bubble's
+  tree -- a windowed list's row the window dropped -- counts too, since its box is
+  where it last was rather than anywhere. Hidden with `visibility: hidden`, which
+  paint and the hit test both skip, rather than removed: the hook is on the bubble,
+  so a bubble taken out would hear nothing and could not come back when the anchor
+  does. `shown` stays `true` and `side` reads `undefined` while it is hidden. An
+  anchor partly in view is pointed at by the part that is: a three-row anchor with
+  its top row scrolled off has its `top` bubble flip below the rows that are left,
+  rather than drawn above the viewport.
+- **A bubble whose own size moved is sent back to the corner and placed by the
+  layout after.** Its words growing at the right edge left it standing where the
+  room to its right was less than it now wanted, so it came out wrapped and the
+  placement fitted that wrapped size: measured, `setText()` near the right edge
+  gave a two-line bubble with room for one. That was so before SIG-221 too, and
+  only `should re-place against the right edge when the words grow` found it.
+  The corner is where a fresh bubble is measured, so the layout there gives the
+  size a bubble built with these words would have had, and the one after places
+  it -- three layouts for that frame, inside `settleResized()`'s four. Asked about
+  its size alone and not the screen's, because a screen narrow enough to squeeze
+  it is a size that moved, and one that is not is a screen the placement answers.
 - **The flip is two flips and a clamp, in that order.** The main axis: `side` where
   it fits, else the opposite side where that fits, else whichever has more room,
   with the preferred side keeping a tie. The cross axis: start where the anchor
@@ -8782,7 +8824,16 @@ because a dropdown or anything else that sits beside a box wants the same answer
   pinned `width` and `height` on the placed bubble, an equal-props early return in
   `onResize`, a `disposed` flag checked in three places and the Escape binding's
   modifier and paste checks were written and deleted for surviving theirs.
-- **Not done:** following an anchor that moves while shown; a warm-up that shows
+- **SIG-221's sabotage: seventeen, and four survived the first round.** Three now
+  have a test: the bubble's size left out of the comparison, which is the
+  right-edge growth above; the root's box left out, which is
+  `should re-place against a root that narrowed with no resize`; and the corner
+  pass's flag never reset, which is the second `setText()` in the growth test. The
+  fourth, a screen clause in the corner pass's own question, was deleted rather
+  than tested, for the reason that entry gives. The other thirteen were caught as
+  written, including the four on the hook itself: not dispatched, its answer
+  dropped, collected only on a size change, and `onResize` told on every layout.
+- **Not done:** a warm-up that shows
   the next tooltip at once after one has just closed; an arrow pointing at the
   anchor; rich content in the bubble; and announcing it in accessible mode, which
   has no screen to put it on.
