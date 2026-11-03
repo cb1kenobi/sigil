@@ -554,7 +554,9 @@ the field's. The field is on a grey background of its own, so `parser.ts` in the
 dialog reads as something to edit before the caret appears -- bright black on a dark
 terminal, white on a light one. The app registered a paste handler of its own at
 startup, and a paste on the list reaches it -- while a paste with the field focused
-goes into the field and the app's handler never hears of it. Piped, a scripted
+goes into the field and the app's handler never hears of it. Nor does a paste with
+one of the dialog's buttons focused: a button claims no paste, and the dialog stops
+what reaches it rather than let it through to the app behind. Piped, a scripted
 keyboard drives the same tree and the focus is said in words, since the caret is an
 inverse cell a pipe drops -- and so is the field's background, so the demo also
 prints the dialog's field row at colour level 1, where it is.
@@ -607,9 +609,13 @@ without the document saying anything about colour. The first rule says how the
 links came out: as OSC 8 hyperlinks on a terminal known to draw them, with the URL
 out of sight behind the words, and anywhere else with the URL written after them.
 Piped there is no colour and no hyperlink, so every URL is in the text;
-`FORCE_HYPERLINK=1` says yes for a terminal the detection does not know. The quote
-shows what the subset leaves alone: a `~~strike~~` and raw HTML come out as they
-were written. Last, a short document is drawn with `highlight`, through a
+`FORCE_HYPERLINK=1` says yes for a terminal the detection does not know. The
+notes use GitHub's extensions too: a task list, whose boxes stand where the bullets
+would and are `[ ]` and `[x]` where box drawing is not safe; a struck-out flag,
+whose tildes stay beside it with the line through it where colour is drawn, so
+piped it reads as it was typed; and two footnotes, gathered under a rule at the end
+and numbered by where each is first referred to. The quote shows what the subset
+leaves alone: raw HTML comes out as it was written. Last, a short document is drawn with `highlight`, through a
 JavaScript highlighter the demo writes in a dozen lines: the `js` block's keywords,
 strings, comment and number come out in the theme's roles, the rest of it in the
 plain foreground, while the `sh` block -- a language the highlighter returns no

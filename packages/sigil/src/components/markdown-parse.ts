@@ -12,14 +12,16 @@
  * CommonMark in full is not the target. What is read is what a README, a
  * changelog entry and `sigil reference`'s pages are made of -- ATX and setext
  * headings, paragraphs, emphasis and strong emphasis, code spans, fenced and
- * indented code, bulleted and numbered lists that nest, block quotes, GFM pipe
- * tables, thematic breaks, inline, reference and autolinks, images, hard
- * breaks, backslash escapes and a handful of entities.
+ * indented code, bulleted and numbered lists that nest, block quotes, thematic
+ * breaks, inline, reference and autolinks, images, hard breaks, backslash
+ * escapes and a handful of entities -- and four of GitHub's extensions, since
+ * GitHub is where most of those documents are written: pipe tables, task list
+ * items, `~~strikethrough~~` and footnotes.
  *
- * Everything else is **text, as written**. Raw HTML, a `~~strike~~`, a footnote
- * and a `[ ]` task box are not parsed and are not dropped either: a construct
- * this does not know is shown to the reader the way its author typed it, which
- * is what the source looks like and loses nothing. The one thing taken out is a
+ * Everything else is **text, as written**. Raw HTML and a bare URL are not parsed
+ * and are not dropped either: a construct this does not know is shown to the
+ * reader the way its author typed it, which is what the source looks like and
+ * loses nothing. The one thing taken out is a
  * YAML front matter block at the very top, which is data for a site generator
  * rather than prose -- and read as CommonMark it would be a thematic break and a
  * setext heading made of its own keys.
@@ -48,7 +50,21 @@ export type MarkdownInline =
       readonly children: readonly MarkdownInline[];
     }
   | { readonly type: 'image'; readonly src: string; readonly alt: string; readonly title?: string }
+  | { readonly type: 'strikethrough'; readonly children: readonly MarkdownInline[] }
+  /** A footnote reference: its label, keyed as a link's is, and the number it is drawn as. */
+  | { readonly type: 'footnote'; readonly label: string; readonly index: number }
   | { readonly type: 'break' };
+
+/**
+ * A footnote's definition, as the `footnotes` block at the end of a document
+ * holds it. `index` is the number its references are drawn with, which is the
+ * order the document first refers to each one in.
+ */
+export interface MarkdownFootnote {
+  readonly children: readonly MarkdownBlock[];
+  readonly index: number;
+  readonly label: string;
+}
 
 /** A block: the things a document is a column of. */
 export type MarkdownBlock =
@@ -66,6 +82,11 @@ export type MarkdownBlock =
       readonly start: number;
       readonly tight: boolean;
       readonly items: readonly (readonly MarkdownBlock[])[];
+      /**
+       * Per item, whether its task box is ticked, and `undefined` for an item that
+       * is not a task. Present only on a list with at least one task in it.
+       */
+      readonly checked?: readonly (boolean | undefined)[];
     }
   | {
       readonly type: 'table';
@@ -73,12 +94,25 @@ export type MarkdownBlock =
       readonly head: readonly (readonly MarkdownInline[])[];
       readonly rows: readonly (readonly (readonly MarkdownInline[])[])[];
     }
-  | { readonly type: 'rule' };
+  | { readonly type: 'rule' }
+  /** The document's footnotes, drawn at its end; never anywhere else. */
+  | { readonly type: 'footnotes'; readonly notes: readonly MarkdownFootnote[] };
 
 /** A link reference definition, as `[label]: url "title"` gives it. */
 interface Definition {
   href: string;
   title?: string;
+}
+
+/**
+ * What the block pass collects for the inline one: the link reference
+ * definitions, the footnote definitions, and -- filled while inlines are read --
+ * the number each footnote is drawn as.
+ */
+interface Collected {
+  readonly links: Map<string, Definition>;
+  readonly notes: Map<string, RawBlock[]>;
+  readonly numbers: Map<string, number>;
 }
 
 /** A block before its inline content has been read. */
@@ -87,7 +121,14 @@ type RawBlock =
   | { type: 'paragraph'; raw: string }
   | { type: 'code'; info: string; text: string }
   | { type: 'quote'; children: RawBlock[] }
-  | { type: 'list'; ordered: boolean; start: number; tight: boolean; items: RawBlock[][] }
+  | {
+      type: 'list';
+      ordered: boolean;
+      start: number;
+      tight: boolean;
+      items: RawBlock[][];
+      checked?: (boolean | undefined)[];
+    }
   | { type: 'table'; align: MarkdownAlign[]; head: string[]; rows: string[][] }
   | { type: 'rule' };
 
@@ -98,6 +139,8 @@ const QUOTE = /^ {0,3}> ?/;
 const ITEM = /^( {0,3})([*+-]|(\d{1,9})([.)]))(?=[ \t]|$)( *)(.*)$/;
 const SETEXT = /^ {0,3}(=+|-+)[ \t]*$/;
 const DELIMITER_ROW = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
+const FOOTNOTE = /^ {0,3}\[\^([^\s[\]]+)\]: *(.*)$/;
+const TASK = /^\[([ xX])\]\s+(?=\S)/;
 const DEFINITION =
   /^ {0,3}\[((?:[^\]\\[]|\\.){1,999})\]:[ \t]*(<[^<>\n]*>|\S+)(?:[ \t]+("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\((?:[^()\\]|\\.)*\)))?[ \t]*$/;
 
@@ -136,10 +179,46 @@ export function parseMarkdown(source: string): MarkdownBlock[] {
   }
 
   const lines = source.replaceAll(/\r\n?/g, '\n').split('\n').map(detab);
-  const definitions = new Map<string, Definition>();
-  const raw = blocks(withoutFrontMatter(lines), definitions).blocks;
+  const collected: Collected = { links: new Map(), notes: new Map(), numbers: new Map() };
+  const raw = blocks(withoutFrontMatter(lines), collected).blocks;
 
-  return raw.map((block) => resolve(block, definitions));
+  const document = raw.map((block) => resolve(block, collected));
+  const notes = footnotes(collected);
+  return notes.length === 0 ? document : [...document, { notes, type: 'footnotes' }];
+}
+
+/**
+ * The footnotes, numbered and read, once the document's own blocks have been.
+ *
+ * A footnote is numbered by where the document first refers to it, which is
+ * GitHub's rule, and a note may refer to another -- so the notes are read in
+ * number order until reading them numbers nothing new. A definition nothing
+ * refers to is still drawn, numbered after the rest: it is words the author
+ * wrote, and dropping them is the one thing this parser does not do.
+ *
+ * @param collected - What the block pass collected; the numbering is filled in.
+ * @returns The notes, in number order.
+ */
+function footnotes(collected: Collected): MarkdownFootnote[] {
+  const out: MarkdownFootnote[] = [];
+  const read = (label: string): void => {
+    const children = collected.notes.get(label)!.map((block) => resolve(block, collected));
+    out.push({ children, index: collected.numbers.get(label)!, label });
+  };
+
+  let done = 0;
+  for (;;) {
+    const order = [...collected.numbers.keys()];
+    if (done < order.length) {
+      read(order[done++]);
+      continue;
+    }
+    const unreferenced = [...collected.notes.keys()].find((it) => !collected.numbers.has(it));
+    if (unreferenced === undefined) {
+      return out;
+    }
+    collected.numbers.set(unreferenced, collected.numbers.size + 1);
+  }
 }
 
 /**
@@ -207,7 +286,13 @@ function indentOf(line: string): number {
  * @returns Whether it interrupts.
  */
 function interrupts(line: string, next: string | undefined): boolean {
-  if (ATX.test(line) || FENCE.test(line) || RULE.test(line) || QUOTE.test(line)) {
+  if (
+    ATX.test(line) ||
+    FENCE.test(line) ||
+    RULE.test(line) ||
+    QUOTE.test(line) ||
+    FOOTNOTE.test(line)
+  ) {
     return true;
   }
   const item = ITEM.exec(line);
@@ -285,13 +370,10 @@ function escapedAt(text: string, i: number): boolean {
  * knows only its own prefix.
  *
  * @param lines - The lines, with any container's prefix already taken off.
- * @param definitions - Where link reference definitions are collected.
+ * @param collected - Where link and footnote definitions are collected.
  * @returns The blocks, and whether a blank line sat between two of them.
  */
-function blocks(
-  lines: string[],
-  definitions: Map<string, Definition>
-): { blocks: RawBlock[]; spaced: boolean } {
+function blocks(lines: string[], collected: Collected): { blocks: RawBlock[]; spaced: boolean } {
   const out: RawBlock[] = [];
   let spaced = false;
   let blankSince = false;
@@ -392,12 +474,12 @@ function blocks(
         }
         i++;
       }
-      emit({ children: blocks(inner, definitions).blocks, type: 'quote' });
+      emit({ children: blocks(inner, collected).blocks, type: 'quote' });
       continue;
     }
 
     if (ITEM.test(line)) {
-      const list = readList(lines, i, definitions);
+      const list = readList(lines, i, collected);
       i = list.next;
       emit(list.block);
       continue;
@@ -417,16 +499,53 @@ function blocks(
       continue;
     }
 
+    // a footnote's definition: its first line, the lines indented four under it,
+    // and the lazy lines that carry its paragraph on -- a list item's shape with
+    // a column of four, which is GitHub's
+    const note = FOOTNOTE.exec(line);
+    if (note) {
+      const body: string[] = [note[2]];
+      i++;
+      while (i < lines.length) {
+        const current = lines[i];
+        if (isBlank(current)) {
+          body.push('');
+        } else if (indentOf(current) >= 4) {
+          body.push(current.slice(4));
+        } else if (
+          !isBlank(body.at(-1)!) &&
+          !interrupts(current, lines[i + 1]) &&
+          !ITEM.test(current) &&
+          !SETEXT.test(current)
+        ) {
+          body.push(current.trimStart());
+        } else {
+          break;
+        }
+        i++;
+      }
+      while (body.length > 1 && isBlank(body.at(-1)!)) {
+        body.pop();
+        i--;
+      }
+      const label = normalizeLabel(note[1]);
+      const parsed = blocks(body, collected).blocks;
+      if (!collected.notes.has(label)) {
+        collected.notes.set(label, parsed);
+      }
+      continue;
+    }
+
     // a definition is read where a paragraph would start, and takes the line
     const definition = DEFINITION.exec(line);
     if (definition) {
       const label = normalizeLabel(definition[1]);
       // the first definition of a label wins, which is CommonMark's rule and the
       // one that makes a document's meaning not depend on what follows it
-      if (label !== '' && !definitions.has(label)) {
+      if (label !== '' && !collected.links.has(label)) {
         const href = definition[2].startsWith('<') ? definition[2].slice(1, -1) : definition[2];
         const title = definition[3]?.slice(1, -1);
-        definitions.set(label, {
+        collected.links.set(label, {
           href: unescape(href),
           ...(title === undefined ? {} : { title: unescape(title) }),
         });
@@ -483,19 +602,27 @@ function alignOf(cell: string): MarkdownAlign {
  * how two lists can sit next to each other.
  *
  * @param lines - The lines.
+ * A task box, `[ ]` or `[x]`, is read off the front of an item's first paragraph
+ * and nowhere else -- which is GitHub's rule, and what keeps a `[x]` in the middle
+ * of a sentence, or at the start of a paragraph that is not in a list, the text it
+ * is. Read off the paragraph rather than the line, so an item that opens with a
+ * heading, a quote or indented code is not a task whatever that block starts with.
+ *
+ * @param lines - The lines.
  * @param start - The line the first item is on.
- * @param definitions - Where link reference definitions are collected.
+ * @param collected - Where link and footnote definitions are collected.
  * @returns The list and the line after it.
  */
 function readList(
   lines: string[],
   start: number,
-  definitions: Map<string, Definition>
+  collected: Collected
 ): { block: RawBlock; next: number } {
   const first = ITEM.exec(lines[start])!;
   const ordered = first[3] !== undefined;
   const kind = ordered ? first[4] : first[2];
   const items: RawBlock[][] = [];
+  const checked: (boolean | undefined)[] = [];
   let tight = true;
   let i = start;
 
@@ -549,10 +676,16 @@ function readList(
     }
     i -= trailing;
 
-    const parsed = blocks(body, definitions);
+    const parsed = blocks(body, collected);
     if (parsed.spaced) {
       tight = false;
     }
+    const lead = parsed.blocks[0];
+    const task = lead?.type === 'paragraph' ? TASK.exec(lead.raw) : null;
+    if (task && lead?.type === 'paragraph') {
+      parsed.blocks[0] = { raw: lead.raw.slice(task[0].length), type: 'paragraph' };
+    }
+    checked.push(task ? task[1] !== ' ' : undefined);
     items.push(parsed.blocks);
 
     // a blank line before the next item of this list is what makes it loose; a
@@ -582,6 +715,7 @@ function readList(
       start: ordered ? Number(first[3]) : 1,
       tight,
       type: 'list',
+      ...(checked.some((it) => it !== undefined) ? { checked } : {}),
     },
     next: i,
   };
@@ -633,34 +767,35 @@ function decodeEntity(name: string): string | undefined {
  * A block with its inline content read.
  *
  * @param block - The block.
- * @param definitions - The link reference definitions the whole document made.
+ * @param collected - The definitions the whole document made.
  * @returns The block.
  */
-function resolve(block: RawBlock, definitions: Map<string, Definition>): MarkdownBlock {
+function resolve(block: RawBlock, collected: Collected): MarkdownBlock {
   switch (block.type) {
     case 'heading': {
-      return { children: inlines(block.raw, definitions), level: block.level, type: 'heading' };
+      return { children: inlines(block.raw, collected), level: block.level, type: 'heading' };
     }
     case 'paragraph': {
-      return { children: inlines(block.raw, definitions), type: 'paragraph' };
+      return { children: inlines(block.raw, collected), type: 'paragraph' };
     }
     case 'quote': {
-      return { children: block.children.map((it) => resolve(it, definitions)), type: 'quote' };
+      return { children: block.children.map((it) => resolve(it, collected)), type: 'quote' };
     }
     case 'list': {
       return {
-        items: block.items.map((item) => item.map((it) => resolve(it, definitions))),
+        items: block.items.map((item) => item.map((it) => resolve(it, collected))),
         ordered: block.ordered,
         start: block.start,
         tight: block.tight,
         type: 'list',
+        ...(block.checked === undefined ? {} : { checked: block.checked }),
       };
     }
     case 'table': {
       return {
         align: block.align,
-        head: block.head.map((cell) => inlines(cell, definitions)),
-        rows: block.rows.map((row) => row.map((cell) => inlines(cell, definitions))),
+        head: block.head.map((cell) => inlines(cell, collected)),
+        rows: block.rows.map((row) => row.map((cell) => inlines(cell, collected))),
         type: 'table',
       };
     }
@@ -670,11 +805,11 @@ function resolve(block: RawBlock, definitions: Map<string, Definition>): Markdow
   }
 }
 
-/** A run of `*` or `_` that may open or close emphasis. */
+/** A run of `*` or `_` that may open or close emphasis, or a `~~` strikethrough. */
 interface Delimiter {
   canClose: boolean;
   canOpen: boolean;
-  char: '*' | '_';
+  char: '*' | '_' | '~';
   count: number;
   kind: 'delimiter';
   /** How long the run was before any of it was used, which the rule of three reads. */
@@ -714,11 +849,17 @@ function isPunctuation(char: string | undefined): boolean {
  * for its `[`, and emphasis is matched closer by closer against the nearest
  * opener that may take it. Whatever is left unmatched is the characters it was.
  *
+ * A strikethrough is GitHub's, and is matched by the same algorithm with the
+ * same flanking rules: a `~~` run opens and closes like a `**` run, and only
+ * against another of exactly two. One tilde is not one, though GitHub takes it:
+ * in what a CLI prints, `~5s` is "about" and `~/.config` is a home directory, and
+ * a pair of them in one paragraph would strike out everything between.
+ *
  * @param text - The text, its lines joined by `\n`.
- * @param definitions - The link reference definitions.
+ * @param collected - The link and footnote definitions.
  * @returns The runs.
  */
-function inlines(text: string, definitions: Map<string, Definition>): MarkdownInline[] {
+function inlines(text: string, collected: Collected): MarkdownInline[] {
   const tokens: Token[] = [];
   let plain = '';
   let i = 0;
@@ -771,8 +912,17 @@ function inlines(text: string, definitions: Map<string, Definition>): MarkdownIn
       continue;
     }
 
-    if (char === '*' || char === '_') {
-      const run = (char === '*' ? /^\*+/ : /^_+/).exec(text.slice(i))![0];
+    if (char === '~') {
+      const run = /^~+/.exec(text.slice(i))![0];
+      if (run.length !== 2) {
+        plain += run;
+        i += run.length;
+        continue;
+      }
+    }
+
+    if (char === '*' || char === '_' || char === '~') {
+      const run = (char === '*' ? /^\*+/ : char === '_' ? /^_+/ : /^~+/).exec(text.slice(i))![0];
       const before = i > 0 ? previousChar(text, i) : undefined;
       const after = nextChar(text, i + run.length);
       const left =
@@ -784,8 +934,8 @@ function inlines(text: string, definitions: Map<string, Definition>): MarkdownIn
         // an underscore inside a word is not emphasis, so `snake_case_name`
         // stays one word -- which is the half of the rule an asterisk does not
         // have, because `**` inside a word is how a word is half bolded
-        canClose: char === '*' ? right : right && (!left || isPunctuation(after)),
-        canOpen: char === '*' ? left : left && (!right || isPunctuation(before)),
+        canClose: char === '_' ? right && (!left || isPunctuation(after)) : right,
+        canOpen: char === '_' ? left && (!right || isPunctuation(before)) : left,
         char,
         count: run.length,
         kind: 'delimiter',
@@ -811,7 +961,7 @@ function inlines(text: string, definitions: Map<string, Definition>): MarkdownIn
 
     if (char === ']') {
       flush();
-      i = closeBracket(text, i, tokens, definitions);
+      i = closeBracket(text, i, tokens, collected);
       continue;
     }
 
@@ -929,16 +1079,18 @@ function autolink(
  *
  * @param text - The text.
  * @param i - Where the `]` is.
+ * A `[^label]` naming a footnote the document defines is a reference to it, and
+ * is numbered the first time it is met. One naming nothing is read like any
+ * other bracket -- which, with no link definition of that label, is the
+ * characters it was: what a reference to a missing link already does.
+ *
+ * @param text - The text.
+ * @param i - Where the `]` is.
  * @param tokens - What has been read so far, which this rewrites.
- * @param definitions - The link reference definitions.
+ * @param collected - The link and footnote definitions.
  * @returns Where to carry on reading.
  */
-function closeBracket(
-  text: string,
-  i: number,
-  tokens: Token[],
-  definitions: Map<string, Definition>
-): number {
+function closeBracket(text: string, i: number, tokens: Token[], collected: Collected): number {
   let at = tokens.length - 1;
   while (at >= 0 && !isBracket(tokens[at])) {
     at--;
@@ -962,6 +1114,17 @@ function closeBracket(
   let end = i + 1;
 
   const inline = linkTail(text, i + 1);
+  const note = /^\^([^\s[\]]+)$/.exec(label);
+  const noteLabel = note ? normalizeLabel(note[1]) : '';
+  if (!inline && !opener.image && note && collected.notes.has(noteLabel)) {
+    if (!collected.numbers.has(noteLabel)) {
+      collected.numbers.set(noteLabel, collected.numbers.size + 1);
+    }
+    tokens.splice(at);
+    tokens.push({ index: collected.numbers.get(noteLabel)!, label: noteLabel, type: 'footnote' });
+    return i + 1;
+  }
+
   if (inline) {
     target = inline;
     end = inline.end;
@@ -970,7 +1133,7 @@ function closeBracket(
     // shortcut, `[text]` alone -- the last two both keyed on the text itself
     const ref = /^\[((?:[^\]\\[]|\\.){0,999})\]/.exec(text.slice(i + 1));
     const key = normalizeLabel(ref && ref[1] !== '' ? ref[1] : label);
-    target = definitions.get(key);
+    target = collected.links.get(key);
     if (target && ref) {
       end = i + 1 + ref[0].length;
     }
@@ -1143,6 +1306,7 @@ function emphasis(tokens: Token[], bottom: number): void {
       if (!isDelimiter(opener) || opener.char !== closer.char || !opener.canOpen) {
         continue;
       }
+      // a strikethrough's runs are always two, and two and two is never three
       const odd =
         (opener.canClose || closer.canOpen) &&
         (opener.length + closer.length) % 3 === 0 &&
@@ -1167,7 +1331,7 @@ function emphasis(tokens: Token[], bottom: number): void {
     const inside = tokens.slice(found + 1, c);
     const node: MarkdownInline = {
       children: finish(inside),
-      type: use === 2 ? 'strong' : 'emphasis',
+      type: closer.char === '~' ? 'strikethrough' : use === 2 ? 'strong' : 'emphasis',
     };
     opener.count -= use;
     closer.count -= use;
@@ -1216,7 +1380,8 @@ function finish(tokens: readonly Token[]): MarkdownInline[] {
  * What a run of inline content says, without its formatting.
  *
  * An image's description is this, because there is nowhere to put formatting in
- * text that stands in for a picture.
+ * text that stands in for a picture. A strikethrough keeps its tildes, because
+ * they are meaning rather than formatting: without them the words read as said.
  *
  * @param runs - The runs.
  * @returns The text.
@@ -1234,6 +1399,14 @@ export function markdownText(runs: readonly MarkdownInline[]): string {
         }
         case 'break': {
           return ' ';
+        }
+        case 'footnote': {
+          return `[${run.index}]`;
+        }
+        case 'strikethrough': {
+          // what was typed: the tildes are the only mark the words are struck,
+          // and struck words with nothing round them say the opposite
+          return `~~${markdownText(run.children)}~~`;
         }
         default: {
           return markdownText(run.children);

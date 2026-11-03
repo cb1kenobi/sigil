@@ -886,7 +886,11 @@ These look like bugs and are not. Each is intentional and covered by tests.
   non-boolean `hidden` throws. `!` on any label hides the whole command, not
   just that one alias; an alias that should stay out of help without hiding
   the command belongs in the `alias` property, which never reaches the help
-  label. Covered by `test/parser/regressions.test.ts`.
+  label or a command's `Alias:` block. Help printed every alias from the day it
+  was written until SIG-225 restored this, and a `!` or `@` at the start of a
+  property alias is refused rather than read -- see "The help label is the name
+  string's" in `packages/sigil/src/help`. Covered by
+  `test/parser/regressions.test.ts` and `test/help/help.test.ts`.
 
 - **A command module's default export must be a plain object.** `typeof null` is
   `'object'` and so is an array, so a bare `typeof` check let both past: `null`

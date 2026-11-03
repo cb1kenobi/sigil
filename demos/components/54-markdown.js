@@ -7,8 +7,9 @@
  *   FORCE_HYPERLINK=1 node demos/components/54-markdown.js
  *
  * The document is the kind an app would want to show of itself -- a release's
- * notes, with a heading, emphasis, code, a nested list, a quote, a table and a
- * few links -- and it is drawn three times: at the terminal's own width, narrow
+ * notes, with a heading, emphasis, code, a nested list, a quote, a table, a few
+ * links, and GitHub's task boxes, strikethrough and footnotes -- and it is drawn
+ * three times: at the terminal's own width, narrow
  * enough that the table has to give up width and wrap its cells, and through a
  * theme that restyles it without touching the document.
  *
@@ -25,6 +26,12 @@
  * hides the URL behind the words; anywhere else -- a pipe, an unknown terminal,
  * `NO_COLOR` -- the URL is printed after the words instead, so it is never lost.
  * `FORCE_HYPERLINK=1` says yes for a terminal the detection does not know.
+ *
+ * A struck-out run keeps its tildes everywhere, with the line through the words
+ * where colour is drawn: no terminal says whether it drew the line, and struck-out
+ * words with no mark on them would say the opposite. Piped, the line goes and the
+ * tildes are what is left -- which is what the author typed. The footnotes are
+ * gathered under a rule at the end, numbered by where each is first referred to.
  */
 import { supportsHyperlinks } from '@ttylabs/sigil/ansi';
 import { markdown, rule } from '@ttylabs/sigil/components';
@@ -53,14 +60,27 @@ or the [changelog][changes].
 1. A link in a pipe kept its URL out of sight.
 2. A wide character -- 日本語 -- put the columns after it out of line.
 
-> Anything the subset does not read, such as ~~this~~ or <b>raw HTML</b>, is
-> shown the way it was written.
+## Removed
+
+- ~~\`--legacy\`~~, deprecated since 1.4.[^legacy] Use \`--mode\` instead.
+
+## Still to do
+
+- [x] Task lists, strikethrough and footnotes[^gfm]
+- [ ] Multi-line reference definitions
+
+> Anything the subset does not read, such as <b>raw HTML</b>, is shown the way
+> it was written.
 
 \`\`\`sh
 npm install @ttylabs/sigil
 \`\`\`
 
 [changes]: https://github.com/cb1kenobi/sigil/releases
+[^legacy]: It read its configuration from the working directory, which is
+    nowhere an installed CLI can rely on.
+[^gfm]: GitHub's extensions, read by default, since GitHub is where a README is
+    written.
 `;
 
 const links = supportsHyperlinks() ? 'as OSC 8 hyperlinks' : 'with their URLs written out';

@@ -39,6 +39,11 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * is fragments, and the complete files are already proved by running them;
  * what a type-check would add is the inferred `argv` types, which
  * `packages/sigil/test/` pins far more precisely than a guide could.
+ *
+ * Nor are a guide's links followed here. `packages/sigil/test/markdown-links.test.ts`
+ * does that for every markdown file in the repository, the guides among them,
+ * since a dead link is a property of the tree rather than of a guide and needs
+ * no build to find.
  */
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');

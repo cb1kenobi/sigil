@@ -169,9 +169,9 @@ export function helpView(target: HelpTarget, opts: HelpOptions = {}): Element {
   }
   const inherited = withoutTwins(shown(reachable));
   const args = internal.args;
-  // a name that is nothing but an alias -- `'@b'` -- is its own alias, and the
-  // command is already named on the usage line
-  const aliases = [...internal.aliases].filter((alias) => alias !== cmd.name);
+  // the names help may print, less the one the usage line already names -- and
+  // a name that is nothing but an alias, `'@b'`, is that one
+  const aliases = helpNames(cmd).filter((alias) => alias !== cmd.name);
 
   const blocks: Element[] = [
     usageLine({
@@ -391,10 +391,32 @@ function argSpelling(arg: InternalArgument): string {
  * @returns The row.
  */
 function commandRow(cmd: InternalCommand): Definition {
-  // a name that is nothing but an alias -- `'@b'` -- is both the name and an
-  // alias of itself, and printing it twice says nothing twice
-  const names = new Set([cmd.name, ...cmd[Internal].aliases]);
-  return { desc: cmd.desc ? [cmd.desc] : undefined, label: [...names].join(', ') };
+  return { desc: cmd.desc ? [cmd.desc] : undefined, label: helpNames(cmd).join(', ') };
+}
+
+/**
+ * The names help prints for a command: the labels of its name string, less any
+ * `!` one, in the order they were written.
+ *
+ * Read off the label `parseName()` built rather than off `aliases`, because the
+ * two are different sets on purpose. `aliases` is every name argv may reach the
+ * command by, the `alias` property's included; the label is the part of that
+ * the app chose to publish, and an alias that should answer without being
+ * advertised has nowhere else to go. Help reading `aliases` is how a property
+ * alias reached the screen for as long as there was a screen -- see "The help
+ * label is the name string's" in this directory's `AGENTS.md`.
+ *
+ * Empty when every label was `!` prefixed, which only a hidden command can be,
+ * so it is never a row -- and the usage line names it on its own screen.
+ *
+ * @param cmd - The command.
+ * @returns The names.
+ */
+function helpNames(cmd: InternalCommand): string[] {
+  // a label is a join of labels the name string was split on `[, ]+` to get,
+  // so none of them holds the separator it is split on again. A set, because
+  // `'build, build'` is one name written twice and saying it twice says nothing
+  return [...new Set(cmd[Internal].label.split(', ').filter(Boolean))];
 }
 
 /**

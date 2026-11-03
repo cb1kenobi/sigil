@@ -867,6 +867,30 @@ describe('regressions', () => {
       expect(contexts[0][Internal].label).to.equal('build, b');
     });
 
+    // SIG-225: the property takes names, and `!` and `@` are name-string
+    // syntax. `!` used to be registered literally, as a command called `!ls`
+    // that help then printed with its `!` on
+    it('should refuse a "!" or "@" prefixed alias property', async () => {
+      await expect(
+        parse({ argv: [], schema: { commands: { list: { alias: '!ls' } } } })
+      ).rejects.toThrow(
+        'Invalid alias "!ls" in the "list" command: "!" is name-string syntax and the alias property takes plain names, so hide the command with "hidden: true" or a "!" in its name'
+      );
+      await expect(
+        parse({ argv: [], schema: { commands: { list: { alias: ['l', '@ls'] } } } })
+      ).rejects.toThrow(
+        'Invalid alias "@ls" in the "list" command: "@" is name-string syntax and the alias property takes plain names, so write "ls"'
+      );
+    });
+
+    it('should still take a "!" or "@" inside an alias property', async () => {
+      const schema = { commands: { list: { alias: ['l!', 'l@s'] } } };
+      for (const name of ['l!', 'l@s']) {
+        const { contexts } = await parse({ argv: [name], schema });
+        expect(contexts[0].name).to.equal('list');
+      }
+    });
+
     it('should ignore leading, trailing, and doubled separators', async () => {
       for (const name of [' build, b', 'build, b, ', 'build,,b']) {
         const { contexts } = await parse({ argv: ['b'], schema: { commands: { [name]: {} } } });

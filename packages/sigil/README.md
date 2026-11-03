@@ -248,12 +248,14 @@ commands: {
 ```
 
 A command's key is its name. The first bare label is the name and the rest are
-aliases, a `!` prefix hides it:
+aliases, a `!` prefix hides it, and the `alias` property adds names that work
+without being listed:
 
 ```js
 commands: {
-  'build, b': { run() {} },   // `build`, aliased `b`
-  '!secret': { run() {} },    // works, stays out of help
+  'build, b': { run() {} },            // `build`, aliased `b`, help says `build, b`
+  '!secret': { run() {} },             // works, stays out of help
+  remove: { alias: 'rm', run() {} },   // `rm` works, help says `remove`
 }
 ```
 
@@ -457,7 +459,7 @@ hook already are that moment.
 | `desc`                        | what help prints; a function for a translated one                                |
 | `args`, `options`, `commands` | as above                                                                         |
 | `default`                     | dispatch when argv named no command                                              |
-| `alias`                       | extra names that stay out of the help label                                      |
+| `alias`                       | extra names that stay out of help; a leading `!` or `@` throws                   |
 | `hidden`                      | keep it out of help                                                              |
 | `help`                        | a string that replaces the screen, or a renderer that receives the generated one |
 | `hooks`                       | `init`, `parse`, `help`, `afterRun`, `beforeError`, `subcommandLoaded`           |
@@ -4453,11 +4455,12 @@ of -- and shows **everything outside it as written**:
 | Read                                                                                   | Shown as written                                                |
 | -------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | ATX and setext headings, paragraphs, hard breaks                                       | Raw HTML, inline or as a block                                  |
-| `*emphasis*`, `**strong**`, `` `code` ``, backslash escapes, a few entities            | `~~strikethrough~~`, footnotes, `[ ]` task boxes                |
-| Fenced and indented code blocks                                                        | Bare URLs (which a terminal already makes clickable on its own) |
-| Bulleted and numbered lists, nested, tight and loose                                   | A link reference definition spread over more than one line      |
-| Block quotes, nested; GFM pipe tables with alignment; thematic breaks                  |                                                                 |
+| `*emphasis*`, `**strong**`, `` `code` ``, backslash escapes, a few entities            | Bare URLs (which a terminal already makes clickable on its own) |
+| Fenced and indented code blocks                                                        | A link reference definition spread over more than one line      |
+| Bulleted and numbered lists, nested, tight and loose                                   | A single `~tilde~`, which GitHub would strike out               |
+| Block quotes, nested; thematic breaks                                                  |                                                                 |
 | Inline, reference (full, collapsed, shortcut) and autolinks; images, as their alt text |                                                                 |
+| GitHub's pipe tables, `- [ ]` task lists, `~~strikethrough~~` and `[^1]` footnotes     |                                                                 |
 
 A YAML front matter block at the very top is the one thing left out, since it is
 data for a site generator. The parser follows CommonMark's own algorithm for
@@ -4487,6 +4490,20 @@ linked to the picture where links are drawn.
 
 A table is narrowed to the room it has, widest column first, and its cells wrap; a
 code line wider than the room is folded by columns rather than wrapped at a space.
+
+GitHub's extensions are read by default, since GitHub is where most of what a CLI
+renders is written. A **task** box stands where the item's bullet would, `☐` and
+`☒` -- or `[ ]` and `[x]` where box drawing is not safe -- and after the number of
+a numbered item. A **footnote** reference is drawn `[1]`, numbered by where the
+document first refers to it, and the notes are gathered under a rule at the end; a
+reference to a note nobody defined is shown as written, and a note nobody refers to
+is still drawn. A **strikethrough** keeps its tildes on every terminal --
+`~~--legacy~~` -- with a line through the words where colour is drawn: no terminal
+says whether it drew that line, and piped or under `NO_COLOR` it is dropped, so
+words with no mark on them would say the opposite of what their author meant. The
+tildes are muted, so a struck flag's own dashes are not read as a third pair. An
+app that knows its terminal draws the line can hide the tildes with
+`.sigil-markdown-strike-marker { display: none }`.
 
 There is no grammar in the package, so **a code block is highlighted by the app**,
 through the hook `diff()` and `multiline()` take:
@@ -4523,20 +4540,26 @@ bar and the rules are ASCII.
 
 Every colour is the theme's. A heading is `.sigil-heading` (and the first level
 `.sigil-accent` too), inline and block code and a link are `.sigil-accent`, and a
-list marker, the quote bar, a written-out URL and an image are `.sigil-muted` --
-so restyling a role restyles the document with everything else. Emphasis, strong
-emphasis and a link are italic, bold and underlined by `.sigil-markdown-em`,
-`-strong` and `-link`. A table carries `table()`'s own classes, so a theme written
-for one reaches both. `.sigil-markdown`, `-paragraph`, `-heading`, `-h1` to `-h6`,
-`-code`, `-code-block`, `-code-row`, `-quote`, `-quote-bar`, `-list`, `-item`, `-marker`, `-url`,
-`-image`, `-table` and `-cell` are the narrower hooks.
+list marker, the quote bar, a written-out URL, an image, an open task box and a
+footnote reference are `.sigil-muted`, and a ticked box is `.sigil-success` -- so
+restyling a role restyles the document with everything else. Emphasis, strong
+emphasis, a link and a strikethrough are italic, bold, underlined and struck through
+by `.sigil-markdown-em`, `-strong`, `-link` and `-strike`. A table is drawn by
+`table()`'s own row builder and carries its classes, so a theme written for one
+reaches both. `.sigil-markdown`, `-paragraph`, `-heading`, `-h1` to `-h6`, `-code`,
+`-code-block`, `-code-row`, `-quote`, `-quote-bar`, `-list`, `-item`, `-marker`,
+`-url`, `-image`, `-table`, `-cell`, `-strike-marker`, `-task`, `-task-done`,
+`-footnote-ref`, `-footnotes`, `-footnote`, `-footnote-marker` and `-footnote-body`
+are the narrower hooks.
 
 `markdown()` returns a string and the caller does the writing, like `note()`, so it
 ignores `--quiet`. `markdownView()` is the element tree behind it, and both take
 blocks as well as source: `parseMarkdown()` is exported on its own and returns a
-plain tree of `heading`, `paragraph`, `code`, `quote`, `list`, `table` and `rule`
-blocks over `text`, `code`, `emphasis`, `strong`, `link`, `image` and `break` runs,
-and `markdownText()` says what a list of runs says without its formatting.
+plain tree of `heading`, `paragraph`, `code`, `quote`, `list`, `table`, `rule` and
+`footnotes` blocks over `text`, `code`, `emphasis`, `strong`, `strikethrough`,
+`link`, `image`, `footnote` and `break` runs -- a list with a task in it carries
+`checked`, one entry per item -- and `markdownText()` says what a list of runs says
+without its formatting, except that a strikethrough keeps its tildes.
 `text()` from `@ttylabs/sigil/element` takes an `href` for the same OSC 8 link on
 anything else.
 
