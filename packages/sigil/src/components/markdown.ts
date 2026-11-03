@@ -758,8 +758,16 @@ function words(runs: readonly MarkdownInline[], ctx: Context): Word[][] {
           // the tildes stay, on every terminal and at every colour level: the
           // line through the words is an attribute nothing can ask a terminal
           // whether it drew, and struck-out words with no mark on them say the
-          // opposite of what their author wrote
-          const marker = join(classes, 'sigil-markdown-strike-marker');
+          // opposite of what their author wrote. Muted, so they read as markup:
+          // a struck `--flag` puts the line through its dashes, and in the text's
+          // own colour the tildes beside that read as a third pair. Not inside a
+          // link, for the image's reason: muted and the accent both set a colour
+          const marker = join(
+            classes,
+            classes.includes('sigil-markdown-link')
+              ? 'sigil-markdown-strike-marker'
+              : 'sigil-markdown-strike-marker sigil-muted'
+          );
           emit(STRIKE_MARKER, marker, href);
           walk(run.children, join(classes, 'sigil-markdown-strike'), href);
           emit(STRIKE_MARKER, marker, href);

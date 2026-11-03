@@ -9074,7 +9074,13 @@ read. All four are on by default and there is no switch.
   entry's argument again, with the same lopsided cost: a redundant mark against an
   inverted meaning. The tildes are `.sigil-markdown-strike-marker`, outside the
   struck run, and an app that knows its terminal can write `display: none` for
-  them, which is pinned. `markdownText()` keeps them for the same reason, and so
+  them, which is pinned. They are **muted**, because in the text's own colour a
+  struck `--legacy` read as three pairs of tildes: SGR 9 draws its line at about a
+  hyphen's height, so the flag's struck dashes looked like a third pair between the
+  real ones, and a deprecated flag is the commonest thing a CLI strikes out.
+  Muting them makes them read as markup, the way the footnote reference and a
+  written-out URL already do. Inside a link they keep the link's style instead,
+  the rule an image follows, because muted and the accent both set a colour. `markdownText()` keeps them for the same reason, and so
   does an image description built with it: plain text has no line to draw, so
   `a ~~b~~` is `a ~~b~~` there, where dropping them as formatting made it `a b`.
   The rule is `strikethrough: true` rather than

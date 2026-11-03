@@ -4500,7 +4500,8 @@ reference to a note nobody defined is shown as written, and a note nobody refers
 is still drawn. A **strikethrough** keeps its tildes on every terminal --
 `~~--legacy~~` -- with a line through the words where colour is drawn: no terminal
 says whether it drew that line, and piped or under `NO_COLOR` it is dropped, so
-words with no mark on them would say the opposite of what their author meant. An
+words with no mark on them would say the opposite of what their author meant. The
+tildes are muted, so a struck flag's own dashes are not read as a third pair. An
 app that knows its terminal draws the line can hide the tildes with
 `.sigil-markdown-strike-marker { display: none }`.
 

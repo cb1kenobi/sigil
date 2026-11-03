@@ -917,14 +917,29 @@ describe('markdown()', () => {
       expect(draw('a ~~old flag~~ new')).to.equal('a ~~old flag~~ new');
     });
 
-    it('should strike the words and keep the tildes beside them where colour is drawn', () => {
-      expect(draw('a ~~old~~ b', { colorLevel: 1 })).to.equal(`a ~~${ESC}[9mold${ESC}[29m~~ b`);
+    it('should strike the words and keep the tildes beside them, muted, where colour is drawn', () => {
+      expect(draw('a ~~old~~ b', { colorLevel: 1 })).to.equal(
+        `a ${ESC}[2m~~${ESC}[22;9mold${ESC}[29;2m~~ ${ESC}[22mb`
+      );
+    });
+
+    it('should mute the tildes round a struck flag, so its dashes are not a third pair', () => {
+      expect(draw('~~`--legacy`~~', { colorLevel: 1 })).to.equal(
+        `${ESC}[2m~~${ESC}[22;9;36m--legacy${ESC}[29;2;39m~~${ESC}[0m`
+      );
     });
 
     it('should keep the underline on a struck link', () => {
       const out = draw('[~~a~~](https://a)', { colorLevel: 1, hyperlinks: true });
       expect(out).to.match(new RegExp(`${ESC}\\[4;36m.*~~${ESC}\\[9ma`));
       expect(out).not.to.include(`${ESC}[24m${ESC}[9m`);
+    });
+
+    it("should leave a struck link's tildes in the link's style rather than muted", () => {
+      // the muted run after it is the written-out URL, which is not the tildes'
+      expect(draw('[~~a~~](https://a)', { colorLevel: 1 })).to.equal(
+        `${ESC}[4;36m~~${ESC}[9ma${ESC}[29m~~${ESC}[24;39m ${ESC}[2m(https://a)${ESC}[0m`
+      );
     });
 
     it('should let an app that knows its terminal draws the line take the tildes away', () => {
