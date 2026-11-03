@@ -542,7 +542,8 @@ key in the terminal session, and shows Escape closing only the top one and the o
 below having the keys again.
 
 `50-text-field.js` is the same list with `r` opening a rename dialog that holds a
-`TextField`, focused, with the row's name in it. The field joins the dialog's trap,
+`TextField`, focused, with the row's name in it. The rows claim Up and Down, so the
+arrows move along the list and Tab, the router's default, works as well. The field joins the dialog's trap,
 so Tab cycles through it and the two buttons; Enter in the field renames, because it
 was given `onSubmit`; and Escape still dismisses, because Tab and Escape are never
 the field's. The app registered a paste handler of its own at startup, and a paste

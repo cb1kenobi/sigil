@@ -1,10 +1,12 @@
 /**
  * A text field: one editable line as an element, here inside a modal.
  *
- *   node demos/components/50-text-field.js      <- Tab, r renames the row, q quits
+ *   node demos/components/50-text-field.js      <- Up/Down or Tab, r renames, q quits
  *   node demos/components/50-text-field.js | cat
  *
  * A small file list where `r` opens a rename dialog with a text field in it. The
+ * arrows move along the list because the rows claim them; Tab works too, as the
+ * router's default, and is the one key that moves the focus inside the dialog. The
  * field joins the dialog's focus trap: Tab and Shift-Tab cycle through the field
  * and the two buttons, Enter in the field renames (it was given `onSubmit`), and
  * Escape still dismisses, because Tab and Escape are never the field's.
@@ -31,16 +33,23 @@ const live = process.stdin.isTTY && process.stdout.isTTY;
 
 const FILES = ['parser.ts', 'canvas.ts', 'layout.ts'];
 
-/** The list the dialog is laid over. */
-function scene(status) {
+// the row the keys go to, and the row a dialog is renaming -- which has lost the
+// focus to the dialog, so it needs a mark of its own to stay found
+const sheet = '.file:focus { inverse: true } .file.renaming { inverse: true }';
+
+/** The list the dialog is laid over, the outcome line, and the keys. */
+function scene() {
   const rows = FILES.map((name) => text(name, { class: 'file', focusable: true }));
+  // a row of its own even while it is empty, so the keys under it never move
+  const status = text('', { height: 1 });
   const root = box(
     { 'flex-direction': 'column', height: 10, width: 44 },
     text('Files', { class: 'sigil-heading' }),
     ...rows,
-    status
+    status,
+    text('↑/↓ or Tab move · r renames · q quits', { class: 'sigil-muted' })
   );
-  return { root, rows };
+  return { root, rows, status };
 }
 
 /**
@@ -69,7 +78,10 @@ function wire(input, ui, status) {
     });
     // the field rather than the first button, which is where a rename starts
     input.focus.focus(field);
-    if ((await dialog.result) === true && name.get() !== '') {
+    row.addClass('renaming');
+    const answer = await dialog.result;
+    row.removeClass('renaming');
+    if (answer === true && name.get() !== '') {
       status.setText(`renamed ${row.text} to ${name.get()}`);
       row.setText(name.get());
     } else {
@@ -79,7 +91,19 @@ function wire(input, ui, status) {
 
   for (const row of ui.rows) {
     row.onKey = (event) => {
-      if (event.key.name === 'r' && !event.paste) {
+      if (event.paste) {
+        return;
+      }
+      // Tab is the router's default and works anywhere; the arrows are this list's,
+      // so they are claimed here rather than bound app-wide, where they would also
+      // be taken from the dialog's buttons
+      if (event.key.name === 'down') {
+        event.stop();
+        input.focus.next();
+      } else if (event.key.name === 'up') {
+        event.stop();
+        input.focus.previous();
+      } else if (event.key.name === 'r') {
         event.stop();
         void rename(row);
       }
@@ -88,11 +112,11 @@ function wire(input, ui, status) {
 }
 
 if (live) {
-  const status = text('r renames the row you are on', { class: 'sigil-muted' });
-  const ui = scene(status);
+  const ui = scene();
+  const { status } = ui;
   const view = render(() => ui.root, {
     backend: createFullscreenCanvas(),
-    cascade: themedCascade(),
+    cascade: themedCascade({ sheets: [sheet] }),
   });
   const input = createInput({ root: view.root });
   wire(input, ui, status);
@@ -111,11 +135,11 @@ if (live) {
   input.focus.next();
 } else {
   const term = createTestTerminal({ columns: 44 });
-  const status = text('r renames the row you are on', { class: 'sigil-muted' });
-  const ui = scene(status);
+  const ui = scene();
+  const { status } = ui;
   const input = createInput({ root: ui.root, terminal: term.terminal });
   wire(input, ui, status);
-  const cascade = themedCascade();
+  const cascade = themedCascade({ sheets: [sheet] });
 
   const settle = () => new Promise((resolve) => setImmediate(resolve));
   /** Where the focus is, in words. */
@@ -132,9 +156,9 @@ if (live) {
     console.log(`-- ${label}\n${body.replace(/\s+$/gm, '')}\nfocus: ${where()}\n`);
   };
 
-  await term.press(KEYS.tab);
+  await term.press(KEYS.tab, KEYS.down, KEYS.down, KEYS.up);
   await term.paste('notes.md');
-  await show('Tab, then a paste on the list: the app handler has it');
+  await show('Tab, Down x2, Up, then a paste on the list: the app handler has it');
 
   await term.press('r');
   await show('r: the rename dialog opens with the name in a field');
