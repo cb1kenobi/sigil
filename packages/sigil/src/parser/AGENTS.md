@@ -1140,11 +1140,44 @@ resolution.
   -- so "later" means later in the source, which is the only reading an author
   can see. Building them one at a time would have fixed it too and costs the
   parallelism for nothing; a package sibling is a real import.
-- **The rule is kept, not chosen.** A shared spelling between siblings is not
-  refused, and the later declaration wins it. Refusing it would be a different
-  ticket: completion, the markdown reference and the surface snapshot all read
-  the registry's own answer for who owns a token, and are tested on schemas that
-  share one on purpose.
+- **The rule is kept between aliases, and refused for a name.** SIG-234. A
+  shared spelling between two _aliases_ is not refused, and the later
+  declaration wins it: the loser is still reached by its name, and completion,
+  the markdown reference and the surface snapshot read the registry's own answer
+  for who owns a token. An alias that is a sibling's **name** throws while the
+  schema is built, because there the later-wins rule left a command with no
+  spelling at all -- `{ ship: {}, other: { alias: 'ship' } }` ran `other` for
+  `mycli ship` while help still listed `ship` -- and a command's own name is the
+  one spelling that must always reach it. Refused in both orders, since the name
+  arriving after the alias leaves the same command unreachable, and for a
+  name-string alias (`'other, ship'`, `'@ship, other'`, `'other, !ship'`) as
+  well as the property. An alias equal to its own command's name is the same
+  spelling twice and is left alone. The message names both commands and says to
+  remove the alias or rename one of the two.
+- **Asked where siblings meet, and once more when a module loads.**
+  `CommandRegistry.assertReachable(cmd, slot)` is the one check, beside the
+  default check it mirrors. `add()` calls it, which covers a `commands` object,
+  an array, a directory walk, an `index` module's commands merged with the
+  routes the walk found, a loaded module's own `commands`, and a hook calling
+  `commands.add()`. `loadCommand()` calls it against the parent's registry for
+  a command that has just loaded and again for a `subcommandLoaded`
+  replacement, because a module's own aliases are only known then. Asked before
+  the load is marked done, so a refused module is refused again the next time it
+  is matched, and before any caller writes the loaded command back, so the
+  answer does not depend on how the write-back is done. `slot` is the
+  placeholder's name: that entry is the command's own former self rather than a
+  sibling, which is what lets a module rename itself and keep the placeholder's
+  name as an alias. A module that renames its command onto a sibling's **name**
+  is the same outcome without an alias -- written back, it takes the sibling's
+  key -- and is refused with an error of the same shape that says the module
+  renamed it, since there is no alias to name.
+- **What is not refused, and the case for it.** Two siblings sharing a
+  _name-string_ alias is the one place the kept rule still shows a reader
+  something false: `'build, go'` and `'ship, go'` both print `go` in help while
+  `go` runs `ship`. That is an argument for refusing a shared _published_ alias
+  too, and it was not taken here: the ticket kept the alias-alias rule on
+  purpose, both commands stay reachable by name, and a property alias, which
+  help does not print, has no such cost.
 - **Every other place siblings arrive was already ordered.** A directory is
   walked one route at a time in `resolveRoutes()`'s sorted order, both when the
   schema is built and in `loadCommandDir()`; a placeholder's registry is handed

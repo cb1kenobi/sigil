@@ -1,3 +1,5 @@
+import type { CommandRegistry } from '../../src/parser/command/command-registry.js';
+import { initCommand } from '../../src/parser/command/init-command.js';
 import { loadCommand } from '../../src/parser/command/load-command.js';
 import { parse } from '../../src/parser/parse.js';
 import { Argument, Internal } from '../../src/types.js';
@@ -1632,6 +1634,11 @@ describe('regressions', () => {
     // they were declared. That is what makes these tests about the order rather
     // than about timing: under the defect the slow sibling registers last every
     // time, not usually
+    //
+    // the shared spelling is an alias both siblings declare. These were written
+    // over an alias that took a sibling's *name*, which is refused now -- see
+    // `an alias that takes a sibling's name` below -- and two aliases are what
+    // still share a spelling and still show which registration came last
     const slow = { init: () => new Promise<void>((resolve) => setTimeout(resolve, 0)) };
     const run = (): void => {};
     const quiet = { completion: false, help: false, quiet: false } as const;
@@ -1639,34 +1646,36 @@ describe('regressions', () => {
     it('should give a shared spelling to the later sibling when the earlier one is slower', async () => {
       const commands = {
         ship: { alias: 'go', hooks: slow, run },
-        other: { alias: 'ship', run },
+        other: { alias: 'go', run },
       };
 
-      let result = await parse({ argv: ['ship'], schema: { commands } });
+      let result = await parse({ argv: ['go'], schema: { commands } });
       expect(result.cmd?.name).to.equal('other');
 
-      // `ship` is still reachable by the one spelling nobody else claims
-      result = await parse({ argv: ['go'], schema: { commands } });
+      // `ship` lost an alias and kept its name, which is why this is not refused
+      result = await parse({ argv: ['ship'], schema: { commands } });
       expect(result.cmd?.name).to.equal('ship');
     });
 
     it('should give it to the later sibling when the later one is slower', async () => {
       // the control: the order the defect happened to get right
       const result = await parse({
-        argv: ['ship'],
-        schema: { commands: { ship: { run }, other: { alias: 'ship', hooks: slow, run } } },
+        argv: ['go'],
+        schema: {
+          commands: { ship: { alias: 'go', run }, other: { alias: 'go', hooks: slow, run } },
+        },
       });
       expect(result.cmd?.name).to.equal('other');
     });
 
     it('should not let an option on the earlier sibling hand it the spelling', async () => {
       // the ticket's own pair: declaring an option is more to initialize, and
-      // was enough on its own to move `ship` from one command to the other
+      // was enough on its own to move a spelling from one command to the other
       for (const options of [undefined, { '--force': {} }]) {
         const result = await parse({
-          argv: ['ship'],
+          argv: ['go'],
           schema: {
-            commands: { ship: { alias: 'go', options, run }, other: { alias: 'ship', run } },
+            commands: { ship: { alias: 'go', options, run }, other: { alias: 'go', run } },
           },
         });
         expect(result.cmd?.name).to.equal('other');
@@ -1675,11 +1684,11 @@ describe('regressions', () => {
 
     it('should do the same for an array of declarations', async () => {
       const result = await parse({
-        argv: ['ship'],
+        argv: ['go'],
         schema: {
           commands: [
             { alias: 'go', hooks: slow, name: 'ship', run },
-            { alias: 'ship', name: 'other', run },
+            { alias: 'go', name: 'other', run },
           ],
         },
       });
@@ -1705,11 +1714,13 @@ describe('regressions', () => {
       // a package is imported while the schema is built, which is real I/O and
       // the shape a slow sibling has in an app rather than in a test. It names
       // itself `foo`
+      //
+      // asserted on the registry's order alone: the package declares no alias
+      // to share, and the inline sibling taking the package's name is refused
       const pkg = path.join(__dirname, 'fixtures/good-pkg');
-      const schema = { ...quiet, commands: [pkg, { alias: 'foo', name: 'other', run }] };
+      const schema = { ...quiet, commands: [pkg, { name: 'other', run }] };
 
-      const result = await parse({ argv: ['foo'], schema });
-      expect(result.cmd?.name).to.equal('other');
+      const result = await parse({ schema });
       expect([...result.contexts.at(-1)![Internal].commands.keys()]).to.deep.equal([
         'foo',
         'other',
@@ -1718,14 +1729,17 @@ describe('regressions', () => {
 
     it("should do the same for a lazily loaded module's own commands", async () => {
       const result = await parse({
-        argv: ['db', 'ship'],
+        argv: ['db', 'go'],
         schema: {
           commands: {
             db: {
               load: () =>
                 Promise.resolve({
                   default: {
-                    commands: { ship: { hooks: slow, run }, other: { alias: 'ship', run } },
+                    commands: {
+                      ship: { alias: 'go', hooks: slow, run },
+                      other: { alias: 'go', run },
+                    },
                   },
                 }),
             },
@@ -1739,11 +1753,11 @@ describe('regressions', () => {
       // registered on the placeholder, then carried across in the registry's
       // own order -- which is only declaration order if registering was
       const result = await parse({
-        argv: ['db', 'ship'],
+        argv: ['db', 'go'],
         schema: {
           commands: {
             db: {
-              commands: { ship: { hooks: slow, run }, other: { alias: 'ship', run } },
+              commands: { ship: { alias: 'go', hooks: slow, run }, other: { alias: 'go', run } },
               load: () => Promise.resolve({ default: { desc: 'the module' } }),
             },
           },
@@ -1755,12 +1769,12 @@ describe('regressions', () => {
 
     it('should do the same for a command a subcommandLoaded hook replaced', async () => {
       const result = await parse({
-        argv: ['db', 'ship'],
+        argv: ['db', 'go'],
         schema: {
           commands: { db: { load: () => Promise.resolve({ default: {} }) } },
           hooks: {
             subcommandLoaded: () => ({
-              commands: { ship: { hooks: slow, run }, other: { alias: 'ship', run } },
+              commands: { ship: { alias: 'go', hooks: slow, run }, other: { alias: 'go', run } },
             }),
           },
         },
@@ -1790,6 +1804,238 @@ describe('regressions', () => {
       // and a level walked when argv reached it, which is `loadCommandDir()`
       result = await parse({ argv: ['config'], schema: { ...quiet, commands: routes } });
       expect([...result.cmd![Internal].commands.keys()]).to.deep.equal(['get', 'set']);
+    });
+  });
+
+  describe("an alias that takes a sibling's name", () => {
+    // a later registration wins a shared spelling, and when the spelling is a
+    // sibling's *name* that leaves the sibling with none: `mycli ship` ran
+    // `other`, nothing reached `ship`, and help went on listing it. Refused
+    // wherever siblings arrive -- while the schema is built where the alias is
+    // declared there, and when the module loads where only the module knows
+    const run = (): void => {};
+    const taken = (owner: string, name: string): string =>
+      `The "${owner}" command's alias "${name}" is the name of a sibling command: "${name}" would run "${owner}" and nothing could reach the "${name}" command, so remove the alias or rename one of the two`;
+    const fixtures = path.join(__dirname, 'fixtures/alias-takes-name');
+
+    it('should refuse a property alias in a commands object', async () => {
+      await expect(
+        parse({
+          argv: ['ship'],
+          schema: { commands: { ship: { run }, other: { alias: 'ship', run } } },
+        })
+      ).rejects.toThrow(taken('other', 'ship'));
+    });
+
+    it('should refuse it when the alias is declared before the name', async () => {
+      // the name arriving second is the same mistake: one command has lost the
+      // one spelling that must always reach it
+      await expect(
+        parse({ schema: { commands: { other: { alias: ['go', 'ship'], run }, ship: { run } } } })
+      ).rejects.toThrow(taken('other', 'ship'));
+    });
+
+    it('should refuse a name-string alias, whatever its prefix', async () => {
+      for (const label of ['other, ship', 'other @ship', 'other, !ship', '@ship, other']) {
+        await expect(
+          parse({ schema: { commands: { ship: { run }, [label]: { run } } } })
+        ).rejects.toThrow(taken('other', 'ship'));
+      }
+    });
+
+    it('should refuse it in an array of declarations', async () => {
+      await expect(
+        parse({
+          schema: {
+            commands: [
+              { name: 'ship', run },
+              { alias: 'ship', name: 'other', run },
+            ],
+          },
+        })
+      ).rejects.toThrow(taken('other', 'ship'));
+    });
+
+    it('should refuse it beside a nested command, at the level it is declared', async () => {
+      // a registry is one level of siblings, so the same name one level up is
+      // not a sibling and is not refused
+      const schema = {
+        commands: {
+          db: { commands: { migrate: { run }, seed: { alias: 'migrate', run } } },
+          migrate: { run },
+        },
+      };
+      await expect(parse({ schema })).rejects.toThrow(taken('seed', 'migrate'));
+
+      const ok = await parse({
+        argv: ['migrate'],
+        schema: {
+          commands: { db: { commands: { seed: { alias: 'migrate', run } } }, migrate: { run } },
+        },
+      });
+      expect(ok.cmd?.name).to.equal('migrate');
+    });
+
+    it("should refuse a command an index module declares with a walked route's name", async () => {
+      // the walk found `db/migrate.js`, and `db/index.js` declares a `seed`
+      // aliased `migrate` beside it -- known once `db` is reached and its level
+      // read, which is when it throws
+      const schema = { commands: fixtures };
+      await expect(parse({ argv: ['db'], schema })).rejects.toThrow(taken('seed', 'migrate'));
+    });
+
+    it("should refuse a walked module whose own export takes a sibling route's name", async () => {
+      // `deploy.js` exports `alias: 'build'` beside `build.js`. Nothing knows
+      // until the module loads, so `mycli build` -- which never loads it -- is
+      // fine, and `mycli deploy` is refused
+      const schema = { commands: fixtures };
+      expect((await parse({ argv: ['build'], schema })).cmd?.name).to.equal('build');
+      await expect(parse({ argv: ['deploy'], schema })).rejects.toThrow(taken('deploy', 'build'));
+    });
+
+    it("should refuse a lazily loaded module's own alias when it loads", async () => {
+      const load = (): Promise<unknown> => Promise.resolve({ default: { alias: 'ship', run } });
+      const schema = { commands: { ship: { run }, other: { load } } };
+
+      expect((await parse({ argv: ['ship'], schema })).cmd?.name).to.equal('ship');
+      await expect(parse({ argv: ['other'], schema })).rejects.toThrow(taken('other', 'ship'));
+      // and through `help`, which loads a command to describe it
+      await expect(parse({ argv: ['help', 'other'], schema })).rejects.toThrow(
+        taken('other', 'ship')
+      );
+    });
+
+    it('should refuse it again the next time the command is matched', async () => {
+      // the load is not marked done when it is refused, so a second match
+      // reads the module again rather than quietly resolving to the placeholder
+      const schema = {
+        commands: {
+          ship: { run },
+          other: { load: () => Promise.resolve({ default: { alias: 'ship', run } }) },
+        },
+      };
+      const result = await parse({ schema });
+      const root = result.contexts[0];
+      const other = root[Internal].commands.find('other')!;
+
+      await expect(loadCommand(other, root)).rejects.toThrow(taken('other', 'ship'));
+      expect(other[Internal].loaded).to.equal(false);
+      await expect(loadCommand(other, root)).rejects.toThrow(taken('other', 'ship'));
+    });
+
+    it('should refuse a module that renames itself onto a sibling alias', async () => {
+      // the other direction at load time: the module's name is the late arrival
+      const schema = {
+        commands: {
+          other: { alias: 'ship', run },
+          placeholder: { load: () => Promise.resolve({ default: { name: 'ship', run } }) },
+        },
+      };
+      await expect(parse({ argv: ['placeholder'], schema })).rejects.toThrow(
+        taken('other', 'ship')
+      );
+    });
+
+    it("should refuse a module that renames itself onto a sibling's name", async () => {
+      // no alias at all, and the same outcome: written back under the name its
+      // module gives it, `placeholder` takes `ship`'s key and nothing reaches
+      // `ship`. Its own error, because there is no alias to name
+      const schema = {
+        commands: {
+          ship: { run },
+          placeholder: { load: () => Promise.resolve({ default: { name: 'ship', run } }) },
+        },
+      };
+      expect((await parse({ argv: ['ship'], schema })).cmd?.name).to.equal('ship');
+      await expect(parse({ argv: ['placeholder'], schema })).rejects.toThrow(
+        'The "placeholder" command\'s module renames it "ship", which is the name of a sibling command: "ship" would run "placeholder" and nothing could reach the "ship" command, so rename one of the two'
+      );
+    });
+
+    it('should refuse it through a topic walk', async () => {
+      // `db:other` loads `other` as the walk goes, which is the same
+      // `loadCommand()` the space form reaches
+      const schema = {
+        commands: {
+          db: {
+            commands: {
+              ship: { run },
+              other: {
+                commands: { up: { run } },
+                load: () => Promise.resolve({ default: { alias: 'ship' } }),
+              },
+            },
+          },
+        },
+        topicSeparator: ':' as const,
+      };
+      await expect(parse({ argv: ['db:other:up'], schema })).rejects.toThrow(
+        taken('other', 'ship')
+      );
+    });
+
+    it('should refuse a subcommandLoaded replacement that brings the alias', async () => {
+      const schema = {
+        commands: { ship: { run }, other: { load: () => Promise.resolve({ default: { run } }) } },
+        hooks: {
+          subcommandLoaded: ({ cmd }: { cmd: { name: string } }) =>
+            cmd.name === 'other' ? { alias: 'ship', run } : undefined,
+        },
+      };
+      expect((await parse({ argv: ['ship'], schema })).cmd?.name).to.equal('ship');
+      await expect(parse({ argv: ['other'], schema })).rejects.toThrow(taken('other', 'ship'));
+    });
+
+    it('should refuse a command a hook adds to a registry', async () => {
+      // `commands.add()` is the registry's own door, and it is the one a hook
+      // is handed, so it asks the same question
+      const schema = {
+        commands: {
+          db: {
+            commands: { ship: { run } },
+            hooks: {
+              parse: async ({ commands }: { commands: CommandRegistry }) => {
+                commands.add(await initCommand({ alias: 'ship', name: 'other', run }));
+              },
+            },
+          },
+        },
+      };
+      await expect(parse({ argv: ['db'], schema })).rejects.toThrow(taken('other', 'ship'));
+    });
+
+    it('should not refuse a command whose alias is its own name', async () => {
+      const result = await parse({
+        argv: ['ship'],
+        schema: { commands: { 'ship, ship': { alias: 'ship', run } } },
+      });
+      expect(result.cmd?.name).to.equal('ship');
+    });
+
+    it('should still give two siblings sharing an alias to the later one', async () => {
+      // losing an alias leaves both commands reachable by name, which is why
+      // the later-wins rule is kept there
+      const commands = { ship: { alias: 'go', run }, other: { alias: 'go', run } };
+      expect((await parse({ argv: ['go'], schema: { commands } })).cmd?.name).to.equal('other');
+      expect((await parse({ argv: ['ship'], schema: { commands } })).cmd?.name).to.equal('ship');
+    });
+
+    it("should not refuse a renamed module for the placeholder's own name", async () => {
+      // the placeholder's slot is the loaded command's own rather than a
+      // sibling's, so a module that renames itself and keeps the placeholder's
+      // name as an alias is the same command answering to both
+      const result = await parse({
+        argv: ['ship'],
+        schema: {
+          commands: {
+            other: { run },
+            ship: {
+              load: () => Promise.resolve({ default: { alias: 'ship', name: 'boat', run } }),
+            },
+          },
+        },
+      });
+      expect(result.cmd?.name).to.equal('boat');
     });
   });
 });

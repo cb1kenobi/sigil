@@ -536,11 +536,13 @@ export async function commandSurface(schema: Schema): Promise<CommandSurface> {
       }
       seen.add(child);
 
-      // a command no token reaches is a command nothing can type, which is two
-      // shapes: a control character in its name, and a name a sibling's alias
-      // shadows. `tokensFor()` answers both, and it is the completion spec's own
-      // answer rather than a second one -- an alias that routes somewhere else
-      // documented here would be a reference naming a path the parser refuses
+      // a command no token reaches is a command nothing can type: a control
+      // character in its name, with no alias that can be typed beside it. (A
+      // sibling's alias taking its name was the other shape, and that schema
+      // is refused now.) `tokensFor()` answers it, and it is the completion
+      // spec's own answer rather than a second one -- an alias that routes
+      // somewhere else documented here would be a reference naming a path the
+      // parser refuses
       const tokens = tokensFor(cmd, child);
       // and the segment its page is named and titled by is one that can be
       // typed: a name holding a control character reached the file name raw,
