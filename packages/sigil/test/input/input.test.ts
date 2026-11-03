@@ -573,6 +573,65 @@ describe('paste', () => {
     expect(names).toEqual(['a', 'b']);
     input.stop();
   });
+
+  it('should offer a paste to the focused element and its ancestors before any handler', () => {
+    // a focused text field is what a paste was aimed at, and an app-wide handler
+    // registered before the field existed must not be able to take it away --
+    // inside a modal that handler is one under the dialog
+    const { feed, terminal } = harness();
+    const { first, root } = tree();
+    const input = createInput({ root, terminal });
+    const order: string[] = [];
+
+    input.onPaste((event) => {
+      order.push(`router:${event.text}`);
+      event.stop();
+    });
+    input.focus.focus(first);
+    first.onPaste = (event) => order.push(`first:${event.text}`);
+    root.onPaste = (event) => {
+      order.push(`root:${event.text}`);
+      event.stop();
+    };
+
+    feed('\u001b[200~one\u001b[201~');
+    expect(order).toEqual(['first:one', 'root:one']);
+    input.stop();
+  });
+
+  it('should hand on what the tree did not stop, and type in what nothing did', () => {
+    const { feed, terminal } = harness();
+    const { first, root } = tree();
+    const input = createInput({ root, terminal });
+    const order: string[] = [];
+
+    input.focus.focus(first);
+    first.onPaste = (event) => order.push(`first:${event.text}`);
+    first.onKey = (event) => order.push(`key:${event.key.name}`);
+    input.onPaste((event) => order.push(`router:${event.text}`));
+
+    feed('\u001b[200~ab\u001b[201~');
+    expect(order).toEqual(['first:ab', 'router:ab', 'key:a', 'key:b']);
+    input.stop();
+  });
+
+  it('should offer a paste to no element when nothing is focused', () => {
+    const { feed, terminal } = harness();
+    const { first, root } = tree();
+    const input = createInput({ root, terminal });
+    const order: string[] = [];
+
+    root.onPaste = (event) => order.push(`root:${event.text}`);
+    first.onPaste = (event) => order.push(`first:${event.text}`);
+    input.onPaste((event) => {
+      order.push(`router:${event.text}`);
+      event.stop();
+    });
+
+    feed('\u001b[200~x\u001b[201~');
+    expect(order).toEqual(['router:x']);
+    input.stop();
+  });
 });
 
 describe('the focus ring and the clip rect', () => {

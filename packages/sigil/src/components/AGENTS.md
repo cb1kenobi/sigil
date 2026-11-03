@@ -8284,3 +8284,95 @@ fixed itself. SIG-210 asked which other prompts had the same defect.
   means choosing how much of the question an answer may take in every list prompt,
   so it is left for a ticket of its own. `confirm()` below 13 columns is under the
   floor the head already declares.
+
+### A text field: the prompt's editor as an element
+
+`src/components/text-field.ts`. SIG-215. `TextField()` is one editable line that a
+tree can hold -- the first caller is `openModal()`'s `body`, whose focus trap a
+field joins like anything else focusable.
+
+- **The element first, and the `text()` prompt is not moved onto it here.** It is
+  built from what the prompt is built from rather than beside it: `editing.ts` for
+  every edit, and `promptWindow()` -- the prompt's own sideways window -- for what
+  is on screen. What is _not_ shared yet is the key table and the drawing, which
+  the prompt keeps inline; mounting the prompt over the element is a follow-up,
+  because a second set of answers about the prompt's settle and its placeholder is
+  a change to every `text()` and `password()` and belongs in a ticket of its own.
+- **The value is a string to start from or a `State<string>` that is the value,
+  the shape `Collapsible`'s `open` and `Tabs`' `active` have.** No handle: an app
+  that wants the value passes the state, and `onChange` is called after an edit the
+  field made and never after a write the app made, since the app already knows.
+  The caret is the field's alone. A write the app makes puts it at the end: the new
+  value carries nothing that says where in it the caret belongs, and the end is
+  where a typist would be.
+- **Tab, Escape and the abort are never the field's, and that is not a guard.** It
+  falls out of the key table: none of them is an editing key and none of them types
+  anything, so they reach the one branch that hands every unclaimed key on. An
+  explicit refusal of the three was written first and deleted for surviving its
+  sabotage. Up, Down and any chord nobody bound here go on the same way, so a form
+  or a list around the field can have them. The editing keys are claimed even at an
+  end -- Left at column zero is still the field's -- because a list or a tab row
+  around it moving on a key aimed at the caret is the surprise, which is the
+  prompt's own answer.
+- **Enter is the field's only when it was given `onSubmit`.** With one, Enter calls
+  it and stops. Without one it is not claimed and goes on to whatever holds the
+  field. Inside a modal that is the panel, which has no default button, so Enter in
+  a field without `onSubmit` does nothing there -- the caller decides what Enter
+  means by passing `onSubmit: () => dialog.close(...)`, which is what the demo does.
+  A **pasted** line break is a space and never a submission, for the reason the
+  prompt flattens a paste: obeying one submits half an address.
+- **Validation and an error line are not the element's.** The prompts reserve a
+  row for one because a prompt is the whole question; a field is one part of a
+  form, and where the error goes, when it is checked and what blocks a submit are
+  the form's to say. `onChange` and `onSubmit` are where a caller checks.
+- **A focused field claims a paste, and that took a change to the router's
+  order.** A router's `onPaste()` handlers ran before anything in the tree saw the
+  paste, so an app-wide handler registered at startup took a paste meant for a
+  field the app opened later -- inside a modal, a handler _under_ the dialog, which
+  is the gap the modal's entry recorded as unclosable "without making a paste into
+  a dialog's own field impossible". `Element.onPaste` is offered the paste first,
+  on the focused element and then each ancestor, and a router handler sees what
+  none of them stopped; `input/AGENTS.md` records why that is the mouse's order
+  rather than the keys'. Nothing set `onPaste` on an element before, so nothing
+  that worked moved. What it leaves: with a **button** focused in a dialog, an
+  unclaimed paste still walks past the backdrop to the root and the router's
+  handlers -- the modal could stop it at the backdrop now, and does not yet; and a
+  prompt over a **borrowed** router takes pastes through `onPaste()`, so a field
+  focused in the app's tree under it would take the paste first.
+- **The caret is drawn by a `:focus` rule, so a form of several fields shows one.**
+  `.sigil-text-field:focus .sigil-text-field-caret { inverse: true }` is the
+  sheet's ninth declared exception, the tabs row's shape again. The field cannot
+  know its own focus without a router, which it does not have when it is built, so
+  the cascade is what answers. One consequence differs from the prompt: the
+  prompt leaves the caret's cell undimmed when it sits on a placeholder, and the
+  field mutes it, because an unfocused field would otherwise show the hint's first
+  letter at full strength as if it had been typed. Focused, that cell is a dimmed
+  reversal, which is still a caret.
+- **The room is the layout's, learned through `onResize`, the way the tabs row
+  learns its width.** `width` declares it; without one the field takes what the
+  layout gives -- stretched in a column, its content in a row. `min-width: 0` is
+  the declaration that makes a field in a row shrink to its share at all: a box's
+  automatic minimum is its content's, and a field's content is the whole value.
+  `overflow: hidden` on the host was written and deleted for failing its sabotage:
+  a frame cuts the window before it paints, and even a two-column caret in a
+  one-column field is refused by the grid rather than drawn past the edge.
+- **A control character the app wrote is drawn as nothing.** The keys cannot type
+  one and a paste is flattened, so only a write the app made can carry one -- and
+  nothing is what `stringWidth()` measures it as, so the window's arithmetic and
+  the drawing agree. The value itself is the caller's and is left as it is.
+- **`mask` came for a few lines and `disabled` is a state.** `mask` is the
+  `password()` prompt's column-count rule. `disabled` takes the field out of the
+  ring through `focusable` and ignores keys and pastes; a field disabled while it
+  has the focus keeps it, since there is no router to move it with, and simply does
+  nothing.
+- **Sabotage: twenty-nine, six survivors, three deletions and one new test.** The
+  explicit Tab, Escape and abort refusals (three sabotages of one line) and an
+  unchanged-room early return in `onResize` -- `draw()`'s own signature already
+  answers "nothing changed" -- were deleted; `overflow: hidden`, above, likewise;
+  and `min-width: 0` had no test until `should shrink to its share of a row rather
+  than to its content`. The other twenty-four, three of them on the router's new
+  order, are caught.
+- **Not done:** the prompts sharing this editor; multiline, `number` and
+  `maskedText()` variants; clicking to place the caret; a selection; a
+  `describe` helper for a key-help footer; and blocking an unclaimed paste at the
+  modal's backdrop.

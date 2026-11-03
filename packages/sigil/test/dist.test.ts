@@ -209,6 +209,7 @@ describe('what importing the package costs', () => {
     'tableView',
     'enableDebugOverlay',
     'openModal',
+    'TextField',
     'qrcodeView',
     'commandPalette',
     'noteView',

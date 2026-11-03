@@ -517,6 +517,13 @@ export interface InputRouter {
   /**
    * Adds a paste handler, which sees pasted text before it is typed in.
    *
+   * **After** the tree: the focused element and its ancestors are offered a paste
+   * through `Element.onPaste` first, and a handler here sees what none of them
+   * stopped. That is the mouse's order rather than the keys', because a paste has
+   * nothing of the Ctrl-C shape that puts a binding first -- and it is what lets a
+   * focused text field take a paste that an app-wide handler registered earlier
+   * would otherwise have had.
+   *
    * @param handler - What to do with it.
    * @returns Removes the handler.
    */
@@ -1636,6 +1643,18 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       },
       text,
     };
+
+    // the tree first, from the focused element up: a field that has the focus is
+    // what the paste was aimed at, and an app-wide handler registered before it
+    // existed must not be able to take it away -- which inside a modal would be a
+    // handler under the dialog. Content cannot quit anything, so nothing here has
+    // the shape that puts a key's bindings first; the mouse's order is the one
+    for (let at = current.get(); at !== undefined; at = at.parent) {
+      at.onPaste?.(event);
+      if (stopped) {
+        return;
+      }
+    }
 
     // eslint-disable-next-line unicorn/no-useless-spread
     for (const handler of [...pasters]) {

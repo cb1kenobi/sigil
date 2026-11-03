@@ -78,8 +78,10 @@ the entry it belongs to.
   the terminal's own two colours swapped, rather than a colour anybody picked. The eighth (SIG-189) is the
   active tab's, `inverse` a fourth time and a descendant of the row's `:focus`: the
   row is the focusable element and the active label is the one thing its keys
-  change, so only that label shows the focus. `should
-  declare on a role, bar eight exceptions that say why` is the invariant, and it
+  change, so only that label shows the focus. The ninth (SIG-215) is the text
+  field's caret, `inverse` a fifth time under the field's `:focus`: a form holds
+  several fields and only the one the keys go to may show a caret. `should
+  declare on a role, bar nine exceptions that say why` is the invariant, and it
   reads the **parsed** sheet rather than the source, because the comment listing
   the component classes as hooks would otherwise be mistaken for a rule. It was
   three until SIG-136, and the sentence here still said three for a commit after

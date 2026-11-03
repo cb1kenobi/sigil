@@ -44,7 +44,7 @@
  */
 
 import type { Painter } from '../canvas/index.js';
-import type { KeyHandler, MouseHandler } from '../input/index.js';
+import type { KeyHandler, MouseHandler, PasteHandler } from '../input/index.js';
 import type { Box, LayoutNode, Measurement } from '../layout/index.js';
 import type { PropValues, Style, StyleState } from '../style/index.js';
 import { declare } from '../style/index.js';
@@ -756,6 +756,18 @@ export class Element implements LayoutNode {
    * element it landed on upwards until something stops the event.
    */
   onMouse: MouseHandler | undefined;
+
+  /**
+   * What this element does with a bracketed paste that reaches it.
+   *
+   * One function rather than a list, for the reason `onKey` is one. Read by the
+   * input router, which offers a paste to the focused element and then to each
+   * ancestor until something stops it -- **before** the router's own `onPaste`
+   * handlers, so that a focused text field has the paste rather than an app-wide
+   * handler registered before the field existed. What nothing stops is typed in
+   * as keys, as it always was.
+   */
+  onPaste: PasteHandler | undefined;
 
   /**
    * What this element does when its scroll offset moved.

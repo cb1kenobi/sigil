@@ -179,6 +179,10 @@ const ENTRIES = [
     name: 'modal',
   },
   {
+    desc: 'A text field: one editable line as an element, for a form or a dialog',
+    name: 'text-field',
+  },
+  {
     desc: 'A debug overlay: captured console output and frame stats, inside the app',
     name: 'debug-overlay',
   },

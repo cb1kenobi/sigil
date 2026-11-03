@@ -421,6 +421,7 @@ export {
   type ModalOptions,
   openModal,
 } from './modal.js';
+export { TextField, type TextFieldProps } from './text-field.js';
 export {
   type RowWindow,
   rowWindow,

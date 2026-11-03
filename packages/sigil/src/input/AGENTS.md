@@ -76,6 +76,21 @@ the entry it belongs to.
   turns the mode off for the reason it leaves the alternate screen: a CLI that
   dies with it on hands the user a shell that puts `ESC [ 200 ~` into every
   paste, which has to be reset by hand.
+- **A paste is offered to the tree before the router's own handlers, which is
+  the mouse's order and not the keys'.** `Element.onPaste` on the focused element
+  and then on each ancestor, and `onPaste()` sees what none of them stopped; what
+  nothing stops is typed in as before. Bindings go first for keys because a
+  focused input must not swallow Ctrl-C, and a paste has nothing of that shape --
+  content cannot quit anything. What the other order cost was concrete: an
+  app-wide handler registered at startup took a paste meant for a text field the
+  app opened later, and inside a modal that handler is one _under_ the dialog
+  (SIG-215). A router handler is now the fallback for a paste nothing focused
+  wanted, the way `onMouse()` is for a report the tree did not claim. Nothing in
+  the package set `onPaste` on an element before this, so no existing behaviour
+  moved. What it leaves open: a prompt run over a **borrowed** router takes its
+  paste through `onPaste()`, so a text field focused in the app's tree under it
+  would take the paste first -- the keys are the prompt's, by its binding, and
+  the paste is not.
 - **A router puts back only the raw mode it turned on.** `setRawMode()` reports
   whether it was the call that changed anything, which is the rule `hideCursor()`
   and `enableBracketedPaste()` already follow -- a prompt inside a full-screen app

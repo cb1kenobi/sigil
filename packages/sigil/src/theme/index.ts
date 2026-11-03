@@ -190,6 +190,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-diff-separator  .sigil-diff-add  .sigil-diff-remove  .sigil-diff-context
  *   .sigil-modal  .sigil-modal-backdrop  .sigil-modal-fill  .sigil-modal-title
  *   .sigil-modal-body  .sigil-modal-actions  .sigil-modal-action
+ *   .sigil-text-field  .sigil-text-field-before  .sigil-text-field-caret
+ *   .sigil-text-field-after  .sigil-text-field-placeholder
  * A class with no rule is still a hook; giving it an empty rule would be a
  * declaration that says nothing and a line for somebody to wonder about. Most of
  * them are here because a role carries what they used to say, which is the point
@@ -261,6 +263,19 @@ export const FRAMEWORK_CSS = `
  * rule under it.
  */
 .sigil-tabs-row:focus .sigil-tabs-active { inverse: true }
+
+/*
+ * a text field
+ *
+ * The ninth declared exception to the role rule, and the caret's own declaration
+ * keyed on the field's focus: a form holds several fields and only the one the
+ * keys go to may show a caret, so the reversal is the :focus state's to give
+ * rather than the component's. That is also the whole of how the field shows its
+ * focus. A placeholder is .sigil-muted and a disabled field is too, so neither
+ * needs a rule here; at colour level 0 the attribute is dropped and the caret is
+ * not shown, which is the prompt caret's own answer at that level.
+ */
+.sigil-text-field:focus .sigil-text-field-caret { inverse: true }
 
 /*
  * the debug overlay
