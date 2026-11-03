@@ -422,6 +422,95 @@ export function entryCache(): EntryCache {
   };
 }
 
+/**
+ * What a typed path completes against: the directory it is in, what of that is
+ * offered, and what Tab makes of it.
+ *
+ * The drawn field and the line form both stand on this, one per prompt, so the
+ * two forms of one question cannot offer different candidates: the same read,
+ * the same `root`, the same `~`, the same filter, and the same Tab.
+ */
+interface Completer {
+  /** What completing to an entry makes the typed path. */
+  completion(value: string, entry: PathEntry): string;
+  /** The candidates for a typed path, from what has been read so far. */
+  candidates(value: string): PathEntry[];
+  /** Whether the directory a typed path is in has been read. */
+  known(value: string): boolean;
+  /** Reads the directory a typed path is in, unless it has been. */
+  load(value: string): Promise<void>;
+  /**
+   * What Tab makes a typed path, with nothing highlighted: the one candidate in
+   * full, separator and all for a directory, or as much as several share -- or
+   * nothing when they share no more than has been typed.
+   */
+  tab(value: string, shown: readonly PathEntry[]): string | undefined;
+  /** The directory a typed path is in, if it names one. */
+  target(value: string): string | undefined;
+}
+
+/** Makes the completer for one prompt, with nothing read. */
+function completer(base: string, filter: PathFilter, flavour: PathFlavour): Completer {
+  const cache = entryCache();
+
+  function target(value: string): string | undefined {
+    return directoryOf(splitTyped(value, flavour).dir, base, flavour);
+  }
+
+  function completion(value: string, entry: PathEntry): string {
+    const { dir } = splitTyped(value, flavour);
+    return dir + entry.name + (entry.dir ? separatorFor(dir, flavour) : '');
+  }
+
+  return {
+    candidates(value) {
+      const { dir, segment } = splitTyped(value, flavour);
+      const rooted = dir === '' ? rootName(segment, flavour) : undefined;
+      const where = target(value);
+      const found =
+        where === undefined ? [] : candidatesOf(cache.get(where) ?? [], segment, filter, flavour);
+
+      // a root names a directory the working directory has no entry for, so it
+      // goes in front of whatever happens to start with the same characters
+      return rooted === undefined || found.some((entry) => entry.name === rooted)
+        ? found
+        : [{ dir: true, name: rooted }, ...found];
+    },
+    completion,
+    known(value) {
+      const where = target(value);
+      return where !== undefined && cache.has(where);
+    },
+    async load(value) {
+      const where = target(value);
+      if (where !== undefined) {
+        await cache.load(where);
+      }
+    },
+    tab(value, shown) {
+      if (shown.length === 1) {
+        return completion(value, shown[0] as PathEntry);
+      }
+      if (shown.length === 0) {
+        return undefined;
+      }
+      const { dir, segment } = splitTyped(value, flavour);
+      const extended = extendSegment(
+        segment,
+        shown.map((entry) => entry.name),
+        flavour
+      );
+      return extended === undefined ? undefined : dir + extended;
+    },
+    target,
+  };
+}
+
+/** A candidate as it is listed: its name, and a separator after a directory. */
+function labelOf(entry: PathEntry, flavour: PathFlavour): string {
+  return entry.name + (entry.dir ? separatorFor('', flavour) : '');
+}
+
 /** One row of the list. */
 interface PathRow {
   readonly label: Element;
@@ -454,30 +543,27 @@ export function path(opts: PathOptions): Promise<string> {
   };
 
   /**
-   * Directories read so far, by absolute path, for the life of the prompt.
+   * Directories read so far, by absolute path, for the life of the prompt, and
+   * what is offered from them -- one for the drawn field or the line, whichever
+   * asks.
    *
    * A directory is read once however many keystrokes land in it, which is what
    * stands in for a debounce: the cost of typing is a `readdir` per directory
    * *level* rather than per character, and the characters in between are a
    * filter over what is already here.
    */
+  const complete = completer(base, filter, flavour);
   let value = typeof opts.value === 'string' ? opts.value : (opts.initial ?? '');
   if (promptAsLines(opts)) {
-    return linePath(opts, value, base, flavour);
+    return linePath(opts, value, base, flavour, complete);
   }
 
-  const cache = entryCache();
   let cursor = value.length;
   let active = -1;
   let start = 0;
   let error: string | undefined;
   let finished = false;
   let shown: PathEntry[] = [];
-
-  /** The directory the field is in, if it names one. */
-  function target(): string | undefined {
-    return directoryOf(splitTyped(value, flavour).dir, base, flavour);
-  }
 
   /**
    * Reads the directory the field is in, unless it already has.
@@ -491,32 +577,18 @@ export function path(opts: PathOptions): Promise<string> {
    * read that finishes late fills the cache and can only ever repaint the newer
    * answer.
    */
-  async function ensure(): Promise<void> {
-    const dir = target();
-    if (dir !== undefined) {
-      await cache.load(dir);
-    }
+  function ensure(): Promise<void> {
+    return complete.load(value);
   }
 
   /** The candidates for the field as it is now, from what has been read. */
   function candidates(): PathEntry[] {
-    const { dir, segment } = splitTyped(value, flavour);
-    const rooted = dir === '' ? rootName(segment, flavour) : undefined;
-    const where = target();
-    const found =
-      where === undefined ? [] : candidatesOf(cache.get(where) ?? [], segment, filter, flavour);
-
-    // a root names a directory the working directory has no entry for, so it
-    // goes in front of whatever happens to start with the same characters
-    return rooted === undefined || found.some((entry) => entry.name === rooted)
-      ? found
-      : [{ dir: true, name: rooted }, ...found];
+    return complete.candidates(value);
   }
 
   /** What completing to an entry makes the field. */
   function completion(entry: PathEntry): string {
-    const { dir } = splitTyped(value, flavour);
-    return dir + entry.name + (entry.dir ? separatorFor(dir, flavour) : '');
+    return complete.completion(value, entry);
   }
 
   function setValue(next: string): void {
@@ -616,7 +688,7 @@ export function path(opts: PathOptions): Promise<string> {
         const current = on && start + i === active;
 
         if (on) {
-          label.setText(entry.name + (entry.dir ? separatorFor('', flavour) : ''));
+          label.setText(labelOf(entry, flavour));
         }
         pointer.setProps({ visibility: current ? 'visible' : 'hidden' });
         label.setProps({
@@ -630,11 +702,12 @@ export function path(opts: PathOptions): Promise<string> {
 
       // empty only once the directory has been read: before then there is no
       // answer yet, and "no matches" would be a claim about a list not seen
-      const where = target();
-      const known = where !== undefined && cache.has(where);
+      const known = complete.known(value);
       empty.setProps({
         display:
-          shown.length === 0 && (known || where === undefined) && value !== '' ? 'flex' : 'none',
+          shown.length === 0 && (known || complete.target(value) === undefined) && value !== ''
+            ? 'flex'
+            : 'none',
       });
 
       if (value === '') {
@@ -700,20 +773,9 @@ export function path(opts: PathOptions): Promise<string> {
 
         if (k.name === 'tab') {
           const chosen = shown[active];
-          if (chosen) {
-            setValue(completion(chosen));
-          } else if (shown.length === 1) {
-            setValue(completion(shown[0] as PathEntry));
-          } else if (shown.length > 1) {
-            const { dir, segment } = splitTyped(value, flavour);
-            const extended = extendSegment(
-              segment,
-              shown.map((entry) => entry.name),
-              flavour
-            );
-            if (extended !== undefined) {
-              setValue(dir + extended);
-            }
+          const next = chosen ? completion(chosen) : complete.tab(value, shown);
+          if (next !== undefined) {
+            setValue(next);
           }
         } else if (k.name === 'up' || k.name === 'down') {
           // through a position with nothing highlighted, so there is a way back
@@ -779,33 +841,66 @@ export function path(opts: PathOptions): Promise<string> {
 }
 
 /**
- * `path()` as a line: `text()`'s, answered the way the drawn field answers.
+ * `path()` as a line: `text()`'s, answered the way the drawn field answers, and
+ * completed on Tab the way a shell completes.
  *
- * **Nothing replaces completion**, and Tab does nothing. The drawn field's list
- * changes with every keystroke under the field, which is the redraw this form has
- * none of. A shell's completion would fit the rules -- Tab appending what every
- * candidate agrees on, a second Tab writing the candidates on lines of their own
- * and asking again -- and is not done here, because `runLine()` hands no key to a
- * form and adding that is a change to the engine every line form shares. What
- * stays is everything the answer is: `~` expanded, a relative path resolved
- * against `root` when there is one, and `validate` handed it in that form, so the
- * two forms of one question cannot answer it differently.
+ * The drawn field's list changes under it with every keystroke, which is the
+ * redraw this form has none of, so what stands in for it is readline's: Tab adds
+ * what every candidate shares beyond what has been typed, and echoes only that --
+ * the one candidate in full, with a separator if it is a directory. A second Tab
+ * with nothing more to add writes the candidates on lines of their own under the
+ * reply and asks again holding it. Tab with no candidates says `No matches`, the
+ * drawn field's own words, because a screen-reader user cannot see that nothing
+ * happened, and a second Tab would only be nothing again.
+ *
+ * Only ever by adding at the end. On a caseless file system a candidate can agree
+ * with what was typed in all but case, and the drawn field would rewrite it; here
+ * what was typed was echoed, so it stays as typed and only what comes after is the
+ * candidate's spelling.
+ *
+ * The candidates are the drawn field's, from the same `completer()`. A Tab waits
+ * for its directory to be read and the keys typed after it wait behind it, so
+ * they land after what it adds, in the order they were typed; Ctrl-C and Escape
+ * never wait.
+ *
+ * What the answer is stays the drawn field's too: `~` expanded, a relative path
+ * resolved against `root` when there is one, and `validate` handed it in that
+ * form, so the two forms of one question cannot answer it differently.
  *
  * @param opts - What to ask.
  * @param start - The reply the field opens holding.
  * @param base - Where a relative path starts.
  * @param flavour - Whose path rules.
+ * @param complete - What a typed path completes against.
  * @returns The path.
  */
 function linePath(
   opts: PathOptions,
   start: string,
   base: string,
-  flavour: PathFlavour
+  flavour: PathFlavour,
+  complete: Completer
 ): Promise<string> {
   return runLinePrompt<string>(opts, {
     ask: promptLineQuestion(opts.message),
     echo: true,
+    async key(k, { repeated, reply }) {
+      if (k.name !== 'tab') {
+        return;
+      }
+      await complete.load(reply);
+      const shown = complete.candidates(reply);
+      if (shown.length === 0) {
+        return { lines: [__`No matches`] };
+      }
+      const insert = complete.tab(reply, shown)?.slice(reply.length) ?? '';
+      if (insert !== '') {
+        return { insert };
+      }
+      // the first Tab that adds nothing is silent, as a shell's is, and asking
+      // again is how the list is asked for
+      return repeated ? { lines: shown.map((entry) => `  ${labelOf(entry, flavour)}`) } : {};
+    },
     keep: true,
     async read(reply) {
       const answer = answerOf(reply, opts.root, base, flavour);

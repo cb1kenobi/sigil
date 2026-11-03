@@ -2871,7 +2871,7 @@ Create it? (Y/n) y
 | `multiselect()`                   | The same list and numbers separated by commas, with ranges (`1-3, 5`). Enter alone keeps what was ticked and `none` answers nothing |
 | `number()`                        | `text()`'s line, read by the parser and held to `min` and `max` on Enter. Up and Down do not step                                   |
 | `list()`                          | `text()`'s line, split on the separator the way the drawn field splits it                                                           |
-| `path()`                          | `text()`'s line, with `~` expanded and `root` applied. There is no completion and no list of candidates                             |
+| `path()`                          | `text()`'s line, `~` expanded and `root` applied. Tab completes as a shell does; a second Tab lists candidates                      |
 | `maskedText()`                    | The template said once, `(format: (___) ___-____)`, and the reply read raw or formatted. A character no slot takes is refused       |
 | `toggle()`                        | Both names, `(off/on) (default: off)`, and a whole name as the reply                                                                |
 | `selectKey()`                     | The list lettered by its keys, `o) Overwrite`, and one key as the reply: not a label or a position. `expand` still lists            |

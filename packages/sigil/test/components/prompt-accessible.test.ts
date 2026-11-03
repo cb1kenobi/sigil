@@ -16,6 +16,7 @@ import {
   password,
   PromptBack,
   PromptError,
+  runLinePrompt,
   select,
   separator,
   text,
@@ -42,8 +43,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  * redrawn" means once it is said precisely.
  */
 
+/**
+ * A `readdir` that can be held, standing in for the real one -- `path.test.ts`'s
+ * seam. Hoisted because `vi.mock` is; with no gate it is the real `readdir`, so
+ * every other test here reads the real file system.
+ */
+const reads = vi.hoisted(() => ({
+  gate: undefined as Promise<void> | undefined,
+}));
+
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    readdir: (async (...args: unknown[]) => {
+      await reads.gate;
+      return (actual.readdir as (...args: unknown[]) => unknown)(...args);
+    }) as unknown as typeof actual.readdir,
+  };
+});
+
 afterEach(() => {
   vi.unstubAllEnvs();
+  reads.gate = undefined;
 });
 
 /** Starts a prompt and reports how it settled, listening before any key is sent. */
@@ -68,10 +90,14 @@ function lines(): ScreenHarness {
 }
 
 /** The output with the paste markers taken out, which the router writes. */
+function written(ui: ScreenHarness): string {
+  return ui.output.replaceAll('\u001b[?2004h', '').replaceAll('\u001b[?2004l', '');
+}
+
+/** The escape sequences in the output, the paste markers aside. */
 function sequences(ui: ScreenHarness): string[] {
-  const rest = ui.output.replaceAll('\u001b[?2004h', '').replaceAll('\u001b[?2004l', '');
   // eslint-disable-next-line no-control-regex
-  return rest.match(/\u001b[^\u001b]{0,8}/g) ?? [];
+  return written(ui).match(/\u001b[^\u001b]{0,8}/g) ?? [];
 }
 
 /** Waits for a line form that reads a directory before it asks to have asked. */
@@ -814,13 +840,12 @@ describe('a line list()', () => {
 });
 
 describe('a line path()', () => {
-  it('should answer what was typed, and complete and list nothing', async () => {
+  it('should answer what was typed', async () => {
     const ui = lines();
-    // a directory with files in it on every platform, so a list had something to show
     const root = import.meta.dirname;
     const answer = path({ accessible: true, message: 'File', root, terminal: ui.terminal });
 
-    await type(ui.stdin, 'prompt-', TAB, TAB, ENTER);
+    await type(ui.stdin, 'prompt-', ENTER);
 
     expect(await answer).toBe(resolve(root, 'prompt-'));
     expect(ui.log).toEqual(['File prompt-']);
@@ -859,6 +884,216 @@ describe('a line path()', () => {
     expect(await answer).toBe(resolve(root, 'ab'));
     expect(seen).toEqual([resolve(root, 'a'), resolve(root, 'ab')]);
     expect(ui.log).toEqual(['File a', 'Not that one', 'File ab']);
+  });
+});
+
+describe('a line path() completing on Tab', () => {
+  let root: string;
+
+  /** Wide enough that no temporary path wraps, wherever the platform puts one. */
+  const wide = (): ScreenHarness => screenSetup({ columns: 1000, rows: 40 });
+
+  /** A line `path()` over the fixture. */
+  const ask = (ui: ScreenHarness, extra: Partial<Parameters<typeof path>[0]> = {}) =>
+    path({ accessible: true, message: 'File', root, terminal: ui.terminal, ...extra });
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'sigil-accessible-path-'));
+    await mkdir(join(root, 'src'));
+    await writeFile(join(root, 'src', 'index.ts'), '');
+    await writeFile(join(root, 'notes.md'), '');
+    await writeFile(join(root, 'report-2024.txt'), '');
+    await writeFile(join(root, 'report-2025.txt'), '');
+    await writeFile(join(root, '.env'), '');
+  });
+
+  afterEach(async () => {
+    await rm(root, { force: true, recursive: true });
+  });
+
+  it('should complete a unique candidate in full, echoing only what it adds', async () => {
+    const ui = wide();
+    const answer = ask(ui);
+
+    await type(ui.stdin, 'n', TAB);
+    await settleOutput(ui);
+    await type(ui.stdin, ENTER);
+
+    expect(await answer).toBe(join(root, 'notes.md'));
+    expect(ui.log).toEqual(['File notes.md']);
+    // every byte, so the `n` typed is not written a second time by the Tab
+    expect(written(ui)).toBe('File notes.md\r\n');
+  });
+
+  it('should add the prefix the candidates share, and nothing on a Tab with no more', async () => {
+    const ui = wide();
+    const answer = ask(ui);
+
+    await type(ui.stdin, 'r', TAB);
+    await settleOutput(ui);
+    expect(ui.log).toEqual(['File report-202']);
+
+    await type(ui.stdin, '5', TAB);
+    await settleOutput(ui);
+    // one candidate left, completed in full
+    expect(ui.log).toEqual(['File report-2025.txt']);
+
+    await type(ui.stdin, ENTER);
+    expect(await answer).toBe(join(root, 'report-2025.txt'));
+  });
+
+  it('should list the candidates on a second Tab and ask again holding the reply', async () => {
+    const ui = wide();
+    const answer = ask(ui);
+
+    await type(ui.stdin, 'r', TAB, TAB);
+    await settleOutput(ui);
+    await type(ui.stdin, '4', ENTER);
+
+    expect(await answer).toBe(join(root, 'report-2024'));
+    expect(ui.log).toEqual([
+      'File report-202',
+      '  report-2024.txt',
+      '  report-2025.txt',
+      'File report-2024',
+    ]);
+  });
+
+  it('should be silent on a first Tab that adds nothing, and list on the second', async () => {
+    const ui = wide();
+    const answer = settle(ask(ui));
+
+    await type(ui.stdin, TAB);
+    await settleOutput(ui);
+    expect(ui.log).toEqual(['File']);
+
+    await type(ui.stdin, TAB);
+    await settleOutput(ui);
+    await type(ui.stdin, CTRL_C);
+    await answer;
+
+    // directories first, by code unit, and no dotfile: the drawn list's order and filter
+    expect(ui.log).toEqual([
+      'File',
+      `  src${sep}`,
+      '  notes.md',
+      '  report-2024.txt',
+      '  report-2025.txt',
+      'File',
+    ]);
+  });
+
+  it('should not count two Tabs with a key between them as a second Tab', async () => {
+    const ui = wide();
+    const answer = settle(ask(ui));
+
+    await type(ui.stdin, 'report-202', TAB, '4', BACKSPACE, TAB);
+    await settleOutput(ui);
+    await type(ui.stdin, CTRL_C);
+    await answer;
+
+    expect(ui.log).toEqual(['File report-202']);
+  });
+
+  it('should say No matches on a Tab with no candidates, and ask again holding the reply', async () => {
+    const ui = wide();
+    const answer = ask(ui);
+
+    await type(ui.stdin, 'z', TAB);
+    await settleOutput(ui);
+    await type(ui.stdin, 'q', ENTER);
+
+    expect(await answer).toBe(join(root, 'zq'));
+    expect(ui.log).toEqual(['File z', 'No matches', 'File zq']);
+  });
+
+  it('should complete a directory with a separator, and carry on inside it', async () => {
+    const ui = wide();
+    const answer = ask(ui);
+
+    await type(ui.stdin, 's', TAB);
+    await settleOutput(ui);
+    expect(ui.log).toEqual([`File src${sep}`]);
+
+    await type(ui.stdin, TAB);
+    await settleOutput(ui);
+    await type(ui.stdin, ENTER);
+
+    expect(await answer).toBe(join(root, 'src', 'index.ts'));
+    expect(ui.log).toEqual([`File src${sep}index.ts`]);
+  });
+
+  it('should offer what the drawn field offers: dotfiles on a dot, and the options', async () => {
+    const dotted = wide();
+    const dot = ask(dotted);
+    await type(dotted.stdin, '.', TAB);
+    await settleOutput(dotted);
+    await type(dotted.stdin, ENTER);
+    expect(await dot).toBe(join(root, '.env'));
+
+    const dirs = wide();
+    const dir = ask(dirs, { directory: true });
+    await type(dirs.stdin, TAB);
+    await settleOutput(dirs);
+    await type(dirs.stdin, ENTER);
+    // `src` is the only directory, so the one candidate
+    expect(dirs.log).toEqual([`File src${sep}`]);
+    expect(await dir).toBe(join(root, 'src'));
+
+    const typed = wide();
+    const ext = settle(ask(typed, { extensions: ['md'] }));
+    await type(typed.stdin, TAB, TAB);
+    await settleOutput(typed);
+    await type(typed.stdin, CTRL_C);
+    await ext;
+    expect(typed.log).toEqual(['File', `  src${sep}`, '  notes.md', 'File']);
+  });
+
+  it('should hold the keys typed after a Tab until its read lands, in the order typed', async () => {
+    const ui = wide();
+    let release!: () => void;
+    reads.gate = new Promise((resolve) => (release = resolve));
+    const answer = ask(ui);
+
+    await type(ui.stdin, 'r', TAB, '5', ENTER);
+    // the read is still out, so neither what the Tab adds nor what follows it
+    // has been written
+    expect(ui.log).toEqual(['File r']);
+
+    release();
+    expect(await answer).toBe(join(root, 'report-2025'));
+    expect(ui.log).toEqual(['File report-2025']);
+  });
+
+  it('should be cancelled by ctrl-c while a Tab is still reading', async () => {
+    const ui = wide();
+    let release!: () => void;
+    reads.gate = new Promise((resolve) => (release = resolve));
+    const result = settle(ask(ui));
+
+    await type(ui.stdin, 'r', TAB, CTRL_C);
+    const { error } = await result;
+    expect((error as PromptError).aborted).toBe(true);
+    expect(ui.stdin.rawMode).toBe(false);
+
+    // the read landing afterwards adds nothing to a question nobody is asking
+    release();
+    await settleOutput(ui);
+    expect(ui.log).toEqual(['File r']);
+  });
+
+  it('should write no escape sequence but the paste markers while completing', async () => {
+    const ui = wide();
+    const answer = ask(ui);
+
+    await type(ui.stdin, 'z', TAB, BACKSPACE, 'r', TAB, TAB);
+    await settleOutput(ui);
+    await type(ui.stdin, '5', TAB);
+    await settleOutput(ui);
+    await type(ui.stdin, ENTER);
+
+    expect(await answer).toBe(join(root, 'report-2025.txt'));
+    expect(sequences(ui)).toEqual([]);
   });
 });
 
@@ -1747,6 +1982,102 @@ describe('a line selectTree()', () => {
       'offline',
       'Not a',
     ]);
+  });
+});
+
+describe('a line form with keys of its own', () => {
+  it('should hand a key the form does not take to the engine, as before', async () => {
+    const ui = lines();
+    const seen: string[] = [];
+    const answer = runLinePrompt<string>(
+      { message: 'Q', terminal: ui.terminal },
+      {
+        ask: 'Q ',
+        echo: true,
+        key(k) {
+          seen.push(k.name);
+        },
+        read: (reply) => ({ value: reply }),
+      }
+    );
+
+    await type(ui.stdin, 'a', 'b', BACKSPACE, 'c', ENTER);
+
+    expect(await answer).toBe('ac');
+    expect(seen).toEqual(['a', 'b', 'backspace', 'c', 'enter']);
+    expect(ui.log).toEqual(['Q ac']);
+  });
+
+  it('should add to the end through fit, write lines under the reply, and ask again', async () => {
+    const ui = lines();
+    const repeats: boolean[] = [];
+    const answer = runLinePrompt<string>(
+      { message: 'Q', terminal: ui.terminal },
+      {
+        ask: 'Q ',
+        echo: true,
+        // at most four characters, which an insert is held to like typing
+        fit: (reply, inserted) => inserted.slice(0, Math.max(0, 4 - reply.length)),
+        key(k, { repeated }) {
+          if (k.name !== 'tab') {
+            return;
+          }
+          repeats.push(repeated);
+          return repeated ? { lines: ['one', 'two'] } : { insert: 'xyz' };
+        },
+        read: (reply) => ({ value: reply }),
+      }
+    );
+
+    await type(ui.stdin, 'a', 'b', TAB, TAB, PASTE_START + 'q' + PASTE_END, TAB, ENTER);
+
+    expect(await answer).toBe('abxy');
+    // a paste between two Tabs makes the second a first again
+    expect(repeats).toEqual([false, true, false]);
+    expect(ui.log).toEqual(['Q abxy', 'one', 'two', 'Q abxy']);
+    expect(sequences(ui)).toEqual([]);
+  });
+
+  it('should take a key a handler returns an empty result for, and do nothing with it', async () => {
+    const ui = lines();
+    const answer = runLinePrompt<string>(
+      { message: 'Q', terminal: ui.terminal },
+      {
+        ask: 'Q ',
+        echo: true,
+        key: (k) => (k.name === 'x' ? {} : undefined),
+        read: (reply) => ({ value: reply }),
+      }
+    );
+
+    await type(ui.stdin, 'a', 'x', 'b', ENTER);
+
+    expect(await answer).toBe('ab');
+    expect(ui.log).toEqual(['Q ab']);
+  });
+
+  it('should reject with what a handler throws, and finish the line', async () => {
+    const ui = lines();
+    const result = settle(
+      runLinePrompt<string>(
+        { message: 'Q', terminal: ui.terminal },
+        {
+          ask: 'Q ',
+          echo: true,
+          key: async () => {
+            throw new Error('no');
+          },
+          read: (reply) => ({ value: reply }),
+        }
+      )
+    );
+
+    await type(ui.stdin, 'a');
+    const { error } = await result;
+
+    expect((error as Error).message).toBe('no');
+    expect(written(ui)).toBe('Q \r\n');
+    expect(ui.stdin.rawMode).toBe(false);
   });
 });
 
