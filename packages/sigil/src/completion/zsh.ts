@@ -130,15 +130,18 @@ function resolveArms(spec: CompletionSpec, next: string): string {
   return out;
 }
 
-/** The arms that offer subcommand names and their aliases, with their descriptions. */
+/**
+ * The arms that offer subcommand names and their listed aliases, with their
+ * descriptions. See `subArms()` in `./bash.ts`.
+ */
 function subArms(spec: CompletionSpec, cands: string): string {
   let out = '';
   for (const cmd of spec.commands) {
-    if (cmd.subcommands.length > 0) {
-      const pairs = cmd.subcommands
-        .flatMap((sub) => sub.tokens.map((token) => zshPair(token, sub.desc)))
-        .join(' ');
-      out += arm(cmd.path, `${cands}=(${pairs})`);
+    const pairs = cmd.subcommands.flatMap((sub) =>
+      sub.listed.map((token) => zshPair(token, sub.desc))
+    );
+    if (pairs.length > 0) {
+      out += arm(cmd.path, `${cands}=(${pairs.join(' ')})`);
     }
   }
   return out;

@@ -264,7 +264,7 @@ command, wired beside `registerHelp()` and `registerVersion()`.
 - **An alias is offered _and_ resolved, which is the one place this diverges from
   what a palette lists.** `PaletteEntry` keeps aliases out of its label on purpose
   -- a palette shows one row per command -- and a completion menu is a list of
-  _tokens_, so every token the parser takes belongs in it. Both halves were needed
+  _tokens_, so the published ones belong in it. Both halves were needed
   and the second is the one that is a wrong answer rather than a missing one: a
   `remove` aliased `rm` is unreachable by prefix, and `mycli rm <TAB>` has to
   resolve to `remove`'s subtree or the rest of the line completes against the
@@ -272,6 +272,38 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   mapping from (path, word) to the **canonical** path, which keeps every other
   arm keyed on one spelling and is also the one place the subcommand names are
   written down for the walk.
+
+- **A property alias is resolved and not offered, which is help's rule met on a
+  menu.** This entry used to say every token the parser takes belongs in the
+  menu, and that was written while help printed every alias too -- the drift
+  SIG-225 undid, recorded under "The help label is the name string's" in
+  `src/help`. Once help stopped listing the `alias` property, the menu offering
+  it was the one listing still advertising a name the app had asked not to
+  advertise, and `hidden` already says what a menu does with that: "not
+  listed", and a completion menu is a listing. So SIG-229 split
+  `CompletionSubcommand` into two lists. `tokens` is unchanged -- every token
+  `find()` sends to the command, property aliases included -- and is what the
+  resolving arms match, because a spelling the menu leaves out is not one argv
+  refuses: `mycli del <TAB>` on a `remove` aliased `del` by property still
+  completes `remove`'s options. `listed` is the part of `tokens` the help label
+  publishes, and is the only thing the offering arms read.
+
+  Which names are published is asked of `labelNames()` in
+  `src/parser/command/label.ts`, the same function help reads, rather than
+  answered here a second way -- three listings each splitting `label`
+  themselves would be three answers to one question. It is read off the
+  _placeholder_, which is where `tokens` comes from and whose name string is the
+  one argv routes by. A command whose only remaining token is a property alias
+  -- its name shadowed by a sibling's -- is still walked and still resolved, and
+  lists nothing. What that must not do is reach the resolving arms, where an
+  empty pattern list is the `) ... ;;` syntax error recorded below -- which is
+  why those arms read `tokens`, never `listed`. An offering arm with nothing to
+  offer is skipped, as `optArms()` already skips one, and that is tidiness
+  rather than a guard: written anyway, `_add` with no words and `cands=()` are
+  both valid, and a sabotage that wrote them failed nothing. Pinned by
+  `should resolve every token a command answers to, and list only the published
+  ones`, the `del` cases in both shell drivers, and `a level whose every
+  subcommand is reached by a property alias`.
 
   Which tokens those are is asked of the registry rather than read off the
   command: `find()` is what decides where a token goes, and an alias a sibling's

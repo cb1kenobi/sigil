@@ -1278,7 +1278,7 @@ Everything the schema already said, at every level of the tree:
 
 | At                         | You get                                               |
 | -------------------------- | ----------------------------------------------------- |
-| `mycli <TAB>`              | the commands and every alias                          |
+| `mycli <TAB>`              | the commands and the aliases help lists               |
 | `mycli db <TAB>`           | `db`'s subcommands                                    |
 | `mycli build --<TAB>`      | `build`'s options **and** everything above it         |
 | `mycli build --mode <TAB>` | that option's `choices`                               |
@@ -1293,11 +1293,16 @@ That `--yes` row is a `bool` that **takes a value** -- `'--yes [v]'` or a
 `choices` list, which implies one. A bare flag takes nothing, so there is no
 value after it to complete and the next tab offers the next thing on the line.
 
-An **alias** is offered beside the name it belongs to, and typing one still
-completes the right subtree: `remove, rm` means `mycli rm --<TAB>` lists
-`remove`'s options. That is the one place this differs from what a palette
-lists -- a palette shows one row per command, and a completion menu is a list of
-tokens, so every token the parser takes is in it.
+An **alias** in the name string is offered beside the name it belongs to, and
+typing one still completes the right subtree: `remove, rm` means
+`mycli rm --<TAB>` lists `remove`'s options. That is the one place this differs
+from what a palette lists -- a palette shows one row per command, and a
+completion menu is a list of tokens.
+
+An alias in the `alias` property is **not** offered, which is the rule help
+keeps: it is the name that works without being listed, and a completion menu is
+a listing. It still resolves once typed, so `remove: { alias: 'del' }` leaves
+`del` out of the menu and `mycli del --<TAB>` still lists `remove`'s options.
 
 A `hidden` command is not offered, and neither is anything under it; nor is a
 `hidden` option. `--help`, `--version`, `--quiet` and a command's own `--format`
@@ -6226,11 +6231,13 @@ const surface = await commandSurface(schema);
 
 surface.program; // 'mycli'
 surface.commands; // the root first, then depth-first in name order
-surface.commands[1]; // { path: ['build'], tokens: ['build', 'b'], args, options, … }
+surface.commands[1]; // { path: ['build'], tokens: ['build', 'b'], listed: ['build', 'b'], … }
 ```
 
 Your app's whole command surface as plain data: every argv path, every token
-that reaches it, and what each one accepts. It is what
+that reaches it, and what each one accepts. `listed` is the part of `tokens`
+help prints, so it leaves out a name from the `alias` property; the markdown
+reference prints `listed` and the snapshot records `tokens`. It is what
 [`sigil reference`](../cli#the-command-reference-and-the-surface-snapshot)
 prints as markdown for a reader and as a sorted JSON snapshot for a diff, and it
 is a third reader of the registries beside `commandCatalog()` and the completion

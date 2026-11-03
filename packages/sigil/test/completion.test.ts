@@ -189,8 +189,8 @@ describe('completionSpec()', () => {
 
     expect(spellings(found, 'build')).toContain('--out');
     expect(at(found, '').subcommands).toEqual([
-      { desc: 'build the app', name: 'build', tokens: ['build'] },
-      { desc: 'database things', name: 'db', tokens: ['db'] },
+      { desc: 'build the app', listed: ['build'], name: 'build', tokens: ['build'] },
+      { desc: 'database things', listed: ['db'], name: 'db', tokens: ['db'] },
     ]);
     expect(
       at(found, 'db migrate').options.find((opt) => opt.spellings.includes('--to'))?.values
@@ -211,14 +211,16 @@ describe('completionSpec()', () => {
 
     expect(paths(found)).toEqual(['', 'outer']);
     expect(at(found, '').subcommands).toEqual([
-      { desc: 'renamed', name: 'outer', tokens: ['outer'] },
+      { desc: 'renamed', listed: ['outer'], name: 'outer', tokens: ['outer'] },
     ]);
   });
 
-  it('should offer every token a command answers to, not only its name', async () => {
+  it('should resolve every token a command answers to, and list only the published ones', async () => {
     // an alias is a token the parser accepts, and one that is not a prefix of
     // its own name is otherwise unreachable: nothing starting with `rm`
-    // completes to `remove`
+    // completes to `remove` -- so a name-string alias, which help shows, is
+    // listed. A property alias is resolved and not listed: it is the spelling
+    // that answers without being advertised, and a menu is a listing
     const found = await spec({
       commands: {
         'remove, rm': { alias: 'del', desc: 'remove it', run(): void {} },
@@ -229,7 +231,12 @@ describe('completionSpec()', () => {
     });
 
     expect(at(found, '').subcommands).toEqual([
-      { desc: 'remove it', name: 'remove', tokens: ['remove', 'del', 'rm'] },
+      {
+        desc: 'remove it',
+        listed: ['remove', 'rm'],
+        name: 'remove',
+        tokens: ['remove', 'del', 'rm'],
+      },
     ]);
     // the path is still the canonical one, so everything keyed on it stays
     // keyed on one spelling
@@ -255,8 +262,8 @@ describe('completionSpec()', () => {
     // who owns it, not merely that one of them does: dropping `ship` from the
     // sibling and leaving `build` claiming it passes a count
     expect(at(found, '').subcommands).toEqual([
-      { desc: 'build it', name: 'build', tokens: ['build'] },
-      { desc: 'ship it', name: 'ship', tokens: ['ship'] },
+      { desc: 'build it', listed: ['build'], name: 'build', tokens: ['build'] },
+      { desc: 'ship it', listed: ['ship'], name: 'ship', tokens: ['ship'] },
     ]);
   });
 
@@ -278,9 +285,54 @@ describe('completionSpec()', () => {
     });
 
     expect(at(found, '').subcommands).toEqual([
-      { desc: 'build it', name: 'build', tokens: ['build', 'ship'] },
+      { desc: 'build it', listed: ['build', 'ship'], name: 'build', tokens: ['build', 'ship'] },
     ]);
     expect(paths(found)).toEqual(['', 'build']);
+  });
+
+  it("should list no property alias, a lazily loaded command's included", async () => {
+    // the placeholder is what the registry holds and what both lists are read
+    // off, so a property alias on a `{ load }` placeholder is resolved and not
+    // listed exactly as an inline one is
+    const found = await spec({
+      commands: {
+        remove: {
+          alias: ['del', 'rm'],
+          load: () => Promise.resolve({ default: { desc: 'remove it', run(): void {} } }),
+        },
+      },
+      completion: false,
+      help: false,
+      quiet: false,
+    });
+
+    expect(at(found, '').subcommands).toEqual([
+      { desc: 'remove it', listed: ['remove'], name: 'remove', tokens: ['remove', 'del', 'rm'] },
+    ]);
+  });
+
+  it('should keep a command reached only by a property alias, and list nothing for it', async () => {
+    // a sibling's alias shadows `ship`'s own name, which leaves `go` as the
+    // only token that reaches it -- and `go` is a property alias, so nothing is
+    // listed. It is still walked, because `mycli go <TAB>` has to complete
+    // `ship`'s subtree: what changed is the menu, not what argv accepts
+    const found = await spec({
+      commands: {
+        ship: { alias: 'go', desc: 'ship it', options: { '--force': 'force' }, run(): void {} },
+        // the same shape as `ship`, option included: siblings are initialized
+        // concurrently and registered as each one finishes, so a sibling with
+        // less to initialize registers first and loses the shared spelling
+        other: { alias: 'ship', hidden: true, options: { '--other': 'other' }, run(): void {} },
+      },
+      completion: false,
+      help: false,
+      quiet: false,
+    });
+
+    expect(at(found, '').subcommands).toEqual([
+      { desc: 'ship it', listed: [], name: 'ship', tokens: ['go'] },
+    ]);
+    expect(spellings(found, 'ship')).toContain('--force');
   });
 
   it('should leave out a name no shell can offer', async () => {
@@ -1032,8 +1084,14 @@ describe('the scripts as shell programs', () => {
       "it's": { desc: 'a quote', run(): void {} },
       // an alias that is a prefix of nothing, so only offering it makes it
       // reachable -- and only resolving it makes the rest of the line
-      // complete against `remove`
-      'remove, rm': { desc: 'remove it', options: { '--force': 'force' }, run(): void {} },
+      // complete against `remove`. `del` is the other kind: a property alias,
+      // never offered and still resolved once it has been typed
+      'remove, rm': {
+        alias: 'del',
+        desc: 'remove it',
+        options: { '--force': 'force' },
+        run(): void {},
+      },
     },
     name: 'mycli',
     options: { '--config [file]': 'config' },
@@ -1062,6 +1120,64 @@ describe('the scripts as shell programs', () => {
 
   it.skipIf(!zsh)('should parse as zsh', async () => {
     execFileSync(zsh!, ['-n', await write('zsh')]);
+  });
+
+  describe('a level whose every subcommand is reached by a property alias', () => {
+    // nothing at the root is listed, so the arm that offers subcommands has
+    // nothing to say. The resolving arm has to be written from `tokens` all the
+    // same: built from what is listed it would be an empty `case` pattern,
+    // which is a syntax error in the whole script, and it is what makes the
+    // typed alias complete `ship`'s options
+    const unlisted: Schema = {
+      commands: {
+        ship: { alias: 'go', desc: 'ship it', options: { '--force': 'force' }, run(): void {} },
+        // the same shape as `ship`, for the reason the spec's own test gives
+        other: { alias: 'ship', hidden: true, options: { '--other': 'other' }, run(): void {} },
+      },
+      completion: false,
+      help: false,
+      name: 'mycli',
+      quiet: false,
+    };
+
+    /** Writes the script for this app out and hands back its path. */
+    async function writeUnlisted(shell: string): Promise<string> {
+      const path = join(dir, `unlisted.${shell}`);
+      writeFileSync(path, await completionScript(await state(unlisted), shell));
+      return path;
+    }
+
+    it.skipIf(!bash)('should parse as bash, and still resolve the alias', async () => {
+      const script = await writeUnlisted('bash');
+      execFileSync(bash!, ['-n', script]);
+
+      const drive = (words: string[]): string[] =>
+        execFileSync(
+          bash!,
+          [
+            '-u',
+            '-c',
+            [
+              `source ${bashQuote(script)}`,
+              `COMP_WORDS=(${words.map(bashQuote).join(' ')})`,
+              `COMP_CWORD=${words.length - 1}`,
+              'COMPREPLY=()',
+              '_mycli',
+              'if [ ${#COMPREPLY[@]} -gt 0 ]; then printf \'%s\\n\' "${COMPREPLY[@]}"; fi',
+            ].join('\n'),
+          ],
+          { encoding: 'utf8' }
+        )
+          .split('\n')
+          .filter((line) => line !== '');
+
+      expect(drive(['mycli', 'g'])).toEqual([]);
+      expect(drive(['mycli', 'go', '--f'])).toEqual(['--force']);
+    });
+
+    it.skipIf(!zsh)('should parse as zsh', async () => {
+      execFileSync(zsh!, ['-n', await writeUnlisted('zsh')]);
+    });
   });
 
   it.skipIf(!bash)('should insert only what readline is replacing', async () => {
@@ -1322,6 +1438,9 @@ describe('the scripts as shell programs', () => {
     ]);
 
     expect(drive(['mycli', 'rm', '--'])).toContain('cand:--force:force');
+    // a property alias is not in the menu above and still resolves: these are
+    // `remove`'s options rather than the root's
+    expect(drive(['mycli', 'del', '--'])).toContain('cand:--force:force');
 
     expect(drive(['mycli', 'db', ''])).toEqual(['cand:migrate:migrate']);
     expect(drive(['mycli', 'build', ''])).toEqual(['cand:web', 'cand:native']);
@@ -1504,6 +1623,10 @@ describe('the scripts as shell programs', () => {
       // the alias resolved: these are `remove`'s own options rather than the
       // root's, which is what says the walk followed it
       [['mycli', 'rm', '--f'], ['--force']],
+      // a property alias is never offered, so `d` is `db` alone -- and once
+      // typed it still resolves to `remove`, whose `--force` is not the root's
+      [['mycli', 'd'], ['db']],
+      [['mycli', 'del', '--f'], ['--force']],
       // a `cur` with a glob in it: the filter is `case "$c" in "$cur"*)`,
       // where the quoted half is literal, so `*` matches a name beginning
       // with one and there is none. Unquoted it is a pattern and matches

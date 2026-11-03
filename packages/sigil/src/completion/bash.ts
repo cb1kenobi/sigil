@@ -91,7 +91,9 @@ function arm(path: readonly string[], body: string): string {
  * accepts and the rest of the line has to complete against the command it
  * reaches: `mycli rm <TAB>` on a `remove` aliased `rm` has to be `remove`'s
  * subtree. So the arm matches every token and answers with the *canonical*
- * path, which keeps the arms below keyed on one spelling.
+ * path, which keeps the arms below keyed on one spelling. Every token, a
+ * property alias included -- one that is never offered still resolves once it
+ * has been typed, because a menu leaving a spelling out is not argv refusing it.
  *
  * It is also what keeps the subcommand names from being written out twice: the
  * walk needs to know whether a word is a command, and this is the one place
@@ -125,10 +127,10 @@ function resolveArms(spec: CompletionSpec, pre: string): string {
 /**
  * The arms that offer subcommand names.
  *
- * Every token rather than the canonical name alone, for the reason
- * `CompletionSubcommand.tokens` gives: a menu of what can be typed has to hold
- * what can be typed, and an alias that is not a prefix of its own name is
- * otherwise unreachable.
+ * Every listed token rather than the canonical name alone, for the reason
+ * `CompletionSubcommand.listed` gives: a name-string alias is published, and
+ * one that is not a prefix of its own name is otherwise unreachable. A property
+ * alias is not listed, and is still in the arms `resolveArms()` writes.
  *
  * @param spec - What to complete.
  * @param pre - The generated-name prefix.
@@ -137,9 +139,9 @@ function resolveArms(spec: CompletionSpec, pre: string): string {
 function subArms(spec: CompletionSpec, pre: string): string {
   let out = '';
   for (const cmd of spec.commands) {
-    if (cmd.subcommands.length > 0) {
-      const names = cmd.subcommands.flatMap((sub) => sub.tokens.map(bashQuote)).join(' ');
-      out += arm(cmd.path, `${pre}_add '' "$2" "$3" ${names}`);
+    const names = cmd.subcommands.flatMap((sub) => sub.listed.map(bashQuote));
+    if (names.length > 0) {
+      out += arm(cmd.path, `${pre}_add '' "$2" "$3" ${names.join(' ')}`);
     }
   }
   return out;

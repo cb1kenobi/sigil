@@ -886,7 +886,9 @@ These look like bugs and are not. Each is intentional and covered by tests.
   non-boolean `hidden` throws. `!` on any label hides the whole command, not
   just that one alias; an alias that should stay out of help without hiding
   the command belongs in the `alias` property, which never reaches the help
-  label or a command's `Alias:` block. Help printed every alias from the day it
+  label or a command's `Alias:` block -- nor, since SIG-229, a completion menu
+  or the markdown reference, though a typed one still resolves and the surface
+  snapshot still records it. Help printed every alias from the day it
   was written until SIG-225 restored this, and a `!` or `@` at the start of a
   property alias is refused rather than read -- see "The help label is the name
   string's" in `packages/sigil/src/help`. Covered by
