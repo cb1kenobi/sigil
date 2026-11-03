@@ -18,8 +18,8 @@
  *
  * While it is open, Tab and Shift-Tab cycle through the modal's own focusable
  * elements and nothing else, Escape dismisses it, a click that lands outside the
- * panel reaches nothing under it, and a key reaches the modal's focused element
- * and no further. When it closes the focus goes back to the element that had it
+ * panel reaches nothing under it, and a key or a paste reaches the modal's focused
+ * element and no further. When it closes the focus goes back to the element that had it
  * when it opened. A second modal opened over the first takes over, and the first
  * has the input again when the second closes.
  *
@@ -36,9 +36,9 @@ import {
   text as textNode,
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
-import type { InputRouter, KeyEvent, MouseEvent } from '../input/index.js';
+import type { InputRouter, KeyEvent, MouseEvent, PasteEvent } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
-import { isAbort } from './keys.js';
+import { decodeKeys, isAbort, type Key } from './keys.js';
 import { unicodeSupported } from './note.js';
 
 /** One button along the bottom of the dialog. */
@@ -449,15 +449,15 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
    * before it -- both are what is below. So the walk is done here, over an event
    * that says what the router's would have, and the real one is stopped.
    */
-  function deliver(event: KeyEvent, target: Element): void {
+  function deliver(key: Key, paste: boolean, target: Element): void {
     let stopped = false;
     let current: Element | undefined = target;
     const mirror: KeyEvent = {
       get current() {
         return current;
       },
-      key: event.key,
-      paste: event.paste,
+      key,
+      paste,
       stop(): void {
         stopped = true;
       },
@@ -511,10 +511,29 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
       at = input.focus.current.get();
     }
     if (at !== undefined) {
-      deliver(event, at);
+      deliver(event.key, event.paste, at);
     }
     event.stop();
   });
+
+  // a paste walks up from the focused element before the router's own handlers
+  // see it, so one that reaches the panel is one nothing inside claimed -- and
+  // past the panel are the root and the app's `onPaste()` handlers, which are
+  // what is below. So it ends here, and is typed in here: what the router does
+  // with a paste nobody took whole, over the same walk a key gets, so that an
+  // element inside that reads keys still has it and nothing outside does
+  panel.onPaste = (event: PasteEvent): void => {
+    event.stop();
+    for (const key of decodeKeys(event.text)) {
+      const at = input.focus.current.get();
+      // a pasted key that closed the dialog or moved the focus out leaves the
+      // rest of the paste with nowhere inside to go, and outside is not an option
+      if (!open || !isTop() || at === undefined || !panel.contains(at)) {
+        return;
+      }
+      deliver(key, true, at);
+    }
+  };
 
   root.append(backdrop);
   claimFocus();

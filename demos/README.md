@@ -554,7 +554,9 @@ the field's. The field is on a grey background of its own, so `parser.ts` in the
 dialog reads as something to edit before the caret appears -- bright black on a dark
 terminal, white on a light one. The app registered a paste handler of its own at
 startup, and a paste on the list reaches it -- while a paste with the field focused
-goes into the field and the app's handler never hears of it. Piped, a scripted
+goes into the field and the app's handler never hears of it. Nor does a paste with
+one of the dialog's buttons focused: a button claims no paste, and the dialog stops
+what reaches it rather than let it through to the app behind. Piped, a scripted
 keyboard drives the same tree and the focus is said in words, since the caret is an
 inverse cell a pipe drops -- and so is the field's background, so the demo also
 prints the dialog's field row at colour level 1, where it is.

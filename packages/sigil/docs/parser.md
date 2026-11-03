@@ -70,15 +70,25 @@ what makes `'@b'` and `'!internal'` on their own work, and why `'@ls, list'` is
 named `list`. Empty labels — a leading, trailing, or doubled separator — are
 ignored, and a name string with no label at all throws.
 
-Aliases can also be given as a property, which is clearer for more than one:
+Aliases can also be given as a property. A property alias answers to argv like
+any other but is never printed in help — not on the command's row and not in
+its `Alias:` block — so it is the spelling for a name that should work without
+being advertised, such as an old name kept for compatibility:
 
 ```js
 const schema = {
   commands: {
-    build: { alias: ['b', 'compile'] },
+    // help lists `remove`; `rm` and `delete` still run it
+    remove: { alias: ['rm', 'delete'] },
   },
 };
 ```
+
+The property takes plain names, not name-string labels: an entry starting with
+`!` or `@` throws while the schema is built. `@` would say "alias" of something
+that already is one, and `!` hides the whole command in a name string, so it is
+not quietly stripped — hide the command with `hidden: true` or a `!` in its
+name.
 
 Inline arguments cannot be combined with an `args` array on the same command;
 declaring both throws.
@@ -87,7 +97,7 @@ declaring both throws.
 
 | Property    | Type                     | Notes                                                          |
 | ----------- | ------------------------ | -------------------------------------------------------------- |
-| `alias`     | `string \| string[]`     | Additional names                                               |
+| `alias`     | `string \| string[]`     | Additional names, left out of help                             |
 | `args`      | `(string \| Argument)[]` | Positional arguments                                           |
 | `commands`  | `object \| string`       | Subcommands, or a path to load them from                       |
 | `default`   | `boolean`                | Runs when argv named no command — see below                    |
@@ -111,12 +121,16 @@ wins over a `hidden: false` in the module, which never saw the prefix. Drop the
 back `hidden: false`, never `undefined`. A non-boolean `hidden` throws.
 
 Note that a `!` prefixed label is still registered as an alias — it is only
-left out of the help label — and it hides the whole command, not just that one
+left out of the help label and the `Alias:` block — and it hides the whole command, not just that one
 alias, so `'build, !internal'` hides `build` too. `!` marks the command, not
 the label it happens to sit on: making it positional would mean `'!build, b'`
 silently published a visible command. An alias that should stay out of help
 without hiding the command goes in the `alias` property, which never reaches
-the label.
+the label or the `Alias:` block.
+
+The label lists the bare and `@` labels in the order the name string wrote
+them, so `'@ls, list'` is listed as `ls, list` although the command is named
+`list`.
 
 ### Topic separator
 

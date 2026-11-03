@@ -25,12 +25,13 @@ import {
   text,
   toggle,
 } from '../../src/components/index.js';
+import type * as Components from '../../src/components/index.js';
 import { commandPalette } from '../../src/components/palette.js';
 import { box, text as textNode } from '../../src/element/index.js';
 import { createInput } from '../../src/input/index.js';
 import { parse } from '../../src/parser/parse.js';
 import { type PromptName, type ScreenHarness, screenSetup, tick } from './helpers.js';
-import { describe, expect, expectTypeOf, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 /** Asks one prompt the smallest question it will take, under `signal`. */
 type Ask = (ui: ScreenHarness, signal: AbortSignal) => Promise<unknown>;
@@ -171,6 +172,64 @@ const prompts = {
   toggle: (ui, signal) => toggle({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
 } satisfies Record<Exclude<PromptName, keyof typeof EXEMPT>, Ask>;
 
+/** Whether an argument is an options object that takes `accessible`. */
+type TakesAccessible<P> = P extends object ? ('accessible' extends keyof P ? true : never) : never;
+
+/**
+ * Every prompt with a line form, read off its options rather than written down.
+ *
+ * `accessible` is on `AccessibleOptions`, which only the options of a prompt with
+ * a line form extend, so the types already say which prompts these are -- the
+ * same way `PromptName` reads which exports are prompts off the barrel.
+ */
+type LineName = {
+  [K in PromptName]: [
+    TakesAccessible<NonNullable<Parameters<(typeof Components)[K]>[number]>>,
+  ] extends [never]
+    ? never
+    : K;
+}[PromptName];
+
+/** Every reason a prompt with no line form gives, by what it would take to have one. */
+const NO_LINE_FORM = 'no line form yet: drawn as usual whatever SIGIL_ACCESSIBLE says';
+const LIKE_TEXT = 'no line form yet; one is text() with its own parse, which is follow-up work';
+
+/**
+ * The rows that are drawn even with accessible mode on, and why.
+ *
+ * Keyed by everything in the table that does not take `accessible`, so a prompt
+ * that gains the option without leaving this list is a type error, and so is one
+ * added to the table without a line form and without a reason here. An exception
+ * is an entry with a reason, never an omission -- `EXEMPT`'s rule, one table on.
+ */
+const DRAWN_ONLY = {
+  autocomplete: NO_LINE_FORM,
+  autocompleteMultiselect: NO_LINE_FORM,
+  // its follow-on questions are text(), select() and multiline() and do go as
+  // lines; the list of commands it opens on is a runPrompt() of its own
+  commandPalette: 'the command list is drawn; only the questions after a pick are lines',
+  date: NO_LINE_FORM,
+  directoryTree: NO_LINE_FORM,
+  editor:
+    'its question is drawn, and what it is for is handing the terminal to another ' +
+    'program, which no line form can stand in for',
+  filePicker: NO_LINE_FORM,
+  groupMultiselect: NO_LINE_FORM,
+  list: LIKE_TEXT,
+  maskedText: LIKE_TEXT,
+  number: LIKE_TEXT,
+  path: LIKE_TEXT,
+  pickDate: NO_LINE_FORM,
+  runPrompt:
+    'the engine of the drawn path; the line forms run on runLine(), which is not ' +
+    'exported, and every row below is the line path asked through its prompt',
+  selectKey: 'no line form yet; one is select() numbered by its keys, which is follow-up work',
+  selectRow: NO_LINE_FORM,
+  selectTree: NO_LINE_FORM,
+  sort: NO_LINE_FORM,
+  toggle: 'no line form yet; one is confirm() with its two names, which is follow-up work',
+} satisfies Record<Exclude<keyof typeof prompts, LineName>, string>;
+
 /** How a prompt settled, with the handler attached before anything can reject. */
 function settle(promise: Promise<unknown>): Promise<{ error?: unknown; value?: unknown }> {
   return promise.then(
@@ -178,6 +237,59 @@ function settle(promise: Promise<unknown>): Promise<{ error?: unknown; value?: u
     (error: unknown) => ({ error })
   );
 }
+
+/** The escape sequences written, less the paste markers the router writes in either mode. */
+function sequences(ui: ScreenHarness): string[] {
+  const rest = ui.output.replaceAll('\u001b[?2004h', '').replaceAll('\u001b[?2004l', '');
+  // eslint-disable-next-line no-control-regex
+  return rest.match(/\u001b[^\u001b]{0,8}/g) ?? [];
+}
+
+/** A signal that counts the listeners put on it and taken off it. */
+function counted(): { added: () => number; controller: AbortController; removed: () => number } {
+  let added = 0;
+  let removed = 0;
+  const controller = new AbortController();
+  const { signal } = controller;
+  const add = signal.addEventListener.bind(signal);
+  const remove = signal.removeEventListener.bind(signal);
+  signal.addEventListener = ((...args: Parameters<typeof add>) => {
+    added++;
+    add(...args);
+  }) as typeof add;
+  signal.removeEventListener = ((...args: Parameters<typeof remove>) => {
+    removed++;
+    remove(...args);
+  }) as typeof remove;
+  return { added: () => added, controller, removed: () => removed };
+}
+
+/** What a Ctrl-C leaves, which is what an abort and a timeout are held to. */
+async function cancelled(ask: Ask): Promise<ScreenHarness> {
+  const ui = screenSetup({ rows: 12 });
+  const answer = settle(ask(ui, new AbortController().signal));
+  await tick();
+  ui.stdin.send('\u0003');
+  await answer;
+  return ui;
+}
+
+/**
+ * The two ways a prompt can be put, and the rows each is asked about.
+ *
+ * One table and two runs, so a row added for the drawn run is in the line run
+ * too unless `DRAWN_ONLY` says why not. The line run is switched on with
+ * `SIGIL_ACCESSIBLE`, which is how a person turns it on for every app they run,
+ * rather than with the option, which would mean a second set of rows to keep.
+ */
+const MODES = [
+  { lines: false, mode: 'drawn', rows: Object.entries(prompts) as [string, Ask][] },
+  {
+    lines: true,
+    mode: 'as lines, with SIGIL_ACCESSIBLE=1',
+    rows: (Object.entries(prompts) as [string, Ask][]).filter(([name]) => !(name in DRAWN_ONLY)),
+  },
+];
 
 describe('the table of prompts', () => {
   it('should hold a row or an exemption for every prompt the barrel exports', () => {
@@ -187,10 +299,72 @@ describe('the table of prompts', () => {
     // stopped matching -- would pass the `satisfies` with every row in place
     expectTypeOf<keyof typeof prompts | keyof typeof EXEMPT>().toEqualTypeOf<PromptName>();
   });
+
+  describe('with SIGIL_ACCESSIBLE=1', () => {
+    beforeEach(() => {
+      vi.stubEnv('SIGIL_ACCESSIBLE', '1');
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    // what the types say is a line form has to be one at runtime, or the second
+    // run is the drawn path asked twice and proves nothing; and an exception has
+    // to really be drawn, or it is a line form the second run is missing
+    it.each(Object.keys(prompts))('should ask %s() the way its row says', async (name) => {
+      const ui = screenSetup({ rows: 12 });
+      const controller = new AbortController();
+      const answer = settle(prompts[name as keyof typeof prompts](ui, controller.signal));
+
+      await tick();
+      const drawn = sequences(ui).length > 0;
+      controller.abort();
+      await answer;
+
+      expect(
+        drawn,
+        drawn ? 'drawn, so it belongs in DRAWN_ONLY' : 'lines, so not in DRAWN_ONLY'
+      ).to.equal(name in DRAWN_ONLY);
+    });
+  });
 });
 
-describe('a prompt given an AbortSignal', () => {
-  describe.each(Object.entries(prompts) as [string, Ask][])('%s()', (_name, ask) => {
+describe.each(MODES)('a prompt given an AbortSignal, $mode', ({ lines, rows }) => {
+  beforeEach(() => {
+    if (lines) {
+      vi.stubEnv('SIGIL_ACCESSIBLE', '1');
+    }
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /**
+   * Holds the terminal to what a cancel left it as.
+   *
+   * A drawn prompt takes itself off the screen; a line form takes nothing back,
+   * so what it leaves is the transcript and a fresh line under it -- byte for
+   * byte what a Ctrl-C writes, since both are the same `fail()`.
+   */
+  function expectLeftAsCancelled(ui: ScreenHarness, cancel: ScreenHarness): void {
+    expect(ui.log).to.deep.equal(cancel.log);
+    if (lines) {
+      expect(ui.output).to.equal(cancel.output);
+      expect(ui.output.endsWith('\r\n'), 'the next output starts on a line of its own').to.equal(
+        true
+      );
+    } else {
+      expect(ui.log).to.deep.equal([]);
+    }
+    expect(ui.stdin.rawMode).to.equal(false);
+    expect(ui.stdin.listenerCount('data'), 'stdin is handed back unread').to.equal(0);
+    expect(ui.screen.cursorHidden).to.equal(false);
+    expect(ui.screen.cursorHidden).to.equal(cancel.screen.cursorHidden);
+  }
+
+  describe.each(rows)('%s()', (_name, ask) => {
     it('should reject with the signal reason when it aborts', async () => {
       const ui = screenSetup({ rows: 12 });
       const controller = new AbortController();
@@ -213,18 +387,7 @@ describe('a prompt given an AbortSignal', () => {
       controller.abort();
       await answer;
 
-      expect(ui.log).to.deep.equal([]);
-      expect(ui.stdin.rawMode).to.equal(false);
-      expect(ui.screen.cursorHidden).to.equal(false);
-
-      // and the cancel it is compared with leaves the same screen
-      const cancelled = screenSetup({ rows: 12 });
-      const other = settle(ask(cancelled, new AbortController().signal));
-      await tick();
-      cancelled.stdin.send('\u0003');
-      await other;
-      expect(cancelled.log).to.deep.equal(ui.log);
-      expect(cancelled.screen.cursorHidden).to.equal(ui.screen.cursorHidden);
+      expectLeftAsCancelled(ui, await cancelled(ask));
     });
 
     it('should draw nothing when the signal is already aborted', async () => {
@@ -244,12 +407,28 @@ describe('a prompt given an AbortSignal', () => {
       const { error } = await settle(ask(ui, AbortSignal.timeout(20)));
 
       expect((error as Error).name).to.equal('TimeoutError');
-      expect(ui.log).to.deep.equal([]);
-      expect(ui.stdin.rawMode).to.equal(false);
-      expect(ui.screen.cursorHidden).to.equal(false);
+      expectLeftAsCancelled(ui, await cancelled(ask));
+    });
+
+    it('should take its listener off the signal when cancelled', async () => {
+      // an abort's listener is `once`, so it comes off by itself; a cancel is the
+      // ending that has to take it off by hand, and a signal that outlives many
+      // prompts collects one per prompt that forgot
+      const ui = screenSetup({ rows: 12 });
+      const { added, controller, removed } = counted();
+      const answer = settle(ask(ui, controller.signal));
+
+      await tick();
+      ui.stdin.send('\u0003');
+      await answer;
+
+      expect(added()).to.be.greaterThan(0);
+      expect(removed()).to.equal(added());
     });
   });
+});
 
+describe('a prompt given an AbortSignal', () => {
   it('should reject with an AbortError when aborted with no reason', async () => {
     const ui = screenSetup();
     const controller = new AbortController();
@@ -298,28 +477,20 @@ describe('a prompt given an AbortSignal', () => {
 
   it('should take its listener off the signal once answered', async () => {
     const ui = screenSetup();
-    let added = 0;
-    let removed = 0;
-    const controller = new AbortController();
-    const { signal } = controller;
-    const add = signal.addEventListener.bind(signal);
-    const remove = signal.removeEventListener.bind(signal);
-    signal.addEventListener = ((...args: Parameters<typeof add>) => {
-      added++;
-      add(...args);
-    }) as typeof add;
-    signal.removeEventListener = ((...args: Parameters<typeof remove>) => {
-      removed++;
-      remove(...args);
-    }) as typeof remove;
+    const { added, controller, removed } = counted();
 
-    const answer = text({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal });
+    const answer = text({
+      ansi: ui.ansi,
+      message: 'Q?',
+      signal: controller.signal,
+      terminal: ui.terminal,
+    });
     await tick();
     ui.stdin.send('\r');
     await answer;
 
-    expect(added).to.equal(1);
-    expect(removed).to.equal(1);
+    expect(added()).to.equal(1);
+    expect(removed()).to.equal(1);
   });
 
   it('should leave the other prompt alone when one aborts', async () => {

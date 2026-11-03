@@ -248,12 +248,14 @@ commands: {
 ```
 
 A command's key is its name. The first bare label is the name and the rest are
-aliases, a `!` prefix hides it:
+aliases, a `!` prefix hides it, and the `alias` property adds names that work
+without being listed:
 
 ```js
 commands: {
-  'build, b': { run() {} },   // `build`, aliased `b`
-  '!secret': { run() {} },    // works, stays out of help
+  'build, b': { run() {} },            // `build`, aliased `b`, help says `build, b`
+  '!secret': { run() {} },             // works, stays out of help
+  remove: { alias: 'rm', run() {} },   // `rm` works, help says `remove`
 }
 ```
 
@@ -457,7 +459,7 @@ hook already are that moment.
 | `desc`                        | what help prints; a function for a translated one                                |
 | `args`, `options`, `commands` | as above                                                                         |
 | `default`                     | dispatch when argv named no command                                              |
-| `alias`                       | extra names that stay out of the help label                                      |
+| `alias`                       | extra names that stay out of help; a leading `!` or `@` throws                   |
 | `hidden`                      | keep it out of help                                                              |
 | `help`                        | a string that replaces the screen, or a renderer that receives the generated one |
 | `hooks`                       | `init`, `parse`, `help`, `afterRun`, `beforeError`, `subcommandLoaded`           |

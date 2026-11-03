@@ -8043,10 +8043,25 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   later one cannot go first. An app's quit binding is made at startup and sees
   every key first, as it must; a binding made after the dialog opened sees none.
   `isAbort()` keys are not taken by the dialog at all, so a later quit binding
-  works as well. Pastes are not blocked: an `onPaste` handler made earlier still
-  sees pasted text, and an unclaimed paste is typed in as keys, which the dialog
-  takes. Blocking `onPaste` is not possible without making a paste into a dialog's
-  own field impossible, and nobody has asked.
+  works as well. Pastes were outside all of this, and are no longer -- the entry
+  below.
+- **A paste nothing inside claims ends at the panel, and is typed in there.**
+  SIG-222. A paste walks the tree from the focused element before the router's
+  `onPaste()` handlers see it (SIG-215), so one that bubbles to the panel is one
+  nothing inside took whole, and above the panel are the root and the app's own
+  handlers -- which is how `50-text-field.js`'s list heard a paste aimed at the
+  dialog's button. So the panel's `onPaste` stops it. A focused `TextField`
+  inside still has it first, because it is lower in the walk. Stopping a paste
+  also cancels the router's fallback, which types it in as keys, so the panel
+  does that fallback itself, over the same walk to the panel a key gets: an
+  element inside that reads keys and not pastes still has the text, and with
+  `paste: true`. The router's fallback was not the answer, because pasted keys
+  go through every function binding first, and those are the app's. A pasted key
+  that closes the dialog or moves the focus out ends the paste -- what is left
+  has nowhere inside to go -- and a lower dialog an app moved the focus into
+  types nothing in, since only the top answers. What is still open is a focus an
+  app moved **outside** every dialog: the walk then never reaches a panel, so
+  the paste goes to the app until the next key pulls the focus back in.
 - **Tab is the dialog's own, and the ring is the router's.** The binding moves the
   focus along `input.focus.ring()` filtered to what is inside the panel, wrapping
   and starting from the first element when the focus is outside -- the router's own
@@ -8124,7 +8139,8 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   box is what keeps the app visible); resizing the panel to its content (it has a
   declared `width`, capped at the screen, and grows in height); announcing a
   dialog in accessible mode, which draws prompts as lines and has no screen to lay
-  one over; blocking `onPaste` and a `mousedown` bubble, as above; and a drag
+  one over; a `mousedown` bubble, and a paste while an app has moved the focus
+  outside the dialog, as above; and a drag
   handle. A toast and a tooltip are SIG-213 and SIG-214.
 
 ### A styled cell outside `table()`: where a `TableCellView` is wanted
@@ -8237,7 +8253,42 @@ from it. They all honoured the signal, because they all go through
 - **Not done:** accessible mode. It is a second path, `runLine()`, with its own
   abort handling, and `prompt-accessible.test.ts` checks one mid-prompt abort on
   `text()`. Running the table a second time with `accessible: true` would cover
-  the six prompts that have a line form. That is a separate change.
+  the six prompts that have a line form. That is a separate change. It was
+  SIG-223, below.
+
+### The signal table, run a second time as lines (SIG-223)
+
+`prompt-signal.test.ts` runs the same rows twice, drawn and with
+`SIGIL_ACCESSIBLE=1`, so an abort that `runLine()` handles worse than `run()` is
+seen. Nothing was found broken. Three sabotages of `runLine()` each failed only
+the line run: no `removeEventListener` in `stop()`, an abort that rejects
+without `fail()`, and `asLines()` ignoring the variable.
+
+- **One list, two runs, and the exceptions keyed by type.** `LineName` is the
+  prompts whose options take `accessible`, read off the barrel the way
+  `PromptName` is. `DRAWN_ONLY` is `satisfies Record<Exclude<keyof typeof
+  prompts, LineName>, string>`, which is exact both ways: a prompt with no line
+  form and no reason is a missing key, and one that gains the option while still
+  listed is an excess one. The line run is the table less `DRAWN_ONLY`, so a row
+  added for the drawn run joins it without anybody remembering to.
+- **The types are checked against what is drawn.** A type saying `accessible`
+  does not prove a line form runs, and a line run over the drawn path would pass
+  every check and prove nothing. So each row is asked once under the variable,
+  and one that writes any sequence but the paste markers must be in `DRAWN_ONLY`
+  and one that writes none must not.
+- **The variable, not the option, is the switch.** It is how a person turns the
+  mode on for every app, and it reaches every row without a second set of rows.
+  The option's precedence over it is `prompt-accessible.test.ts`'s.
+- **A line form is held to the cancel's bytes, not to an empty screen.** It takes
+  nothing back, so an abort leaves the transcript and a fresh line. The check is
+  `output` equal to a Ctrl-C's, which is stronger than comparing the log.
+- **A cancel takes its listener off the signal, for every row in both runs.** An
+  abort's listener is `once` and comes off by itself, so the table only saw a
+  leak on the ending that has to remove it by hand once this was added. Stdin's
+  `data` listeners are checked back to zero after an abort or a timeout too.
+- **Not done:** a timer check. The router's key timer is cleared in `stop()`,
+  and the process's active-handle list is shared with the runner, so a count of
+  it would be noise.
 
 ### A tail that cannot be cut goes under the question (SIG-210)
 

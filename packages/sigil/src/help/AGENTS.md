@@ -190,3 +190,48 @@ the entry it belongs to.
   wants its command list in a different colour writes `.sigil-help-heading {
   color: magenta }` and beats the default with an ordinary rule, which is only true
   because the default is an earlier origin rather than a rule in the same one.
+- **The help label is the name string's, and the `alias` property never reaches
+  it -- nor the `Alias:` block.** The root `AGENTS.md` has said since M2-20 that
+  an alias which should stay out of help without hiding the command belongs in
+  the `alias` property, "which never reaches the help label", and
+  `docs/parser.md` and the README said the same. The code never did. M2-20
+  (`eb5a883`) recorded the rule and built the field that carries it --
+  `parseName()`'s `label`, the bare and `@` labels in the order they were
+  written, never a `!` one and never the property -- and `22d57a5` carried that
+  label across a lazy load "for help", with regression tests asserting
+  `'build, b'` plus `alias: 'compile'` labels as `build, b`. Seven hours later
+  the first help renderer (`53a2f03`) built every row from
+  `[cmd.name, ...aliases]` instead, and nothing has read `label` since; its
+  commit message lists the help decisions worth knowing and aliases are not one
+  of them, and its tests used property aliases as the ordinary way to put a name
+  on a row. So it was drift with no recorded reason rather than a later
+  decision, and SIG-225 restored the record: `rm` beside `remove` stopped being
+  printed. The cost of the drift was that the rule had no spelling at all -- with
+  every alias in help there was no way to give a command a name that answers
+  without being advertised, which is the one thing the property was for.
+
+  The `Alias:` block on a command's own screen follows the label rather than
+  `aliases`, for the same reason: it is help, and an alias listed there is
+  advertised to exactly the reader most likely to adopt it. Listing it there
+  alone would also make the rule depend on which screen was asked for. The
+  screen is still _reachable_ by a property alias -- `mycli help rm` and
+  `mycli rm --help` describe `remove` -- and the usage line names the command by
+  its name, so the reader learns the name they should have typed. A `!` label
+  is left out of that block too, which is what `label` has always meant by it.
+  The label is read in the order it was written, so `'@ls, list'` prints
+  `ls, list` where it used to print `list, ls`: that is the order the author
+  chose, and the order `label` has always held.
+
+  **A `!` or `@` at the start of an `alias` property entry is refused** by
+  `initCommand()`, which is the other half: it used to be registered literally,
+  so `alias: '!ls'` answered to `!ls` and help printed `list, !ls`. Neither of
+  the other readings holds. Hiding that one alias means nothing once the
+  property never reaches help, and hiding the whole command -- what `!` means in
+  a name string -- would be a second spelling of `hidden: true`. Stripping it
+  is worse than either: `!` in a name string hides the command, so a stripped
+  `!ls` would publish a command its author tried to hide, which is the
+  `'!build, b'` trap the root entry refuses. `@` would be harmless to strip, and
+  is refused anyway so that the property has one rule -- it takes names, and
+  name-string syntax is a mistake to say out loud rather than to guess at. Only
+  the first character is checked: `l!` is a name, if an odd one. Covered by
+  `test/help/help.test.ts` and `test/parser/regressions.test.ts`.
