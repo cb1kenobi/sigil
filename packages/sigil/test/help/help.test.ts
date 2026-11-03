@@ -189,11 +189,38 @@ describe('the commands section', () => {
   it('should put aliases on the same row as the command', async () => {
     const schema: Schema = {
       name: 'mycli',
-      commands: { build: { alias: ['b', 'compile'], desc: 'Compile the project' } },
+      commands: { 'build, b, compile': { desc: 'Compile the project' } },
     };
     expect(sectionOf(await help(schema), 'Commands')).toEqual([
       '  build, b, compile  Compile the project',
     ]);
+  });
+
+  // SIG-225: the label is what the name string published, and the `alias`
+  // property is the spelling for a name that answers without being advertised.
+  // Help read every alias instead, from the day it was written, so `rm` was
+  // printed beside `remove` and a `!` in the property was printed as a `!`
+  it('should keep an alias property out of the help label', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: {
+        remove: { alias: 'rm', desc: 'Remove it' },
+        list: { alias: ['ls', 'l'], desc: 'List them' },
+        'build, b': { alias: 'compile', desc: 'Build it' },
+      },
+    };
+    expect(sectionOf(await help(schema), 'Commands')).toEqual([
+      '  build, b  Build it',
+      '  list      List them',
+      '  remove    Remove it',
+    ]);
+  });
+
+  // the label keeps the order the name string was written in, which is the
+  // order `parseName()` has always recorded it in
+  it('should print the labels in the order the name string wrote them', async () => {
+    const schema: Schema = { name: 'mycli', commands: { '@ls, list': { desc: 'List' } } };
+    expect(sectionOf(await help(schema), 'Commands')).toEqual(['  ls, list  List']);
   });
 
   // `'@b'` is both the name and an alias of itself, and saying it twice says
@@ -415,15 +442,56 @@ describe('aliases', () => {
   it('should name the aliases of the command being described', async () => {
     const schema: Schema = {
       name: 'mycli',
-      commands: { build: { alias: 'b', desc: 'Compile' } },
+      commands: { 'build, b': { desc: 'Compile' } },
     };
     expect(await help(schema, ['build'])).toContain('Alias: b');
 
     const many: Schema = {
       name: 'mycli',
-      commands: { build: { alias: ['b', 'c'], desc: 'Compile' } },
+      commands: { 'build, b, @c': { desc: 'Compile' } },
     };
     expect(await help(many, ['build'])).toContain('Aliases: b, c');
+  });
+
+  // SIG-225: the block is help too, so it lists what the label lists. A name
+  // the app put in the property answers argv on this screen as on any other --
+  // it is how `help` found the command -- and it is still not advertised
+  it('should keep an alias property out of the aliases block', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: {
+        remove: { alias: 'rm', desc: 'Remove it' },
+        'build, b': { alias: 'compile', desc: 'Build it' },
+      },
+    };
+    const remove = await help(schema, ['rm']);
+    expect(remove).toContain('Usage: mycli remove');
+    expect(remove).not.toContain('Alias');
+    expect(remove).not.toContain('rm');
+
+    const build = await help(schema, ['compile']);
+    expect(build).toContain('Alias: b');
+    expect(build).not.toContain('compile');
+  });
+
+  // a `!` label is registered as an alias and left out of the label, so the
+  // screen of a hidden command does not advertise it either
+  it('should leave a "!" label out of the aliases block', async () => {
+    const schema: Schema = { name: 'mycli', commands: { 'build, b, !secret': {} } };
+    const text = await help(schema, ['secret']);
+    expect(text).toContain('Usage: mycli build');
+    expect(text).toContain('Alias: b');
+    expect(text).not.toContain('secret');
+  });
+
+  // every label was `!` prefixed, so the label is empty -- and an empty label
+  // split on its separator is one empty name, which is an `Alias:` with nothing
+  // after it
+  it('should print no aliases block for a command whose every label is hidden', async () => {
+    const schema: Schema = { name: 'mycli', commands: { '!build': { desc: 'Build' } } };
+    const text = await help(schema, ['build']);
+    expect(text).toContain('Usage: mycli build');
+    expect(text).not.toContain('Alias');
   });
 
   it('should say nothing about the program own aliases', async () => {
@@ -440,7 +508,7 @@ describe('aliases', () => {
     const schema: Schema = {
       name: 'mycli',
       commands: {
-        build: { alias: ['compile-everything', 'make-the-thing', 'bundle-it-all'], desc: 'Build' },
+        'build, compile-everything, make-the-thing, bundle-it-all': { desc: 'Build' },
       },
     };
     expect(sectionOf(await help(schema, ['build'], 40), 'Aliases')).toEqual([]);
@@ -552,8 +620,7 @@ describe('layout', () => {
         '--target [name]': { choices: ['node', 'browser'], desc: 'What to build for' },
       },
       commands: {
-        build: {
-          alias: ['compile-everything', 'bundle-it-all'],
+        'build, compile-everything, bundle-it-all': {
           desc: 'Compile the project into something shippable',
         },
         serve: { desc: 'Run a development server on a port nobody is using' },
@@ -594,7 +661,7 @@ describe('layout', () => {
     const schema: Schema = {
       name: 'mycli',
       commands: {
-        build: { alias: ['compile-everything', 'bundle-it-all'], desc: 'Build' },
+        'build, compile-everything, bundle-it-all': { desc: 'Build' },
         serve: { desc: 'Serve' },
       },
     };
