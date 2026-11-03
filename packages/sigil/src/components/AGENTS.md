@@ -8380,6 +8380,102 @@ field joins like anything else focusable.
   `describe` helper for a key-help footer; and blocking an unclaimed paste at the
   modal's backdrop.
 
+### A text field at rest: a background of its own
+
+`src/theme/index.ts`. SIG-218, which waited on SIG-217. `TextField()` drew nothing
+of its own until it had the focus, so an unfocused field was its value and nothing
+else -- measured at colour level 1, a label `Name` over a field holding `parser.ts`
+rendered `Name\nparser.ts` in both schemes, the field byte for byte a second label.
+In the rename dialog of `demos/components/50-text-field.js` nothing said the name
+could be edited until the caret appeared. It is now `ESC[100mparser.ts` and eleven
+blanks on a dark terminal and `ESC[47m...` on a light one.
+
+- **A background on `.sigil-text-field`, in the framework sheet, across the whole
+  host.** Decided in the ticket and kept: an underline marks the characters and the
+  caret's cell and leaves the room to the right unmarked, which is the room the
+  typing goes into, and a border costs two rows and is opt-in, so a bare field would
+  still show nothing. It is the sheet's tenth declared exception to the role rule,
+  the overlay's reason again -- no role is a background. It was blocked on SIG-217
+  because a text used to wipe its container's background from every cell it drew a
+  glyph on, which would have left the value on the terminal's own colour inside a
+  grey bar.
+- **Index 8 on a dark terminal and 7 on a light one, and not the overlay's pair.**
+  The overlay's 0 and 7 are chosen for a pane that must be opaque over the app; a
+  field must be _distinct_ from the box around it, and in a modal that box is the
+  terminal's own background. Measured as WCAG contrast over the default palettes of
+  seven dark and five light terminal setups -- xterm, Terminal.app (Pro and Basic),
+  iTerm2, Windows Terminal's Campbell, VS Code's Dark+ and Light+ (read from its
+  `terminalColorRegistry.ts`), GNOME's Tango and Solarized -- with the field's
+  background against the terminal's:
+
+  | dark      | xterm | Terminal | iTerm2 | Campbell | VS Code | Tango | Solarized |
+  | --------- | ----- | -------- | ------ | -------- | ------- | ----- | --------- |
+  | index 0   | 1.00  | 1.00     | 1.00   | 1.00     | 1.26    | 1.00  | 1.15      |
+  | index 8   | 5.24  | 3.66     | 3.77   | 4.31     | 2.90    | 1.73  | 1.00      |
+  | text on 8 | 3.18  | 5.13     | 3.30   | 2.83     | 3.58    | 5.01  | 4.75      |
+
+  | light     | xterm | Terminal | VS Code | Tango | Solarized |
+  | --------- | ----- | -------- | ------- | ----- | --------- |
+  | index 7   | 1.26  | 1.84     | 7.46    | 1.26  | 1.14      |
+  | index 15  | 1.00  | 1.26     | 2.46    | 1.00  | 1.00      |
+  | text on 7 | 16.67 | 11.42    | 1.69    | 8.67  | 3.64      |
+
+  Index 0 is the terminal's background exactly in five of the seven dark ones, so
+  a field on it vanishes, which is the overlay's pair failing at this job rather
+  than a close call. Index 15 is the background exactly in three of the five light
+  ones. So 8 and 7, which are the ticket's guess, confirmed rather than assumed.
+  Two setups lose and are recorded rather than designed around: **Solarized dark**,
+  whose index 8 _is_ its background (`base03`), so a field there is invisible --
+  its `base02`, index 0, would have been right, and an app on it says so in one
+  rule; and **VS Code's Light+**, whose index 7 is `#555555`, so the default
+  `#333333` text sits on it at 1.69:1. The overlay's light half has had that second
+  one all along, for the same reason.
+
+- **The placeholder stays on the muted role, and is weaker on the background.**
+  Dim is modelled as the foreground half way to the cell's background, which is
+  what `src/style` already records SGR 2 as doing; xterm and Alacritty darken
+  towards black instead, which on a grey is worse. On the dark side the hint drops
+  from 3.42-4.82 on the bare terminal to **1.76-2.53** on index 8 (Solarized's 2.21
+  either way, since its field is invisible); on the light side `gray` on index 7
+  is 3.12-12.25 where it was 4.00-13.92, and 1.30 on VS Code's Light+. Readable,
+  and de-emphasised as it should be, but less so than before. Not overridden: a
+  rule giving the placeholder a colour of its own would set a property on the same
+  element as `.sigil-muted` at the same specificity, which the sheet refuses
+  because source order would decide it, and a theme restyling `.sigil-muted` would
+  stop reaching the hint. The measured alternative, `black` on a dark terminal, is
+  3.66-5.24 on five of the seven and worse on Tango and Solarized, whose index 0 is
+  a tinted grey.
+- **Focus changes nothing but the caret.** The caret already says which field the
+  keys go to, and it shows on the background for free: SIG-217 keeps the field's
+  colour in the caret's cell, so the inverse swap draws a light block on a dark
+  terminal's grey. A focus background would be an eleventh exception saying what
+  the caret says.
+- **A disabled field keeps its background.** A field that cannot be edited now is
+  still a field, and a form with one disabled should still read as a form; the
+  muted value is what says not now. Dropping it would need a compound
+  `.sigil-text-field.is-disabled` rule, and there is no dimmer grey among the
+  sixteen to give it instead -- the only darker index on a dark terminal is 0,
+  which is the background.
+- **At colour level 0 the background is dropped, and that is the known cost.** A
+  field at rest is its value again there, and a focused one shows no caret either,
+  which SIG-215 already recorded. Not reconsidered for that level in the sheet,
+  because the sheet cannot say anything there: degradation drops every colour and
+  attribute at resolve time. An answer at level 0 would be _content_, the way the
+  badge draws brackets -- brackets or an underscore run around the value -- which
+  changes the field's width arithmetic and its caret together and belongs in a
+  ticket of its own. The two ways to reach level 0 are a pipe, where there is
+  nobody typing, and `NO_COLOR`, where it is a real gap.
+- **A theme restyles it and an app can take it away.** `.sigil-text-field {
+  background-color: blue }` in a theme beats both halves, and an app's
+  `background-color: default` removes it; one class at a later origin each time.
+- Tests: `a field at rest` in `test/components/text-field.test.ts` reads each
+  cell's resolved background off a painted grid, both schemes, the label above the
+  field on the terminal's own colour and the field on its pair across all its
+  columns -- focused, placeholder, disabled, level 0 and restyled. Sabotage: the
+  base rule deleted fails six, the light half deleted fails four, the overlay's
+  `black` in its place fails four, a focus background and a disabled
+  `background-color: default` fail two each (one of them the role invariant).
+
 ### A toast: a timed message in a corner, and nothing it takes
 
 `src/components/toast.ts`. SIG-213, split from SIG-191. `showToast(host, opts)` puts

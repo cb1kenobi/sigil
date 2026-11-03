@@ -16,9 +16,14 @@
  * field and that handler never hears of it -- a focused element is offered a paste
  * before the router's handlers are.
  *
+ * The field is drawn on a background of its own -- bright black on a dark
+ * terminal, white on a light one -- so `parser.ts` in the dialog reads as a name
+ * to edit before the caret appears, rather than as a label.
+ *
  * Piped, there is nobody to type, so a scripted keyboard drives the same tree and
- * the demo prints it after each step. The caret is an inverse cell, which a pipe
- * drops, so where it is is said in words.
+ * the demo prints it after each step. The caret is an inverse cell and the field's
+ * background is a colour, both of which a pipe drops, so they are said in words:
+ * where the caret is, and which palette index the field resolved to in each scheme.
  */
 import { createFullscreenCanvas } from '@ttylabs/sigil/canvas';
 import { openModal, TextField } from '@ttylabs/sigil/components';
@@ -56,7 +61,7 @@ function scene() {
  * Wires `r` on the rows, and the app's own paste handler.
  *
  * @param {import('@ttylabs/sigil/input').InputRouter} input - The router.
- * @param {{ root: import('@ttylabs/sigil/element').Element; rows: any[] }} ui - The list.
+ * @param {{ root: import('@ttylabs/sigil/element').Element; rows: any[]; field?: any }} ui - The list, and the field once a dialog has opened.
  * @param {import('@ttylabs/sigil/element').Element} status - Where the outcome is said.
  */
 function wire(input, ui, status) {
@@ -69,6 +74,7 @@ function wire(input, ui, status) {
   const rename = async (row) => {
     const name = new State(row.text);
     const field = TextField({ onSubmit: () => dialog.close(true), value: name });
+    ui.field = field;
     const dialog = openModal(ui.root, {
       actions: [{ label: 'Rename', value: true }, { label: 'Cancel' }],
       body: field,
@@ -162,6 +168,18 @@ if (live) {
 
   await term.press('r');
   await show('r: the rename dialog opens with the name in a field');
+
+  // the background a pipe drops, read back off the field rather than off the bytes:
+  // resolved once per scheme at colour level 1, which is the lowest that keeps it
+  for (const colorScheme of ['dark', 'light']) {
+    const scheme = themedCascade({ colorScheme, sheets: [sheet] });
+    renderToString(ui.root, { cascade: scheme, colorLevel: 1, colorScheme, height: 10, width: 44 });
+    const { backgroundColor } = ui.field.style;
+    console.log(
+      `the field on a ${colorScheme} terminal: palette index ${backgroundColor} behind all ${ui.field.box.width} of its columns`
+    );
+  }
+  console.log('');
 
   await term.press(KEYS.tab, KEYS.tab, KEYS.tab);
   await show('Tab x3: the field, Rename and Cancel are one ring, and it comes back round');

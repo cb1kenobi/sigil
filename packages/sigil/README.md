@@ -4975,6 +4975,15 @@ any other tree -- the `text()` prompt's editor without the prompt's live region
 around it. It is focusable, and while it has the focus it draws a caret; a field
 without the focus draws none, so a form of several shows one.
 
+**A field is drawn on a background of its own**, across its whole width, so it
+reads as a field before anything focuses it rather than as a label: palette index 8
+(bright black) on a dark terminal and index 7 (white) on a light one -- the user's
+own greys, never a fixed colour. The focus adds the caret and leaves the background
+alone, and a disabled field keeps it with its value muted. At colour level 0 there
+is no background, so a field at rest is its value and nothing more.
+`.sigil-text-field { background-color: ... }` in a theme or an app sheet restyles
+it, and `background-color: default` takes it away.
+
 `value` is a string to start from or a `State<string>` that is the value itself:
 the keys write it, and a write the app makes is shown at once with the caret moved
 to the end. `onChange(value)` is called after every edit that changed it, and
@@ -4996,8 +5005,8 @@ through the field and the buttons and Escape still dismisses. **Enter is the
 field's only when it was given `onSubmit`**; without one it goes on to whatever is
 around it. Up, Down and Ctrl-C are left alone too. Validation and an error line
 are the form's or the caller's, not the field's. `.sigil-text-field`, `-before`,
-`-caret`, `-after` and `-placeholder` are the theme hooks, and the caret is
-`inverse` under the field's `:focus`.
+`-caret`, `-after` and `-placeholder` are the theme hooks: the host carries the
+background, and the caret is `inverse` under the field's `:focus`.
 
 #### A toast
 

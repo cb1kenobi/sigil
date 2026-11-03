@@ -203,7 +203,7 @@ is proved.
   cascade's own answer stands -- which for `themedCascade()` is what the environment
   knew and for a bare `Cascade` is the frozen dark -- and the context is put back
   exactly as it was found, which is the rule that path already keeps.
-- **The framework sheet's light half is two rules, and its size is the finding.** Every colour in that sheet is a palette index, and the basic sixteen
+- **The framework sheet's light half is three rules, and its size is the finding.** Every colour in that sheet is a palette index, and the basic sixteen
   are whatever the user's terminal theme says they are -- so there is nothing in
   them to fix conditionally, which is the rule working rather than a gap, and it is
   also exactly why an _app_ or a _theme_ needs this: a `#666` somebody wants for
@@ -231,6 +231,14 @@ is proved.
   light one, because the text in that pane is the terminal's own default foreground
   and what it needs behind it is whichever background that foreground was chosen to
   be legible against. Still a palette index, so it is still the user's own colour.
+
+  The third (SIG-218) is the text field's background, for the same reason the
+  second is there: index 8 behind a field is the grey that stands apart from a dark
+  terminal's background, and on a light terminal it is a dark slab under dark text,
+  so the light half says 7. It is not the overlay's pair because it answers a
+  different question -- distinct from what is around it rather than opaque over it --
+  and index 0, the overlay's dark answer, is the terminal's own background in most
+  dark themes. Measured under "A text field at rest" in `src/components`.
 
 - **`FRAMEWORK_CSS` is a template literal, so it holds no backtick and no
   `${`.** Written down because the failure is not local: a backtick in a comment

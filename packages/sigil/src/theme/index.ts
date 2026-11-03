@@ -283,18 +283,33 @@ export const FRAMEWORK_CSS = `
  * The ninth declared exception to the role rule, and the caret's own declaration
  * keyed on the field's focus: a form holds several fields and only the one the
  * keys go to may show a caret, so the reversal is the :focus state's to give
- * rather than the component's. That is also the whole of how the field shows its
- * focus. A placeholder is .sigil-muted and a disabled field is too, so neither
- * needs a rule here; at colour level 0 the attribute is dropped and the caret is
- * not shown, which is the prompt caret's own answer at that level.
+ * rather than the component's. A placeholder is .sigil-muted and a disabled field
+ * is too, so neither needs a rule here; at colour level 0 the attribute is
+ * dropped and the caret is not shown, which is the prompt caret's own answer at
+ * that level.
+ *
+ * The tenth is the field's background, and it is what says the thing is a field
+ * at all: without it an unfocused field is its value and nothing else, the same
+ * bytes as a label beside it. A background rather than an underline, because an
+ * underline marks the characters and leaves the room to the right of them
+ * unmarked, and that room is where the typing goes. No role is a background, so
+ * no role could carry it -- the overlay's reason, below. It is not the overlay's
+ * pair, because the overlay has to be opaque over the app and a field has to be
+ * distinct from the box around it: index 0 is the terminal's own background in
+ * most dark themes, so a field on it would vanish. Gray, index 8, on a dark
+ * terminal, and white, index 7, in the light half. Focus does not change it, since
+ * the caret already says which field the keys go to, and a disabled field keeps
+ * it, since a field that cannot be edited now is still a field. At colour level 0
+ * it is dropped, and a field at rest is its value again.
  */
 .sigil-text-field:focus .sigil-text-field-caret { inverse: true }
+.sigil-text-field { background-color: gray }
 
 /*
  * markdown
  *
- * The tenth, eleventh and twelfth declared exceptions to the role rule, and one
- * reason for all three: they are what the words *mean* rather than a colour
+ * The eleventh, twelfth and thirteenth declared exceptions to the role rule, and
+ * one reason for all three: they are what the words *mean* rather than a colour
  * anybody chose. An emphasis is italic, a strong emphasis is bold and a link is
  * underlined because that is what the author wrote, which is the user-agent
  * sheet's answer to the same question -- and no role is any of them. The bold one
@@ -387,7 +402,7 @@ export const FRAMEWORK_CSS = `
 .sigil-qrcode-paint { color: black; background-color: white }
 
 /*
- * And the light half, which is two rules now and was six declarations.
+ * And the light half, which is three rules now and was six declarations.
  *
  * Nearly nothing above needs one: every colour in this sheet is a palette index,
  * and the basic sixteen are whatever the user's terminal theme says they are -- so
@@ -412,6 +427,11 @@ export const FRAMEWORK_CSS = `
  * rather than a different attribute -- 0 behind the terminal's own default
  * foreground on a dark terminal and 7 on a light one.
  *
+ * The text field's background is the third, and for the overlay's reason: it is a
+ * background, and index 8 is a dark grey on a light terminal -- a slab of dark
+ * under dark text. Index 7 is the light grey there. The field's placeholder is
+ * .sigil-muted, and so is gray on that white.
+ *
  * The de-emphasis was six declarations -- a hint, an answer,
  * a placeholder, a choice hint, a cipher cell and a help note, each saying the same
  * thing -- which is a rule said six times and therefore a rule that can be said
@@ -430,6 +450,7 @@ export const FRAMEWORK_CSS = `
 @media (prefers-color-scheme: light) {
   .sigil-muted { dim: false; color: gray }
   .sigil-debug { background-color: white }
+  .sigil-text-field { background-color: white }
 }
 
 `;
