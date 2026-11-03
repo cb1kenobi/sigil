@@ -38,8 +38,12 @@
  * refresh it without reading it.
  */
 
-import { byCodeUnit } from '../by-code-unit.ts';
-import type { CommandSurface, SurfaceCommand, SurfaceOption } from '@ttylabs/sigil/reference';
+import {
+  byCodeUnit,
+  type CommandSurface,
+  type SurfaceCommand,
+  type SurfaceOption,
+} from '@ttylabs/sigil/reference';
 
 /** A JSON value, which is what the snapshot is made of. */
 type Json = Json[] | boolean | number | string | { [key: string]: Json } | null;

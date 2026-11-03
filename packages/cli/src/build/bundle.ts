@@ -31,7 +31,6 @@
  * input and ignored by every repository already.
  */
 
-import { byCodeUnit } from '../by-code-unit.ts';
 import { compileTemplates } from './compile-templates.ts';
 import { RUNTIME, type DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
@@ -41,6 +40,7 @@ import { TAG_MODULE } from './templates.ts';
 import type { ResolvedTree } from './tree.ts';
 import { updateCheckDefine, UPDATE_CHECK_SPECIFIER } from './update-check.ts';
 import { walk } from './walk.ts';
+import { byCodeUnit } from '@ttylabs/sigil/reference';
 import type { BakedUpdateConfig } from '@ttylabs/sigil/updates';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';

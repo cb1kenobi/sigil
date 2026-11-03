@@ -29,7 +29,6 @@
  * agree for now.
  */
 
-import { byCodeUnit } from '../by-code-unit.ts';
 import {
   CONFIG_FILE,
   DEFAULT_REGISTRY,
@@ -44,6 +43,7 @@ import {
 import { isQuiet, writeNote } from '../report.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { confirm, table } from '@ttylabs/sigil/components';
+import { byCodeUnit } from '@ttylabs/sigil/reference';
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 

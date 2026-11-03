@@ -21,8 +21,10 @@
  * One function rather than one per caller, because two spellings of one rule is
  * how they come to disagree: the route walk, the completion spec, the command
  * surface, help and the palette all order the same registries, and each used to
- * say how separately. The toolchain has its own copy, for the reason its
- * `src/by-code-unit.ts` gives.
+ * say how separately. The toolchain imports this one too, from
+ * `@ttylabs/sigil/reference`, rather than keeping a copy: it is the order that
+ * subpath's surface is written in, and the toolchain's reference, `sigil add`'s
+ * listing and the build report sort with it.
  *
  * @param a - One string.
  * @param b - The other.

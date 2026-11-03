@@ -6270,6 +6270,11 @@ What it records is what the app declared. `help`, `completion`, `--help` and
 not have them — which is what keeps an app's snapshot moving when the app moves
 rather than when the framework does.
 
+`byCodeUnit(a, b)` is the order the surface is written in: two strings compared
+by UTF-16 code unit, so `B` comes before `a` and the result is the same on every
+machine. Sort anything you print beside the surface with it, rather than with
+`localeCompare`, which reads the process locale.
+
 ### `sigil/which`
 
 Resolves an executable name against `PATH`, the way the `which` command does.
