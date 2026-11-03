@@ -210,6 +210,7 @@ describe('what importing the package costs', () => {
     'enableDebugOverlay',
     'openModal',
     'TextField',
+    'showToast',
     'qrcodeView',
     'commandPalette',
     'noteView',

@@ -183,6 +183,10 @@ const ENTRIES = [
     name: 'text-field',
   },
   {
+    desc: 'A toast: a timed message in a corner of the screen that stacks, never takes the focus, and stays out of --quiet',
+    name: 'toast',
+  },
+  {
     desc: 'A debug overlay: captured console output and frame stats, inside the app',
     name: 'debug-overlay',
   },
