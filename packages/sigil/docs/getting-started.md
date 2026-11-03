@@ -446,5 +446,3 @@ Two related commands:
   screen.
 - [docs/parser.md](parser.md): the full reference for how a command line is
   parsed.
-- [Migrating from cli-kit](migrating-from-cli-kit.md), if you are moving an
-  existing app.
