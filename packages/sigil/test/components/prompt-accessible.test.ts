@@ -31,7 +31,7 @@ import { type ScreenHarness, screenSetup, tick } from './helpers.js';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve, sep } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The prompts that have a line form, asked as lines, for a screen reader.
@@ -1097,6 +1097,303 @@ describe('a line path() completing on Tab', () => {
   });
 });
 
+describe('a line path() asking before a long list', () => {
+  let fixture: string;
+
+  /** Tall enough that a list of a hundred and one never scrolls off the model. */
+  const tall = (): ScreenHarness => screenSetup({ columns: 1000, rows: 260 });
+
+  /**
+   * A line `path()` rooted in one of the fixture's directories, so nothing is
+   * typed before the Tab and no separator is spelled.
+   */
+  const ask = (ui: ScreenHarness, dir: string, extra: Partial<Parameters<typeof path>[0]> = {}) =>
+    path({
+      accessible: true,
+      message: 'File',
+      root: join(fixture, dir),
+      terminal: ui.terminal,
+      ...extra,
+    });
+
+  /** The names in a directory of `count`: `f-0` on, so a first Tab adds `f-`. */
+  const names = (count: number): string[] => Array.from({ length: count }, (_, i) => `f-${i}`);
+
+  /** The list a yes writes, in the drawn list's order, which is by code unit. */
+  const listed = (count: number): string[] =>
+    names(count)
+      .sort()
+      .map((name) => `  ${name}`);
+
+  const QUESTION_AT = 'Display all 100 possibilities? (y/N)';
+
+  beforeAll(async () => {
+    fixture = await mkdtemp(join(tmpdir(), 'sigil-accessible-many-'));
+    // one under the threshold, at it, and one over
+    for (const [dir, count] of [
+      ['under', 99],
+      ['at', 100],
+      ['over', 101],
+    ] as const) {
+      await mkdir(join(fixture, dir));
+      await Promise.all(names(count).map((name) => writeFile(join(fixture, dir, name), '')));
+    }
+  });
+
+  afterAll(async () => {
+    await rm(fixture, { force: true, recursive: true });
+  });
+
+  /** Tab, Tab, and waits for the question or the list. */
+  async function tabTab(ui: ScreenHarness): Promise<void> {
+    await type(ui.stdin, TAB);
+    await settleOutput(ui);
+    await type(ui.stdin, TAB);
+    await settleOutput(ui);
+  }
+
+  it('should list one short of the threshold without asking', async () => {
+    const ui = tall();
+    const answer = ask(ui, 'under');
+
+    await tabTab(ui);
+    await type(ui.stdin, '7', ENTER);
+
+    expect(await answer).toBe(join(fixture, 'under', 'f-7'));
+    expect(ui.log).toEqual(['File f-', ...listed(99), 'File f-7']);
+  });
+
+  it('should ask instead of listing at the threshold, and wait for a key', async () => {
+    const ui = tall();
+    const result = settle(ask(ui, 'at'));
+
+    await tabTab(ui);
+    expect(ui.log).toEqual(['File f-', QUESTION_AT]);
+
+    await type(ui.stdin, CTRL_C);
+    await result;
+  });
+
+  it('should ask over the threshold, saying how many', async () => {
+    const ui = tall();
+    const result = settle(ask(ui, 'over'));
+
+    await tabTab(ui);
+    expect(ui.log).toEqual(['File f-', 'Display all 101 possibilities? (y/N)']);
+
+    await type(ui.stdin, CTRL_C);
+    await result;
+  });
+
+  it.each([
+    ['y', 'y'],
+    ['Y', 'Y'],
+    ['Space', ' '],
+  ])('should list on %s, then ask again holding the reply', async (_, key) => {
+    const ui = tall();
+    const answer = ask(ui, 'at');
+
+    await tabTab(ui);
+    await type(ui.stdin, key);
+    await settleOutput(ui);
+    // the key that answered is not echoed: it answered the question, not the reply
+    expect(ui.log).toEqual(['File f-', QUESTION_AT, ...listed(100), 'File f-']);
+
+    await type(ui.stdin, '42', ENTER);
+
+    expect(await answer).toBe(join(fixture, 'at', 'f-42'));
+    expect(ui.log).toEqual(['File f-', QUESTION_AT, ...listed(100), 'File f-42']);
+  });
+
+  it.each([
+    ['n', 'n'],
+    ['N', 'N'],
+    ['Backspace', BACKSPACE],
+    ['Delete', '\u001b[3~'],
+    ['Enter', ENTER],
+  ])('should list nothing on %s, and ask again holding the reply', async (_, key) => {
+    const ui = tall();
+    const answer = ask(ui, 'at');
+
+    await tabTab(ui);
+    await type(ui.stdin, key);
+    await settleOutput(ui);
+    expect(ui.log).toEqual(['File f-', QUESTION_AT, 'File f-']);
+
+    await type(ui.stdin, '9', ENTER);
+
+    // Backspace answered the question and erased nothing, and Enter answered it
+    // rather than the prompt
+    expect(await answer).toBe(join(fixture, 'at', 'f-9'));
+    expect(ui.log).toEqual(['File f-', QUESTION_AT, 'File f-9']);
+  });
+
+  it('should list nothing on Escape, even with back', async () => {
+    const ui = tall();
+    const answer = ask(ui, 'at', { back: true });
+
+    await tabTab(ui);
+    await type(ui.stdin, ESCAPE);
+    // a lone Escape waits out the router's timeout before it is a key
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await settleOutput(ui);
+    expect(ui.log).toEqual(['File f-', QUESTION_AT, 'File f-']);
+
+    await type(ui.stdin, '9', ENTER);
+
+    expect(await answer).toBe(join(fixture, 'at', 'f-9'));
+    expect(ui.log).toEqual(['File f-', QUESTION_AT, 'File f-9']);
+  });
+
+  it('should go back on Escape with back once the question is answered', async () => {
+    const ui = tall();
+    const result = settle(ask(ui, 'at', { back: true }));
+
+    await tabTab(ui);
+    await type(ui.stdin, 'n');
+    await settleOutput(ui);
+    await type(ui.stdin, ESCAPE);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const { error } = await result;
+
+    expect(error).toBeInstanceOf(PromptBack);
+  });
+
+  it('should refuse any other key during the question, and ask it again', async () => {
+    const ui = tall();
+    const answer = ask(ui, 'at');
+
+    await tabTab(ui);
+    // a letter, a third Tab and a modified y are none of them answers
+    await type(ui.stdin, 'x');
+    await settleOutput(ui);
+    await type(ui.stdin, TAB);
+    await settleOutput(ui);
+    await type(ui.stdin, '\u0019'); // ctrl-y
+    await settleOutput(ui);
+    await type(ui.stdin, 'n');
+    await settleOutput(ui);
+    await type(ui.stdin, '3', ENTER);
+
+    // nothing refused was typed into the reply
+    expect(await answer).toBe(join(fixture, 'at', 'f-3'));
+    expect(ui.log).toEqual([
+      'File f-',
+      QUESTION_AT,
+      'Answer y or n',
+      QUESTION_AT,
+      'Answer y or n',
+      QUESTION_AT,
+      'Answer y or n',
+      QUESTION_AT,
+      'File f-3',
+    ]);
+  });
+
+  it('should take the key that answered as one between, so the next Tab is a first', async () => {
+    const ui = tall();
+    const result = settle(ask(ui, 'at'));
+
+    await tabTab(ui);
+    await type(ui.stdin, 'n');
+    await settleOutput(ui);
+    await type(ui.stdin, TAB);
+    await settleOutput(ui);
+    // silent, as any first Tab that adds nothing is
+    expect(ui.log).toEqual(['File f-', QUESTION_AT, 'File f-']);
+
+    await type(ui.stdin, TAB);
+    await settleOutput(ui);
+    expect(ui.log).toEqual(['File f-', QUESTION_AT, 'File f-', QUESTION_AT]);
+
+    await type(ui.stdin, CTRL_C);
+    await result;
+  });
+
+  it('should set the question aside for a paste, and type the paste', async () => {
+    const ui = tall();
+    const answer = ask(ui, 'at');
+
+    await tabTab(ui);
+    await type(ui.stdin, PASTE_START + '12' + PASTE_END);
+    await settleOutput(ui);
+    expect(ui.log).toEqual(['File f-', QUESTION_AT, 'File f-12']);
+
+    await type(ui.stdin, ENTER);
+
+    expect(await answer).toBe(join(fixture, 'at', 'f-12'));
+    expect(ui.log).toEqual(['File f-', QUESTION_AT, 'File f-12']);
+  });
+
+  it('should be cancelled by ctrl-c while the question waits', async () => {
+    const ui = tall();
+    const result = settle(ask(ui, 'at'));
+
+    await tabTab(ui);
+    await type(ui.stdin, CTRL_C);
+    const { error } = await result;
+
+    expect(error).toBeInstanceOf(PromptError);
+    expect((error as PromptError).aborted).toBe(true);
+    expect(ui.stdin.rawMode).toBe(false);
+    // the question stays where it is, and the next output starts under it
+    expect(written(ui)).toBe(`File f-\r\n${QUESTION_AT} \r\n`);
+  });
+
+  it('should reject with the reason of a signal that aborts while the question waits', async () => {
+    const ui = tall();
+    const controller = new AbortController();
+    const result = settle(ask(ui, 'at', { signal: controller.signal }));
+
+    await tabTab(ui);
+    controller.abort(new Error('gone'));
+    const { error } = await result;
+
+    expect((error as Error).message).toBe('gone');
+    expect(ui.stdin.rawMode).toBe(false);
+  });
+
+  it('should reject when input ends while the question waits', async () => {
+    const ui = tall();
+    const result = settle(ask(ui, 'at'));
+
+    await tabTab(ui);
+    ui.stdin.end();
+    const { error } = await result;
+
+    expect((error as Error).message).toBe('Input ended before the prompt was answered');
+  });
+
+  it('should write exactly the question, then the list or nothing, and no sequence', async () => {
+    const no = tall();
+    const declined = ask(no, 'at');
+    await tabTab(no);
+    await type(no.stdin, 'n');
+    await settleOutput(no);
+    await type(no.stdin, ENTER);
+    await declined;
+    expect(written(no)).toBe(`File f-\r\n${QUESTION_AT} \r\nFile f-\r\n`);
+
+    const yes = tall();
+    const accepted = ask(yes, 'at');
+    await tabTab(yes);
+    await type(yes.stdin, 'x');
+    await settleOutput(yes);
+    await type(yes.stdin, 'y');
+    await settleOutput(yes);
+    await type(yes.stdin, ENTER);
+    await accepted;
+    expect(written(yes)).toBe(
+      `File f-\r\n${QUESTION_AT} \r\nAnswer y or n\r\n${QUESTION_AT} \r\n` +
+        listed(100)
+          .map((line) => `${line}\r\n`)
+          .join('') +
+        'File f-\r\n'
+    );
+    expect(sequences(yes)).toEqual([]);
+  });
+});
+
 describe('a line maskedText()', () => {
   const template = '(###) ###-####';
 
@@ -2076,6 +2373,83 @@ describe('a line form with keys of its own', () => {
 
     expect(await answer).toBe('ab');
     expect(ui.log).toEqual(['Q ab']);
+  });
+
+  it('should ask a question of one key after its lines, and hand it the next key alone', async () => {
+    const ui = lines();
+    const asked: string[] = [];
+    const answers: string[] = [];
+    const answer = runLinePrompt<string>(
+      { message: 'Q', terminal: ui.terminal },
+      {
+        ask: 'Q ',
+        echo: true,
+        key(k) {
+          asked.push(k.name);
+          if (k.name !== 'tab') {
+            return;
+          }
+          return {
+            insert: 'b',
+            lines: ['first'],
+            query: {
+              ask: 'Sure? ',
+              // a promise, which holds the keys behind it like any handler
+              answer: async (key) => {
+                answers.push(key.name);
+                return key.name === 'k' ? ['done'] : 'Press k';
+              },
+            },
+          };
+        },
+        read: (reply) => ({ value: reply }),
+      }
+    );
+
+    await type(ui.stdin, 'a', TAB, 'z', 'k', 'c', ENTER);
+
+    expect(await answer).toBe('abc');
+    // the form's handler was not asked while the question waited
+    expect(asked).toEqual(['a', 'tab', 'c', 'enter']);
+    expect(answers).toEqual(['z', 'k']);
+    expect(ui.log).toEqual(['Q ab', 'first', 'Sure?', 'Press k', 'Sure?', 'done', 'Q abc']);
+    expect(sequences(ui)).toEqual([]);
+  });
+
+  it('should drop an answer that lands after ctrl-c', async () => {
+    const ui = lines();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const result = settle(
+      runLinePrompt<string>(
+        { message: 'Q', terminal: ui.terminal },
+        {
+          ask: 'Q ',
+          echo: true,
+          key: (k) =>
+            k.name === 'tab'
+              ? {
+                  query: {
+                    ask: 'Sure? ',
+                    answer: async () => {
+                      await held;
+                      return ['late'];
+                    },
+                  },
+                }
+              : undefined,
+          read: (reply) => ({ value: reply }),
+        }
+      )
+    );
+
+    await type(ui.stdin, TAB, 'y', CTRL_C);
+    const { error } = await result;
+    expect((error as PromptError).aborted).toBe(true);
+
+    release();
+    await settleOutput(ui);
+    expect(written(ui)).toBe('Q \r\nSure? \r\n');
   });
 
   it('should reject with what a handler throws, and finish the line', async () => {

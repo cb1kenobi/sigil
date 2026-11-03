@@ -2870,7 +2870,7 @@ Create it? (Y/n) y
 | `multiselect()`                   | The same list and numbers separated by commas, with ranges (`1-3, 5`). Enter alone keeps what was ticked and `none` answers nothing |
 | `number()`                        | `text()`'s line, read by the parser and held to `min` and `max` on Enter. Up and Down do not step                                   |
 | `list()`                          | `text()`'s line, split on the separator the way the drawn field splits it                                                           |
-| `path()`                          | `text()`'s line, `~` expanded and `root` applied. Tab completes as a shell does; a second Tab lists candidates                      |
+| `path()`                          | `text()`'s line, `~` expanded and `root` applied. Tab completes as a shell does; a second lists, asking first at 100 or more        |
 | `maskedText()`                    | The template said once, `(format: (___) ___-____)`, and the reply read raw or formatted. A character no slot takes is refused       |
 | `toggle()`                        | Both names, `(off/on) (default: off)`, and a whole name as the reply                                                                |
 | `selectKey()`                     | The list lettered by its keys, `o) Overwrite`, and one key as the reply: not a label or a position. `expand` still lists            |
@@ -2882,6 +2882,14 @@ Create it? (Y/n) y
 | `filePicker()`                    | One directory at a time: a file answers, a directory is gone into, `..` goes up, and `.` picks the directory with `directory`       |
 | `autocomplete()`                  | The term, then what it matches as a numbered list with `Search again` last; a term that leaves one choice answers with it           |
 | `autocompleteMultiselect()`       | The term, then numbers ticking among what it matched; ticks the term hid stay. `Search again`, or Enter alone, to finish            |
+
+`path()`'s second Tab asks before it lists 100 candidates or more, as bash does:
+`Display all 150 possibilities? (y/N)` on a line of its own, answered by one key.
+`y` or Space lists them; `n`, Escape, Backspace, Delete or Enter lists nothing;
+either way the question and the reply are written again. Any other key is refused
+with `Answer y or n` and the question asked again. The threshold is readline's
+default and is not an option, because how much a person wants read out is theirs
+rather than the app's.
 
 Backspace and Ctrl-U erase what is being typed, and never past the start of the
 line; the arrows do nothing, because a line that is never redrawn cannot show an
