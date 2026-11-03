@@ -217,39 +217,41 @@ export async function initCommand(
   }
 
   // commands
+  //
+  // siblings are built in parallel and registered in the order they were
+  // declared, which are two different things and used to be one: each was
+  // added to the registry as its own build finished, so a sibling with less to
+  // initialize registered first. The registry keys its lookup by name and alias
+  // and a later registration wins a shared spelling, so which command a word
+  // routed to came down to how long each took to build -- giving one of them an
+  // option was enough to hand a spelling to the other. `Promise.all()` keeps
+  // its results in input order whatever order they settle in, which is the
+  // whole of the fix
   if (decl.commands !== undefined) {
+    let built: InternalCommand[][];
+
     if (decl.commands && typeof decl.commands === 'string') {
-      await registerCommandPath({
-        baseDir,
-        commands,
-        file: decl.commands,
-        routeInfo: decl.routeInfo,
-      });
+      built = [
+        await resolveCommandPath({ baseDir, file: decl.commands, routeInfo: decl.routeInfo }),
+      ];
     } else if (Array.isArray(decl.commands)) {
-      await Promise.all(
+      built = await Promise.all(
         decl.commands.map((cmdOrPath) =>
-          registerCommand({
-            baseDir,
-            cmdOrPath,
-            commands,
-            routeInfo: decl.routeInfo,
-          })
+          resolveCommand({ baseDir, cmdOrPath, routeInfo: decl.routeInfo })
         )
       );
     } else if (decl.commands && typeof decl.commands === 'object') {
-      await Promise.all(
+      built = await Promise.all(
         Object.entries(decl.commands).map(([name, cmdOrPath]) =>
-          registerCommand({
-            baseDir,
-            cmdOrPath,
-            commands,
-            name,
-            routeInfo: decl.routeInfo,
-          })
+          resolveCommand({ baseDir, cmdOrPath, name, routeInfo: decl.routeInfo })
         )
       );
     } else {
       throw new TypeError('Expected commands to be one or more paths or an object');
+    }
+
+    for (const sibling of built.flat()) {
+      commands.add(sibling);
     }
   }
 
@@ -506,28 +508,32 @@ function resolveDeclaredPath(baseDir: string | undefined, file: string): string 
   return baseDir ? resolve(baseDir, file) : file;
 }
 
-async function registerCommand({
+/**
+ * Builds the commands one entry of a `commands` declaration stands for.
+ *
+ * Builds and does not register: the caller registers every sibling once they
+ * are all built, in declaration order, so that the order they finished in has
+ * no say in which of them owns a shared spelling.
+ *
+ * @returns The commands, in the order they are to be registered -- one, unless
+ *   the entry is an unnamed path to a directory of them.
+ */
+async function resolveCommand({
   baseDir,
   cmdOrPath,
-  commands,
   name,
   routeInfo,
 }: {
   baseDir?: string;
   cmdOrPath: string | Command;
-  commands: CommandRegistry;
   name?: string;
   routeInfo?: Record<string, RouteInfo>;
-}): Promise<void> {
+}): Promise<InternalCommand[]> {
   if (cmdOrPath && typeof cmdOrPath === 'string') {
-    await registerCommandPath({
-      baseDir,
-      commands,
-      file: cmdOrPath,
-      name,
-      routeInfo,
-    });
-  } else if (cmdOrPath && typeof cmdOrPath === 'object') {
+    return resolveCommandPath({ baseDir, file: cmdOrPath, name, routeInfo });
+  }
+
+  if (cmdOrPath && typeof cmdOrPath === 'object') {
     // the key a command is declared under names it, but that name belongs on
     // the copy `initCommand()` makes, not on the caller's object
     //
@@ -535,20 +541,20 @@ async function registerCommand({
     // and its paths are relative to that file -- it has no module of its own
     // for them to be relative to, which is why the base is passed rather than
     // the entry file
-    commands.add(
+    return [
       await initCommand(
         cmdOrPath.name === undefined ? { ...cmdOrPath, name } : cmdOrPath,
         undefined,
         baseDir
-      )
-    );
-  } else {
-    throw new TypeError('Expected commands to be one or more paths or an object');
+      ),
+    ];
   }
+
+  throw new TypeError('Expected commands to be one or more paths or an object');
 }
 
 /**
- * Registers whatever a declared path points at.
+ * Builds whatever a declared path points at.
  *
  * A path names one command when the declaration named it -- the key it was
  * written under in a `commands` object -- and a directory *of* commands when it
@@ -556,25 +562,25 @@ async function registerCommand({
  * every entry inside becomes a sibling, which is the one place a single path
  * produces more than one command, while `commands: { db: './db' }` means one
  * command called `db` however many files are behind it.
+ *
+ * @returns The commands, in the order they are to be registered: a directory's
+ *   routes come back sorted, which is `resolveRoutes()`'s order.
  */
-async function registerCommandPath({
+async function resolveCommandPath({
   baseDir,
-  commands,
   file,
   name,
   routeInfo,
 }: {
   baseDir?: string;
-  commands: CommandRegistry;
   file: string;
   name?: string;
   routeInfo?: Record<string, RouteInfo>;
-}): Promise<void> {
+}): Promise<InternalCommand[]> {
   const modulePath = resolveDeclaredPath(baseDir, file);
 
   if (name) {
-    commands.add(await commandAtPath(modulePath, name, routeInfo?.[name]));
-    return;
+    return [await commandAtPath(modulePath, name, routeInfo?.[name])];
   }
 
   // a package is one command even unnamed, because its module names itself.
@@ -582,16 +588,16 @@ async function registerCommandPath({
   // would register its internals as commands
   const pkg = await registerCommandPackage(modulePath);
   if (pkg) {
-    commands.add(pkg);
-    return;
+    return [pkg];
   }
 
   const entries = readDirectory(modulePath);
   if (entries) {
+    const routed: InternalCommand[] = [];
     for (const route of resolveRoutes(modulePath, entries)) {
-      commands.add(await routeCommand(route, routeInfo?.[route.name]));
+      routed.push(await routeCommand(route, routeInfo?.[route.name]));
     }
-    return;
+    return routed;
   }
 
   const filename = moduleName(modulePath);
@@ -600,7 +606,7 @@ async function registerCommandPath({
     throw new Error(`Unsupported command module "${modulePath}"`);
   }
 
-  commands.add(await initCommand({ name: filename }, modulePath));
+  return [await initCommand({ name: filename }, modulePath)];
 }
 
 /**

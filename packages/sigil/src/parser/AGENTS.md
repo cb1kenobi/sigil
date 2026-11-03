@@ -1126,6 +1126,37 @@ resolution.
   spelled one level with colons and the next with spaces is a tree nobody can
   read -- so the schema is the only place it can go.
 
+### Siblings register in declaration order
+
+- **Built in parallel, registered in order, and those are two steps.** A
+  `commands` object or array used to add each sibling to the registry as its own
+  `initCommand()` finished, so the one with less to initialize registered first.
+  The registry keys its lookup by name and alias and a later registration wins a
+  shared spelling, so which command a word routed to came down to timing:
+  `{ ship: { alias: 'go', options: { '--force': {} } }, other: { alias: 'ship' } }`
+  gave `ship` to `ship`, and the same schema without the option gave it to
+  `other`. Now every sibling is built first and they are added in declaration
+  order -- `Promise.all()` keeps its results in input order however they settle
+  -- so "later" means later in the source, which is the only reading an author
+  can see. Building them one at a time would have fixed it too and costs the
+  parallelism for nothing; a package sibling is a real import.
+- **The rule is kept, not chosen.** A shared spelling between siblings is not
+  refused, and the later declaration wins it. Refusing it would be a different
+  ticket: completion, the markdown reference and the surface snapshot all read
+  the registry's own answer for who owns a token, and are tested on schemas that
+  share one on purpose.
+- **Every other place siblings arrive was already ordered.** A directory is
+  walked one route at a time in `resolveRoutes()`'s sorted order, both when the
+  schema is built and in `loadCommandDir()`; a placeholder's registry is handed
+  to its module as `Object.fromEntries()` of the registry, which is insertion
+  order and so is now declaration order; and a loaded module's own `commands`,
+  or a `subcommandLoaded` replacement's, go back through `initCommand()`. Each is
+  pinned in `siblings registered in the order their initialization finished` in
+  `test/parser/regressions.test.ts`, whose slow sibling waits on a timer -- a
+  timer fires only after every microtask, and an inline declaration is nothing
+  but microtasks, so the test is about the order and not about how fast a
+  machine is.
+
 ### Sharing options between commands
 
 - **Nothing declares what a command inherits, because nothing has to.** Options
