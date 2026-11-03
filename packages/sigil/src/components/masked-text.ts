@@ -35,7 +35,7 @@ import {
   promptAnswerSlot,
   promptHeadLine,
   promptHeadWidths,
-  PromptError,
+  refusePrompt,
   type PromptOptions,
   promptNote,
   promptWindow,
@@ -328,11 +328,6 @@ export function applyMask(
   return { complete, dropped, raw: cells.join(''), value: filled(mask, cells, next) };
 }
 
-/** Names an option that cannot be used, the way `number()` names a bad `step`. */
-function refuse(message: string, what: string): Promise<never> {
-  return Promise.reject(new PromptError(`"${message}" cannot be asked: ${what}`));
-}
-
 /**
  * Asks for text that follows a template.
  *
@@ -353,7 +348,7 @@ export function maskedText(opts: MaskedTextOptions): Promise<string> {
   try {
     mask = parseMask(opts.template, opts.slots);
   } catch (err) {
-    return refuse(opts.message, `\`template\` is not usable: ${(err as Error).message}`);
+    return refusePrompt(opts.message, `\`template\` is not usable: ${(err as Error).message}`);
   }
 
   const count = mask.slots.length;
@@ -363,7 +358,7 @@ export function maskedText(opts: MaskedTextOptions): Promise<string> {
   if (opts.default !== undefined) {
     const given = applyMask(opts.template, opts.default, opts.slots);
     if (!given.complete || given.dropped > 0) {
-      return refuse(opts.message, '`default` does not fill the template exactly');
+      return refusePrompt(opts.message, '`default` does not fill the template exactly');
     }
     fallback = given.value;
   }
@@ -384,7 +379,7 @@ export function maskedText(opts: MaskedTextOptions): Promise<string> {
   if (!took && opts.initial !== undefined) {
     const { dropped, next } = fill(mask, cells, 0, opts.initial, true);
     if (dropped > 0) {
-      return refuse(opts.message, '`initial` has characters that do not fit the template');
+      return refusePrompt(opts.message, '`initial` has characters that do not fit the template');
     }
     cursor = next;
   }

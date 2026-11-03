@@ -26,7 +26,6 @@
  * under "Tabs".
  */
 
-import { strip } from '../ansi/index.js';
 import { box, type Element, type ElementProps, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { DescribeOptions } from '../input/index.js';
@@ -34,7 +33,7 @@ import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
-import { unicodeSupported } from './note.js';
+import { labelLine, unicodeSupported } from './note.js';
 
 /** One tab: its label, and the panel it shows. */
 export interface Tab {
@@ -96,11 +95,6 @@ const ROWS = new WeakMap<Element, Element>();
 /** Each row's and each `Tabs` host's active index. */
 const ACTIVE = new WeakMap<Element, State<number>>();
 
-/** A label as it will sit in the row: one line, no escape sequences. */
-function oneLine(value: string): string {
-  return strip(value).replaceAll(/\s+/g, ' ').trim();
-}
-
 /** Puts `next` in place of a parent's children if it is not already what they are. */
 function setChildren(host: Element, next: readonly Element[]): void {
   const now = host.children;
@@ -143,7 +137,7 @@ export function tabRowView(props: TabRowProps): Element {
     throw new TypeError(__`Expected tabs active to be a number or a State`);
   }
 
-  const labels = props.labels.map(oneLine);
+  const labels = props.labels.map(labelLine);
   const count = labels.length;
   const full = labels.map((label) => stringWidth(label) + 2);
   const active = props.active instanceof State ? props.active : new State(props.active ?? 0);
@@ -190,13 +184,13 @@ export function tabRowView(props: TabRowProps): Element {
   const lit = rule('sigil-accent');
   const after = rule('sigil-muted');
 
-  const labelLine = box({ class: 'sigil-tabs-labels', 'flex-direction': 'row' });
+  const labelRow = box({ class: 'sigil-tabs-labels', 'flex-direction': 'row' });
   const ruleLine = box({ class: 'sigil-tabs-rules', 'flex-direction': 'row' });
 
   const host = box({ ...props.props, 'flex-direction': 'column', focusable: true });
   // added rather than written into the props, so an app's own `class` is kept
   host.addClass('sigil-tabs-row');
-  host.append(labelLine, ruleLine);
+  host.append(labelRow, ruleLine);
   ROWS.set(host, host);
   ACTIVE.set(host, active);
 
@@ -301,7 +295,7 @@ export function tabRowView(props: TabRowProps): Element {
     put(lit, marks.active.repeat(stretch), stretch);
     put(after, marks.rest.repeat(rest), rest);
 
-    setChildren(labelLine, [
+    setChildren(labelRow, [
       ...(overflow ? [left] : []),
       ...visible,
       ...(overflow ? [filler, right] : []),

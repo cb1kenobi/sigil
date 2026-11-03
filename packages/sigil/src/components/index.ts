@@ -129,6 +129,7 @@ export {
   type PathEntry,
   type PathFilter,
   type PathFlavour,
+  pathFoldCase,
   type PathOptions,
 } from './path.js';
 export {
@@ -155,6 +156,7 @@ export {
   PromptBack,
   PromptError,
   type PromptOptions,
+  refusePrompt,
   select,
   type SelectOptions,
   separator,
@@ -193,6 +195,7 @@ export {
   type PromptLineKeyDone,
   type PromptLineKeyQuery,
   promptNote,
+  promptListRows,
   promptRowCap,
   promptLineChoice,
   type PromptLineChoice,
@@ -221,7 +224,7 @@ export {
   type KeyHelpSource,
   keyLabel,
 } from './key-help.js';
-export { mountLevel, type Mounted, type MountOptions, mountLive } from './mount.js';
+export { mountLevel, type Mounted, type MountOptions, mountLive, writeLine } from './mount.js';
 export {
   FRAMEWORK_CSS,
   frameworkSheet,
@@ -531,6 +534,7 @@ export {
   type SelectRowOptions,
 } from './select-row.js';
 export {
+  labelLine,
   note,
   type NoteBorder,
   type NoteOptions,

@@ -47,6 +47,7 @@ import {
   promptHeadWidths,
   type PromptOptions,
   PromptError,
+  refusePrompt,
   promptSameValue,
   promptTailFits,
   promptUnderHead,
@@ -121,11 +122,6 @@ function fold(key: string): string {
   return key.toLowerCase();
 }
 
-/** Names an option that cannot be used, the way `number()` does. */
-function refuse(message: string, what: string): Promise<never> {
-  return Promise.reject(new PromptError(`"${message}" cannot be asked: ${what}`));
-}
-
 /**
  * The list with every choice's key settled, or what is wrong with it.
  *
@@ -195,7 +191,7 @@ export function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T> {
   const all = lines(opts);
 
   if (typeof all === 'string') {
-    return refuse(opts.message, all);
+    return refusePrompt(opts.message, all);
   }
 
   const offered = all.filter(
@@ -220,7 +216,7 @@ export function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T> {
   // an `initial` that names nothing is refused even beside a `value` that does:
   // it is a mistake in the program, whatever the earlier answer happened to be
   if (opts.initial !== undefined && !byKey.has(fold(opts.initial))) {
-    return refuse(
+    return refusePrompt(
       opts.message,
       `\`initial\` ${JSON.stringify(opts.initial)} is not the key of a choice on offer`
     );

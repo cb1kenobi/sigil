@@ -56,7 +56,7 @@ import {
   promptNote,
   type PromptOptions,
   PromptError,
-  promptRowCap,
+  promptListRows,
   promptSameValue,
   promptValue,
   promptWindow,
@@ -657,12 +657,11 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
     /**
      * The rows the list has, once the question and the foot have taken theirs.
      *
-     * `promptRowCap()` is the palette's rule, for the palette's reason: a `rows`
-     * that is `NaN` must not blank the list.
+     * `promptListRows()` is the palette's rule, for the palette's reason: a
+     * `rows` that is `NaN` must not blank the list.
      */
     const room = (): number => {
-      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines - (multi ? 3 : 1));
-      return Math.max(1, Math.min(promptRowCap(opts.rows, avail), avail));
+      return promptListRows(opts.rows, terminal.height, head.lines + (multi ? 3 : 1));
     };
 
     function draw(): void {

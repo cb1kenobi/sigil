@@ -160,6 +160,20 @@ describe('barChart()', () => {
       ]);
     });
 
+    it('should draw a label with its escape sequences gone, as every other component does', () => {
+      // SIG-242: the chart's own copy of the label rule collapsed whitespace and
+      // never stripped, under a comment saying it did -- so a styled label had
+      // its `ESC` dropped by the grid and `[31m` drawn in its place, and was
+      // measured three columns wider than what was left. It is `labelLine()`
+      // now, the note's, the badge's, the rule's and the tabs' rule
+      const red = `${ESC}[31mred${ESC}[39m`;
+
+      expect(bars({ [red]: 2, blue: 2 }, { showValues: false, width: 10 })).to.deep.equal([
+        'red  █████',
+        'blue █████',
+      ]);
+    });
+
     it('should cut a label to labelWidth', () => {
       const rows = bars({ 'a long label': 1 }, { labelWidth: 5, width: 20 });
 

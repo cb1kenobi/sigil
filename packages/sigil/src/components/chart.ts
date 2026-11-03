@@ -14,7 +14,7 @@ import { box, type Element, renderToString, text as textNode } from '../element/
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
 import { terminalWidth, truncate } from '../wrap/index.js';
-import { unicodeSupported } from './note.js';
+import { labelLine, unicodeSupported } from './note.js';
 import { renderBar } from './progress.js';
 
 /** Which role a chart takes its colour from. `none` is the terminal's own foreground. */
@@ -423,16 +423,6 @@ function datums(data: BarData): BarDatum[] {
 }
 
 /**
- * One line, with the escape sequences and line breaks a label might carry gone.
- *
- * @param value - The label.
- * @returns The label as a single line.
- */
-function singleLine(value: string): string {
-  return String(value).replaceAll(/\s+/g, ' ').trim();
-}
-
-/**
  * A horizontal bar, in cells and eighths of a cell.
  *
  * @param ratio - How long, 0 to 1.
@@ -467,7 +457,7 @@ function horizontalBars(data: readonly BarDatum[], opts: BarChartOptions): Row[]
     data.map((d) => d.value),
     { max: opts.max, min: opts.min ?? Math.min(0, ...data.map((d) => d.value).filter(isPlottable)) }
   );
-  const labels = data.map((d) => singleLine(d.label));
+  const labels = data.map((d) => labelLine(d.label));
   const cap = count(opts.labelWidth, Infinity);
   const labelWidth = Math.min(cap, Math.max(0, ...labels.map((label) => stringWidth(label))));
   const values = data.map((d) => (isPlottable(d.value) ? format(d.value) : '-'));
@@ -513,7 +503,7 @@ function verticalBars(data: readonly BarDatum[], opts: BarChartOptions): Row[] {
     data.map((d) => d.value),
     { max: opts.max, min: opts.min ?? Math.min(0, ...data.map((d) => d.value).filter(isPlottable)) }
   );
-  const labels = data.map((d) => singleLine(d.label));
+  const labels = data.map((d) => labelLine(d.label));
   const values = data.map((d) => (isPlottable(d.value) ? format(d.value) : '-'));
   const showValues = opts.showValues !== false;
   const height = count(opts.height, DEFAULT_HEIGHT);
@@ -694,10 +684,10 @@ function lineDrawing(values: readonly number[], opts: LineChartOptions): Drawing
 
     const [start, end] = opts.xLabels ?? ['', ''];
     if (start !== '' || end !== '') {
-      const first = truncate(singleLine(start), plotWidth, 'ellipsis');
+      const first = truncate(labelLine(start), plotWidth, 'ellipsis');
       // the end label is dropped where it would run into the start one
       const last =
-        stringWidth(first) + 1 + stringWidth(singleLine(end)) <= plotWidth ? singleLine(end) : '';
+        stringWidth(first) + 1 + stringWidth(labelLine(end)) <= plotWidth ? labelLine(end) : '';
       rows.push([
         {
           text: `${' '.repeat(gutter + 2)}${first}${' '.repeat(plotWidth - stringWidth(first) - stringWidth(last))}${last}`,
@@ -772,7 +762,7 @@ function gaugeDrawing(value: number, opts: GaugeOptions): Drawing {
 
   const row: Segment[] = [];
   if (opts.label) {
-    row.push({ text: `${singleLine(opts.label)} ` });
+    row.push({ text: `${labelLine(opts.label)} ` });
   }
   // the bar's own arithmetic, asked of each half: `renderBar()` with one of the
   // two characters empty draws only the other, so the cell count and the rounding
@@ -781,7 +771,7 @@ function gaugeDrawing(value: number, opts: GaugeOptions): Drawing {
     { role, text: renderBar(ratio, width, filled, '') },
     { role: 'sigil-muted', text: renderBar(ratio, width, '', empty) },
     {
-      text: ` ${opts.detail === undefined ? `${Math.round(ratio * 100)}%` : singleLine(opts.detail)}`,
+      text: ` ${opts.detail === undefined ? `${Math.round(ratio * 100)}%` : labelLine(opts.detail)}`,
     }
   );
 

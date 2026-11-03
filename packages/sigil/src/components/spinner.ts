@@ -3,7 +3,7 @@ import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
-import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
+import { type Mounted, type MountOptions, mountLive, writeLine } from './mount.js';
 import { unicodeSupported } from './note.js';
 
 /**
@@ -407,25 +407,7 @@ export function createSpinner(opts: SpinnerOptions = {}): Spinner {
     },
 
     write(line: string): void {
-      if (mounted) {
-        mounted.write(line);
-        return;
-      }
-      // nothing has claimed the screen, so there is nothing to write above --
-      // and this is the one place a built-in writes without going through a
-      // backend, so it is the one place that has to ask the fold itself. It
-      // leaked `"leaked\n"` under quiet before it did: not only before a
-      // `start()`, but after every `succeed()`, which clears `mounted`.
-      //
-      // Asked *now* rather than frozen, which is the one place a component does
-      // not reuse a mount's answer -- and it has to be: a facade built at module
-      // scope exists before `main()` has read argv, so a level frozen at
-      // construction could never see `--quiet` at all. The mounted branch above
-      // keeps what its mount resolved, which is what "resolves it once" means
-      if (mountLevel({ ...opts, terminal }) === 'quiet') {
-        return;
-      }
-      terminal.write(line.endsWith('\n') ? line : `${line}\n`);
+      writeLine(mounted, { ...opts, terminal }, line);
     },
   };
 

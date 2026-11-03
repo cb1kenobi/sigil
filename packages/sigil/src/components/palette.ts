@@ -54,7 +54,7 @@ import {
   promptHeadLine,
   promptHeadWidths,
   type PromptOptions,
-  promptRowCap,
+  promptListRows,
   promptWindow,
   runPrompt,
   select,
@@ -558,8 +558,9 @@ function runList(
     /**
      * The rows the list has, once the question has taken its own.
      *
-     * `promptRowCap()` is the multiline field's own rule rather than a second
-     * one: `rows >= 1` is what refuses `NaN`, and a fraction is floored. This
+     * `promptListRows()` reads `rows` by the multiline field's own rule rather
+     * than a second one: `rows >= 1` is what refuses `NaN`, and a fraction is
+     * floored. This
      * read `Math.max(1, opts.rows ?? ...)`, and `Math.max(1, NaN)` is `NaN` --
      * which blanked the list while keeping the empty message hidden, because
      * `rank >= NaN` is false for every row. Found by review.
@@ -569,8 +570,7 @@ function runList(
      * screen -- which is what the field's own cap already means.
      */
     const room = (): number => {
-      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines);
-      return Math.max(1, Math.min(promptRowCap(opts.rows, avail), avail));
+      return promptListRows(opts.rows, terminal.height, head.lines);
     };
 
     function draw(): void {

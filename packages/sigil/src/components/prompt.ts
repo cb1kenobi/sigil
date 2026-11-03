@@ -65,6 +65,23 @@ export class PromptError extends Error {
 }
 
 /**
+ * Refuses a prompt over an option that cannot be used, naming the prompt.
+ *
+ * A rejected promise rather than a throw, because every prompt that asks it is
+ * an `async`-shaped function a caller awaits: refusing synchronously would be a
+ * second way for one prompt to fail. Six prompts wrote it out byte for byte --
+ * `editor()`, `list()`, `maskedText()`, `number()`, `selectKey()` and `toggle()`
+ * -- each with a comment pointing at another one as the precedent.
+ *
+ * @param message - The prompt's question, which is how a reader finds it.
+ * @param what - What is wrong with the options.
+ * @returns A promise that rejects with a `PromptError`.
+ */
+export function refusePrompt(message: string, what: string): Promise<never> {
+  return Promise.reject(new PromptError(`"${message}" cannot be asked: ${what}`));
+}
+
+/**
  * Thrown when a prompt asked with `back` is left with Escape, to go back a step.
  *
  * Not a {@link PromptError}, because it is neither of the two things that is: the
@@ -2330,6 +2347,31 @@ function rowCap(rows: number | undefined, fallback = 10): number {
 }
 
 /**
+ * How many rows a list prompt's list has, once everything above and below it
+ * has taken its own.
+ *
+ * `rowCap()` is the caller's `rows` read the multiline field's way -- `NaN`
+ * refused, a fraction floored, `Infinity` passed -- and this bounds it by what
+ * the terminal has left, so `rows: Infinity` is "as many as there is room for"
+ * rather than a canvas taller than the screen. Never less than one, so a
+ * terminal with no room left still shows the row the cursor is on.
+ *
+ * The path, file-picker, autocomplete, palette, sort, tree and table prompts
+ * each wrote the two lines out, the path's and the file picker's byte for byte;
+ * what differs between them is only what each one reserves, which is the
+ * argument.
+ *
+ * @param rows - What the caller asked for.
+ * @param height - The terminal's height.
+ * @param reserved - The rows the question, the footer and anything else take.
+ * @returns The rows the list may use.
+ */
+function listRows(rows: number | undefined, height: number, reserved: number): number {
+  const avail = Math.max(1, Math.max(1, height) - reserved);
+  return Math.max(1, Math.min(rowCap(rows, avail), avail));
+}
+
+/**
  * Asks for several lines of text.
  *
  * Enter inserts a newline, so submitting is a key of its own -- Ctrl-D by
@@ -4289,6 +4331,7 @@ export {
   sameValue as promptSameValue,
   promptFooter,
   promptKeys,
+  listRows as promptListRows,
   rowCap as promptRowCap,
   headWidths as promptHeadWidths,
   fitsBeside as promptTailFits,

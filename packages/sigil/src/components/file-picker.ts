@@ -29,6 +29,7 @@ import {
   type PathEntry,
   type PathFilter,
   type PathFlavour,
+  pathFoldCase,
 } from './path.js';
 import {
   type AccessibleOptions,
@@ -46,7 +47,7 @@ import {
   type PromptLineReply,
   type PromptOptions,
   promptNote,
-  promptRowCap,
+  promptListRows,
   runLinePrompt,
   runPrompt,
   setPromptNote,
@@ -117,14 +118,9 @@ export interface FilePickerOptions extends PromptOptions, AccessibleOptions {
 export type FilePickerFlavour = PathFlavour &
   Pick<typeof nodePath, 'basename' | 'dirname' | 'join'>;
 
-/** Whether a flavour is Windows, for `path.ts`'s reason: the backslash is what says so. */
-function caseless(flavour: PathFlavour): boolean {
-  return flavour.sep === '\\';
-}
-
 /** Two names for one thing, by the file system's rule for case. */
 function sameName(a: string, b: string, flavour: PathFlavour): boolean {
-  return caseless(flavour) ? a.toLowerCase() === b.toLowerCase() : a === b;
+  return pathFoldCase(a, flavour) === pathFoldCase(b, flavour);
 }
 
 /**
@@ -386,8 +382,7 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
 
     /** The rows the list has once the question and the complaint have taken theirs. */
     const room = (): number => {
-      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines - (error ? 1 : 0));
-      return Math.max(1, Math.min(promptRowCap(opts.rows, avail), avail));
+      return promptListRows(opts.rows, terminal.height, head.lines + (error ? 1 : 0));
     };
 
     /**
