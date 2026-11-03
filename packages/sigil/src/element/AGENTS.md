@@ -201,3 +201,18 @@ the entry it belongs to.
 - **`LayoutNode.children` is readonly, because the element tree's children are
   its own.** Nothing in the layout engine writes them, and an implementation
   cannot hand out an array anything may splice.
+- **A link is `href` on a text, a reserved name rather than a property (SIG-197).**
+  The canvas has carried a link in every cell's style since it was written, and the
+  painter wrote `link: ''` for every element, so nothing above the grid could set
+  one. A URL is content, not style -- no theme restyles it -- so it is a reserved
+  name beside `id` and `tabindex`, and it is **not inherited**: the cells a link
+  covers are the cells its text draws, so a box has none of its own to give one,
+  and a fill under a linked word is not a link. It is added to the text's glyphs in
+  paint, not in `cellStyle()`, for the same reason. A URL holding a control
+  character is refused where it is given, because the canvas would refuse it a
+  frame later and far away. `renderToString()` at colour level 0 leaves the link
+  out with the colours: that level means "write no escape sequence", and the
+  cascade cannot drop a link the way it drops a colour because a link is not style.
+  Whether the terminal draws OSC 8 at all is the caller's question --
+  `supportsHyperlinks()` answers it -- and the live renderer writes whatever it is
+  given, as it always has. See `test/element/href.test.ts`.

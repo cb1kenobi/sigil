@@ -55,7 +55,7 @@ describe('the framework sheet', () => {
    * `.sigil-prompt-hint { dim: true }` added back here is a declaration the
    * light half does not cover, and it looks like every other rule in the file.
    *
-   * The ten exceptions are declared rather than discovered. `.sigil-caret` is
+   * The thirteen exceptions are declared rather than discovered. `.sigil-caret` is
    * `inverse` and no role is inversion, and `.sigil-badge` is `inverse` for the
    * same reason: it is how a role's colour becomes a background.
    * `.sigil-pager-match` is `inverse` a third time, because a search highlight
@@ -77,11 +77,15 @@ describe('the framework sheet', () => {
    * for the same reason: only the active label is inverted. `.sigil-text-field:focus
    * .sigil-text-field-caret` is `inverse` a fifth time, keyed on the field's state
    * because a form holds several fields and only the focused one may show a caret.
-   * And `.sigil-text-field` is a background a second time, for the overlay's
+   * `.sigil-text-field` is a background a second time, for the overlay's
    * reason -- no role is one -- and because without it a field at rest is the same
    * bytes as a label: it is what says the field is there before anything focuses it.
+   * And `.sigil-markdown-em`, `.sigil-markdown-strong` and `.sigil-markdown-link` are
+   * italic, bold and underlined because that is what the author of the markdown
+   * wrote -- the words' meaning rather than a colour -- and the bold one is not the
+   * heading role, or a theme that coloured headings would colour every strong word.
    */
-  it('should declare on a role, bar ten exceptions that say why', () => {
+  it('should declare on a role, bar thirteen exceptions that say why', () => {
     const ROLES = [
       '.sigil-accent',
       '.sigil-muted',
@@ -96,6 +100,9 @@ describe('the framework sheet', () => {
       '.sigil-caret',
       '.sigil-collapsible-title:focus',
       '.sigil-debug',
+      '.sigil-markdown-em',
+      '.sigil-markdown-link',
+      '.sigil-markdown-strong',
       '.sigil-pager-match',
       '.sigil-qrcode-paint',
       '.sigil-scroll-track',

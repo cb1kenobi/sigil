@@ -4416,6 +4416,97 @@ view through the roles and through `.sigil-diff-add`, `.sigil-diff-remove`,
 `.sigil-diff-marker` and `.sigil-diff-hunk`. At colour level 0 the colours and the
 bold are gone and the `+` and `-` markers say which side a line is on.
 
+#### Markdown
+
+```js
+import { markdown } from '@ttylabs/sigil/components';
+import { readFileSync } from 'node:fs';
+
+console.log(
+  markdown(readFileSync('CHANGELOG.md', 'utf8'), {
+    baseUrl: 'https://github.com/me/app/blob/main/',
+  })
+);
+```
+
+```
+Release 2.1.0
+
+The markdown release: markdown() draws a document like this one. See the
+README (https://github.com/me/app#readme).
+
+• Tables, with their columns lined up:
+
+  Option      Default   Meaning
+  ──────────  ────────  ─────────────────────────────────
+  width       terminal  The columns to wrap at
+  hyperlinks  detected  OSC 8, or the URL after the words
+```
+
+Markdown drawn as styled text, wrapped at the terminal's width (or `width`), so an
+app can show its own README or a changelog entry without a dependency. It reads
+**a subset** -- the one a README, a changelog and `sigil reference`'s pages are made
+of -- and shows **everything outside it as written**:
+
+| Read                                                                                   | Shown as written                                                |
+| -------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| ATX and setext headings, paragraphs, hard breaks                                       | Raw HTML, inline or as a block                                  |
+| `*emphasis*`, `**strong**`, `` `code` ``, backslash escapes, a few entities            | `~~strikethrough~~`, footnotes, `[ ]` task boxes                |
+| Fenced and indented code blocks                                                        | Bare URLs (which a terminal already makes clickable on its own) |
+| Bulleted and numbered lists, nested, tight and loose                                   | A link reference definition spread over more than one line      |
+| Block quotes, nested; GFM pipe tables with alignment; thematic breaks                  |                                                                 |
+| Inline, reference (full, collapsed, shortcut) and autolinks; images, as their alt text |                                                                 |
+
+A YAML front matter block at the very top is the one thing left out, since it is
+data for a site generator. The parser follows CommonMark's own algorithm for
+emphasis and links, so unterminated or overlapping emphasis comes out the way it
+does everywhere else -- an `*` with no partner is an `*`.
+
+**Links** are OSC 8 hyperlinks where the terminal is one known to draw them, which
+puts the URL behind the words; anywhere else the URL is written after the words in
+parentheses, so a pipe, a log or an unknown terminal still says where a link goes.
+`hyperlinks` decides it outright, and by default `supportsHyperlinks()` from
+`@ttylabs/sigil/ansi` is asked about `stream`: iTerm2, WezTerm, VS Code, Ghostty,
+kitty, Windows Terminal, foot, Alacritty, Konsole and the VTE terminals say yes,
+`FORCE_HYPERLINK` overrides it, and **an unknown terminal is a no**, because a wrong
+yes loses the URL and a wrong no only shows it. Colour level 0 always writes the
+URL out. A relative link is resolved against `baseUrl` and is otherwise shown and
+not linked, and a `#fragment` link is its words alone. An image is its alt text,
+linked to the picture where links are drawn.
+
+| Option       | Meaning                                                               |
+| ------------ | --------------------------------------------------------------------- |
+| `width`      | The columns to wrap at, never under 10. Defaults to `terminalWidth()` |
+| `hyperlinks` | `true` for OSC 8, `false` for the URL after the words. Detected       |
+| `baseUrl`    | What a relative link is resolved against                              |
+| `stream`     | What `supportsHyperlinks()` and `terminalWidth()` ask about. stdout   |
+| `env`        | The environment both read, and `unicodeSupported()` with `platform`   |
+
+A table is narrowed to the room it has, widest column first, and its cells wrap; a
+code line wider than the room is folded by columns rather than wrapped at a space.
+Wide characters and emoji are measured in columns, so a table with CJK in it lines
+up. Where `unicodeSupported()` says box drawing is not safe, the bullets, the quote
+bar and the rules are ASCII.
+
+Every colour is the theme's. A heading is `.sigil-heading` (and the first level
+`.sigil-accent` too), inline and block code and a link are `.sigil-accent`, and a
+list marker, the quote bar, a written-out URL and an image are `.sigil-muted` --
+so restyling a role restyles the document with everything else. Emphasis, strong
+emphasis and a link are italic, bold and underlined by `.sigil-markdown-em`,
+`-strong` and `-link`. A table carries `table()`'s own classes, so a theme written
+for one reaches both. `.sigil-markdown`, `-paragraph`, `-heading`, `-h1` to `-h6`,
+`-code`, `-code-block`, `-quote`, `-quote-bar`, `-list`, `-item`, `-marker`, `-url`,
+`-image`, `-table` and `-cell` are the narrower hooks.
+
+`markdown()` returns a string and the caller does the writing, like `note()`, so it
+ignores `--quiet`. `markdownView()` is the element tree behind it, and both take
+blocks as well as source: `parseMarkdown()` is exported on its own and returns a
+plain tree of `heading`, `paragraph`, `code`, `quote`, `list`, `table` and `rule`
+blocks over `text`, `code`, `emphasis`, `strong`, `link`, `image` and `break` runs,
+and `markdownText()` says what a list of runs says without its formatting.
+`text()` from `@ttylabs/sigil/element` takes an `href` for the same OSC 8 link on
+anything else.
+
 #### Outline
 
 ```js

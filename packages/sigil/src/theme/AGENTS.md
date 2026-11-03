@@ -86,8 +86,16 @@ the entry it belongs to.
   different job: the overlay has to be opaque over the app, a field has to be
   distinct from the box around it, so it is index 8 on a dark terminal and 7 on a
   light one where the overlay is 0 and 7. The decisions and the measurement behind
-  the pair are under "A text field at rest" in `src/components`. `should
-  declare on a role, bar ten exceptions that say why` is the invariant, and it
+  the pair are under "A text field at rest" in `src/components`. The eleventh,
+  twelfth and thirteenth (SIG-197) are markdown's `.sigil-markdown-em`,
+  `-strong` and `-link` -- italic, bold and underline -- and they share one reason
+  that none of the ten before them has: they are what the words _mean_, which the
+  author of the document wrote, rather than a colour anybody picked, and that is
+  the user-agent sheet's answer to `<em>` and `<strong>` too. Strong is not
+  `.sigil-heading` though both are bold, because a role is restyled whole and a
+  theme that coloured headings would have coloured every strong word in a
+  paragraph. Everything else markdown draws is on a role. `should
+  declare on a role, bar thirteen exceptions that say why` is the invariant, and it
   reads the **parsed** sheet rather than the source, because the comment listing
   the component classes as hooks would otherwise be mistaken for a rule. It was
   three until SIG-136, and the sentence here still said three for a commit after

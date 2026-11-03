@@ -380,6 +380,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/51-toast.js`](components/51-toast.js)                                       | Toasts in a corner over a list: a stack of three, the focus untouched    |
 | [`components/52-tooltip.js`](components/52-tooltip.js)                                   | Tooltips on a toolbar: hover or focus, flipped at an edge, hidden by Esc |
 | [`components/53-settled-answers.js`](components/53-settled-answers.js)                   | Where an answer goes once it is chosen: beside the question, or under it |
+| [`components/54-markdown.js`](components/54-markdown.js)                                 | A changelog entry drawn from markdown, at two widths and through a theme |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -593,6 +594,18 @@ while it is being asked, so the question wraps instead and the answer stays besi
 it. On a terminal it asks the same four at your own width. Either way it ends by
 printing the values the prompts resolved with, which where an answer is drawn does
 not change.
+
+`54-markdown.js` draws a release's notes from markdown three times: at the
+terminal's width, at 44 columns -- where the table is wider than the room, so its
+widest column gives up width and its cells wrap -- and through a theme that
+recolours the accent, the second-level headings, the strong words and the quote bar
+without the document saying anything about colour. The first rule says how the
+links came out: as OSC 8 hyperlinks on a terminal known to draw them, with the URL
+out of sight behind the words, and anywhere else with the URL written after them.
+Piped there is no colour and no hyperlink, so every URL is in the text;
+`FORCE_HYPERLINK=1` says yes for a terminal the detection does not know. The quote
+shows what the subset leaves alone: a `~~strike~~` and raw HTML come out as they
+were written.
 
 ### Try them without a terminal
 
