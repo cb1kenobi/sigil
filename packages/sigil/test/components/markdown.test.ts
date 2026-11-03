@@ -274,11 +274,57 @@ describe('parseMarkdown()', () => {
         'list',
       ]);
     });
+  });
 
-    it('should read a task box as the text it is', () => {
-      expect(first('- [ ] todo')).to.deep.include({
-        items: [[{ children: [{ text: '[ ] todo', type: 'text' }], type: 'paragraph' }]],
+  describe('task lists', () => {
+    const para = (text: string): MarkdownBlock => ({
+      children: [{ text, type: 'text' }],
+      type: 'paragraph',
+    });
+
+    it('should read a box at the start of an item, and take it off the text', () => {
+      expect(first('- [ ] todo\n- [x] done\n- [X] also')).to.deep.include({
+        checked: [false, true, true],
+        items: [[para('todo')], [para('done')], [para('also')]],
       });
+    });
+
+    it('should say which items of a mixed list are not tasks', () => {
+      expect(first('1. [x] one\n2. two')).to.deep.include({
+        checked: [true, undefined],
+        items: [[para('one')], [para('two')]],
+      });
+    });
+
+    it('should leave a list with no task in it as it was', () => {
+      expect(first('- a\n- b')).not.to.have.property('checked');
+    });
+
+    it.each([
+      ['in the middle of an item', '- a [x] b', '- a [x] b'],
+      ['with nothing after it', '- [x]', '- [x]'],
+      ['with no space after it', '- [x]b', '- [x]b'],
+      ['escaped', '- \\[x] b', '- [x] b'],
+      ['another character in it', '- [-] b', '- [-] b'],
+    ])('should not read a box %s', (_, source, shown) => {
+      const block = first(source);
+      expect(block).not.to.have.property('checked');
+      expect(block.type === 'list' && block.items[0]).to.deep.equal([para(shown.slice(2))]);
+    });
+
+    it('should not read a box outside a list', () => {
+      expect(first('[x] not a task')).to.deep.equal(para('[x] not a task'));
+    });
+
+    it('should not read a box at the start of anything but the first paragraph', () => {
+      expect(first('- # [x] heading')).not.to.have.property('checked');
+      expect(first('- > [x] quote')).not.to.have.property('checked');
+      expect(first('- a\n\n  [x] second paragraph')).not.to.have.property('checked');
+    });
+
+    it('should take a box before a link of the same label', () => {
+      const block = first('- [x] done\n\n[x]: https://x');
+      expect(block).to.deep.include({ checked: [true], items: [[para('done')]] });
     });
   });
 
@@ -438,6 +484,153 @@ describe('parseMarkdown()', () => {
     });
   });
 
+  describe('strikethrough', () => {
+    const struck = (text: string) => ({
+      children: [{ text, type: 'text' }],
+      type: 'strikethrough',
+    });
+
+    it('should read a run between two pairs of tildes', () => {
+      expect(runs('a ~~gone~~ b')).to.deep.equal([
+        { text: 'a ', type: 'text' },
+        struck('gone'),
+        { text: ' b', type: 'text' },
+      ]);
+    });
+
+    it('should read emphasis inside it, and it inside emphasis', () => {
+      expect(runs('~~**a**~~ *~~b~~*')).to.deep.equal([
+        {
+          children: [{ children: [{ text: 'a', type: 'text' }], type: 'strong' }],
+          type: 'strikethrough',
+        },
+        { text: ' ', type: 'text' },
+        { children: [struck('b')], type: 'emphasis' },
+      ]);
+    });
+
+    // GitHub takes one tilde as well; in what a CLI prints, one is "about" or a
+    // home directory, and two of them in a paragraph would strike everything between
+    it.each(['~one~', 'about ~5s, or ~/.config and ~/.cache', 'a ~~~three~~~', '~~a~', 'a~~'])(
+      'should leave %j as the text it is',
+      (source) => {
+        expect(runs(source)).to.deep.equal([{ text: source, type: 'text' }]);
+      }
+    );
+
+    it('should follow the flanking rules emphasis does', () => {
+      expect(runs('~~ a ~~')).to.deep.equal([{ text: '~~ a ~~', type: 'text' }]);
+      expect(runs('a~~b~~c')).to.deep.equal([
+        { text: 'a', type: 'text' },
+        struck('b'),
+        { text: 'c', type: 'text' },
+      ]);
+    });
+
+    it('should not be read inside a code span, and keep an escaped tilde', () => {
+      expect(runs('`~~a~~` \\~~b~~')).to.deep.equal([
+        { text: '~~a~~', type: 'code' },
+        { text: ' ~~b~~', type: 'text' },
+      ]);
+    });
+  });
+
+  describe('footnotes', () => {
+    const note = (index: number, label: string, text: string) => ({
+      children: [{ children: [{ text, type: 'text' }], type: 'paragraph' }],
+      index,
+      label,
+    });
+
+    it('should number the references by where each is first made, and collect the notes at the end', () => {
+      const doc = parseMarkdown('b[^b] a[^a] b again[^b]\n\n[^a]: A.\n[^b]: B.');
+      expect(doc).to.deep.equal([
+        {
+          children: [
+            { text: 'b', type: 'text' },
+            { index: 1, label: 'b', type: 'footnote' },
+            { text: ' a', type: 'text' },
+            { index: 2, label: 'a', type: 'footnote' },
+            { text: ' b again', type: 'text' },
+            { index: 1, label: 'b', type: 'footnote' },
+          ],
+          type: 'paragraph',
+        },
+        { notes: [note(1, 'b', 'B.'), note(2, 'a', 'A.')], type: 'footnotes' },
+      ]);
+    });
+
+    it('should read the indented blocks under a definition as its own', () => {
+      const doc = parseMarkdown('x[^1]\n\n[^1]: One\ncarried on.\n\n    Two.\n\nAfter.');
+      expect(doc.map((block) => block.type)).to.deep.equal(['paragraph', 'paragraph', 'footnotes']);
+      const notes = doc.at(-1)!;
+      expect(notes.type === 'footnotes' && notes.notes[0].children).to.deep.equal([
+        { children: [{ text: 'One carried on.', type: 'text' }], type: 'paragraph' },
+        { children: [{ text: 'Two.', type: 'text' }], type: 'paragraph' },
+      ]);
+    });
+
+    it('should end a paragraph, and a definition, at the next definition', () => {
+      const doc = parseMarkdown('x[^1][^2]\n[^1]: One\n[^2]: Two');
+      expect(doc).to.have.length(2);
+      expect(doc[1]).to.deep.equal({
+        notes: [note(1, '1', 'One'), note(2, '2', 'Two')],
+        type: 'footnotes',
+      });
+    });
+
+    it('should leave a reference to nothing as the text it is', () => {
+      expect(parseMarkdown('a[^nope]')).to.deep.equal([
+        { children: [{ text: 'a[^nope]', type: 'text' }], type: 'paragraph' },
+      ]);
+    });
+
+    it('should keep a definition nothing refers to, numbered after the rest', () => {
+      const doc = parseMarkdown('a[^used]\n\n[^spare]: Spare.\n[^used]: Used.');
+      expect(doc.at(-1)).to.deep.equal({
+        notes: [note(1, 'used', 'Used.'), note(2, 'spare', 'Spare.')],
+        type: 'footnotes',
+      });
+    });
+
+    it("should number a reference made inside a note after the document's own", () => {
+      const doc = parseMarkdown('a[^1]\n\n[^1]: see[^2]\n[^2]: Two.\n[^3]: Three.');
+      const notes = doc.at(-1)!;
+      expect(notes.type === 'footnotes' && notes.notes.map((it) => it.label)).to.deep.equal([
+        '1',
+        '2',
+        '3',
+      ]);
+    });
+
+    it('should collect a definition from inside a list or a quote', () => {
+      const doc = parseMarkdown('- a[^1]\n\n  [^1]: In a list.\n\n> [^2]: In a quote.');
+      const notes = doc.at(-1)!;
+      expect(notes.type === 'footnotes' && notes.notes.map((it) => it.label)).to.deep.equal([
+        '1',
+        '2',
+      ]);
+    });
+
+    it('should match a label in any case, and take the first definition of one', () => {
+      const doc = parseMarkdown('a[^Note]\n\n[^note]: First.\n[^NOTE]: Second.');
+      expect(doc.at(-1)).to.deep.equal({ notes: [note(1, 'note', 'First.')], type: 'footnotes' });
+    });
+
+    it('should read a link with a destination as a link, and an image as no reference', () => {
+      const doc = parseMarkdown('[^1](https://x) ![^1]\n\n[^1]: N.');
+      expect(doc[0].type === 'paragraph' && doc[0].children.map((it) => it.type)).to.deep.equal([
+        'link',
+        'text',
+      ]);
+    });
+
+    it('should say a reference as its number in markdownText()', () => {
+      const block = parseMarkdown('a[^1] ~~b~~\n\n[^1]: N.')[0];
+      expect(block.type === 'paragraph' && markdownText(block.children)).to.equal('a[1] b');
+    });
+  });
+
   describe('everything else', () => {
     it('should read a backslash escape and the entities it knows', () => {
       expect(runs('\\*not\\* &amp; &copy; &#65; &#x42; &unknown;')).to.deep.equal([
@@ -455,10 +648,6 @@ describe('parseMarkdown()', () => {
 
     it('should leave raw HTML as the text it is', () => {
       expect(runs('<b>bold</b>')).to.deep.equal([{ text: '<b>bold</b>', type: 'text' }]);
-    });
-
-    it('should leave a strikethrough as the text it is', () => {
-      expect(runs('~~gone~~')).to.deep.equal([{ text: '~~gone~~', type: 'text' }]);
     });
 
     // data for a site generator, and read as CommonMark it would be a rule and a
@@ -694,6 +883,123 @@ describe('markdown()', () => {
       expect(
         draw('| left | right | mid |\n| :-- | --: | :-: |\n| a | b | c |').split('\n')[2]
       ).to.equal('a         b   c');
+    });
+
+    it('should align every line of a cell that wraps', () => {
+      expect(
+        draw('| k | v |\n| - | --: |\n| a | one two three |', { width: 12 }).split('\n')
+      ).to.deep.equal(['k          v', '─  ─────────', 'a    one two', '       three']);
+    });
+
+    it('should draw the inline markup in a cell, and an escaped bar as a bar', () => {
+      expect(draw('| a |\n| - |\n| **b** \\| `c` ~~d~~ |').split('\n')[2]).to.equal('b | c ~~d~~');
+      expect(draw('| a |\n| - |\n| **b** |', { colorLevel: 1 }).split('\n')[2]).to.equal(
+        `${ESC}[1mb${ESC}[0m`
+      );
+    });
+  });
+
+  describe('strikethrough', () => {
+    it('should keep the tildes at colour level 0, where the line is dropped', () => {
+      expect(draw('a ~~old flag~~ new')).to.equal('a ~~old flag~~ new');
+    });
+
+    it('should strike the words and keep the tildes beside them where colour is drawn', () => {
+      expect(draw('a ~~old~~ b', { colorLevel: 1 })).to.equal(`a ~~${ESC}[9mold${ESC}[29m~~ b`);
+    });
+
+    it('should keep the underline on a struck link', () => {
+      const out = draw('[~~a~~](https://a)', { colorLevel: 1, hyperlinks: true });
+      expect(out).to.match(new RegExp(`${ESC}\\[4;36m.*~~${ESC}\\[9ma`));
+      expect(out).not.to.include(`${ESC}[24m${ESC}[9m`);
+    });
+
+    it('should let an app that knows its terminal draws the line take the tildes away', () => {
+      expect(
+        draw('a ~~old~~ b', {
+          colorLevel: 1,
+          sheets: ['.sigil-markdown-strike-marker { display: none }'],
+        })
+      ).to.equal(`a ${ESC}[9mold${ESC}[29m b`);
+    });
+  });
+
+  describe('task lists', () => {
+    it('should draw a box where the bullet would be', () => {
+      expect(draw('- [ ] todo\n- [x] done\n- plain').split('\n')).to.deep.equal([
+        '☐ todo',
+        '☒ done',
+        '• plain',
+      ]);
+    });
+
+    it('should draw the box after the number of a numbered item, and hang a wrap under its text', () => {
+      expect(
+        draw('1. [x] first\n2. second\n3. [ ] third, which is long', { width: 16 }).split('\n')
+      ).to.deep.equal(['1. ☒ first', '2.   second', '3. ☐ third,', '     which is', '     long']);
+    });
+
+    it('should draw the boxes as the author typed them where box drawing is not safe', () => {
+      expect(
+        draw('- [ ] todo\n- [x] done\n- plain', { env: { TERM: 'linux' } }).split('\n')
+      ).to.deep.equal(['[ ] todo', '[x] done', '*   plain']);
+    });
+
+    it('should draw an open box muted and a ticked one in the success role', () => {
+      const out = draw('- [ ] a\n- [x] b', { colorLevel: 1 }).split('\n');
+      expect(out[0]).to.match(new RegExp(`^${ESC}\\[2m☐`));
+      expect(out[1]).to.match(new RegExp(`^${ESC}\\[32m☒`));
+    });
+  });
+
+  describe('footnotes', () => {
+    it('should draw a reference as its number, and the notes after a rule at the end', () => {
+      expect(
+        draw('Said[^a] twice[^a], and[^b].\n\n[^b]: Bee.\n[^a]: Ay.\n\nEnd.', { width: 20 }).split(
+          '\n'
+        )
+      ).to.deep.equal([
+        'Said[1] twice[1],',
+        'and[2].',
+        '',
+        'End.',
+        '',
+        '─'.repeat(20),
+        '[1] Ay.',
+        '[2] Bee.',
+      ]);
+    });
+
+    it('should hang a note under its text, and space notes apart when one is two blocks', () => {
+      expect(
+        draw('a[^1] b[^2]\n\n[^1]: One two three.\n\n    More.\n[^2]: Two.', { width: 12 }).split(
+          '\n'
+        )
+      ).to.deep.equal([
+        'a[1] b[2]',
+        '',
+        '─'.repeat(12),
+        '[1] One two',
+        '    three.',
+        '',
+        '    More.',
+        '',
+        '[2] Two.',
+      ]);
+    });
+
+    it('should draw a reference to nothing as it was written', () => {
+      expect(draw('a[^nope]')).to.equal('a[^nope]');
+    });
+
+    it('should draw a reference muted, and not as part of the link it is in', () => {
+      const out = draw('[a[^1]](https://a) b[^1]\n\n[^1]: N.', {
+        colorLevel: 1,
+        hyperlinks: true,
+      }).split('\n')[0];
+      // the hyperlink is closed before the reference, and its underline taken off
+      expect(out).to.include(`${ESC}[24;2;39m${osc8('')}[1]`);
+      expect(out).to.include(`b${ESC}[2m[1]`);
     });
   });
 

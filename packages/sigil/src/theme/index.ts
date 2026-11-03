@@ -204,7 +204,10 @@ export const FRAMEWORK_CSS = `
  *   .sigil-markdown-list  .sigil-markdown-ol  .sigil-markdown-ul  .sigil-markdown-item
  *   .sigil-markdown-item-body  .sigil-markdown-marker  .sigil-markdown-url
  *   .sigil-markdown-image  .sigil-markdown-table  .sigil-markdown-table-rule
- *   .sigil-markdown-cell
+ *   .sigil-markdown-cell  .sigil-markdown-strike-marker  .sigil-markdown-task
+ *   .sigil-markdown-task-done  .sigil-markdown-footnote-ref  .sigil-markdown-footnotes
+ *   .sigil-markdown-footnote  .sigil-markdown-footnote-marker
+ *   .sigil-markdown-footnote-body
  * A class with no rule is still a hook; giving it an empty rule would be a
  * declaration that says nothing and a line for somebody to wonder about. Most of
  * them are here because a role carries what they used to say, which is the point
@@ -308,22 +311,28 @@ export const FRAMEWORK_CSS = `
 /*
  * markdown
  *
- * The eleventh, twelfth and thirteenth declared exceptions to the role rule, and
- * one reason for all three: they are what the words *mean* rather than a colour
- * anybody chose. An emphasis is italic, a strong emphasis is bold and a link is
- * underlined because that is what the author wrote, which is the user-agent
- * sheet's answer to the same question -- and no role is any of them. The bold one
+ * The eleventh to the fourteenth declared exceptions to the role rule, and one
+ * reason for all four: they are what the words *mean* rather than a colour
+ * anybody chose. An emphasis is italic, a strong emphasis is bold, a link is
+ * underlined and a strikethrough is struck through because that is what the
+ * author wrote, which is the user-agent sheet's answer to the same question --
+ * and no role is any of them. The strikethrough is the longhand rather than
+ * text-decoration, which would set underline too and take a struck link's
+ * underline away; and its tildes are drawn beside it whatever the terminal does
+ * with the line, since nothing says whether it drew one. The bold one
  * is not .sigil-heading, which also says bold: a theme that made headings magenta
  * would have made every strong word in a paragraph magenta with them. Everything
  * else markdown draws is a role -- a heading is .sigil-heading, code and a link
- * are .sigil-accent, a list marker, a quote bar and a shown URL are .sigil-muted
- * -- so these three are the whole of what it adds. At colour level 0 the
+ * are .sigil-accent, a list marker, a quote bar, a shown URL, an open task box
+ * and a footnote reference are .sigil-muted, a ticked box is .sigil-success --
+ * so these four are the whole of what it adds. At colour level 0 the
  * attributes are dropped with every other one, and a link says where it goes in
  * words instead.
  */
 .sigil-markdown-em { font-style: italic }
 .sigil-markdown-strong { font-weight: bold }
 .sigil-markdown-link { text-decoration: underline }
+.sigil-markdown-strike { strikethrough: true }
 
 /*
  * the debug overlay

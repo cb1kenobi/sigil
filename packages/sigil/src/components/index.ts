@@ -558,6 +558,7 @@ export {
 export {
   type MarkdownAlign,
   type MarkdownBlock,
+  type MarkdownFootnote,
   type MarkdownInline,
   markdownText,
   parseMarkdown,

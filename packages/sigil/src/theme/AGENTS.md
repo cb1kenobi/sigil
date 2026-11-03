@@ -94,8 +94,12 @@ the entry it belongs to.
   the user-agent sheet's answer to `<em>` and `<strong>` too. Strong is not
   `.sigil-heading` though both are bold, because a role is restyled whole and a
   theme that coloured headings would have coloured every strong word in a
-  paragraph. Everything else markdown draws is on a role. `should
-  declare on a role, bar thirteen exceptions that say why` is the invariant, and it
+  paragraph. The fourteenth (SIG-224) is `.sigil-markdown-strike`, the same
+  reason a fourth time: struck-out words are what the author wrote. It is the
+  `strikethrough` longhand rather than `text-decoration: line-through`, because that
+  shorthand resets `underline` as well and a struck link would lose its underline.
+  Everything else markdown draws is on a role. `should
+  declare on a role, bar fourteen exceptions that say why` is the invariant, and it
   reads the **parsed** sheet rather than the source, because the comment listing
   the component classes as hooks would otherwise be mistaken for a rule. It was
   three until SIG-136, and the sentence here still said three for a commit after
