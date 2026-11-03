@@ -1,9 +1,19 @@
 import { strip } from '../../src/ansi/index.js';
+import { CellBuffer, DEFAULT_COLOR, Painter, palette, StyleTable } from '../../src/canvas/index.js';
 import { confirmModal, type ModalOptions, openModal } from '../../src/components/modal.js';
-import { box, type Element, hitTest, renderToLines, text } from '../../src/element/index.js';
+import {
+  arrange,
+  box,
+  type Element,
+  hitTest,
+  paint,
+  renderToLines,
+  resolveStyles,
+  text,
+} from '../../src/element/index.js';
 import { createInput, ESCAPE_TIMEOUT, type MouseEvent } from '../../src/input/index.js';
 import { flush } from '../../src/signals/index.js';
-import { setQuiet } from '../../src/style/index.js';
+import { Restyler, setQuiet } from '../../src/style/index.js';
 import { createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -161,6 +171,32 @@ describe('openModal()', () => {
       expect(lines[0]).to.include('first row');
     }
   );
+
+  it('should not take on the colour of an app panel under it', async () => {
+    // text lets the background under it show through, and a fill does not: the
+    // fill is what the dialog hides the app with, so a grey app stays out of it
+    // in colour as well as in characters
+    const s = scene();
+    s.root.setProp('background-color', 'gray');
+    modalOn(s, { body: 'x', title: 'T', width: 20 });
+    await settle();
+
+    const styles = new StyleTable();
+    const buffer = new CellBuffer(WIDTH, HEIGHT);
+    resolveStyles(s.root, new Restyler(themedCascade()));
+    arrange(s.root, { height: HEIGHT, width: WIDTH });
+    paint(s.root, new Painter(buffer, styles));
+    const bg = (x: number, y: number): number => styles.get(buffer.styleAt(x, y)).bg;
+
+    const y = buffer.toLines().findIndex((line) => line.includes(' T '));
+    const x = buffer.toLines()[y]?.indexOf(' T ') ?? -1;
+    expect(x).to.be.greaterThan(0);
+    // the title, and the blank beside it, are the terminal's own
+    expect(bg(x + 1, y)).to.equal(DEFAULT_COLOR);
+    expect(bg(x + 3, y)).to.equal(DEFAULT_COLOR);
+    // and the app beside the panel is still grey
+    expect(bg(0, y)).to.equal(palette(8));
+  });
 
   it('should bracket the button that has the focus, so it reads without colour', async () => {
     const s = scene();

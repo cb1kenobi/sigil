@@ -580,6 +580,11 @@ export function paint(root: Element, painter: Painter): void {
     if (style.visibility !== 'hidden') {
       const cell = cellStyle(style);
       const draw = (into: Painter): void => {
+        // the one place a background is painted. A text's own is `DEFAULT_COLOR`
+        // unless it set one, and `Painter.text()` reads that as "keep what is in
+        // the cell" -- so this colour shows through every glyph drawn over it,
+        // by this element's border and text, by its descendants, and by anything
+        // painted on top later. Paint order, not inheritance
         if (style.backgroundColor !== DEFAULT_COLOR) {
           into.fill(area.x, area.y, area.width, area.height, cell);
         }

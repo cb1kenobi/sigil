@@ -190,6 +190,14 @@ the entry it belongs to.
   element rather than the subtree.** Hidden is a skip rather than a return
   because `visibility` inherits: a descendant is hidden because it inherited the
   value, and one that sets `visible` is drawn. That is CSS.
+- **The walk fills a box's background and nothing else paints one, and a text
+  is handed no ancestor's colour.** Showing through is the painter's: a glyph
+  with a `DEFAULT_COLOR` background keeps what is already in the cell, so paint
+  order alone puts a box's colour behind its text, its border, a `raw` child, and
+  anything painted over it later -- including a text with no coloured ancestor
+  that sits on a coloured sibling, which no value carried down the walk could
+  reach. See "A glyph keeps the background under it" in `src/canvas`, and
+  `test/element/background.test.ts`.
 - **`LayoutNode.children` is readonly, because the element tree's children are
   its own.** Nothing in the layout engine writes them, and an implementation
   cannot hand out an array anything may splice.

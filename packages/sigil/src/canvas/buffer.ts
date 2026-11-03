@@ -1,6 +1,6 @@
 import { strip } from '../ansi/strip.js';
 import { graphemes, graphemeWidth } from '../width/index.js';
-import { DEFAULT_STYLE, type Style, StyleTable } from './style.js';
+import { DEFAULT_COLOR, DEFAULT_STYLE, type Style, StyleTable } from './style.js';
 
 /**
  * A rectangle of cells, which is all a clip is.
@@ -483,13 +483,23 @@ export class CellBuffer {
    * @param text - The text. Split into clusters, so combining marks and emoji
    * sequences stay whole.
    * @param styleIndex - The interned style.
+   * @param over - The style to paint each cluster with, given the one already in
+   * the cell it lands on. What `Painter.text()` passes to let a background show
+   * through a glyph that has none of its own; `styleIndex` for every cluster if
+   * omitted, which is what the grid itself means by a write.
    * @returns How far the cursor advanced from `x`, which is not the same as how
    * many cells were painted: a run starting left of the grid advances over the
    * columns it could not land in, so `x + returned` is where the next run goes
    * whichever edge clipped this one. It stops at the right edge, because nothing
    * can be painted past it.
    */
-  write(x: number, y: number, text: string, styleIndex: number): number {
+  write(
+    x: number,
+    y: number,
+    text: string,
+    styleIndex: number,
+    over?: (below: number) => number
+  ): number {
     let column = x;
     // A cell grid expresses styling as a style per cell, so a string that
     // carries its own escape sequences has nowhere to put them -- and painting
@@ -528,7 +538,14 @@ export class CellBuffer {
         continue;
       }
 
-      const consumed = this.put(column, y, cluster, styleIndex);
+      // asked at the lead, which is where a wide cluster is: both its cells
+      // take one style, so there is no second answer to ask the other half for
+      const consumed = this.put(
+        column,
+        y,
+        cluster,
+        over ? over(this.styleAt(column, y)) : styleIndex
+      );
       if (consumed === 0 && cellWidth(cluster) > 0) {
         // off the grid rather than zero-width: the row is not one, so nothing
         // further will land
@@ -665,6 +682,17 @@ export class Painter {
   /**
    * Paints text.
    *
+   * A glyph whose background is `DEFAULT_COLOR` keeps the background already in
+   * the cell it lands on, which is what lets a box's colour show through the text
+   * inside it: the box filled first, so the colour is in the grid by the time the
+   * text arrives, and the grid is the one place that knows what is underneath.
+   * Only the background is taken; the glyph's own foreground, attributes and link
+   * stand. That is "the terminal's own" read as what it already means for a box,
+   * where a default background paints nothing -- not a transparent colour, which
+   * there is none of. `fill()` does not do this, because a fill *is* a background,
+   * and painting one in the terminal's own colours is how a dialog hides what is
+   * under it.
+   *
    * @param x - The starting column.
    * @param y - The row.
    * @param text - What to paint.
@@ -672,7 +700,25 @@ export class Painter {
    * @returns How many columns were consumed.
    */
   text(x: number, y: number, text: string, style: Partial<Style> = DEFAULT_STYLE): number {
-    return this.#buffer.write(x, y, text, this.#styles.intern(style));
+    const index = this.#styles.intern(style);
+    const own = this.#styles.get(index);
+    if (own.bg !== DEFAULT_COLOR) {
+      return this.#buffer.write(x, y, text, index);
+    }
+
+    // one entry of memory, because a line lands on one background far more often
+    // than on several: a run across a filled box asks the same question per cell,
+    // and interning a style builds a string key every time it is asked
+    let below: number = StyleTable.DEFAULT;
+    let onto = index;
+    return this.#buffer.write(x, y, text, index, (under) => {
+      if (under !== below) {
+        below = under;
+        const { bg } = this.#styles.get(under);
+        onto = bg === DEFAULT_COLOR ? index : this.#styles.intern({ ...own, bg });
+      }
+      return onto;
+    });
   }
 
   /**

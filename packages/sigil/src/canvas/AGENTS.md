@@ -315,6 +315,100 @@ the entry it belongs to.
   blocks instead: two pixels per cell, the top as the foreground and the bottom
   as the background, which is nothing but cells and works everywhere.
 
+### A glyph keeps the background under it
+
+Until SIG-217, a box with a `background-color` filled its area, and then each
+text inside it wrote its glyphs with its _own_ background -- which is
+`DEFAULT_COLOR`, because `background-color` does not inherit -- so the box's
+colour was wiped from every cell a character sat on. Measured at colour level 1 through `renderToString()`:
+`box({ 'background-color': 'gray' }, text('hello'))` at width 20 was `hello` then
+`ESC[100m` and fifteen spaces, the words on the terminal's own background beside a
+grey bar. `src/style` already said the colour showing through was paint order; it
+was not implemented anywhere.
+
+- **`Painter.text()` paints a glyph whose background is `DEFAULT_COLOR` with the
+  background already in the cell.** Only the background is taken; the glyph's
+  own foreground, attributes and link stand. It is the grid's rule rather than
+  the element walk's because the grid is the one place that knows what is
+  underneath: a box filled first, so the colour is already there when the text
+  arrives. The other shape the ticket offered -- the walk handing the nearest
+  ancestor's background down to `paintText()` -- is a second reader of what the
+  grid already says, and it is wrong besides in every case the cascade cannot
+  see: a `raw` element's own text, a border with no background of its own, the
+  scrollbar and the caret, and an absolutely placed text over a _sibling_ that
+  is coloured, which has no ancestor with a background at all. One rule in the
+  painter covers all of them, and none of them had to change.
+- **It invents no colour, which is what the layers entry requires of it.** There
+  is still no transparent value and no alpha: `DEFAULT_COLOR` means "the
+  terminal's own" exactly as before, and a glyph that asks for it is read the way
+  a box that asks for it always was -- the walk skips the fill for a default
+  background, so a box with none paints nothing in its empty cells. A glyph now
+  agrees with the box. The decision is about _paint_, so it costs the
+  interning, the diff and the composite nothing: a cell still holds one style
+  index and the background it took is in it.
+- **`fill()` is opaque, and that is the other half of the rule rather than an
+  exception to it.** A fill _is_ a background, so a fill in the terminal's own
+  colours paints the terminal's own colours over whatever is there -- which is
+  how a modal hides the app behind it, by filling its panel with blanks so that it
+  is opaque at colour level 0. Were a fill to let the cell's background through,
+  a dialog over a grey panel of the app's would be grey, and a fill with a
+  default background would paint nothing at all. `should leave fill() opaque,
+  because a fill is a background` pins the painter, and `should not take on the
+  colour of an app panel under it` in `test/components/modal.test.ts` pins the
+  dialog, which nothing else did: making `fill()` keep the background too passed
+  the whole of the modal suite until it was added.
+- **It is `Painter`'s and not `CellBuffer`'s, so the composite stays opaque.**
+  `put()` writes the style it is given and the composite replays `put()`, which is
+  right: a layer is a photograph of a frame, and a cell of it whose background was
+  the terminal's must occlude a coloured base rather than take its colour. The
+  grid's own `write()` gains an optional `over` callback that the painter passes,
+  asked once per cluster at its lead, since both halves of a wide cluster share
+  one style.
+- **An explicit `background-color: default` on a text does not punch through.**
+  Decided rather than fallen out: `parseColor()` already reads `default`,
+  `transparent` and `none` as the same `DEFAULT_COLOR`, so a text that writes
+  one has said what a text that writes nothing has. An opaque "terminal
+  background" is a value CSS has no way to say either, and adding one is the
+  alpha model above. A text that wants to cover a coloured box gives itself a
+  colour, which wins as any background of its own does; a `raw` that has to hide
+  what is under it in the terminal's colours fills, which is what the modal does.
+- **An inverse glyph over a coloured box takes the box's colour as its
+  foreground, for free.** The cell keeps the box's background and the terminal
+  swaps the pair, which is what the caret and every `:focus { inverse: true }`
+  rule want -- before, the swap was the terminal's own two colours whatever the
+  box was. Pinned on the grid for a plain inverse text and for a focused
+  `TextField()`'s caret.
+- **At colour level 0 there is nothing to show through.** Degradation drops the
+  box's background at resolve time, so the walk does not fill and every glyph
+  meets `DEFAULT_COLOR`. And a background change reaches the screen: the colour a
+  glyph took is in its interned style, so moving a box's background makes its
+  text cells different cells and the diff repaints them -- `should repaint the
+  text cells when the box background changes` counts all ten of a ten-column row
+  on the second frame, where reading the background at present time would have
+  left `hello` on the old colour.
+- **Measured before and after, at colour level 1.** The ticket's tree:
+  `hello` + `ESC[100m` + fifteen spaces became `ESC[100m` + `hello` and fifteen
+  spaces. The debug overlay with one logged line: `│ESC[49mhello worldESC[40m`
+  became `│hello world` on the pane's black, and the scrollbar thumb beside it,
+  which went out as `ESC[36;49m█ESC[39;40m`, now keeps the pane's background
+  too -- the overlay was the third place this was visible and nobody had looked.
+  `demos/components/20-key-help.js`'s focused pane: `ESC[37;44m ESC[49mfiles`
+  became `ESC[37;44m files`. `demos/element/06-panes.js`'s hovered row and its
+  magenta overlay had the same hole in each line of text, `║ESC[49moverlay,
+  z-index 10ESC[45m`, and are now one background across. What it costs is a
+  callback per cluster and a one-entry memo of the last background met, so a
+  line over one box interns its style once: an 80x24 frame of text measured
+  **0.129ms against 0.135ms** over nothing and **0.206ms against 0.215ms** over
+  a full-screen fill, medians of seven rounds of 2,000, on a machine running
+  three other suites.
+
+  Tests: `test/canvas/buffer.test.ts` under `a glyph over a background`, on the
+  painter; `test/element/background.test.ts`, on the grid an element tree paints.
+  Restoring the old `text()` fails seventeen of them; the five that survive are
+  the ones about what did not change -- a background of the glyph's own, painted
+  directly and through a text's style, an unfilled cell, `fill()`, and level 0. A memo that never forgets its first answer
+  fails `should take each cell its own background rather than the first one`.
+
 ### Layers and masks: compositing, and the transition it buys
 
 A canvas paints one grid. SIG-103 gives it a stack of them plus a per-cell field

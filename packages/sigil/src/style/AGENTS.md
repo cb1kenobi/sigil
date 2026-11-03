@@ -686,6 +686,12 @@ toolchain's one reader.
 - **`background-color` and `text-overflow` do not inherit**, as in CSS. A
   container's background showing through its children is paint order, not the
   cascade; pushing the value down would make every descendant _own_ that colour.
+  For a long time that sentence described nothing: a text wrote its glyphs with
+  its own background, which is the terminal's, and wiped the box's colour from
+  every cell it drew on. It is `Painter.text()` now -- a glyph with no background
+  of its own keeps the one already in the cell -- and an explicit `default` on a
+  text does not punch through, since it is the same value as `transparent`. See
+  "A glyph keeps the background under it" in `src/canvas`.
   The text decorations do inherit here, which CSS reaches by propagating lines
   across descendants rather than by inheritance -- a cell grid has no box
   structure to do that with, so this is the deliberate simplification.
