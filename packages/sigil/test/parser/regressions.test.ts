@@ -1624,4 +1624,172 @@ describe('regressions', () => {
       expect(result.cmd?.desc).to.equal('from a package next to the module');
     });
   });
+
+  describe('siblings registered in the order their initialization finished', () => {
+    // a timer fires only once the microtask queue is empty, and building an
+    // inline declaration is nothing but microtasks -- so a sibling whose `init`
+    // hook waits on one finishes after every inline sibling beside it, however
+    // they were declared. That is what makes these tests about the order rather
+    // than about timing: under the defect the slow sibling registers last every
+    // time, not usually
+    const slow = { init: () => new Promise<void>((resolve) => setTimeout(resolve, 0)) };
+    const run = (): void => {};
+    const quiet = { completion: false, help: false, quiet: false } as const;
+
+    it('should give a shared spelling to the later sibling when the earlier one is slower', async () => {
+      const commands = {
+        ship: { alias: 'go', hooks: slow, run },
+        other: { alias: 'ship', run },
+      };
+
+      let result = await parse({ argv: ['ship'], schema: { commands } });
+      expect(result.cmd?.name).to.equal('other');
+
+      // `ship` is still reachable by the one spelling nobody else claims
+      result = await parse({ argv: ['go'], schema: { commands } });
+      expect(result.cmd?.name).to.equal('ship');
+    });
+
+    it('should give it to the later sibling when the later one is slower', async () => {
+      // the control: the order the defect happened to get right
+      const result = await parse({
+        argv: ['ship'],
+        schema: { commands: { ship: { run }, other: { alias: 'ship', hooks: slow, run } } },
+      });
+      expect(result.cmd?.name).to.equal('other');
+    });
+
+    it('should not let an option on the earlier sibling hand it the spelling', async () => {
+      // the ticket's own pair: declaring an option is more to initialize, and
+      // was enough on its own to move `ship` from one command to the other
+      for (const options of [undefined, { '--force': {} }]) {
+        const result = await parse({
+          argv: ['ship'],
+          schema: {
+            commands: { ship: { alias: 'go', options, run }, other: { alias: 'ship', run } },
+          },
+        });
+        expect(result.cmd?.name).to.equal('other');
+      }
+    });
+
+    it('should do the same for an array of declarations', async () => {
+      const result = await parse({
+        argv: ['ship'],
+        schema: {
+          commands: [
+            { alias: 'go', hooks: slow, name: 'ship', run },
+            { alias: 'ship', name: 'other', run },
+          ],
+        },
+      });
+      expect(result.cmd?.name).to.equal('other');
+    });
+
+    it('should register siblings in declaration order', async () => {
+      // the order help lists them in, which is the registry's insertion order
+      const result = await parse({
+        schema: {
+          ...quiet,
+          commands: { zeta: { hooks: slow, run }, alpha: { run }, mid: { options: { '--x': {} } } },
+        },
+      });
+      expect([...result.contexts[0][Internal].commands.keys()]).to.deep.equal([
+        'zeta',
+        'alpha',
+        'mid',
+      ]);
+    });
+
+    it('should register a path in declaration order beside an inline declaration', async () => {
+      // a package is imported while the schema is built, which is real I/O and
+      // the shape a slow sibling has in an app rather than in a test. It names
+      // itself `foo`
+      const pkg = path.join(__dirname, 'fixtures/good-pkg');
+      const schema = { ...quiet, commands: [pkg, { alias: 'foo', name: 'other', run }] };
+
+      const result = await parse({ argv: ['foo'], schema });
+      expect(result.cmd?.name).to.equal('other');
+      expect([...result.contexts.at(-1)![Internal].commands.keys()]).to.deep.equal([
+        'foo',
+        'other',
+      ]);
+    });
+
+    it("should do the same for a lazily loaded module's own commands", async () => {
+      const result = await parse({
+        argv: ['db', 'ship'],
+        schema: {
+          commands: {
+            db: {
+              load: () =>
+                Promise.resolve({
+                  default: {
+                    commands: { ship: { hooks: slow, run }, other: { alias: 'ship', run } },
+                  },
+                }),
+            },
+          },
+        },
+      });
+      expect(result.cmd?.name).to.equal('other');
+    });
+
+    it("should do the same for a placeholder's commands handed to its module", async () => {
+      // registered on the placeholder, then carried across in the registry's
+      // own order -- which is only declaration order if registering was
+      const result = await parse({
+        argv: ['db', 'ship'],
+        schema: {
+          commands: {
+            db: {
+              commands: { ship: { hooks: slow, run }, other: { alias: 'ship', run } },
+              load: () => Promise.resolve({ default: { desc: 'the module' } }),
+            },
+          },
+        },
+      });
+      expect(result.contexts[1].desc).to.equal('the module');
+      expect(result.cmd?.name).to.equal('other');
+    });
+
+    it('should do the same for a command a subcommandLoaded hook replaced', async () => {
+      const result = await parse({
+        argv: ['db', 'ship'],
+        schema: {
+          commands: { db: { load: () => Promise.resolve({ default: {} }) } },
+          hooks: {
+            subcommandLoaded: () => ({
+              commands: { ship: { hooks: slow, run }, other: { alias: 'ship', run } },
+            }),
+          },
+        },
+      });
+      expect(result.cmd?.name).to.equal('other');
+    });
+
+    it('should keep a directory walk sorted', async () => {
+      // asserted unsorted, which the route tests elsewhere do not: they sort
+      // the names first, so a walk that registered in `readdir` order would
+      // pass them. Sorted by entry, so `pkg/` is where `pkg` sorts even though
+      // its manifest names it `routes-pkg`
+      const routes = path.join(__dirname, 'fixtures/routes');
+
+      let result = await parse({ schema: { ...quiet, commands: routes } });
+      expect([...result.contexts[0][Internal].commands.keys()]).to.deep.equal([
+        'build',
+        'clash',
+        'config',
+        'db',
+        'deploy',
+        'only-index',
+        'routes-pkg',
+        'private-index',
+      ]);
+
+      // and a level walked when argv reached it, which is `loadCommandDir()`
+      result = await parse({ argv: ['config'], schema: { ...quiet, commands: routes } });
+      expect([...result.cmd![Internal].commands.keys()]).to.deep.equal(['get', 'set']);
+    });
+  });
 });

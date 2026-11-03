@@ -94,6 +94,23 @@ that already is one, and `!` hides the whole command in a name string, so it is
 not quietly stripped — hide the command with `hidden: true` or a `!` in its
 name.
 
+Nothing refuses two siblings answering to the same spelling, whether a name or
+an alias: the one declared **later** owns it. Siblings are registered in the
+order they were declared — a `commands` object's key order (JavaScript's, so an
+integer-like key such as `'2'` comes first), an array's element order, a
+directory's sorted routes — whatever order they finish initializing
+in, so adding an option to one of them never moves a spelling to the other:
+
+```js
+const schema = {
+  commands: {
+    ship: { alias: 'go', options: { '--force': {} } },
+    // declared after `ship`, so `mycli ship` runs this; `ship` keeps `go`
+    other: { alias: 'ship' },
+  },
+};
+```
+
 Inline arguments cannot be combined with an `args` array on the same command;
 declaring both throws.
 

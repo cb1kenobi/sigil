@@ -319,10 +319,7 @@ describe('completionSpec()', () => {
     const found = await spec({
       commands: {
         ship: { alias: 'go', desc: 'ship it', options: { '--force': 'force' }, run(): void {} },
-        // the same shape as `ship`, option included: siblings are initialized
-        // concurrently and registered as each one finishes, so a sibling with
-        // less to initialize registers first and loses the shared spelling
-        other: { alias: 'ship', hidden: true, options: { '--other': 'other' }, run(): void {} },
+        other: { alias: 'ship', hidden: true, run(): void {} },
       },
       completion: false,
       help: false,
