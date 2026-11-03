@@ -151,6 +151,21 @@ export async function initCommand(
         if (typeof alias !== 'string') {
           throw new TypeError('Expected command alias to be a string or list of strings');
         }
+        // `!` and `@` are name-string syntax, and the property is a list of
+        // names rather than a name string. `@` would say "an alias" of what is
+        // already one, and `!` hides the whole command in a name string -- so
+        // stripping it here would publish a command its author tried to hide,
+        // and taking it literally, as this used to, registered `!ls`: a name a
+        // shell's history expansion eats before argv sees it, printed in help
+        if (alias[0] === '!' || alias[0] === '@') {
+          const fix =
+            alias[0] === '!'
+              ? 'hide the command with "hidden: true" or a "!" in its name'
+              : `write "${alias.slice(1)}"`;
+          throw new Error(
+            `Invalid alias "${alias}" in the "${decl.name}" command: "${alias[0]}" is name-string syntax and the alias property takes plain names, so ${fix}`
+          );
+        }
         aliases.add(alias);
       }
     } else {
