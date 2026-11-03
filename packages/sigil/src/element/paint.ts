@@ -12,6 +12,7 @@
  * `visible` clips what its descendants draw to its padding box.
  */
 
+import { intersect } from '../canvas/buffer.js';
 import { ATTR, DEFAULT_COLOR, type Painter, type Style as CellStyle } from '../canvas/index.js';
 import {
   borderWidth,
@@ -106,32 +107,6 @@ function paddingBox(area: Box, style: Style): Box {
     width: Math.max(0, area.width - border * 2),
     x: area.x + border,
     y: area.y + border,
-  };
-}
-
-/**
- * The rectangle two clips both allow.
- *
- * A clipping box inside another one cannot reach where its parent could not, so
- * this intersects rather than replacing -- the same rule `Painter.clip()` keeps,
- * for the same reason, and the reason `element.clip` is already the whole
- * intersection by the time paint or a hit test reads it.
- *
- * @param outer - The clip already in effect, if any.
- * @param inner - The one being added.
- * @returns The overlap, which may be empty.
- */
-function intersect(outer: Box | undefined, inner: Box): Box {
-  if (!outer) {
-    return inner;
-  }
-  const x = Math.max(outer.x, inner.x);
-  const y = Math.max(outer.y, inner.y);
-  return {
-    height: Math.max(0, Math.min(outer.y + outer.height, inner.y + inner.height) - y),
-    width: Math.max(0, Math.min(outer.x + outer.width, inner.x + inner.width) - x),
-    x,
-    y,
   };
 }
 

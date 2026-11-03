@@ -888,17 +888,12 @@ export function isProperty(name: string): boolean {
  */
 function aliasFor(name: string): Alias | undefined {
   const trimmed = name.trim();
-  for (const candidate of [trimmed.toLowerCase(), kebabOf(trimmed).toLowerCase()]) {
+  for (const candidate of [trimmed.toLowerCase(), kebab(trimmed).toLowerCase()]) {
     if (Object.hasOwn(ALIASES, candidate)) {
       return ALIASES[candidate];
     }
   }
   return undefined;
-}
-
-/** `fontWeight` -> `font-weight`, leaving an already-kebab name alone. */
-function kebabOf(name: string): string {
-  return name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 }
 
 /**

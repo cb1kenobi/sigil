@@ -663,9 +663,11 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   a catalog lists commands to run and the program itself is not one.
 
   Two readers of one registry rather than one implementation, because the walk
-  needs `loadCommand()` and `catalog.ts` imports nothing but types on purpose --
-  which is a documented property of that file and the reason every assertion
-  about what a palette lists can be written against a literal.
+  needs `loadCommand()` and `catalog.ts` imports nothing that loads a command on
+  purpose -- types, and two pure helpers, `byCodeUnit()` and `argSpelling()`,
+  each a module of its own -- which is a documented property of that file and
+  the reason every assertion about what a palette lists can be written against
+  a literal.
 
 - **What says the generator produced a _program_ rather than plausible text.**
   Three things, and the first two run in the suite. `bash -n` and `zsh -n` over

@@ -835,11 +835,17 @@ export class Painter {
 /**
  * The rectangle two clips both allow.
  *
+ * A clipping box inside another one cannot reach where its parent could not,
+ * so this intersects rather than replacing. One function for the painter's
+ * clip, the element tree's paint clip and its selection mask, which each wrote
+ * it out over the same four numbers -- a `Clip` and a layout `Box` are the
+ * same shape.
+ *
  * @param outer - The clip already in effect, if any.
  * @param inner - The one being added.
  * @returns The overlap, which may be empty.
  */
-function intersect(outer: Clip | undefined, inner: Clip): Clip {
+export function intersect(outer: Clip | undefined, inner: Clip): Clip {
   if (!outer) {
     return inner;
   }
