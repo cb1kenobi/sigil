@@ -8852,10 +8852,25 @@ is recorded in that directory's file.
   element per word _per run_, so `**bold**,` came out as `bold ,`: a gap between
   the bold word and its comma. Here a word may be several pieces in several styles
   with no gap between them. A word in several styles that is wider than its line
-  is made one text in the style of its longest piece, because a row of texts
-  breaks only between them: a URL folded over three lines put its full stop on a
-  fourth of its own. In practice that is a written-out URL with punctuation after
-  it, which is muted either way.
+  wraps between its pieces, and only a word with a piece that is _itself_ wider
+  than the line, every piece of it linking to the same place, is made one text in
+  the style of its longest piece: a row of texts breaks only between them, so a
+  URL folded over three lines put its full stop on a fourth of its own.
+
+  That used to be every over-wide word, with "in practice that is a written-out
+  URL with punctuation after it" as the reason it was harmless, and the reason
+  was wrong. Chinese and Japanese put no space between words, so a sentence is
+  one word however long it is, and a link or a `**strong**` inside it was merged
+  away -- with hyperlinks on, the URL is not written out either, so the address
+  was gone altogether, which is the worse of the two mistakes the entry below
+  weighs. Found by review. Each of the merge's three conditions has a test that
+  fails without it: never merging puts the full stop back on its own line,
+  merging regardless of width loses the bold, and merging regardless of the link
+  loses the link. What wrapping between pieces costs is ragged lines in a long
+  CJK run, since a piece goes whole onto the next line rather than being broken
+  at the edge -- a shorter line rather than a missing word, which is the trade
+  this entry is about.
+
 - **A link is OSC 8 only where the terminal is known to draw one, and otherwise
   its URL is written after its words.** The cost of each wrong guess is not the
   same size: a hyperlink on a terminal that silently swallows OSC 8 prints the

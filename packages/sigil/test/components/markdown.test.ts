@@ -615,6 +615,44 @@ describe('markdown()', () => {
       expect(lines.at(-1)?.endsWith(').')).to.equal(true);
     });
 
+    // a run with no space in it is one word however long it is, which is every
+    // sentence of Chinese or Japanese -- and a word wider than the line used to
+    // be made one text in its longest piece's style, so the link went with it
+    it('should keep a link inside a run with no spaces that is wider than the line', () => {
+      const source =
+        '日本語の説明文はとても長くて、[ドキュメント](https://example.com)を参照してください。';
+      const linked = draw(source, { colorLevel: 1, hyperlinks: true });
+      expect(linked).to.include(`${osc8('https://example.com')}ドキュメント`);
+      expect(strip(linked).replaceAll('\n', '')).to.equal(
+        '日本語の説明文はとても長くて、ドキュメントを参照してください。'
+      );
+      expect(
+        strip(linked)
+          .split('\n')
+          .every((line) => stringWidth(line) <= 40)
+      ).to.equal(true);
+
+      // and where a piece is itself wider than the line, which is the one shape
+      // that is still made one text: not when a link is in it
+      const long = draw(`${'長'.repeat(25)}[リンク](https://example.com)を`, {
+        colorLevel: 1,
+        hyperlinks: true,
+      });
+      expect(long).to.include(`${osc8('https://example.com')}リンク`);
+
+      const shown = draw(source).split('\n');
+      expect(shown.some((line) => line.includes('(https://example.com)'))).to.equal(true);
+      expect(shown.every((line) => stringWidth(line) <= 40)).to.equal(true);
+    });
+
+    it('should keep the styles inside a run with no spaces that is wider than the line', () => {
+      const out = draw('日本語の説明文はとても長くて、**重要**な`設定`を参照してください。', {
+        colorLevel: 1,
+      });
+      expect(out).to.include(`${ESC}[1m重要`);
+      expect(out).to.match(new RegExp(`${ESC}\\[[0-9;]*m設定`));
+    });
+
     it('should keep a hard break', () => {
       expect(draw('one  \ntwo')).to.equal('one\ntwo');
     });

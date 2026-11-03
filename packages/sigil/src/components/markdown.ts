@@ -678,11 +678,18 @@ function flow(
  *
  * `min-width: 0` on the text, for the reason `paragraph()` gives: a word too long
  * for the line it is alone on is broken rather than left to run off the edge.
- * A word in several styles that is too long for a line is made **one** text, in
- * the style of its longest piece, because a row of texts breaks only between
- * them: there is no inline layout, so the full stop after a URL folded over three
- * lines went onto a fourth line of its own. It is the URL in parentheses with
- * punctuation after it that reaches this, and that is muted either way.
+ *
+ * A word in several styles that is too long for a line wraps between its pieces,
+ * which is every sentence of Chinese or Japanese: words are split at whitespace,
+ * so a run with none in it is one word however long it is. Only a piece that is
+ * itself wider than the line cannot wrap that way, because a row of texts breaks
+ * only between them and there is no inline layout -- so the full stop after a URL
+ * folded over three lines went onto a fourth line of its own. That word is made
+ * **one** text, in the style of its longest piece, and only where every piece
+ * links to the same place: merging a word holding a link with words that do not
+ * dropped the link, and with hyperlinks on the URL is not written out either, so
+ * the address was gone. It is the URL in parentheses with punctuation after it
+ * that reaches the merge, and that is muted either way.
  *
  * @param word - The word.
  * @param room - The columns the line has.
@@ -701,9 +708,14 @@ function wordView(word: Word, room: number): Element {
   }
 
   const widths = word.map((it) => stringWidth(it.text));
-  if (widths.reduce((sum, w) => sum + w, 0) > room) {
-    const longest = word[widths.indexOf(Math.max(...widths))];
+  if (widths.reduce((sum, w) => sum + w, 0) <= room) {
+    return box({ 'flex-direction': 'row', 'flex-shrink': 0 }, ...word.map(piece));
+  }
+
+  const widest = Math.max(...widths);
+  if (widest > room && word.every((it) => it.href === word[0].href)) {
+    const longest = word[widths.indexOf(widest)];
     return piece({ ...longest, text: word.map((it) => it.text).join('') });
   }
-  return box({ 'flex-direction': 'row', 'flex-shrink': 0 }, ...word.map(piece));
+  return box({ 'flex-direction': 'row', 'flex-wrap': 'wrap', 'min-width': 0 }, ...word.map(piece));
 }
