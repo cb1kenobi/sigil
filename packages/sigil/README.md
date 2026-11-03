@@ -39,9 +39,7 @@ becomes a message on stderr and a non-zero exit code — never a stack trace,
 because the caller is a bin script.
 
 **[docs/getting-started.md](docs/getting-started.md)** builds a small app from
-`sigil new`'s scaffold, and
-**[docs/migrating-from-cli-kit.md](docs/migrating-from-cli-kit.md)** maps a
-cli-kit app onto sigil.
+`sigil new`'s scaffold.
 
 **[docs/parser.md](docs/parser.md)** is the full parser reference: syntax,
 semantics, precedence, and every place this parser deliberately differs from
@@ -55,7 +53,6 @@ plain JavaScript, with the commands worth trying at the top of every one.
 ## Contents
 
 - [Getting started](docs/getting-started.md) — a new app, from `sigil new` to a build
-- [Migrating from cli-kit](docs/migrating-from-cli-kit.md)
 - [The root entry](#the-root-entry) — `main()`, `command()`, `options()`, errors
 - [Declaring options](#declaring-options)
 - [Declaring arguments](#declaring-arguments)

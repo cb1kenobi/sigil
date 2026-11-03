@@ -16,7 +16,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * guide shows a file and then what a terminal printed for it, and the only way
  * to know that pairing still holds is to write the file and run the command.
  *
- * So each guide is replayed in document order, in a directory of its own:
+ * So each guide is replayed in document order, over the app `sigil new` would
+ * have scaffolded, in a directory of its own:
  *
  * - a `js` or `ts` block whose first line is `// <path>` is written to that
  *   path, replacing whatever an earlier block wrote there. oxfmt sorts the
@@ -24,10 +25,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
  *   under it, so write a block's imports in sorted order or the path comment
  *   moves -- and the block silently stops being a file, which the skipped-line
  *   assertion below is what notices;
- * - a `console` block is a transcript, and every `$` line in it that runs a
- *   file the guide itself wrote is run, with the lines under it as the output
- *   it must print -- stdout, then stderr, since a transcript has no way to say
- *   which stream a line went to.
+ * - a `console` block is a transcript, and every `$` line in it that calls the
+ *   app's bin is run from source, with the lines under it as the output it must
+ *   print -- stdout, then stderr, since a transcript has no way to say which
+ *   stream a line went to.
  *
  * A `$` line that runs anything else -- `npx`, `npm run build`, the bundle in
  * `dist/` -- is left alone. Those need a network, a package manager or a build,
@@ -51,16 +52,13 @@ interface Guide {
   /** The markdown file, under `packages/sigil/docs/`. */
   readonly file: string;
   /**
-   * The app `sigil new` would have written before the guide's first block, if
-   * the guide starts from one. The name is the bin the transcripts call.
+   * The app `sigil new` would have written before the guide's first block. The
+   * name is the bin the transcripts call.
    */
-  readonly scaffold?: string;
+  readonly scaffold: string;
 }
 
-const GUIDES: readonly Guide[] = [
-  { file: 'getting-started.md', scaffold: 'my-cli' },
-  { file: 'migrating-from-cli-kit.md' },
-];
+const GUIDES: readonly Guide[] = [{ file: 'getting-started.md', scaffold: 'my-cli' }];
 
 interface Block {
   readonly body: string;
@@ -103,14 +101,12 @@ const ASSIGN = /^([A-Z_][A-Z0-9_]*)=(\S*)$/;
 function steps(guide: Guide, markdown: string): { skipped: string[]; steps: Step[] } {
   const out: Step[] = [];
   const skipped: string[] = [];
-  const written = new Set<string>();
 
   for (const { body, info } of blocks(markdown)) {
     if (info === 'js' || info === 'ts') {
       const path = PATH.exec(body)?.[1];
       if (path !== undefined) {
         out.push({ body: body.slice(body.indexOf('\n') + 1), kind: 'write', path });
-        written.add(path);
       }
       continue;
     }
@@ -136,18 +132,17 @@ function steps(guide: Guide, markdown: string): { skipped: string[]; steps: Step
         env[name!] = value!;
       }
 
-      let argv: string[] | undefined;
-      if (guide.scaffold !== undefined && words[0] === guide.scaffold) {
-        argv = ['dev.ts', ...words.slice(1)];
-      } else if (words[0] === 'node' && written.has(words[1] ?? '')) {
-        argv = words.slice(1);
-      }
-
-      if (argv === undefined) {
+      if (words[0] !== guide.scaffold) {
         skipped.push(typed);
         continue;
       }
-      out.push({ argv, env, expected: rest.join('\n'), kind: 'run', typed });
+      out.push({
+        argv: ['dev.ts', ...words.slice(1)],
+        env,
+        expected: rest.join('\n'),
+        kind: 'run',
+        typed,
+      });
     }
   }
   return { skipped, steps: out };
@@ -201,8 +196,17 @@ function run(cwd: string, argv: readonly string[], env: NodeJS.ProcessEnv): Prom
   });
 }
 
+/**
+ * A guide as LF, whatever the checkout gave it. `.gitattributes` leaves `.md` to
+ * `text=auto`, so Windows checks the guides out CRLF -- and every expected line
+ * then ends in a `\r` the program's own output never had.
+ */
+function readGuide(file: string): string {
+  return readFileSync(join(docs, file), 'utf-8').replace(/\r\n/g, '\n');
+}
+
 for (const guide of GUIDES) {
-  const markdown = readFileSync(join(docs, guide.file), 'utf-8');
+  const markdown = readGuide(guide.file);
   const { skipped, steps: all } = steps(guide, markdown);
 
   describe(`the examples in ${guide.file}`, () => {
@@ -211,26 +215,22 @@ for (const guide of GUIDES) {
 
     beforeAll(() => {
       dir = tempDir('sigil-guides-');
-      if (guide.scaffold !== undefined) {
-        for (const file of scaffold({
-          language: 'ts',
-          layout: 'multi',
-          linter: 'oxlint',
-          manager: 'npm',
-          name: guide.scaffold,
-          version: '0.0.0',
-          // what `sigil new` itself writes, which is the toolchain's own
-          versions: (
-            JSON.parse(readFileSync(join(root, 'packages/cli/package.json'), 'utf-8')) as {
-              devDependencies: Record<string, string>;
-            }
-          ).devDependencies,
-        })) {
-          mkdirSync(dirname(join(dir, file.path)), { recursive: true });
-          writeFileSync(join(dir, file.path), file.contents);
-        }
-      } else {
-        writeFileSync(join(dir, 'package.json'), '{ "type": "module" }\n');
+      for (const file of scaffold({
+        language: 'ts',
+        layout: 'multi',
+        linter: 'oxlint',
+        manager: 'npm',
+        name: guide.scaffold,
+        version: '0.0.0',
+        // what `sigil new` itself writes, which is the toolchain's own
+        versions: (
+          JSON.parse(readFileSync(join(root, 'packages/cli/package.json'), 'utf-8')) as {
+            devDependencies: Record<string, string>;
+          }
+        ).devDependencies,
+      })) {
+        mkdirSync(dirname(join(dir, file.path)), { recursive: true });
+        writeFileSync(join(dir, file.path), file.contents);
       }
       mkdirSync(join(dir, 'node_modules', '@ttylabs'), { recursive: true });
       // a junction, which Windows makes without the privilege a symlink needs
@@ -244,17 +244,13 @@ for (const guide of GUIDES) {
       expect(all.filter((step) => step.kind === 'run').length).toBeGreaterThan(5);
       // and a `$` line that silently stopped being runnable is the same hole
       // from the other side, so what is skipped is written down
-      expect(skipped).toEqual(
-        guide.scaffold === undefined
-          ? []
-          : [
-              'npx @ttylabs/cli new my-cli --yes',
-              'npm test',
-              'npm run build',
-              'node dist/my-cli.mjs --help',
-              'node dist/my-cli.mjs --version',
-            ]
-      );
+      expect(skipped).toEqual([
+        'npx @ttylabs/cli new my-cli --yes',
+        'npm test',
+        'npm run build',
+        'node dist/my-cli.mjs --help',
+        'node dist/my-cli.mjs --version',
+      ]);
     });
 
     all.forEach((step, index) => {
@@ -286,7 +282,7 @@ for (const guide of GUIDES) {
  */
 describe('the imports in the guides', () => {
   for (const guide of GUIDES) {
-    const markdown = readFileSync(join(docs, guide.file), 'utf-8');
+    const markdown = readGuide(guide.file);
 
     it(`should be exported, in ${guide.file}`, async () => {
       let checked = 0;
