@@ -599,6 +599,7 @@ async function dispatchDefaultCommand(
     state.contexts[0] = loaded;
     state.cmd = loaded;
     visited.add(loaded);
+    parent[Internal].commands.replace(cmd, loaded);
   }
 
   await loaded.hooks?.parse?.({ cmd: loaded, ...loaded[Internal] });
@@ -660,9 +661,14 @@ async function parseArgv(state: ParseState): Promise<void> {
 
         const loaded = await loadCommand(cmd, parent);
         if (loaded !== cmd) {
-          // loading merged the module's exports into a new command object
+          // loading merged the module's exports into a new command object,
+          // which takes the placeholder's place in its parent's registry --
+          // the same place, so a spelling it shares with a sibling is settled
+          // by declaration order, and the same operation the `:` walk uses,
+          // so the registry after a load does not depend on how argv spelled it
           contexts[0] = loaded;
           state.cmd = loaded;
+          parent[Internal].commands.replace(cmd, loaded);
         }
 
         $[j] = {

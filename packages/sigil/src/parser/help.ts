@@ -211,7 +211,13 @@ async function resolve(state: ParseState, names: string[]): Promise<InternalComm
       // in a module, and describing it means reading them -- so `help
       // <command>` is a load like any other and its parent is told about it
       // like any other
-      chain.unshift(await loadCommand(found, parent));
+      const loaded = await loadCommand(found, parent);
+      if (loaded !== found) {
+        // recorded the way the parse and the `:` walk record one, which is
+        // what keeps `help db` and `help db:migrate` leaving one registry
+        parent[Internal].commands.replace(found, loaded);
+      }
+      chain.unshift(loaded);
       continue;
     }
 
