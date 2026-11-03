@@ -49,8 +49,15 @@ export interface ModalAction<T = unknown> {
   value?: T;
 }
 
-/** Where a modal is put: the renderer, or any element that is the router's root. */
-export type ModalHost = Element | { readonly root: Element };
+/**
+ * Where a modal is put: the renderer, or any element that is the router's root.
+ *
+ * A host with `onDispose()` -- which a renderer has -- closes the modal when it
+ * goes, with no answer. A bare element cannot say when it is no longer drawn.
+ */
+export type ModalHost =
+  | Element
+  | { onDispose?(handler: () => void): () => void; readonly root: Element };
 
 export interface ModalOptions<T = undefined> {
   /**
@@ -116,7 +123,10 @@ export interface ModalHandle<T = undefined> {
   readonly element: Element;
   /** Whether it is still open. */
   readonly open: boolean;
-  /** The value of the button pressed, or `undefined` for a dismissal or a `dispose()`. */
+  /**
+   * The value of the button pressed, or `undefined` for a dismissal, a `dispose()`
+   * or the renderer it was opened over being disposed.
+   */
   readonly result: Promise<T | undefined>;
 }
 
@@ -304,6 +314,7 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
     settle = resolve;
   });
   let open = true;
+  let offDispose: (() => void) | undefined;
 
   /** What had the focus before this opened, which is where it goes back to. */
   const previous = input.focus.current.get();
@@ -328,6 +339,7 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
     if (index !== -1) {
       mine.splice(index, 1);
     }
+    offDispose?.();
     offKey();
     offFocus();
     backdrop.remove();
@@ -506,6 +518,14 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
 
   root.append(backdrop);
   claimFocus();
+
+  // closed with no answer when the renderer goes. The binding above stops every
+  // key it is given, so a dialog left open on a router the app goes on owning
+  // would swallow its keys for good -- and `result` would never settle. Last,
+  // because a renderer that has already gone calls this at once
+  if (!(host instanceof Element)) {
+    offDispose = host.onDispose?.(() => close());
+  }
 
   return {
     close,

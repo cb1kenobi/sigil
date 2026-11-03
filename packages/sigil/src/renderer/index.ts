@@ -391,6 +391,31 @@ export interface Renderer {
   /** Asks for a frame, for a mutation a signal did not make. */
   invalidate(): void;
   /**
+   * Calls back once, when this renderer goes -- by `dispose()`, or by a frame
+   * that failed.
+   *
+   * For whatever was handed the renderer rather than created inside its tree: a
+   * toast raised from a key handler, a binding on a router the app goes on
+   * owning. Something created in a component body already goes with the owner
+   * tree, so this is for the things nothing owns.
+   *
+   * It fires first, before the owner tree is disposed and before the screen goes
+   * back, so a handler still has the whole tree to take its own part out of --
+   * and `mounted` already reads `false`, because no frame will paint again. A
+   * handler that throws is reported to `onError` and the rest still run, and so
+   * does the teardown: one failing listener must not leave the screen unrestored.
+   *
+   * A handler given to a renderer that has already gone is called at once rather
+   * than kept, which is `onCleanup()`'s rule for a disposed owner: nothing would
+   * ever call it otherwise. That includes one subscribed by another handler while
+   * these are being called.
+   *
+   * @param handler - Called once, with nothing.
+   * @returns Unsubscribes. A handler removed while these are being called is not
+   *   called; after the renderer has gone, it does nothing.
+   */
+  onDispose(handler: () => void): () => void;
+  /**
    * Calls back at the top of every frame, before the effects run.
    *
    * Before rather than after, which is the whole of what it is for: a handler
@@ -649,6 +674,17 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
    * already keep.
    */
   const frameHandlers = new Set<FrameHandler>();
+  /** What is told when this renderer goes: over a copy, with a membership check, as above. */
+  const disposeHandlers = new Set<() => void>();
+
+  /** Calls one dispose handler, reporting rather than raising what it throws. */
+  function callDisposeHandler(handler: () => void): void {
+    try {
+      handler();
+    } catch (error) {
+      onError(error);
+    }
+  }
 
   /**
    * Asks for a frame, no sooner than the pacing allows and no later than `after`.
@@ -700,6 +736,16 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
       timer = undefined;
     }
     scheduled = false;
+    // whoever asked to be told, first: the tree is still whole and every owner
+    // still mounted, so a handler can take its own part out of it. `disposed` is
+    // already set, so a handler subscribed from in here is called at once rather
+    // than added to a set this loop has already copied
+    // eslint-disable-next-line unicorn/no-useless-spread
+    for (const handler of [...disposeHandlers]) {
+      if (disposeHandlers.delete(handler)) {
+        callDisposeHandler(handler);
+      }
+    }
     // and what was handed to this renderer goes with it, which is the renderer's
     // own half of "put back what you attached": a handler nothing will ever call
     // and an excluded element nothing will ever walk are both references this
@@ -1327,6 +1373,17 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     invalidate: requestFrame,
     get mounted() {
       return !disposed && !failed;
+    },
+
+    onDispose(handler: () => void): () => void {
+      if (disposed) {
+        callDisposeHandler(handler);
+        return () => {};
+      }
+      disposeHandlers.add(handler);
+      return () => {
+        disposeHandlers.delete(handler);
+      };
     },
 
     onFrame(handler: FrameHandler): () => void {

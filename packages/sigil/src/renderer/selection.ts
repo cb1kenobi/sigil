@@ -97,7 +97,13 @@ export interface SelectionHandle {
    * @param y - The row.
    */
   extend(x: number, y: number): void;
-  /** Takes the handlers off. The selection itself is left where it was. */
+  /**
+   * Takes the handlers off. The selection itself is left where it was.
+   *
+   * Called for you when the renderer is disposed: the router is the app's and
+   * outlives it, and shift-arrow bindings left on it would go on stopping keys
+   * for a selection nothing will paint.
+   */
   stop(): void;
   /** The selected text, read off the frame last painted. */
   text(): string;
@@ -152,6 +158,7 @@ export function enableSelection(
 
   /** Where the current gesture started, and in which mode. */
   let anchor: { mode: SelectionMode; x: number; y: number } | undefined;
+  let offDispose: (() => void) | undefined;
 
   const handle: SelectionHandle = {
     begin(x, y, mode = 'linear'): void {
@@ -187,6 +194,7 @@ export function enableSelection(
     },
 
     stop(): void {
+      offDispose?.();
       offMouse();
       offResize();
       offKeys?.();
@@ -282,6 +290,12 @@ export function enableSelection(
             Math.max(0, Math.min(view.backend.height - 1, at.y + step.y))
           );
         });
+
+  // and off again when the renderer goes, because the router does not: the
+  // keys above are stopped, and a router the app goes on owning would lose them
+  // to a selection nothing will paint. Last, because a renderer that has already
+  // gone calls this at once
+  offDispose = view.onDispose(() => handle.stop());
 
   return handle;
 }

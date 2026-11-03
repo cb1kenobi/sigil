@@ -426,6 +426,32 @@ the entry it belongs to.
   erasing means `backend.stop()` _before_ `dispose()`, because afterwards there
   is no anchor for an erase to be relative to and a `stop()` on the other side
   quietly does nothing.
+- **`onDispose()` is for what the owner tree cannot reach, and it fires first.**
+  SIG-219. What a component body creates already goes with its owner; what was
+  handed the renderer from outside -- a toast raised in a key handler, a binding
+  on a router the app goes on owning -- had nothing to tell it the screen was
+  gone. The shape is `onFrame()`'s: one function per subscription, an
+  unsubscribe back, dispatched over a copy with a membership check, a throw
+  reported to `onError` without stopping the rest or the teardown. It fires at
+  the top of `teardown()`, after `disposed` is set and **before** the owner tree
+  and `backend.done()`, so a handler still has the whole tree to take its own
+  part out of -- a modal puts the focus back on an element that is still mounted
+  -- and `mounted` already reads `false`. It fires on the failure path too,
+  since a failed renderer is just as gone; what a handler throws there is
+  reported before the terminal is restored, which is where an owner cleanup's
+  throw on that path was already reported, and is left alone with it.
+- **A handler given to a renderer that has gone is called at once.** The other
+  answer was a no-op, and it is the wrong one for every caller there is: a toast
+  raised from a promise that settles after the renderer went would keep its
+  timer, which is the leak this exists to close. It is `onCleanup()`'s rule for
+  a disposed owner, and it also settles what a handler subscribed by another
+  handler mid-dispatch gets -- `disposed` is already true, so it runs at once
+  rather than joining a set the loop has copied. Its throw is reported rather
+  than raised, so one rule covers a handler whenever it runs. So every caller
+  subscribes **last**, after whatever the handler would undo exists. Who
+  subscribes is the toast, the modal, the debug overlay and `enableSelection()`;
+  the tooltip was checked and does not need to, which its entry says. Sabotage:
+  eleven breaks across the seam and its four callers, all caught.
 - **A failure puts the terminal back before it says why, and stops.** A CLI that
   dies on the alternate buffer with the cursor hidden has eaten the user's shell,
   and a message printed into a half-drawn frame is unreadable anyway -- so the

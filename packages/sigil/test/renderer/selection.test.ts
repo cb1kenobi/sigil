@@ -602,4 +602,27 @@ describe('enableSelection', () => {
     input.press({ name: 'right', shift: true });
     expect(view.selection).toBe(was);
   });
+
+  /**
+   * The router is the app's and outlives the renderer, so a binding left on it
+   * would go on stopping shift-arrow for a selection nothing will paint.
+   */
+  it('should stop claiming shift and an arrow once the renderer has gone', () => {
+    const { input, view } = mounted();
+    expect(input.press({ name: 'right', shift: true })).toBe(true);
+
+    view.dispose();
+    expect(input.press({ name: 'right', shift: true })).toBe(false);
+    expect(input.resizers).toBe(0);
+  });
+
+  it('should take nothing at all over a renderer that has already gone', () => {
+    const h = harness();
+    const view = render(App, { backend: h.backend, effects, terminal: h.terminal });
+    view.dispose();
+    const input = router();
+    enableSelection(view, input as unknown as InputRouter);
+    expect(input.press({ name: 'right', shift: true })).toBe(false);
+    expect(input.resizers).toBe(0);
+  });
 });
