@@ -1,6 +1,8 @@
-import { isPrivateRoute } from '../../src/parser/command/routes.js';
+import { isPrivateRoute, resolveRoutes } from '../../src/parser/command/routes.js';
 import { parse } from '../../src/parser/parse.js';
 import { Internal } from '../../src/types.js';
+import { tempDir } from '../temp.js';
+import { type Dirent, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
@@ -669,6 +671,52 @@ describe('filesystem routing', () => {
       await expect(parse({ argv: ['build'], schema })).rejects.toThrow('flaky');
       await expect(parse({ argv: ['build'], schema })).rejects.toThrow('flaky');
       expect(attempts).to.equal(2);
+    });
+  });
+
+  /**
+   * A level's routes are sorted before they are registered, because `readdir`
+   * hands them over in the file system's order -- and sorted by code unit
+   * rather than by `localeCompare`, which reads the process locale. The inputs
+   * are ones every collation orders the other way, so these fail under
+   * `localeCompare` on any machine rather than only on one set to a language
+   * that happens to disagree: no collation puts `B` before `a`, and none puts
+   * `a-b` before `a_b`, while code-unit order puts both first.
+   */
+  describe('the order a level is read in', () => {
+    /** A directory entry that is a plain file. */
+    function file(name: string): Dirent {
+      return { isDirectory: () => false, isSymbolicLink: () => false, name } as Dirent;
+    }
+
+    it('should sort the routes by code unit, not by the process locale', () => {
+      const found = resolveRoutes('/nowhere', [
+        file('a_b.js'),
+        file('a.js'),
+        file('a-b.js'),
+        file('B.js'),
+      ]);
+      // the *entries* are sorted, extension and all, so `a-b.js` is before
+      // `a.js` because `-` is before `.`
+      expect(found.map((route) => route.name)).to.deep.equal(['B', 'a-b', 'a', 'a_b']);
+    });
+
+    it('should register a routed tree in code-unit order at every level', async () => {
+      const dir = tempDir('sigil-route-order-');
+      for (const name of ['a.js', 'B.js', 'ns/c.js', 'ns/D.js']) {
+        mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+        writeFileSync(path.join(dir, name), 'export default { run() {} };\n');
+      }
+
+      // the root's level is read when the schema is built and `ns/` when argv
+      // names it, which are the two places `resolveRoutes()` is asked from
+      const root = await parse({ argv: [], schema: { commands: dir } });
+      const own = (names: Iterable<string>) =>
+        [...names].filter((name) => name !== 'completion' && name !== 'help');
+      expect(own(root.contexts[0][Internal].commands.keys())).to.deep.equal(['B', 'a', 'ns']);
+
+      const nested = await parse({ argv: ['ns'], schema: { commands: dir } });
+      expect([...nested.cmd![Internal].commands.keys()]).to.deep.equal(['D', 'c']);
     });
   });
 });

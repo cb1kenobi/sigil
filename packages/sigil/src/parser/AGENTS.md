@@ -1159,6 +1159,23 @@ resolution.
   timer fires only after every microtask, and an inline declaration is nothing
   but microtasks, so the test is about the order and not about how fast a
   machine is.
+- **And that sorted order is by code unit, because `localeCompare` reads the
+  process locale.** `resolveRoutes()` sorted with it, so one tree could register
+  in two orders on two machines -- `localeCompare` puts `ä` before `z` under
+  `de` and after it under `sv` -- and the completion spec's two sorts made a
+  generated script's bytes depend on the same setting. Both now use
+  `byCodeUnit()` from `src/util/by-code-unit.ts`, which is the one the command
+  surface already had for the committed reference; one function rather than
+  three, since two spellings of one rule is how they disagree. The line is
+  _what a machine reads_: an order that decides registration, or bytes that are
+  generated, committed, compared or snapshot-tested. Help's command list, the
+  palette's catalog, `sigil add`'s listing and the build's inlined-package tie
+  break are read by a person, are neither committed nor compared, and were left
+  on `localeCompare`: whether a person's list follows their locale is its own
+  question, and not this one. The tests use `B` against `a` and `a-b` against
+  `a_b`, which every collation orders the other way, so they fail under
+  `localeCompare` on any machine rather than only on one set to a language that
+  disagrees.
 - **A loaded command keeps its placeholder's place, which is where it was
   declared.** SIG-236. A `:` walk recorded what it loaded with
   `commands.add(loaded)`, and `add()` is a registration: every spelling the

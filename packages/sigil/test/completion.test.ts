@@ -84,6 +84,31 @@ describe('completionSpec()', () => {
     ]);
   });
 
+  it('should sort by code unit, not by the process locale', async () => {
+    // a generated script is bytes somebody installs and diffs, so its order
+    // must not be a setting. No collation puts `B` before `a` or `a-b` before
+    // `a_b`, and code-unit order puts both first -- so this fails under
+    // `localeCompare` on every machine rather than on one set to a language
+    // that happens to disagree. Two assertions because there are two sorts:
+    // the walk's, which orders a level's subcommands, and the one over every
+    // path afterwards, which orders the commands within a depth
+    const found = await spec({
+      commands: {
+        a_b: { run(): void {} },
+        a: { commands: { y: { run(): void {} }, X: { run(): void {} } } },
+        'a-b': { run(): void {} },
+        B: { run(): void {} },
+      },
+      completion: false,
+      help: false,
+      quiet: false,
+    });
+
+    expect(at(found, '').subcommands.map((sub) => sub.name)).toEqual(['B', 'a', 'a-b', 'a_b']);
+    expect(at(found, 'a').subcommands.map((sub) => sub.name)).toEqual(['X', 'y']);
+    expect(paths(found)).toEqual(['', 'B', 'a', 'a-b', 'a_b', 'a X', 'a y']);
+  });
+
   it('should carry the argv path from the root', async () => {
     const found = await spec({
       commands: {

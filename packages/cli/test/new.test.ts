@@ -1,5 +1,5 @@
 import { assertToolchain, label, outputName, parseTarget } from '../src/build/compile.ts';
-import { nameProblem, scaffold, type ScaffoldOptions } from '../src/scaffold/index.js';
+import { nameProblem, scaffold, sorted, type ScaffoldOptions } from '../src/scaffold/index.js';
 import { runCommand } from '@ttylabs/sigil/testing';
 import { spawnSync } from 'node:child_process';
 import {
@@ -66,6 +66,18 @@ describe('an app name', () => {
 });
 
 describe('the scaffold', () => {
+  it("should sort a manifest's keys by code unit, not by the process locale", () => {
+    // the manifest is the first file a new app commits, so its bytes must not
+    // depend on the machine that scaffolded it. No key written today is one
+    // the two orders disagree about, which is why this asks the sorter rather
+    // than the scaffold: no collation puts `B` before `a` or `a-b` before
+    // `a_b`, and code-unit order puts both first, so this fails under
+    // `localeCompare` on every machine
+    const keys = Object.keys(sorted({ a_b: '', a: '', 'a-b': '', B: '' }));
+    expect(keys).toEqual(['B', 'a', 'a-b', 'a_b']);
+    expect(sorted({ b: '2', a: '1' })).toEqual({ a: '1', b: '2' });
+  });
+
   it('should name every tool its scripts run', () => {
     // the defect this is here for, and it was silent: the linter's version was
     // read off a manifest that did not have it, `JSON.stringify` dropped the
