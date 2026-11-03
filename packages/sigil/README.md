@@ -4483,9 +4483,40 @@ linked to the picture where links are drawn.
 | `baseUrl`    | What a relative link is resolved against                              |
 | `stream`     | What `supportsHyperlinks()` and `terminalWidth()` ask about. stdout   |
 | `env`        | The environment both read, and `unicodeSupported()` with `platform`   |
+| `highlight`  | `(code, lang) => HighlightSpan[]`, for code blocks. See below         |
 
 A table is narrowed to the room it has, widest column first, and its cells wrap; a
 code line wider than the room is folded by columns rather than wrapped at a space.
+
+There is no grammar in the package, so **a code block is highlighted by the app**,
+through the hook `diff()` and `multiline()` take:
+
+```js
+markdown(source, {
+  highlight: (code, lang) =>
+    lang === 'js'
+      ? [...code.matchAll(/\b(?:const|let|return)\b/g)].map((m) => ({
+          start: m.index,
+          end: m.index + m[0].length,
+          token: 'keyword',
+        }))
+      : [],
+});
+```
+
+It is called once per fenced or indented block, with the whole block and the first
+word of the fence's info string (`js` for a fence opened with three backticks and
+`js`), or `undefined` where the fence names none. Spans are offsets into the whole
+block, so a comment can run over several lines, and they are cut with the lines
+and the folds. The tokens are `diff()`'s: each becomes `sigil-token-<token>`, and
+`keyword`, `string`, `comment`, `number`, `type`, `function` and `invalid` also
+draw in a role, so one theme colours a diff's tokens and a document's the same
+way. In a block the hook marks anything in, what it did not mark is the plain
+foreground, since the accent is the keyword's colour; a block it marks nothing in,
+a language it does not know, is drawn in the accent as before. A span past the end
+is clipped, a token no class can carry is refused, and a hook that throws throws
+out of `markdown()`. **Inline code spans are never highlighted**: they have no
+language to say what they are in.
 Wide characters and emoji are measured in columns, so a table with CJK in it lines
 up. Where `unicodeSupported()` says box drawing is not safe, the bullets, the quote
 bar and the rules are ASCII.
@@ -4497,7 +4528,7 @@ so restyling a role restyles the document with everything else. Emphasis, strong
 emphasis and a link are italic, bold and underlined by `.sigil-markdown-em`,
 `-strong` and `-link`. A table carries `table()`'s own classes, so a theme written
 for one reaches both. `.sigil-markdown`, `-paragraph`, `-heading`, `-h1` to `-h6`,
-`-code`, `-code-block`, `-quote`, `-quote-bar`, `-list`, `-item`, `-marker`, `-url`,
+`-code`, `-code-block`, `-code-row`, `-quote`, `-quote-bar`, `-list`, `-item`, `-marker`, `-url`,
 `-image`, `-table` and `-cell` are the narrower hooks.
 
 `markdown()` returns a string and the caller does the writing, like `note()`, so it

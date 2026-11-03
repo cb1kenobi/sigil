@@ -549,7 +549,8 @@ export interface DebugOverlayHandle {
    *
    * Put back what you attached, in the order it was attached in reverse: the
    * frame handler first, so that nothing reads a pane being dismantled, then the
-   * key, then the stats exclusion, then the element. Idempotent.
+   * key, then the stats exclusion, then the element. Idempotent, and called for
+   * you when the renderer is disposed.
    */
   dispose(): void;
   /** The pane. Already in the tree -- there is nothing for a caller to mount. */
@@ -858,6 +859,7 @@ export function enableDebugOverlay(
   view.root.append(element);
 
   let offKey: (() => void) | undefined;
+  let offDispose: (() => void) | undefined;
   let disposed = false;
 
   const handle: DebugOverlayHandle = {
@@ -866,6 +868,7 @@ export function enableDebugOverlay(
         return;
       }
       disposed = true;
+      offDispose?.();
       offFrame();
       offKey?.();
       unexclude();
@@ -917,13 +920,7 @@ export function enableDebugOverlay(
   if (opts.input !== undefined && opts.key !== undefined) {
     const wanted = opts.key;
     offKey = opts.input.bind((event: KeyEvent) => {
-      // and nothing once the renderer has gone, which is `view.dispose()`
-      // without `overlay.dispose()`. Toggling a pane nothing will paint is
-      // harmless; **stopping the key** is not -- a binding sees every key first,
-      // so a dead overlay would go on swallowing it on a router the app still
-      // owns. The pairing is still the app's, which is the contract
-      // `enableSelection()` already has
-      if (!view.mounted || !wanted(event.key)) {
+      if (!wanted(event.key)) {
         return;
       }
       // stopped, because a binding sees every key first and the one that
@@ -932,6 +929,13 @@ export function enableDebugOverlay(
       handle.toggle();
     });
   }
+
+  // and all of it goes with the renderer, which is `view.dispose()` without
+  // `overlay.dispose()`. Toggling a pane nothing will paint is harmless;
+  // **stopping the key** is not -- a binding sees every key first, so a dead
+  // overlay would go on swallowing it on a router the app still owns. Last,
+  // because a renderer that has already gone calls this at once
+  offDispose = view.onDispose(() => handle.dispose());
 
   return handle;
 }

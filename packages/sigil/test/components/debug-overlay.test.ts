@@ -1548,6 +1548,15 @@ describe('enableDebugOverlay()', () => {
     }
   });
 
+  it('should take its pane out once the renderer has gone', () => {
+    const { overlay, view } = mount({ visible: true });
+    expect(overlay.element.parent).to.equal(view.root);
+
+    view.dispose();
+    expect(overlay.element.parent).to.equal(undefined);
+    overlay.dispose();
+  });
+
   it('should bind nothing without both a router and a key', () => {
     const r = router();
     const only = mount({ input: r.input });

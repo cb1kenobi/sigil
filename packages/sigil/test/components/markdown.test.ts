@@ -1,5 +1,7 @@
 import { strip } from '../../src/ansi/index.js';
 import {
+  diff,
+  type HighlightSpan,
   markdown,
   type MarkdownBlock,
   type MarkdownOptions,
@@ -7,7 +9,7 @@ import {
   markdownView,
   parseMarkdown,
 } from '../../src/components/index.js';
-import { renderToString } from '../../src/element/index.js';
+import { type Element, renderToString } from '../../src/element/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { describe, expect, it } from 'vitest';
 
@@ -835,6 +837,202 @@ describe('markdown()', () => {
 
     it('should draw no escape sequence at all at colour level 0', () => {
       expect(draw(DOCUMENT, { colorLevel: 0, hyperlinks: true })).not.to.include(ESC);
+    });
+  });
+
+  describe('highlight', () => {
+    const coloured = (source: string, opts: MarkdownOptions = {}): string =>
+      draw(source, { colorLevel: 1, ...opts });
+
+    const keywords = (code: string): HighlightSpan[] =>
+      [...code.matchAll(/\bconst\b/g)].map((match) => ({
+        end: match.index + match[0].length,
+        start: match.index,
+        token: 'keyword',
+      }));
+
+    it('should hand the hook each block whole, with the language its fence named', () => {
+      const seen: [string, string | undefined][] = [];
+      draw('```ts title="x"\nconst a\n/* b */\n```\n\n```\nplain\n```\n\n    indented', {
+        highlight: (code, lang) => {
+          seen.push([code, lang]);
+          return [];
+        },
+      });
+
+      expect(seen).to.deep.equal([
+        ['const a\n/* b */', 'ts'],
+        ['plain', undefined],
+        ['indented', undefined],
+      ]);
+    });
+
+    it('should never hand the hook an inline code span, which has no language', () => {
+      const seen: string[] = [];
+      draw('`const a` in a sentence', {
+        highlight: (code) => {
+          seen.push(code);
+          return keywords(code);
+        },
+      });
+
+      expect(seen).to.deep.equal([]);
+    });
+
+    it('should highlight a code block inside a list and a quote', () => {
+      const seen: string[] = [];
+      draw('- item\n\n  ```js\n  one\n  ```\n\n> ```js\n> two\n> ```', {
+        highlight: (code) => {
+          seen.push(code);
+          return [];
+        },
+      });
+
+      expect(seen).to.deep.equal(['one', 'two']);
+    });
+
+    it('should draw a token in its role, and the rest of the block in the foreground', () => {
+      const out = coloured('```ts\nconst a = 1;\n```', { highlight: keywords });
+
+      // the keyword is the accent, and what it did not mark is not: the accent an
+      // unhighlighted block is drawn in is the keyword's, so keeping it hides them
+      expect(out).to.match(new RegExp(`${ESC}\\[36mconst`));
+      expect(out).to.match(new RegExp(`${ESC}\\[39ma = 1;`));
+      expect(strip(out)).to.equal('  const a = 1;');
+    });
+
+    it('should draw a block the hook marked nothing in as it is drawn without one', () => {
+      const source = '```sh\nnpm install\n\nnpm test\n```';
+      const plain = coloured(source);
+
+      expect(coloured(source, { highlight: () => [] })).to.equal(plain);
+      // spans wholly out of range mark nothing either
+      expect(
+        coloured(source, { highlight: () => [{ end: 99, start: 50, token: 'keyword' }] })
+      ).to.equal(plain);
+    });
+
+    it('should paint the second line of a span that began on the first', () => {
+      // a comment is only one where its opener is in the code the hook was handed,
+      // which a hook asked about one line at a time would not have been
+      const out = coloured('```c\n/* one\ntwo */ x\n```', {
+        highlight: (code) =>
+          code.includes('/*')
+            ? [{ end: code.indexOf('*/') + 2, start: code.indexOf('/*'), token: 'comment' }]
+            : [],
+      });
+
+      expect(out.split('\n')[1]).to.match(new RegExp(`${ESC}\\[2mtwo \\*/`));
+    });
+
+    it('should put a token on a later line where the span put it', () => {
+      const out = coloured('```ts\nconst a\nconst b\n\n  const c\n```', { highlight: keywords });
+
+      expect(out.split('\n').map((row) => strip(row))).to.deep.equal([
+        '  const a',
+        '  const b',
+        '',
+        '    const c',
+      ]);
+      expect(out.match(new RegExp(`${ESC}\\[36mconst\\b`, 'g'))).to.have.length(3);
+    });
+
+    it('should carry a token onto every row a fold breaks its line into', () => {
+      const code = `const ${'x'.repeat(25)}`;
+      const out = coloured(`\`\`\`\n${code}\n\`\`\``, {
+        highlight: () => [{ end: code.length, start: 6, token: 'string' }],
+        width: 12,
+      });
+
+      const rows = out.split('\n');
+      expect(rows.map((row) => strip(row))).to.deep.equal([
+        '  const xxxx',
+        '  xxxxxxxxxx',
+        '  xxxxxxxxxx',
+        '  x',
+      ]);
+      for (const row of rows) {
+        expect(row).to.match(new RegExp(`${ESC}\\[32mx`));
+      }
+    });
+
+    it('should keep every line, a blank one included, where the block was highlighted', () => {
+      const source = `\`\`\`ts\nconst a\n\n${'x'.repeat(14)}\nconst b\n\`\`\``;
+      const highlighted = draw(source, { highlight: keywords, width: 12 });
+
+      expect(highlighted).to.equal(draw(source, { width: 12 }));
+      expect(highlighted.split('\n')).to.have.length(5);
+    });
+
+    it('should read a span in code units, as diff() and multiline() do', () => {
+      // the emoji is two code units, so the keyword starts at 3 and not at 2
+      const out = coloured('```\n😀 const\n```', { highlight: keywords });
+
+      expect(out).to.match(new RegExp(`${ESC}\\[36mconst`));
+    });
+
+    it('should clip a span out of range rather than refuse it', () => {
+      const out = coloured('```\nabcdef\n```', {
+        highlight: () => [
+          { end: 2, start: -5, token: 'number' },
+          { end: 200, start: 4, token: 'string' },
+        ],
+      });
+
+      expect(strip(out)).to.equal('  abcdef');
+      expect(out).to.match(new RegExp(`${ESC}\\[34mab`));
+      expect(out).to.match(new RegExp(`${ESC}\\[32mef`));
+    });
+
+    it('should refuse a token no class can carry', () => {
+      expect(() =>
+        draw('```\na\n```', { highlight: () => [{ end: 1, start: 0, token: 'a b' }] })
+      ).to.throw(/token/);
+    });
+
+    it('should let what the hook throws reach the caller', () => {
+      const boom = new Error('the grammar is missing');
+      expect(() =>
+        draw('```ts\na\n```', {
+          highlight: () => {
+            throw boom;
+          },
+        })
+      ).to.throw(boom);
+    });
+
+    it("should carry diff()'s token classes, so one sheet colours both", () => {
+      const theme = '.sigil-token-binding { color: magenta }';
+      const highlight = (): HighlightSpan[] => [{ end: 3, start: 0, token: 'binding' }];
+
+      expect(coloured('```\nlet a\n```', { highlight, theme })).to.match(
+        new RegExp(`${ESC}\\[35mlet`)
+      );
+      expect(diff({ new: 'let a', old: '' }, { colorLevel: 1, highlight, theme })).to.match(
+        new RegExp(`${ESC}\\[[\\d;]*35mlet`)
+      );
+    });
+
+    it('should put the token classes on the element tree the string is drawn from', () => {
+      const { element } = markdownView('```ts\nconst a\n```', {
+        env: {},
+        highlight: keywords,
+        hyperlinks: false,
+        width: 20,
+      });
+      const classes: string[][] = [];
+      const visit = (node: Element): void => {
+        classes.push([...node.classes]);
+        node.children.forEach(visit);
+      };
+      visit(element);
+
+      expect(classes).to.deep.include([
+        'sigil-markdown-code',
+        'sigil-token',
+        'sigil-token-keyword',
+        'sigil-accent',
+      ]);
     });
   });
 

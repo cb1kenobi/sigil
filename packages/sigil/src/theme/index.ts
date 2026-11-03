@@ -199,9 +199,9 @@ export const FRAMEWORK_CSS = `
  *   .sigil-markdown  .sigil-markdown-paragraph  .sigil-markdown-heading
  *   .sigil-markdown-h1  .sigil-markdown-h2  .sigil-markdown-h3
  *   .sigil-markdown-h4  .sigil-markdown-h5  .sigil-markdown-h6
- *   .sigil-markdown-code  .sigil-markdown-code-block  .sigil-markdown-quote
- *   .sigil-markdown-quote-bar  .sigil-markdown-quote-body  .sigil-markdown-list
- *   .sigil-markdown-ol  .sigil-markdown-ul  .sigil-markdown-item
+ *   .sigil-markdown-code  .sigil-markdown-code-block  .sigil-markdown-code-row
+ *   .sigil-markdown-quote  .sigil-markdown-quote-bar  .sigil-markdown-quote-body
+ *   .sigil-markdown-list  .sigil-markdown-ol  .sigil-markdown-ul  .sigil-markdown-item
  *   .sigil-markdown-item-body  .sigil-markdown-marker  .sigil-markdown-url
  *   .sigil-markdown-image  .sigil-markdown-table  .sigil-markdown-table-rule
  *   .sigil-markdown-cell

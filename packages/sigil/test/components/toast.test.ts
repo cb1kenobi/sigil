@@ -3,7 +3,7 @@ import { openModal } from '../../src/components/modal.js';
 import { showToast, type ToastCloseReason, type ToastOptions } from '../../src/components/toast.js';
 import { box, type Element, hitTest, renderToLines, text } from '../../src/element/index.js';
 import { createInput } from '../../src/input/index.js';
-import { createEffect, createRoot } from '../../src/renderer/index.js';
+import { createEffect, createRoot, render } from '../../src/renderer/index.js';
 import { flush, State } from '../../src/signals/index.js';
 import { setQuiet } from '../../src/style/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
@@ -497,6 +497,62 @@ describe('ownership', () => {
     dispose();
     expect(handle?.open).to.equal(true);
     expect(vi.getTimerCount()).to.equal(1);
+  });
+
+  /**
+   * Raised from a handler, so no owner takes it: the renderer going is what
+   * does, rather than the timer running out over a tree nobody is drawing.
+   */
+  it('should go with the renderer it was shown over, timer and corner', () => {
+    const s = scene();
+    const view = render(() => s.root, { terminal: s.term.terminal });
+    const reasons: ToastCloseReason[] = [];
+    const handle = showToast(view, {
+      message: 'Saved',
+      onClose: (why) => reasons.push(why),
+      terminal: s.term.terminal,
+    });
+    expect(handle.open).to.equal(true);
+
+    view.dispose();
+    expect(handle.open).to.equal(false);
+    expect(reasons).to.deep.equal(['dismiss']);
+    expect(vi.getTimerCount()).to.equal(0);
+    expect(s.root.children).to.deep.equal([s.one, s.two]);
+  });
+
+  it('should close at once over a renderer that has already gone', () => {
+    const s = scene();
+    const view = render(() => s.root, { terminal: s.term.terminal });
+    view.dispose();
+    const reasons: ToastCloseReason[] = [];
+    const handle = showToast(view, {
+      message: 'Saved',
+      onClose: (why) => reasons.push(why),
+      terminal: s.term.terminal,
+    });
+
+    expect(handle.open).to.equal(false);
+    expect(reasons).to.deep.equal(['dismiss']);
+    expect(vi.getTimerCount()).to.equal(0);
+    expect(s.root.children).to.deep.equal([s.one, s.two]);
+  });
+
+  it('should let go of the renderer when it goes first', () => {
+    const s = scene();
+    const subscribed = new Set<() => void>();
+    const host = {
+      onDispose(handler: () => void) {
+        subscribed.add(handler);
+        return () => void subscribed.delete(handler);
+      },
+      root: s.root,
+    };
+    const handle = showToast(host, { message: 'Saved', terminal: s.term.terminal });
+    expect(subscribed.size).to.equal(1);
+
+    handle.dismiss();
+    expect(subscribed.size).to.equal(0);
   });
 });
 

@@ -1443,14 +1443,17 @@ patch, a pane, and three additions to the renderer that the pane needs.
   longer type -- the handle's `toggle()` is there for an app that wants a guard of
   its own, which is what `03-focus.js` does with its `q`.
 
-- **The key goes quiet once the renderer has gone, which is the half `dispose()`
-  cannot cover.** `view.dispose()` without `overlay.dispose()` is a thing an app
+- **The overlay disposes itself when the renderer goes, which is the half the app
+  forgets.** `view.dispose()` without `overlay.dispose()` is a thing an app
   does, and toggling a pane nothing will paint is harmless -- **stopping the key**
   is not. A binding sees every key before the focused element does, so a dead
-  overlay would go on swallowing its key on a router the app still owns. One
-  condition, and it makes the failure benign; the pairing is still the app's, which
-  is the contract `enableSelection()` already has. Reported by the first review
-  round.
+  overlay would go on swallowing its key on a router the app still owns. Reported
+  by the first review round, and first answered with a `view.mounted` check in the
+  binding, which left the binding on the router for good. SIG-219 gave the
+  renderer `onDispose()`, and the overlay subscribes last and calls its own
+  `dispose()` from it, so the binding comes off and the check went: with the
+  subscription in place it could no longer fail a test. `enableSelection()` does
+  the same with its `stop()`.
 
 - **`dispose()` puts back what was attached, in reverse.** The frame handler
   first, so that nothing reads a pane being dismantled, then the key, then the
@@ -8109,6 +8112,14 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   `openModal(root, ...)` both work, because all it needs is the element to append
   to and the router whose ring contains it. The latter is what the piped demo and
   the tests use, with no renderer.
+- **A renderer host closes the dialog with no answer when it goes.** SIG-219. The
+  binding stops every key but the abort, so a dialog opened from a handler and
+  left open after `view.dispose()` swallowed the keys of a router the app goes on
+  owning, and `result` never settled, which would hang an `await`. It subscribes
+  to `onDispose()` last and calls `close()`, which puts the focus back -- the tree
+  is still whole when the handler runs -- and settles `undefined`, so
+  `confirmModal()` answers `false`, a dismissal's answer. An element host has no
+  such signal, and the dialog is the caller's to close.
 - **Not done:** a dimmed scrim behind the dialog (no `opacity`, and a transparent
   box is what keeps the app visible); resizing the panel to its content (it has a
   declared `width`, capped at the screen, and grows in height); announcing a
@@ -8556,7 +8567,7 @@ the keys and the mouse while it is open, and a toast has neither, ever.
   raised in a component body goes when the component unmounts, one raised in an
   effect goes when that effect runs again -- the owner tree's rule for anything
   created in a run -- and one raised from a key handler or a promise, which have no
-  owner, runs its course. That is what lets the ordinary case work: a form that
+  owner, runs its course or goes with the renderer, below. That is what lets the ordinary case work: a form that
   closes on save raises "Saved" from its key handler, and the toast outlives the
   form. And _it does not outlive the process_: the timer is `unref()`ed, the
   spinner's rule and the clock's redraw, so a program that has finished exits with
@@ -8566,17 +8577,20 @@ the keys and the mouse while it is open, and a toast has neither, ever.
   and an unref'd timer is exactly that. Nothing should wait on a toast anyway. The
   reasons are `timeout`, `dismiss` (a click, `dismiss()`, `dispose()`, or the owner
   going), `overflow` and `quiet`, and it is called once.
-- **A host that is disposed is noticed when the timer fires, not when it goes.**
-  Nothing announces a renderer's `dispose()` -- `Renderer` has no hook for it -- so
-  a toast raised from a handler over a renderer that is then torn down keeps its
-  timer until it runs out, and removes itself from a tree nobody is drawing, which
-  is harmless. What it costs is bounded by the timeout and by nothing else:
-  `unref()` means it holds nothing open, and `Infinity` toasts start no timer. A
-  toast raised inside the renderer's own tree goes with it, by the owner rule
-  above. A corner the app takes out of the tree itself -- clearing its screen --
-  is noticed at the next raise there: its toasts are closed, which clears their
-  timers, rather than put back. An eager answer needs a disposal seam on `Renderer`, which is a change to
-  the renderer's surface and not one to take inside this ticket.
+- **A renderer that is disposed takes its toasts with it, the moment it goes.**
+  SIG-219. A host with `onDispose()` -- which a renderer is -- gets one
+  subscription per toast, so a toast raised from a key handler closes with
+  `dismiss` when the renderer goes: its timer is cleared and its corner taken out,
+  rather than the timer running out over a tree nobody is drawing. A renderer
+  that has already gone calls the handler at once, so a toast raised over one
+  closes inside `showToast()`, as a quiet one does; that is why it subscribes
+  after the timer starts, or there would be no timer to clear. Closing any other
+  way unsubscribes, so a renderer does not hold a toast that has gone. A bare
+  element host cannot say when it stops being drawn, so a toast over one still
+  runs its course -- harmless, since the timer is `unref()`ed and bounded by
+  `timeout`, and `Infinity` starts none. A corner the app takes out of the tree
+  itself -- clearing its screen -- is noticed at the next raise there: its toasts
+  are closed, which clears their timers, rather than put back.
 - **`timeout` is a positive number of milliseconds no larger than 2^31 - 1, or
   `Infinity`.** The bound is the clock's: past it `setTimeout` fires at once, and a
   toast that vanished the moment it was asked to stay for a month is the wrong
@@ -8603,8 +8617,8 @@ the keys and the mouse while it is open, and a toast has neither, ever.
 - **Not done:** pausing the timer while the pointer is over a toast; a key that
   dismisses; a slide-in, which is the thing `reduce` would then have to switch off;
   centred positions; an action button on a toast, which would need the focus and
-  is a modal; a queue; announcing a toast in accessible mode, which draws prompts
-  as lines and has no screen to put a corner on; and the eager host disposal above.
+  is a modal; a queue; and announcing a toast in accessible mode, which draws prompts
+  as lines and has no screen to put a corner on.
 
 ### A tooltip: text anchored to an element, on hover or on focus
 
@@ -8703,6 +8717,15 @@ because a dropdown or anything else that sits beside a box wants the same answer
   attached inside a component goes with it. Outside any owner the caller disposes.
   The timer is `unref`'d, the decrypt's rule: a tooltip is no reason for a process
   to stay alive.
+- **It does not use `Renderer.onDispose()`, and does not need to.** SIG-219
+  checked. A tooltip is never handed a renderer -- an anchor and a router are all
+  it takes -- so subscribing would mean a new option for no failure: it is
+  attached to an element, usually in a body, so the owner takes it; its Escape
+  binding never stops a key, so a router the app keeps loses nothing to a stale
+  one; and a wait that fires after the renderer went appends a bubble to a tree
+  nobody draws and is bounded by `delay`. The toast and the modal adopted the
+  seam because each stops something on the app's router or outlives its raiser by
+  design; the tooltip does neither.
 - **Sabotage: thirty-six, two survivors, two new tests, and four deletions.** The
   clamp's order and the root's own offset both survived and are pinned now. A
   pinned `width` and `height` on the placed bubble, an equal-props early return in
@@ -8923,8 +8946,52 @@ is recorded in that directory's file.
 - **What it cost.** `dist/components.mjs` went from 184,052 B to 200,422 B when it
   landed, the parser and the renderer together -- a measurement of this change,
   not of the tree.
-- **Deliberately out.** A highlight seam for code blocks: `diff()` and
-  `multiline()` take one, and a block's `info` is carried in the tree for the day
-  this does, but a grammar is the app's and one more seam is one more contract.
-  Multi-line reference definitions, HTML entities beyond the eleven, and anything
-  CommonMark calls an extension.
+- **Deliberately out.** Multi-line reference definitions, HTML entities beyond
+  the eleven, and anything CommonMark calls an extension. A highlight seam for code
+  blocks was out here too, and SIG-220 added it: the entry below.
+
+### Markdown code blocks take the app's highlighter (SIG-220)
+
+`highlight?: (code: string, lang: string | undefined) => readonly HighlightSpan[]`
+on `MarkdownOptions`. A document with no code block, or no hook, draws exactly as
+it did, and none of SIG-197's tests was edited.
+
+- **`diff()`'s hook with the language beside it, and its types, validator and
+  roles.** `HighlightSpan`, `tokensOf()` and `TOKEN_ROLE` from `prompt.ts`, so the
+  classes are `sigil-token` and `sigil-token-<token>` and the seven names draw in
+  the roles they draw in for a diff: one sheet colours both, which is pinned by a
+  test that draws one token through each. `lang` is the first word of the info
+  string, which is all the parser keeps, and `undefined` rather than `''` where
+  there is none -- an indented block, or a bare fence -- so a hook can tell "no
+  language" from a language it does not know. The hook is still called for those:
+  a highlighter that guesses is the app's to write.
+- **Asked once per block, with the whole block, and the spans cut afterwards.** A
+  comment over three lines is one span, for the reason `multiline()` gives. The
+  code-unit offsets are carried through `split('\n')` and then through `fold()`,
+  whose pieces are consecutive slices of the line, so a token a fold breaks is in
+  its style on both rows. A cluster takes the token of the unit it starts at,
+  which is `diff()`'s rule.
+- **A block the hook marked nothing in is drawn as it was, and in one that it
+  marked, the rest is the plain foreground rather than the accent.** The accent is
+  the role `keyword` draws in, so keeping it under the tokens would hide every
+  keyword in the block. And a block the hook returned nothing for -- a language it
+  does not know, a `sh` block next to the `js` it does -- would then be the plain
+  foreground too, which is code that no longer looks like code. So "marked
+  nothing", including spans wholly out of range, takes the unhighlighted path
+  untouched: one accent text, as before. A token with no role, an app's own name,
+  is the foreground with its class, as it is the line's colour in a diff.
+- **A highlighted row is a row of fixed-width `pre` texts, one per run**, which is
+  `diff()`'s construction and its reason: one element resolves one style. An empty
+  line keeps a row by holding an empty text, since a row with no children lays out
+  at no height. `.sigil-markdown-code-row` is the new hook, named in the sheet's
+  vocabulary comment; nothing was declared, so the sheet's exceptions are as they
+  were.
+- **A hook that throws throws out of `markdown()`, a span out of range is clipped,
+  and a bad token name is refused with `PromptError`** -- `diff()`'s three answers,
+  taken rather than restated. The hook is the caller's code, and a renderer that
+  swallowed its failure would draw a document whose code is quietly uncoloured,
+  which is the failure nobody can see.
+- **The string path is the tree's.** `markdown()` renders `markdownView()`, so
+  there is one implementation and a test reads the classes off the tree directly.
+- **Inline code spans are never handed to the hook**, because they carry no
+  language, and guessing one from a word is a grammar's job. They stay the accent.

@@ -46,14 +46,22 @@ export type ToastPosition = 'bottom-left' | 'bottom-right' | 'top-left' | 'top-r
  *
  * - `timeout` -- its time ran out.
  * - `dismiss` -- it was clicked, `dismiss()` or `dispose()` was called, or the
- *   owner it was raised under was disposed.
+ *   owner it was raised under or the renderer it was shown over was disposed.
  * - `overflow` -- a newer toast in the same corner pushed it past `max`.
  * - `quiet` -- it was raised under `--quiet`, so it was never shown at all.
  */
 export type ToastCloseReason = 'dismiss' | 'overflow' | 'quiet' | 'timeout';
 
-/** Where a toast is put: the renderer, or any element that is the root of the screen. */
-export type ToastHost = Element | { readonly root: Element };
+/**
+ * Where a toast is put: the renderer, or any element that is the root of the screen.
+ *
+ * A host with `onDispose()` -- which a renderer has -- takes its toasts with it
+ * when it goes. A bare element cannot say when nothing is drawing it any more,
+ * so a toast over one runs its course.
+ */
+export type ToastHost =
+  | Element
+  | { onDispose?(handler: () => void): () => void; readonly root: Element };
 
 export interface ToastOptions {
   /**
@@ -225,7 +233,8 @@ function stackFor(root: Element, position: ToastPosition): Stack {
  * Raised inside a component -- its body, or an effect -- it belongs to that
  * component and goes when it does, the way anything else created there does.
  * Raised from a key handler or a promise, which have no owner, it belongs to
- * nobody and runs its course.
+ * nobody and runs its course -- unless the host is a renderer, which takes it
+ * away when it is disposed.
  *
  * @param host - The renderer, or the root element the screen is drawn from.
  * @param opts - The message, and where and for how long.
@@ -324,6 +333,7 @@ export function showToast(host: ToastHost, opts: ToastOptions): ToastHandle {
   const stack = stackFor(root, position);
   const entry = { close };
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let offDispose: (() => void) | undefined;
   open = true;
 
   function close(reason: ToastCloseReason): void {
@@ -332,6 +342,7 @@ export function showToast(host: ToastHost, opts: ToastOptions): ToastHandle {
     }
     open = false;
     clearTimeout(timer);
+    offDispose?.();
 
     const index = stack.entries.indexOf(entry);
     if (index !== -1) {
@@ -392,6 +403,15 @@ export function showToast(host: ToastHost, opts: ToastOptions): ToastHandle {
   // owner runs it at once, so a toast raised from a callback that outlived its
   // component goes as it arrives
   onCleanup(() => close('dismiss'));
+
+  // and it goes with the renderer, which is what a toast raised from a key
+  // handler has instead of an owner: its timer is cleared and its corner taken
+  // out the moment nothing will draw it, rather than when the timer runs out
+  // over a tree nobody is drawing. After the timer, so that a renderer that has
+  // already gone -- which calls this at once -- has a timer to clear
+  if (!(host instanceof Element)) {
+    offDispose = host.onDispose?.(() => close('dismiss'));
+  }
 
   return handle;
 }
