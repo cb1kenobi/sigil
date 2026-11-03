@@ -8376,3 +8376,110 @@ field joins like anything else focusable.
   `maskedText()` variants; clicking to place the caret; a selection; a
   `describe` helper for a key-help footer; and blocking an unclaimed paste at the
   modal's backdrop.
+
+### A tooltip: text anchored to an element, on hover or on focus
+
+`src/components/tooltip.ts`. SIG-214, split from SIG-191 with the toast.
+`attachTooltip(anchor, opts)` hangs a bubble of text on an element the app already
+has, and `placeTooltip()` is the arithmetic that decides where it goes, exported
+because a dropdown or anything else that sits beside a box wants the same answer.
+
+- **The keyboard's answer is the focus, and it is not a fallback.** Hover needs
+  `mouse.motion`, which is opt-in for the wire cost "The mouse" records -- so in
+  most apps, and in every app with no mouse at all, nothing ever knows where the
+  pointer is. A tooltip that only hover could show would be invisible to all of
+  them. So the bubble shows while the anchor is hovered **or** while the focus is
+  on the anchor or anything inside it, after the same `delay` either way, and goes
+  the moment neither is true. `contains()` rather than identity, because the
+  anchor is often a box holding the focusable thing. One delay for both: what it
+  is for is a pointer crossing a toolbar or a Tab passing through one, and both
+  of those would otherwise draw a bubble at every stop. What a keyboard-only user
+  still does not get is a tooltip on an anchor the ring cannot reach, and the
+  component does not make one focusable to fix that: changing the ring is the
+  app's call, and a tooltip that quietly added a Tab stop would be a worse
+  surprise than one that needs a focusable anchor. This is WCAG 1.4.13's shape,
+  and the other two halves of it are below.
+- **Hover is read off the `hover` state, and an event is only the reminder to
+  read it.** The router writes the state on the whole chain before it tells
+  anybody, it is not stoppable, and it is `hovered`'s documented reason for not
+  being a signal. What the tooltip subscribes to is `input.onMouse()`, and every
+  report that reaches it re-reads the anchor's state: the events reaching a router
+  handler are the ones the tree did not stop, so an anchor that stops its own
+  `mouseleave` -- which also ends the rest of that leave sequence -- would strand a
+  bubble that trusted the event, and the next motion anywhere puts it right. The
+  timer asks the state again when it fires for the same reason, which is what
+  `should not show for a hover that ended in reports the tree stopped` pins. The
+  anchor's own `onMouse` and `onKey` are never touched: assigning one would clobber
+  an app's click handler on the button the tooltip describes, and wrapping one is
+  undone by the next assignment.
+- **The bubble is hoverable, so moving onto it keeps it.** Its own `hover` state
+  counts as a reason. Placed flush against the anchor with no gap, a pointer moving
+  from one to the other does it in one report, so there is no hide delay to tune.
+  That is also what makes the last-resort placement below safe: a bubble clamped
+  over the anchor is one the pointer is now over, so it does not flicker.
+- **Escape dismisses it and is never stopped.** A tooltip holds no keys, so an
+  app's own Escape -- a dialog's, a pager's -- still happens: the binding sees it
+  first, hides the bubble or cancels the wait, and lets it go on. Dismissed stays
+  dismissed until both reasons have gone and one comes back, or a focus-shown
+  bubble would reappear one delay later under a user who just asked it to go. An
+  Escape with nothing shown and nothing waiting dismisses nothing, so it cannot
+  swallow the next hover.
+- **It never takes the focus.** The bubble is not focusable, `show()` moves
+  nothing, and a click on the bubble lands on an element click-to-focus leaves
+  alone. Pinned on both routes, hover and focus.
+- **The bubble is `position: fixed` on the anchor's root, found by walking up.** No
+  host argument: the outermost ancestor is the box `fixed` resolves against and the
+  one that is laid out, so it is the only right answer and the anchor already knows
+  it. Out of flow, so it moves nothing; not inside the anchor's parent, so no
+  ancestor's `overflow` clips it. `z-index: 950`, above the modal's `900` so a
+  tooltip on a button inside a dialog is drawn over the dialog, and below the debug
+  overlay's `1000`. Opaque with no colour by the modal's own fill, for the modal's
+  reason. An anchor with no parent at all has been taken out of the tree, and shows
+  nothing rather than putting a bubble inside itself.
+- **It is placed by `onResize`, because only the layout knows the two sizes.** A
+  fresh bubble starts at the root's corner; the first layout measures it, its
+  handler places it against the anchor's box and the root's, and the frame lays out
+  again before it paints -- so no frame ever shows it in the wrong place. Moving it
+  never changes its size: a `fixed` box is offered the room to the right of its
+  `left`, and the placement never puts it where that is less than its width. So the
+  handler runs once per bubble, and again only when the words change its size,
+  which is what re-places it after `setText()`. The cost is that a bubble does not
+  follow an anchor that moves while it is shown; a resize is the case that matters
+  and it builds a fresh bubble, which the next layout places against the new
+  screen. A scroll under a shown bubble is left until the pointer moves.
+- **The flip is two flips and a clamp, in that order.** The main axis: `side` where
+  it fits, else the opposite side where that fits, else whichever has more room,
+  with the preferred side keeping a tie. The cross axis: start where the anchor
+  starts, and where that runs off the far edge end where the anchor ends -- which is
+  what keeps a bubble beside its anchor in a corner, where both flips happen at
+  once. Then clamped inside the screen, which only moves it when neither alignment
+  fits, and then it may cover the anchor: covering it beats being cut off, and the
+  hoverable rule above keeps that from flickering. The clamp takes the far edge
+  first, so a bubble wider than the screen starts at its left edge; the layout's
+  own available width already prevents that on the real path, and the order is
+  pinned through `placeTooltip()` because that is public.
+- **`--quiet` hides it, which is the line `output.ts` draws and not the modal's
+  answer.** A tooltip is chrome beside the content -- the anchor it describes is
+  still there -- and it draws on its own after a timer, with nobody waiting on it,
+  so suppressing it can hang nothing. The modal is the other side of the line
+  because it is a dialogue somebody waits on. Asked of `resolveOutput()` at every
+  show rather than at attach, because an app builds its tree before `main()` has
+  read argv. `quiet: false` is the per-tooltip opt-out, the top of the chain the
+  way `MountOptions.quiet` is, for a tooltip an app considers content. `reduce`
+  changes nothing: there is no motion to take away, and a delay is a wait before
+  one frame rather than an animation.
+- **Every timer goes on unmount.** `dispose()` clears the wait, takes the bubble
+  out, and unsubscribes the mouse, the binding, the resize and the focus effect;
+  `onCleanup()` registers it with the owner the tooltip was attached under, so one
+  attached inside a component goes with it. Outside any owner the caller disposes.
+  The timer is `unref`'d, the decrypt's rule: a tooltip is no reason for a process
+  to stay alive.
+- **Sabotage: thirty-six, two survivors, two new tests, and four deletions.** The
+  clamp's order and the root's own offset both survived and are pinned now. A
+  pinned `width` and `height` on the placed bubble, an equal-props early return in
+  `onResize`, a `disposed` flag checked in three places and the Escape binding's
+  modifier and paste checks were written and deleted for surviving theirs.
+- **Not done:** following an anchor that moves while shown; a warm-up that shows
+  the next tooltip at once after one has just closed; an arrow pointing at the
+  anchor; rich content in the bubble; and announcing it in accessible mode, which
+  has no screen to put it on.

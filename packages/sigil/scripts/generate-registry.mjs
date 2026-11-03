@@ -183,6 +183,10 @@ const ENTRIES = [
     name: 'text-field',
   },
   {
+    desc: 'A tooltip: text anchored to an element, shown on hover or focus, flipped to stay on screen',
+    name: 'tooltip',
+  },
+  {
     desc: 'A debug overlay: captured console output and frame stats, inside the app',
     name: 'debug-overlay',
   },

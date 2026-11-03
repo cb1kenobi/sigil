@@ -4908,6 +4908,48 @@ are the form's or the caller's, not the field's. `.sigil-text-field`, `-before`,
 `-caret`, `-after` and `-placeholder` are the theme hooks, and the caret is
 `inverse` under the field's `:focus`.
 
+#### A tooltip
+
+```js
+import { attachTooltip } from '@ttylabs/sigil/components';
+import { createInput } from '@ttylabs/sigil/input';
+
+const input = createInput({ mouse: { motion: true, surface: view.backend }, root: view.root });
+const tip = attachTooltip(saveButton, { input, text: 'Writes the file to disk' });
+```
+
+```
+[ Save ] [ Open ]
+╭─────────────────────────╮
+│ Writes the file to disk │
+╰─────────────────────────╯
+```
+
+A line of text anchored to an element. It appears after `delay` (500ms) while the
+pointer rests on the anchor, **or while the focus is on the anchor or inside it**,
+and goes the moment neither is true. Hover needs the router's `mouse.motion`,
+since without it nothing knows where the pointer is between clicks -- so a
+keyboard-only app, or one with no mouse at all, still gets the tooltip by tabbing
+to the anchor. The pointer may move from the anchor onto the bubble without losing
+it. **Escape** hides it until the pointer and the focus have both left; the key is
+not stopped, so the app's own Escape still happens.
+
+`side` is where it goes when there is room: `bottom` (the default), `top`,
+`left` or `right`. Where it does not fit it **flips** to the other side, and
+where its start would run off the far edge it ends where the anchor ends instead,
+so in a corner it flips both ways; `handle.side` says where it landed. `maxWidth`
+(40) is where the words wrap. `placeTooltip(anchor, size, screen, side)` is the
+same arithmetic on its own, for anything else that wants to sit beside a box.
+
+The bubble is added to the anchor's root as `position: fixed`, above a modal and
+below the debug overlay, and is opaque without a colour. It is **never focusable
+and never moves the focus**, and the anchor's own `onMouse` and `onKey` are left
+alone. A tooltip is chrome rather than content, so **`--quiet` hides it**;
+`quiet: false` says this one is content. `handle.setText()` changes the words,
+`handle.hide()` is Escape, and `handle.dispose()` takes it off -- which happens by
+itself, timer and all, when the component it was attached inside unmounts.
+`.sigil-tooltip`, `-fill` and `-text` are the theme hooks.
+
 #### A key-help footer
 
 ```js
