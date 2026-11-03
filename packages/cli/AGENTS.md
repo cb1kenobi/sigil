@@ -3544,6 +3544,15 @@ right answer each. `declaredValues()` is that rule lifted out of `valuesFor()`
 behind, because those belong to a menu and a reference records what the
 declaration said.
 
+`segmentFor()` is imported too, and is what a command's path is written with: its
+name, unless the name holds a control character, and then a spelling that
+reaches it. Until SIG-231 the surface took the name whatever it held, so
+`` `two${ESC}lines, go` `` got a page called `two<ESC>lines.md`, with the raw
+byte in the file name, titled `mycli twolines`, a command nothing can run. It is
+`go.md` now, and the completion script keys the command by `go` for the same
+reason. See "the path is keyed by a spelling that can be typed" in
+`packages/sigil/src/completion`.
+
 #### Four decisions, and the fourth is the list
 
 **One file or many: both, and the destination decides which.** Many is the

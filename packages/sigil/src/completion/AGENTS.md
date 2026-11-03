@@ -478,6 +478,48 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   reached the screen on every tab. The filter is in `tokensFor()` beside the
   registry test, so one rule answers both.
 
+- **...and the path is keyed by a spelling that can be typed, because the path
+  was the one place the name still went unfiltered.** A command whose name
+  holds a control character and which also has a typeable alias --
+  `` `two${ESC}lines, go` `` -- keeps `go`, so it is walked, and its path was
+  still built from `child.name`. Every arm a command has is keyed by its path,
+  so the raw `ESC` was in the resolving arm, the option arms and the value arms
+  of both scripts. Measured before the fix: two lines of the bash script and two
+  of the zsh one held the byte, and nothing else in either did -- descriptions
+  go through `oneLine()`, and option spellings, choices and positional values
+  through `typeable()`, so the path was the only app-supplied text left.
+
+  `segmentFor()` answers it, beside `tokensFor()` and `listedTokens()`. The
+  name stays the segment wherever it is typeable, so no other command's path
+  moves -- a name a sibling shadows is still its command's path, which was the
+  answer before and is not this rule's to change. Otherwise the first listed
+  token, so the segment is a spelling help prints, then any token, which is a
+  property alias that still reaches the command. A token that is a sibling's
+  **name** is passed over, because that sibling's path is its name whether or
+  not the name still reaches it, and two commands under one path is two sets of
+  arms behind one pattern, where the first answers for both. With nothing left
+  the command is skipped: missing from the script rather than completing as
+  something else, the call `tokensFor()` already makes about a token. That last
+  case needs a control character in one name _and_ an alias of it shadowing a
+  sibling's, and is pinned so the guard cannot quietly go.
+
+  The command surface asks the same function, because it had the same defect
+  one printer along: the markdown wrote `two<ESC>lines.md`, a file name holding
+  the byte, and titled it `mycli twolines`, which runs nothing since the escape
+  was stripped from the title and the name is not a token. Now it is `go.md`
+  and `mycli go`. One function rather than two, because "what path reaches
+  this command" is the thing `should reach every command the completion spec
+  reaches` says the two walks agree about.
+
+  What does not move is the order: the walk sorts the registry by name, so an
+  untypeable command is offered where its name sorts rather than where its
+  segment does. Both shells show a menu sorted anyway, so it is not worth
+  computing every segment before sorting. Pinned by `should key a command whose
+  name holds a control character by a spelling that can be typed` and its three
+  siblings, `should carry no raw control character from a command name into the
+  %s script`, and `a command whose name holds a control character` in both
+  shell drivers.
+
 - **A program name with a leading dash is refused, because quoting does not
   help.** Quote removal happens before a builtin reads its words, so
   `complete -o default -F _x '-D'` is `complete: -D: invalid option` and the name

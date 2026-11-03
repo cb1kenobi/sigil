@@ -352,6 +352,77 @@ describe('completionSpec()', () => {
     expect(paths(found)).toEqual(['', 'fine']);
   });
 
+  it('should key a command whose name holds a control character by a spelling that can be typed', async () => {
+    // the name is in no token list, and `go` is -- so the command is walked,
+    // and its *path* was still built from the name: the raw `ESC` went into
+    // every `case` pattern the command is keyed by, in both scripts
+    const found = await spec({
+      commands: {
+        [`two${ESC}lines, go`]: { desc: 'reachable', options: { '--force': 'force' }, run() {} },
+      },
+      completion: false,
+      help: false,
+      quiet: false,
+    });
+
+    expect(paths(found)).toEqual(['', 'go']);
+    expect(at(found, '').subcommands).toEqual([
+      { desc: 'reachable', listed: ['go'], name: 'go', tokens: ['go'] },
+    ]);
+    expect(spellings(found, 'go')).toContain('--force');
+  });
+
+  it('should key it by a listed spelling before a property alias', async () => {
+    // tokens are the name and then the aliases *sorted*, so `go` comes first;
+    // the path is the reference's page title too, and a listed alias is the
+    // one help prints
+    const found = await spec({
+      commands: { [`two${ESC}lines, run`]: { alias: 'go', run() {} } },
+      completion: false,
+      help: false,
+      quiet: false,
+    });
+
+    expect(at(found, '').subcommands).toEqual([
+      { desc: undefined, listed: ['run'], name: 'run', tokens: ['go', 'run'] },
+    ]);
+  });
+
+  it('should key it by a property alias where nothing else is left', async () => {
+    const found = await spec({
+      commands: { [`two${ESC}lines`]: { alias: 'go', run() {} } },
+      completion: false,
+      help: false,
+      quiet: false,
+    });
+
+    expect(paths(found)).toEqual(['', 'go']);
+  });
+
+  it("should not key a command by a sibling's name, which is that sibling's path", async () => {
+    // `go` reaches the second command -- a later registration overwrites -- and
+    // is also the first command's name, which is what *its* path is keyed by.
+    // Keying both by `go` writes two sets of arms under one pattern, and the
+    // first answers for both. Same shapes, so they register in order: siblings
+    // are initialized concurrently and the one with less to do registers first
+    const found = await spec({
+      commands: {
+        'go, gg': { options: { '--first': 'first' }, run() {} },
+        [`two${ESC}lines, go`]: { options: { '--second': 'second' }, run() {} },
+      },
+      completion: false,
+      help: false,
+      quiet: false,
+    });
+
+    expect(paths(found)).toEqual(['', 'go']);
+    expect(at(found, '').subcommands).toEqual([
+      { desc: undefined, listed: ['gg'], name: 'go', tokens: ['gg'] },
+    ]);
+    expect(spellings(found, 'go')).toContain('--first');
+    expect(spellings(found, 'go')).not.toContain('--second');
+  });
+
   it('should leave a hidden option out', async () => {
     const found = await spec({
       completion: false,
@@ -689,6 +760,33 @@ describe('the emitted scripts', () => {
       // for what it ships. `\t`, `\n` and `\r` are the script's own formatting
       expect(script.replaceAll(/[\t\n\r]/gu, '')).not.toMatch(/\p{Cc}/u);
       expect(script).not.toContain(ESC);
+    }
+  );
+
+  it.each(SHELL_NAMES)(
+    'should carry no raw control character from a command name into the %s script',
+    async (shell) => {
+      // the name is untypeable and `go` is not, so the command is walked -- and
+      // its path, which every arm for it is keyed by, was the raw name. Every
+      // other position in the hostile app above was already filtered
+      const script = await completionScript(
+        await state({
+          commands: {
+            [`two${ESC}lines, go`]: {
+              commands: { [`in${ESC}ner, sub`]: { run(): void {} } },
+              desc: 'reachable',
+              options: { '--force': 'force' },
+              run(): void {},
+            },
+          },
+        }),
+        shell
+      );
+
+      // `\t` and `\n` are the script's own formatting, and nothing else is
+      expect(script.replaceAll(/[\t\n]/gu, '')).not.toMatch(/\p{Cc}/u);
+      // and the command is still there, under the spelling that reaches it
+      expect(script).toContain(shell === 'bash' ? "'go sub')" : "('go sub')");
     }
   );
 
@@ -1177,6 +1275,77 @@ describe('the scripts as shell programs', () => {
 
     it.skipIf(!zsh)('should parse as zsh', async () => {
       execFileSync(zsh!, ['-n', await writeUnlisted('zsh')]);
+    });
+  });
+
+  describe('a command whose name holds a control character', () => {
+    // the name cannot be typed and `go` can, so `go` is what completes -- and
+    // what the rest of the line completes against. The path every arm for it
+    // was keyed by used to be the raw name, `ESC` and all
+    const untypeable: Schema = {
+      commands: {
+        [`two${ESC}lines, go`]: { desc: 'reachable', options: { '--force': 'force' }, run() {} },
+        other: { desc: 'other', options: { '--other': 'other' }, run() {} },
+      },
+      completion: false,
+      help: false,
+      name: 'mycli',
+      quiet: false,
+    };
+
+    /** Writes the script for this app out and hands back its path. */
+    async function writeUntypeable(shell: string): Promise<string> {
+      const path = join(dir, `untypeable.${shell}`);
+      writeFileSync(path, await completionScript(await state(untypeable), shell));
+      return path;
+    }
+
+    it.skipIf(!bash)('should complete go in bash, with no raw control character', async () => {
+      const script = await writeUntypeable('bash');
+      expect(readFileSync(script, 'utf8').replaceAll(/[\t\n]/gu, '')).not.toMatch(/\p{Cc}/u);
+      execFileSync(bash!, ['-n', script]);
+
+      const drive = (words: string[]): string[] =>
+        execFileSync(
+          bash!,
+          [
+            '-u',
+            '-c',
+            [
+              `source ${bashQuote(script)}`,
+              `COMP_WORDS=(${words.map(bashQuote).join(' ')})`,
+              `COMP_CWORD=${words.length - 1}`,
+              'COMPREPLY=()',
+              '_mycli',
+              'if [ ${#COMPREPLY[@]} -gt 0 ]; then printf \'%s\\n\' "${COMPREPLY[@]}"; fi',
+            ].join('\n'),
+          ],
+          { encoding: 'utf8' }
+        )
+          .split('\n')
+          .filter((line) => line !== '');
+
+      // in the order the walk reads the registry, which is by name, so the
+      // untypeable one sorts where its name does
+      expect(drive(['mycli', ''])).toEqual(['other', 'go']);
+      expect(drive(['mycli', 'g'])).toEqual(['go']);
+      // `go`'s options rather than the root's, which is the path resolving
+      expect(drive(['mycli', 'go', '--'])).toEqual(['--force']);
+    });
+
+    it.skipIf(!zsh)('should complete go in zsh, with no raw control character', async () => {
+      const script = await writeUntypeable('zsh');
+      expect(readFileSync(script, 'utf8').replaceAll(/[\t\n]/gu, '')).not.toMatch(/\p{Cc}/u);
+      execFileSync(zsh!, ['-n', script]);
+
+      const driver = zshDriver('untypeable.drive.zsh');
+      const drive = (words: string[]): string[] =>
+        execFileSync(zsh!, ['-f', driver, script, ...words], { encoding: 'utf8' })
+          .split('\n')
+          .filter((line) => line !== '');
+
+      expect(drive(['mycli', ''])).toEqual(['cand:other:other', 'cand:go:reachable']);
+      expect(drive(['mycli', 'go', '--'])).toEqual(['cand:--force:force']);
     });
   });
 

@@ -214,6 +214,21 @@ describe('the markdown reference', () => {
     expect(body).toContain('A[31m red one');
   });
 
+  it('should name a command whose name holds a control character by the alias that reaches it', async () => {
+    // the page used to be `two<ESC>lines.md`, a file name holding a raw `ESC`,
+    // titled `mycli twolines` -- a command nothing can run, since the escape
+    // was stripped from the title and the name is not a token. `go` is
+    const pages = referencePages(
+      await surface({ commands: { [`two${String.fromCharCode(0x1b)}lines, go`]: { run() {} } } })
+    );
+
+    expect(pages.map((it) => it.file)).toStrictEqual(['index.md', 'go.md']);
+    for (const page of pages) {
+      expect(page.body.replaceAll(/[\t\n\r]/gu, '')).not.toMatch(/\p{Cc}/u);
+    }
+    expect(pageFor(pages, 'go.md')).toContain('# `mycli go`');
+  });
+
   it('should flatten a multi-line description into its cell', async () => {
     const body = pageFor(
       referencePages(
