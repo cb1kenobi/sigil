@@ -4908,6 +4908,56 @@ are the form's or the caller's, not the field's. `.sigil-text-field`, `-before`,
 `-caret`, `-after` and `-placeholder` are the theme hooks, and the caret is
 `inverse` under the field's `:focus`.
 
+#### A toast
+
+```js
+import { showToast } from '@ttylabs/sigil/components';
+
+showToast(view, { message: 'Saved draft.md', title: 'Saved', variant: 'success' });
+showToast(view, { message: 'Lost the connection', timeout: 8000, variant: 'error' });
+```
+
+```
+                    ╭──────────────────────────────╮
+                    │ Saved                        │
+                    │ Saved draft.md               │
+                    ╰──────────────────────────────╯
+```
+
+A short message in a corner of the screen that goes away by itself. It is appended
+to the root of the renderer (or to any root element) and is `position: fixed`, so it
+takes no space and moves nothing. **It never takes the focus**: nothing in it is
+focusable, so Tab walks past it and the focus stays where it was when a toast
+arrives and when it goes, and it takes no key, so what is typed still goes to the
+focused element. A left click on a toast dismisses it, and no mouse report that
+lands on one reaches what is under it -- a press included, so it never focuses what
+the toast sits over either.
+
+`position` is the corner: `bottom-right` (the default), `bottom-left`, `top-left` or
+`top-right`. Toasts in one corner stack with the newest nearest the corner, and a
+corner holds `max` of them (3 by default); one more pushes the oldest out. `timeout`
+is how long it stays in milliseconds, 4000 by default, and `Infinity` keeps it until
+it is clicked or dismissed. `title` is a heading above the `message`; `variant` is
+`note`, `info`, `success`, `warning` or `error`, the roles `note()` uses; `width` is
+its columns (32 by default, never more than the screen).
+
+`showToast()` returns a handle with `dismiss()`, `dispose()`, `open` and `element`.
+`onClose(reason)` is called once when it goes, with `timeout`, `dismiss`, `overflow`
+or `quiet`. Raised inside a component -- its body or an effect -- a toast goes when
+that component does; raised from a key handler or a promise it runs its course. Its
+timer does not hold the process open.
+
+**A toast is a remark beside the answer, so `--quiet` hides it**: under quiet it is
+never drawn, starts no timer, and closes at once with `quiet`. `quiet: false` shows
+one anyway, and `quiet: true` hides one; `terminal` is the terminal both are read
+against. The question is asked once, when the toast is raised, so one already
+showing when quiet is asked for runs out its own time.
+
+The toast is opaque without a colour, as the modal is, and it is drawn above a modal
+and below the debug overlay. `.sigil-toast`, `-stack`, `-fill`, `-title`,
+`-message` and one class per variant (`.sigil-toast-success` and so on) are the
+theme hooks.
+
 #### A key-help footer
 
 ```js
