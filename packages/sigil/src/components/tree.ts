@@ -42,19 +42,26 @@ import {
 } from './outline.js';
 import { candidatesOf, entryCache, type PathFilter } from './path.js';
 import {
+  type AccessibleOptions,
+  type ChoiceEntry,
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
   promptAnswerSlot,
+  promptAsLines,
   promptFooter,
   promptHeadLine,
   promptHeadWidths,
   promptKeys,
   PromptError,
+  promptLineChoice,
+  type PromptLineForm,
+  type PromptLineReply,
   type PromptOptions,
   promptNote,
   promptRowCap,
   promptSameValue,
+  runLinePrompt,
   runPrompt,
   setPromptNote,
 } from './prompt.js';
@@ -304,7 +311,7 @@ export interface TreeChoice<T = string> {
 /** A node: a string, which is a leaf whose value is itself, or a `TreeChoice`. */
 export type TreeChoiceItem<T = string> = string | TreeChoice<T>;
 
-export interface SelectTreeOptions<T = string> extends PromptOptions {
+export interface SelectTreeOptions<T = string> extends PromptOptions, AccessibleOptions {
   /** Draw with ASCII only. Defaults to what `unicodeSupported()` says. */
   ascii?: boolean;
   /** As `tree()`'s: a marker after the guide. Defaults to `'none'`. */
@@ -604,7 +611,8 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     }
   }
 
-  return runPrompt<T>(opts, () => {
+  /** Reads what was handed over into nodes, which is where a malformed item is refused. */
+  function plant(): void {
     if (Array.isArray(opts.items)) {
       top = build(opts.items, undefined, 0);
     } else {
@@ -615,6 +623,129 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
       top = [root];
     }
     active = top[0];
+  }
+
+  if (promptAsLines(opts)) {
+    return lineTree();
+  }
+
+  /**
+   * The tree as lines: one level at a time, as a numbered list.
+   *
+   * Flattening the whole tree into one list was the obvious form, and it reads
+   * every branch there is to do it -- which for `directoryTree()` is every
+   * directory under the root, and for a branch whose `items` is a function is the
+   * read the drawn prompt makes only when it is opened. So a line lists one level:
+   * a leaf is an answer, a branch is gone into, and the level says where it is,
+   * which is the depth an indent would have shown and a screen reader would not
+   * have said. Without `leaves` a branch is an answer as well, picked from inside
+   * itself as `this one` -- one number per thing a number does, rather than a
+   * second gesture beside it. Going back up is a number like any other.
+   *
+   * A branch is read the first time it is gone into, through `open()`, so the
+   * read is the drawn prompt's, kept the same way, and a read that fails says why
+   * and stays on the level it was asked from. A starting answer is found once the
+   * branches that open themselves have been read, and the list opens on its level
+   * with it as what Enter alone picks.
+   */
+  function lineTree(): Promise<T> {
+    type Step =
+      | { kind: 'pick'; node: TreeNode<T> }
+      | { kind: 'go'; level: TreeNode<T> | undefined };
+
+    /** Whether a level has been listed, so the top of a list is headed coming back to it. */
+    let again = false;
+
+    /** The list for a level: a node, or `undefined` for the top of a list handed over. */
+    function level(at: TreeNode<T> | undefined, from?: TreeNode<T>): PromptLineForm<T> {
+      const steps: Step[] = [];
+      const entries: ChoiceEntry<Step>[] = [];
+      const add = (label: string, hint: string | undefined, value: Step): void => {
+        steps.push(value);
+        entries.push({ hint, label, value });
+      };
+
+      if (at && !opts.leaves) {
+        add(at.text, __`this one`, { kind: 'pick', node: at });
+      }
+      for (const node of at ? (at.children ?? []) : top) {
+        if (node.branch) {
+          add(node.text, __`go in`, { kind: 'go', level: node });
+        } else {
+          add(node.text, undefined, { kind: 'pick', node });
+        }
+      }
+      if (at && !at.root) {
+        add(at.parent ? __`Back to ${at.parent.text}` : __`Back to the top`, undefined, {
+          kind: 'go',
+          level: at.parent,
+        });
+      }
+
+      // what Enter alone picks: the node a level was come back up from, or a
+      // starting answer, and otherwise the first -- the drawn prompt's highlight
+      const initial =
+        from === undefined
+          ? -1
+          : steps.findIndex((s) => (s.kind === 'pick' ? s.node : s.level) === from);
+      const form = promptLineChoice<Step, T>(opts.message, entries, {
+        // the top of a list is the question's own level, which the question
+        // heads the first time it is written and is said again on the way back
+        heading: at ? [__`In ${at.text}`] : again ? [opts.message] : [],
+        initial: Math.max(0, initial),
+        pick: (choice) => step(choice.value as Step, at),
+      });
+      if (form instanceof PromptError) {
+        throw form;
+      }
+      again = true;
+      return form;
+    }
+
+    async function step(chosen: Step, here: TreeNode<T> | undefined): Promise<PromptLineReply<T>> {
+      if (chosen.kind === 'pick') {
+        const { node } = chosen;
+        const failed = await opts.validate?.(node.value);
+        if (typeof failed === 'string' && failed) {
+          return failed;
+        }
+        return {
+          said: __`Chosen: ${opts.short ? opts.short(node.value) : node.text}`,
+          value: node.value,
+        };
+      }
+      const target = chosen.level;
+      if (target && target.children === undefined) {
+        open(target);
+        await target.loading;
+        if (target.children === undefined) {
+          // a read that failed is not kept, so asking for it again reads again
+          const why = error ?? '';
+          error = undefined;
+          return why;
+        }
+      }
+      return level(target, target === here?.parent ? here : undefined);
+    }
+
+    return runLinePrompt<T>(opts, () => {
+      // at once, so a malformed item is refused before anything is written
+      plant();
+      return opened().then(() => {
+        const found = want === undefined ? undefined : find(top, want);
+        want = undefined;
+        const start = found
+          ? found.parent
+          : Array.isArray(opts.items)
+            ? undefined
+            : (top[0] as TreeNode<T>);
+        return level(start, found);
+      });
+    }, [opts.message]);
+  }
+
+  return runPrompt<T>(opts, () => {
+    plant();
 
     const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
     const answer = promptAnswerSlot(head.rest);

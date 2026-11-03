@@ -1,3 +1,8 @@
+import { autocomplete, autocompleteMultiselect } from '../../src/components/autocomplete.js';
+import { pickDate } from '../../src/components/calendar.js';
+import { date } from '../../src/components/date.js';
+import { filePicker } from '../../src/components/file-picker.js';
+import { groupMultiselect } from '../../src/components/group-multiselect.js';
 import { group, isBack } from '../../src/components/group.js';
 import { list } from '../../src/components/list.js';
 import { maskedText } from '../../src/components/masked-text.js';
@@ -16,11 +21,16 @@ import {
   text,
 } from '../../src/components/prompt.js';
 import { selectKey } from '../../src/components/select-key.js';
+import { selectRow } from '../../src/components/select-row.js';
+import { sort } from '../../src/components/sort.js';
 import { toggle } from '../../src/components/toggle.js';
+import { directoryTree, selectTree } from '../../src/components/tree.js';
 import { baseDir } from '../../src/paths.js';
 import { type ScreenHarness, screenSetup, tick } from './helpers.js';
-import { resolve } from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, join, resolve, sep } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The prompts that have a line form, asked as lines, for a screen reader.
@@ -62,6 +72,16 @@ function sequences(ui: ScreenHarness): string[] {
   const rest = ui.output.replaceAll('\u001b[?2004h', '').replaceAll('\u001b[?2004l', '');
   // eslint-disable-next-line no-control-regex
   return rest.match(/\u001b[^\u001b]{0,8}/g) ?? [];
+}
+
+/** Waits for a line form that reads a directory before it asks to have asked. */
+async function settleOutput(ui: ScreenHarness): Promise<void> {
+  let seen = ui.output;
+  for (let still = 0, round = 0; still < 4 && round < 100; round++) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    still = ui.output === seen ? still + 1 : 0;
+    seen = ui.output;
+  }
 }
 
 const ENTER = '\r';
@@ -1242,5 +1262,811 @@ describe('a group asked as lines', () => {
     // a transcript: the step left with Escape stays, and the re-asked one is below
     expect(ui.log).toEqual(['Name? ann', 'Ok? (Y/n)', 'Name? anne', 'Ok? (Y/n) n']);
     expect(isBack(new PromptBack())).toBe(true);
+  });
+});
+
+describe('a line selectRow()', () => {
+  const rows = [
+    { age: 3, name: 'api', region: 'us-east' },
+    { age: 12, name: 'web', region: '' },
+  ];
+  const columns = [
+    { header: 'Name', key: 'name' },
+    { header: 'Region', key: 'region' },
+    { header: 'Age', key: 'age' },
+  ];
+
+  it('should read each row as one line, every cell after its heading', async () => {
+    const ui = lines();
+    const answer = selectRow({
+      accessible: true,
+      columns,
+      message: 'Which deployment?',
+      rows,
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, '2', ENTER);
+
+    expect(await answer).toBe(rows[1]);
+    expect(ui.log).toEqual([
+      'Which deployment?',
+      '  1. Name: api, Region: us-east, Age: 3',
+      // an empty cell says nothing rather than `Region:` and silence
+      '  2. Name: web, Age: 12',
+      'Choose a number from 1 to 2 (default: 1) 2',
+      'Chosen: web, 12',
+    ]);
+    expect(sequences(ui)).toEqual([]);
+  });
+
+  it('should open on the row it was given, and say a row by its own short', async () => {
+    const ui = lines();
+    const answer = selectRow({
+      accessible: true,
+      columns,
+      message: 'Which?',
+      rows,
+      short: (row) => row.name,
+      terminal: ui.terminal,
+      value: rows[1],
+    });
+
+    await type(ui.stdin, ENTER);
+
+    expect(await answer).toBe(rows[1]);
+    expect(ui.log.slice(-2)).toEqual(['Choose a number from 1 to 2 (default: 2)', 'Chosen: web']);
+  });
+
+  it('should read bare cells where there is no heading', async () => {
+    const ui = lines();
+    const answer = selectRow({
+      accessible: true,
+      head: false,
+      message: 'Which?',
+      rows: [['a', 'b']],
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, ENTER);
+
+    expect(await answer).toEqual(['a', 'b']);
+    expect(ui.log[1]).toBe('  1. a, b');
+  });
+});
+
+describe('a line groupMultiselect()', () => {
+  const choices = {
+    Backend: ['Express', { disabled: 'retired', label: 'Koa' }, 'Fastify'],
+    Frontend: ['React', 'Vue', { label: 'Svelte', selected: true }],
+    Nothing: [{ disabled: true, label: 'Old' }],
+  };
+
+  it('should head each group with the numbers that are its own', async () => {
+    const ui = lines();
+    const answer = groupMultiselect({
+      accessible: true,
+      choices,
+      message: 'Features',
+      terminal: ui.terminal,
+    });
+
+    // a whole group is its range, and a number from another is added to it
+    await type(ui.stdin, '4-5, 1', ENTER);
+
+    expect(await answer).toEqual(['Express', 'Vue', 'Svelte']);
+    expect(ui.log).toEqual([
+      'Features',
+      '  Backend (1-2)',
+      '  1. Express',
+      '  - Koa (retired)',
+      '  2. Fastify',
+      '  Frontend (3-5)',
+      '  3. React',
+      '  4. Vue',
+      '  5. Svelte',
+      // a group with nothing on offer names no range
+      '  Nothing',
+      '  - Old (disabled)',
+      'Choose numbers from 1 to 5, separated by commas (default: 5) 4-5, 1',
+      'Chosen: Express, Vue, Svelte',
+    ]);
+  });
+
+  it('should keep its min, max and value', async () => {
+    const ui = lines();
+    const answer = groupMultiselect({
+      accessible: true,
+      choices,
+      max: 1,
+      message: 'F',
+      terminal: ui.terminal,
+      value: ['Fastify'],
+    });
+
+    await type(ui.stdin, '1-2', ENTER, ENTER);
+
+    expect(await answer).toEqual(['Fastify']);
+    expect(ui.log).toContain('Choose at most 1');
+    expect(ui.log).toContain('Choose numbers from 1 to 5, separated by commas (default: 2)');
+  });
+});
+
+describe('a line sort()', () => {
+  it('should take the order as numbers, those left out following in theirs', async () => {
+    const ui = lines();
+    const answer = sort({
+      accessible: true,
+      choices: ['lint', 'build', 'test', 'deploy'],
+      message: 'Run the steps in this order',
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, '3 1', ENTER);
+
+    expect(await answer).toEqual(['test', 'lint', 'build', 'deploy']);
+    expect(ui.log).toEqual([
+      'Run the steps in this order',
+      '  1. lint',
+      '  2. build',
+      '  3. test',
+      '  4. deploy',
+      'Type the numbers in the order you want them (default: 1 2 3 4) 3 1',
+      'Order: test, lint, build, deploy',
+    ]);
+    expect(sequences(ui)).toEqual([]);
+  });
+
+  it('should keep the order on Enter alone, and read a range backwards as reversed', async () => {
+    const kept = lines();
+    const first = sort({
+      accessible: true,
+      choices: ['a', 'b', 'c'],
+      message: 'Q',
+      terminal: kept.terminal,
+    });
+    await type(kept.stdin, ENTER);
+    expect(await first).toEqual(['a', 'b', 'c']);
+
+    const reversed = lines();
+    const second = sort({
+      accessible: true,
+      choices: ['a', 'b', 'c'],
+      message: 'Q',
+      terminal: reversed.terminal,
+    });
+    await type(reversed.stdin, '3-1', ENTER);
+    expect(await second).toEqual(['c', 'b', 'a']);
+  });
+
+  it('should refuse a number given twice, or one that names nothing, holding the reply', async () => {
+    const ui = lines();
+    const answer = sort({
+      accessible: true,
+      choices: ['a', 'b', 'c'],
+      message: 'Q',
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, '2 2', ENTER, BACKSPACE, '1', ENTER);
+
+    expect(await answer).toEqual(['b', 'a', 'c']);
+    expect(ui.log.slice(4)).toEqual([
+      'Type the numbers in the order you want them (default: 1 2 3) 2 2',
+      '2 is given more than once',
+      'Type the numbers in the order you want them (default: 1 2 3) 2 1',
+      'Order: b, a, c',
+    ]);
+  });
+
+  it('should leave a pinned row where it is, unnumbered', async () => {
+    const ui = lines();
+    const answer = sort({
+      accessible: true,
+      choices: ['a', { disabled: 'always first', label: 'setup' }, 'b', 'c'],
+      message: 'Q',
+      terminal: ui.terminal,
+      value: ['c'],
+    });
+
+    await type(ui.stdin, '3', ENTER);
+
+    // `value` put c first, so 3 is b, which goes before the rest
+    expect(await answer).toEqual(['b', 'setup', 'c', 'a']);
+    expect(ui.log.slice(0, 5)).toEqual([
+      'Q',
+      '  1. c',
+      '  - setup (always first)',
+      '  2. a',
+      '  3. b',
+    ]);
+  });
+});
+
+describe('a line date()', () => {
+  it('should name the format and the range, and take the date typed', async () => {
+    const ui = lines();
+    const answer = date({
+      accessible: true,
+      max: new Date(2024, 11, 31),
+      message: 'Due',
+      min: new Date(2024, 0, 1),
+      terminal: ui.terminal,
+      value: new Date(2024, 5, 15),
+    });
+
+    await type(ui.stdin, '2024-7-4', ENTER);
+
+    expect(await answer).toEqual(new Date(2024, 6, 4));
+    expect(ui.log).toEqual([
+      'Due (YYYY-MM-DD, from 2024-01-01 to 2024-12-31, default: 2024-06-15) 2024-7-4',
+    ]);
+    expect(sequences(ui)).toEqual([]);
+  });
+
+  it('should answer where the field would open on Enter alone', async () => {
+    const ui = lines();
+    const answer = date({
+      accessible: true,
+      message: 'Due',
+      terminal: ui.terminal,
+      value: new Date(2024, 5, 15),
+    });
+
+    await type(ui.stdin, ENTER);
+
+    expect(await answer).toEqual(new Date(2024, 5, 15));
+  });
+
+  it('should refuse a reply of the wrong shape, a day there is not, and one out of range', async () => {
+    const ui = lines();
+    const answer = date({
+      accessible: true,
+      message: 'Due',
+      min: new Date(2024, 0, 1),
+      terminal: ui.terminal,
+      validate: (d) => (d.getDay() === 0 ? 'Not a Sunday' : undefined),
+      value: new Date(2024, 5, 15),
+    });
+
+    await type(ui.stdin, 'June', ENTER, CTRL_U, '2024-02-30', ENTER, CTRL_U, '2023-12-31', ENTER);
+    await type(ui.stdin, CTRL_U, '2024-06-16', ENTER, CTRL_U, '2024-06-17', ENTER);
+
+    expect(await answer).toEqual(new Date(2024, 5, 17));
+    expect(ui.log.filter((line) => !line.startsWith('Due'))).toEqual([
+      'Enter a date as YYYY-MM-DD',
+      // the parser's own refusal, which is what decides a day is not one
+      expect.stringMatching(/2024-02-30/),
+      'Date must not be before 2024-01-01',
+      'Not a Sunday',
+    ]);
+  });
+
+  it('should ask for the clock where it shows one', async () => {
+    const ui = lines();
+    const answer = date({
+      accessible: true,
+      message: 'At',
+      terminal: ui.terminal,
+      time: true,
+      value: new Date(2024, 5, 15, 9, 0),
+    });
+
+    await type(ui.stdin, '2024-06-15', ENTER, ' 13:45', ENTER);
+
+    expect(await answer).toEqual(new Date(2024, 5, 15, 13, 45));
+    expect(ui.log).toEqual([
+      'At (YYYY-MM-DD HH:MM, default: 2024-06-15 09:00) 2024-06-15',
+      'Enter a date as YYYY-MM-DD HH:MM',
+      'At (YYYY-MM-DD HH:MM, default: 2024-06-15 09:00) 2024-06-15 13:45',
+    ]);
+  });
+});
+
+describe('a line pickDate()', () => {
+  it('should take a day typed, at local midnight, inside its range', async () => {
+    const ui = lines();
+    const answer = pickDate({
+      accessible: true,
+      max: new Date(2026, 11, 31),
+      message: 'Day',
+      min: new Date(2026, 9, 1),
+      terminal: ui.terminal,
+      value: new Date(2026, 9, 15),
+    });
+
+    await type(
+      ui.stdin,
+      '2026-09-30',
+      ENTER,
+      CTRL_U,
+      '2026-02-29',
+      ENTER,
+      CTRL_U,
+      '2026-10-20',
+      ENTER
+    );
+
+    expect(await answer).toEqual(new Date(2026, 9, 20));
+    expect(ui.log[0]).toBe(
+      'Day (YYYY-MM-DD, from 2026-10-01 to 2026-12-31, default: 2026-10-15) 2026-09-30'
+    );
+    expect(ui.log[1]).toBe('Date must not be before 2026-10-01');
+    expect(ui.log[3]).toMatch(/2026-02-29/);
+    expect(sequences(ui)).toEqual([]);
+  });
+
+  it('should answer the day the cursor would open on, pulled into the range', async () => {
+    const ui = lines();
+    const answer = pickDate({
+      accessible: true,
+      message: 'Day',
+      min: new Date(2026, 9, 1),
+      terminal: ui.terminal,
+      value: new Date(2020, 0, 1),
+    });
+
+    await type(ui.stdin, ENTER);
+
+    expect(await answer).toEqual(new Date(2026, 9, 1));
+  });
+});
+
+describe('a line selectTree()', () => {
+  const items = [
+    { items: ['Apple', 'Pear'], text: 'Fruit' },
+    'Bread',
+    { items: async () => ['Carrot'], text: 'Veg' },
+  ];
+
+  it('should list a level at a time, going in and back out by number', async () => {
+    const ui = lines();
+    const answer = selectTree({
+      accessible: true,
+      items,
+      leaves: true,
+      message: 'Pick',
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, '1', ENTER, '3', ENTER, '3', ENTER);
+    await tick();
+    await type(ui.stdin, '1', ENTER);
+
+    expect(await answer).toBe('Carrot');
+    expect(ui.log).toEqual([
+      'Pick',
+      '  1. Fruit (go in)',
+      '  2. Bread',
+      '  3. Veg (go in)',
+      'Choose a number from 1 to 3 (default: 1) 1',
+      'In Fruit',
+      '  1. Apple',
+      '  2. Pear',
+      '  3. Back to the top',
+      'Choose a number from 1 to 3 (default: 1) 3',
+      // the top again, opening on the branch just come back out of
+      'Pick',
+      '  1. Fruit (go in)',
+      '  2. Bread',
+      '  3. Veg (go in)',
+      'Choose a number from 1 to 3 (default: 1) 3',
+      'In Veg',
+      '  1. Carrot',
+      '  2. Back to the top',
+      'Choose a number from 1 to 2 (default: 1) 1',
+      'Chosen: Carrot',
+    ]);
+    expect(sequences(ui)).toEqual([]);
+  });
+
+  it('should offer a branch itself as an answer without leaves', async () => {
+    const ui = lines();
+    const answer = selectTree({
+      accessible: true,
+      items: { items: [{ items: ['x'], text: 'inner' }], text: 'root' },
+      message: 'Pick',
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, '2', ENTER, '1', ENTER);
+
+    expect(await answer).toBe('inner');
+    expect(ui.log).toEqual([
+      'Pick',
+      'In root',
+      '  1. root (this one)',
+      '  2. inner (go in)',
+      'Choose a number from 1 to 2 (default: 1) 2',
+      'In inner',
+      '  1. inner (this one)',
+      '  2. x',
+      '  3. Back to root',
+      'Choose a number from 1 to 3 (default: 1) 1',
+      'Chosen: inner',
+    ]);
+  });
+
+  it('should open on a starting answer, and say why a branch would not open', async () => {
+    const ui = lines();
+    let reads = 0;
+    const answer = selectTree({
+      accessible: true,
+      items: [
+        { items: ['a', 'b'], text: 'g' },
+        {
+          items: () => {
+            reads++;
+            throw new Error('offline');
+          },
+          text: 'remote',
+        },
+      ],
+      leaves: true,
+      message: 'Pick',
+      terminal: ui.terminal,
+      validate: (v) => (v === 'a' ? 'Not a' : undefined),
+      value: 'b',
+    });
+
+    await type(ui.stdin, ENTER);
+    expect(await answer).toBe('b');
+    expect(ui.log.slice(0, 5)).toEqual([
+      'Pick',
+      'In g',
+      '  1. a',
+      '  2. b',
+      '  3. Back to the top',
+    ]);
+    expect(ui.log).toContain('Choose a number from 1 to 3 (default: 2)');
+
+    const again = lines();
+    const second = selectTree({
+      accessible: true,
+      items: [
+        { items: ['a', 'b'], text: 'g' },
+        {
+          items: () => {
+            reads++;
+            throw new Error('offline');
+          },
+          text: 'remote',
+        },
+      ],
+      leaves: true,
+      message: 'Pick',
+      terminal: again.terminal,
+      validate: (v) => (v === 'a' ? 'Not a' : undefined),
+    });
+    // a read that failed is asked again, rather than kept
+    await type(again.stdin, '2', ENTER, '2', ENTER, '1', ENTER, '1', ENTER, '2', ENTER);
+    expect(await second).toBe('b');
+    expect(reads).toBe(2);
+    expect(again.log.filter((line) => line === 'offline' || line === 'Not a')).toEqual([
+      'offline',
+      'offline',
+      'Not a',
+    ]);
+  });
+});
+
+describe('a line form that reads before it asks', () => {
+  it('should be cancelled by ctrl-c while the read is still out', async () => {
+    const ui = lines();
+    const result = settle(
+      selectTree({
+        accessible: true,
+        // a branch that opens itself and never finishes reading: a stalled mount
+        items: [{ expanded: true, items: () => new Promise<string[]>(() => {}), text: 'slow' }],
+        message: 'Pick',
+        terminal: ui.terminal,
+      })
+    );
+    await tick();
+
+    // the question is up before the read it waits on has landed
+    expect(ui.log).toEqual(['Pick']);
+    await type(ui.stdin, CTRL_C);
+    const { error } = await result;
+
+    expect((error as PromptError).aborted).toBe(true);
+    expect(ui.stdin.rawMode).toBe(false);
+  });
+
+  it('should refuse a malformed item before writing anything', async () => {
+    const ui = lines();
+    const { error } = await settle(
+      selectTree({
+        accessible: true,
+        items: [42 as unknown as string],
+        message: 'Pick',
+        terminal: ui.terminal,
+      })
+    );
+
+    expect((error as Error).message).toMatch(/Expected each item/);
+    // the router's paste markers on and off, and not a line of the question
+    expect(ui.log).toEqual([]);
+    expect(sequences(ui)).toEqual([]);
+    expect(ui.stdin.rawMode).toBe(false);
+  });
+});
+
+describe('a line directoryTree() and filePicker()', () => {
+  let root: string;
+
+  /** Wide enough that no temporary path wraps, wherever the platform puts one. */
+  const wide = (): ScreenHarness => screenSetup({ columns: 1000, rows: 40 });
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'sigil-accessible-'));
+    await mkdir(join(root, 'lib'));
+    await mkdir(join(root, 'src'));
+    await writeFile(join(root, 'src', 'index.ts'), '');
+    await writeFile(join(root, 'notes.md'), '');
+  });
+
+  afterEach(async () => {
+    await rm(root, { force: true, recursive: true });
+  });
+
+  it('should browse a directory tree a directory at a time', async () => {
+    const ui = wide();
+    const answer = directoryTree({
+      accessible: true,
+      message: 'File?',
+      root,
+      terminal: ui.terminal,
+    });
+
+    await settleOutput(ui);
+    await type(ui.stdin, '2', ENTER);
+    await settleOutput(ui);
+    await type(ui.stdin, '1', ENTER);
+
+    expect(await answer).toBe(join(root, 'src', 'index.ts'));
+    expect(ui.log).toEqual([
+      'File?',
+      `In ${basename(root)}${sep}`,
+      `  1. lib${sep} (go in)`,
+      `  2. src${sep} (go in)`,
+      '  3. notes.md',
+      'Choose a number from 1 to 3 (default: 1) 2',
+      `In src${sep}`,
+      '  1. index.ts',
+      `  2. Back to ${basename(root)}${sep}`,
+      'Choose a number from 1 to 2 (default: 1) 1',
+      `Chosen: ${join(root, 'src', 'index.ts')}`,
+    ]);
+    expect(sequences(ui)).toEqual([]);
+  });
+
+  it('should browse with filePicker(), coming back out onto the directory it left', async () => {
+    const ui = wide();
+    const answer = filePicker({
+      accessible: true,
+      confine: true,
+      message: 'File?',
+      root,
+      terminal: ui.terminal,
+    });
+
+    await settleOutput(ui);
+    await type(ui.stdin, '2', ENTER);
+    await settleOutput(ui);
+    await type(ui.stdin, '2', ENTER);
+    await settleOutput(ui);
+    await type(ui.stdin, '3', ENTER);
+
+    expect(await answer).toBe(join(root, 'notes.md'));
+    expect(ui.log).toEqual([
+      'File?',
+      `In ${root}`,
+      `  1. lib${sep}`,
+      `  2. src${sep}`,
+      '  3. notes.md',
+      'Choose a number from 1 to 3 (default: 1) 2',
+      `In ${join(root, 'src')}`,
+      '  1. index.ts',
+      '  2. .. (up a level)',
+      'Choose a number from 1 to 2 (default: 1) 2',
+      // confined, so the top has no way further up, and Enter alone is the
+      // directory just come back out of
+      `In ${root}`,
+      `  1. lib${sep}`,
+      `  2. src${sep}`,
+      '  3. notes.md',
+      'Choose a number from 1 to 3 (default: 2) 3',
+      `Chosen: ${join(root, 'notes.md')}`,
+    ]);
+  });
+
+  it('should pick a directory as `.` from inside it, with directory', async () => {
+    const ui = wide();
+    const answer = filePicker({
+      accessible: true,
+      confine: true,
+      directory: true,
+      message: 'Dir?',
+      root,
+      terminal: ui.terminal,
+    });
+
+    await settleOutput(ui);
+    await type(ui.stdin, '3', ENTER);
+    await settleOutput(ui);
+    await type(ui.stdin, ENTER);
+
+    expect(await answer).toBe(join(root, 'src'));
+    expect(ui.log.slice(0, 5)).toEqual([
+      'Dir?',
+      `In ${root}`,
+      '  1. . (this directory)',
+      `  2. lib${sep}`,
+      `  3. src${sep}`,
+    ]);
+    expect(ui.log).toContain(`In ${join(root, 'src')}`);
+    expect(ui.log).toContain('No matches');
+  });
+
+  it('should open on a starting answer', async () => {
+    const ui = wide();
+    const answer = filePicker({
+      accessible: true,
+      message: 'File?',
+      root,
+      terminal: ui.terminal,
+      value: join(root, 'src', 'index.ts'),
+    });
+
+    await settleOutput(ui);
+    await type(ui.stdin, ENTER);
+
+    expect(await answer).toBe(join(root, 'src', 'index.ts'));
+    expect(ui.log[1]).toBe(`In ${join(root, 'src')}`);
+  });
+});
+
+describe('a line autocomplete()', () => {
+  const choices = ['us-east-1', 'us-west-2', 'eu-central-1'];
+
+  it('should search with the term and list what it matches', async () => {
+    const ui = lines();
+    const answer = autocomplete({
+      accessible: true,
+      choices,
+      message: 'Region',
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, 'us', ENTER, '2', ENTER);
+
+    expect(await answer).toBe('us-west-2');
+    expect(ui.log).toEqual([
+      'Region us',
+      '  1. us-east-1',
+      '  2. us-west-2',
+      '  3. Search again',
+      'Choose a number from 1 to 3 (default: 1) 2',
+      'Chosen: us-west-2',
+    ]);
+    expect(sequences(ui)).toEqual([]);
+  });
+
+  it('should answer a term that leaves one choice, and hold one that leaves none', async () => {
+    const ui = lines();
+    const answer = autocomplete({
+      accessible: true,
+      choices,
+      message: 'Region',
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, 'zz', ENTER, CTRL_U, 'eu', ENTER);
+
+    expect(await answer).toBe('eu-central-1');
+    expect(ui.log).toEqual(['Region zz', 'No matches', 'Region eu', 'Chosen: eu-central-1']);
+  });
+
+  it('should search again from the list, holding the term', async () => {
+    const ui = lines();
+    const answer = autocomplete({
+      accessible: true,
+      choices,
+      message: 'Region',
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, 'us', ENTER, '3', ENTER, '-ea', ENTER);
+
+    expect(await answer).toBe('us-east-1');
+    expect(ui.log.slice(5)).toEqual(['Region us-ea', 'Chosen: us-east-1']);
+  });
+
+  it('should ask a source, and say what it refused with', async () => {
+    const ui = lines();
+    const terms: string[] = [];
+    const answer = autocomplete({
+      accessible: true,
+      message: 'Package',
+      source: async (term) => {
+        terms.push(term);
+        if (term === 'x') {
+          throw new Error('registry down');
+        }
+        return [`${term}-a`, `${term}-b`];
+      },
+      terminal: ui.terminal,
+      validate: (v) => (v === 'p-a' ? 'Taken' : undefined),
+    });
+
+    await type(ui.stdin, 'x', ENTER, BACKSPACE, 'p', ENTER, ENTER, '2', ENTER);
+
+    expect(await answer).toBe('p-b');
+    expect(terms).toEqual(['x', 'p']);
+    expect(ui.log.filter((line) => line === 'registry down' || line === 'Taken')).toEqual([
+      'registry down',
+      'Taken',
+    ]);
+  });
+
+  it('should open its first list on its value', async () => {
+    const ui = lines();
+    const answer = autocomplete({
+      accessible: true,
+      choices,
+      message: 'Region',
+      terminal: ui.terminal,
+      value: 'eu-central-1',
+    });
+
+    await type(ui.stdin, ENTER, ENTER);
+
+    expect(await answer).toBe('eu-central-1');
+    expect(ui.log).toContain('Choose a number from 1 to 4 (default: 3)');
+  });
+});
+
+describe('a line autocompleteMultiselect()', () => {
+  const choices = ['red', 'green', 'blue', 'black'];
+
+  it('should tick among what a term matched, and keep ticks the term hid', async () => {
+    const ui = lines();
+    const answer = autocompleteMultiselect({
+      accessible: true,
+      choices,
+      message: 'Colours',
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, 're', ENTER, '1', ENTER, 'bl', ENTER, '1-2', ENTER, ENTER);
+
+    expect(await answer).toEqual(['red', 'blue', 'black']);
+    expect(ui.log.filter((line) => line.startsWith('Chosen') || line.startsWith('Search'))).toEqual(
+      [
+        'Chosen: red',
+        'Search again (Enter alone to finish) bl',
+        'Chosen: red, blue, black',
+        'Search again (Enter alone to finish)',
+      ]
+    );
+    expect(sequences(ui)).toEqual([]);
+  });
+
+  it('should untick what a reply leaves out, and refuse below min', async () => {
+    const ui = lines();
+    const answer = autocompleteMultiselect({
+      accessible: true,
+      choices: [{ label: 'red', selected: true }, 'green'],
+      message: 'Colours',
+      min: 1,
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, ENTER, 'none', ENTER, ENTER, 'g', ENTER, '1', ENTER, ENTER);
+
+    expect(await answer).toEqual(['green']);
+    expect(ui.log).toContain('Choose numbers from 1 to 2, separated by commas (default: 1) none');
+    expect(ui.log).toContain('Choose at least one');
   });
 });

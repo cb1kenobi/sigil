@@ -13,15 +13,20 @@ import { box, type Element, renderToString, text as textNode } from '../element/
 import { __, locale as i18nLocale } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
+import { transformValue } from '../util/coerce.js';
 import { daysInMonth } from '../util/transform.js';
 import { truncate } from '../wrap/index.js';
 import {
+  type AccessibleOptions,
   promptAnswered,
+  promptAsLines,
+  promptLineQuestion,
   promptHeadLine,
   promptHeadWidths,
   type PromptOptions,
   promptTailFits,
   promptUnderHead,
+  runLinePrompt,
   runPrompt,
 } from './prompt.js';
 
@@ -54,7 +59,7 @@ export interface CalendarOptions extends CalendarGridOptions, StyledOptions {
   selected?: Date;
 }
 
-export interface PickDateOptions extends CalendarGridOptions, PromptOptions {
+export interface PickDateOptions extends CalendarGridOptions, PromptOptions, AccessibleOptions {
   /**
    * The day the cursor starts on. Defaults to today. One outside `min` and `max`
    * is moved to the nearest bound.
@@ -441,6 +446,66 @@ function isoOf(d: Day): string {
 }
 
 /**
+ * `pickDate()` as a line: the day typed as `date()`'s line form types one.
+ *
+ * A grid is a picture of a month to move through, and a line has neither the
+ * picture nor anywhere to move, so the day is said as its digits, the range is
+ * said in the question -- the grid dims what is outside it -- and Enter alone
+ * takes the day the cursor would have opened on. What a day is, is the parser's
+ * `date` reader's to say, as it is for `date()`; the answer is that day at local
+ * midnight, as the drawn prompt's is. `highlight` marks a picture and is not
+ * said, since a line of every marked day would be a second question.
+ *
+ * @param opts - What to ask.
+ * @param start - The day Enter alone answers.
+ * @param min - The earliest day, if any.
+ * @param max - The latest day, if any.
+ * @returns The day.
+ */
+function lineDay(opts: PickDateOptions, start: Day, min?: Day, max?: Day): Promise<Date> {
+  const picture = 'YYYY-MM-DD';
+  const range =
+    min && max
+      ? __`from ${isoOf(min)} to ${isoOf(max)}`
+      : min
+        ? __`from ${isoOf(min)}`
+        : max
+          ? __`until ${isoOf(max)}`
+          : undefined;
+  const hint = [picture, range, __`default: ${isoOf(start)}`].filter(Boolean).join(', ');
+
+  return runLinePrompt<Date>(opts, {
+    ask: promptLineQuestion(opts.message, `(${hint})`),
+    echo: true,
+    keep: true,
+    read(reply) {
+      const said = reply.trim();
+      let day = start;
+      if (said !== '') {
+        const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(said);
+        if (!match) {
+          return __`Enter a date as ${picture}`;
+        }
+        day = { day: Number(match[3]), month: Number(match[2]), year: Number(match[1]) };
+        try {
+          // the parser's reader, which refuses a day the month does not have
+          transformValue(isoOf(day), 'date');
+        } catch (cause) {
+          return (cause as Error).message;
+        }
+      }
+      if (min && dayKey(day) < dayKey(min)) {
+        return __`Date must not be before ${isoOf(min)}`;
+      }
+      if (max && dayKey(day) > dayKey(max)) {
+        return __`Date must not be after ${isoOf(max)}`;
+      }
+      return { value: localDate(day.year, day.month, day.day) };
+    },
+  });
+}
+
+/**
  * Asks for a day by moving through a month.
  *
  * The arrow keys move a day or a week, Page Up and Page Down a month, Home and End to the first and last day of the month, and
@@ -492,6 +557,10 @@ export function pickDate(opts: PickDateOptions): Promise<Date> {
   const given =
     opts.value instanceof Date && !Number.isNaN(opts.value.getTime()) ? opts.value : opts.initial;
   let cursor = bounded(dayOf(given ?? new Date()));
+
+  if (promptAsLines(opts)) {
+    return lineDay(opts, cursor, minDay, maxDay);
+  }
 
   return runPrompt<Date>(opts, () => {
     const grid = calendarGrid(opts, 2);

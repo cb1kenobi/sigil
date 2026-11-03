@@ -179,8 +179,8 @@ export interface PromptOptions extends MountOptions {
 /**
  * The one option that turns a prompt into lines, on the prompts that have a line
  * form: `text()`, `password()`, `multiline()`, `confirm()`, `select()` and
- * `multiselect()`, and `number()`, `list()`, `path()`, `maskedText()`, `toggle()`
- * and `selectKey()` in modules of their own.
+ * `multiselect()` here, and every prompt in a module of its own but
+ * `commandPalette()` and `editor()`, which are drawn whatever the mode.
  */
 export interface AccessibleOptions {
   /**
@@ -3063,7 +3063,7 @@ export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
   }
 
   if (asLines(opts)) {
-    return lineSelect(opts, offer.items, offer.active);
+    return runLine(opts, choiceForm<T, T>(offer.items, offer.active, { heading: [opts.message] }));
   }
 
   const { items } = offer;
@@ -3389,9 +3389,11 @@ interface LineForm<T> {
   keep?: boolean;
   /**
    * Reads a reply: the answer, and a line saying what it was when the reply alone
-   * does not -- a `2` -- or a complaint to write before asking again.
+   * does not -- a `2` -- or a complaint to write before asking again, or the next
+   * question to ask, for a prompt that is several of them: a directory gone into,
+   * a search to pick from.
    */
-  read(reply: string): LineRead<T> | string | Promise<LineRead<T> | string>;
+  read(reply: string): LineReply<T> | Promise<LineReply<T>>;
   /** What the reply starts holding, written out as though it had been typed. */
   start?: string;
   /** The key that submits a multiline reply, where Enter is a line break. */
@@ -3403,6 +3405,11 @@ interface LineRead<T> {
   said?: string;
   value: T;
 }
+
+/** What reading a reply comes to: an answer, a complaint, or the next question. */
+type LineReply<T> = LineForm<T> | LineRead<T> | string;
+
+export type { LineRead as PromptLineRead, LineReply as PromptLineReply };
 
 /** A line break, spelled for a terminal whatever its output translation is. */
 const NEWLINE = '\r\n';
@@ -3448,11 +3455,25 @@ function question(message: string, hint?: string): string {
  * echoed where they are typed, and Backspace writes `\b \b`, the very bytes the
  * terminal's own echo writes, and never past the start of the line.
  *
+ * The first form may be a function that builds it, for a question that has to
+ * read something -- a directory -- before it can be written. It is called once
+ * the terminal has been checked and the keys are being listened for, so Ctrl-C,
+ * Escape and an abort are answered while the read is out, which is the freeze
+ * `filePicker()` records otherwise; what is typed meanwhile waits behind it. One
+ * that throws rather than rejecting is refused before anything is written, and
+ * `lead` is written straight after it is called, so the question is on screen
+ * before whatever it waits on.
+ *
  * @param opts - Where to read and write.
- * @param form - What to ask and how to read the reply.
+ * @param first - What to ask and how to read the reply, or a function giving it.
+ * @param lead - Lines written straight away, before `first` is.
  * @returns The answer.
  */
-function runLine<T>(opts: PromptOptions, form: LineForm<T>): Promise<T> {
+function runLine<T>(
+  opts: PromptOptions,
+  first: LineForm<T> | (() => LineForm<T> | Promise<LineForm<T>>),
+  lead: readonly string[] = []
+): Promise<T> {
   const terminal = opts.terminal ?? defaultTerminal;
   const stdin = opts.stdin ?? (terminal.stdin as InputStream | undefined);
 
@@ -3480,7 +3501,9 @@ function runLine<T>(opts: PromptOptions, form: LineForm<T>): Promise<T> {
     }
 
     let settled = false;
-    let reply = form.start ?? '';
+    /** The question being asked: the first, until a reply leads to another. */
+    let form: LineForm<T> | undefined;
+    let reply = '';
     /** One key at a time, for the reason `run()` records: a `validate` may be async. */
     let queue: Promise<void> = Promise.resolve();
     const write = (chunk: string): void => void terminal.write(chunk);
@@ -3503,20 +3526,30 @@ function runLine<T>(opts: PromptOptions, form: LineForm<T>): Promise<T> {
     }
 
     function ask(): void {
-      write(form.ask);
-      if (form.echo) {
+      write(form!.ask);
+      if (form!.echo) {
         write(echoed(reply));
       }
     }
 
+    /** Asks a question: the lines it is chosen from, then the line it is typed after. */
+    function begin(next: LineForm<T>): void {
+      form = next;
+      reply = next.start ?? '';
+      for (const line of next.before ?? []) {
+        write(`${line}${NEWLINE}`);
+      }
+      ask();
+    }
+
     /** Types text at the end of the reply, which is the only place a line has. */
     function type(input: string): void {
-      const admitted = form.fit ? form.fit(reply, input) : input;
+      const admitted = form!.fit ? form!.fit(reply, input) : input;
       if (admitted === '') {
         return;
       }
       reply += admitted;
-      if (form.echo) {
+      if (form!.echo) {
         write(echoed(admitted));
       }
     }
@@ -3534,7 +3567,7 @@ function runLine<T>(opts: PromptOptions, form: LineForm<T>): Promise<T> {
         const at = boundary(reply, reply.length, -1);
         const width = stringWidth(reply.slice(at));
         reply = reply.slice(0, at);
-        if (form.echo && width > 0) {
+        if (form!.echo && width > 0) {
           write('\b'.repeat(width) + ' '.repeat(width) + '\b'.repeat(width));
         }
       }
@@ -3542,17 +3575,23 @@ function runLine<T>(opts: PromptOptions, form: LineForm<T>): Promise<T> {
 
     async function submit(): Promise<void> {
       write(NEWLINE);
-      const read = await form.read(reply);
+      const read = await form!.read(reply);
       // an abort can land while a `validate` is still out
       if (settled) {
         return;
       }
       if (typeof read === 'string') {
         write(`${read}${NEWLINE}`);
-        if (!form.keep) {
+        if (!form!.keep) {
           reply = '';
         }
         ask();
+        return;
+      }
+      if ('ask' in read) {
+        // the next question, under the reply that led to it: nothing above is
+        // taken back, which is what keeps several questions one transcript
+        begin(read);
         return;
       }
       end();
@@ -3563,7 +3602,7 @@ function runLine<T>(opts: PromptOptions, form: LineForm<T>): Promise<T> {
     }
 
     function press(k: Key, submitting: boolean): Promise<void> | void {
-      if (form.submit ? submitting : k.name === 'enter') {
+      if (form!.submit ? submitting : k.name === 'enter') {
         return submit();
       }
       if (k.name === 'enter') {
@@ -3586,7 +3625,7 @@ function runLine<T>(opts: PromptOptions, form: LineForm<T>): Promise<T> {
     const offKey = router.bind((event) => {
       event.stop();
       const k = event.key;
-      const submitting = submits(k, form.submit);
+      const submitting = submits(k, form?.submit);
 
       if (isAbort(k) && !(k.name === 'd' && submitting)) {
         fail(new PromptError(__`Cancelled`, true));
@@ -3611,7 +3650,7 @@ function runLine<T>(opts: PromptOptions, form: LineForm<T>): Promise<T> {
       queue = queue
         .then(() => {
           if (!settled) {
-            type(form.submit ? pastedBlock(block) : pastedLine(block));
+            type(form!.submit ? pastedBlock(block) : pastedLine(block));
           }
         })
         .catch(fail);
@@ -3629,10 +3668,31 @@ function runLine<T>(opts: PromptOptions, form: LineForm<T>): Promise<T> {
       }
     }
 
-    for (const line of form.before ?? []) {
+    let ready: LineForm<T> | Promise<LineForm<T>>;
+    try {
+      ready = typeof first === 'function' ? first() : first;
+    } catch (error) {
+      // nothing has been written yet, so there is nothing to finish the line of
+      end();
+      reject(error);
+      return;
+    }
+    for (const line of lead) {
       write(`${line}${NEWLINE}`);
     }
-    ask();
+    if (ready instanceof Promise) {
+      // the keys queue behind it, so nothing typed meanwhile is read against a
+      // question that has not been asked yet
+      queue = ready
+        .then((next) => {
+          if (!settled) {
+            begin(next);
+          }
+        })
+        .catch(fail);
+    } else {
+      begin(ready);
+    }
   });
 }
 
@@ -3775,21 +3835,46 @@ function numberIn(token: string, count: number): number | undefined {
   return n >= 1 && n <= count ? n : undefined;
 }
 
-/** `select()` as a numbered list and a number. */
-function lineSelect<T>(
-  opts: SelectOptions<T>,
-  items: readonly Item<T>[],
-  active: number
-): Promise<T> {
+/** How a numbered list of choices is asked, and what picking one comes to. */
+interface LineChoice<V, T> {
+  /** The lines above the list: the question, and whatever says where it is. */
+  heading: readonly string[];
+  /**
+   * What a picked choice comes to, which is the answer and a `Chosen:` line when
+   * this is not given. A string refuses it and asks for a number again -- a
+   * `validate` -- and a form asks a question after it: the next directory.
+   */
+  pick?(choice: Choice<V>): LineReply<T> | Promise<LineReply<T>>;
+}
+
+export type { LineChoice as PromptLineChoice };
+
+/**
+ * A numbered list of choices as a line form: `select()`'s, and the one every
+ * prompt that comes down to picking one of a list asks with.
+ *
+ * Numbers only, for the reason `select()` records: a list of versions labelled
+ * `18`, `20` and `22` makes a reply of `20` mean two things.
+ *
+ * @param items - The choices, and the separators between them.
+ * @param active - What Enter alone picks, which is always a choice on offer.
+ * @param how - What is written above the list, and what a pick comes to.
+ * @returns The form.
+ */
+function choiceForm<V, T>(
+  items: readonly Item<V>[],
+  active: number,
+  how: LineChoice<V, T>
+): LineForm<T> {
   const { lines, numbered } = numberedList(items);
   const count = numbered.length;
   // `active` is always on offer -- `offering()` lands on nothing else -- so the
   // highlight the drawn list would open on has a number, and it is the default
   const fallback = numbered.indexOf(active) + 1;
 
-  return runLine<T>(opts, {
+  return {
     ask: question(__`Choose a number from 1 to ${count}`, __`(default: ${fallback})`),
-    before: [opts.message, ...lines],
+    before: [...how.heading, ...lines],
     echo: true,
     read(reply) {
       const said = reply.trim();
@@ -3797,11 +3882,87 @@ function lineSelect<T>(
       if (n === undefined) {
         return __`Enter a number from 1 to ${count}`;
       }
-      const choice = (items[numbered[n - 1] as number] as Extract<Item<T>, { kind: 'choice' }>)
+      const choice = (items[numbered[n - 1] as number] as Extract<Item<V>, { kind: 'choice' }>)
         .choice;
-      return { said: __`Chosen: ${shortOf(choice)}`, value: valueOf(choice) };
+      if (how.pick) {
+        return how.pick(choice);
+      }
+      return { said: __`Chosen: ${shortOf(choice)}`, value: valueOf(choice) as unknown as T };
     },
-  });
+  };
+}
+
+/**
+ * A numbered list of choices as a line form, from choices as a prompt is handed
+ * them -- for a prompt outside this file whose answer is one of a list.
+ *
+ * `select()`'s own list and its own reading of a number, so the two cannot come
+ * to disagree about what `3` means, which choices are numbered, or how a
+ * disabled one is said.
+ *
+ * @param message - The question, for the refusal of a list with nothing on offer.
+ * @param entries - The choices, and the separators between them.
+ * @param how - What is written above the list and what a pick comes to; `value`
+ *   or `initial` is what Enter alone picks, as they are for `select()`.
+ * @returns The form, or the error a list with nothing on offer is refused with.
+ */
+function lineChoice<V, T = V>(
+  message: string,
+  entries: readonly ChoiceEntry<V>[],
+  how: LineChoice<V, T> & { initial?: number; value?: V }
+): LineForm<T> | PromptError {
+  const offer = offering<V>({ choices: entries, initial: how.initial, message }, how.value);
+  return offer instanceof PromptError ? offer : choiceForm(offer.items, offer.active, how);
+}
+
+/**
+ * The numbers a reply names, in the order it names them, ranges counted out.
+ *
+ * `multiselect()`'s reading, shared with every reply that is a list of numbers:
+ * commas or spaces between them, and `2-4` or `4-2` for a run of them, so most of
+ * a long list is not typed a number at a time. A number may come twice; whether
+ * that means anything is the caller's to say.
+ *
+ * @param said - The reply.
+ * @param count - The highest number there is.
+ * @returns The numbers, or what is wrong with the first that is not one.
+ */
+function numbersIn(said: string, count: number): number[] | string {
+  const out: number[] = [];
+  for (const token of said.split(/[\s,]+/).filter(Boolean)) {
+    const range = /^(\d+)-(\d+)$/.exec(token);
+    const from = numberIn(range ? (range[1] as string) : token, count);
+    const to = range ? numberIn(range[2] as string, count) : from;
+    if (from === undefined || to === undefined) {
+      return __`"${token}" is not a number from 1 to ${count}`;
+    }
+    const step = to < from ? -1 : 1;
+    for (let n = from; n !== to + step; n += step) {
+      out.push(n);
+    }
+  }
+  return out;
+}
+
+/**
+ * Choices written out as a numbered list, and which choice each number names.
+ *
+ * For a prompt outside this file that reads its own reply -- several numbers,
+ * an order -- over `select()`'s list.
+ *
+ * @param entries - The choices, and the separators between them.
+ * @returns The lines, and the choice each number names, the first at index 0.
+ */
+function lineList<V>(entries: readonly ChoiceEntry<V>[]): {
+  choices: Choice<V>[];
+  lines: string[];
+} {
+  const items = toItems(entries);
+  const { lines, numbered } = numberedList(items);
+  return {
+    choices: numbered.map((at) => (items[at] as Extract<Item<V>, { kind: 'choice' }>).choice),
+    lines,
+  };
 }
 
 /**
@@ -3845,19 +4006,11 @@ function lineMultiselect<T>(
       } else if (said.toLowerCase() === none.toLowerCase() || said.toLowerCase() === 'none') {
         chosen = new Set();
       } else {
-        chosen = new Set();
-        for (const token of said.split(/[\s,]+/).filter(Boolean)) {
-          // a range, so that most of a long list is not typed a number at a time
-          const range = /^(\d+)-(\d+)$/.exec(token);
-          const from = numberIn(range ? (range[1] as string) : token, count);
-          const to = range ? numberIn(range[2] as string, count) : from;
-          if (from === undefined || to === undefined) {
-            return __`"${token}" is not a number from 1 to ${count}`;
-          }
-          for (let n = Math.min(from, to); n <= Math.max(from, to); n++) {
-            chosen.add(n);
-          }
+        const named = numbersIn(said, count);
+        if (typeof named === 'string') {
+          return named;
         }
+        chosen = new Set(named);
       }
 
       const problem = complaint(chosen.size);
@@ -3901,6 +4054,12 @@ function lineMultiselect<T>(
  * the line a reply is typed after. An ejected `number()` imports them from the
  * package as it imports `runPrompt()`, so they are published the same way.
  *
+ * The list, tree, picker and search prompts add three more beside them, for a
+ * second reading of a numbered list would be a second answer about what `3`
+ * means: `promptLineChoice()` is `select()`'s list and its reading of a number,
+ * `promptLineList()` the list alone, and `promptLineNumbers()` `multiselect()`'s
+ * reading of several numbers and ranges.
+ *
  * Nothing here moved. The bodies are where they were, and the only edit to
  * `test/components/prompt.test.ts` is one added assertion about the surface this
  * block creates -- no existing test moved, which is the check an extraction
@@ -3930,6 +4089,9 @@ export {
   valueOf as promptValue,
   windowOf as promptWindow,
   windowStart as listWindow,
+  lineChoice as promptLineChoice,
+  lineList as promptLineList,
+  numbersIn as promptLineNumbers,
 };
 export type {
   AnswerSlot as PromptAnswerSlot,

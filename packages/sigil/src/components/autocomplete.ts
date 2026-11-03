@@ -34,16 +34,25 @@ import { terminal as defaultTerminal } from '../terminal/index.js';
 import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
 import { highlightRuns, rankBy } from './fuzzy.js';
 import {
+  type AccessibleOptions,
   type Choice,
+  type ChoiceEntry,
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
   promptAnswerSlot,
+  promptAsLines,
   promptChoice,
   promptFooter,
   promptHeadLine,
   promptHeadWidths,
   promptKeys,
+  promptLineChoice,
+  type PromptLineForm,
+  promptLineList,
+  promptLineNumbers,
+  promptLineQuestion,
+  type PromptLineReply,
   promptNote,
   type PromptOptions,
   PromptError,
@@ -51,6 +60,7 @@ import {
   promptSameValue,
   promptValue,
   promptWindow,
+  runLinePrompt,
   runPrompt,
   setPromptNote,
 } from './prompt.js';
@@ -72,7 +82,7 @@ export type AutocompleteSource<T> = (
   signal: AbortSignal
 ) => Promise<readonly (Choice<T> | string)[]> | readonly (Choice<T> | string)[];
 
-export interface AutocompleteOptions<T> extends PromptOptions {
+export interface AutocompleteOptions<T> extends PromptOptions, AccessibleOptions {
   /**
    * What to offer, filtered by what is typed. Give this or `source`, not both.
    * A choice marked `disabled` is left out, and a list of nothing else is refused
@@ -353,6 +363,192 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
     // back an answer that depends on how the user happened to move
     return fixed ? all.sort((a, b) => fixed.indexOf(a) - fixed.indexOf(b)) : all;
   };
+
+  if (promptAsLines(opts)) {
+    return lineSearch();
+  }
+
+  /**
+   * The search as lines: a term typed, then what it matches as a numbered list.
+   *
+   * A list that narrows under every keystroke is a region that redraws, so the
+   * term is a line of its own and the matches are written once it is in -- ranked
+   * by the same `rankBy()`, or asked of the same source, with the same signal
+   * aborted when the next lookup starts and when the prompt ends. A term that
+   * matches nothing, or a lookup that fails, says so and asks again holding the
+   * term, which is how the drawn field keeps it.
+   *
+   * One prompt picks with `select()`'s list, and a term that leaves exactly one
+   * choice answers with it, said back as `Chosen:` -- the list would be one
+   * number long. `Search again` is the last number on the list, since a number is
+   * the reply and the term is not on screen to edit. A `value` is the default of
+   * the first list it is in, as it is the first highlight.
+   *
+   * The multiselect ticks with `multiselect()`'s reply over what the term
+   * matched: the numbers replace the ticks **among those listed**, and a choice
+   * the term hid keeps its tick, which is the drawn prompt's rule that the ticks
+   * belong to the choices and not to the list. What is ticked in all is said
+   * after every list, and the term is asked again with Enter alone to finish --
+   * the first term is not, since Enter alone there is the whole list, which is
+   * what the drawn prompt opens on.
+   */
+  function lineSearch(): Promise<T | T[]> {
+    let controller: AbortController | undefined;
+    const message = opts.message;
+
+    /** What a term offers, or why the lookup failed. */
+    async function lookup(term: string): Promise<Choice<T>[] | string> {
+      if (fixed) {
+        return rankBy(term, fixed, (choice) => choice.label).map(({ item }) => item);
+      }
+      controller?.abort();
+      const own = new AbortController();
+      controller = own;
+      try {
+        const found = await (source as AutocompleteSource<T>)(term, own.signal);
+        const offered = found.map((choice) => promptChoice<T>(choice)).filter(isOffered);
+        for (const choice of offered) {
+          const key = promptValue(choice);
+          if (unseen.delete(key) && ticked.has(key)) {
+            ticked.set(key, choice);
+          }
+        }
+        return offered;
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    /** An answer of one choice, or why `validate` refuses it. */
+    async function one(choice: Choice<T>): Promise<PromptLineReply<T | T[]>> {
+      const value = promptValue(choice);
+      const failed = await opts.validate?.(value as never);
+      if (typeof failed === 'string' && failed) {
+        return failed;
+      }
+      return { said: __`Chosen: ${choice.short ?? choice.label}`, value };
+    }
+
+    /** Where a list of matches says to search again rather than pick one. */
+    const AGAIN = Symbol('search again');
+
+    /** The term, as the line the reply is typed after. */
+    function term(start: string, more: boolean, said?: string): PromptLineForm<T | T[]> {
+      return {
+        ask: more
+          ? promptLineQuestion(__`Search again`, __`(Enter alone to finish)`)
+          : promptLineQuestion(message),
+        before: said === undefined ? [] : [said],
+        echo: true,
+        keep: true,
+        async read(reply) {
+          if (more && reply.trim() === '') {
+            return finish();
+          }
+          const found = await lookup(reply);
+          if (typeof found === 'string') {
+            return found;
+          }
+          if (found.length === 0) {
+            return __`No matches`;
+          }
+          return multi ? ticking(found) : picking(found, reply);
+        },
+        start,
+      };
+    }
+
+    /** `select()`'s list over what a term matched, and a number to pick by. */
+    function picking(
+      found: Choice<T>[],
+      typed: string
+    ): PromptLineReply<T | T[]> | Promise<PromptLineReply<T | T[]>> {
+      const first = want;
+      want = undefined;
+      if (found.length === 1) {
+        return one(found[0] as Choice<T>);
+      }
+      const entries: ChoiceEntry<T | typeof AGAIN>[] = [
+        ...found,
+        { label: __`Search again`, value: AGAIN },
+      ];
+      const form = promptLineChoice<T | typeof AGAIN, T | T[]>(message, entries, {
+        heading: [],
+        pick: (choice) => (choice.value === AGAIN ? term(typed, false) : one(choice as Choice<T>)),
+        value: first,
+      });
+      return form instanceof PromptError ? form.message : form;
+    }
+
+    /** `multiselect()`'s reply over what a term matched, ticking among those. */
+    function ticking(found: Choice<T>[]): PromptLineForm<T | T[]> {
+      const { choices, lines } = promptLineList(found);
+      const count = choices.length;
+      const none = __`none`;
+      const start = choices.flatMap((choice, at) =>
+        ticked.has(promptValue(choice)) ? [at + 1] : []
+      );
+      return {
+        ask: promptLineQuestion(
+          __`Choose numbers from 1 to ${count}, separated by commas`,
+          __`(default: ${start.length ? start.join(', ') : none})`
+        ),
+        before: lines,
+        echo: true,
+        read(reply) {
+          const said = reply.trim();
+          let named: number[];
+          if (said === '') {
+            named = start;
+          } else if (said.toLowerCase() === none.toLowerCase() || said.toLowerCase() === 'none') {
+            named = [];
+          } else {
+            const read = promptLineNumbers(said, count);
+            if (typeof read === 'string') {
+              return read;
+            }
+            named = read;
+          }
+          for (const [at, choice] of choices.entries()) {
+            const key = promptValue(choice);
+            if (named.includes(at + 1)) {
+              ticked.set(key, choice);
+            } else {
+              ticked.delete(key);
+            }
+          }
+          return term('', true, tally());
+        },
+      };
+    }
+
+    /** What is ticked in all, in the order it would be answered in. */
+    function tally(): string {
+      const shown = ticks().map((choice) => choice.short ?? choice.label);
+      return __`Chosen: ${shown.length ? shown.join(', ') : __`none`}`;
+    }
+
+    /** The ticks as the answer, or why they are refused. */
+    async function finish(): Promise<PromptLineReply<T | T[]>> {
+      const wanted = multi as Multi;
+      if (ticked.size < wanted.min) {
+        return wanted.min === 1 ? __`Choose at least one` : __`Choose at least ${wanted.min}`;
+      }
+      if (ticked.size > wanted.max) {
+        return __`Choose at most ${wanted.max}`;
+      }
+      const values = ticks().map((choice) => promptValue(choice));
+      const failed = await opts.validate?.(values as never);
+      if (typeof failed === 'string' && failed) {
+        return failed;
+      }
+      return { value: values };
+    }
+
+    return runLinePrompt<T | T[]>(opts, term(opts.initial ?? '', false)).finally(() =>
+      controller?.abort()
+    );
+  }
 
   return runPrompt<T | T[]>(opts, () => {
     const before = textNode('', { 'white-space': 'nowrap' });

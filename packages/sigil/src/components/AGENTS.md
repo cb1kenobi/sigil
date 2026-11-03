@@ -7862,12 +7862,75 @@ nothing already written is moved, erased or coloured.
     `PromptName`; it is exempted from both tables rather than given a row, because
     it takes no `accessible` and is always lines, so it fits neither the drawn run
     nor `LineName` -- and every line-form row is it, asked through a prompt.
-- **The rest have no line form yet and are drawn as usual.** The option is on
-  `AccessibleOptions`, which only the options interfaces of a prompt with a line
-  form extend, so the types do not offer it where it would do nothing; the
-  variable cannot be scoped that way and is ignored by the rest, which the README
-  says. Refusing them would be worse: an app the person cannot use at all, over a
-  preference they set to make apps usable.
+  - `selectRow()` (SIG-228): `select()` over the rows, each read as one line of
+    `Heading: value` pairs joined with commas -- a row of bare values heard in
+    order is values nobody can tell apart -- with an empty cell, or a view with no
+    text, left out. No sorting: a digit is a number to choose by, and the rows
+    are in the order they came. `Chosen:` uses `short`, or the cells joined as the
+    drawn prompt settles.
+  - `groupMultiselect()` (SIG-228): `multiselect()` over the choices with each
+    group as a heading naming the numbers that are its own, `Frontend (3-5)`.
+    Ticking a group is that range, which `multiselect()` already reads, so there
+    is no second gesture and no number spent on a heading that is not an answer.
+    A group with nothing on offer names no range.
+  - `sort()` (SIG-228): the list numbered in its order, and the order wanted
+    typed as those numbers, `3 1 2`, by `multiselect()`'s reader, so `3-1` is a
+    run reversed. The ones left out follow in the order they are in, which makes
+    `4` alone "put the fourth first", the move a carry is most often for. A number
+    given twice is refused rather than read as either place; a pinned row is
+    listed in place with no number and keeps it. Enter alone keeps the order.
+  - `date()` and `pickDate()` (SIG-228): the segments typed whole in the order
+    they are drawn, `2024-06-15` or `2024-06-15 13:45` (a `T` is taken too), one
+    or two digits for each field but the year. The question names the format as
+    a picture (`YYYY-MM-DD HH:MM`), says the range -- the drawn grid dims what is
+    outside it, which a line cannot -- and the default, which is where the field
+    or cursor would have opened. What a date is stays the parser's `date`
+    reader's to say, so `2024-02-30` is refused in its words; `date()` shares one
+    `judged()` between the drawn Enter and the line, so the two refuse in the
+    same order. `pickDate()` answers at local midnight, as drawn; its `highlight`
+    marks a picture and is not said.
+  - `selectTree()` and `directoryTree()` (SIG-228): **one level at a time**, not
+    the whole tree flattened. Flattening was the ticket's starting point and it
+    reads every branch to do it -- every directory under the root, and every
+    `items` function the drawn prompt calls only when a branch opens. So a level
+    is listed under `In <branch>`, which says the depth an indent would have shown
+    and a screen reader would not; a leaf answers, a branch is gone into
+    (`(go in)`), and `Back to <parent>` is a number like any other. Without
+    `leaves` a branch is an answer too, as `this one` at the top of its own level:
+    one number per thing a number does. A branch is read the first time it is
+    gone into, through the drawn prompt's `open()`, and a read that fails says why
+    and stays put -- not kept, so asking again reads again. Coming back up, Enter
+    alone is the branch just left; a starting answer opens on its level.
+  - `filePicker()` (SIG-228): the same shape over the drawn picker's own read and
+    filter: `In <directory>`, a file answers, a directory is gone into, `..` (up a
+    level) is Left and is listed only where Left goes somewhere, so `confine`
+    holds. With `directory`, `.` (this directory) is the drawn picker's first row
+    and is how a directory is picked, from inside it. `No matches` is said for a
+    directory with nothing on offer. The `.` key that shows dotfiles has no line;
+    `hidden` still decides.
+  - `autocomplete()` (SIG-228): the term typed as a line, then what it matches --
+    by the same `rankBy()`, or the same source with the same signal, aborted when
+    the next lookup starts and when the prompt ends -- as `select()`'s list with
+    `Search again` as its last number, since a number is the reply and the term is
+    not on screen to edit. A term that leaves one choice answers with it (said
+    back as `Chosen:`); one that leaves none, or a lookup that fails, says so and
+    asks again holding the term. `value` is the default of the first list.
+  - `autocompleteMultiselect()` (SIG-228): the same term, and `multiselect()`'s
+    reply over what it matched, replacing the ticks **among those listed**: a
+    choice the term hid keeps its tick, the drawn prompt's rule that ticks belong
+    to choices and not to the list. `Chosen:` with everything ticked follows each
+    list, then `Search again (Enter alone to finish)`. The first term is not
+    asked that way, because Enter alone there is the whole list, which is what
+    the drawn prompt opens on.
+- **Two are drawn whatever the mode, and each has a reason rather than a gap.**
+  `commandPalette()`'s list of commands is a `runPrompt()` of its own, and the
+  questions it asks after a pick are `text()`, `select()` and `multiline()`, which
+  are lines; `editor()` exists to hand the terminal to another program, which no
+  line form can stand in for. The option is on `AccessibleOptions`, which only the
+  options interfaces of a prompt with a line form extend, so the types do not offer
+  it where it would do nothing; the variable cannot be scoped that way and is
+  ignored by those two, which the README says. Refusing them would be worse: an app
+  the person cannot use at all, over a preference they set to make apps usable.
 - **The screen model learned Backspace.** `src/testing/screen.ts` took `\b` as a
   zero-width control and moved nothing, so `ab\b \b` read as `ab `, which is the
   model losing an edit a terminal shows. It moves one column left, stops at the
@@ -9255,3 +9318,49 @@ read. All four are on by default and there is no switch.
   `-` fallback. Each one is pinned now, including the right alignment of every
   line of a wrapped cell. There are still no vertical borders, for `table()`'s
   reason.
+
+### Line forms that list, browse, sort and search (SIG-228)
+
+`selectRow()`, `groupMultiselect()`, `sort()`, `date()`, `pickDate()`,
+`selectTree()`, `directoryTree()`, `filePicker()`, `autocomplete()` and
+`autocompleteMultiselect()` take `accessible`; what each is as a line is under
+"What each prompt is as a line" above. Tests are in
+`test/components/prompt-accessible.test.ts`, and all ten left `DRAWN_ONLY`.
+
+- **The engine is published, under SIG-227's names.** `sigil add` rewrites
+  `./prompt.js` to `@ttylabs/sigil/components`, and `test/registry.test.ts` fails
+  an ejected file that imports a name the barrel does not export, so a prompt in
+  a module of its own can only reach the engine through the barrel.
+  `runLinePrompt()`, `promptAsLines()`, `promptLineQuestion()` and
+  `PromptLineForm` are SIG-227's; this added `promptLineChoice()` (`select()`'s
+  numbered list and its reading of a number, as a form), `promptLineList()` (the
+  list alone) and `promptLineNumbers()` (`multiselect()`'s reading of numbers and
+  ranges), with the types `PromptLineChoice`, `PromptLineRead` and
+  `PromptLineReply`. One reading of `3`: `select()`'s and `multiselect()`'s own
+  line forms are rebuilt on the same three, not beside them.
+- **A reply can lead to another question.** `read()` may return a form, and
+  `runLine()` asks it under the reply that led to it, with nothing taken back.
+  Browsing, going back up and searching again are each that, inside **one**
+  `runLine()`, so there is one router, one abort listener and one Ctrl-C the
+  whole way. A chain of separate prompts would hand stdin back between steps,
+  and a key typed in the gap, Ctrl-C included, would go nowhere.
+- **The first form may have to read first.** `runLinePrompt(opts, () => form)`
+  calls the function once the terminal is checked and the keys are bound, writes
+  `lead` (the question) at once, and queues what is typed behind the read. So a
+  directory or a branch that is slow to read never holds Ctrl-C, Escape or an
+  abort behind it -- `filePicker()`'s freeze, which `should be cancelled by
+  ctrl-c while the read is still out` pins. A function that throws rather than
+  rejecting is refused before anything is written, which is how a malformed tree
+  item is refused before a line of the question.
+- **The signal table waits for a line form to have asked.** In the line run,
+  `asked()` waits for the output to stop moving rather than for a tick, because
+  `filePicker()` and `directoryTree()` write their list once a directory read
+  lands, and an abort and the Ctrl-C it is held to must land on the same
+  transcript. Their rows read `test/debug/`, a directory of one file, so the read
+  is well inside the timeout row's 20ms. The drawn run is unchanged.
+- **Not done.** Dotfiles toggled from inside `filePicker()`; sorting
+  `selectRow()`; saying `pickDate()`'s highlighted days; a flattened view of a
+  small static tree, which would read better than levels and would be a second
+  rule to learn. The `AccessibleOptions` comment and the `runPrompt` reason in
+  `DRAWN_ONLY` were left word for word as SIG-227 has them, so the two branches
+  merge without a conflict there; both want a word about these ten afterwards.

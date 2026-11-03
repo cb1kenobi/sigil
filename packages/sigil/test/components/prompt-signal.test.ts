@@ -31,6 +31,7 @@ import { box, text as textNode } from '../../src/element/index.js';
 import { createInput } from '../../src/input/index.js';
 import { parse } from '../../src/parser/parse.js';
 import { type PromptName, type ScreenHarness, screenSetup, tick } from './helpers.js';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 /** Asks one prompt the smallest question it will take, under `signal`. */
@@ -74,12 +75,14 @@ const prompts = {
   },
   confirm: (ui, signal) => confirm({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
   date: (ui, signal) => date({ ansi: ui.ansi, message: 'Q?', signal, terminal: ui.terminal }),
-  // read only, and the directory this file is in is there on every platform
+  // read only, and a directory of the suite's own is there on every platform --
+  // a small one, since a line form lists it before it asks and the timeout row
+  // has 20ms for that read to land in
   directoryTree: (ui, signal) =>
     directoryTree({
       ansi: ui.ansi,
       message: 'Q?',
-      root: import.meta.dirname,
+      root: join(import.meta.dirname, '..', 'debug'),
       signal,
       terminal: ui.terminal,
     }),
@@ -98,7 +101,7 @@ const prompts = {
     filePicker({
       ansi: ui.ansi,
       message: 'Q?',
-      root: import.meta.dirname,
+      root: join(import.meta.dirname, '..', 'debug'),
       signal,
       terminal: ui.terminal,
     }),
@@ -193,9 +196,6 @@ type LineName = {
     : K;
 }[PromptName];
 
-/** Every reason a prompt with no line form gives, by what it would take to have one. */
-const NO_LINE_FORM = 'no line form yet: drawn as usual whatever SIGIL_ACCESSIBLE says';
-
 /**
  * The rows that are drawn even with accessible mode on, and why.
  *
@@ -205,25 +205,15 @@ const NO_LINE_FORM = 'no line form yet: drawn as usual whatever SIGIL_ACCESSIBLE
  * is an entry with a reason, never an omission -- `EXEMPT`'s rule, one table on.
  */
 const DRAWN_ONLY = {
-  autocomplete: NO_LINE_FORM,
-  autocompleteMultiselect: NO_LINE_FORM,
   // its follow-on questions are text(), select() and multiline() and do go as
   // lines; the list of commands it opens on is a runPrompt() of its own
   commandPalette: 'the command list is drawn; only the questions after a pick are lines',
-  date: NO_LINE_FORM,
-  directoryTree: NO_LINE_FORM,
   editor:
     'its question is drawn, and what it is for is handing the terminal to another ' +
     'program, which no line form can stand in for',
-  filePicker: NO_LINE_FORM,
-  groupMultiselect: NO_LINE_FORM,
-  pickDate: NO_LINE_FORM,
   runPrompt:
-    'the engine of the drawn path; the line forms run on runLine(), which is not ' +
-    'exported, and every row below is the line path asked through its prompt',
-  selectRow: NO_LINE_FORM,
-  selectTree: NO_LINE_FORM,
-  sort: NO_LINE_FORM,
+    'the engine of the drawn path; its line twin is runLinePrompt(), exempt above, ' +
+    'and every row below is the line path asked through its prompt',
 } satisfies Record<Exclude<keyof typeof prompts, LineName>, string>;
 
 /** How a prompt settled, with the handler attached before anything can reject. */
@@ -260,11 +250,31 @@ function counted(): { added: () => number; controller: AbortController; removed:
   return { added: () => added, controller, removed: () => removed };
 }
 
+/**
+ * Waits for a prompt to have asked, which is a tick for most and a directory read
+ * for a line form that lists one -- `filePicker()`, `directoryTree()` -- whose
+ * question is written once the read lands. Waiting on the output to stop moving
+ * rather than on a tick count is what keeps an abort and the Ctrl-C it is held to
+ * landing on the same transcript, however long the read takes.
+ */
+async function asked(ui: ScreenHarness, lines: boolean): Promise<void> {
+  await tick();
+  if (!lines) {
+    return;
+  }
+  let seen = ui.output;
+  for (let still = 0, round = 0; still < 4 && round < 100; round++) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    still = ui.output === seen ? still + 1 : 0;
+    seen = ui.output;
+  }
+}
+
 /** What a Ctrl-C leaves, which is what an abort and a timeout are held to. */
-async function cancelled(ask: Ask): Promise<ScreenHarness> {
+async function cancelled(ask: Ask, lines: boolean): Promise<ScreenHarness> {
   const ui = screenSetup({ rows: 12 });
   const answer = settle(ask(ui, new AbortController().signal));
-  await tick();
+  await asked(ui, lines);
   ui.stdin.send('\u0003');
   await answer;
   return ui;
@@ -313,7 +323,7 @@ describe('the table of prompts', () => {
       const controller = new AbortController();
       const answer = settle(prompts[name as keyof typeof prompts](ui, controller.signal));
 
-      await tick();
+      await asked(ui, true);
       const drawn = sequences(ui).length > 0;
       controller.abort();
       await answer;
@@ -367,7 +377,7 @@ describe.each(MODES)('a prompt given an AbortSignal, $mode', ({ lines, rows }) =
       const reason = new Error('the build finished');
       const answer = settle(ask(ui, controller.signal));
 
-      await tick();
+      await asked(ui, lines);
       controller.abort(reason);
 
       expect((await answer).error).to.equal(reason);
@@ -378,12 +388,12 @@ describe.each(MODES)('a prompt given an AbortSignal, $mode', ({ lines, rows }) =
       const controller = new AbortController();
       const answer = settle(ask(ui, controller.signal));
 
-      await tick();
+      await asked(ui, lines);
       expect(ui.log, 'the question should be on screen first').not.to.deep.equal([]);
       controller.abort();
       await answer;
 
-      expectLeftAsCancelled(ui, await cancelled(ask));
+      expectLeftAsCancelled(ui, await cancelled(ask, lines));
     });
 
     it('should draw nothing when the signal is already aborted', async () => {
@@ -403,7 +413,7 @@ describe.each(MODES)('a prompt given an AbortSignal, $mode', ({ lines, rows }) =
       const { error } = await settle(ask(ui, AbortSignal.timeout(20)));
 
       expect((error as Error).name).to.equal('TimeoutError');
-      expectLeftAsCancelled(ui, await cancelled(ask));
+      expectLeftAsCancelled(ui, await cancelled(ask, lines));
     });
 
     it('should take its listener off the signal when cancelled', async () => {
@@ -414,7 +424,7 @@ describe.each(MODES)('a prompt given an AbortSignal, $mode', ({ lines, rows }) =
       const { added, controller, removed } = counted();
       const answer = settle(ask(ui, controller.signal));
 
-      await tick();
+      await asked(ui, lines);
       ui.stdin.send('\u0003');
       await answer;
 

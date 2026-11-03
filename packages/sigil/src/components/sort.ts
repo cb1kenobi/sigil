@@ -21,25 +21,31 @@ import { box, type Element, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import {
+  type AccessibleOptions,
   type Choice,
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
   promptAnswerSlot,
+  promptAsLines,
   promptChoice,
   promptFooter,
   promptHeadLine,
   promptHeadWidths,
   promptKeys,
+  promptLineList,
+  promptLineNumbers,
+  promptLineQuestion,
   type PromptOptions,
   PromptError,
   promptRowCap,
   promptSameValue,
   promptValue,
+  runLinePrompt,
   runPrompt,
 } from './prompt.js';
 
-export interface SortOptions<T> extends PromptOptions {
+export interface SortOptions<T> extends PromptOptions, AccessibleOptions {
   /**
    * What to put in order, in the order it starts in. A choice marked `disabled`
    * is pinned: it keeps its place in the list, cannot be picked up, and the rows
@@ -181,6 +187,60 @@ function arranged<T>(start: Choice<T>[], slots: number[], value: readonly T[]): 
 }
 
 /**
+ * The list as lines: numbered in the order it is in, and a reply that is the
+ * order wanted, as those numbers -- `3 1 2`.
+ *
+ * A carry is a gesture over a list that is redrawn under it, so as a line the
+ * order is said rather than walked to: the numbers, first to last, read by
+ * `multiselect()`'s reader, so a range is a run of rows in order and `3-1` is
+ * one reversed. Those left out follow in the order they are in, which makes `4`
+ * mean "put the fourth first" -- the move a carry is most often for -- and Enter
+ * alone keeps the order as it is. A number given twice is refused rather than
+ * read as either place. A pinned row is listed where it is and has no number,
+ * so it keeps its place, as it does under a carry.
+ *
+ * @param opts - What to ask.
+ * @param order - The list, in the order it starts in.
+ * @param slots - The places a row can move between.
+ * @returns The values, in the order asked for.
+ */
+function lineSort<T>(opts: SortOptions<T>, order: Choice<T>[], slots: number[]): Promise<T[]> {
+  const { choices, lines } = promptLineList(order);
+  const count = choices.length;
+  const kept = choices.map((_, at) => at + 1).join(' ');
+
+  return runLinePrompt<T[]>(opts, {
+    ask: promptLineQuestion(
+      __`Type the numbers in the order you want them`,
+      __`(default: ${kept})`
+    ),
+    before: [opts.message, ...lines],
+    echo: true,
+    keep: true,
+    read(reply) {
+      const named = promptLineNumbers(reply.trim(), count);
+      if (typeof named === 'string') {
+        return named;
+      }
+      const twice = named.find((n, at) => named.indexOf(n) !== at);
+      if (twice !== undefined) {
+        return __`${twice} is given more than once`;
+      }
+      const first = named.map((n) => choices[n - 1] as Choice<T>);
+      const moved = [...first, ...choices.filter((choice) => !first.includes(choice))];
+      const result = order.map((choice, at) => {
+        const slot = slots.indexOf(at);
+        return slot < 0 ? choice : (moved[slot] as Choice<T>);
+      });
+      return {
+        said: __`Order: ${result.map((choice) => choice.short ?? choice.label).join(', ')}`,
+        value: result.map((choice) => promptValue(choice)),
+      };
+    },
+  });
+}
+
+/**
  * Asks for a list put in order.
  *
  * Up and Down move the highlight; **Space picks the highlighted row up**, and
@@ -215,6 +275,10 @@ export function sort<T = string>(opts: SortOptions<T>): Promise<T[]> {
   })();
   let carrying = false;
   let top = 0;
+
+  if (promptAsLines(opts)) {
+    return lineSort(opts, order, slots);
+  }
 
   /** The place in the list the highlight is on. */
   const here = (): number => slots[at] as number;
