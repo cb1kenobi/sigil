@@ -70,15 +70,17 @@ export async function registerHelp(root: InternalCommand, schema: Schema): Promi
   }
 
   if (!internal.commands.find('help')) {
-    internal.commands.add(
-      await initCommand({
-        args: [{ desc: __`The command to describe`, name: '[command...]' }],
-        // the same sentence as the option's, so it is the same key -- which is
-        // the merge keying on the English buys
-        desc: __`Show help for a command`,
-        name: 'help',
-      })
-    );
+    const command = await initCommand({
+      args: [{ desc: __`The command to describe`, name: '[command...]' }],
+      // the same sentence as the option's, so it is the same key -- which is
+      // the merge keying on the English buys
+      desc: __`Show help for a command`,
+      name: 'help',
+    });
+    // the framework's, which is what an alias taking `help` is told: an app
+    // that never declared this command cannot rename it. See `builtIn`
+    command[Internal].builtIn = true;
+    internal.commands.add(command);
     handles.command = internal.commands.find('help');
   }
 

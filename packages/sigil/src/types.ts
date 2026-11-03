@@ -320,6 +320,18 @@ export interface InternalCommandBase extends InternalBase {
    * leaves a relative path to the process's working directory.
    */
   baseDir?: string;
+  /**
+   * The parser added this command rather than the app declaring it: the `help`
+   * and `completion` a schema gets for free, and nothing else. `undefined` for
+   * every command an app declares, including one the app happens to call
+   * `help`, which is why it is a marker rather than a name match.
+   *
+   * Read by the registry's reachability check, so that an alias or a rename
+   * taking one of these names is told the command is built in and to drop the
+   * alias -- "rename one of the two" names a command the app never declared and
+   * cannot rename.
+   */
+  builtIn?: boolean;
   commands: CommandRegistry;
   /**
    * The directory this command discovers its subcommands in, walked one level

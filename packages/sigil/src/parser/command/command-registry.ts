@@ -163,18 +163,18 @@ export class CommandRegistry extends Map<string, InternalCommand> {
     // reachable through a rename, since `add()` passes no slot and a command
     // registered under its own name is a replacement rather than a sibling
     if (name !== slot && this.has(name)) {
-      throw renamedOntoName(slot, name);
+      throw renamedOntoName(slot, name, this.get(name)!);
     }
 
     for (const alias of cmd[Internal].aliases) {
       if (alias !== name && alias !== slot && this.has(alias)) {
-        throw shadowsName(name, alias);
+        throw shadowsName(name, alias, this.get(alias)!);
       }
     }
 
     for (const sibling of this.values()) {
       if (sibling.name !== name && sibling.name !== slot && sibling[Internal].aliases.has(name)) {
-        throw shadowsName(sibling.name, name);
+        throw shadowsName(sibling.name, name, cmd);
       }
     }
   }
@@ -183,11 +183,23 @@ export class CommandRegistry extends Map<string, InternalCommand> {
 /**
  * The error for an alias that takes a sibling's name.
  *
+ * A built-in sibling -- the `help` or `completion` the parser added -- is said
+ * to be one, and the only remedy offered is removing the alias: the app never
+ * declared that command, so "rename one of the two" would name something the
+ * author cannot rename. Asked of the marker rather than the name, so an app's
+ * own command called `help` is a sibling like any other.
+ *
  * @param owner - The command declaring the alias.
  * @param name - The alias, which is also the sibling's name.
+ * @param shadowed - The sibling whose name it is.
  * @returns The error, naming both commands and what to do.
  */
-function shadowsName(owner: string, name: string): Error {
+function shadowsName(owner: string, name: string, shadowed: InternalCommand): Error {
+  if (shadowed[Internal].builtIn) {
+    return new Error(
+      `The "${owner}" command's alias "${name}" is the name of the built-in "${name}" command, so remove the alias`
+    );
+  }
   return new Error(
     `The "${owner}" command's alias "${name}" is the name of a sibling command: "${name}" would run "${owner}" and nothing could reach the "${name}" command, so remove the alias or rename one of the two`
   );
@@ -195,14 +207,21 @@ function shadowsName(owner: string, name: string): Error {
 
 /**
  * The error for a loaded module that renames its command onto a sibling's
- * name, said the way `shadowsName()` says an alias.
+ * name, said the way `shadowsName()` says an alias -- including for a built-in
+ * sibling, where the only name the author can change is the module's.
  *
  * @param slot - The name the command was declared under, which is what the
  *   reader will find in their schema.
  * @param name - The name the module gives it, which is also the sibling's.
+ * @param shadowed - The sibling whose name it is.
  * @returns The error, naming both and what to do.
  */
-function renamedOntoName(slot: string, name: string): Error {
+function renamedOntoName(slot: string, name: string, shadowed: InternalCommand): Error {
+  if (shadowed[Internal].builtIn) {
+    return new Error(
+      `The "${slot}" command's module renames it "${name}", which is the name of the built-in "${name}" command, so give it another name`
+    );
+  }
   return new Error(
     `The "${slot}" command's module renames it "${name}", which is the name of a sibling command: "${name}" would run "${slot}" and nothing could reach the "${name}" command, so rename one of the two`
   );

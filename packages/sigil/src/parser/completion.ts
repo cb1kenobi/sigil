@@ -162,6 +162,9 @@ export async function registerCompletion(root: InternalCommand, schema: Schema):
   // option: the script is a function of the schema, so a value argv did not
   // carry is not missing from anything. See `needsNoValues`
   command[Internal].needsNoValues = true;
+  // and the framework's, which is what an alias taking `completion` is told.
+  // See `builtIn`
+  command[Internal].builtIn = true;
 
   internal.commands.add(command);
 }
