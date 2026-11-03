@@ -64,6 +64,31 @@ describe('commandCatalog()', () => {
     expect(entries.map(({ desc }) => desc)).toEqual(['build it', 'ship it']);
   });
 
+  it('should sort by code unit, not by the process locale', async () => {
+    // SIG-238, and help's order: no collation puts `B` before `a` or `a-b`
+    // before `a_b`, and code-unit order puts both first, so this fails under
+    // `localeCompare` on every machine. Nested, because the walk sorts each
+    // level it reads and the root is only the first of them
+    const entries = commandCatalog(
+      await state({
+        commands: {
+          a_b: { run(): void {} },
+          a: { commands: { y: { run(): void {} }, X: { run(): void {} } }, run(): void {} },
+          'a-b': { run(): void {} },
+          B: { run(): void {} },
+        },
+      })
+    );
+
+    expect(labels(entries).filter((label) => !label.includes(' '))).toEqual([
+      'B',
+      'a',
+      'a-b',
+      'a_b',
+    ]);
+    expect(labels(entries).filter((label) => label.startsWith('a '))).toEqual(['a X', 'a y']);
+  });
+
   it('should read the description off the registry rather than off the declaration', async () => {
     // which is the whole claim: the catalog never sees a declaration, so a
     // command whose description was set by an `init` hook is described by it

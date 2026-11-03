@@ -31,6 +31,7 @@
  * input and ignored by every repository already.
  */
 
+import { byCodeUnit } from '../by-code-unit.ts';
 import { compileTemplates } from './compile-templates.ts';
 import { RUNTIME, type DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
@@ -754,12 +755,16 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
  * asks here -- is something enormous in this bundle, and what -- which needs
  * the magnitudes to be right rather than the total.
  *
+ * Exported for its test, which hands it an output rather than building one:
+ * two packages of exactly equal size are what the tie-break is for, and a real
+ * bundle only produces them by coincidence.
+ *
  * @param root - The app root, which everything under is the app's own.
  * @param entry - The module rolldown was pointed at, which is not a package.
  * @param output - What rolldown wrote.
  * @returns One entry per package, largest first.
  */
-function inlinedPackages(
+export function inlinedPackages(
   root: string,
   entry: string,
   output: readonly { modules?: Record<string, { renderedLength?: number }>; type: string }[]
@@ -807,9 +812,13 @@ function inlinedPackages(
     }
   }
 
-  return [...bytes]
-    .map(([name, size]) => ({ bytes: size, name }))
-    .sort((one, other) => other.bytes - one.bytes || one.name.localeCompare(other.name));
+  return (
+    [...bytes]
+      .map(([name, size]) => ({ bytes: size, name }))
+      // the tie-break is by code unit rather than by `localeCompare`, which
+      // reads the process locale: one bundle reports in one order everywhere
+      .sort((one, other) => other.bytes - one.bytes || byCodeUnit(one.name, other.name))
+  );
 }
 
 /**

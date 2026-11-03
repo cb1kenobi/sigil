@@ -242,6 +242,26 @@ describe('the commands section', () => {
     const section = sectionOf(await help(schema), 'Commands');
     expect(section).toEqual(['  build  Compile the project']);
   });
+
+  // SIG-238: sorted by code unit rather than by `localeCompare`, which reads
+  // the process locale and costs a cold process its first `Intl` collator. No
+  // collation puts `B` before `a` or `a-b` before `a_b`, and code-unit order
+  // puts both first, so this fails under `localeCompare` on every machine
+  // rather than only on one set to a language that happens to disagree. The
+  // declaration is in neither order, so it cannot pass by printing the
+  // registry as it stands
+  it('should sort the commands by code unit, not by the process locale', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: { a_b: { desc: 'x' }, a: { desc: 'x' }, 'a-b': { desc: 'x' }, B: { desc: 'x' } },
+    };
+    expect(sectionOf(await help(schema), 'Commands')).toEqual([
+      '  B    x',
+      '  a    x',
+      '  a-b  x',
+      '  a_b  x',
+    ]);
+  });
 });
 
 describe('the arguments section', () => {

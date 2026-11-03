@@ -20,6 +20,7 @@ import {
   type ParseState,
   type Schema,
 } from '../types.js';
+import { byCodeUnit } from '../util/by-code-unit.js';
 import { topicSeparator } from '../util/topic.js';
 import { terminalWidth } from '../wrap/index.js';
 import { type BuiltSection, byGroup, createSections, withoutTwins } from './sections.js';
@@ -137,7 +138,11 @@ export function helpView(target: HelpTarget, opts: HelpOptions = {}): Element {
   }));
   const cmd = contexts[0]!;
   const internal = cmd[Internal];
-  const commands = shown(internal.commands.values()).sort((a, b) => a.name.localeCompare(b.name));
+  // by code unit rather than by `localeCompare`, which reads the process
+  // locale, so one app's help listed in a different order on a machine set to
+  // another language. See "Help sorts commands" in AGENTS.md, which also says
+  // why this is not the 4 ms it looks like
+  const commands = shown(internal.commands.values()).sort((a, b) => byCodeUnit(a.name, b.name));
   const options = optionsOf(internal.options);
   const { groups, ungrouped } = byGroup(options);
 

@@ -1210,10 +1210,12 @@ resolution.
   palette's catalog, `sigil add`'s listing and the build's inlined-package tie
   break are read by a person, are neither committed nor compared, and were left
   on `localeCompare`: whether a person's list follows their locale is its own
-  question, and not this one. The tests use `B` against `a` and `a-b` against
-  `a_b`, which every collation orders the other way, so they fail under
-  `localeCompare` on any machine rather than only on one set to a language that
-  disagrees.
+  question, and not this one. SIG-238 answered it -- it does not -- and moved
+  all four to code units, so no `localeCompare` call is left in either package's
+  source; the reasons are under "Help sorts commands" in `src/help/AGENTS.md`.
+  The tests use `B` against `a` and `a-b` against `a_b`, which every collation
+  orders the other way, so they fail under `localeCompare` on any machine rather
+  than only on one set to a language that disagrees.
 - **A loaded command keeps its placeholder's place, which is where it was
   declared.** SIG-236. A `:` walk recorded what it loaded with
   `commands.add(loaded)`, and `add()` is a registration: every spelling the

@@ -10,10 +10,11 @@
  * reader of one rule; everything here is read off the initialized command, at
  * `cmd[Internal]`, which is the shape the parser matches against.
  *
- * Pure, and it imports nothing but the `Internal` symbol and types: no element
- * tree, no renderer, no reactivity. That is the rule the layout engine and the
- * selector engine already keep, and it is what lets every assertion about what
- * is listed be written against a literal.
+ * Pure, and it imports nothing but the `Internal` symbol, types and the
+ * code-unit comparator help sorts with: no element tree, no renderer, no
+ * reactivity. That is the rule the layout engine and the selector engine
+ * already keep, and it is what lets every assertion about what is listed be
+ * written against a literal.
  */
 
 import {
@@ -25,6 +26,7 @@ import {
   type ParsedValue,
   type Schema,
 } from '../types.js';
+import { byCodeUnit } from '../util/by-code-unit.js';
 
 /**
  * What the palette needs to know, which is what `parse()` already built.
@@ -437,9 +439,9 @@ export function slotsFor(
  * Scoped to the context chain, which is what the parser already walks: the
  * innermost command's subtree first, then each ancestor's, ending at the root's.
  * Nearer first is help's own rule for the options it lists under `Global
- * options`, and within one context the commands are sorted by name, which is
- * also help's -- a registry's order is the order its initialization resolved in,
- * which for a directory of modules is whatever the file system felt like.
+ * options`, and within one context the commands are sorted by name, by code
+ * unit, which is also help's -- for help's reasons, recorded under "Help sorts
+ * commands" in `src/help/AGENTS.md`.
  *
  * The path is from the **root**, so an ancestor's command is listed with the path
  * that reaches it. That matters because commands resolve against the innermost
@@ -526,8 +528,10 @@ export function commandCatalog(target: CatalogTarget, opts: CatalogOptions = {})
     }
     seen.add(cmd);
 
+    // by code unit, which is help's order and for help's reasons: see "Help
+    // sorts commands" in `src/help/AGENTS.md`
     const children = [...cmd[Internal].commands.values()].sort((a, b) =>
-      a.name.localeCompare(b.name)
+      byCodeUnit(a.name, b.name)
     );
 
     for (const child of children) {

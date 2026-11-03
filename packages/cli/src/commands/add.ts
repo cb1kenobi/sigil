@@ -29,6 +29,7 @@
  * agree for now.
  */
 
+import { byCodeUnit } from '../by-code-unit.ts';
 import {
   CONFIG_FILE,
   DEFAULT_REGISTRY,
@@ -56,7 +57,9 @@ import { dirname, join } from 'node:path';
  */
 function list(registry: Registry): void {
   const rows = Object.entries(registry.manifest.entries)
-    .sort(([a], [b]) => a.localeCompare(b))
+    // by code unit rather than by `localeCompare`, which reads the process
+    // locale: the same registry should not list in two orders on two machines
+    .sort(([a], [b]) => byCodeUnit(a, b))
     .map(([name, entry]) => ({ Component: name, Description: entry.desc }));
 
   process.stdout.write(
