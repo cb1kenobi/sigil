@@ -20,7 +20,7 @@
  * editing logic in this file beyond deciding which characters may be typed.
  */
 
-import { box, text as textNode } from '../element/index.js';
+import { box } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { transformValue } from '../util/coerce.js';
@@ -32,6 +32,7 @@ import {
   listWindow,
   PromptError,
   promptAnswered,
+  promptAnswerSlot,
   promptHeadLine,
   promptHeadWidths,
   type PromptOptions,
@@ -248,7 +249,7 @@ export function number(opts: NumberOptions): Promise<number> {
 
   return runPrompt<number>(opts, () => {
     const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
-    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
+    const answer = promptAnswerSlot(head.rest);
     const placeholder =
       opts.placeholder ?? (opts.default === undefined ? undefined : format(opts.default));
 
@@ -261,11 +262,12 @@ export function number(opts: NumberOptions): Promise<number> {
     // `position: relative` with no insets moves nothing and is what gives the
     // caret layer a containing block to resolve its own against
     const entry = box({ class: 'sigil-prompt-number', position: 'relative' }, field, caretLayer);
-    const { line, mark } = promptHeadLine(opts.message, head.message, entry, answer);
+    const { line, mark } = promptHeadLine(opts.message, head.message, entry, answer.beside);
     const complaint = promptNote('sigil-prompt-error sigil-error');
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
+      answer.under,
       box({ 'padding-left': 2 }, complaint)
     );
 
@@ -368,8 +370,7 @@ export function number(opts: NumberOptions): Promise<number> {
 
       settle(done: number): void {
         promptAnswered(mark);
-        answer.setText(format(done) ?? String(done));
-        answer.setProps({ display: 'flex' });
+        answer.show(format(done) ?? String(done));
         entry.setProps({ display: 'none' });
         setPromptNote(complaint, undefined);
       },

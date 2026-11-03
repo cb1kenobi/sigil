@@ -580,6 +580,50 @@ describe('directoryTree()', () => {
     ui.stdin.send(CTRL_C);
   });
 
+  it('should put the absolute path it answers with under a question that fills the line', async () => {
+    // wider than the path, so that the path has a line of its own to be whole on
+    const width = Math.max(120, root.length + 40);
+    const ui = screenSetup({ columns: width, rows: 14 });
+    const answer = settle(
+      directoryTree({
+        ansi: ui.ansi,
+        env: {},
+        message: 'Which file should be opened? '.repeat(Math.ceil(width / 29)).trim(),
+        platform: 'linux',
+        root,
+        terminal: ui.terminal,
+      })
+    );
+    await until(() => expect(rows(ui)).toContain('└──   notes.md'));
+
+    await type(ui, DOWN, DOWN, DOWN, DOWN, ENTER);
+
+    expect(await answer).toEqual({ value: join(root, 'notes.md') });
+    // whole, once, on a row of its own -- it was drawn down the last column
+    expect(ui.log.filter((row) => row.includes('notes'))).toEqual([`  ${join(root, 'notes.md')}`]);
+    expect(ui.log.at(-1)?.trimEnd()).toBe(`  ${join(root, 'notes.md')}`);
+  });
+
+  it('should keep the path it answers with beside a question that leaves it room', async () => {
+    const ui = screenSetup({ columns: Math.max(120, root.length + 40), rows: 14 });
+    const answer = settle(
+      directoryTree({
+        ansi: ui.ansi,
+        env: {},
+        message: 'Pick?',
+        platform: 'linux',
+        root,
+        terminal: ui.terminal,
+      })
+    );
+    await until(() => expect(rows(ui)).toContain('└──   notes.md'));
+
+    await type(ui, DOWN, DOWN, DOWN, DOWN, ENTER);
+    await answer;
+
+    expect(ui.log.map((row) => row.trimEnd())).toEqual([`? Pick? ${join(root, 'notes.md')}`]);
+  });
+
   it('should open a directory on Enter and answer a file with its absolute path', async () => {
     const { answer, ui } = browse({ extensions: ['txt'] });
     await until(() => expect(rows(ui)).toHaveLength(3));

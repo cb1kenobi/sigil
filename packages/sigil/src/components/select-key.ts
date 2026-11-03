@@ -40,6 +40,7 @@ import {
   type Choice,
   PROMPT_SYMBOLS,
   promptAnswered,
+  promptAnswerSlot,
   promptHeadLine,
   promptHeadWidths,
   type PromptOptions,
@@ -230,7 +231,6 @@ export function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T> {
   let picked: KeyChoice<T> | undefined;
 
   return runPrompt<T>(opts, () => {
-    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const hint = textNode(summary, {
       class: 'sigil-prompt-hint sigil-muted',
       display: expand ? 'flex' : 'none',
@@ -238,16 +238,21 @@ export function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T> {
     const room = Math.max(1, terminal.width);
     // the expand line is the keys, so a cut one names keys that are not there:
     // it goes on a line of its own under the question where it does not fit
-    // beside it. The answer then settles on that line, in the hint's place,
-    // rather than in the head as `toggle()`'s does: that one reserves the longer
-    // of two short names, and reserving the longest label here would take up to
-    // half the line from the question for as long as it is asked
+    // beside it. The answer is not reserved the way `toggle()`'s is: that one
+    // reserves the longer of two short names, and reserving the longest label
+    // here would take up to half the line from the question for as long as it
+    // is asked. It settles through the slot instead
     const beside = !expand || promptTailFits(opts.message, room, summary);
     const head = promptHeadWidths(opts.message, room, expand && beside ? summary : '');
+    // which is beside the question where it fits on the question's line and
+    // under it where it does not, as for every prompt -- whether or not the
+    // expand line went under it first
+    const answer = promptAnswerSlot(head.rest);
     const { line, mark } = promptHeadLine(
       opts.message,
       head.message,
-      ...(beside ? [hint, answer] : [])
+      ...(beside ? [hint] : []),
+      answer.beside
     );
 
     const rows = all.map((entry) => {
@@ -294,7 +299,8 @@ export function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T> {
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
-      ...(beside ? [] : [promptUnderHead(hint, answer)]),
+      ...(beside ? [] : [promptUnderHead(hint)]),
+      answer.under,
       list
     );
 
@@ -333,8 +339,7 @@ export function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T> {
 
       settle(): void {
         promptAnswered(mark);
-        answer.setText(picked?.short ?? picked?.label ?? '');
-        answer.setProps({ display: 'flex' });
+        answer.show(picked?.short ?? picked?.label ?? '');
         // what is left is the question and its answer, as for `select()`
         hint.setProps({ display: 'none' });
         list.setProps({ display: 'none' });

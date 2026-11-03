@@ -50,6 +50,7 @@ import {
   multiselect,
   PROMPT_SYMBOLS,
   promptAnswered,
+  promptAnswerSlot,
   promptHeadLine,
   promptHeadWidths,
   type PromptOptions,
@@ -534,16 +535,22 @@ function runList(
     const caret = textNode('', { class: 'sigil-caret', 'white-space': 'nowrap' });
     const after = textNode('', { 'white-space': 'nowrap' });
     const field = box({ class: 'sigil-prompt-field' }, before, caret, after);
-    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark } = promptHeadLine(opts.message, head.message, field, answer);
+    const answer = promptAnswerSlot(head.rest);
+    const { line, mark } = promptHeadLine(opts.message, head.message, field, answer.beside);
     const { list, rows } = paletteRows(entries);
     const empty = textNode(__`No commands match`, {
       class: 'sigil-palette-empty sigil-muted',
       display: 'none',
       'padding-left': 2,
     });
-    const view = box({ class: 'sigil-palette', 'flex-direction': 'column' }, line, list, empty);
+    const view = box(
+      { class: 'sigil-palette', 'flex-direction': 'column' },
+      line,
+      answer.under,
+      list,
+      empty
+    );
 
     /** What the query ranked to, rebuilt whenever anything moves. */
     let shown: Ranked<PaletteEntry>[] = [];
@@ -696,8 +703,7 @@ function runList(
         caret.setText('');
         caret.setProps({ class: '' });
         after.setText('');
-        answer.setText(chosen ? chosen.label : '(dismissed)');
-        answer.setProps({ display: 'flex' });
+        answer.show(chosen ? chosen.label : '(dismissed)');
         // the list goes: what is left is the question and its answer, which is
         // the one line worth keeping in a log
         list.setProps({ display: 'none' });

@@ -39,6 +39,7 @@ import { wrap } from '../wrap/index.js';
 import { mountLive } from './mount.js';
 import {
   promptAnswered,
+  promptAnswerSlot,
   PromptError,
   promptHeadLine,
   promptHeadWidths,
@@ -416,11 +417,13 @@ function ask(opts: EditorOptions, error: string | undefined): Promise<number> {
 function answered(opts: EditorOptions, value: string): void {
   const terminal = opts.terminal ?? defaultTerminal;
   const head = promptHeadWidths(opts.message, Math.max(1, terminal.width));
-  const answer = textNode(promptSummary(value), { class: 'sigil-prompt-answer sigil-muted' });
-  const { line, mark } = promptHeadLine(opts.message, head.message, answer);
+  const answer = promptAnswerSlot(head.rest);
+  const { line, mark } = promptHeadLine(opts.message, head.message, answer.beside);
   promptAnswered(mark);
+  answer.show(promptSummary(value));
+  const view = box({ class: 'sigil-prompt', 'flex-direction': 'column' }, line, answer.under);
 
-  const mounted = mountLive(() => line, { ...opts, quiet: false, terminal });
+  const mounted = mountLive(() => view, { ...opts, quiet: false, terminal });
   try {
     mounted.frame();
   } finally {

@@ -563,6 +563,36 @@ describe('filePicker()', () => {
       expect(ui.log.join('\n')).toContain(join(root, 'alphabet.md'));
       expect(ui.log.join('\n')).not.toContain('beta.json');
     });
+
+    it('should keep the answer beside a question that leaves it room', async () => {
+      const { answer, ui } = open();
+      await until(() => expect(listed(ui)).toEqual(ROOT_ROWS));
+
+      await type(ui.stdin, DOWN, DOWN, DOWN, ENTER);
+      await answer;
+
+      expect(ui.log.map((row) => row.trimEnd())).toEqual([`? Pick? ${join(root, 'alphabet.md')}`]);
+    });
+
+    it('should put the answer under a question that fills the line', async () => {
+      // the directory beside the question is cut from the front to fit, which is
+      // right while browsing and was what the answer settled in: a question as
+      // wide as the line left it one column
+      const width = Math.max(120, root.length + 40);
+      const message = 'Which file should be opened? '.repeat(Math.ceil(width / 29)).trim();
+      const { answer, ui } = open({ message });
+      // the question is more than one row, which `listed()` would read as names
+      await until(() => expect(listed(ui).slice(-ROOT_ROWS.length)).toEqual(ROOT_ROWS));
+
+      await type(ui.stdin, DOWN, DOWN, DOWN, ENTER);
+      await answer;
+
+      // whole, once, on a row of its own under the question
+      expect(ui.log.filter((row) => row.includes('alphabet'))).toEqual([
+        `  ${join(root, 'alphabet.md')}`,
+      ]);
+      expect(ui.log.at(-1)?.trimEnd()).toBe(`  ${join(root, 'alphabet.md')}`);
+    });
   });
 
   it('should reject without a terminal to ask on', async () => {

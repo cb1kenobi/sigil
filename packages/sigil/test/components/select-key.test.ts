@@ -721,6 +721,22 @@ describe('selectKey() expanded at a narrow width', () => {
     await answer;
   });
 
+  it('should settle beside the question where the answer fits there, line or no line', async () => {
+    // the expand line is wider than the question leaves it, so it went under;
+    // the answer is not, so it settles where every prompt's settles: beside
+    const keys = 'abcdefgijk'.split('').map((key) => ({ key, label: `Option ${key}` }));
+    const ui = screenSetup({ columns: 30, rows: 16 });
+    const answer = settle(open(ui, { choices: keys, expand: true, message: 'Pick one' }));
+
+    await tick();
+    expect(rows(ui)).toEqual(['? Pick one', '  (a/b/c/d/e/f/g/i/j/k/h)']);
+
+    await type(ui.stdin, 'c');
+
+    expect((await answer).value).toBe('Option c');
+    expect(rows(ui)).toEqual(['? Pick one Option c']);
+  });
+
   it('should keep the expand line beside a question that leaves it room', async () => {
     // the question wraps for it, which is the head's cap doing its job: only a
     // line the cap would cut moves

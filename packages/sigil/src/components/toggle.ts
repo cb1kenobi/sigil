@@ -29,6 +29,7 @@ import { stringWidth } from '../width/index.js';
 import {
   PROMPT_SYMBOLS,
   promptAnswered,
+  promptAnswerSlot,
   promptHeadLine,
   promptHeadWidths,
   PromptError,
@@ -108,7 +109,6 @@ export function toggle(opts: ToggleOptions): Promise<boolean> {
   return runPrompt<boolean>(opts, () => {
     const left = textNode('', { 'flex-shrink': 0, 'margin-right': 2, 'white-space': 'nowrap' });
     const right = textNode('', { 'flex-shrink': 0, 'white-space': 'nowrap' });
-    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const options = [
       { label: inactive, node: left, state: false },
       { label: active, node: right, state: true },
@@ -130,16 +130,23 @@ export function toggle(opts: ToggleOptions): Promise<boolean> {
       width,
       inline ? summary : stringWidth(active) > stringWidth(inactive) ? active : inactive
     );
+    // reserved, so the answer is beside the question wherever the head's cap left
+    // it the room -- and where a name wider than half the line did not, the slot
+    // every prompt settles through puts it under the question rather than cut
+    const answer = promptAnswerSlot(head.rest);
     const choices = box({ class: 'sigil-toggle', 'margin-left': inline ? 0 : 2 }, left, right);
     const { line, mark } = promptHeadLine(
       opts.message,
       head.message,
       ...(inline ? [choices] : []),
-      answer
+      answer.beside
     );
-    const view = inline
-      ? line
-      : box({ class: 'sigil-prompt', 'flex-direction': 'column' }, line, choices);
+    const view = box(
+      { class: 'sigil-prompt', 'flex-direction': 'column' },
+      line,
+      answer.under,
+      ...(inline ? [] : [choices])
+    );
 
     /** The marker is the only thing that says which is current at colour level 0. */
     function draw(): void {
@@ -184,8 +191,7 @@ export function toggle(opts: ToggleOptions): Promise<boolean> {
 
       settle(final: boolean): void {
         promptAnswered(mark);
-        answer.setText(final ? active : inactive);
-        answer.setProps({ display: 'flex' });
+        answer.show(final ? active : inactive);
         choices.setProps({ display: 'none' });
       },
 

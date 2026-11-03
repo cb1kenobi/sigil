@@ -129,6 +129,23 @@ describe('a translated confirm', () => {
       expect(ui.log.join('\n'), key).to.include(expected);
     }
   });
+
+  it('should put a translated answer wider than its hint under the question', async () => {
+    // the hint is what is reserved, so a `yes` wider than `(J/n)` had only the
+    // hint's columns beside a question that fills the line
+    await translated({ 'y/n': 'j/n', yes: 'selbstverständlich' });
+    const ui = screenSetup({ columns: 30 });
+    const answer = confirm({
+      ansi: ui.ansi,
+      message: 'Die vorhandene Datei überschreiben?',
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, 'j');
+    await answer;
+
+    expect(ui.log.map((row) => row.trimEnd()).at(-1)).toBe('  selbstverständlich');
+  });
 });
 
 describe('a translated multiline field', () => {

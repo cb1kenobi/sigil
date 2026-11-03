@@ -8260,7 +8260,10 @@ fixed itself. SIG-210 asked which other prompts had the same defect.
   the longer of its two names, which costs the question a few columns. For
   `selectKey()` that reservation would be the longest label, which takes up to
   half the line from the question for as long as it is asked. So its answer
-  settles in the expand line's place, under the question. A date field is the
+  settles in the expand line's place, under the question. (SIG-216 kept the
+  refusal and replaced the placement: the answer now settles through
+  `promptAnswerSlot()`, so it is beside the question where it fits on that line
+  even with the expand line under it. See below.) A date field is the
   answer, so it settles where it was drawn. Putting it back on the head line would
   cut it again: ten columns against a cap of eight at 20.
 - **The row under the head is indented to the message's column.** That is the
@@ -8283,7 +8286,7 @@ fixed itself. SIG-210 asked which other prompts had the same defect.
   about the answer rather than a fixed tail, it predates this ticket, and fixing it
   means choosing how much of the question an answer may take in every list prompt,
   so it is left for a ticket of its own. `confirm()` below 13 columns is under the
-  floor the head already declares.
+  floor the head already declares. SIG-216 is that ticket, below.
 
 ### A text field: the prompt's editor as an element
 
@@ -8613,3 +8616,89 @@ because a dropdown or anything else that sits beside a box wants the same answer
   the next tooltip at once after one has just closed; an arrow pointing at the
   anchor; rich content in the bubble; and announcing it in accessible mode, which
   has no screen to put it on.
+
+### A settled answer goes beside the question or under it, never down its edge (SIG-216)
+
+SIG-210 left this behind: most prompts reserve no columns for their answer, so it
+was drawn in whatever the question left. `promptAnswerFits()` and
+`promptAnswerSlot()` in `prompt.ts` are the fix, beside `promptTailFits()` and
+`promptUnderHead()`, and every prompt that settles to an answer line calls the
+slot.
+
+- **It was measured first, at 40 columns under a question as wide as the head
+  lets it be.** One column was left, and a word that does not fit is clipped
+  rather than broken, so an answer came out as the first letter of each of its
+  words, one per row. Every list prompt drew `Show the diff` down the last column
+  as `S`, `t`, `d`: `select()`, `multiselect()`, `selectKey()` without `expand`,
+  `autocomplete()`, `autocompleteMultiselect()`, `groupMultiselect()`,
+  `selectTree()`, `selectRow()`, and `multiline()`'s and `editor()`'s one-line
+  summaries. `sort()` drew its whole order that way, five rows for
+  `Show the diff, Apply, Skip`, and `commandPalette()`'s `build` was `b`. Every
+  field prompt cut the answer to its first character, because its answer was
+  written into the `nowrap` field: `text()`, `password()`, `list()`,
+  `maskedText()`, `path()`, and `filePicker()`, whose answer went into the
+  directory line. `number()`'s answer was a node of its own and one word, so it
+  was `1`. A question that left some room had the milder
+  form: `Show the / diff` hanging in a 12-column gap, and a field one column short
+  of its answer drew `Show the dif`.
+- **Where an answer does not fit, it goes under the question.** That is
+  `promptUnderHead()`'s row, indented to the message, and it costs nothing while
+  the question is asked: the row is empty until it settles, and a row whose
+  children are hidden takes no height. Reserving room was refused for the reason
+  SIG-210 refused it for `selectKey()`: the longest label, or a whole multiselect
+  answer, would take up to half the line from the question for as long as it is
+  asked, to make room for something that is drawn once at the end.
+- **"Fits" is one line, whole.** `promptAnswerFits(rest, answer)` is true only
+  where the answer is no wider than what the head left after the message. A
+  threshold was considered and refused. "More than N rows" is a number nothing
+  measures. "Narrower than the longest word" keeps `Show the / diff` beside, which
+  is readable on its own but in a log of settled prompts reads as a column, not an
+  answer. Requiring one line also makes it `toggle()`'s whole-line rule for every
+  prompt, and the same arithmetic SIG-210's predicate asks of a tail. Moving never
+  makes the answer narrower, because under the question there are always more
+  columns than beside it. An answer wider than the line still wraps there, whole.
+- **The room is the head that is drawn, not one worked out again.**
+  `promptTailFits(message, room, answer)` would have been the obvious reuse, and
+  it is wrong here. It lays the head out _with_ the answer reserved, so a question
+  that has to wrap reports the answer's own width as the room, while the head
+  actually drawn reserved nothing and left one column. So the slot takes `rest`
+  from the `headWidths()` call the prompt drew its head with.
+- **The field prompts move rather than truncate.** An ellipsis loses the answer,
+  which is the one thing the settled line is for. So `text()`, `list()`,
+  `maskedText()` and `path()` hide the field when they settle and show the answer
+  in the slot, which wraps where a field does not. `number()` already settled into
+  a node of its own and only changed which node. `filePicker()` hides its
+  directory line, which is cut from the front to fit and is right while browsing.
+- **One rule for every prompt, including the two that needed nothing.**
+  `confirm()` and `toggle()` reserve their answer, so the slot's answer for them is
+  "beside" at every width the head reserves for. They go through it anyway, so that
+  where the reservation is not enough the answer moves rather than being clipped.
+  `toggle()`'s cap is half the line, so a name wider than that wrapped beside the
+  question, and a translated `yes` wider than its hint was broken across rows
+  beside it. Both are tests. `selectKey()` uses one slot in both of its layouts, so with the expand
+  line under the question an answer that fits on the question's line now settles
+  beside it rather than in the line's place. SIG-210's refusal to reserve stands.
+- **`date()` and `pickDate()` are the exception, and they already agree.** Their
+  field _is_ the answer and settles where it was drawn, and SIG-210's tail rule
+  moves it under the question exactly where it would be cut. A field cannot wrap,
+  so for them the tail rule and this rule come to the same answer.
+- **The table is derived from the barrel.** `prompt-answer.test.ts` keys its rows
+  by `PromptName`, the union `prompt-signal.test.ts` was already deriving, which
+  moved to `helpers.ts` so that the two tables cannot disagree about what a prompt
+  is. Each row is asked four times: under a question that fills the line, beside
+  one that leaves room, one column short of fitting, and exactly fitting. A prompt
+  exported without a row or a reason in `EXEMPT` fails the type-check. The
+  exemptions are the prompts whose picture lives somewhere else: an absolute path,
+  a spawned editor, a reserved answer, the engine, and `decrypt()`.
+- **Sabotage: sixteen of sixteen caught, each still type-checking.** The breaks were: the predicate
+  forced either way, made off by one, and made blind to the answer's width; the
+  row unindented; `select()`, `sort()`, `selectKey()`, `editor()`, `filePicker()`,
+  `selectTree()`, `toggle()` and `confirm()` each never moving; `text()` settling
+  into its field again; `list()`'s row left out of the view; and `selectKey()`
+  settling under whenever the expand line had moved, as SIG-210 had it. The
+  off-by-one is caught only by the exact-width case and the predicate's own test.
+- **Not done.** Accessible mode draws prompts as lines and is unaffected.
+  `filePicker()`'s directory line while browsing is still cut from the front,
+  which is a tail and a decision of its own rather than an answer. A terminal
+  resized after a prompt settled keeps the layout it settled in, as every head
+  does, because the widths are worked out once when the view is built.

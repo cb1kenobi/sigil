@@ -179,6 +179,24 @@ describe('editor()', () => {
     expect(rows(ui)).toEqual(['? Commit message Fix the thing (+2 more lines)']);
   });
 
+  it('should put the answer under a question that fills the line', async () => {
+    // drawn in what the question left, which here was one column: `S`, `t`, `d`
+    const ui = screenSetup({ columns: 40, rows: 6 });
+    const ed = fake({ write: 'Show the diff\n' });
+    const answer = settle(
+      open(ui, ed, { message: 'Which of these changes should we apply first?' })
+    );
+
+    await tick();
+    ui.stdin.send(ENTER);
+    expect(await answer).toEqual({ value: 'Show the diff' });
+    expect(rows(ui)).toEqual([
+      '? Which of these changes should we',
+      '  apply first?',
+      '  Show the diff',
+    ]);
+  });
+
   it('should start the file from default, and hand the editor one argument', async () => {
     const ui = screenSetup({ columns: 300, rows: 6 });
     const ed = fake({});

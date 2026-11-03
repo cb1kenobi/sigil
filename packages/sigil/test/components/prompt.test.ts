@@ -489,6 +489,20 @@ describe('an affordance in a narrow terminal', () => {
     }
   });
 
+  it('should settle beside a question that wraps for the hint', async () => {
+    // the hint is reserved and the answer takes its place, so `yes` is beside the
+    // question at every width the hint is -- the one prompt that needed no move
+    const ui = screenSetup({ columns: 20, rows: 8 });
+    const answer = settle(
+      confirm({ ansi: ui.ansi, message: 'Overwrite the file', terminal: ui.terminal })
+    );
+
+    await type(ui.stdin, 'y');
+    await answer;
+
+    expect(ui.log.map((row) => row.trimEnd())).toEqual(['? Overwrite    yes', '  the file']);
+  });
+
   it('should give the question the whole line now the keys are a footer', async () => {
     // the overcorrection this used to guard: the multiselect hint was 35 columns
     // beside the question, so reserving it in full left `Pick some things` four

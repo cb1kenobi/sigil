@@ -876,6 +876,62 @@ function underHead(...tail: Element[]): Element {
   return box({ 'margin-left': stringWidth(SYMBOL.question) + 1 }, ...tail);
 }
 
+/** Where a prompt's answer settles, from `answerSlot()`. */
+interface AnswerSlot {
+  /** Goes in the head, after the message and whatever follows it. */
+  beside: Element;
+  /** Settles the answer: on the question's line where it fits there whole, or under it. */
+  show(answer: string): void;
+  /** Goes straight under the head. Takes no height until an answer is shown in it. */
+  under: Element;
+}
+
+/**
+ * Whether a settled answer fits beside the question, on its line and whole.
+ *
+ * The answer is drawn in what the head left after the message, which is `rest`
+ * -- and almost nothing reserves for it, so a question as wide as the line left
+ * one column and `Show the diff` went down the right edge as `S`, `t`, `d`. A
+ * field's answer is `nowrap` and was cut to `S` instead. So an answer goes beside
+ * the question only where it is one line there, and under it where it is not.
+ * One line rather than a threshold: an answer wrapped at its spaces into what a
+ * one-line question left reads as a column beside it, not as an answer, and a
+ * number of rows or a longest word would be a line drawn through a picture that
+ * nothing measures. Under the question there are always more columns than beside
+ * it, so moving it never makes it narrower.
+ *
+ * @param rest - What the head left after the message, from `headWidths()` -- the
+ *   head that is drawn, so the answer cannot disagree with it.
+ * @param answer - What the prompt settled to.
+ * @returns Whether it goes beside the question.
+ */
+function answerFits(rest: number, answer: string): boolean {
+  return stringWidth(toDisplayText(answer)) <= rest;
+}
+
+/**
+ * The answer a prompt settles to, in one of two places: beside the question where
+ * `answerFits()` says so, and on a row of its own under it, `underHead()`'s, where
+ * not. Every prompt that settles to an answer line settles through one of these,
+ * so where an answer goes is one rule rather than one per prompt.
+ *
+ * @param rest - What the head left after the message, from `headWidths()`.
+ * @returns The two places, and what settles the answer in one of them.
+ */
+function answerSlot(rest: number): AnswerSlot {
+  const beside = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
+  const below = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
+  return {
+    beside,
+    show(answer: string): void {
+      const node = answerFits(rest, answer) ? beside : below;
+      node.setText(answer);
+      node.setProps({ display: 'flex' });
+    },
+    under: underHead(below),
+  };
+}
+
 /** Marks the head as answered, which is the only thing every prompt settles. */
 function answered(mark: Element): void {
   mark.setProps({ class: 'sigil-symbol is-success sigil-success' });
@@ -1071,11 +1127,13 @@ export function text(opts: TextOptions): Promise<string> {
     const after = textNode('', { 'white-space': 'nowrap' });
     const field = box({ class: 'sigil-prompt-field' }, before, caret, after);
     const head = headWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark } = promptHead(opts.message, head.message, field);
+    const settled = answerSlot(head.rest);
+    const { line, mark } = promptHead(opts.message, head.message, field, settled.beside);
     const complaint = note('sigil-prompt-error sigil-error');
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
+      settled.under,
       box({ 'padding-left': 2 }, complaint)
     );
 
@@ -1191,11 +1249,10 @@ export function text(opts: TextOptions): Promise<string> {
 
       settle(answer: string): void {
         answered(mark);
-        before.setText('');
-        caret.setText('');
-        caret.setProps({ class: '' });
-        after.setText(opts.mask === undefined ? answer : opts.mask.repeat(stringWidth(answer)));
-        after.setProps({ class: 'sigil-prompt-answer sigil-muted' });
+        // the field is `nowrap` and was cut to what the head left it, so the
+        // answer settles in a slot of its own rather than in the field
+        field.setProps({ display: 'none' });
+        settled.show(opts.mask === undefined ? answer : opts.mask.repeat(stringWidth(answer)));
         setNote(complaint, undefined);
       },
 
@@ -2362,9 +2419,9 @@ export function multiline(opts: MultilineOptions): Promise<string> {
   let top = 0;
 
   return run<string>(opts, () => {
-    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const head = headWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark: headMark } = promptHead(opts.message, head.message, answer);
+    const answer = answerSlot(head.rest);
+    const { line, mark: headMark } = promptHead(opts.message, head.message, answer.beside);
     const complaint = note('sigil-prompt-error sigil-error');
 
     // the one key this field has that nobody would guess, and the only one it
@@ -2458,6 +2515,7 @@ export function multiline(opts: MultilineOptions): Promise<string> {
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
+      answer.under,
       area,
       box({ 'padding-left': 2 }, count),
       box({ 'padding-left': 2 }, complaint),
@@ -2677,8 +2735,7 @@ export function multiline(opts: MultilineOptions): Promise<string> {
         answered(headMark);
         footer.setProps({ display: 'none' });
         // one line in the log, for the reason `summaryOf()` records
-        answer.setText(summaryOf(written));
-        answer.setProps({ display: 'flex' });
+        answer.show(summaryOf(written));
         for (const layer of [
           field,
           caretLayer,
@@ -2718,12 +2775,17 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
     const tail = textNode(keys.hint, {
       class: 'sigil-prompt-hint sigil-muted',
     });
-    const { line, mark } = promptHead(
+    const head = headWidths(
       opts.message,
-      headWidths(opts.message, Math.max(1, (opts.terminal ?? defaultTerminal).width), keys.hint)
-        .message,
-      tail
+      Math.max(1, (opts.terminal ?? defaultTerminal).width),
+      keys.hint
     );
+    // the hint is reserved, so `yes` and `no` are beside the question at every
+    // width the head is drawn at -- through the slot all the same, so that a
+    // translation wider than its own hint goes under the question rather than
+    // being cut
+    const answer = answerSlot(head.rest);
+    const { line, mark } = promptHead(opts.message, head.message, tail, answer.beside);
 
     return {
       key(k) {
@@ -2747,13 +2809,13 @@ export function confirm(opts: ConfirmOptions): Promise<boolean> {
         }
       },
 
-      settle(answer: boolean): void {
+      settle(yes: boolean): void {
         answered(mark);
-        tail.setText(answer ? __`yes` : __`no`);
-        tail.setProps({ class: 'sigil-prompt-answer sigil-muted' });
+        tail.setProps({ display: 'none' });
+        answer.show(yes ? __`yes` : __`no`);
       },
 
-      view: line,
+      view: box({ class: 'sigil-prompt', 'flex-direction': 'column' }, line, answer.under),
     };
   });
 }
@@ -3015,14 +3077,15 @@ export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
   }
 
   return run<T>(opts, () => {
-    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const head = headWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark } = promptHead(opts.message, head.message, answer);
+    const answer = answerSlot(head.rest);
+    const { line, mark } = promptHead(opts.message, head.message, answer.beside);
     const { list, rows } = choiceRows(items, false);
     const described = describing(items);
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
+      answer.under,
       list,
       described.line
     );
@@ -3060,8 +3123,7 @@ export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
 
       settle(): void {
         answered(mark);
-        answer.setText(shortOf(current()));
-        answer.setProps({ display: 'flex' });
+        answer.show(shortOf(current()));
         // the list goes: what is left is the question and its answer, which is
         // the one line worth keeping in a log
         list.setProps({ display: 'none' });
@@ -3165,9 +3227,9 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
   }
 
   return run<T[]>(opts, () => {
-    const answer = textNode('', { class: 'sigil-prompt-answer sigil-muted', display: 'none' });
     const head = headWidths(opts.message, Math.max(1, terminal.width));
-    const { line, mark } = promptHead(opts.message, head.message, answer);
+    const answer = answerSlot(head.rest);
+    const { line, mark } = promptHead(opts.message, head.message, answer.beside);
     const { list, rows } = choiceRows(items, true);
     const described = describing(items);
     const problem = note('sigil-prompt-error sigil-error');
@@ -3206,6 +3268,7 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
       line,
+      answer.under,
       list,
       described.line,
       box({ 'padding-left': 2 }, problem),
@@ -3239,7 +3302,7 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
 
       settle(values: T[]): void {
         answered(mark);
-        answer.setText(
+        answer.show(
           values.length
             ? [...ticked]
                 .sort((a, b) => a - b)
@@ -3247,7 +3310,6 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
                 .join(', ')
             : __`none`
         );
-        answer.setProps({ display: 'flex' });
         list.setProps({ display: 'none' });
         described.line.setProps({ display: 'none' });
         footer.setProps({ display: 'none' });
@@ -3839,6 +3901,8 @@ function lineMultiselect<T>(
  */
 export {
   answered as promptAnswered,
+  answerFits as promptAnswerFits,
+  answerSlot as promptAnswerSlot,
   sameValue as promptSameValue,
   promptFooter,
   promptKeys,
@@ -3857,4 +3921,4 @@ export {
   windowOf as promptWindow,
   windowStart as listWindow,
 };
-export type { Handlers as PromptHandlers, Window as PromptWindow };
+export type { AnswerSlot as PromptAnswerSlot, Handlers as PromptHandlers, Window as PromptWindow };
