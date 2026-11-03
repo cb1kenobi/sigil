@@ -8043,10 +8043,25 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   later one cannot go first. An app's quit binding is made at startup and sees
   every key first, as it must; a binding made after the dialog opened sees none.
   `isAbort()` keys are not taken by the dialog at all, so a later quit binding
-  works as well. Pastes are not blocked: an `onPaste` handler made earlier still
-  sees pasted text, and an unclaimed paste is typed in as keys, which the dialog
-  takes. Blocking `onPaste` is not possible without making a paste into a dialog's
-  own field impossible, and nobody has asked.
+  works as well. Pastes were outside all of this, and are no longer -- the entry
+  below.
+- **A paste nothing inside claims ends at the panel, and is typed in there.**
+  SIG-222. A paste walks the tree from the focused element before the router's
+  `onPaste()` handlers see it (SIG-215), so one that bubbles to the panel is one
+  nothing inside took whole, and above the panel are the root and the app's own
+  handlers -- which is how `50-text-field.js`'s list heard a paste aimed at the
+  dialog's button. So the panel's `onPaste` stops it. A focused `TextField`
+  inside still has it first, because it is lower in the walk. Stopping a paste
+  also cancels the router's fallback, which types it in as keys, so the panel
+  does that fallback itself, over the same walk to the panel a key gets: an
+  element inside that reads keys and not pastes still has the text, and with
+  `paste: true`. The router's fallback was not the answer, because pasted keys
+  go through every function binding first, and those are the app's. A pasted key
+  that closes the dialog or moves the focus out ends the paste -- what is left
+  has nowhere inside to go -- and a lower dialog an app moved the focus into
+  types nothing in, since only the top answers. What is still open is a focus an
+  app moved **outside** every dialog: the walk then never reaches a panel, so
+  the paste goes to the app until the next key pulls the focus back in.
 - **Tab is the dialog's own, and the ring is the router's.** The binding moves the
   focus along `input.focus.ring()` filtered to what is inside the panel, wrapping
   and starting from the first element when the focus is outside -- the router's own
@@ -8124,7 +8139,8 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   box is what keeps the app visible); resizing the panel to its content (it has a
   declared `width`, capped at the screen, and grows in height); announcing a
   dialog in accessible mode, which draws prompts as lines and has no screen to lay
-  one over; blocking `onPaste` and a `mousedown` bubble, as above; and a drag
+  one over; a `mousedown` bubble, and a paste while an app has moved the focus
+  outside the dialog, as above; and a drag
   handle. A toast and a tooltip are SIG-213 and SIG-214.
 
 ### A styled cell outside `table()`: where a `TableCellView` is wanted

@@ -1,6 +1,7 @@
 import { strip } from '../../src/ansi/index.js';
 import { CellBuffer, DEFAULT_COLOR, Painter, palette, StyleTable } from '../../src/canvas/index.js';
 import { confirmModal, type ModalOptions, openModal } from '../../src/components/modal.js';
+import { TextField } from '../../src/components/text-field.js';
 import {
   arrange,
   box,
@@ -13,7 +14,7 @@ import {
 } from '../../src/element/index.js';
 import { createInput, ESCAPE_TIMEOUT, type MouseEvent } from '../../src/input/index.js';
 import { render } from '../../src/renderer/index.js';
-import { flush } from '../../src/signals/index.js';
+import { flush, State } from '../../src/signals/index.js';
 import { Restyler, setQuiet } from '../../src/style/index.js';
 import { createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
@@ -486,6 +487,122 @@ describe('keys', () => {
 
     await s.term.press('a');
     expect(s.seen).to.include('one:a');
+  });
+});
+
+describe('pastes', () => {
+  /** The scene, with an app-wide paste handler made at startup and the root's own. */
+  function pasting() {
+    const s = scene();
+    const pasted: string[] = [];
+    s.input.onPaste((event) => {
+      pasted.push(`app:${event.text}`);
+      event.stop();
+    });
+    s.root.onPaste = (event) => {
+      pasted.push(`root:${event.text}`);
+    };
+    return { ...s, pasted };
+  }
+
+  it('should keep a paste aimed at a button from the app behind the dialog', async () => {
+    const s = pasting();
+    s.input.focus.focus(s.one);
+    const handle = modalOn(s);
+
+    await s.term.paste('list.txt\r');
+    expect(s.pasted).to.deep.equal([]);
+    // nor typed in to the rows or the root; and a pasted Enter is content, so the
+    // button it landed on was not pressed
+    expect(s.seen).to.deep.equal([]);
+    expect(handle.open).to.equal(true);
+  });
+
+  it('should give a text field inside the dialog the paste, and the app none of it', async () => {
+    const s = pasting();
+    const value = new State('a');
+    const field = TextField({ value });
+    modalOn(s, { body: field });
+    s.input.focus.focus(field);
+
+    await s.term.paste('bc');
+    expect(value.get()).to.equal('abc');
+    expect(s.pasted).to.deep.equal([]);
+  });
+
+  it('should type a paste nothing claimed in to the element inside, and no higher than the dialog', async () => {
+    const s = pasting();
+    const got: string[] = [];
+    const field = text('field', { focusable: true });
+    field.onKey = (event) => {
+      got.push(`field:${event.key.name}:${event.paste}`);
+    };
+    const body = box({}, field);
+    body.onKey = (event) => {
+      got.push(`body:${event.key.name}`);
+    };
+    modalOn(s, { actions: [], body });
+    s.input.focus.focus(field);
+
+    await s.term.paste('xy');
+    expect(got).to.deep.equal(['field:x:true', 'body:x', 'field:y:true', 'body:y']);
+    expect(s.pasted).to.deep.equal([]);
+    expect(s.seen).to.deep.equal([]);
+  });
+
+  it('should drop the rest of a paste once a pasted key closes the dialog', async () => {
+    const s = pasting();
+    s.input.focus.focus(s.one);
+    const field = text('field', { focusable: true });
+    const handle = modalOn(s, { actions: [], body: field });
+    field.onKey = (event) => {
+      if (event.key.name === 'q') {
+        handle.close();
+      }
+    };
+    s.input.focus.focus(field);
+
+    await s.term.paste('qz');
+    expect(handle.open).to.equal(false);
+    // the focus went back to the row, and the `z` after the `q` is not the row's
+    expect(s.input.focus.current.get()).to.equal(s.one);
+    expect(s.seen).to.deep.equal([]);
+    expect(s.pasted).to.deep.equal([]);
+  });
+
+  it('should keep pastes from the app through a stack, and give them back when it is empty', async () => {
+    const s = pasting();
+    s.input.focus.focus(s.one);
+    const lower = modalOn(s, { title: 'Lower' });
+    const upper = modalOn(s, { title: 'Upper' });
+
+    await s.term.paste('one');
+    upper.close();
+    expect(lower.element.contains(s.input.focus.current.get() as Element)).to.equal(true);
+    await s.term.paste('two');
+    expect(s.pasted).to.deep.equal([]);
+
+    lower.close();
+    expect(s.input.focus.current.get()).to.equal(s.one);
+    await s.term.paste('three');
+    expect(s.pasted).to.deep.equal(['root:three', 'app:three']);
+  });
+
+  it('should type nothing in to a dialog below the top one, even with the focus moved there', async () => {
+    const s = pasting();
+    const got: string[] = [];
+    const field = text('field', { focusable: true });
+    field.onKey = (event) => {
+      got.push(event.key.name);
+    };
+    modalOn(s, { actions: [], body: field });
+    modalOn(s, { title: 'Upper' });
+    // an app moving the focus by hand, which is the one way into a lower dialog
+    s.input.focus.focus(field);
+
+    await s.term.paste('x');
+    expect(got).to.deep.equal([]);
+    expect(s.pasted).to.deep.equal([]);
   });
 });
 
