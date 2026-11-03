@@ -23,10 +23,11 @@
  * they do agree on.
  *
  * What is *not* re-derived is anything either already decides. `tokensFor()`,
- * `listedTokens()` and `declaredValues()` are imported from the completion
- * spec, because "which tokens reach this command", "which of them a listing
- * shows" and "what can be typed for this choice" have one right answer each and
- * two walks that each worked one out would be two answers.
+ * `listedTokens()`, `segmentFor()` and `declaredValues()` are imported from the
+ * completion spec, because "which tokens reach this command", "which of them a
+ * listing shows", "what its path is written with" and "what can be typed for
+ * this choice" have one right answer each and two walks that each worked one
+ * out would be two answers.
  *
  * ## It loads every module, and that is the one place that is right
  *
@@ -59,7 +60,7 @@
  * and reachability is the walk's.
  */
 
-import { declaredValues, listedTokens, tokensFor } from '../completion/spec.js';
+import { declaredValues, listedTokens, segmentFor, tokensFor } from '../completion/spec.js';
 import { initCommand } from '../parser/command/init-command.js';
 import { loadCommand } from '../parser/command/load-command.js';
 import type { OptionRegistry } from '../parser/option/option-registry.js';
@@ -541,13 +542,18 @@ export async function commandSurface(schema: Schema): Promise<CommandSurface> {
       // answer rather than a second one -- an alias that routes somewhere else
       // documented here would be a reference naming a path the parser refuses
       const tokens = tokensFor(cmd, child);
+      // and the segment its page is named and titled by is one that can be
+      // typed: a name holding a control character reached the file name raw,
+      // and titled the page with a command nothing can run. The completion
+      // spec's answer again, so the two agree about which paths exist
+      const segment = segmentFor(cmd, child, tokens);
 
-      if (tokens.length === 0) {
+      if (tokens.length === 0 || segment === undefined) {
         continue;
       }
 
       const loaded = await loadCommand(child, cmd);
-      const here = [...path, child.name];
+      const here = [...path, segment];
 
       // pre-order: a command is recorded before what is under it, which is the
       // order a reference reads in

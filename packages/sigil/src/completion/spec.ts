@@ -145,8 +145,8 @@ export interface CompletionSubcommand {
    */
   readonly listed: readonly string[];
   /**
-   * The token that reaches it, which is the name its *registry* is keyed by
-   * rather than whatever its module calls itself.
+   * The segment its path is keyed by, which is the name its *registry* is
+   * keyed by rather than whatever its module calls itself.
    *
    * The two part company for a `{ path }` or `{ load }` whose module declares
    * a different `name`: only the placeholder's name routes, so offering the
@@ -154,6 +154,9 @@ export interface CompletionSubcommand {
    * `matchedName()`'s lesson in the catalog, met from the other side -- here
    * the loaded command is read for its description and its options and never
    * for its name.
+   *
+   * Not the name where that holds a control character, which no shell can
+   * type: then it is a spelling that reaches the command. See `segmentFor()`.
    */
   readonly name: string;
   /**
@@ -498,6 +501,55 @@ export function listedTokens(child: InternalCommand, tokens: readonly string[]):
 }
 
 /**
+ * The segment a command's argv path is written with: its name where a shell
+ * can type it, and otherwise a spelling that reaches it.
+ *
+ * `tokensFor()` keeps a name holding a control character out of every list of
+ * what can be typed, and a command with nothing left is skipped -- but one that
+ * also has a typeable alias, `` `two${ESC}lines, go` ``, keeps `go` and is
+ * walked, and its *path* was still built from the name. So the raw `ESC` went
+ * into every `case` pattern that command is keyed by, in both scripts, and into
+ * the reference's page title and file name. The path is not a list of what can
+ * be typed, and it was the one place the name reached unfiltered.
+ *
+ * The name stays the segment wherever it is typeable, which is every command
+ * that is not this one: a name a sibling shadows is still that command's path,
+ * which is the existing answer and is not this function's to change. Otherwise
+ * the first listed token, so a reference names the command by a spelling help
+ * prints, then any token -- a property alias -- since that still reaches it.
+ *
+ * A token that is a sibling's **name** is passed over, because that sibling's
+ * path is its name whether or not the name still reaches it, and two commands
+ * keyed by one path is two sets of arms under one pattern: whichever comes
+ * first answers for both. That needs a control character in one name *and* an
+ * alias of it shadowing a sibling's, and with nothing else to be keyed by the
+ * command is skipped -- missing from the script rather than completing as
+ * something else, which is the call `tokensFor()` already makes about a token.
+ *
+ * Shared with the command surface, because "what path reaches this command"
+ * has one answer: a script and a reference that each picked a segment would
+ * disagree about which commands exist, and `should reach every command the
+ * completion spec reaches` is the differential that says they do not.
+ *
+ * @param parent - The command whose registry holds it.
+ * @param child - The subcommand, as the registry holds it.
+ * @param tokens - What `tokensFor()` answered for it.
+ * @returns The segment, or nothing where no spelling can key it.
+ */
+export function segmentFor(
+  parent: InternalCommand,
+  child: InternalCommand,
+  tokens: readonly string[]
+): string | undefined {
+  if (typeable(child.name)) {
+    return child.name;
+  }
+
+  const siblings = parent[Internal].commands;
+  return [...listedTokens(child, tokens), ...tokens].find((token) => !siblings.has(token));
+}
+
+/**
  * Every value positional arguments accept at a command.
  *
  * Its own and no ancestor's, because `processArgs()` reads the positional values
@@ -649,8 +701,12 @@ export async function completionSpec(target: CompletionTarget): Promise<Completi
       // which is a *syntax error* in the whole generated script rather than
       // one command missing from it. Found by review
       const tokens = tokensFor(cmd, child);
+      // and the path is keyed by a spelling that can be typed, for the same
+      // reason: a name holding a control character is in no token list, and
+      // was still every `case` pattern its command is keyed by
+      const segment = segmentFor(cmd, child, tokens);
 
-      if (tokens.length === 0) {
+      if (tokens.length === 0 || segment === undefined) {
         continue;
       }
 
@@ -667,10 +723,10 @@ export async function completionSpec(target: CompletionTarget): Promise<Completi
       subcommands.push({
         desc: oneLine(loaded.desc),
         listed: listedTokens(child, tokens),
-        name: child.name,
+        name: segment,
         tokens,
       });
-      await walk(loaded, [...path, child.name], chain);
+      await walk(loaded, [...path, segment], chain);
     }
 
     commands.push({

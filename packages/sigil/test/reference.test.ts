@@ -429,6 +429,29 @@ describe('the command surface', () => {
       expect(paths(it)).toContain('other');
     });
 
+    it('should record a command whose name holds a control character at a path that can be typed', async () => {
+      // `go` reaches it, so it is recorded -- and its path was the raw name,
+      // which the markdown made a page title of a command nothing can run and
+      // a file name holding an `ESC`. The completion spec's segment, so the two
+      // walks agree about which paths exist, which is asserted rather than
+      // assumed: the differential below reads route files, and no fixture can
+      // be named with an `ESC`
+      const ESC = String.fromCharCode(0x1b);
+      const schema: Schema = {
+        commands: { [`two${ESC}lines, go`]: { commands: { [`in${ESC}ner, sub`]: { run() {} } } } },
+        completion: false,
+        help: false,
+        name: 'mycli',
+      };
+      const it = await commandSurface(schema);
+      const spec = await completionSpec({ contexts: [await initCommand({ ...schema })], schema });
+
+      expect(paths(it)).toStrictEqual(['', 'go', 'go sub']);
+      expect(spec.commands.map((cmd) => cmd.path.join(' '))).toStrictEqual(paths(it));
+      expect(at(it, 'go').tokens).toStrictEqual(['go']);
+      expect(at(it, 'go').listed).toStrictEqual(['go']);
+    });
+
     it('should normalize examples, dropping one with a hole in it', async () => {
       const it = await surface({
         commands: {
