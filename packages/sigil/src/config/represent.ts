@@ -74,9 +74,25 @@ export function jsonCanHold(value: unknown, path: string): true | string {
   return answer ?? true;
 }
 
+/**
+ * A refusal, with the path it was found at when that is not the value itself.
+ *
+ * One spelling for every store's `canRepresent()`: each walks its own format's
+ * rules and each says where the trouble is, and three copies of the sentence
+ * shape is how a JSON layer and an XML one come to say it differently in one
+ * app.
+ *
+ * @param answer - Why the value cannot be held.
+ * @param where - The dotted path it was found at, or `''` for the value itself.
+ * @returns The refusal.
+ */
+export function atPath(answer: string, where: string): string {
+  return where === '' ? answer : `${answer} (at "${where}")`;
+}
+
 /** The walk, with the objects it is inside. */
 function look(value: unknown, where: string, seen: WeakSet<object>): string | undefined {
-  const at = (answer: string): string => (where === '' ? answer : `${answer} (at "${where}")`);
+  const at = (answer: string): string => atPath(answer, where);
   const answer = why(value);
 
   if (answer !== undefined) {

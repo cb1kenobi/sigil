@@ -26,6 +26,7 @@ import type { Diagnostic } from './diagnostic.ts';
 import { displayPath } from './diagnostic.ts';
 import type { DiscoveredApp } from './discover.ts';
 import {
+  literalString,
   loaderSpecifier,
   objectLiteral,
   outermostWith,
@@ -70,32 +71,6 @@ export interface KeysOptions {
   readonly name?: string;
   /** The plural's export name. */
   readonly plural?: string;
-}
-
-/**
- * Reads a string out of an expression, where it is one statically.
- *
- * A plain literal and a template with no substitutions are the same string, so
- * both are read -- which is the rule the static `desc` lift already follows.
- * Anything else is a string this pass cannot know, and is declined.
- *
- * @param node - The expression.
- * @returns The string, or nothing.
- */
-function staticString(node: Expression | undefined): string | undefined {
-  if (!node) {
-    return undefined;
-  }
-
-  if (node.type === 'Literal' && typeof node.value === 'string') {
-    return node.value;
-  }
-
-  if (node.type === 'TemplateLiteral' && node.expressions.length === 0) {
-    return node.quasis[0]?.value.cooked ?? node.quasis[0]?.value.raw;
-  }
-
-  return undefined;
 }
 
 /**
@@ -222,8 +197,11 @@ export function keysIn(parsed: ParsedModule, options: KeysOptions = {}): readonl
     }
 
     if (node.type === 'CallExpression' && bindingName(node.callee as Expression, plurals)) {
-      const one = staticString(node.arguments[1] as Expression | undefined);
-      const other = staticString(node.arguments[2] as Expression | undefined);
+      // read the way the static `desc` lift reads a string, which is one rule
+      // for "a string somebody wrote" -- type syntax around a literal included
+      const [, singular, plural] = node.arguments as (Expression | undefined)[];
+      const one = singular && literalString(singular);
+      const other = plural && literalString(plural);
       const { column, line } = position(parsed.source, node.start);
 
       // a singular that is not a literal is a key this pass cannot know, which

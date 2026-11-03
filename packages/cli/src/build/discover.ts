@@ -50,7 +50,7 @@ import {
   plainProperty,
   propertyKey,
 } from './literals.ts';
-import { parseModule, position, type ParsedModule } from './parse-module.ts';
+import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
@@ -291,12 +291,16 @@ function resolveEntry(root: string, entry: string): string {
 }
 
 /**
- * Whether a path is a file that exists.
+ * Whether a path is a file that exists, answering `false` for anything
+ * unreadable.
+ *
+ * Exported for `sigil add`'s registry lookup, which asks the same question of a
+ * `package.json` and had written it out again.
  *
  * @param path - The path.
  * @returns Whether to read it.
  */
-function isFile(path: string): boolean {
+export function isFile(path: string): boolean {
   try {
     return statSync(path).isFile();
   } catch {
@@ -419,7 +423,7 @@ export function readAppCommands(app: DiscoveredApp): {
     // more than one schema in one module is a thing this cannot choose
     // between, and choosing by source order would be choosing by accident
     diagnostics.push({
-      ...at(parsed, schemas[1]!.start),
+      ...locate(parsed, schemas[1]!.start),
       message: `found ${schemas.length} schemas in this module; pass --commands to say which command directory to check`,
       severity: 'warning',
     });
@@ -444,7 +448,7 @@ export function readAppCommands(app: DiscoveredApp): {
     // wrong is this command having nothing to say about it.
     if (!isAbsolute(asPath) && !plainProperty(schemas[0]!, 'baseDir')) {
       diagnostics.push({
-        ...at(parsed, declared.value.start),
+        ...locate(parsed, declared.value.start),
         message:
           `"commands" is a relative path and the schema sets no "baseDir", so this resolves it ` +
           `against ${displayPath(entryDir)} while the runtime resolves it against the working ` +
@@ -464,7 +468,7 @@ export function readAppCommands(app: DiscoveredApp): {
   const written = objectLiteral(declared.value);
   if (!written) {
     diagnostics.push({
-      ...at(parsed, declared.value.start),
+      ...locate(parsed, declared.value.start),
       message:
         '"commands" is computed rather than a path or an object literal, so it cannot be read at build time; pass --commands to name a command directory',
       severity: 'error',
@@ -500,7 +504,7 @@ function readInline(
   for (const property of object.properties) {
     if (property.type === 'SpreadElement') {
       diagnostics.push({
-        ...at(parsed, property.start),
+        ...locate(parsed, property.start),
         message: '"commands" spreads another object, which may carry commands this cannot see',
         severity: 'warning',
       });
@@ -510,7 +514,7 @@ function readInline(
     const name = propertyKey(property);
     if (!name) {
       diagnostics.push({
-        ...at(parsed, property.start),
+        ...locate(parsed, property.start),
         message: 'a command is declared under a computed key, so its name cannot be read',
         severity: 'warning',
       });
@@ -555,7 +559,7 @@ function readCommand(
   const object = objectLiteral(value);
   if (!object) {
     diagnostics.push({
-      ...at(parsed, value.start),
+      ...locate(parsed, value.start),
       message: `the "${name}" command is computed rather than a literal, so nothing about it can be read at build time`,
       severity: 'warning',
     });
@@ -651,7 +655,7 @@ function moduleFacts(
   if (!module) {
     if (specifier) {
       diagnostics.push({
-        ...at(parsed, at_.start),
+        ...locate(parsed, at_.start),
         message: `the "${name}" command imports "${specifier}", which could not be resolved to a file`,
         severity: 'error',
       });
@@ -674,18 +678,6 @@ function moduleFacts(
   }
 
   return { ...read.facts, module };
-}
-
-/**
- * A position in the entry, counted because a diagnostic is being built.
- *
- * @param parsed - The module.
- * @param offset - Where in it.
- * @returns The file, line and column.
- */
-function at(parsed: ParsedModule, offset: number): { column: number; file: string; line: number } {
-  const { column, line } = position(parsed.source, offset);
-  return { column, file: parsed.file, line };
 }
 
 /**

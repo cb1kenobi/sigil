@@ -68,6 +68,7 @@
 
 import { generateUtilities, utilities } from '../utilities/index.ts';
 import { bindingName, importBindings, reachable, unwrap } from './bindings.ts';
+import { choosePrefix } from './compile-templates.ts';
 import { MODULE_RE, parseModule } from './parse-module.ts';
 import { walk } from './walk.ts';
 import MagicString from 'magic-string';
@@ -670,32 +671,6 @@ export interface ShakenModule {
   readonly map: ReturnType<MagicString['generateMap']>;
   /** How many `utilitySheet()` calls were rewritten. */
   readonly sites: number;
-}
-
-/**
- * A name prefix that occurs nowhere in a module.
- *
- * The same contract `compileTemplates()` keeps and for the same two reasons --
- * outward, a local at the splice site shadows a generated name; inward, nothing
- * here prints an expression back, so only the outward half bites, and it bites
- * the same way. `base` is a parameter because both passes may run over one
- * module and two passes choosing one prefix is two sets of names that collide.
- *
- * @param source - The module's source.
- * @param base - The prefix to try first.
- * @returns A prefix the module does not contain.
- */
-export function choosePrefix(source: string, base: string): string {
-  if (!source.includes(base)) {
-    return base;
-  }
-
-  for (let n = 0; ; n++) {
-    const candidate = `${base}${n}`;
-    if (!source.includes(candidate)) {
-      return candidate;
-    }
-  }
 }
 
 /**

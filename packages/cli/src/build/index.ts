@@ -92,6 +92,7 @@ export {
 } from './i18n.ts';
 export {
   discoverApp,
+  isFile,
   readAppCommands,
   readManifest,
   resolveSpecifier,
@@ -117,7 +118,6 @@ export {
   type Position,
 } from './parse-module.ts';
 export {
-  choosePrefix as chooseStylePrefix,
   createShaker,
   scanClassEvidence,
   shakeStyles,

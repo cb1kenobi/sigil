@@ -51,6 +51,7 @@ import {
   Expr,
   type IRNode,
   type IRProp,
+  isContent,
   type SourceLocation,
 } from './ir.js';
 
@@ -99,7 +100,7 @@ export function parse(strings: readonly string[], values: readonly unknown[]): I
   // used to drop every text node, so ``ui`hello<box/>` `` quietly emitted the
   // box alone. A run containing a newline is already gone by here, which is
   // what the indentation of a multi-line template is
-  const roots = nodes.filter((node) => node.kind !== 'text' || node.value.trim() !== '');
+  const roots = nodes.filter(isContent);
   if (roots.length !== 1) {
     throw new Error(
       `A template produces exactly one element; this one produced ${roots.length}. ` +

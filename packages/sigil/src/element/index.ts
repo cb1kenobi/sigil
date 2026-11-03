@@ -1220,6 +1220,25 @@ export function toDisplayText(text: string): string {
 }
 
 /**
+ * What a `text` element will draw for a string, on one line.
+ *
+ * `toDisplayText()` with each line break turned into a space. Both halves are
+ * about widths adding up: `toDisplayText()` is what will be drawn, so it is what
+ * has to be measured -- a tab measures nothing and draws a space -- and a line
+ * break is a space for the readers that lay a string out in a row of its own: a table cell, where a newline would
+ * push every row after it down by one and leave the column beside it looking at
+ * the wrong row, and a prefix the toolchain's report writes in front of a
+ * message, where a prefix that wrapped would leave the message indented against
+ * a line it does not belong to. Both had written it out.
+ *
+ * @param text - The string.
+ * @returns The string as it will be drawn, on one line.
+ */
+export function toDisplayLine(text: string): string {
+  return sanitize(text).replaceAll('\n', ' ');
+}
+
+/**
  * What a text draws, with the characters a cell grid refuses taken out.
  *
  * The grid refuses a control character rather than dropping it, deliberately: a

@@ -85,6 +85,7 @@ import {
   renderToString,
   text as textNode,
   type TextRun,
+  toDisplayLine,
   toDisplayText,
 } from '@ttylabs/sigil/element';
 import { getQuiet, schemeFromEnv } from '@ttylabs/sigil/style';
@@ -237,24 +238,6 @@ function destination(to: Destination | ReportStream): Destination {
 }
 
 /**
- * A prefix as it will be drawn, on one line.
- *
- * Both halves are about the arithmetic below adding up, and both are the rules
- * `table()` records for a cell. `toDisplayText()` is what a `text` element
- * actually draws -- a tab becomes a space, and everything else a terminal has no
- * glyph for is dropped -- so it is what has to be measured. And a newline
- * becomes a space, because a diagnostic's location is one line by construction:
- * a prefix that wrapped would leave the message indented against a line it does
- * not belong to.
- *
- * @param value - The prefix.
- * @returns It, on one line, as it will be drawn.
- */
-function oneLine(value: string): string {
-  return toDisplayText(value).replaceAll('\n', ' ');
-}
-
-/**
  * Every diagnostic, as a block of rows.
  *
  * One tree for the whole report rather than one per diagnostic: a report is one
@@ -343,8 +326,8 @@ function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element
   // the claim that both forms print the same location true rather than merely
   // intended -- the first version of this rebuilt it, and a tab in the path was
   // then a different location on a terminal than in a pipe
-  const location = oneLine(`${diagnosticLocation(diagnostic)}: `);
-  const label = oneLine(`${severity}: `);
+  const location = toDisplayLine(`${diagnosticLocation(diagnostic)}: `);
+  const label = toDisplayLine(`${severity}: `);
   const prefix: Element[] = [
     textNode(location, { class: 'cli-location sigil-muted', 'white-space': 'nowrap' }),
     textNode(label, {
@@ -356,7 +339,7 @@ function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element
   // measured as it will be *drawn*, which is the rule a table cell already
   // follows: a tab measures nothing and draws a space, so measuring the raw
   // string leaves the message column a column out per tab -- and a path really
-  // can hold one. `oneLine()` is the other half, since a prefix two lines tall
+  // can hold one. `toDisplayLine()` is the other half, since a prefix two lines tall
   // would put the message beside the wrong one
   const room = opts.width - stringWidth(location) - stringWidth(label);
 

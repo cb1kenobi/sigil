@@ -166,6 +166,37 @@ export function parseTree(
 }
 
 /**
+ * A diagnostic's location, counted now because a diagnostic is being built.
+ *
+ * One function for the entry's reader and the command-module extractor, which
+ * each wrote it out -- the entry's always with an offset, the extractor's with
+ * one where the node it is about has a position.
+ *
+ * @param parsed - The module.
+ * @param offset - Where in it, if anywhere.
+ * @returns The file, and the line and column when there is an offset.
+ */
+export function locate(
+  parsed: ParsedModule,
+  offset: number
+): { column: number; file: string; line: number };
+export function locate(
+  parsed: ParsedModule,
+  offset?: number
+): { column?: number; file: string; line?: number };
+export function locate(
+  parsed: ParsedModule,
+  offset?: number
+): { column?: number; file: string; line?: number } {
+  if (offset === undefined) {
+    return { file: parsed.file };
+  }
+
+  const { column, line } = position(parsed.source, offset);
+  return { column, file: parsed.file, line };
+}
+
+/**
  * The line and column one offset falls on.
  *
  * @param source - The source the offset is into.

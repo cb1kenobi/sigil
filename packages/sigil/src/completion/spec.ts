@@ -42,6 +42,7 @@ import { labelNames } from '../parser/command/label.js';
 import { loadCommand } from '../parser/command/load-command.js';
 import { Internal, type InternalCommand, type InternalOption, type Schema } from '../types.js';
 import { byCodeUnit } from '../util/by-code-unit.js';
+import { descriptionLine } from '../util/description-line.js';
 import { registerable } from './install.js';
 
 /** Where the tree is, which is what a parse already produced. */
@@ -187,12 +188,10 @@ export interface CompletionSpec {
   readonly program: string;
 }
 
-/** Every control character, named rather than enumerated. */
-const CONTROL = /\p{Cc}/gu;
-
 /**
- * The same set, without the `g` flag, because `test()` on a global regex is
- * stateful: it leaves `lastIndex` past the match, so the next call on a
+ * Every control character, named rather than enumerated -- and without the `g`
+ * flag that `descriptionLine()`'s copy of the set carries, because `test()` on a
+ * global regex is stateful: it leaves `lastIndex` past the match, so the next call on a
  * different string starts part way in and answers `false` for a string that
  * holds one. One pattern used two ways is how that bug happens, so there are
  * two patterns.
@@ -214,6 +213,9 @@ const HAS_CONTROL = /\p{Cc}/u;
  * Collapsing is not a substitute for quoting and is not treated as one: a quote
  * or a backtick survives this untouched, and each emitter escapes its own.
  *
+ * The line itself is `descriptionLine()`, which the markdown reference prints
+ * with too; what this adds is the answer for a description that is not there.
+ *
  * @param text - The description, if there is one.
  * @returns One line, or nothing when there is nothing left to say.
  */
@@ -222,8 +224,7 @@ export function oneLine(text: unknown): string | undefined {
     return undefined;
   }
 
-  const flat = text.replaceAll(/\s+/gu, ' ').replaceAll(CONTROL, '').trim();
-  return flat || undefined;
+  return descriptionLine(text) || undefined;
 }
 
 /**

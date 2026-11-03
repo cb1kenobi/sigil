@@ -22,3 +22,7 @@ export {
 // the reference it prints, and everything else it lists, with this function
 // rather than a copy of it -- a copy is how two orders come to disagree
 export { byCodeUnit } from '../util/by-code-unit.js';
+
+// a description as one line, which the completion spec and the toolchain's
+// reference both print a surface's descriptions with
+export { descriptionLine } from '../util/description-line.js';

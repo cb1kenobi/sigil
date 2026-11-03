@@ -63,6 +63,7 @@
  * carry no parser to shake out. The tag is the frontend that ships one.
  */
 
+import { byCodeUnit } from '@ttylabs/sigil/reference';
 import {
   type ComponentRef,
   componentChildren,
@@ -70,8 +71,10 @@ import {
   type IRElement,
   type IRNode,
   type IRProp,
+  rawParts,
   type SourceLocation,
   templateError,
+  textPart,
 } from '@ttylabs/sigil/template';
 
 /** One name the generated code imports, and what it calls it. */
@@ -206,7 +209,7 @@ export function renderImports(imports: readonly CompiledImport[]): string {
   return [...merged]
     .map(([from, bindings]) => {
       const names = [...bindings]
-        .sort(([one], [other]) => (one < other ? -1 : one > other ? 1 : 0))
+        .sort(([one], [other]) => byCodeUnit(one, other))
         .map(([local, imported]) => (local === imported ? local : `${imported} as ${local}`));
       return `import { ${names.join(', ')} } from ${quote(from)};\n`;
     })
@@ -279,7 +282,7 @@ class Printer {
       imports: [...this.#imports].map(([from, bindings]) => ({
         from,
         names: [...bindings]
-          .sort(([one], [other]) => (one < other ? -1 : one > other ? 1 : 0))
+          .sort(([one], [other]) => byCodeUnit(one, other))
           .map(([local, imported]) => ({ imported, local })),
       })),
       sources,
@@ -416,18 +419,11 @@ class Printer {
    * @returns Its source.
    */
   #part(child: IRNode): string {
-    if (child.kind === 'text') {
-      return quote(child.value);
-    }
-    if (child.kind === 'element') {
-      // refused here rather than printed, for the reason `emit()` refuses it
-      // before building: this is where the child's own position still is
-      throw templateError(
-        'An element cannot go inside <text>; there is no inline layout',
-        child.loc
-      );
-    }
-    return this.#source(child.value);
+    // `textPart()` refuses an element child here rather than printing it, for
+    // the reason `emit()` refuses it before building: this is where the
+    // child's own position still is
+    const value = textPart(child);
+    return child.kind === 'text' ? quote(child.value) : this.#source(value);
   }
 
   /**
@@ -437,12 +433,7 @@ class Printer {
    * @returns The expression, or the name it was bound to.
    */
   #raw(node: IRElement): string {
-    if (node.children.length > 0) {
-      throw templateError('<raw> paints its own cells, so it cannot have children', node.loc);
-    }
-
-    const measure = node.props.find((prop) => prop.name === 'measure')?.value;
-    const paint = node.props.find((prop) => prop.name === 'paint')?.value;
+    const { measure, paint, props } = rawParts(node);
 
     // a value the template wrote out is a value, and a value is never a
     // function -- so this one is decidable now, and a build that fails is
@@ -461,9 +452,7 @@ class Printer {
       }
     }
 
-    const statics = this.#statics(
-      node.props.filter((prop) => prop.name !== 'measure' && prop.name !== 'paint')
-    );
+    const statics = this.#statics(props);
     const args = [
       this.#source(measure),
       this.#source(paint),

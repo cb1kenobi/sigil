@@ -130,6 +130,20 @@ describe('finding the keys', () => {
   it('should read a template with no substitutions as the literal it is', () => {
     expect(keysOf('__n(2, `Alias:`, `Aliases:`)')).toEqual(['Alias:']);
   });
+
+  it('should read a plural`s strings through type syntax, as the desc lift does', () => {
+    // SIG-242: the plural's strings were read by a copy of `literalString()`
+    // that did not look through `as`, `satisfies`, parentheses or `!`, so this
+    // key was declined while the same spelling of a `desc` was lifted. One
+    // reader of "a string somebody wrote" now, and the runtime key is the
+    // string either way
+    const found = findKeys(
+      'app.ts',
+      moduleAround("__n(2, ('Alias:' as string), 'Aliases:' satisfies string)")
+    );
+
+    expect(found.map(({ key, plural }) => [key, plural])).toEqual([['Alias:', 'Aliases:']]);
+  });
 });
 
 describe('comparing the catalogs', () => {

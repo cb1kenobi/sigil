@@ -67,6 +67,19 @@ five things core had deliberately not published, which is the entry below.
   the six and what is added is the export statements. The root entry was
   **7,518 B** then and unchanged by this, because `config` is its own entry.
 
+- **And the text half went the same way, a store and a sibling later.** SIG-242
+  found `text()`, `textSync()`, `claim()`, `write()` and `writeSync()` written
+  out **byte for byte** in `json()`, here and in `@ttylabs/config-yaml` -- three
+  copies of the five, each built from the kit above and each carrying a comment
+  saying it was `json()`'s own, for `json()`'s reason. That is the kit composed,
+  and composing it is a decision too: which error is absence, which keys a
+  claimed write may touch, and that a write changing nothing touches no file.
+  So `readText()`, `readTextSync()`, `claim()`, `rewrite()` and `rewriteSync()`
+  are published beside it, and a store is left its parse and its `render` --
+  the part that really is about the format. `atPath()` and `isArrayIndex()`
+  came with them, for the `(at "...")` suffix each `canRepresent()` wrote and
+  the index rule the YAML store and the output formats each spelled.
+
 - **The alternative was publishing nothing and letting the sibling rewrite them**,
   which is worth stating because it is what a reader will assume happened. It is
   refused for the reason above, and the asymmetry with the **i18n** gap below is

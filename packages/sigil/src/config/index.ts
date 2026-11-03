@@ -101,6 +101,14 @@
  * - `isPlainObject()` is where the boundary between structure and a leaf is, and
  *   a store walking a value has to draw it in the same place the merge does.
  *
+ * And the text half beside them -- `readText()`, `readTextSync()`, `claim()`,
+ * `rewrite()` and `rewriteSync()` -- because `json()` and both sibling stores
+ * had each written all five out byte for byte around a parse and a render that
+ * really are theirs. They are made of the five above: `readText()` is
+ * `isMissing()` asked of a read, `claim()` is `overlay()` asked of a write, and
+ * `rewrite()` is `writeAtomic()` asked only where the bytes changed -- so a
+ * fourth store writing them out again is a fourth copy of three decisions.
+ *
  * It is one decision rather than five -- six exports, because `writeAtomicSync`
  * rides with its twin -- and it costs **102 bytes**, measured: the
  * entry's graph goes from 32,523 B to 32,625 B over the same seven modules,
@@ -115,8 +123,12 @@ export { isMissing, writeAtomic, writeAtomicSync } from './atomic.js';
 export { Config, createConfig, createConfigSync, isWritableStore } from './config.js';
 export { isPlainObject, segments } from './dotted.js';
 export { overlay } from './merge.js';
+export { atPath } from './represent.js';
+export { isArrayIndex } from '../util/array-index.js';
 export { object } from './stores/object.js';
 export { json } from './stores/file.js';
+export { claim, readText, readTextSync, rewrite, rewriteSync } from './stores/text.js';
+export type { RenderText } from './stores/text.js';
 export type {
   ConfigChange,
   ConfigChangeHandler,

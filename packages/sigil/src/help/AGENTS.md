@@ -94,7 +94,7 @@ the entry it belongs to.
   writes `Global options` itself and two headings of one name on a screen
   describe options in different scopes. A `group` mutated after init into
   something that cannot be a heading gets no heading rather than a broken
-  screen, which is the same call `format()` makes for a default that cannot be
+  screen, which is the same call `formatValue()` makes for a default that cannot be
   written as JSON.
 - **A section used twice is one section.** Two platforms sharing a title, or a
   hook that added to it twice, add to what is there. The argument rules are about the

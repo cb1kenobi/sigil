@@ -27,11 +27,13 @@
  * print it.
  */
 
-import type {
-  CommandSurface,
-  SurfaceArgument,
-  SurfaceCommand,
-  SurfaceOption,
+import { formatValue, listedSpellings } from '@ttylabs/sigil/help';
+import {
+  type CommandSurface,
+  descriptionLine,
+  type SurfaceArgument,
+  type SurfaceCommand,
+  type SurfaceOption,
 } from '@ttylabs/sigil/reference';
 
 /**
@@ -84,7 +86,7 @@ export interface ReferencePage {
  * @returns The one-line form, safe at the start of a line.
  */
 function paragraph(text: string | undefined): string {
-  const flat = oneLine(text);
+  const flat = descriptionLine(text ?? '');
 
   // a thematic break, a setext underline, a heading, a quote, a bullet, a code
   // fence, an HTML block and the two ordered-list markers.
@@ -104,27 +106,9 @@ function paragraph(text: string | undefined): string {
 }
 
 /**
- * One string as one line of prose.
- *
- * Every run of whitespace becomes one space and every control character goes,
- * because a `desc` is a one-line description wherever it is printed -- a
- * newline in one breaks a table row, a paragraph and a front-matter value
- * alike, and all three are reachable from a declaration that wrapped its own
- * text. `\s+` collapses first so that a newline is replaced by a space rather
- * than removed, which is what joins two wrapped words rather than running them
- * together.
- *
- * @param text - What the declaration said, or nothing.
- * @returns The one-line form.
- */
-function oneLine(text: string | undefined): string {
-  return (text ?? '').replaceAll(/\s+/gu, ' ').replaceAll(CONTROL, '').trim();
-}
-
-/**
  * One table cell's text.
  *
- * `oneLine()` and nothing else: the bar escaping belongs to `table()`, which is
+ * `descriptionLine()` and nothing else: the bar escaping belongs to `table()`, which is
  * the one function that knows a cell sits between columns. It was here, and that
  * put it in the wrong place twice over -- a code span built for a *heading* went
  * through `code()`, which escaped a bar that is an ordinary character there, so
@@ -135,7 +119,7 @@ function oneLine(text: string | undefined): string {
  * @returns The cell.
  */
 function cell(text: string | undefined): string {
-  return oneLine(text);
+  return descriptionLine(text ?? '');
 }
 
 /**
@@ -179,7 +163,7 @@ function bars(text: string): string {
  * @returns The code span, with the fence long enough. The bars are `table()`'s.
  */
 function code(text: string): string {
-  const flat = oneLine(text);
+  const flat = descriptionLine(text);
   const longest = Math.max(0, ...[...flat.matchAll(/`+/gu)].map((m) => m[0].length));
   const fence = '`'.repeat(longest + 1);
   const pad = flat.startsWith('`') || flat.endsWith('`') ? ' ' : '';
@@ -269,14 +253,13 @@ function optionSpelling(opt: SurfaceOption): string {
   // a negated flag answers to the positive spelling too -- `--no-color` also
   // accepts `--color` -- and help deliberately leaves it off the row, because
   // printing both reads as two options that mean opposite things while the
-  // description describes one of them. A reference is a listing, so it follows.
+  // description describes one of them. A reference is a listing, so it follows
+  // -- by asking help's own `listedSpellings()` rather than restating it.
   //
   // The *snapshot* keeps both, because both resolve: dropping `--color` from
   // what argv accepts would be a surface change, and this is not one. That is
   // the sharpest difference between the two readers
-  const positive = `--${opt.name}`;
-  const long = opt.long.filter((name) => !(opt.negate && name === positive));
-  const spellings = [...opt.short, ...long].join(', ');
+  const spellings = listedSpellings(opt).join(', ');
 
   if (!opt.takesValue) {
     return spellings;
@@ -315,7 +298,7 @@ function typeCell(type: string, multiple: boolean): string {
  *
  * `cell()` wraps the **whole** of it rather than the description alone, which
  * is where that call was: a `default` is a value a declaration owns and
- * `scalarText()` hands back a string as it stands, so a multi-line one -- and
+ * `formatValue()` hands back a string as it stands, so a multi-line one -- and
  * `String(fn)` for a computed default, which is the function's own source --
  * put a raw newline in the row. GFM ends a row at the first one, so the rest
  * became a stray paragraph and the website rendered a broken table. Measured:
@@ -329,7 +312,7 @@ function typeCell(type: string, multiple: boolean): string {
  * every string that reaches it is cleaned where it becomes one -- which is also
  * what makes a note added later clean without anybody having to remember.
  *
- * What that collapses is a *run* of spaces inside a default `scalarText()`
+ * What that collapses is a *run* of spaces inside a default `formatValue()`
  * quoted, so `default: '   '` reads `(default: " ")` where help prints all
  * three. Markdown collapses inline whitespace on the way to HTML anyway, so
  * what the committed page says is what the website was going to render either
@@ -341,37 +324,12 @@ function typeCell(type: string, multiple: boolean): string {
 function described(opt: SurfaceOption): string {
   const notes = [
     ...(opt.multiple ? [REPEATABLE] : []),
-    ...(opt.default === undefined ? [] : [`default: ${scalarText(opt.default)}`]),
+    ...(opt.default === undefined ? [] : [`default: ${formatValue(opt.default)}`]),
   ];
 
   return cell(
     notes.length === 0 ? opt.desc : [opt.desc, `(${notes.join(', ')})`].filter(Boolean).join(' ')
   );
-}
-
-/**
- * One default as prose, which is help's own rule rather than a second one.
- *
- * A string is printed as it is unless printing it as it is would show nothing
- * or would not show where it begins and ends; anything else is JSON, and what
- * cannot be written as JSON -- a circular object, a `BigInt`, a function -- is
- * written as itself rather than failing the page. Which is `format()` in
- * `src/help/index.ts`, said again here because that one is not exported and a
- * reference may not fail over a default it cannot print.
- *
- * @param value - Whatever the declaration put there.
- * @returns The text.
- */
-function scalarText(value: unknown): string {
-  if (typeof value === 'string') {
-    return value === value.trim() && value !== '' ? value : JSON.stringify(value);
-  }
-
-  try {
-    return JSON.stringify(value) ?? String(value);
-  } catch {
-    return String(value);
-  }
 }
 
 /**
@@ -603,9 +561,9 @@ function fileFor(path: readonly string[]): string {
 function frontMatter(cmd: SurfaceCommand, program: string): string[] {
   const title = [program, ...cmd.path].join(' ');
   const lines = [`title: ${scalar(title)}`, `path: ${scalar(cmd.path)}`];
-  // `oneLine()` rather than `cell()`: the front matter is **data** a consumer
+  // `descriptionLine()` rather than `cell()`: the front matter is **data** a consumer
   // parses, so an escape written for a table column would reach it as a literal
-  const desc = oneLine(cmd.desc);
+  const desc = descriptionLine(cmd.desc ?? '');
 
   if (desc) {
     lines.push(`description: ${scalar(desc)}`);
@@ -812,7 +770,7 @@ function page(
     lines.push('', '## Examples');
     for (const example of cmd.examples) {
       // the label is **omitted** where there is none or where it is blank after
-      // `oneLine()`, rather than pushed as an empty paragraph: help prints an
+      // `descriptionLine()`, rather than pushed as an empty paragraph: help prints an
       // example with no label at all, and a blank line in its place is the
       // thing the surface's old `typeof label === 'string'` filter was there to
       // avoid -- which it did by dropping the example instead. Found by review

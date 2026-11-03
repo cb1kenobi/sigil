@@ -358,13 +358,14 @@ describe('what importing the package costs', () => {
     }
   );
 
-  it('should reach exactly the eight modules the measurement names', () => {
+  it('should reach exactly the nine modules the measurement names', () => {
     // the markers say what it must not reach and this says it reaches nothing
     // else at all, which is the only form that catches a parser module arriving
     // as a chunk of its own under a name nothing here could have predicted.
-    // Eight: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
-    // `env-value`, `mkdir-owner-sync` and `atomic` chunks -- which is the
-    // module list the byte figure below is over, so the two cannot come apart.
+    // Nine: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
+    // `env-value`, `mkdir-owner-sync`, `atomic` and `array-index` chunks --
+    // which is the module list the byte figure below is over, so the two
+    // cannot come apart.
     // `mkdir-owner-sync` is the write half's: `save()` creates the directory it
     // writes into, which is the "apply the parent directory's owner under sudo"
     // rule the update cache already reads.
@@ -375,8 +376,15 @@ describe('what importing the package costs', () => {
     // is what keeps the symlink and the chown out of a second resolver -- so
     // `atomic.ts` is shared and rolldown splits it out of this entry instead of
     // inlining it. Measured at 38,101 B over seven before and 38,239 over
-    // eight after: 138 bytes of preamble for the sharing
-    expect([...staticGraph('config.mjs')].sort()).toHaveLength(8);
+    // eight after: 138 bytes of preamble for the sharing.
+    //
+    // The ninth is the same shape again, from SIG-242: `isArrayIndex()` is one
+    // definition now where the output formats and the YAML store each had a
+    // spelling, and `format.ts` is on the root entry's graph, so the module is
+    // shared and split out. Measured at 38,280 B over eight before and 38,672
+    // over nine after, the rest of the difference being the store kit's text
+    // half; the root entry went from 12,269 B over seven to 12,326 over eight
+    expect([...staticGraph('config.mjs')].sort()).toHaveLength(9);
   });
 
   it('should cost a module rather than a component', () => {
