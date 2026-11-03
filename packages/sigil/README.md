@@ -4908,6 +4908,98 @@ are the form's or the caller's, not the field's. `.sigil-text-field`, `-before`,
 `-caret`, `-after` and `-placeholder` are the theme hooks, and the caret is
 `inverse` under the field's `:focus`.
 
+#### A toast
+
+```js
+import { showToast } from '@ttylabs/sigil/components';
+
+showToast(view, { message: 'Saved draft.md', title: 'Saved', variant: 'success' });
+showToast(view, { message: 'Lost the connection', timeout: 8000, variant: 'error' });
+```
+
+```
+                    ╭──────────────────────────────╮
+                    │ Saved                        │
+                    │ Saved draft.md               │
+                    ╰──────────────────────────────╯
+```
+
+A short message in a corner of the screen that goes away by itself. It is appended
+to the root of the renderer (or to any root element) and is `position: fixed`, so it
+takes no space and moves nothing. **It never takes the focus**: nothing in it is
+focusable, so Tab walks past it and the focus stays where it was when a toast
+arrives and when it goes, and it takes no key, so what is typed still goes to the
+focused element. A left click on a toast dismisses it, and no mouse report that
+lands on one reaches what is under it -- a press included, so it never focuses what
+the toast sits over either.
+
+`position` is the corner: `bottom-right` (the default), `bottom-left`, `top-left` or
+`top-right`. Toasts in one corner stack with the newest nearest the corner, and a
+corner holds `max` of them (3 by default); one more pushes the oldest out. `timeout`
+is how long it stays in milliseconds, 4000 by default, and `Infinity` keeps it until
+it is clicked or dismissed. `title` is a heading above the `message`; `variant` is
+`note`, `info`, `success`, `warning` or `error`, the roles `note()` uses; `width` is
+its columns (32 by default, never more than the screen).
+
+`showToast()` returns a handle with `dismiss()`, `dispose()`, `open` and `element`.
+`onClose(reason)` is called once when it goes, with `timeout`, `dismiss`, `overflow`
+or `quiet`. Raised inside a component -- its body or an effect -- a toast goes when
+that component does; raised from a key handler or a promise it runs its course. Its
+timer does not hold the process open.
+
+**A toast is a remark beside the answer, so `--quiet` hides it**: under quiet it is
+never drawn, starts no timer, and closes at once with `quiet`. `quiet: false` shows
+one anyway, and `quiet: true` hides one; `terminal` is the terminal both are read
+against. The question is asked once, when the toast is raised, so one already
+showing when quiet is asked for runs out its own time.
+
+The toast is opaque without a colour, as the modal is, and it is drawn above a modal
+and below the debug overlay. `.sigil-toast`, `-stack`, `-fill`, `-title`,
+`-message` and one class per variant (`.sigil-toast-success` and so on) are the
+theme hooks.
+
+#### A tooltip
+
+```js
+import { attachTooltip } from '@ttylabs/sigil/components';
+import { createInput } from '@ttylabs/sigil/input';
+
+const input = createInput({ mouse: { motion: true, surface: view.backend }, root: view.root });
+const tip = attachTooltip(saveButton, { input, text: 'Writes the file to disk' });
+```
+
+```
+[ Save ] [ Open ]
+╭─────────────────────────╮
+│ Writes the file to disk │
+╰─────────────────────────╯
+```
+
+A line of text anchored to an element. It appears after `delay` (500ms) while the
+pointer rests on the anchor, **or while the focus is on the anchor or inside it**,
+and goes the moment neither is true. Hover needs the router's `mouse.motion`,
+since without it nothing knows where the pointer is between clicks -- so a
+keyboard-only app, or one with no mouse at all, still gets the tooltip by tabbing
+to the anchor. The pointer may move from the anchor onto the bubble without losing
+it. **Escape** hides it until the pointer and the focus have both left; the key is
+not stopped, so the app's own Escape still happens.
+
+`side` is where it goes when there is room: `bottom` (the default), `top`,
+`left` or `right`. Where it does not fit it **flips** to the other side, and
+where its start would run off the far edge it ends where the anchor ends instead,
+so in a corner it flips both ways; `handle.side` says where it landed. `maxWidth`
+(40) is where the words wrap. `placeTooltip(anchor, size, screen, side)` is the
+same arithmetic on its own, for anything else that wants to sit beside a box.
+
+The bubble is added to the anchor's root as `position: fixed`, above a modal and
+below the debug overlay, and is opaque without a colour. It is **never focusable
+and never moves the focus**, and the anchor's own `onMouse` and `onKey` are left
+alone. A tooltip is chrome rather than content, so **`--quiet` hides it**;
+`quiet: false` says this one is content. `handle.setText()` changes the words,
+`handle.hide()` is Escape, and `handle.dispose()` takes it off -- which happens by
+itself, timer and all, when the component it was attached inside unmounts.
+`.sigil-tooltip`, `-fill` and `-text` are the theme hooks.
+
 #### A key-help footer
 
 ```js

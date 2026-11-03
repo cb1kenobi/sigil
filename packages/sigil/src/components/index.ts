@@ -426,6 +426,22 @@ export {
 } from './modal.js';
 export { TextField, type TextFieldProps } from './text-field.js';
 export {
+  showToast,
+  type ToastCloseReason,
+  type ToastHandle,
+  type ToastHost,
+  type ToastOptions,
+  type ToastPosition,
+} from './toast.js';
+export {
+  attachTooltip,
+  type TooltipHandle,
+  type TooltipOptions,
+  type TooltipPlacement,
+  type TooltipSide,
+  placeTooltip,
+} from './tooltip.js';
+export {
   type RowWindow,
   rowWindow,
   type ScrollAxis,
