@@ -211,6 +211,7 @@ describe('what importing the package costs', () => {
     'openModal',
     'TextField',
     'showToast',
+    'attachTooltip',
     'qrcodeView',
     'commandPalette',
     'noteView',

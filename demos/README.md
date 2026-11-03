@@ -378,6 +378,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/49-modal.js`](components/49-modal.js)                                       | A confirm dialog over a list, with a focus trap and a stack of two       |
 | [`components/50-text-field.js`](components/50-text-field.js)                             | A rename dialog with a text field in it, and a paste the field keeps     |
 | [`components/51-toast.js`](components/51-toast.js)                                       | Toasts in a corner over a list: a stack of three, the focus untouched    |
+| [`components/52-tooltip.js`](components/52-tooltip.js)                                   | Tooltips on a toolbar: hover or focus, flipped at an edge, hidden by Esc |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -562,6 +563,17 @@ scripted keyboard drives the same tree with short timeouts, so the demo waits on
 out; it asks for `--quiet` part way through and the toast raised then is never
 drawn; and it exits with a minute-long toast still showing, because a toast's timer
 holds nothing open.
+`52-tooltip.js` is a toolbar of three buttons and a status line, three of them
+carrying a tooltip. Rest the pointer on one and its bubble appears after half a
+second, below it where there is room; the one against the right-hand edge ends where
+its button ends rather than running off the screen, and the status line on the
+bottom row has its bubble flipped above it. The pointer can move onto a bubble
+without losing it. With no mouse, Tab to a button and its bubble appears the same
+way -- the focus is the keyboard's hover -- and the bubble never takes the focus for
+itself; `Open` has no tooltip, so Tab passing through it shows nothing. Escape hides
+a bubble and still reaches the app. Piped, a scripted pointer and keyboard drive the
+same tree, the focus is said in words, and the last step sets `--quiet`, under
+which a tooltip is chrome and does not appear.
 
 ### Try them without a terminal
 
