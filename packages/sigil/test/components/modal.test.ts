@@ -12,6 +12,7 @@ import {
   text,
 } from '../../src/element/index.js';
 import { createInput, ESCAPE_TIMEOUT, type MouseEvent } from '../../src/input/index.js';
+import { render } from '../../src/renderer/index.js';
 import { flush } from '../../src/signals/index.js';
 import { Restyler, setQuiet } from '../../src/style/index.js';
 import { createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
@@ -658,6 +659,28 @@ describe('dispose()', () => {
     expect(await handle.result).to.equal(undefined);
 
     // the binding is gone: a key reaches the focused row again
+    await s.term.press('k');
+    expect(s.seen).to.include('two:k');
+  });
+
+  /**
+   * Its binding stops every key it is given, so a dialog left open after the
+   * renderer went would swallow the keys of a router the app goes on owning,
+   * and an `await` on `result` would never return.
+   */
+  it('should close with no answer when the renderer it was opened over goes', async () => {
+    const s = scene();
+    s.input.focus.focus(s.two);
+    const view = render(() => s.root, { terminal: s.term.terminal });
+    const handle = openModal(view, { input: s.input, title: 'Gone' });
+    handles.push({ dispose: () => s.input.stop() });
+
+    view.dispose();
+    expect(handle.open).to.equal(false);
+    expect(handle.element.parent).to.equal(undefined);
+    expect(s.input.focus.current.get()).to.equal(s.two);
+    expect(await handle.result).to.equal(undefined);
+
     await s.term.press('k');
     expect(s.seen).to.include('two:k');
   });

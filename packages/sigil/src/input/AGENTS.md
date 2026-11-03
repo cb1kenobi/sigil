@@ -1563,6 +1563,12 @@ may be copied, `src/terminal/clipboard.ts` is OSC 52, and
   the line comes out as blanks, the trailing-blank rule empties it, and the copy is
   refused as empty. Which is the `selectable` default doing exactly what it is for,
   and reads as a broken demo until you know that.
+- **`stop()` is called for you when the renderer goes.** SIG-219. The router is
+  the app's and outlives the renderer, and the shift-arrow binding **stops** what
+  it handles, so a selection left wired up after `view.dispose()` went on taking
+  those keys from a router the app still owns, for a selection nothing would
+  paint. It subscribes to `Renderer.onDispose()` last, so one wired over a
+  renderer that has already gone takes nothing at all, and `stop()` unsubscribes.
 
 ### Describing a binding
 
