@@ -186,6 +186,19 @@ the entry it belongs to.
   them below the cascade and `arrange()` has no sheets to resolve them
   against. A caller that passes no collector sees no change at all, which is
   what keeps a bare `arrange()` a layout rather than a frame.
+- **`Element.onLayout` is collected after every layout, because what it depends on
+  is another element's box.** SIG-221, for the tooltip, whose bubble has to follow
+  an anchor that moves for reasons with no writer it can hear: a scroll of an
+  ancestor whose `onScroll` is somebody else's, a sibling that wrapped, an
+  animation. `onResize` could not carry it -- it is asked only when the element's
+  _own_ size moved, and widening it to "a layout happened" would break the rule
+  `should tell nothing where no box changed size` pins. So it is a second hook in
+  the same collector and the same dispatch: `settleResized()` calls it after
+  `onResize` on an element carrying both, and asks `onResize` its own told-size
+  question again there, because being collected for `onLayout` must not tell
+  `onResize` about a size it already knows. The handler does the comparing and
+  must answer `false` once nothing it reads has moved, or the frame spends every
+  pass the bound allows. A tree with no `onLayout` collects exactly what it did.
 - **Paint is `z-index` then document order, and `visibility: hidden` skips the
   element rather than the subtree.** Hidden is a skip rather than a return
   because `visibility` inherits: a descendant is hidden because it inherited the

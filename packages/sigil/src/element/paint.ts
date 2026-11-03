@@ -216,7 +216,8 @@ function scrollableRegion(
  * @param root - The root element.
  * @param opts - The space available.
  * @param resized - Collects every element carrying an `onResize` handler that has
- *   not been told the size this layout gave it. **Added to** rather than cleared,
+ *   not been told the size this layout gave it, and every element carrying an
+ *   `onLayout` handler, which is owed a call by every layout. **Added to** rather than cleared,
  *   because a caller that lays out twice -- which `layoutInto()` does for an
  *   auto-height canvas -- would otherwise lose the first pass's answer to the
  *   second pass agreeing with it; a set rather than a list so that the two cannot
@@ -228,7 +229,11 @@ export function arrange(root: Element, opts: LayoutOptions, resized?: Set<Elemen
   const result = layout(root, opts);
 
   const walk = (element: Element, node: LayoutResult, clip: Box | undefined): Box => {
-    if (resized && element.onResize) {
+    // an `onLayout` is asked after every layout, so it is collected whatever moved:
+    // what it depends on is another element's box, which this walk cannot compare
+    if (resized && element.onLayout) {
+      resized.add(element);
+    } else if (resized && element.onResize) {
       // the size the handler was last **told**, which is not the same question as
       // the size the last layout left and is the right one. They part on exactly
       // the paths where a dispatch did not happen: a handler that **threw**, and
@@ -238,15 +243,14 @@ export function arrange(root: Element, opts: LayoutOptions, resized?: Set<Elemen
       // collected it and the stale window survived every resize back to the same
       // height. Which is the defect SIG-131 records one hook along, where "no
       // later scroll to that same window could repair it"
-      const was = told.get(element);
-      const now = node.content ?? node.box;
+      //
       // `content ?? box` because that is the size a box holding children was
       // given to put them in, and is the same pair a component asks -- the
       // border box answers for a `text` or a `raw`, which has no content box.
       // Nothing told yet is a change: it is how a list bounded by its parent
       // learns its real height at all, and is the whole of the flex-sized first
       // frame
-      if (!was || was.height !== now.height || was.width !== now.width) {
+      if (untold(element, node.content ?? node.box)) {
         resized.add(element);
       }
     }
@@ -305,6 +309,18 @@ export function arrange(root: Element, opts: LayoutOptions, resized?: Set<Elemen
 const told = new WeakMap<Element, { height: number; width: number }>();
 
 /**
+ * Whether an element's `onResize` has not been told this size.
+ *
+ * @param element - The element.
+ * @param now - The size the layout gave it: `content ?? box`.
+ * @returns Whether its handler is owed a call.
+ */
+function untold(element: Element, now: { height: number; width: number }): boolean {
+  const was = told.get(element);
+  return !was || was.height !== now.height || was.width !== now.width;
+}
+
+/**
  * How many extra layouts a frame will spend settling what a resize changed.
  *
  * A **cycle breaker rather than a budget**: the loop exits the moment nothing
@@ -321,8 +337,9 @@ const told = new WeakMap<Element, { height: number; width: number }>();
 const RESIZE_PASSES = 4;
 
 /**
- * Tells the elements that have not been told their current size, and lays out
- * again where that changed the tree.
+ * Tells the elements that have not been told their current size, and every
+ * `onLayout` that a layout happened, and lays out again where that changed the
+ * tree.
  *
  * The second half of what `arrange()`'s `resized` collects, and it is here rather
  * than in `arrange()` for one structural reason: a handler that *builds* elements
@@ -352,14 +369,19 @@ export function settleResized(resized: ReadonlySet<Element>, again: () => void):
     // window left describing a viewport that is not there any more
     for (const element of resized) {
       const size = element.content ?? element.box;
-      if (element.onResize?.(element) === true) {
-        changed = true;
-      }
-      // recorded **after** the handler returned, which is the whole of what makes
-      // the question above "does it know?" rather than "did it move?": a handler
-      // that threw records nothing, so the next layout asks it again
-      if (size) {
+      // asked again because an element carrying `onLayout` is collected whether
+      // or not its size moved, and `onResize` is still only for one that did
+      if (element.onResize && size && untold(element, size)) {
+        if (element.onResize(element) === true) {
+          changed = true;
+        }
+        // recorded **after** the handler returned, which is the whole of what
+        // makes the question above "does it know?" rather than "did it move?": a
+        // handler that threw records nothing, so the next layout asks it again
         told.set(element, { height: size.height, width: size.width });
+      }
+      if (element.onLayout?.(element) === true) {
+        changed = true;
       }
     }
     if (!changed) {

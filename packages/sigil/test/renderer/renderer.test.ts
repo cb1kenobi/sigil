@@ -2492,3 +2492,43 @@ describe('a frame over a windowed list', () => {
     }
   });
 });
+
+describe('a frame over an element placed by another', () => {
+  it('should move it in the frame that scrolled what it follows, before the paint', () => {
+    // `onLayout` is dispatched with `onResize`, between the layout and the paint,
+    // so a follower placed against a row of a scroll box is drawn beside the row
+    // in the very frame the scroll happened in -- the tooltip's case. Hooked on the
+    // frame's top instead, it would read the boxes of the layout before the scroll
+    // and be drawn a frame late, with nothing asking for the frame that fixes it
+    const h = harness(12, 6);
+    const rows = Array.from({ length: 10 }, (_, i) => text(`r${i}`));
+    const list = ScrollBox({
+      children: () => box({ 'flex-direction': 'column' }, ...rows),
+      props: { height: 4 },
+    });
+    const follower = text('<', { left: 6, position: 'fixed', top: 0 });
+    follower.onLayout = (it) => {
+      const want = rows[3]?.box?.y ?? 0;
+      if (it.box?.y === want) {
+        return false;
+      }
+      it.setProp('top', want);
+      return true;
+    };
+    const view = render(() => box({ 'flex-direction': 'column' }, list, follower), {
+      backend: h.backend,
+      terminal: h.terminal,
+    });
+    try {
+      expect(h.picture().split('\n')[3]).toMatch(/^r3\.*</);
+      const viewport = list.children[0]?.children[0] as Element;
+      viewport.scrollTo(0, 2);
+      const painted = h.painted;
+      view.frame();
+      expect(h.painted - painted, 'one frame, painted once').toBe(1);
+      expect(h.picture().split('\n')[1]).toMatch(/^r3\.*</);
+    } finally {
+      view.dispose();
+    }
+  });
+});

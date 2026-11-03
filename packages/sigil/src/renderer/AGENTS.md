@@ -397,9 +397,12 @@ the entry it belongs to.
   time to narrow that to what the handlers touched, then shows the animator
   that settle so that an animation on a row the handler built starts at all;
   see "Windowing a long list" in `src/components` for the two defects that
-  said so. It costs nothing on a frame of an app that has no `onResize`
-  handler anywhere in its tree, which is every app with no windowed list in
-  it: `arrange()` asks the question only of an element carrying the hook, so
+  said so. `Element.onLayout` (SIG-221) is dispatched in the same loop, after
+  `onResize`, and is what lets a tooltip follow a scrolled anchor in the frame
+  that scrolled it -- `Renderer.onFrame()` cannot, since it fires before the
+  layout and reads the boxes of the one before. It costs nothing on a frame of an app that has no `onResize`
+  or `onLayout` handler anywhere in its tree, which is every app with no windowed
+  list or shown tooltip in it: `arrange()` asks the question only of an element carrying the hook, so
   the collector is empty and there is nothing to dispatch or lay out again.
   Not "no box changed size", which is what this said and is a different claim
   -- a windowed list's **first** frame always collects, because nothing has

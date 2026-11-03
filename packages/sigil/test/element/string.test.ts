@@ -479,3 +479,60 @@ describe('laying out again for what the layout resized', () => {
     expect(host.children[0]?.box?.height, 'the box a handler built was laid out unstyled').toBe(3);
   });
 });
+
+describe('onLayout: asked after every layout, for a place another box decides', () => {
+  it('should be asked after a layout that moved no box at all', () => {
+    // the difference from `onResize`, and the whole of what it is for: what it
+    // depends on is another element's box, which the walk has no way to compare
+    let calls = 0;
+    const follower = box({ height: 1 }, text('x'));
+    follower.onLayout = () => {
+      calls++;
+      return false;
+    };
+    const tree = box({ 'flex-direction': 'column' }, follower);
+    renderToLines(tree, { height: 4, width: 8 });
+    renderToLines(tree, { height: 4, width: 8 });
+    expect(calls).toBe(2);
+  });
+
+  it('should lay out again where it said so, and read the boxes that layout gave', () => {
+    // a follower kept on the row of a leader that moves down when a row above it
+    // wraps: placed in the same render that moved the leader, never a render late
+    const above = text('a');
+    const leader = text('L');
+    const follower = text('F', { left: 4, position: 'absolute', top: 0 });
+    follower.onLayout = (it) => {
+      const want = leader.box?.y ?? 0;
+      if (it.box?.y === want) {
+        return false;
+      }
+      it.setProp('top', want);
+      return true;
+    };
+    const tree = box({ 'flex-direction': 'column', position: 'relative' }, above, leader, follower);
+    expect(renderToLines(tree, { height: 4, width: 8 })[1]).toBe('L   F');
+
+    above.setText('a\nb');
+    expect(renderToLines(tree, { height: 4, width: 8 })[2]).toBe('L   F');
+  });
+
+  it('should come after onResize on an element carrying both, and leave onResize its own rule', () => {
+    // a size is what a place is computed from, so the size is told first -- and
+    // being collected for `onLayout` must not tell `onResize` about a size it knows
+    const heard: string[] = [];
+    const both = box({ height: 1 }, text('x'));
+    both.onResize = () => {
+      heard.push('resize');
+      return false;
+    };
+    both.onLayout = () => {
+      heard.push('layout');
+      return false;
+    };
+    const tree = box({ 'flex-direction': 'column' }, both);
+    renderToLines(tree, { height: 4, width: 8 });
+    renderToLines(tree, { height: 4, width: 8 });
+    expect(heard).toEqual(['resize', 'layout', 'layout']);
+  });
+});
