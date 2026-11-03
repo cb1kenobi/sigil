@@ -12,6 +12,15 @@
  * enough that the table has to give up width and wrap its cells, and through a
  * theme that restyles it without touching the document.
  *
+ * Then a fourth time, a short one, with code blocks highlighted by a highlighter
+ * written below in a dozen lines. The framework ships no grammar -- it has no
+ * dependencies to bring one in -- so `highlight` is the seam an app fills with
+ * whatever it already has. It is handed each block and the language its fence
+ * named, and returns spans whose tokens are the ones `diff()` and `multiline()`
+ * draw: `keyword`, `string`, `comment` and the rest each come in a role of the
+ * theme. A block in a language it does not know gets no spans and is drawn as it
+ * always was, and the inline code span is never handed to it at all.
+ *
  * Links are OSC 8 hyperlinks where the terminal is one known to draw them, which
  * hides the URL behind the words; anywhere else -- a pipe, an unknown terminal,
  * `NO_COLOR` -- the URL is printed after the words instead, so it is never lost.
@@ -76,3 +85,47 @@ console.log(
     `,
   })
 );
+
+/**
+ * A JavaScript highlighter, by hand: one pattern with a group per token, which
+ * is enough for a demo and is what any real one would be swapped in for.
+ */
+const JS =
+  /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|('(?:\\.|[^'\\\n])*')|\b(\d+)\b|\b(await|const|from|import|new|return)\b|\b([A-Za-z_$][\w$]*)(?=\()/g;
+const TOKENS = ['comment', 'string', 'number', 'keyword', 'function'];
+
+function highlight(code, lang) {
+  if (lang !== 'js') {
+    return [];
+  }
+  return [...code.matchAll(JS)].map((match) => ({
+    end: match.index + match[0].length,
+    start: match.index,
+    token: TOKENS[match.slice(1).findIndex((group) => group !== undefined)],
+  }));
+}
+
+const SNIPPET = `Code blocks take the app's own highlighter. \`markdown()\` here is inline
+code, so it is not handed to it:
+
+\`\`\`js
+import { readFile } from 'node:fs/promises';
+import { markdown } from '@ttylabs/sigil/components';
+
+/* the app brings the grammar,
+   and the theme brings the colours */
+const notes = await readFile('CHANGELOG.md', 'utf8');
+console.log(markdown(notes, { highlight, width: 80 }));
+\`\`\`
+
+A language the highlighter does not know is drawn as before:
+
+\`\`\`sh
+npm install @ttylabs/sigil
+\`\`\`
+`;
+
+console.log();
+console.log(rule({ label: 'with a highlighter the app wrote' }));
+console.log();
+console.log(markdown(SNIPPET, { highlight }));

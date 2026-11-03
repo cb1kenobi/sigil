@@ -380,7 +380,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/51-toast.js`](components/51-toast.js)                                       | Toasts in a corner over a list: a stack of three, the focus untouched    |
 | [`components/52-tooltip.js`](components/52-tooltip.js)                                   | Tooltips on a toolbar: hover or focus, flipped at an edge, hidden by Esc |
 | [`components/53-settled-answers.js`](components/53-settled-answers.js)                   | Where an answer goes once it is chosen: beside the question, or under it |
-| [`components/54-markdown.js`](components/54-markdown.js)                                 | A changelog entry drawn from markdown, at two widths and through a theme |
+| [`components/54-markdown.js`](components/54-markdown.js)                                 | A changelog entry from markdown at two widths, themed, and highlighted   |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -605,7 +605,12 @@ out of sight behind the words, and anywhere else with the URL written after them
 Piped there is no colour and no hyperlink, so every URL is in the text;
 `FORCE_HYPERLINK=1` says yes for a terminal the detection does not know. The quote
 shows what the subset leaves alone: a `~~strike~~` and raw HTML come out as they
-were written.
+were written. Last, a short document is drawn with `highlight`, through a
+JavaScript highlighter the demo writes in a dozen lines: the `js` block's keywords,
+strings, comment and number come out in the theme's roles, the rest of it in the
+plain foreground, while the `sh` block -- a language the highlighter returns no
+spans for -- and the inline code span are drawn as they always are. Piped, there
+is no colour, so the highlighted block reads exactly as the plain one would.
 
 ### Try them without a terminal
 
