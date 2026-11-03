@@ -22,7 +22,8 @@
  *
  * On a terminal it is the same four prompts at the terminal's own width. Make the
  * window narrow -- 40 columns or so -- and answer them to see the answers move
- * under the question.
+ * under the question. Either way it ends by printing the values the prompts
+ * resolved with, since where an answer is drawn changes nothing about what it is.
  */
 import { PromptError, select, sort, text, toggle } from '@ttylabs/sigil/components';
 import { createTestTerminal, KEYS, tick } from '@ttylabs/sigil/testing';
@@ -34,21 +35,25 @@ const CHOICES = ['Show the diff', 'Apply', 'Skip'];
 const prompts = [
   {
     ask: (where) => select({ ...where, choices: CHOICES, message: QUESTION }),
+    key: 'select',
     keys: [KEYS.enter],
     name: 'select()',
   },
   {
     ask: (where) => sort({ ...where, choices: CHOICES, message: 'In what order?' }),
+    key: 'sort',
     keys: [KEYS.enter],
     name: 'sort(), whose answer is the whole order',
   },
   {
     ask: (where) => text({ ...where, message: QUESTION }),
+    key: 'text',
     keys: ['Show the diff', KEYS.enter],
     name: 'text(), which used to cut the answer rather than stack it',
   },
   {
     ask: (where) => toggle({ ...where, message: 'Send a notification for every change?' }),
+    key: 'toggle',
     keys: [KEYS.enter],
     name: 'toggle(), which reserves its answer, so the question wraps instead',
   },
@@ -59,13 +64,14 @@ const prompts = [
  *
  * @param prompt - The prompt and its keys.
  * @param columns - How wide the terminal is.
+ * @returns What the prompt answered.
  */
 async function settle(prompt, columns) {
   const ui = createTestTerminal({ columns, rows: 10 });
-  const answer = prompt.ask({ terminal: ui.terminal });
+  const pending = prompt.ask({ terminal: ui.terminal });
   await tick();
   await ui.press(...prompt.keys);
-  await answer;
+  const answer = await pending;
 
   const rule = '-'.repeat(columns);
   console.log(`   ${rule} ${columns} columns`);
@@ -74,21 +80,26 @@ async function settle(prompt, columns) {
       console.log(`   ${line.trimEnd()}`);
     }
   }
+  return answer;
 }
 
 try {
+  // the values each prompt resolved with, which the width never changes
+  const answers = {};
   if (process.stdin.isTTY && process.stdout.isTTY) {
     for (const prompt of prompts) {
-      await prompt.ask({});
+      answers[prompt.key] = await prompt.ask({});
     }
   } else {
     for (const prompt of prompts) {
       console.log(`-- ${prompt.name}`);
       await settle(prompt, 60);
-      await settle(prompt, 40);
+      answers[prompt.key] = await settle(prompt, 40);
       console.log();
     }
   }
+
+  console.log(answers);
 } catch (err) {
   if (err instanceof PromptError) {
     console.error(err.aborted ? '\nCancelled.' : `\n${err.message}`);

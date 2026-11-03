@@ -586,7 +586,9 @@ field was cut to its first letter. Piped, `select()`, `sort()` and `text()` are 
 asked one question at 60 columns, where the answer fits beside it, and at 40, where
 it moves under. `toggle()` is the contrast: it reserves room for its longer state
 while it is being asked, so the question wraps instead and the answer stays beside
-it. On a terminal it asks the same four at your own width.
+it. On a terminal it asks the same four at your own width. Either way it ends by
+printing the values the prompts resolved with, which where an answer is drawn does
+not change.
 
 ### Try them without a terminal
 
