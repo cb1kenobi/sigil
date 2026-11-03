@@ -189,6 +189,8 @@ export {
   promptKeys,
   promptLineQuestion,
   type PromptLineForm,
+  type PromptLineKeyAt,
+  type PromptLineKeyDone,
   promptNote,
   promptRowCap,
   promptLineChoice,

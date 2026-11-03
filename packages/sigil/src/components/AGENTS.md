@@ -7814,14 +7814,18 @@ nothing already written is moved, erased or coloured.
     reply, since `api, web` already says what was answered.
   - `path()` (SIG-227): `text()`'s line, answered through `answerOf()` -- `~`
     expanded, `root` applied -- with `validate` handed that form, so the two forms
-    of one question cannot answer it differently. **Nothing replaces completion**,
-    and Tab does nothing (`typedText()` already reads it as no text). The drawn
-    list changes under the field with every keystroke, which is the redraw this
-    form has none of. A shell's completion would fit the rules -- Tab appending
-    what every candidate shares, a second Tab writing the candidates on lines of
-    their own and asking again -- and is not done, because `runLine()` hands no
-    key to a form and adding that is a change to the engine every line form
-    shares.
+    of one question cannot answer it differently. The drawn list changes under
+    the field with every keystroke, which is the redraw this form has none of, so
+    **completion is a shell's** (SIG-232): Tab adds what every candidate shares
+    beyond what was typed and echoes only that, the one candidate in full with a
+    separator after a directory; a second Tab running, with nothing more to add,
+    writes the candidates indented on lines of their own under the reply -- the
+    drawn list's order and labels -- and asks again holding it. A first Tab that
+    adds nothing is silent, as readline's is, since asking again is how the list
+    is asked for. The candidates are the drawn field's from one `completer()`,
+    the read, `root`, `~`, dotfiles and `directory`/`extensions` included, so
+    the two forms cannot offer different ones. What it is built on, and the
+    choices it made, are under "Tab in a line form" below.
   - `maskedText()` (SIG-227): the template is said once in the question as the
     empty field draws it, `(format: (___) ___-____)`, and **only what is typed is
     echoed**, never the template's fixed characters: a `(` nobody typed is a
@@ -9364,3 +9368,71 @@ read. All four are on by default and there is no switch.
   rule to learn. The `AccessibleOptions` comment and the `runPrompt` reason in
   `DRAWN_ONLY` were left word for word as SIG-227 has them, so the two branches
   merge without a conflict there; both want a word about these ten afterwards.
+
+### Tab in a line form: keys a form takes itself (SIG-232)
+
+`path()`'s line form completes on Tab; what each Tab does is under "What each
+prompt is as a line" above. Tests are in `test/components/prompt-accessible.test.ts`,
+under `a line path() completing on Tab` and `a line form with keys of its own`.
+
+- **The engine asks a form about a key before it acts on one, and that is the
+  whole addition.** `PromptLineForm.key(k, { reply, repeated })` is optional and
+  is asked about every key the queue would press, Enter included, in the order
+  typed. Returning nothing hands the key to the engine, which then does exactly
+  what it did before; returning `PromptLineKeyDone` -- even `{}` -- takes it.
+  `insert` adds to the end of the reply as typing does, through `fit` and `echo`,
+  and `lines` are written under the reply, after which the question and the reply
+  so far are written again. Those two are the only things a key can do, because
+  they are the only things a line can do without taking something back: there is
+  no way to replace or shorten the reply from a handler. A form with no `key` is
+  pressed through the same synchronous path as before, with nothing awaited, so
+  every existing line form is untouched: the one line-form test that changed is
+  the one that asserted `path()`'s Tab did nothing. Published as `PromptLineKeyAt` and `PromptLineKeyDone` beside
+  `PromptLineForm`; no existing name changed.
+- **`repeated` is the engine's, not the form's.** A second Tab is "the same key
+  as the last one, with nothing between", and only the engine sees everything
+  between: a paste, which a handler is never asked about, and a key some other
+  part of the form took. So it compares name and modifiers with the key pressed
+  before it in this question; any other key between breaks the run, and a paste
+  or the next question clears it. A form counting its own Tabs would count two Tabs
+  with a paste between them as two in a row.
+- **A Tab waits for its read, and what is typed after it waits behind it.** The
+  drawn field lets an editing key past a pending read (`ACTS_ON_LIST`) because it
+  redraws the field from the value as it is when the read lands. A line cannot:
+  what a Tab adds is echoed where the cursor is, so a character typed after the
+  Tab and echoed before the read landed would sit in front of the completion it
+  came after. The one-key-at-a-time queue is the rule that keeps the transcript
+  in the order typed, and the handler is in it. Ctrl-C, Escape with `back`, an
+  abort and the end of input are answered outside the queue as before, so a
+  stalled directory never holds them, and a handler that resolves after one of
+  them is dropped (`settled` is asked after the await). A handler that throws or
+  rejects fails the prompt with what it threw and finishes the line, as a
+  `validate` that throws does.
+- **Tab with no candidates says `No matches`, the one place this parts from
+  readline.** Bash rings the bell and writes nothing. A bell is a control
+  character that a screen reader does not reliably announce, and nothing at all
+  leaves a screen-reader user unable to tell three things apart: no candidates, a
+  Tab that was ambiguous and wants a second, and a read still out. A sighted user
+  of the drawn field is told -- `No matches` is drawn under it -- so saying it is
+  parity rather than an addition, and it is the catalog entry the drawn field and
+  `filePicker()`'s line already use, so no new key. It is said on the first Tab
+  because a second would only be nothing again. The ambiguous first Tab stays
+  silent, as the ticket asks: a second Tab is the documented way to hear the
+  list, and announcing "several" on every first Tab would be a line per keystroke
+  for the person who knows what they are typing.
+- **Only ever by adding, so case stays as typed.** On a caseless file system a
+  candidate can agree with the segment in all but case, and the drawn field
+  rewrites the segment in the candidate's spelling. Here the segment was echoed,
+  so it stays, and only what comes after is the candidate's. The answer then
+  names the same file on that file system either way.
+- **One `completer()`, not a copy.** The drawn `path()` had its candidate list,
+  its completion and its Tab as closures over its own field; they moved to a
+  module-level `completer(base, filter, flavour)` that both forms build once per
+  prompt, and the drawn Tab now asks it too. `labelOf()` is the drawn row's label,
+  which the line's list uses, so a directory is listed with the same separator in
+  both. The drawn `path.test.ts` did not move.
+- **Not done.** A threshold before a long list, which readline asks about past
+  100 candidates (`Display all 150 possibilities?`): a directory of thousands is
+  thousands of lines on a second Tab. Completion in any other line form; the
+  engine is ready for one. Shift-Tab is not told apart from Tab, as in the drawn
+  field.

@@ -3388,6 +3388,28 @@ interface LineForm<T> {
   /** Whether a refused reply is handed back to edit, rather than asked for afresh. */
   keep?: boolean;
   /**
+   * Handles a key before the engine does, for a form with a key of its own: Tab
+   * completing a path.
+   *
+   * Asked about every key the engine would act on, in the order they were typed
+   * and one at a time -- so a handler that has to read something first holds the
+   * keys typed after it, which then land on the reply it left. Ctrl-C, Escape with
+   * `back`, an abort and the end of input are never asked: they are answered at
+   * once, even while a handler is still out, and one landing then means whatever
+   * the handler resolves to is dropped. A paste is text rather than a key and is
+   * not asked either.
+   *
+   * Returning nothing hands the key to the engine, which does with it what it
+   * does for a form with no handler at all; returning an object, even `{}`, says
+   * the key was taken. Only the end of the reply can change, by `insert`, and
+   * only by adding to it, because nothing already written is taken back.
+   *
+   * @param k - The key.
+   * @param at - The reply as it stands, and whether this key repeats the last.
+   * @returns What the key did, or nothing to leave it to the engine.
+   */
+  key?(k: Key, at: LineKeyAt): LineKeyDone | void | Promise<LineKeyDone | void>;
+  /**
    * Reads a reply: the answer, and a line saying what it was when the reply alone
    * does not -- a `2` -- or a complaint to write before asking again, or the next
    * question to ask, for a prompt that is several of them: a directory gone into,
@@ -3409,7 +3431,45 @@ interface LineRead<T> {
 /** What reading a reply comes to: an answer, a complaint, or the next question. */
 type LineReply<T> = LineForm<T> | LineRead<T> | string;
 
-export type { LineRead as PromptLineRead, LineReply as PromptLineReply };
+/** Where a form's `key` handler is asked from. */
+interface LineKeyAt {
+  /** The reply as it stands, before the key. */
+  readonly reply: string;
+  /**
+   * Whether this key is the same key as the one before it in this question --
+   * name and modifiers -- with nothing typed, erased or pasted between: the
+   * second of two Tabs. A question asked afresh, a reply leading to the next one
+   * included, starts with no key before it.
+   */
+  readonly repeated: boolean;
+}
+
+/** What a form's `key` handler did with a key it took. */
+interface LineKeyDone {
+  /**
+   * Text added to the end of the reply as though it had been typed: cut by
+   * `fit`, and echoed unless `echo` is off. Written before `lines`.
+   */
+  insert?: string;
+  /**
+   * Lines written under the reply, after which the question and the reply so far
+   * are written again on a line of their own, where typing carries on. Nothing
+   * above is taken back. An empty list writes nothing and asks nothing again.
+   */
+  lines?: readonly string[];
+}
+
+export type {
+  LineKeyAt as PromptLineKeyAt,
+  LineKeyDone as PromptLineKeyDone,
+  LineRead as PromptLineRead,
+  LineReply as PromptLineReply,
+};
+
+/** Whether two keys are the same key, which is what a repeat of one is. */
+function sameKey(a: Key, b: Key): boolean {
+  return a.name === b.name && a.ctrl === b.ctrl && a.meta === b.meta && a.shift === b.shift;
+}
 
 /** A line break, spelled for a terminal whatever its output translation is. */
 const NEWLINE = '\r\n';
@@ -3464,6 +3524,11 @@ function question(message: string, hint?: string): string {
  * `lead` is written straight after it is called, so the question is on screen
  * before whatever it waits on.
  *
+ * A form may take keys of its own with `key`, which is asked first about every
+ * key in the queue and may add to the end of the reply or write lines under it
+ * and ask again. A form without one is answered exactly as it always was, so the
+ * handler is how `path()` completes on Tab and costs every other form nothing.
+ *
  * @param opts - Where to read and write.
  * @param first - What to ask and how to read the reply, or a function giving it.
  * @param lead - Lines written straight away, before `first` is.
@@ -3504,6 +3569,8 @@ function runLine<T>(
     /** The question being asked: the first, until a reply leads to another. */
     let form: LineForm<T> | undefined;
     let reply = '';
+    /** The key handled before this one in the question being asked, for `repeated`. */
+    let last: Key | undefined;
     /** One key at a time, for the reason `run()` records: a `validate` may be async. */
     let queue: Promise<void> = Promise.resolve();
     const write = (chunk: string): void => void terminal.write(chunk);
@@ -3536,6 +3603,7 @@ function runLine<T>(
     function begin(next: LineForm<T>): void {
       form = next;
       reply = next.start ?? '';
+      last = undefined;
       for (const line of next.before ?? []) {
         write(`${line}${NEWLINE}`);
       }
@@ -3601,7 +3669,49 @@ function runLine<T>(
       resolve(read.value);
     }
 
+    /**
+     * Does what a form's own key handler said: adds to the end of the reply, then
+     * writes its lines under it and asks again, which is the one way a line form
+     * says something mid-reply without taking anything back.
+     */
+    function took(done: LineKeyDone): void {
+      if (done.insert) {
+        type(done.insert);
+      }
+      if (done.lines?.length) {
+        write(NEWLINE);
+        for (const line of done.lines) {
+          write(`${line}${NEWLINE}`);
+        }
+        ask();
+      }
+    }
+
+    /**
+     * A key, offered to the form first when it has a handler of its own.
+     *
+     * A form without one goes straight to `act()` with nothing awaited, so the
+     * engine every other line form stands on is the one it was.
+     */
     function press(k: Key, submitting: boolean): Promise<void> | void {
+      const repeated = last !== undefined && sameKey(last, k);
+      last = k;
+      const own = form!.key?.(k, { repeated, reply });
+      if (own instanceof Promise) {
+        return own.then((done) => {
+          // an abort, a Ctrl-C or the end of input can land while the handler is
+          // out, and what it resolves to then has no question left to go on
+          if (settled) {
+            return;
+          }
+          return done ? took(done) : act(k, submitting);
+        });
+      }
+      return own ? took(own) : act(k, submitting);
+    }
+
+    /** What the engine does with a key the form did not take. */
+    function act(k: Key, submitting: boolean): Promise<void> | void {
       if (form!.submit ? submitting : k.name === 'enter') {
         return submit();
       }
@@ -3650,6 +3760,8 @@ function runLine<T>(
       queue = queue
         .then(() => {
           if (!settled) {
+            // text came between, so the next key repeats nothing
+            last = undefined;
             type(form!.submit ? pastedBlock(block) : pastedLine(block));
           }
         })
@@ -4052,7 +4164,10 @@ function lineMultiselect<T>(
  * their own that have a line form: `runLinePrompt()` is `run()`'s twin for
  * accessible mode, `promptAsLines()` is the switch, and `promptLineQuestion()`
  * the line a reply is typed after. An ejected `number()` imports them from the
- * package as it imports `runPrompt()`, so they are published the same way.
+ * package as it imports `runPrompt()`, so they are published the same way. A form
+ * that takes keys of its own -- `path()`'s Tab -- does it through
+ * `PromptLineForm.key`, whose argument and result are `PromptLineKeyAt` and
+ * `PromptLineKeyDone`.
  *
  * The list, tree, picker and search prompts add three more beside them, for a
  * second reading of a numbered list would be a second answer about what `3`
