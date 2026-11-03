@@ -294,7 +294,7 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   themselves would be three answers to one question. It is read off the
   _placeholder_, which is where `tokens` comes from and whose name string is the
   one argv routes by. A command whose only remaining token is a property alias
-  -- its name shadowed by a sibling's -- is still walked and still resolved, and
+  -- its name one no shell can type -- is still walked and still resolved, and
   lists nothing. What that must not do is reach the resolving arms, where an
   empty pattern list is the `) ... ;;` syntax error recorded below -- which is
   why those arms read `tokens`, never `listed`. An offering arm with nothing to
@@ -306,10 +306,12 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   subcommand is reached by a property alias`.
 
   Which tokens those are is asked of the registry rather than read off the
-  command: `find()` is what decides where a token goes, and an alias a sibling's
-  name shadows reaches the sibling, so offering it would offer a token that
-  completes something else. Nothing refuses such a schema, so the registry's own
-  answer is the only exact one.
+  command: `find()` is what decides where a token goes, and an alias two
+  siblings share reaches the later one, so offering it for the earlier would
+  offer a token that completes something else. Only an alias that is a
+  sibling's _name_ is refused (SIG-234, under "Siblings register in
+  declaration order" in `src/parser`), so the registry's own answer is the only
+  exact one.
 
 - **bash has two word models and `COMP_WORDBREAKS` governs two different
   things, and conflating them shipped two wrong insertions.** This is the
@@ -491,8 +493,7 @@ command, wired beside `registerHelp()` and `registerVersion()`.
 
   `segmentFor()` answers it, beside `tokensFor()` and `listedTokens()`. The
   name stays the segment wherever it is typeable, so no other command's path
-  moves -- a name a sibling shadows is still its command's path, which was the
-  answer before and is not this rule's to change. Otherwise the first listed
+  moves. Otherwise the first listed
   token, so the segment is a spelling help prints, then any token, which is a
   property alias that still reaches the command. A token that is a sibling's
   **name** is passed over, because that sibling's path is its name whether or
@@ -500,8 +501,11 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   arms behind one pattern, where the first answers for both. With nothing left
   the command is skipped: missing from the script rather than completing as
   something else, the call `tokensFor()` already makes about a token. That last
-  case needs a control character in one name _and_ an alias of it shadowing a
-  sibling's, and is pinned so the guard cannot quietly go.
+  case needed a control character in one name _and_ an alias of it shadowing a
+  sibling's, and SIG-234 refuses that schema while it is built: an alias that
+  is a sibling's name now throws, so the guard is a backstop for a registry
+  written through `Map.prototype.set()`, which asks nothing, and the test that
+  pinned it pins the refusal instead.
 
   The command surface asks the same function, because it had the same defect
   one printer along: the markdown wrote `two<ESC>lines.md`, a file name holding

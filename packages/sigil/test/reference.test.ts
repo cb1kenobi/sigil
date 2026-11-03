@@ -418,14 +418,16 @@ describe('the command surface', () => {
     });
 
     it('should skip a command no token reaches at all', async () => {
-      // a sibling's alias can shadow a command's own *name*, which leaves it
+      // a name no shell can type, with no alias beside it, leaves a command
       // with nothing to be typed as -- and a reference page for a command
-      // nobody can run is a page naming a path the parser refuses
+      // nobody can run is a page naming a path the parser refuses. A sibling's
+      // alias taking the name was the other way here, and is refused now
+      const ESC = String.fromCharCode(0x1b);
       const it = await surface({
-        commands: { gone: { run() {} }, other: { alias: 'gone', run() {} } },
+        commands: { [`go${ESC}ne`]: { run() {} }, other: { run() {} } },
       });
 
-      expect(paths(it)).not.toContain('gone');
+      expect(paths(it).filter((path) => path.startsWith('go'))).toStrictEqual([]);
       expect(paths(it)).toContain('other');
     });
 

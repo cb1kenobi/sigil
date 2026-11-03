@@ -97,12 +97,15 @@ async function fetchModule(
  *
  * @param cmd - The subcommand that loaded.
  * @param parent - The command that declared it, when the caller knows it.
+ * @param slot - The name the parent's registry holds it under, which is the
+ *   placeholder's even when the module renamed the command.
  * @returns The command the parse should use: the one that loaded, or whatever
  *   the hook replaced it with.
  */
 async function announceLoaded(
   cmd: InternalCommand,
-  parent: InternalCommand | undefined
+  parent: InternalCommand | undefined,
+  slot: string = cmd.name
 ): Promise<InternalCommand> {
   const hook = parent?.hooks?.subcommandLoaded;
 
@@ -135,11 +138,18 @@ async function announceLoaded(
   // the one it keeps unless it brought its own. Initialized against the
   // *parent's* directory, because the hook is the parent's code and a path in
   // a declaration is relative to the file that declared it
-  return initCommand(
+  const replaced = await initCommand(
     replacement.name === undefined ? { ...(replacement as Command), name: cmd.name } : replacement,
     undefined,
     parent[Internal].baseDir
   );
+
+  // a replacement may bring aliases of its own, and it stands in the slot the
+  // command it replaced was registered under -- so it is asked the question
+  // `add()` asks of a sibling, against the siblings it now sits beside
+  parent[Internal].commands.assertReachable(replaced, slot);
+
+  return replaced;
 }
 
 /**
@@ -265,6 +275,18 @@ export async function loadCommand(
       loaded[Internal].label = internal.label;
     }
 
+    // a module's own aliases are only known now, so an alias that takes a
+    // sibling's name is refused here with the error `add()` raises when the
+    // schema is built. Asked of the parent's registry, which still holds the
+    // placeholder under `cmd.name`: that slot is this command's own, not a
+    // sibling's, which is what passing it says. Asked before the load is
+    // marked done, so a refused module is refused again the next time it is
+    // matched; before the parent's hook is told, so a hook is never handed a
+    // command the tree refuses; and before any caller writes the result back,
+    // so the answer is the same whether a walk appends it or puts it where the
+    // placeholder was
+    parent?.[Internal].commands.assertReachable(loaded, cmd.name);
+
     // only mark the load done once it actually succeeded: a module that
     // throws must throw again the next time the command is matched
     // instead of quietly resolving to the placeholder
@@ -274,7 +296,7 @@ export async function loadCommand(
     // re-import the same file and run its init hooks a second time
     loaded[Internal].loaded = true;
 
-    return announceLoaded(loaded, parent);
+    return announceLoaded(loaded, parent, cmd.name);
   }
 
   internal.loaded = true;

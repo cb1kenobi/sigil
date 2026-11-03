@@ -94,19 +94,44 @@ that already is one, and `!` hides the whole command in a name string, so it is
 not quietly stripped — hide the command with `hidden: true` or a `!` in its
 name.
 
-Nothing refuses two siblings answering to the same spelling, whether a name or
-an alias: the one declared **later** owns it. Siblings are registered in the
-order they were declared — a `commands` object's key order (JavaScript's, so an
-integer-like key such as `'2'` comes first), an array's element order, a
-directory's sorted routes — whatever order they finish initializing
-in, so adding an option to one of them never moves a spelling to the other:
+An alias that is a sibling's **name** throws while the schema is built, because
+it would leave that sibling with no spelling at all — `mycli ship` would run the
+other command, while help went on listing `ship`:
+
+```js
+const schema = {
+  commands: {
+    ship: {},
+    other: { alias: 'ship' },
+  },
+};
+// The "other" command's alias "ship" is the name of a sibling command: "ship"
+// would run "other" and nothing could reach the "ship" command, so remove the
+// alias or rename one of the two
+```
+
+That holds whichever of the two is declared first, for a name-string alias
+(`'other, ship'`, `'@ship'`) as well as the property, and wherever the siblings
+come from: a `commands` object or array, the commands a directory's `index`
+module declares beside the routes the walk found, and a `subcommandLoaded`
+replacement. An alias a lazily loaded module declares — a `path`, a `load`, or
+a route found in a directory — is only known once that module loads, so that is
+when it throws. A command whose alias is its own name is not refused;
+it is the same spelling twice.
+
+Two siblings sharing an **alias** are not refused: the one declared **later**
+owns it, and both are still reached by their names. Siblings are registered in
+the order they were declared — a `commands` object's key order (JavaScript's,
+so an integer-like key such as `'2'` comes first), an array's element order, a
+directory's sorted routes — whatever order they finish initializing in, so
+adding an option to one of them never moves a spelling to the other:
 
 ```js
 const schema = {
   commands: {
     ship: { alias: 'go', options: { '--force': {} } },
-    // declared after `ship`, so `mycli ship` runs this; `ship` keeps `go`
-    other: { alias: 'ship' },
+    // declared after `ship`, so `mycli go` runs this; `ship` is still `ship`
+    other: { alias: 'go' },
   },
 };
 ```
@@ -451,8 +476,10 @@ from it are carried onto the loaded command; a module that declares its own
 `name` string brings its own label instead. An `alias` the module declares is
 merged in, but it cannot resolve the command — the parser has to match the
 command before it can load the module that declares the alias, so a name a user
-is expected to type belongs on the placeholder. Once the module has loaded, the
-command takes the placeholder's place among its siblings: the same position,
+is expected to type belongs on the placeholder. One that is a sibling's name
+throws when the module loads, with the error a placeholder declaring it would
+have raised while the schema was built. Otherwise, once the module has loaded,
+the command takes the placeholder's place among its siblings: the same position,
 every spelling the placeholder answered to, and an alias the module adds is
 settled by declaration order like any other, so a sibling declared later keeps
 a spelling it shares.

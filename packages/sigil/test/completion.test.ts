@@ -270,49 +270,46 @@ describe('completionSpec()', () => {
 
   it('should leave out a token a sibling also answers to', async () => {
     // the registry keys its lookup by name *and* alias and a later
-    // registration overwrites, so an alias a sibling's name shadows reaches
-    // the sibling -- offering it would offer a token that goes elsewhere.
-    // Nothing refuses such a schema, so the registry's own answer is the only
-    // exact one
+    // registration overwrites, so an alias two siblings share reaches the
+    // later one -- offering it for the earlier would offer a token that goes
+    // elsewhere. Two aliases sharing a spelling is not refused, so the
+    // registry's own answer is the only exact one
     const found = await spec({
       commands: {
-        'build, ship': { desc: 'build it', run(): void {} },
-        ship: { desc: 'ship it', run(): void {} },
+        'build, go': { desc: 'build it', run(): void {} },
+        'ship, go': { desc: 'ship it', run(): void {} },
       },
       completion: false,
       help: false,
       quiet: false,
     });
 
-    // who owns it, not merely that one of them does: dropping `ship` from the
-    // sibling and leaving `build` claiming it passes a count
+    // who owns it, not merely that one of them does: dropping `go` from the
+    // later sibling and leaving `build` claiming it passes a count
     expect(at(found, '').subcommands).toEqual([
       { desc: 'build it', listed: ['build'], name: 'build', tokens: ['build'] },
-      { desc: 'ship it', listed: ['ship'], name: 'ship', tokens: ['ship'] },
+      { desc: 'ship it', listed: ['ship', 'go'], name: 'ship', tokens: ['ship', 'go'] },
     ]);
   });
 
-  it('should leave out a command with no token left at all', async () => {
-    // the registry keys by name *and* alias and a later registration
-    // overwrites, so a sibling declared **after** `ship` and aliased `ship`
-    // takes its own name away from it -- and a command with no token is one
-    // completion cannot reach. It is also the sharper half: an empty pattern
-    // list is a `case` arm reading `) ... ;;`, which is a syntax error in the
-    // whole generated script rather than one command missing from it
-    const found = await spec({
-      commands: {
-        ship: { desc: 'ship it', run(): void {} },
-        'build, ship': { desc: 'build it', run(): void {} },
-      },
-      completion: false,
-      help: false,
-      quiet: false,
-    });
-
-    expect(at(found, '').subcommands).toEqual([
-      { desc: 'build it', listed: ['build', 'ship'], name: 'build', tokens: ['build', 'ship'] },
-    ]);
-    expect(paths(found)).toEqual(['', 'build']);
+  it("should never meet a command whose name a sibling's alias took, because that schema is refused", async () => {
+    // this used to be the shape of a command with no token left at all: a
+    // sibling declared after `ship` and aliased `ship` took its own name away
+    // from it, and an empty pattern list is a `case` arm reading `) ... ;;`,
+    // which is a syntax error in the whole generated script. The schema is
+    // refused while it is built now, so the spec is never asked about it; a
+    // name no shell can type is the shape left, pinned below
+    await expect(
+      spec({
+        commands: {
+          ship: { desc: 'ship it', run(): void {} },
+          'build, ship': { desc: 'build it', run(): void {} },
+        },
+        completion: false,
+        help: false,
+        quiet: false,
+      })
+    ).rejects.toThrow('The "build" command\'s alias "ship" is the name of a sibling command');
   });
 
   it("should list no property alias, a lazily loaded command's included", async () => {
@@ -337,14 +334,19 @@ describe('completionSpec()', () => {
   });
 
   it('should keep a command reached only by a property alias, and list nothing for it', async () => {
-    // a sibling's alias shadows `ship`'s own name, which leaves `go` as the
-    // only token that reaches it -- and `go` is a property alias, so nothing is
-    // listed. It is still walked, because `mycli go <TAB>` has to complete
-    // `ship`'s subtree: what changed is the menu, not what argv accepts
+    // a name no shell can type leaves `go` as the only token that reaches the
+    // command -- and `go` is a property alias, so nothing is listed. It is
+    // still walked, because `mycli go <TAB>` has to complete its subtree: what
+    // changed is the menu, not what argv accepts. This was a name a sibling's
+    // alias shadowed, until that schema was refused
     const found = await spec({
       commands: {
-        ship: { alias: 'go', desc: 'ship it', options: { '--force': 'force' }, run(): void {} },
-        other: { alias: 'ship', hidden: true, run(): void {} },
+        [`sh${ESC}ip`]: {
+          alias: 'go',
+          desc: 'ship it',
+          options: { '--force': 'force' },
+          run(): void {},
+        },
       },
       completion: false,
       help: false,
@@ -352,9 +354,9 @@ describe('completionSpec()', () => {
     });
 
     expect(at(found, '').subcommands).toEqual([
-      { desc: 'ship it', listed: [], name: 'ship', tokens: ['go'] },
+      { desc: 'ship it', listed: [], name: 'go', tokens: ['go'] },
     ]);
-    expect(spellings(found, 'ship')).toContain('--force');
+    expect(spellings(found, 'go')).toContain('--force');
   });
 
   it('should leave out a name no shell can offer', async () => {
@@ -421,28 +423,24 @@ describe('completionSpec()', () => {
     expect(paths(found)).toEqual(['', 'go']);
   });
 
-  it("should not key a command by a sibling's name, which is that sibling's path", async () => {
-    // `go` reaches the second command -- a later registration overwrites -- and
-    // is also the first command's name, which is what *its* path is keyed by.
-    // Keying both by `go` writes two sets of arms under one pattern, and the
-    // first answers for both. Same shapes, so they register in order: siblings
-    // are initialized concurrently and the one with less to do registers first
-    const found = await spec({
-      commands: {
-        'go, gg': { options: { '--first': 'first' }, run() {} },
-        [`two${ESC}lines, go`]: { options: { '--second': 'second' }, run() {} },
-      },
-      completion: false,
-      help: false,
-      quiet: false,
-    });
-
-    expect(paths(found)).toEqual(['', 'go']);
-    expect(at(found, '').subcommands).toEqual([
-      { desc: undefined, listed: ['gg'], name: 'go', tokens: ['gg'] },
-    ]);
-    expect(spellings(found, 'go')).toContain('--first');
-    expect(spellings(found, 'go')).not.toContain('--second');
+  it("should never be asked to key a command by a sibling's name, because that schema is refused", async () => {
+    // `go` would reach the second command -- a later registration overwrites
+    // -- and is also the first command's name, which is what *its* path is
+    // keyed by. Keying both by `go` writes two sets of arms under one pattern,
+    // and the first answers for both. `segmentFor()` still passes over a
+    // sibling's name, but an alias that is one is refused while the schema is
+    // built, so this is what reaches the spec now
+    await expect(
+      spec({
+        commands: {
+          'go, gg': { options: { '--first': 'first' }, run() {} },
+          [`two${ESC}lines, go`]: { options: { '--second': 'second' }, run() {} },
+        },
+        completion: false,
+        help: false,
+        quiet: false,
+      })
+    ).rejects.toThrow(`The "two${ESC}lines" command's alias "go" is the name of a sibling command`);
   });
 
   it('should leave a hidden option out', async () => {
@@ -1248,11 +1246,18 @@ describe('the scripts as shell programs', () => {
     // same: built from what is listed it would be an empty `case` pattern,
     // which is a syntax error in the whole script, and it is what makes the
     // typed alias complete `ship`'s options
+    //
+    // the name holds a control character, so `go` is the only token left: the
+    // spec's own test gives the reason, and a sibling's alias taking the name
+    // was the other way to get here until that schema was refused
     const unlisted: Schema = {
       commands: {
-        ship: { alias: 'go', desc: 'ship it', options: { '--force': 'force' }, run(): void {} },
-        // the same shape as `ship`, for the reason the spec's own test gives
-        other: { alias: 'ship', hidden: true, options: { '--other': 'other' }, run(): void {} },
+        [`sh${ESC}ip`]: {
+          alias: 'go',
+          desc: 'ship it',
+          options: { '--force': 'force' },
+          run(): void {},
+        },
       },
       completion: false,
       help: false,

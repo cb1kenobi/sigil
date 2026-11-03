@@ -141,7 +141,7 @@ export interface CompletionSubcommand {
    * the help screen cannot disagree about it.
    *
    * Empty where every token that still reaches the command is a property
-   * alias, which is a command whose name a sibling shadows: it is still in
+   * alias, which is a command whose name no shell can type: it is still in
    * `tokens`, so typing the alias still completes its subtree.
    */
   readonly listed: readonly string[];
@@ -171,9 +171,10 @@ export interface CompletionSubcommand {
    * listed. What a menu offers is `listed`.
    *
    * Asked of the registry, because `find()` is what decides which command a
-   * token reaches: an alias a sibling's name shadows resolves to the sibling,
-   * so offering it here would offer a token that goes somewhere else. Nothing
-   * refuses such a schema, so the only exact answer is the registry's own.
+   * token reaches: an alias two siblings share resolves to the later one, so
+   * offering it for the earlier would offer a token that goes somewhere else.
+   * Only an alias that is a sibling's *name* is refused, so the only exact
+   * answer is the registry's own.
    */
   readonly tokens: readonly string[];
 }
@@ -514,18 +515,19 @@ export function listedTokens(child: InternalCommand, tokens: readonly string[]):
  * be typed, and it was the one place the name reached unfiltered.
  *
  * The name stays the segment wherever it is typeable, which is every command
- * that is not this one: a name a sibling shadows is still that command's path,
- * which is the existing answer and is not this function's to change. Otherwise
+ * that is not this one. Otherwise
  * the first listed token, so a reference names the command by a spelling help
  * prints, then any token -- a property alias -- since that still reaches it.
  *
  * A token that is a sibling's **name** is passed over, because that sibling's
- * path is its name whether or not the name still reaches it, and two commands
- * keyed by one path is two sets of arms under one pattern: whichever comes
- * first answers for both. That needs a control character in one name *and* an
- * alias of it shadowing a sibling's, and with nothing else to be keyed by the
- * command is skipped -- missing from the script rather than completing as
- * something else, which is the call `tokensFor()` already makes about a token.
+ * path is its name, and two commands keyed by one path is two sets of arms
+ * under one pattern: whichever comes first answers for both. A schema builds
+ * no such token any more -- an alias that is a sibling's name is refused by
+ * `CommandRegistry.assertReachable()` -- so this is a backstop for a registry
+ * written to through `Map.prototype.set()`, which asks nothing. With nothing
+ * else to be keyed by the command is skipped -- missing from the script rather
+ * than completing as something else, which is the call `tokensFor()` already
+ * makes about a token.
  *
  * Shared with the command surface, because "what path reaches this command"
  * has one answer: a script and a reference that each picked a segment would
@@ -699,11 +701,11 @@ export async function completionSpec(target: CompletionTarget): Promise<Completi
       // `typeable()` rule met on a *name* -- `_describe` is line-oriented, so
       // a newline in one breaks the element it is in, and an escape in one
       // reaches the screen on every tab. And **no token at all** is the
-      // sharper of the two: `tokensFor()` drops a spelling a sibling answers
-      // to, so a command whose own name a sibling's alias shadows has nothing
-      // left -- and an empty pattern list is a `case` arm reading `) ... ;;`,
-      // which is a *syntax error* in the whole generated script rather than
-      // one command missing from it. Found by review
+      // sharper of the two: a command whose name holds one and has no alias
+      // has nothing left -- and an empty pattern list is a `case` arm reading
+      // `) ... ;;`, which is a *syntax error* in the whole generated script
+      // rather than one command missing from it. Found by review, over a
+      // sibling's alias taking a command's name, which is refused now
       const tokens = tokensFor(cmd, child);
       // and the path is keyed by a spelling that can be typed, for the same
       // reason: a name holding a control character is in no token list, and
