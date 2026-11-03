@@ -750,12 +750,17 @@ function page(
     lines.push('', 'Lists the commands under it and takes no action of its own.');
   }
 
-  if (cmd.tokens.length > 1) {
+  // the listed tokens rather than every one, which is help's rule: an alias the
+  // `alias` property declared answers without being advertised, and a
+  // reference is a listing. The snapshot keeps it, because it still reaches the
+  // command -- see "Four places the two readers deliberately disagree" in this
+  // package's `AGENTS.md`
+  if (cmd.listed.length > 1) {
     lines.push(
       '',
       '## Aliases',
       '',
-      ...cmd.tokens
+      ...cmd.listed
         .slice(1)
         .map((token) => `- ${code([program, ...cmd.path.slice(0, -1), token].join(' '))}`)
     );

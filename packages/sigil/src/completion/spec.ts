@@ -38,6 +38,7 @@
  * so a silently incomplete one is the failure that lasts.
  */
 
+import { labelNames } from '../parser/command/label.js';
 import { loadCommand } from '../parser/command/load-command.js';
 import { Internal, type InternalCommand, type InternalOption, type Schema } from '../types.js';
 import { registerable } from './install.js';
@@ -126,6 +127,24 @@ export interface CompletionSubcommand {
   /** What it is for, on one line. */
   readonly desc?: string;
   /**
+   * The tokens a menu offers: `tokens` less any that only the `alias`
+   * property declared, in the same order.
+   *
+   * A name-string alias is offered beside the name -- `'remove, rm'` puts `rm`
+   * in help, so it is published and belongs in the menu, and a `remove` aliased
+   * that way is unreachable by prefix without it. A property alias is not,
+   * because it is the one spelling of an alias that answers without being
+   * listed, and a completion menu is a listing: the same statement `hidden`
+   * makes about a whole command, made about one spelling. Which names are
+   * published is `labelNames()`'s answer, the one help reads, so the menu and
+   * the help screen cannot disagree about it.
+   *
+   * Empty where every token that still reaches the command is a property
+   * alias, which is a command whose name a sibling shadows: it is still in
+   * `tokens`, so typing the alias still completes its subtree.
+   */
+  readonly listed: readonly string[];
+  /**
    * The token that reaches it, which is the name its *registry* is keyed by
    * rather than whatever its module calls itself.
    *
@@ -141,12 +160,11 @@ export interface CompletionSubcommand {
    * Every token that reaches it, the name first, then the aliases it answers
    * to -- asked of the registry rather than read off the command.
    *
-   * An alias is a token the parser accepts, so it belongs in a list of what
-   * can be typed: a `remove` aliased `rm` is unreachable by prefix, and
-   * `mycli rm <TAB>` has to resolve to `remove`'s subtree or the rest of the
-   * line completes against the wrong command. That is where this differs from
-   * `PaletteEntry`, which keeps its aliases out of the label on purpose -- a
-   * palette lists one row per *command*, and a completion menu lists *tokens*.
+   * Every alias, a property alias included, because this is what a typed word
+   * is *resolved* against rather than what is offered: `mycli rm <TAB>` on a
+   * `remove` aliased `rm` has to resolve to `remove`'s subtree or the rest of
+   * the line completes against the wrong command, whether or not `rm` is ever
+   * listed. What a menu offers is `listed`.
    *
    * Asked of the registry, because `find()` is what decides which command a
    * token reaches: an alias a sibling's name shadows resolves to the sibling,
@@ -455,6 +473,31 @@ export function tokensFor(parent: InternalCommand, child: InternalCommand): stri
 }
 
 /**
+ * The tokens of `tokensFor()`'s answer a listing shows, which is every one but
+ * a spelling only the `alias` property declared.
+ *
+ * A filter over `tokensFor()` rather than a second walk of the registry, so a
+ * listed token is always one that reaches this command; and over the label
+ * `labelNames()` reads rather than a test of its own, so the menu, the
+ * reference and help draw one line between an alias that is published and one
+ * that only answers. Read off the command the *registry* holds, which is where
+ * both the tokens and the label came from: a placeholder's name string is the
+ * one argv routes by, whatever its module calls itself.
+ *
+ * Exported for the command surface, which records both lists: the markdown
+ * prints this one, and the snapshot keeps every token, because removing a
+ * property alias changes what argv accepts even though no listing showed it.
+ *
+ * @param child - The subcommand, as the registry holds it.
+ * @param tokens - What `tokensFor()` answered for it.
+ * @returns The tokens to list, in the order `tokens` holds them.
+ */
+export function listedTokens(child: InternalCommand, tokens: readonly string[]): string[] {
+  const published = new Set(labelNames(child));
+  return tokens.filter((token) => published.has(token));
+}
+
+/**
  * Every value positional arguments accept at a command.
  *
  * Its own and no ancestor's, because `processArgs()` reads the positional values
@@ -621,7 +664,12 @@ export async function completionSpec(target: CompletionTarget): Promise<Completi
         fallback = loaded;
       }
 
-      subcommands.push({ desc: oneLine(loaded.desc), name: child.name, tokens });
+      subcommands.push({
+        desc: oneLine(loaded.desc),
+        listed: listedTokens(child, tokens),
+        name: child.name,
+        tokens,
+      });
       await walk(loaded, [...path, child.name], chain);
     }
 

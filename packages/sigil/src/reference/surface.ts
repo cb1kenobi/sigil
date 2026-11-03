@@ -22,10 +22,11 @@
  * reaches` is the differential that keeps them from drifting about the thing
  * they do agree on.
  *
- * What is *not* re-derived is anything either already decides. `tokensFor()` and
- * `declaredValues()` are imported from the completion spec, because "which
- * tokens reach this command" and "what can be typed for this choice" have one
- * right answer each and two walks that each worked one out would be two answers.
+ * What is *not* re-derived is anything either already decides. `tokensFor()`,
+ * `listedTokens()` and `declaredValues()` are imported from the completion
+ * spec, because "which tokens reach this command", "which of them a listing
+ * shows" and "what can be typed for this choice" have one right answer each and
+ * two walks that each worked one out would be two answers.
  *
  * ## It loads every module, and that is the one place that is right
  *
@@ -58,7 +59,7 @@
  * and reachability is the walk's.
  */
 
-import { declaredValues, tokensFor } from '../completion/spec.js';
+import { declaredValues, listedTokens, tokensFor } from '../completion/spec.js';
 import { initCommand } from '../parser/command/init-command.js';
 import { loadCommand } from '../parser/command/load-command.js';
 import type { OptionRegistry } from '../parser/option/option-registry.js';
@@ -231,6 +232,18 @@ export interface SurfaceCommand {
   /** Whether help leaves it out. It is still reachable. */
   readonly hidden: boolean;
   /**
+   * The tokens of `tokens` a listing shows, in the same order: every one but a
+   * spelling only the `alias` property declared. Empty for the root.
+   *
+   * Both lists rather than one, because the two printers need different ones
+   * and the line between them is the parser's rather than either printer's. A
+   * property alias is the spelling that answers without being advertised, so
+   * help leaves it out and the markdown follows; it still reaches the command,
+   * so removing one is a change to what argv accepts and the snapshot has to
+   * see it. See `listedTokens()`.
+   */
+  readonly listed: readonly string[];
+  /**
    * The options it declares itself, in declaration order.
    *
    * Its own and no ancestor's, although an ancestor's resolve here too: options
@@ -398,6 +411,7 @@ function optionOf(opt: InternalOption, registry: OptionRegistry): SurfaceOption 
  * @param cmd - The loaded command.
  * @param path - The argv path from the root.
  * @param tokens - Every token that reaches its last segment.
+ * @param listed - The tokens a listing shows.
  * @param fallback - Whether its parent's registry reaches it by naming nothing.
  * @returns The record.
  */
@@ -405,6 +419,7 @@ function commandOf(
   cmd: InternalCommand,
   path: readonly string[],
   tokens: readonly string[],
+  listed: readonly string[],
   fallback: boolean
 ): SurfaceCommand {
   const internal = cmd[Internal];
@@ -415,6 +430,7 @@ function commandOf(
     desc: typeof cmd.desc === 'string' ? cmd.desc : undefined,
     examples: examplesOf(cmd.examples),
     hidden: !!cmd.hidden,
+    listed,
     options: [...internal.options.values()].map((opt) => optionOf(opt, internal.options)),
     path,
     runnable: typeof cmd.run === 'function',
@@ -481,7 +497,7 @@ export async function commandSurface(schema: Schema): Promise<CommandSurface> {
   // the `?? 'global'` `parse()` carries has nothing to answer for
   const root = await initCommand({ ...schema, name: program }, undefined, schema.baseDir);
   // the root is never anybody's default, because it is not a child
-  const commands: SurfaceCommand[] = [commandOf(root, [], [], false)];
+  const commands: SurfaceCommand[] = [commandOf(root, [], [], [], false)];
 
   /**
    * The registry entries already walked.
@@ -535,7 +551,12 @@ export async function commandSurface(schema: Schema): Promise<CommandSurface> {
 
       // pre-order: a command is recorded before what is under it, which is the
       // order a reference reads in
-      commands.push(commandOf(loaded, here, tokens, fallback === child));
+      // what a listing shows is read off `child`, the placeholder the registry
+      // holds, for the reason the tokens are: its name string is the one argv
+      // routes by
+      commands.push(
+        commandOf(loaded, here, tokens, listedTokens(child, tokens), fallback === child)
+      );
       await walk(loaded, here);
     }
   }
