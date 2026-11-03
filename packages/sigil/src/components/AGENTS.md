@@ -9074,7 +9074,10 @@ read. All four are on by default and there is no switch.
   entry's argument again, with the same lopsided cost: a redundant mark against an
   inverted meaning. The tildes are `.sigil-markdown-strike-marker`, outside the
   struck run, and an app that knows its terminal can write `display: none` for
-  them, which is pinned. The rule is `strikethrough: true` rather than
+  them, which is pinned. `markdownText()` keeps them for the same reason, and so
+  does an image description built with it: plain text has no line to draw, so
+  `a ~~b~~` is `a ~~b~~` there, where dropping them as formatting made it `a b`.
+  The rule is `strikethrough: true` rather than
   `text-decoration: line-through`, because that shorthand also resets `underline`,
   and a struck link lost its underline. It is the sheet's fourteenth exception
   (`src/theme`).

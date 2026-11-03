@@ -4558,7 +4558,7 @@ plain tree of `heading`, `paragraph`, `code`, `quote`, `list`, `table`, `rule` a
 `footnotes` blocks over `text`, `code`, `emphasis`, `strong`, `strikethrough`,
 `link`, `image`, `footnote` and `break` runs -- a list with a task in it carries
 `checked`, one entry per item -- and `markdownText()` says what a list of runs says
-without its formatting.
+without its formatting, except that a strikethrough keeps its tildes.
 `text()` from `@ttylabs/sigil/element` takes an `href` for the same OSC 8 link on
 anything else.
 

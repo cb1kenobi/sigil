@@ -1380,7 +1380,8 @@ function finish(tokens: readonly Token[]): MarkdownInline[] {
  * What a run of inline content says, without its formatting.
  *
  * An image's description is this, because there is nowhere to put formatting in
- * text that stands in for a picture.
+ * text that stands in for a picture. A strikethrough keeps its tildes, because
+ * they are meaning rather than formatting: without them the words read as said.
  *
  * @param runs - The runs.
  * @returns The text.
@@ -1401,6 +1402,11 @@ export function markdownText(runs: readonly MarkdownInline[]): string {
         }
         case 'footnote': {
           return `[${run.index}]`;
+        }
+        case 'strikethrough': {
+          // what was typed: the tildes are the only mark the words are struck,
+          // and struck words with nothing round them say the opposite
+          return `~~${markdownText(run.children)}~~`;
         }
         default: {
           return markdownText(run.children);

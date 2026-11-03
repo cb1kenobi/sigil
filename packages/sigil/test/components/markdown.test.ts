@@ -627,7 +627,20 @@ describe('parseMarkdown()', () => {
 
     it('should say a reference as its number in markdownText()', () => {
       const block = parseMarkdown('a[^1] ~~b~~\n\n[^1]: N.')[0];
-      expect(block.type === 'paragraph' && markdownText(block.children)).to.equal('a[1] b');
+      expect(block.type === 'paragraph' && markdownText(block.children)).to.equal('a[1] ~~b~~');
+    });
+
+    it('should keep the tildes round a strikethrough in markdownText()', () => {
+      const block = parseMarkdown('a ~~b *c*~~ d')[0];
+      expect(block.type === 'paragraph' && markdownText(block.children)).to.equal('a ~~b c~~ d');
+    });
+
+    it('should keep the tildes in an image description', () => {
+      const block = parseMarkdown('![~~old~~ logo](logo.png)')[0];
+      expect(block.type === 'paragraph' && block.children[0]).to.deep.include({
+        alt: '~~old~~ logo',
+        type: 'image',
+      });
     });
   });
 
