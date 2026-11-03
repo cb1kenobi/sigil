@@ -8923,8 +8923,52 @@ is recorded in that directory's file.
 - **What it cost.** `dist/components.mjs` went from 184,052 B to 200,422 B when it
   landed, the parser and the renderer together -- a measurement of this change,
   not of the tree.
-- **Deliberately out.** A highlight seam for code blocks: `diff()` and
-  `multiline()` take one, and a block's `info` is carried in the tree for the day
-  this does, but a grammar is the app's and one more seam is one more contract.
-  Multi-line reference definitions, HTML entities beyond the eleven, and anything
-  CommonMark calls an extension.
+- **Deliberately out.** Multi-line reference definitions, HTML entities beyond
+  the eleven, and anything CommonMark calls an extension. A highlight seam for code
+  blocks was out here too, and SIG-220 added it: the entry below.
+
+### Markdown code blocks take the app's highlighter (SIG-220)
+
+`highlight?: (code: string, lang: string | undefined) => readonly HighlightSpan[]`
+on `MarkdownOptions`. A document with no code block, or no hook, draws exactly as
+it did, and none of SIG-197's tests was edited.
+
+- **`diff()`'s hook with the language beside it, and its types, validator and
+  roles.** `HighlightSpan`, `tokensOf()` and `TOKEN_ROLE` from `prompt.ts`, so the
+  classes are `sigil-token` and `sigil-token-<token>` and the seven names draw in
+  the roles they draw in for a diff: one sheet colours both, which is pinned by a
+  test that draws one token through each. `lang` is the first word of the info
+  string, which is all the parser keeps, and `undefined` rather than `''` where
+  there is none -- an indented block, or a bare fence -- so a hook can tell "no
+  language" from a language it does not know. The hook is still called for those:
+  a highlighter that guesses is the app's to write.
+- **Asked once per block, with the whole block, and the spans cut afterwards.** A
+  comment over three lines is one span, for the reason `multiline()` gives. The
+  code-unit offsets are carried through `split('\n')` and then through `fold()`,
+  whose pieces are consecutive slices of the line, so a token a fold breaks is in
+  its style on both rows. A cluster takes the token of the unit it starts at,
+  which is `diff()`'s rule.
+- **A block the hook marked nothing in is drawn as it was, and in one that it
+  marked, the rest is the plain foreground rather than the accent.** The accent is
+  the role `keyword` draws in, so keeping it under the tokens would hide every
+  keyword in the block. And a block the hook returned nothing for -- a language it
+  does not know, a `sh` block next to the `js` it does -- would then be the plain
+  foreground too, which is code that no longer looks like code. So "marked
+  nothing", including spans wholly out of range, takes the unhighlighted path
+  untouched: one accent text, as before. A token with no role, an app's own name,
+  is the foreground with its class, as it is the line's colour in a diff.
+- **A highlighted row is a row of fixed-width `pre` texts, one per run**, which is
+  `diff()`'s construction and its reason: one element resolves one style. An empty
+  line keeps a row by holding an empty text, since a row with no children lays out
+  at no height. `.sigil-markdown-code-row` is the new hook, named in the sheet's
+  vocabulary comment; nothing was declared, so the sheet's exceptions are as they
+  were.
+- **A hook that throws throws out of `markdown()`, a span out of range is clipped,
+  and a bad token name is refused with `PromptError`** -- `diff()`'s three answers,
+  taken rather than restated. The hook is the caller's code, and a renderer that
+  swallowed its failure would draw a document whose code is quietly uncoloured,
+  which is the failure nobody can see.
+- **The string path is the tree's.** `markdown()` renders `markdownView()`, so
+  there is one implementation and a test reads the classes off the tree directly.
+- **Inline code spans are never handed to the hook**, because they carry no
+  language, and guessing one from a word is a grammar's job. They stay the accent.

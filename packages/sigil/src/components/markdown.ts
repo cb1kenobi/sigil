@@ -36,6 +36,7 @@ import {
   markdownText,
 } from './markdown-parse.js';
 import { unicodeSupported } from './note.js';
+import { type HighlightSpan, TOKEN_ROLE, tokensOf } from './prompt.js';
 import { ruleView } from './rule.js';
 
 export interface MarkdownOptions extends StyledOptions {
@@ -47,6 +48,21 @@ export interface MarkdownOptions extends StyledOptions {
   baseUrl?: string;
   /** The environment to read the terminal from. Defaults to `process.env`. */
   env?: Record<string, string | undefined>;
+  /**
+   * Says which stretches of a code block are which tokens, for syntax
+   * highlighting -- the hook `diff()` and `multiline()` take, with the block's
+   * language beside the code.
+   *
+   * Called once per fenced or indented code block, with the whole block and the
+   * first word of its info string (`ts` for a fence opened with three backticks
+   * and `ts`), or `undefined` where it names none. A token draws in its role where
+   * it has one and carries `sigil-token-<token>` for an app's sheet; the rest of
+   * a block it marked anything in is the plain foreground, since the accent it is
+   * otherwise drawn in is the keyword's. A block it marks nothing in -- a language
+   * it does not know -- is drawn as it would be without it. Inline code spans are
+   * never handed to it: they have no language to say what they are in.
+   */
+  highlight?: (code: string, lang: string | undefined) => readonly HighlightSpan[];
   /**
    * Whether a link is an OSC 8 hyperlink, with its URL out of sight, or its words
    * with the URL after them. Defaults to `supportsHyperlinks()` for `stream`, and
@@ -82,6 +98,7 @@ interface Context {
   readonly baseUrl: string | undefined;
   readonly depth: number;
   readonly env: Record<string, string | undefined> | undefined;
+  readonly highlight: MarkdownOptions['highlight'];
   readonly hyperlinks: boolean;
   readonly platform: string | undefined;
   readonly room: number;
@@ -125,6 +142,7 @@ export function markdownView(
     baseUrl: opts.baseUrl,
     depth: 0,
     env: opts.env,
+    highlight: opts.highlight,
     // level 0 is "write no escape sequences", and an OSC 8 is one -- so the URL
     // goes beside the words whatever the terminal could have done with it
     hyperlinks:
@@ -225,7 +243,7 @@ function blockView(block: MarkdownBlock, ctx: Context): Element {
       return flow(words(block.children, ctx), 'sigil-markdown-paragraph', undefined, ctx.room);
     }
     case 'code': {
-      return codeBlock(block.text, ctx);
+      return codeBlock(block.text, block.info, ctx);
     }
     case 'quote': {
       return quote(block.children, ctx);
@@ -251,19 +269,104 @@ function blockView(block: MarkdownBlock, ctx: Context): Element {
  * edge: a string is laid out as wide as its widest line, and a terminal wrapping
  * it instead would start the rest of the line at column zero, outside the block.
  *
+ * Highlighted, the hook is asked about the whole block and its spans are cut with
+ * the lines and then with the folds, so a block comment over three lines is one
+ * span and a token a fold breaks is drawn in its own style on both rows. Each row
+ * is then a row of fixed-width `pre` texts, one per run of cells with one token,
+ * which is how `diff()` draws a highlighted line: one element resolves one style.
+ *
  * @param code - The code.
- * @param ctx - The room.
+ * @param info - The language, as the fence named it, or `''`.
+ * @param ctx - The room, and the app's highlighter.
  * @returns Its tree.
  */
-function codeBlock(code: string, ctx: Context): Element {
+function codeBlock(code: string, info: string, ctx: Context): Element {
   const room = Math.max(1, ctx.room - 2);
-  const lines = code === '' ? [''] : code.split('\n').flatMap((line) => fold(line, room));
+  const source = code.split('\n');
+  const outer = {
+    class: 'sigil-markdown-code-block',
+    'flex-direction': 'column',
+    'padding-left': 2,
+  };
+  // a hook that throws is the caller's code failing, and is left to reach the
+  // caller -- the answer `diff()` and `multiline()` give -- and a span out of range
+  // is clipped and a bad token name refused by the validator all three share
+  const tokens = ctx.highlight
+    ? tokensOf(code, ctx.highlight(code, info === '' ? undefined : info))
+    : undefined;
+
+  if (!tokens?.some((token) => token !== undefined)) {
+    const lines = source.flatMap((line) => fold(line, room));
+    return box(
+      outer,
+      textNode(lines.join('\n'), {
+        class: 'sigil-markdown-code sigil-accent',
+        'white-space': 'pre',
+      })
+    );
+  }
+
+  const rows: Element[] = [];
+  let at = 0;
+  for (const line of source) {
+    for (const part of fold(line, room)) {
+      rows.push(codeRow(part, tokens, at));
+      at += part.length;
+    }
+    // the line break the split took out
+    at++;
+  }
+  return box(outer, ...rows);
+}
+
+/**
+ * One row of a highlighted code block, as runs of cells that share a token.
+ *
+ * A cluster takes the token of the code unit it starts at, which is `diff()`'s
+ * rule: a span that ends inside a cluster cannot colour half of one cell.
+ *
+ * @param part - The row's text.
+ * @param tokens - The token of every code unit of the block.
+ * @param at - Where the row starts in the block.
+ * @returns The row.
+ */
+function codeRow(part: string, tokens: readonly (string | undefined)[], at: number): Element {
+  const runs: { text: string; token: string | undefined }[] = [];
+  let offset = at;
+  for (const cluster of graphemes(part)) {
+    const token = tokens[offset];
+    const last = runs.at(-1);
+    if (last && last.token === token) {
+      last.text += cluster;
+    } else {
+      runs.push({ text: cluster, token });
+    }
+    offset += cluster.length;
+  }
+  if (runs.length === 0) {
+    // an empty text, so an empty line keeps its row
+    runs.push({ text: '', token: undefined });
+  }
 
   return box(
-    { class: 'sigil-markdown-code-block', 'flex-direction': 'column', 'padding-left': 2 },
-    textNode(lines.join('\n'), {
-      class: 'sigil-markdown-code sigil-accent',
-      'white-space': 'pre',
+    { class: 'sigil-markdown-code-row', 'flex-direction': 'row', 'flex-shrink': 0 },
+    ...runs.map(({ text, token }) => {
+      // a token with no role, an app's own, is the plain foreground with a class
+      // for the app's sheet; a role replaces nothing, since nothing else is set
+      const role = token === undefined ? undefined : TOKEN_ROLE.get(token);
+      const classes = ['sigil-markdown-code'];
+      if (token !== undefined) {
+        classes.push('sigil-token', `sigil-token-${token}`);
+      }
+      if (role !== undefined) {
+        classes.push(role);
+      }
+      return textNode(text, {
+        class: classes.join(' '),
+        'flex-shrink': 0,
+        'white-space': 'pre',
+        width: stringWidth(text),
+      });
     })
   );
 }
