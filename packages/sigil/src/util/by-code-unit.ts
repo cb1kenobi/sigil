@@ -12,10 +12,19 @@
  * every collation -- which is what lets a test tell the two apart without
  * setting one.
  *
+ * It is the answer for a list a person reads as well, which is help's command
+ * list and the palette's base order: one app's help should not list in two
+ * orders on two machines either, and whether a list follows its reader's
+ * language is the locale-aware sorting `src/i18n/AGENTS.md` records as out of
+ * scope. See "Help sorts commands" in `src/help/AGENTS.md`.
+ *
  * One function rather than one per caller, because two spellings of one rule is
- * how they come to disagree: the route walk, the completion spec and the
- * command surface all order the same registries, and each used to say how
- * separately.
+ * how they come to disagree: the route walk, the completion spec, the command
+ * surface, help and the palette all order the same registries, and each used to
+ * say how separately. The toolchain imports this one too, from
+ * `@ttylabs/sigil/reference`, rather than keeping a copy: it is the order that
+ * subpath's surface is written in, and the toolchain's reference, `sigil add`'s
+ * listing and the build report sort with it.
  *
  * @param a - One string.
  * @param b - The other.

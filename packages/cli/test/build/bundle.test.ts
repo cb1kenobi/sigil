@@ -1,4 +1,4 @@
-import { bundleApp, rawJsxIn, undo } from '../../src/build/bundle.js';
+import { bundleApp, inlinedPackages, rawJsxIn, undo } from '../../src/build/bundle.js';
 import { discoverApp, readAppCommands } from '../../src/build/discover.js';
 import { parseModule } from '../../src/build/parse-module.js';
 import { resolveCommandTree } from '../../src/build/tree.js';
@@ -1002,5 +1002,36 @@ describe('recognising JSX in what was written', () => {
     writeFileSync(join(dir, 'notes.map'), 'const a = <text>x</text>;\n');
 
     expect(rawJsxIn(dir, [{ fileName: 'notes.map', type: 'asset' }])).toBeUndefined();
+  });
+});
+
+describe('the inlined packages', () => {
+  it('should break a tie in size by code unit, not by the process locale', () => {
+    // SIG-238. Largest first, and two packages of exactly one size are what
+    // the tie-break decides -- which a real bundle produces only by
+    // coincidence, so this hands it an output rather than building one. No
+    // collation puts `B` before `a` or `a-b` before `a_b`, and code-unit order
+    // puts both first, so this fails under `localeCompare` on every machine.
+    // `B` is not a name npm would publish, but a manifest's `name` is read as
+    // written, and the hyphen and the underscore are both names it would
+    const root = tempDir('sigil-inlined-order-');
+    const modules: Record<string, { renderedLength: number }> = {};
+
+    for (const [name, size] of [
+      ['a_b', 10],
+      ['a', 10],
+      ['big', 20],
+      ['a-b', 10],
+      ['B', 10],
+    ] as const) {
+      const dir = join(root, 'node_modules', name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name }));
+      modules[join(dir, 'index.js')] = { renderedLength: size };
+    }
+
+    const found = inlinedPackages(root, join(root, 'entry.js'), [{ modules, type: 'chunk' }]);
+
+    expect(found.map(({ name }) => name)).toEqual(['big', 'B', 'a', 'a-b', 'a_b']);
   });
 });

@@ -17,3 +17,8 @@ export {
   type SurfaceExample,
   type SurfaceOption,
 } from './surface.js';
+
+// the order the surface is written in, published so that the toolchain sorts
+// the reference it prints, and everything else it lists, with this function
+// rather than a copy of it -- a copy is how two orders come to disagree
+export { byCodeUnit } from '../util/by-code-unit.js';

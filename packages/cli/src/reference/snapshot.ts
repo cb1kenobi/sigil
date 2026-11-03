@@ -38,7 +38,12 @@
  * refresh it without reading it.
  */
 
-import type { CommandSurface, SurfaceCommand, SurfaceOption } from '@ttylabs/sigil/reference';
+import {
+  byCodeUnit,
+  type CommandSurface,
+  type SurfaceCommand,
+  type SurfaceOption,
+} from '@ttylabs/sigil/reference';
 
 /** A JSON value, which is what the snapshot is made of. */
 type Json = Json[] | boolean | number | string | { [key: string]: Json } | null;
@@ -88,18 +93,6 @@ function sortKeys(value: Json): Json {
  */
 function ordered(values: readonly string[]): string[] {
   return [...values].sort();
-}
-
-/**
- * Two strings by UTF-16 code unit, which is `Array.sort()`'s own default said
- * out loud for the two places that sort by a key rather than by the string.
- *
- * @param a - One string.
- * @param b - The other.
- * @returns The ordering.
- */
-function byCodeUnit(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /**

@@ -117,10 +117,45 @@ the entry it belongs to.
   command's `InternalState` -- and what a help hook wants under that name is the
   parse state. The registries worth having are named instead.
 - **Help sorts commands and does not sort options.** Options are registered in
-  the order the schema wrote them. Commands are registered as their
-  initialization resolves, and one with subcommands of its own resolves after
-  its siblings, so the registry's order is not the schema's and sorting is the
-  only stable thing to print.
+  the order the schema wrote them. Commands used to be registered as their
+  initialization resolved, so one with subcommands of its own landed after its
+  siblings and sorting was the only stable thing to print. SIG-230 made a
+  registry's order its declaration order, so that reason is gone, and the sort
+  stays for the ones that are left. A registry is not only the schema's: the
+  parser appends `help` and `completion` after the app's commands, a hook's
+  `commands.add()` appends wherever it runs, and a routed directory has no
+  declaration order to keep, only the walk's own sort. And a sorted list is the
+  one a reader can scan for a name. Printing declaration order instead would
+  change every app's help screen, which is a decision of its own rather than a
+  correction to this entry.
+- **And it sorts by code unit, not by `localeCompare`.** SIG-238. `localeCompare`
+  reads the process locale, so one app's help listed in two orders on two
+  machines -- the defect SIG-235 fixed for the route walk and the generated
+  output, here on a screen rather than in a file. `path.ts` and the table's
+  default sort already order a list a person reads by code unit for that reason,
+  and `src/i18n/AGENTS.md` records locale-aware sorting as out of scope. It is
+  `byCodeUnit()`, and the palette's catalog uses it too, since its base order is
+  help's. What that does to a name is put upper case before lower -- `B` before
+  `a` -- and `-` before `_`, so `a-b` before `a_b`. No collation agrees with
+  either, which is how `should sort the commands by code unit` fails under
+  `localeCompare` on any machine rather than only on one set to a language that
+  happens to disagree.
+
+  It is not the speed-up it looks like, and the measurement is why. The first
+  `localeCompare` in a cold process costs about 4 ms and `--help` paid it --
+  3.76 to 3.97 ms in-process, over the 19 calls one screen of eight commands
+  makes. But that cost is ICU loading, and ICU is shared: the wrapper builds an
+  `Intl.Segmenter` to measure help's text, ASCII or not, and once
+  `localeCompare` stops paying the load the segmenter does -- 1.3 to 1.4 ms
+  before this change and 4.9 ms after. So what it saves is the collator's own
+  share. Interleaved over 100 pairs of `--help` on an app of eight commands,
+  node 26.10.0 on macOS, as of SIG-238: a minimum of 44.75 ms before and 44.32
+  ms after, a median of 46.63 ms and 46.45 ms. Two earlier runs of 60 pairs
+  agree, at medians of 47.25 against 46.97 and 47.58 against 47.15. A quarter
+  to half a millisecond, then: the change stands on the order, and the 4 ms is
+  there for whoever gives the wrapper's measurement an ASCII path that never
+  builds a segmenter.
+
 - **A lazily loaded command appears in help by name alone** until its module is
   read, because its description and its `hidden` are in that module. Hiding one
   is what the `!` name prefix is for. `help <command>` does load the module,

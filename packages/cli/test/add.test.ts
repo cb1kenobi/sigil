@@ -272,6 +272,36 @@ describe('the command, end to end', () => {
     expect(result.stdout).toContain('restyled with an');
   });
 
+  it('should list the entries by code unit, not by the process locale', () => {
+    // SIG-238. A registry of its own in place of the real one, because no entry
+    // the framework ships is one two orders disagree about: no collation puts
+    // `B` before `a` or `a-b` before `a_b`, and code-unit order puts both
+    // first, so this fails under `localeCompare` on every machine. Each row is
+    // found by its description, and `[a]` is not inside `[a-b]`
+    const pkg = join(root, 'node_modules', '@ttylabs', 'sigil');
+    rmSync(pkg, { force: true, recursive: true });
+    mkdirSync(join(pkg, 'registry'), { recursive: true });
+    writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: '@ttylabs/sigil' }));
+    const entries = Object.fromEntries(
+      ['a_b', 'a', 'a-b', 'B'].map((name) => [name, { desc: `[${name}]`, files: [] }])
+    );
+    writeFileSync(
+      join(pkg, 'registry', 'registry.json'),
+      JSON.stringify({ entries, version: '0.0.0' })
+    );
+
+    const result = run('add');
+    expect(result.status).toBe(0);
+    const at = (name: string) => result.stdout.indexOf(`[${name}]`);
+    expect(['B', 'a', 'a-b', 'a_b'].map(at).every((index) => index !== -1)).toBe(true);
+    expect(['a_b', 'a', 'a-b', 'B'].sort((x, y) => at(x) - at(y))).toEqual([
+      'B',
+      'a',
+      'a-b',
+      'a_b',
+    ]);
+  });
+
   it('should copy a component in', () => {
     const result = run('add', 'spinner', '--yes');
     expect(result.status).toBe(0);
