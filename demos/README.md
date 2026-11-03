@@ -549,10 +549,14 @@ below having the keys again.
 arrows move along the list and Tab, the router's default, works as well. The field joins the dialog's trap,
 so Tab cycles through it and the two buttons; Enter in the field renames, because it
 was given `onSubmit`; and Escape still dismisses, because Tab and Escape are never
-the field's. The app registered a paste handler of its own at startup, and a paste
-on the list reaches it -- while a paste with the field focused goes into the field
-and the app's handler never hears of it. Piped, a scripted keyboard drives the same
-tree and the focus is said in words, since the caret is an inverse cell a pipe drops.
+the field's. The field is on a grey background of its own, so `parser.ts` in the
+dialog reads as something to edit before the caret appears -- bright black on a dark
+terminal, white on a light one. The app registered a paste handler of its own at
+startup, and a paste on the list reaches it -- while a paste with the field focused
+goes into the field and the app's handler never hears of it. Piped, a scripted
+keyboard drives the same tree and the focus is said in words, since the caret is an
+inverse cell a pipe drops -- and so is the field's background, so the demo also
+prints the dialog's field row at colour level 1, where it is.
 
 `51-toast.js` is the same list with `s` saving the row you are on and `e` pretending
 the save failed, each saying so in a toast -- bottom-right by default, and `c` moves

@@ -80,8 +80,14 @@ the entry it belongs to.
   row is the focusable element and the active label is the one thing its keys
   change, so only that label shows the focus. The ninth (SIG-215) is the text
   field's caret, `inverse` a fifth time under the field's `:focus`: a form holds
-  several fields and only the one the keys go to may show a caret. `should
-  declare on a role, bar nine exceptions that say why` is the invariant, and it
+  several fields and only the one the keys go to may show a caret. The tenth
+  (SIG-218) is the text field's **background**, `.sigil-text-field`, the overlay's
+  reason a second time -- no role is a background -- with a different pair for a
+  different job: the overlay has to be opaque over the app, a field has to be
+  distinct from the box around it, so it is index 8 on a dark terminal and 7 on a
+  light one where the overlay is 0 and 7. The decisions and the measurement behind
+  the pair are under "A text field at rest" in `src/components`. `should
+  declare on a role, bar ten exceptions that say why` is the invariant, and it
   reads the **parsed** sheet rather than the source, because the comment listing
   the component classes as hooks would otherwise be mistaken for a rule. It was
   three until SIG-136, and the sentence here still said three for a commit after
