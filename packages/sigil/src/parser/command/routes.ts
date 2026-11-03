@@ -25,6 +25,7 @@
  * it is about to match.
  */
 
+import { byCodeUnit } from '../../util/by-code-unit.js';
 import { type Dirent, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, parse } from 'node:path';
 
@@ -423,8 +424,11 @@ export function resolveRoutes(dir: string, entries: Dirent[]): readonly Route[] 
 
   // sorted, because `readdir` order is the file system's, and a registry whose
   // order depends on that is the thing `CommandRegistry.add()` already sorts
-  // names to avoid reporting
-  for (const entry of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
+  // names to avoid reporting. By code unit, because a sort that reads the
+  // process locale is the same defect one step along: `localeCompare` puts
+  // `ä.js` before `z.js` under `de` and after it under `sv`, so one tree could
+  // register in two orders on two machines
+  for (const entry of [...entries].sort((a, b) => byCodeUnit(a.name, b.name))) {
     const route = entryRoute(dir, entry);
     if (!route) {
       continue;

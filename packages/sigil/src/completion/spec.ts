@@ -41,6 +41,7 @@
 import { labelNames } from '../parser/command/label.js';
 import { loadCommand } from '../parser/command/load-command.js';
 import { Internal, type InternalCommand, type InternalOption, type Schema } from '../types.js';
+import { byCodeUnit } from '../util/by-code-unit.js';
 import { registerable } from './install.js';
 
 /** Where the tree is, which is what a parse already produced. */
@@ -673,7 +674,10 @@ export async function completionSpec(target: CompletionTarget): Promise<Completi
      */
     let fallback: InternalCommand | undefined;
 
-    const children = [...registry.values()].sort((a, b) => a.name.localeCompare(b.name));
+    // by code unit rather than by `localeCompare`, which reads the process
+    // locale: a generated script is bytes somebody installs, diffs and commits,
+    // and the same app's must not come out in two orders on two machines
+    const children = [...registry.values()].sort((a, b) => byCodeUnit(a.name, b.name));
 
     for (const child of children) {
       if (seen.has(child)) {
@@ -748,9 +752,10 @@ export async function completionSpec(target: CompletionTarget): Promise<Completi
   await walk(root, [], []);
 
   // parents before children, which is the order a reader of the script expects
-  // and is not what the walk produces -- it pushes on the way back up
+  // and is not what the walk produces -- it pushes on the way back up. Within a
+  // depth by code unit, for the reason the walk's own sort gives
   commands.sort(
-    (a, b) => a.path.length - b.path.length || a.path.join(' ').localeCompare(b.path.join(' '))
+    (a, b) => a.path.length - b.path.length || byCodeUnit(a.path.join(' '), b.path.join(' '))
   );
 
   return { commands, program };

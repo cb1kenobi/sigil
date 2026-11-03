@@ -421,10 +421,14 @@ describe('a reference with nowhere to go', () => {
     expect(parsed(result.stderr, docs)).toBe(docs);
   });
 
-  it('should quote an argument a shell would expand inside double quotes', () => {
-    // the pair `JSON.stringify` could not hold: `$` and a backtick expand
-    // inside double quotes and not inside single ones. Found by review
-    for (const name of ['foo$HOME', 'foo`echo PWNED`', "foo'quote", '=out']) {
+  // the pair `JSON.stringify` could not hold: `$` and a backtick expand inside
+  // double quotes and not inside single ones. Found by review. One case per name
+  // rather than a loop, because each is four process spawns: a loop of sixteen
+  // took about 2.5s on a macOS runner and over 10s on a slow one, which timed it
+  // out on a branch that had not touched the toolchain
+  it.each(['foo$HOME', 'foo`echo PWNED`', "foo'quote", '=out'])(
+    'should quote an argument a shell would expand inside double quotes: %s',
+    (name) => {
       const dir = tempApp();
       const docs = join(dir, name);
 
@@ -433,15 +437,15 @@ describe('a reference with nowhere to go', () => {
 
       const result = run(['reference', dir, '--out', docs, '--check']);
 
-      expect(result.status, name).toBe(1);
-      expect(parsed(result.stderr, docs), name).toBe(docs);
+      expect(result.status).toBe(1);
+      expect(parsed(result.stderr, docs)).toBe(docs);
       // **zsh** as well, which is the shell this diagnostic is pasted into by
       // default and the one that expands an unquoted word beginning with `=`:
       // measured, `=out` is passed as `/bin/ls`'s directory there and as `=out`
       // in bash, so bash alone could not see it. Found by review
-      expect(parsed(result.stderr, docs, 'zsh'), name).toBe(docs);
+      expect(parsed(result.stderr, docs, 'zsh')).toBe(docs);
     }
-  });
+  );
 
   it('should name the entry it was given, which decides what it would write', () => {
     // without it the command printed regenerates the *conventional* entry, so a

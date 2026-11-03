@@ -1372,6 +1372,21 @@ describe('a line selectKey()', () => {
 });
 
 describe('the six line forms SIG-227 added', () => {
+  // a directory of its own for path(), whose Tab and drawn list both read one:
+  // the working directory is whatever the runner was started in. Two names that
+  // share nothing, so the first Tab adds nothing and `a` then Tab completes
+  let fixture: string;
+
+  beforeEach(async () => {
+    fixture = await mkdtemp(join(tmpdir(), 'sigil-accessible-forms-'));
+    await writeFile(join(fixture, 'alpha.txt'), '');
+    await writeFile(join(fixture, 'beta.txt'), '');
+  });
+
+  afterEach(async () => {
+    await rm(fixture, { force: true, recursive: true });
+  });
+
   // each asked through a refusal and an answer, which is the most a line form
   // writes, and held to the same bytes rule as the first six
   it.each([
@@ -1397,10 +1412,13 @@ describe('the six line forms SIG-227 added', () => {
         path({
           accessible: true,
           message: 'Q',
+          root: fixture,
           terminal: ui.terminal,
           validate: (v) => (v ? undefined : 'No'),
         }),
       [TAB, ENTER, 'a', TAB, ENTER],
+      // only the fixture completes `a` to this, so a row that read anywhere else fails
+      () => join(fixture, 'alpha.txt'),
     ],
     [
       'maskedText',
@@ -1424,15 +1442,19 @@ describe('the six line forms SIG-227 added', () => {
         }),
       ['x', ENTER, CTRL_U, 'a', ENTER],
     ],
-  ] as [string, (ui: ScreenHarness) => Promise<unknown>, string[]][])(
+  ] as [string, (ui: ScreenHarness) => Promise<unknown>, string[], (() => unknown)?][])(
     'should write no escape sequence from %s() but the paste markers',
-    async (_, ask, keys) => {
+    async (_, ask, keys, answered) => {
       const ui = lines();
       const answer = settle(ask(ui));
 
       await type(ui.stdin, ...keys);
 
-      expect((await answer).error).toBeUndefined();
+      const settled = await answer;
+      expect(settled.error).toBeUndefined();
+      if (answered) {
+        expect(settled.value).toBe(answered());
+      }
       expect(sequences(ui)).toEqual([]);
       expect(ui.stdin.rawMode).toBe(false);
     }
@@ -1450,7 +1472,7 @@ describe('the six line forms SIG-227 added', () => {
           case 'list':
             return list(base);
           case 'path':
-            return path(base);
+            return path({ ...base, root: fixture });
           case 'maskedText':
             return maskedText({ ...base, template: '#' });
           case 'toggle':

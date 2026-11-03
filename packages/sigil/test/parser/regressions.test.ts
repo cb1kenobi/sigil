@@ -2,7 +2,7 @@ import type { CommandRegistry } from '../../src/parser/command/command-registry.
 import { initCommand } from '../../src/parser/command/init-command.js';
 import { loadCommand } from '../../src/parser/command/load-command.js';
 import { parse } from '../../src/parser/parse.js';
-import { Argument, Internal } from '../../src/types.js';
+import { Argument, Internal, type InternalCommand } from '../../src/types.js';
 import { camelCase } from '../../src/util/camel-case.js';
 import { daysInMonth } from '../../src/util/transform.js';
 import { existsSync } from 'node:fs';
@@ -2036,6 +2036,202 @@ describe('regressions', () => {
         },
       });
       expect(result.cmd?.name).to.equal('boat');
+    });
+
+    it("should not refuse it through a topic walk, whose write-back is the placeholder's", async () => {
+      // the walk used to write the loaded command back with `add()`, which asks
+      // with the module's own name as the slot, so `ship` read as a sibling's
+      // and this was refused. It is `replace()` now, which places rather than
+      // registers, and `loadCommand()` has already asked with the right slot
+      const result = await parse({
+        argv: ['db:ship:up'],
+        schema: {
+          commands: {
+            db: {
+              commands: {
+                other: { run },
+                ship: {
+                  commands: { up: { run } },
+                  load: () => Promise.resolve({ default: { alias: 'ship', name: 'boat' } }),
+                },
+              },
+            },
+          },
+          topicSeparator: ':' as const,
+        },
+      });
+      expect(result.cmd?.name).to.equal('up');
+      expect(result.contexts.map((cmd) => cmd.name)).to.include('boat');
+    });
+  });
+
+  describe("a loaded command moved to the end of its parent's registry", () => {
+    // the module *is* the placeholder's declaration, so a loaded command sits
+    // where the placeholder was declared: a spelling it shares with a sibling
+    // goes to whichever of the two was declared later, which is SIG-230's rule
+    // with "later" meaning the source. Every collision here is between two
+    // *aliases*, never an alias and a name
+    const run = (): void => {};
+    const quiet = { completion: false, help: false, quiet: false } as const;
+
+    // `[target]` is where a refused `:` path lands, and a refused path is the
+    // one that loads a command and then goes on to match at the same level --
+    // which is the only way a later token in the same parse sees what the walk
+    // wrote back. Every command takes one, since the token stays argv's
+    const args = ['[target]'];
+    const topic = { ...quiet, args, topicSeparator: ':' as const };
+    const db = (mod: Record<string, unknown>) => ({
+      load: () => Promise.resolve({ default: { args, commands: { migrate: { run } }, ...mod } }),
+    });
+
+    describe('through a : topic walk', () => {
+      it('should leave a sibling declared later the alias the module shares with it', async () => {
+        const schema = {
+          ...topic,
+          commands: { db: db({ alias: 'x' }), other: { alias: 'x', args, run } },
+        };
+
+        const result = await parse({ argv: ['db:bogus', 'x'], schema });
+        expect(result.argv.target).to.equal('db:bogus');
+        expect(result.cmd?.name).to.equal('other');
+      });
+
+      it('should leave a sibling declared later the alias the placeholder lost to it', async () => {
+        // the placeholder's own spellings were settled when the schema was
+        // built, and loading it is not a reason to settle them again
+        const schema = {
+          ...topic,
+          commands: { db: { alias: 'x', ...db({}) }, other: { alias: 'x', args, run } },
+        };
+
+        const result = await parse({ argv: ['db:bogus', 'x'], schema });
+        expect(result.cmd?.name).to.equal('other');
+      });
+
+      it('should give the module an alias it shares with a sibling declared earlier', async () => {
+        // the other half of declaration order, so that a fix which simply
+        // never registered a module's aliases does not pass the two above
+        const schema = {
+          ...topic,
+          commands: { other: { alias: 'x', args, run }, db: db({ alias: 'x' }) },
+        };
+
+        const result = await parse({ argv: ['db:bogus', 'x'], schema });
+        expect(result.cmd?.name).to.equal('db');
+        expect(result.cmd?.[Internal].loaded).to.equal(true);
+      });
+
+      it('should do the same for a command a subcommandLoaded hook replaced', async () => {
+        const result = await parse({
+          argv: ['db:bogus', 'x'],
+          schema: {
+            ...topic,
+            commands: { db: db({}), other: { alias: 'x', args, run } },
+            hooks: {
+              subcommandLoaded: () => ({ alias: 'x', args, commands: { migrate: { run } } }),
+            },
+          },
+        });
+        expect(result.cmd?.name).to.equal('other');
+      });
+
+      it('should keep declaration order when the module renames the command', async () => {
+        const schema = {
+          ...topic,
+          commands: { db: db({ name: 'database' }), other: { run } },
+        };
+
+        const result = await parse({ argv: ['db:bogus'], schema });
+        const registry = result.contexts[0][Internal].commands;
+        expect([...registry.keys()]).to.deep.equal(['database', 'other']);
+        // the spelling the placeholder was reached by still reaches it
+        expect(registry.find('db')?.name).to.equal('database');
+        expect(registry.find('db')?.[Internal].loaded).to.equal(true);
+      });
+    });
+
+    describe('through an ordinary match', () => {
+      // there was never a write-back here, so the registry kept the
+      // placeholder marked loaded and never learned the module's aliases --
+      // a different registry from the one the `:` walk left for the same
+      // load. Both go through `CommandRegistry.replace()` now
+      it('should leave the registry holding the loaded command, in its place', async () => {
+        const schema = {
+          ...quiet,
+          commands: { first: { run }, db: db({ alias: 'x' }), other: { alias: 'x', run } },
+        };
+
+        const result = await parse({ argv: ['db', 'migrate'], schema });
+        const registry = result.contexts.at(-1)![Internal].commands;
+        expect([...registry.keys()]).to.deep.equal(['first', 'db', 'other']);
+        expect(registry.get('db')).to.equal(result.contexts[1]);
+        expect(registry.find('x')?.name).to.equal('other');
+      });
+
+      it('should give the module an alias it shares with a sibling declared earlier', async () => {
+        const schema = {
+          ...quiet,
+          commands: { other: { alias: 'x', run }, db: db({ alias: 'x' }) },
+        };
+
+        const result = await parse({ argv: ['db', 'migrate'], schema });
+        const registry = result.contexts.at(-1)![Internal].commands;
+        expect(registry.find('x')).to.equal(result.contexts[1]);
+      });
+
+      it('should keep declaration order when the module renames the command', async () => {
+        const schema = { ...quiet, commands: { db: db({ name: 'database' }), other: { run } } };
+
+        const result = await parse({ argv: ['db', 'migrate'], schema });
+        const registry = result.contexts.at(-1)![Internal].commands;
+        expect([...registry.keys()]).to.deep.equal(['database', 'other']);
+        expect(registry.find('db')).to.equal(result.contexts[1]);
+      });
+
+      it('should leave alone a command a hook registered under that name during the load', async () => {
+        // the load is the parent's to announce, and a hook that registers a
+        // `db` of its own has said what `db` is -- there is no placeholder left
+        // in the registry for the loaded command to take the place of
+        const own = await initCommand({ desc: 'the hook', name: 'db', run });
+        const schema = {
+          ...quiet,
+          commands: { db: db({}), other: { run } },
+          hooks: {
+            subcommandLoaded: ({ parent }: { parent: InternalCommand }) => {
+              parent[Internal].commands.add(own);
+            },
+          },
+        };
+
+        const result = await parse({ argv: ['db', 'migrate'], schema });
+        expect(result.contexts.at(-1)![Internal].commands.get('db')).to.equal(own);
+      });
+
+      it('should do the same for a default command', async () => {
+        const schema = {
+          ...quiet,
+          commands: { other: { alias: 'x', run }, db: { default: true, ...db({ alias: 'x' }) } },
+        };
+
+        const result = await parse({ argv: [], schema });
+        const registry = result.contexts.at(-1)![Internal].commands;
+        expect(result.cmd?.name).to.equal('db');
+        expect(registry.find('x')).to.equal(result.cmd);
+        expect(registry.default).to.equal(result.cmd);
+      });
+
+      it('should do the same for a command the help command loaded', async () => {
+        const schema = {
+          commands: { first: { run }, db: db({ alias: 'x' }), other: { alias: 'x', run } },
+        };
+
+        const result = await parse({ argv: ['help', 'db'], schema });
+        const registry = result.contexts.at(-1)![Internal].commands;
+        expect(registry.get('db')?.[Internal].loaded).to.equal(true);
+        expect(registry.get('db')).to.equal(result.help?.contexts[0]);
+        expect([...registry.keys()].slice(0, 3)).to.deep.equal(['first', 'db', 'other']);
+        expect(registry.find('x')?.name).to.equal('other');
+      });
     });
   });
 });

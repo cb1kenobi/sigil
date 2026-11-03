@@ -478,7 +478,11 @@ merged in, but it cannot resolve the command — the parser has to match the
 command before it can load the module that declares the alias, so a name a user
 is expected to type belongs on the placeholder. One that is a sibling's name
 throws when the module loads, with the error a placeholder declaring it would
-have raised while the schema was built.
+have raised while the schema was built. Otherwise, once the module has loaded,
+the command takes the placeholder's place among its siblings: the same position,
+every spelling the placeholder answered to, and an alias the module adds is
+settled by declaration order like any other, so a sibling declared later keeps
+a spelling it shares.
 
 #### A module as a function
 

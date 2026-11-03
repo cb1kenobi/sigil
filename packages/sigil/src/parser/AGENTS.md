@@ -1000,7 +1000,10 @@ resolution.
   no `run`, the shape this file already calls worse than an error. So the
   loaded command goes back into its parent's registry, which is the mutation a
   `parse` hook is already handed and which carries the placeholder's aliases,
-  label and `default` across. It is also what keeps `subcommandLoaded` firing
+  label and `default` across. It goes back **in the placeholder's place**,
+  through `CommandRegistry.replace()` -- it was an `add()`, which is a
+  registration and so the latest one, and that is "Siblings register in
+  declaration order" below undone for the rest of the parse. It is also what keeps `subcommandLoaded` firing
   exactly once, since the registry hands the loaded command over and nothing
   loads it again.
 
@@ -1164,7 +1167,12 @@ resolution.
   replacement, because a module's own aliases are only known then. Asked before
   the load is marked done, so a refused module is refused again the next time it
   is matched, and before any caller writes the loaded command back, so the
-  answer does not depend on how the write-back is done. `slot` is the
+  answer does not depend on how the write-back is done. That is also why
+  `replace()`, SIG-236's write-back, does not ask again: a call there was tried
+  when the two met, and deleting it failed nothing, so it would have been a guard
+  no test can tell from an absent one. The `:` walk's old `add()` write-back was
+  what refused a renamed module keeping its own name as an alias, and `should
+  not refuse it through a topic walk` pins that `replace()` does not. `slot` is the
   placeholder's name: that entry is the command's own former self rather than a
   sibling, which is what lets a module rename itself and keep the placeholder's
   name as an alias. A module that renames its command onto a sibling's **name**
@@ -1189,6 +1197,56 @@ resolution.
   timer fires only after every microtask, and an inline declaration is nothing
   but microtasks, so the test is about the order and not about how fast a
   machine is.
+- **And that sorted order is by code unit, because `localeCompare` reads the
+  process locale.** `resolveRoutes()` sorted with it, so one tree could register
+  in two orders on two machines -- `localeCompare` puts `ä` before `z` under
+  `de` and after it under `sv` -- and the completion spec's two sorts made a
+  generated script's bytes depend on the same setting. Both now use
+  `byCodeUnit()` from `src/util/by-code-unit.ts`, which is the one the command
+  surface already had for the committed reference; one function rather than
+  three, since two spellings of one rule is how they disagree. The line is
+  _what a machine reads_: an order that decides registration, or bytes that are
+  generated, committed, compared or snapshot-tested. Help's command list, the
+  palette's catalog, `sigil add`'s listing and the build's inlined-package tie
+  break are read by a person, are neither committed nor compared, and were left
+  on `localeCompare`: whether a person's list follows their locale is its own
+  question, and not this one. The tests use `B` against `a` and `a-b` against
+  `a_b`, which every collation orders the other way, so they fail under
+  `localeCompare` on any machine rather than only on one set to a language that
+  disagrees.
+- **A loaded command keeps its placeholder's place, which is where it was
+  declared.** SIG-236. A `:` walk recorded what it loaded with
+  `commands.add(loaded)`, and `add()` is a registration: every spelling the
+  command names is claimed over whoever held it. So a loaded command was the
+  latest registration in its parent, and `{ db: { alias: 'x', load }, other: {
+  alias: 'x' } }` gave `x` to `other` until `db:bogus` had loaded `db`, and to
+  `db` for the rest of that parse. A module renaming the command was the
+  visible half of it -- the loaded command was keyed again at the **end** and
+  the placeholder left where it was, marked loaded, so iterating the registry
+  listed both. `CommandRegistry.replace(placeholder, loaded)` is the write-back
+  now: the same key position (re-keyed in place on a rename, with every
+  spelling that reached the placeholder reaching the renamed command), every
+  spelling the placeholder won kept, and a spelling only the module names
+  settled the way it would have been had the module been read when the schema
+  was built -- taken from a sibling declared earlier, left with one declared
+  later. A registry that no longer holds the placeholder under that name is
+  left alone: something registered a command there during the load, and that
+  is the answer to what the name is.
+- **Every load writes back, through that one operation.** The ordinary match,
+  the `default` dispatch and `help <command>` used to write nothing, so after
+  the same load the registry held the loaded command if argv had spelled it
+  `db:migrate` and the placeholder if it had spelled it `db migrate` -- two
+  registries for one event, and the second is the placeholder-marked-loaded
+  shape the `:` section records as worse than an error. All four call
+  `replace()` when `loadCommand()` hands back a different object, which is
+  also what a `subcommandLoaded` replacement is. A directory command's own
+  level is not a write-back -- `loadCommandDir()` registers the routes it found
+  for the first time, sorted -- and the completion spec and the surface walk
+  load without writing back on purpose: they read the registry's own answer
+  for who owns a token while iterating it, and they are the last reader.
+  Pinned in `a loaded command moved to the end of its parent's registry` in
+  `test/parser/regressions.test.ts`; every collision there is between two
+  aliases.
 
 ### Sharing options between commands
 
