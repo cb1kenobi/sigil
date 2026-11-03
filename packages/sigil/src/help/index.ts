@@ -7,6 +7,7 @@ import {
   type TextRun,
 } from '../element/index.js';
 import { __, __n } from '../i18n/index.js';
+import type { CommandRegistry } from '../parser/command/command-registry.js';
 import { labelNames } from '../parser/command/label.js';
 import type { OptionRegistry } from '../parser/option/option-registry.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
@@ -171,8 +172,14 @@ export function helpView(target: HelpTarget, opts: HelpOptions = {}): Element {
   const inherited = withoutTwins(shown(reachable));
   const args = internal.args;
   // the names help may print, less the one the usage line already names -- and
-  // a name that is nothing but an alias, `'@b'`, is that one
-  const aliases = labelNames(cmd).filter((alias) => alias !== cmd.name);
+  // a name that is nothing but an alias, `'@b'`, is that one. Asked of the
+  // parent's registry, which is what says whether a name still runs this
+  // command; the root has no parent and no aliases block either
+  const parent = contexts[1];
+  const aliases =
+    parent === undefined
+      ? []
+      : labelNames(cmd, parent[Internal].commands).filter((alias) => alias !== cmd.name);
 
   const blocks: Element[] = [
     usageLine({
@@ -207,7 +214,13 @@ export function helpView(target: HelpTarget, opts: HelpOptions = {}): Element {
   }
 
   if (commands.length > 0) {
-    blocks.push(section(__`Commands:`, commands.map(commandRow), list));
+    blocks.push(
+      section(
+        __`Commands:`,
+        commands.map((child) => commandRow(child, internal.commands)),
+        list
+      )
+    );
   }
 
   if (args.length > 0) {
@@ -386,13 +399,15 @@ function argSpelling(arg: InternalArgument): string {
 
 /**
  * A command's row. Aliases share the row rather than taking one of their own,
- * because they are the same command.
+ * because they are the same command -- and only the aliases that still run it,
+ * since a sibling declared later may have taken one.
  *
  * @param cmd - The command.
+ * @param registry - The registry holding it.
  * @returns The row.
  */
-function commandRow(cmd: InternalCommand): Definition {
-  return { desc: cmd.desc ? [cmd.desc] : undefined, label: labelNames(cmd).join(', ') };
+function commandRow(cmd: InternalCommand, registry: CommandRegistry): Definition {
+  return { desc: cmd.desc ? [cmd.desc] : undefined, label: labelNames(cmd, registry).join(', ') };
 }
 
 /**

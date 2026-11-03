@@ -136,6 +136,27 @@ const schema = {
 };
 ```
 
+Help only lists a name beside a command that name runs, so the command that
+lost a shared alias stops listing it — in the `Commands:` list, in its own
+`Alias:` block, in the completion menu and in the markdown reference alike:
+
+```js
+const schema = {
+  commands: {
+    'build, go': {},
+    'ship, go': {},
+  },
+};
+// Commands:
+//   build
+//   ship, go
+```
+
+Which command owns a spelling is read when the listing is drawn, so it follows
+a lazily loaded module: a module that brings `'ship, go'` as its own name string
+takes `go` from an earlier `build` once it has loaded, and from then on `build`
+is listed without it. Until it loads, `go` still runs `build`, and help says so.
+
 Inline arguments cannot be combined with an `args` array on the same command;
 declaring both throws.
 

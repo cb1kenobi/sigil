@@ -216,6 +216,28 @@ describe('the commands section', () => {
     ]);
   });
 
+  // SIG-239: two siblings may share an alias and the later declaration wins
+  // it, so `go` runs `ship` here -- and help printed it beside `build` too,
+  // because the label was read off the name string without asking the registry
+  // who the name runs
+  it('should leave an alias a later sibling won out of the label', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: {
+        'build, go': { desc: 'Build it' },
+        'ship, go': { desc: 'Ship it' },
+        'deploy, d': { desc: 'Deploy it' },
+        test: { alias: 'd', desc: 'Test it' },
+      },
+    };
+    expect(sectionOf(await help(schema), 'Commands')).toEqual([
+      '  build     Build it',
+      '  deploy    Deploy it',
+      '  ship, go  Ship it',
+      '  test      Test it',
+    ]);
+  });
+
   // the label keeps the order the name string was written in, which is the
   // order `parseName()` has always recorded it in
   it('should print the labels in the order the name string wrote them', async () => {
@@ -492,6 +514,23 @@ describe('aliases', () => {
     const text = await help(schema, ['build']);
     expect(text).toContain('Usage: mycli build');
     expect(text).not.toContain('Alias');
+  });
+
+  // SIG-239: the block is help too, so a command that lost an alias to a later
+  // sibling does not claim it on its own screen, and the sibling does
+  it('should leave an alias a later sibling won out of the aliases block', async () => {
+    const schema: Schema = {
+      name: 'mycli',
+      commands: { 'build, b, go': { desc: 'Build it' }, 'ship, go': { desc: 'Ship it' } },
+    };
+    const build = await help(schema, ['build']);
+    expect(build).toContain('Usage: mycli build');
+    expect(build).toContain('Alias: b');
+    expect(build).not.toContain('go');
+
+    const ship = await help(schema, ['go']);
+    expect(ship).toContain('Usage: mycli ship');
+    expect(ship).toContain('Alias: go');
   });
 
   it('should say nothing about the program own aliases', async () => {

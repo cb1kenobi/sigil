@@ -1,8 +1,11 @@
+import { completionSpec } from '../../src/completion/spec.js';
+import { renderHelp } from '../../src/help/index.js';
 import type { CommandRegistry } from '../../src/parser/command/command-registry.js';
 import { initCommand } from '../../src/parser/command/init-command.js';
 import { loadCommand } from '../../src/parser/command/load-command.js';
 import { parse } from '../../src/parser/parse.js';
-import { Argument, Internal, type InternalCommand } from '../../src/types.js';
+import { commandSurface } from '../../src/reference/surface.js';
+import { Argument, Internal, type InternalCommand, type Schema } from '../../src/types.js';
 import { camelCase } from '../../src/util/camel-case.js';
 import { daysInMonth } from '../../src/util/transform.js';
 import { existsSync } from 'node:fs';
@@ -2144,6 +2147,198 @@ describe('regressions', () => {
         const inline = { commands: { help: { run }, docs: { alias: 'help', run } } };
         await expect(parse({ schema: inline })).rejects.toThrow(taken('docs', 'help'));
       });
+    });
+  });
+
+  describe('help listed an alias beside a command it did not run', () => {
+    // two siblings may share an alias and the later declaration wins it, so
+    // `{ 'build, go': {}, 'ship, go': {} }` routes `go` to `ship` -- and help
+    // read the label off the name string alone and printed `go` beside both.
+    // A listing now asks the registry who each name runs, when it is drawn, so
+    // the command that lost a spelling stops listing it
+    const run = (): void => {};
+    const fixtures = path.join(__dirname, 'fixtures/alias-shared-label');
+    const bare = { completion: false, help: false, name: 'mycli', quiet: false } as const;
+
+    /** The labels help's `Commands:` list prints for a context chain. */
+    const helpLabels = (contexts: InternalCommand[]): string[] => {
+      const lines = renderHelp({ contexts }, { width: 80 }).split('\n');
+      const start = lines.indexOf('Commands:') + 1;
+      const end = lines.indexOf('', start);
+      return lines.slice(start, end === -1 ? undefined : end).map((line) => line.trim());
+    };
+
+    /** The names the completion menu lists for each of the root's children. */
+    const menuLabels = async (contexts: InternalCommand[]): Promise<string[]> => {
+      const spec = await completionSpec({ contexts, schema: { name: 'mycli' } });
+      return spec.commands[0]!.subcommands.map((sub) => sub.listed.join(', '));
+    };
+
+    /** The same, as the markdown reference lists them. */
+    const referenceLabels = async (schema: Schema): Promise<string[]> => {
+      // the root is the first entry, and lists nothing
+      const surface = await commandSurface(schema);
+      return surface.commands.slice(1).map((cmd) => cmd.listed.join(', '));
+    };
+
+    /** Help, the completion menu and the reference, which must all agree. */
+    const listings = async (schema: Schema): Promise<string[][]> => {
+      const { contexts } = await parse({ schema: { ...bare, ...schema } });
+      return [helpLabels(contexts), await menuLabels(contexts), await referenceLabels(schema)];
+    };
+
+    it('should leave a name-string alias a later sibling won out of the label', async () => {
+      const commands = { 'build, go': { run }, 'ship, go': { run } };
+      expect(await listings({ commands, name: 'mycli' })).to.deep.equal([
+        ['build', 'ship, go'],
+        ['build', 'ship, go'],
+        ['build', 'ship, go'],
+      ]);
+      expect((await parse({ argv: ['go'], schema: { commands } })).cmd?.name).to.equal('ship');
+      expect((await parse({ argv: ['build'], schema: { commands } })).cmd?.name).to.equal('build');
+    });
+
+    it('should leave it out when the later sibling won it with an alias property', async () => {
+      const commands = { 'build, go': { run }, ship: { alias: 'go', run } };
+      expect(await listings({ commands, name: 'mycli' })).to.deep.equal([
+        ['build', 'ship'],
+        ['build', 'ship'],
+        ['build', 'ship'],
+      ]);
+      expect((await parse({ argv: ['go'], schema: { commands } })).cmd?.name).to.equal('ship');
+    });
+
+    it('should keep it on the later sibling that won it from an alias property', async () => {
+      // the other order of the same mix was already true: the loser's alias
+      // was a property, which no listing prints
+      const commands = { build: { alias: 'go', run }, 'ship, go': { run } };
+      expect(await listings({ commands, name: 'mycli' })).to.deep.equal([
+        ['build', 'ship, go'],
+        ['build', 'ship, go'],
+        ['build', 'ship, go'],
+      ]);
+    });
+
+    it('should leave it out in an array of declarations', async () => {
+      const commands = [
+        { name: 'build, go', run },
+        { name: 'ship, go', run },
+      ];
+      expect(await listings({ commands, name: 'mycli' })).to.deep.equal([
+        ['build', 'ship, go'],
+        ['build', 'ship, go'],
+        ['build', 'ship, go'],
+      ]);
+    });
+
+    it('should leave it out beside a nested command, at the level it is declared', async () => {
+      const schema = {
+        ...bare,
+        commands: { db: { commands: { 'migrate, go': { run }, 'seed, go': { run } } } },
+      };
+      const { contexts } = await parse({ argv: ['db'], schema });
+      expect(helpLabels(contexts)).to.deep.equal(['migrate', 'seed, go']);
+    });
+
+    it('should leave it out of two walked routes, by what the registry says once each loads', async () => {
+      // each module publishes `go` in its own name string, so nothing knows
+      // about it until that module loads, and `ship.js` is the later route
+      const schema = { ...bare, commands: fixtures };
+
+      // `build` loaded alone owns `go`, and says so
+      let { contexts } = await parse({ argv: ['build'], schema });
+      let root = contexts.at(-1)!;
+      expect(root[Internal].commands.find('go')?.name).to.equal('build');
+      expect(helpLabels([root])).to.deep.equal(['build, go', 'ship']);
+
+      // ...until `ship` loads in the same tree and takes it, being later
+      const ship = root[Internal].commands.find('ship')!;
+      root[Internal].commands.replace(ship, await loadCommand(ship, root));
+      expect(root[Internal].commands.find('go')?.name).to.equal('ship');
+      expect(helpLabels([root])).to.deep.equal(['build', 'ship, go']);
+      expect(await menuLabels([root])).to.deep.equal(['build', 'ship, go']);
+
+      // and loaded the other way round, `build` never takes it back
+      ({ contexts } = await parse({ argv: ['ship'], schema }));
+      root = contexts.at(-1)!;
+      const build = root[Internal].commands.find('build')!;
+      root[Internal].commands.replace(build, await loadCommand(build, root));
+      expect(root[Internal].commands.find('go')?.name).to.equal('ship');
+      expect(helpLabels([root])).to.deep.equal(['build', 'ship, go']);
+    });
+
+    it("should follow a lazily loaded module's own name string once it loads", async () => {
+      const load = (): Promise<unknown> => Promise.resolve({ default: { name: 'ship, go', run } });
+      const schema = { ...bare, commands: { 'build, go': { run }, ship: { load } } };
+
+      // nothing has read `ship`'s module, so `go` is still `build`'s
+      const before = await parse({ schema });
+      expect(helpLabels(before.contexts)).to.deep.equal(['build, go', 'ship']);
+
+      // and once it has, `ship` is the later declaration and owns it
+      const after = await parse({ argv: ['ship'], schema });
+      const root = after.contexts.at(-1)!;
+      expect(root[Internal].commands.find('go')?.name).to.equal('ship');
+      expect(helpLabels([root])).to.deep.equal(['build', 'ship, go']);
+      expect(await menuLabels([root])).to.deep.equal(['build', 'ship, go']);
+    });
+
+    it('should leave it off a lazily loaded module that lost it to a later sibling', async () => {
+      // the module is declared first, so loading it claims nothing from `ship`
+      const load = (): Promise<unknown> => Promise.resolve({ default: { name: 'build, go', run } });
+      const schema = { ...bare, commands: { build: { load }, 'ship, go': { run } } };
+      const { contexts } = await parse({ argv: ['build'], schema });
+      const root = contexts.at(-1)!;
+      expect(root[Internal].commands.find('go')?.name).to.equal('ship');
+      expect(helpLabels([root])).to.deep.equal(['build', 'ship, go']);
+      expect(renderHelp({ contexts }, { width: 80 })).not.toContain('Alias');
+    });
+
+    it('should follow a subcommandLoaded replacement that brings the name string', async () => {
+      const schema = {
+        ...bare,
+        commands: {
+          'build, go': { run },
+          ship: { load: () => Promise.resolve({ default: { run } }) },
+        },
+        hooks: {
+          subcommandLoaded: ({ cmd }: { cmd: { name: string } }) =>
+            cmd.name === 'ship' ? { name: 'ship, go', run } : undefined,
+        },
+      };
+      const { contexts } = await parse({ argv: ['ship'], schema });
+      const root = contexts.at(-1)!;
+      expect(root[Internal].commands.find('go')?.name).to.equal('ship');
+      expect(helpLabels([root])).to.deep.equal(['build', 'ship, go']);
+    });
+
+    it('should leave it out when a hook adds the later sibling', async () => {
+      const schema = {
+        ...bare,
+        commands: {
+          db: {
+            commands: { 'build, go': { run } },
+            hooks: {
+              parse: async ({ commands }: { commands: CommandRegistry }) => {
+                commands.add(await initCommand({ name: 'ship, go', run }));
+              },
+            },
+          },
+        },
+      };
+      const { contexts } = await parse({ argv: ['db'], schema });
+      expect(helpLabels(contexts)).to.deep.equal(['build', 'ship, go']);
+    });
+
+    it('should leave two alias properties sharing a spelling as they were', async () => {
+      // neither is printed, and the later one still runs
+      const commands = { build: { alias: 'go', run }, ship: { alias: 'go', run } };
+      expect(await listings({ commands, name: 'mycli' })).to.deep.equal([
+        ['build', 'ship'],
+        ['build', 'ship'],
+        ['build', 'ship'],
+      ]);
+      expect((await parse({ argv: ['go'], schema: { commands } })).cmd?.name).to.equal('ship');
     });
   });
 

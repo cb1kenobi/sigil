@@ -1204,12 +1204,51 @@ resolution.
   key -- and is refused with an error of the same shape that says the module
   renamed it, since there is no alias to name.
 - **What is not refused, and the case for it.** Two siblings sharing a
-  _name-string_ alias is the one place the kept rule still shows a reader
-  something false: `'build, go'` and `'ship, go'` both print `go` in help while
-  `go` runs `ship`. That is an argument for refusing a shared _published_ alias
-  too, and it was not taken here: the ticket kept the alias-alias rule on
-  purpose, both commands stay reachable by name, and a property alias, which
-  help does not print, has no such cost.
+  _name-string_ alias was the one place the kept rule still showed a reader
+  something false: `'build, go'` and `'ship, go'` both printed `go` in help while
+  `go` ran `ship`, and so did `'build, go'` beside a later `ship: { alias: 'go'
+  }`. That was an argument for refusing a shared _published_ alias too, and
+  SIG-234 did not take it: it kept the alias-alias rule on purpose, both
+  commands stay reachable by name, and a property alias, which help does not
+  print, has no such cost.
+- **...and the label leaves out what it lost, rather than the schema being
+  refused.** SIG-239. Help never lists a name beside a command that name does
+  not run, and it is kept true by the listing rather than by an error:
+  `labelNames()` takes the parent's registry and keeps a label only where
+  `find()` answers with this command, so `build` above is listed as `build` and
+  `ship` as `ship, go`. Refusing was the other option and is the one the
+  two-`default` rule and SIG-234 take, and it was refused for three reasons.
+  Every app that does this today starts and runs exactly what it ran before, so
+  the rule this ticket enforces is about what a screen says, and nothing a
+  schema does was wrong. A refusal would be **order-dependent** in a way
+  SIG-234's is not: the losing command is the earlier one, so `'build, go'`
+  before `ship: { alias: 'go' }` would throw while the same two the other way
+  round would not -- the loser's alias is then a property nobody prints -- and
+  "swap two keys" is not a fix anybody should be told, least of all for a
+  directory whose order is its sorted file names. And the completion menu and
+  the markdown reference were **already** leaving it out: `tokensFor()` drops
+  a token `find()` sends elsewhere, so help was the one listing of three that
+  disagreed, and the fix is making it ask the question the other two ask.
+
+  Asked when the listing is drawn rather than stored on the command, because
+  the answer moves: a module that loads may bring a name string of its own,
+  and `replace()` settles what it shares with a sibling by declaration order.
+  So before `ship`'s module is read `build, go` is true and is what help
+  prints, and after it has loaded in the same tree `build` is. That is also
+  why the check is in the listing and not in `CommandRegistry` -- nothing
+  there changed, and `assertReachable()` still refuses only a name. Both
+  listings on a help screen ask: the `Commands:` rows and the described
+  command's own `Alias:` block, which asks the registry of `contexts[1]`. The
+  root has no parent and no block. `listedTokens()` passes the registry too,
+  and that half of it is redundant by construction -- `tokensFor()` has
+  already filtered on the same `find()` -- which a sabotage confirms by
+  failing nothing; the guard on the three agreeing is `help listed an alias
+  beside a command it did not run` in `test/parser/regressions.test.ts`,
+  which compares help, the menu and the reference for each arrival path.
+  A built-in cannot lose a published alias this way: `help` and `completion`
+  have no name-string aliases and register only over spellings the app has
+  left free.
+
 - **Every other place siblings arrive was already ordered.** A directory is
   walked one route at a time in `resolveRoutes()`'s sorted order, both when the
   schema is built and in `loadCommandDir()`; a placeholder's registry is handed
