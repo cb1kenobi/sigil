@@ -41,6 +41,9 @@ const EXEMPT = {
   decrypt:
     'an animation rather than a question: an abort erases it and resolves, which ' +
     'decrypt.test.ts pins, where a prompt rejects with the reason',
+  runLinePrompt:
+    'the line engine, which takes no `accessible` and is always lines, so it fits ' +
+    'neither run as a row; it is every line-form row below, asked through its prompt',
 } satisfies Partial<Record<PromptName, string>>;
 
 /** Every prompt, asked the smallest question it will take. */
@@ -192,7 +195,6 @@ type LineName = {
 
 /** Every reason a prompt with no line form gives, by what it would take to have one. */
 const NO_LINE_FORM = 'no line form yet: drawn as usual whatever SIGIL_ACCESSIBLE says';
-const LIKE_TEXT = 'no line form yet; one is text() with its own parse, which is follow-up work';
 
 /**
  * The rows that are drawn even with accessible mode on, and why.
@@ -215,19 +217,13 @@ const DRAWN_ONLY = {
     'program, which no line form can stand in for',
   filePicker: NO_LINE_FORM,
   groupMultiselect: NO_LINE_FORM,
-  list: LIKE_TEXT,
-  maskedText: LIKE_TEXT,
-  number: LIKE_TEXT,
-  path: LIKE_TEXT,
   pickDate: NO_LINE_FORM,
   runPrompt:
     'the engine of the drawn path; the line forms run on runLine(), which is not ' +
     'exported, and every row below is the line path asked through its prompt',
-  selectKey: 'no line form yet; one is select() numbered by its keys, which is follow-up work',
   selectRow: NO_LINE_FORM,
   selectTree: NO_LINE_FORM,
   sort: NO_LINE_FORM,
-  toggle: 'no line form yet; one is confirm() with its two names, which is follow-up work',
 } satisfies Record<Exclude<keyof typeof prompts, LineName>, string>;
 
 /** How a prompt settled, with the handler attached before anything can reject. */

@@ -27,6 +27,8 @@ import { transformValue } from '../util/coerce.js';
 import { graphemes } from '../width/index.js';
 import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
 import {
+  type AccessibleOptions,
+  promptAsLines,
   fieldLayers,
   layoutField,
   listWindow,
@@ -37,11 +39,13 @@ import {
   promptHeadWidths,
   type PromptOptions,
   promptNote,
+  promptLineQuestion,
+  runLinePrompt,
   runPrompt,
   setPromptNote,
 } from './prompt.js';
 
-export interface NumberOptions extends PromptOptions {
+export interface NumberOptions extends PromptOptions, AccessibleOptions {
   /** Returned when the answer is empty. Shown dimmed in the empty field. */
   default?: number;
   /**
@@ -153,6 +157,9 @@ export function number(opts: NumberOptions): Promise<number> {
       ? opts.value
       : opts.initial;
   let value = given === undefined ? '' : (format(given) ?? '');
+  if (promptAsLines(opts)) {
+    return lineNumber(opts, value, float);
+  }
   let cursor = value.length;
   let error: string | undefined;
   /** The first row on screen, for the answer too long for the room. */
@@ -377,5 +384,71 @@ export function number(opts: NumberOptions): Promise<number> {
 
       view,
     };
+  });
+}
+
+/**
+ * `number()` as a line: the reply read by the parser, then held to the range.
+ *
+ * What the drawn field refuses as it is typed is refused here when Enter is
+ * pressed instead, and with a sentence: a keystroke that echoed and was then
+ * quietly dropped is a character the person heard themselves type and the
+ * answer does not hold. The grammar is the drawn field's, so `0x10` and, with
+ * `float`, `1e3` and `Infinity` are refused here too, though the parser reads
+ * them. Up and Down do nothing, for
+ * the arrows' reason in `runLine()`: stepping rewrites the reply somewhere a
+ * line that is never redrawn cannot show it.
+ *
+ * @param opts - What to ask.
+ * @param start - The reply the field opens holding.
+ * @param float - Whether a fraction is accepted.
+ * @returns The number.
+ */
+function lineNumber(opts: NumberOptions, start: string, float: boolean): Promise<number> {
+  const { max, min } = opts;
+  const type = float ? 'number' : 'int';
+  // a `-` is let through whatever `min` says, which the drawn field cannot do: it
+  // is the range that refuses `-5` below a `min` of 0, and it says so
+  const shape = float ? /^-?\d*(?:\.\d*)?$/ : /^-?\d*$/;
+  const fallback = opts.default === undefined ? undefined : format(opts.default);
+
+  return runLinePrompt<number>(opts, {
+    ask: promptLineQuestion(
+      opts.message,
+      fallback === undefined ? undefined : __`(default: ${fallback})`
+    ),
+    echo: true,
+    keep: true,
+    async read(reply) {
+      const said = reply.trim();
+      let result: number;
+      if (said === '') {
+        if (opts.default === undefined) {
+          return __`Enter a number`;
+        }
+        result = opts.default;
+      } else if (!shape.test(said)) {
+        // the parser's own sentence, though the parser would read `0x10`: what is
+        // refused is the drawn field's grammar, and the words are the parser's
+        return float ? __`Invalid number: ${said}` : __`Invalid integer: ${said}`;
+      } else {
+        try {
+          // `-0` is a number nobody asked for, as in the drawn field
+          result = (transformValue(said, type) as number) + 0;
+        } catch (thrown) {
+          return (thrown as Error).message;
+        }
+      }
+
+      if (min !== undefined && result < min) {
+        return __`Must be at least ${min}`;
+      }
+      if (max !== undefined && result > max) {
+        return __`Must be at most ${max}`;
+      }
+      const failed = await opts.validate?.(result);
+      return typeof failed === 'string' && failed ? failed : { value: result };
+    },
+    start,
   });
 }

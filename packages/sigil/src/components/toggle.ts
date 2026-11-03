@@ -27,6 +27,8 @@ import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
 import {
+  type AccessibleOptions,
+  promptAsLines,
   PROMPT_SYMBOLS,
   promptAnswered,
   promptAnswerSlot,
@@ -34,10 +36,12 @@ import {
   promptHeadWidths,
   PromptError,
   type PromptOptions,
+  promptLineQuestion,
+  runLinePrompt,
   runPrompt,
 } from './prompt.js';
 
-export interface ToggleOptions extends PromptOptions {
+export interface ToggleOptions extends PromptOptions, AccessibleOptions {
   /** What the `true` state is called. Defaults to `on`. */
   active?: string;
   /** What the `false` state is called. Defaults to `off`. */
@@ -105,6 +109,9 @@ export function toggle(opts: ToggleOptions): Promise<boolean> {
 
   const terminal = opts.terminal ?? defaultTerminal;
   let value = typeof opts.value === 'boolean' ? opts.value : (opts.initial ?? false);
+  if (promptAsLines(opts)) {
+    return lineToggle(opts, active.trim(), inactive.trim(), value);
+  }
 
   return runPrompt<boolean>(opts, () => {
     const left = textNode('', { 'flex-shrink': 0, 'margin-right': 2, 'white-space': 'nowrap' });
@@ -197,5 +204,52 @@ export function toggle(opts: ToggleOptions): Promise<boolean> {
 
       view,
     };
+  });
+}
+
+/**
+ * `toggle()` as a line: `confirm()`'s, with the two names in place of yes and no.
+ *
+ * The hint is the two names in the order the switch draws them, and the default
+ * is said in words rather than by a capital, which is how `(Y/n)` marks it: a
+ * name in capitals is read out letter by letter, or shouted. A reply is a whole
+ * name, case aside -- not a first letter, since `on` and `off` share theirs -- and
+ * Enter alone keeps the state the prompt opened in. Two names that differ only in
+ * case, which the drawn switch allows, are told apart by their case alone.
+ *
+ * @param opts - What to ask.
+ * @param active - What `true` is called, trimmed.
+ * @param inactive - What `false` is called, trimmed.
+ * @param fallback - The state the prompt opens in.
+ * @returns The state chosen.
+ */
+function lineToggle(
+  opts: ToggleOptions,
+  active: string,
+  inactive: string,
+  fallback: boolean
+): Promise<boolean> {
+  const caseless = active.toLowerCase() !== inactive.toLowerCase();
+  const fold = (text: string): string => (caseless ? text.toLowerCase() : text);
+
+  return runLinePrompt<boolean>(opts, {
+    ask: promptLineQuestion(
+      opts.message,
+      `(${inactive}/${active}) ${__`(default: ${fallback ? active : inactive})`}`
+    ),
+    echo: true,
+    read(reply) {
+      const said = fold(reply.trim());
+      if (said === '') {
+        return { value: fallback };
+      }
+      if (said === fold(active)) {
+        return { value: true };
+      }
+      if (said === fold(inactive)) {
+        return { value: false };
+      }
+      return __`Answer ${inactive} or ${active}`;
+    },
   });
 }

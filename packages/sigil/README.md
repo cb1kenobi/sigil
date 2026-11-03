@@ -2833,8 +2833,9 @@ await select({ message: 'Target', choices, signal: controller.signal });
 
 A prompt that redraws a region is unusable with a screen reader, which reads what
 is written and cannot follow a repaint. **`accessible: true`**, or
-**`SIGIL_ACCESSIBLE=1`** in the environment, asks the six prompts above as plain
-lines in and lines out instead: each question is written once, what is typed is
+**`SIGIL_ACCESSIBLE=1`** in the environment, asks the six prompts above, and
+`number()`, `list()`, `path()`, `maskedText()`, `toggle()` and `selectKey()`, as
+plain lines in and lines out instead: each question is written once, what is typed is
 echoed where it is typed, and nothing already written is moved, erased or
 coloured. The cursor stays visible, so a magnifier can follow it.
 
@@ -2863,6 +2864,12 @@ Create it? (Y/n) y
 | `confirm()`     | `(Y/n)`, then `y`, `yes`, `n` or `no` -- or the catalog's own -- and Enter alone for the default                                    |
 | `select()`      | A numbered list and a number. Enter alone takes the choice the drawn list would open on                                             |
 | `multiselect()` | The same list and numbers separated by commas, with ranges (`1-3, 5`). Enter alone keeps what was ticked and `none` answers nothing |
+| `number()`      | `text()`'s line, read by the parser and held to `min` and `max` on Enter. Up and Down do not step                                   |
+| `list()`        | `text()`'s line, split on the separator the way the drawn field splits it                                                           |
+| `path()`        | `text()`'s line, with `~` expanded and `root` applied. There is no completion and no list of candidates                             |
+| `maskedText()`  | The template said once, `(format: (___) ___-____)`, and the reply read raw or formatted. A character no slot takes is refused       |
+| `toggle()`      | Both names, `(off/on) (default: off)`, and a whole name as the reply                                                                |
+| `selectKey()`   | The list lettered by its keys, `o) Overwrite`, and one key as the reply: not a label or a position. `expand` still lists            |
 
 Backspace and Ctrl-U erase what is being typed, and never past the start of the
 line; the arrows do nothing, because a line that is never redrawn cannot show an
@@ -2880,8 +2887,8 @@ answers what it says.
 It does **not** lift the rule that a prompt needs a terminal at both ends. A line
 prompt reading a pipe would take whatever the pipe carries as its answers, and the
 variable is exported to every process in a pipeline. The other prompts --
-`number()`, `date()`, `autocomplete()` and the rest -- have no line form yet and are
-drawn as usual.
+`date()`, `autocomplete()` and the rest -- have no line form yet and are drawn as
+usual.
 
 #### A date
 

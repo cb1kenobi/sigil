@@ -17,9 +17,12 @@
  */
 
 import { box, text as textNode } from '../element/index.js';
+import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
 import {
+  type AccessibleOptions,
+  promptAsLines,
   promptAnswered,
   promptAnswerSlot,
   promptHeadLine,
@@ -28,11 +31,13 @@ import {
   type PromptOptions,
   promptNote,
   promptWindow,
+  promptLineQuestion,
+  runLinePrompt,
   runPrompt,
   setPromptNote,
 } from './prompt.js';
 
-export interface ListOptions extends PromptOptions {
+export interface ListOptions extends PromptOptions, AccessibleOptions {
   /**
    * Returned when the line holds no entries. Shown dimmed in the empty field,
    * joined the way `initial` is, unless `placeholder` says otherwise.
@@ -176,6 +181,10 @@ export function list(opts: ListOptions): Promise<string[]> {
     }
   }
 
+  if (promptAsLines(opts)) {
+    return lineList(opts, value, separator);
+  }
+
   let cursor = value.length;
   let error: string | undefined;
 
@@ -275,5 +284,36 @@ export function list(opts: ListOptions): Promise<string[]> {
 
       view,
     };
+  });
+}
+
+/**
+ * `list()` as a line: `text()`'s, read with `splitList()`.
+ *
+ * The reply is the line the drawn field holds, so it reads the same way, and
+ * nothing is said after it: unlike a `2` chosen from a list, a reply of `api, web`
+ * already says what was answered.
+ *
+ * @param opts - What to ask.
+ * @param start - The line the field opens holding.
+ * @param separator - What ends an entry.
+ * @returns The entries.
+ */
+function lineList(opts: ListOptions, start: string, separator: string | RegExp): Promise<string[]> {
+  return runLinePrompt<string[]>(opts, {
+    ask: promptLineQuestion(
+      opts.message,
+      opts.default?.length ? __`(default: ${joinList(opts.default, separator)})` : undefined
+    ),
+    echo: true,
+    keep: true,
+    async read(reply) {
+      const items = splitList(reply, separator);
+      // the drawn field's rule: a line with no entries is an empty answer
+      const answer = items.length === 0 && opts.default ? [...opts.default] : items;
+      const failed = await opts.validate?.(answer);
+      return typeof failed === 'string' && failed ? failed : { value: answer };
+    },
+    start,
   });
 }

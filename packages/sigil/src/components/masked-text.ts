@@ -29,6 +29,8 @@ import { terminal as defaultTerminal } from '../terminal/index.js';
 import { graphemes } from '../width/index.js';
 import { boundary, pastedLine, typedText } from './editing.js';
 import {
+  type AccessibleOptions,
+  promptAsLines,
   promptAnswered,
   promptAnswerSlot,
   promptHeadLine,
@@ -37,6 +39,8 @@ import {
   type PromptOptions,
   promptNote,
   promptWindow,
+  promptLineQuestion,
+  runLinePrompt,
   runPrompt,
   setPromptNote,
 } from './prompt.js';
@@ -73,7 +77,7 @@ export const MASK_SLOTS: Readonly<Record<string, RegExp>> = {
   N: /[A-Za-z0-9]/,
 };
 
-export interface MaskedTextOptions extends PromptOptions {
+export interface MaskedTextOptions extends PromptOptions, AccessibleOptions {
   /**
    * Answered when nothing has been typed. A string is read the way a paste is, so
    * `'5551234567'` and `'(555) 123-4567'` are the same default; it has to fill
@@ -217,7 +221,8 @@ function parseMask(template: string, extra: Readonly<Record<string, MaskSlot>> =
  * @param start - The slot to begin at.
  * @param input - The text.
  * @param skipFixed - Whether the template's fixed characters are passed over.
- * @returns The slot after the last one filled, and how many characters fit nowhere.
+ * @returns The slot after the last one filled, how many characters fit nowhere,
+ * and the first of those.
  */
 function fill(
   mask: Mask,
@@ -225,11 +230,12 @@ function fill(
   start: number,
   input: string,
   skipFixed: boolean
-): { dropped: number; next: number } {
+): { dropped: number; first?: string; next: number } {
   let at = start;
   /** How far through the fixed run in front of slot `at` the text has got. */
   let seen = 0;
   let dropped = 0;
+  let first: string | undefined;
 
   for (const char of graphemes(input)) {
     const run = mask.runs[at] as string[];
@@ -246,10 +252,11 @@ function fill(
       seen = 0;
     } else {
       dropped++;
+      first ??= char;
     }
   }
 
-  return { dropped, next: at };
+  return { dropped, first, next: at };
 }
 
 /**
@@ -275,6 +282,18 @@ function draw(
   }
 
   return { starts, text: text + (mask.runs.at(-1) as string[]).join('') };
+}
+
+/**
+ * The template filled as far as slot `next`, which is the text that reads back as
+ * the same cells: `(555` for three digits of `(###) ###-####`.
+ */
+function filled(mask: Mask, cells: readonly (string | undefined)[], next: number): string {
+  let text = '';
+  for (let i = 0; i < next; i++) {
+    text += (mask.runs[i] as string[]).join('') + (cells[i] ?? '');
+  }
+  return next === mask.slots.length ? text + (mask.runs.at(-1) as string[]).join('') : text;
 }
 
 /**
@@ -306,15 +325,7 @@ export function applyMask(
   const { dropped, next } = fill(mask, cells, 0, input, true);
   const complete = next === mask.slots.length;
 
-  let value = '';
-  for (let i = 0; i < next; i++) {
-    value += (mask.runs[i] as string[]).join('') + cells[i];
-  }
-  if (complete) {
-    value += (mask.runs.at(-1) as string[]).join('');
-  }
-
-  return { complete, dropped, raw: cells.join(''), value };
+  return { complete, dropped, raw: cells.join(''), value: filled(mask, cells, next) };
 }
 
 /** Names an option that cannot be used, the way `number()` names a bad `step`. */
@@ -376,6 +387,10 @@ export function maskedText(opts: MaskedTextOptions): Promise<string> {
       return refuse(opts.message, '`initial` has characters that do not fit the template');
     }
     cursor = next;
+  }
+
+  if (promptAsLines(opts)) {
+    return lineMasked(opts, mask, filled(mask, cells, cursor), fallback);
   }
 
   let error: string | undefined;
@@ -502,5 +517,72 @@ export function maskedText(opts: MaskedTextOptions): Promise<string> {
 
       view,
     };
+  });
+}
+
+/**
+ * `maskedText()` as a line: the template said, the reply read into it whole.
+ *
+ * What is echoed is what was typed, and only that. Writing the template's fixed
+ * characters in as the slots fill would be writing characters nobody typed,
+ * which a screen reader reads out as though they had been, and a Backspace would
+ * then have to decide whether it is rubbing out a `)` or a digit. So the template
+ * is said once in the question, drawn the way the field draws it empty, and the
+ * reply is read the way a paste is -- the fixed characters passed over where they
+ * come -- so `5551234567` and `(555) 123-4567` are one answer.
+ *
+ * A reply with a character that fits nowhere is refused rather than read with it
+ * left out, which is the one place this differs from the drawn field: there a key
+ * the slot refuses changes nothing on screen, and here it was echoed, so taking
+ * the answer without it would answer something other than what was heard. What
+ * was taken is said after a reply that was not already the answer as written.
+ *
+ * @param opts - What to ask.
+ * @param mask - The template, read.
+ * @param start - The reply the field opens holding.
+ * @param fallback - The formatted default, if there is one.
+ * @returns The answer as formatted.
+ */
+function lineMasked(
+  opts: MaskedTextOptions,
+  mask: Mask,
+  start: string,
+  fallback: string | undefined
+): Promise<string> {
+  const blank = draw(mask, [], '_').text;
+  const hints = [__`(format: ${blank})`];
+  if (fallback !== undefined) {
+    hints.push(__`(default: ${fallback})`);
+  }
+
+  return runLinePrompt<string>(opts, {
+    ask: promptLineQuestion(opts.message, hints.join(' ')),
+    echo: true,
+    keep: true,
+    async read(reply) {
+      let answer: string;
+      if (reply.trim() === '' && fallback !== undefined) {
+        answer = fallback;
+      } else {
+        const cells: (string | undefined)[] = Array.from({ length: mask.slots.length });
+        const { first, next } = fill(mask, cells, 0, reply.trim(), true);
+        if (first !== undefined) {
+          return __`"${first}" does not fit ${blank}`;
+        }
+        if (next < mask.slots.length) {
+          return __`Fill in every blank`;
+        }
+        answer = draw(mask, cells, '').text;
+      }
+
+      const failed = await opts.validate?.(answer);
+      if (typeof failed === 'string' && failed) {
+        return failed;
+      }
+      return reply.trim() === '' || reply.trim() === answer
+        ? { value: answer }
+        : { said: __`Entered: ${answer}`, value: answer };
+    },
+    start,
   });
 }

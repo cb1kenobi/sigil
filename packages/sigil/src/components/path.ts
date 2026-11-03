@@ -24,6 +24,8 @@ import { baseDir } from '../paths.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
 import {
+  type AccessibleOptions,
+  promptAsLines,
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,
@@ -34,13 +36,15 @@ import {
   promptRowCap,
   promptNote,
   promptWindow,
+  promptLineQuestion,
+  runLinePrompt,
   runPrompt,
   setPromptNote,
 } from './prompt.js';
 import { readdir, stat } from 'node:fs/promises';
 import nodePath from 'node:path';
 
-export interface PathOptions extends PromptOptions {
+export interface PathOptions extends PromptOptions, AccessibleOptions {
   /**
    * Candidates and answers are directories only. Defaults to `false`.
    *
@@ -457,9 +461,12 @@ export function path(opts: PathOptions): Promise<string> {
    * *level* rather than per character, and the characters in between are a
    * filter over what is already here.
    */
-  const cache = entryCache();
-
   let value = typeof opts.value === 'string' ? opts.value : (opts.initial ?? '');
+  if (promptAsLines(opts)) {
+    return linePath(opts, value, base, flavour);
+  }
+
+  const cache = entryCache();
   let cursor = value.length;
   let active = -1;
   let start = 0;
@@ -768,5 +775,43 @@ export function path(opts: PathOptions): Promise<string> {
 
       view,
     };
+  });
+}
+
+/**
+ * `path()` as a line: `text()`'s, answered the way the drawn field answers.
+ *
+ * **Nothing replaces completion**, and Tab does nothing. The drawn field's list
+ * changes with every keystroke under the field, which is the redraw this form has
+ * none of. A shell's completion would fit the rules -- Tab appending what every
+ * candidate agrees on, a second Tab writing the candidates on lines of their own
+ * and asking again -- and is not done here, because `runLine()` hands no key to a
+ * form and adding that is a change to the engine every line form shares. What
+ * stays is everything the answer is: `~` expanded, a relative path resolved
+ * against `root` when there is one, and `validate` handed it in that form, so the
+ * two forms of one question cannot answer it differently.
+ *
+ * @param opts - What to ask.
+ * @param start - The reply the field opens holding.
+ * @param base - Where a relative path starts.
+ * @param flavour - Whose path rules.
+ * @returns The path.
+ */
+function linePath(
+  opts: PathOptions,
+  start: string,
+  base: string,
+  flavour: PathFlavour
+): Promise<string> {
+  return runLinePrompt<string>(opts, {
+    ask: promptLineQuestion(opts.message),
+    echo: true,
+    keep: true,
+    async read(reply) {
+      const answer = answerOf(reply, opts.root, base, flavour);
+      const failed = await opts.validate?.(answer);
+      return typeof failed === 'string' && failed ? failed : { value: answer };
+    },
+    start,
   });
 }
