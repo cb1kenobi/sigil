@@ -38,6 +38,9 @@ runs a `run` on the schema itself, where the app has no subcommands. An error
 becomes a message on stderr and a non-zero exit code — never a stack trace,
 because the caller is a bin script.
 
+**[docs/getting-started.md](docs/getting-started.md)** builds a small app from
+`sigil new`'s scaffold.
+
 **[docs/parser.md](docs/parser.md)** is the full parser reference: syntax,
 semantics, precedence, and every place this parser deliberately differs from
 Commander and yargs. This README is the API tour.
@@ -49,6 +52,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 
 ## Contents
 
+- [Getting started](docs/getting-started.md) — a new app, from `sigil new` to a build
 - [The root entry](#the-root-entry) — `main()`, `command()`, `options()`, errors
 - [Declaring options](#declaring-options)
 - [Declaring arguments](#declaring-arguments)
@@ -70,7 +74,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 
 ```js
 import {
-  sigil, // parse argv and run the matched command
+  main, // parse argv and run the matched command
   command, // identity function that types one command's argv
   options, // identity function that keeps an option group's types
   errorHandler, // the built-in error renderer + exit code
@@ -1086,13 +1090,11 @@ _describe_ without _parsing_:
 
 ```js
 hooks: {
-  help: [
-    ({ sections }) =>
-      sections.add({
-        title: 'iOS',
-        options: { '--sdk [ver]': 'iOS SDK version', '--simulator [udid]': 'Simulator to run on' },
-      }),
-  ],
+  help: ({ sections }) =>
+    sections.add({
+      title: 'iOS',
+      options: { '--sdk [ver]': 'iOS SDK version', '--simulator [udid]': 'Simulator to run on' },
+    }),
 }
 ```
 

@@ -1259,24 +1259,20 @@ export default {
   },
   hooks: {
     // what help describes: every platform, or only the one that was named
-    help: [
-      async ({ sections, state }) => {
-        for (const [name, conf] of Object.entries(platforms)) {
-          if (!state.argv.platform || state.argv.platform === name) {
-            await sections.add(conf);
-          }
+    help: async ({ sections, state }) => {
+      for (const [name, conf] of Object.entries(platforms)) {
+        if (!state.argv.platform || state.argv.platform === name) {
+          await sections.add(conf);
         }
-      },
-    ],
+      }
+    },
     // what actually parses: the platform that was named, and nothing else
-    parse: [
-      async ({ options }) => {
-        const conf = platforms[/* the platform */];
-        for (const [format, opt] of Object.entries(conf?.options ?? {})) {
-          await options.add(typeof opt === 'string' ? { desc: opt, format } : { ...opt, format });
-        }
-      },
-    ],
+    parse: async ({ options }) => {
+      const conf = platforms[/* the platform */];
+      for (const [format, opt] of Object.entries(conf?.options ?? {})) {
+        await options.add(typeof opt === 'string' ? { desc: opt, format } : { ...opt, format });
+      }
+    },
   },
 };
 ```
@@ -1412,13 +1408,11 @@ raised gets reported. What a hook gets to change is _which_ error that is:
 await main({
   schema: {
     hooks: {
-      beforeError: [
-        (err, state) => {
-          if (err?.code === 'ENOENT') {
-            return new Error(`${state?.cmd?.name ?? 'cli'}: no such file or directory`);
-          }
-        },
-      ],
+      beforeError: (err, state) => {
+        if (err?.code === 'ENOENT') {
+          return new Error(`${state?.cmd?.name ?? 'cli'}: no such file or directory`);
+        }
+      },
     },
   },
 });
