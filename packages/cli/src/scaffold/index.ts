@@ -241,9 +241,26 @@ function manifest(opts: ScaffoldOptions): string {
   )}\n`;
 }
 
-/** An object with its keys in order, so a generated file is stable. */
-function sorted(record: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));
+/**
+ * An object with its keys in order, so a generated file is stable.
+ *
+ * In code-unit order, which is `sort()` with no comparator, rather than by
+ * `localeCompare`: that reads the process locale, so the manifest a new app
+ * commits as its first file could come out in a different order on a machine
+ * set to a different language. No key written today is one two collations
+ * disagree about, so the bytes have not moved; a key they did disagree about
+ * would have moved them silently. It is `sortKeys()`'s idiom in
+ * `reference/snapshot.ts`, for the same reason.
+ *
+ * @param record - The keys and their values.
+ * @returns The same record, keys sorted.
+ */
+export function sorted(record: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.keys(record)
+      .sort()
+      .map((key) => [key, record[key] as string])
+  );
 }
 
 /** The TypeScript config, whose `lib`, `types` and `jsx` are load-bearing. */

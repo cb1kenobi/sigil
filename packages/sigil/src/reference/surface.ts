@@ -74,6 +74,7 @@ import {
   type OptionDataType,
   type Schema,
 } from '../types.js';
+import { byCodeUnit } from '../util/by-code-unit.js';
 
 /**
  * A control character, for the one name nothing else filters.
@@ -84,21 +85,6 @@ import {
  * a global regex is stateful -- the trap `spec.ts` keeps two patterns for.
  */
 const HAS_CONTROL = /\p{Cc}/u;
-
-/**
- * Two strings in code-unit order.
- *
- * `localeCompare` is what the catalog and the completion spec sort with, and it
- * is the wrong answer for anything **committed**: it reads the environment, so
- * the same surface produces different bytes on two machines. See the walk.
- *
- * @param a - One string.
- * @param b - The other.
- * @returns Their order.
- */
-function byCodeUnit(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
 
 /** One positional argument, in the place it is typed. */
 export interface SurfaceArgument {
@@ -521,8 +507,8 @@ export async function commandSurface(schema: Schema): Promise<CommandSurface> {
    */
   async function walk(cmd: InternalCommand, path: readonly string[]): Promise<void> {
     const registry = cmd[Internal].commands;
-    // by code unit rather than by `localeCompare`, which is what the catalog and
-    // the completion spec use and is wrong for a *committed* artifact: measured,
+    // by code unit rather than by `localeCompare`, which is wrong for a
+    // *committed* artifact: measured,
     // `localeCompare` puts `ä` before `a_b` under `LANG=de_DE.UTF-8` and after
     // `z` under `sv_SE.UTF-8`, so the same app's reference reads in a different
     // order on two machines and `--check` fails on one CI runner and passes on
