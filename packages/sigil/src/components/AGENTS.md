@@ -7796,14 +7796,78 @@ nothing already written is moved, erased or coloured.
     ticked, `none` -- the word the drawn prompt already settles on for an empty
     answer -- answers nothing, and `min`, `max` and `required` refuse with the drawn
     prompt's own messages.
-- **The other seventeen have no line form yet and are drawn as usual.** The option
-  is on `AccessibleOptions`, which only the six options interfaces extend, so the
-  types do not offer it where it would do nothing; the variable cannot be scoped
-  that way and is ignored by the rest, which the README says. Refusing them would
-  be worse: an app the person cannot use at all, over a preference they set to make
-  apps usable. Several map onto these six directly -- `toggle()` and `selectKey()`
-  onto `confirm()` and `select()`, `number()`, `list()`, `path()` and `maskedText()`
-  onto `text()` with their own parse -- and that is a follow-up ticket's work.
+  - `number()` (SIG-227): `text()`'s line, `(default: x)` and all, read on Enter
+    by the parser (`transformValue()` as `int` or `number`) and then held to `min`,
+    `max` and `validate`, in that order and with the drawn prompt's messages. What
+    the drawn field refuses **as it is typed** is refused here **when Enter is
+    pressed**, with a sentence, because a keystroke that was echoed and then quietly
+    dropped is a character the person heard themselves type that the answer does
+    not hold. The grammar is still the drawn field's -- digits, one point with
+    `float`, a leading `-` -- so `0x10` is refused as `Invalid integer: 0x10`,
+    and `1e3` and `Infinity` with `float`, though the parser reads all three: the
+    words are the parser's, the grammar is the field's. A `-` is let through whatever `min` says, so it is the range that
+    refuses `-5` and says which bound. Up and Down do not step, for the arrows'
+    reason: stepping rewrites the reply where nothing can show it.
+  - `list()` (SIG-227): `text()`'s line, read with `splitList()`, so a reply reads
+    exactly as the drawn field's line does, and a reply with no entries in it
+    answers `default`, which the question says joined. Nothing is said after the
+    reply, since `api, web` already says what was answered.
+  - `path()` (SIG-227): `text()`'s line, answered through `answerOf()` -- `~`
+    expanded, `root` applied -- with `validate` handed that form, so the two forms
+    of one question cannot answer it differently. **Nothing replaces completion**,
+    and Tab does nothing (`typedText()` already reads it as no text). The drawn
+    list changes under the field with every keystroke, which is the redraw this
+    form has none of. A shell's completion would fit the rules -- Tab appending
+    what every candidate shares, a second Tab writing the candidates on lines of
+    their own and asking again -- and is not done, because `runLine()` hands no
+    key to a form and adding that is a change to the engine every line form
+    shares.
+  - `maskedText()` (SIG-227): the template is said once in the question as the
+    empty field draws it, `(format: (___) ___-____)`, and **only what is typed is
+    echoed**, never the template's fixed characters: a `(` nobody typed is a
+    character a screen reader reads out as typed, and a Backspace would then have
+    to choose between rubbing out a `)` and a digit. The reply is read the way a
+    paste is, fixed characters passed over where they come, so `5551234567` and
+    `(555) 123-4567` are one answer; `Entered: (555) 123-4567` follows a reply that
+    was not already written that way. A character that fits no slot -- one past
+    the last included -- is **refused rather than dropped**, the one place this
+    parts from the drawn field: there a refused key changes nothing on screen, and
+    here it was echoed, so taking the answer without it answers something other
+    than what was heard. `fill()` reports the first such character for the
+    message. `initial` and `value` open the reply as the formatted text they fill,
+    `(555` for three digits.
+  - `toggle()` (SIG-227): `confirm()`'s line with the two names, `(off/on)` in the
+    order the switch draws them, and the default **said in words**,
+    `(default: off)`, rather than by a capital the way `(Y/n)` marks it: a name in
+    capitals is spelled out or shouted. A reply is a whole name, case aside, and
+    not a first letter, since `on` and `off` share theirs. Names that differ only
+    in case, which the drawn switch allows, are told apart by case alone.
+  - `selectKey()` (SIG-227): `select()`'s list lettered by the keys, `o) Overwrite`,
+    a disabled choice after a dash, and **a reply of a key, never a label or a
+    position**. A label can be another choice's key -- `numbered` gives labels of
+    `18` and `20` the keys `1` and `2` -- so the one reply that cannot mean two
+    things is the one that answers the drawn prompt. Read whole, trimmed, and
+    folded the way a keypress is, so `O` is `o` and `ok` is refused. `Chosen:`
+    follows, for `select()`'s reason. **The list is written even with `expand`**:
+    `expand` spares a sighted reader a list they know, and a screen-reader user
+    has no glance to take the summary in with either. Enter alone takes the choice
+    `value` or `initial` names, and is refused where there is none.
+  - **The line engine is published with the rest of the prompt plumbing**
+    (SIG-227), as `runLinePrompt()`, `promptAsLines()`, `promptLineQuestion()` and
+    the `PromptLineForm` type, for `promptKeys()`'s reason: these six are modules
+    of their own, and `sigil add` rewrites `./prompt.js` to
+    `@ttylabs/sigil/components`, so an ejected `number()` has to find them there.
+    `registry.test.ts` fails on the first import that is not published, which is
+    how this was found. `runLinePrompt()` is a signal-taking promise and so is in
+    `PromptName`; it is exempted from both tables rather than given a row, because
+    it takes no `accessible` and is always lines, so it fits neither the drawn run
+    nor `LineName` -- and every line-form row is it, asked through a prompt.
+- **The rest have no line form yet and are drawn as usual.** The option is on
+  `AccessibleOptions`, which only the options interfaces of a prompt with a line
+  form extend, so the types do not offer it where it would do nothing; the
+  variable cannot be scoped that way and is ignored by the rest, which the README
+  says. Refusing them would be worse: an app the person cannot use at all, over a
+  preference they set to make apps usable.
 - **The screen model learned Backspace.** `src/testing/screen.ts` took `\b` as a
   zero-width control and moved nothing, so `ab\b \b` read as `ab `, which is the
   model losing an edit a terminal shows. It moves one column left, stops at the
@@ -7813,7 +7877,7 @@ nothing already written is moved, erased or coloured.
   prompts, and the person most likely to have the variable exported is a developer
   who uses a screen reader -- for whom hundreds of prompt tests would otherwise
   fail. The line-form tests stub it themselves.
-- **Not done.** A line form for the other seventeen; saying the keys a line form
+- **Not done.** A line form for the rest; saying the keys a line form
   takes beyond what answering needs (`esc` to go back is not announced, as
   `text()` draws no footer for it either); a spinner or a bar that is running while
   a line prompt asks is not evicted, since a line prompt claims no live region; the

@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 248 keys, which is what a catalog has to carry to translate sigil's own
+ * 253 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -19,6 +19,7 @@
  * English, so there is nothing else for this to be.
  */
 export const SIGIL_KEYS: readonly string[] = [
+  '"{0}" does not fit {1}',
   '"{0}" in {1} is not a list',
   '"{0}" in {1} is not an object',
   '"{0}" is not a number from 1 to {1}',
@@ -27,6 +28,7 @@ export const SIGIL_KEYS: readonly string[] = [
   '(choices: {0})',
   '(default: {0})',
   '(empty)',
+  '(format: {0})',
   '(skip)',
   '({0} to submit)',
   '<command>',
@@ -39,6 +41,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Cannot delete "{0}": it is set in {1}, which is read-only.\n  Set it in {2} to override the value, or\n  remove it from {3}.',
   'Cannot open an editor for "{0}": set $VISUAL or $EDITOR',
   'Cannot prompt for "{0}" because the input is not a terminal',
+  'Choose a key',
   'Choose a number from 1 to {0}',
   'Choose at least one',
   'Choose at least {0}',
@@ -53,6 +56,8 @@ export const SIGIL_KEYS: readonly string[] = [
   'ETA {0}',
   'Enter a number',
   'Enter a number from 1 to {0}',
+  'Enter one of {0}',
+  'Entered: {0}',
   'Error: {0}',
   'Examples:',
   'Expected a collapsible title to be a string',

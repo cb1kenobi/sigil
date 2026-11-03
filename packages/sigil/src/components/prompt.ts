@@ -177,9 +177,10 @@ export interface PromptOptions extends MountOptions {
 }
 
 /**
- * The one option that turns a prompt into lines, on the six prompts that have a
- * line form: `text()`, `password()`, `multiline()`, `confirm()`, `select()` and
- * `multiselect()`.
+ * The one option that turns a prompt into lines, on the prompts that have a line
+ * form: `text()`, `password()`, `multiline()`, `confirm()`, `select()` and
+ * `multiselect()`, and `number()`, `list()`, `path()`, `maskedText()`, `toggle()`
+ * and `selectKey()` in modules of their own.
  */
 export interface AccessibleOptions {
   /**
@@ -3894,6 +3895,12 @@ function lineMultiselect<T>(
  * the two windows a list and a one-line field need, and both are the kind of
  * pure function this repository already publishes for its own testability.
  *
+ * The line engine is here for the same reason, and for the prompts in modules of
+ * their own that have a line form: `runLinePrompt()` is `run()`'s twin for
+ * accessible mode, `promptAsLines()` is the switch, and `promptLineQuestion()`
+ * the line a reply is typed after. An ejected `number()` imports them from the
+ * package as it imports `runPrompt()`, so they are published the same way.
+ *
  * Nothing here moved. The bodies are where they were, and the only edit to
  * `test/components/prompt.test.ts` is one added assertion about the surface this
  * block creates -- no existing test moved, which is the check an extraction
@@ -3902,6 +3909,7 @@ function lineMultiselect<T>(
 export {
   answered as promptAnswered,
   answerFits as promptAnswerFits,
+  asLines as promptAsLines,
   answerSlot as promptAnswerSlot,
   sameValue as promptSameValue,
   promptFooter,
@@ -3911,8 +3919,10 @@ export {
   fitsBeside as promptTailFits,
   note as promptNote,
   promptHead as promptHeadLine,
+  question as promptLineQuestion,
   underHead as promptUnderHead,
   run as runPrompt,
+  runLine as runLinePrompt,
   setNote as setPromptNote,
   summaryOf as promptSummary,
   SYMBOL as PROMPT_SYMBOLS,
@@ -3921,4 +3931,9 @@ export {
   windowOf as promptWindow,
   windowStart as listWindow,
 };
-export type { AnswerSlot as PromptAnswerSlot, Handlers as PromptHandlers, Window as PromptWindow };
+export type {
+  AnswerSlot as PromptAnswerSlot,
+  Handlers as PromptHandlers,
+  LineForm as PromptLineForm,
+  Window as PromptWindow,
+};

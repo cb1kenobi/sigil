@@ -37,6 +37,8 @@ import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { isControlChar, isSpaceCluster, typedText } from './editing.js';
 import {
+  type AccessibleOptions,
+  promptAsLines,
   type Choice,
   PROMPT_SYMBOLS,
   promptAnswered,
@@ -49,6 +51,8 @@ import {
   promptTailFits,
   promptUnderHead,
   promptValue,
+  promptLineQuestion,
+  runLinePrompt,
   runPrompt,
   type Separator,
 } from './prompt.js';
@@ -66,7 +70,7 @@ export interface KeyChoice<T = unknown> extends Omit<Choice<T>, 'description' | 
 /** What `selectKey()`'s list is made of: a choice, a heading, or a label to number. */
 export type KeyChoiceEntry<T = unknown> = KeyChoice<T> | Separator | string;
 
-export interface SelectKeyOptions<T> extends PromptOptions {
+export interface SelectKeyOptions<T> extends PromptOptions, AccessibleOptions {
   /**
    * What to offer. A string is a choice with that label, which has no key and so
    * needs `numbered`. A heading is drawn when the list is, and is not in the
@@ -222,6 +226,10 @@ export function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T> {
     );
   }
 
+  if (promptAsLines(opts)) {
+    return lineSelectKey(opts, all, byKey, fallback);
+  }
+
   const expand = opts.expand ?? false;
   const terminal = opts.terminal ?? defaultTerminal;
   // `(Y/n/a/d/h)`: only the keys that work, so the line cannot name one that
@@ -347,5 +355,80 @@ export function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T> {
 
       view,
     };
+  });
+}
+
+/**
+ * `selectKey()` as a line: `select()`'s list, lettered by its keys, and a key.
+ *
+ * The reply is a key and nothing else -- not a label, and not a position. A
+ * label can be another choice's key: `numbered` gives choices labelled `18` and
+ * `20` the keys `1` and `2`, and a choice keyed `a` beside one labelled `a` makes
+ * a reply of `a` mean two things. So the reply is the one thing that is already
+ * unique, which is also what answers the drawn prompt, and is read as a whole,
+ * trimmed and case aside the way a keypress is: `a` and `A` are one key.
+ * `Chosen:` follows, because a transcript reading `o` does not say what that was.
+ *
+ * The list is always written, `expand` or not. `expand` saves a sighted person
+ * reading a list they already know, by keeping it behind `h`; a screen-reader
+ * user has no glance to take in the summary with either, and a list read once
+ * costs a few lines in a transcript that has nothing else on screen. A disabled
+ * choice is listed after a dash, as `select()` lists one, since its key answers
+ * nothing; Enter alone takes the choice `initial` or `value` named, and refuses
+ * where there is none, as the drawn prompt does nothing.
+ *
+ * @param opts - What to ask.
+ * @param all - The list, with every key settled.
+ * @param byKey - The choices on offer, by their folded key.
+ * @param fallback - What Enter alone answers, if anything.
+ * @returns The chosen value.
+ */
+function lineSelectKey<T>(
+  opts: SelectKeyOptions<T>,
+  all: readonly Line<T>[],
+  byKey: ReadonlyMap<string, Extract<Line<T>, { kind: 'choice' }>>,
+  fallback: Extract<Line<T>, { kind: 'choice' }> | undefined
+): Promise<T> {
+  const listed: string[] = [];
+  for (const line of all) {
+    if (line.kind === 'separator') {
+      // a heading with words in it is listed and a rule of box-drawing characters
+      // is not, which is `select()`'s rule: a picture is read out a glyph at a time
+      if (/[\p{L}\p{N}]/u.test(line.label)) {
+        listed.push(`  ${line.label}`);
+      }
+      continue;
+    }
+    const { choice } = line;
+    const reason =
+      typeof choice.disabled === 'string' && choice.disabled
+        ? choice.disabled
+        : choice.disabled
+          ? __`disabled`
+          : choice.hint;
+    const label = reason ? `${choice.label} (${reason})` : choice.label;
+    listed.push(line.offered ? `  ${line.typed}) ${label}` : `  - ${label}`);
+  }
+
+  const keys = [...byKey.values()].map((line) => line.typed).join(', ');
+
+  return runLinePrompt<T>(opts, {
+    ask: promptLineQuestion(
+      __`Choose a key`,
+      fallback === undefined ? undefined : __`(default: ${fallback.typed})`
+    ),
+    before: [opts.message, ...listed],
+    echo: true,
+    read(reply) {
+      const said = reply.trim();
+      const hit = said === '' ? fallback : byKey.get(fold(said));
+      if (hit === undefined) {
+        return __`Enter one of ${keys}`;
+      }
+      return {
+        said: __`Chosen: ${hit.choice.short ?? hit.choice.label}`,
+        value: promptValue(hit.choice) as T,
+      };
+    },
   });
 }
