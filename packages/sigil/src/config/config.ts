@@ -1091,17 +1091,43 @@ export class Config {
    * same path as a list. A dotted path addresses object keys, and the array
    * methods are how a list is changed.
    *
+   * ## And a list the merged view holds, which this layer does not
+   *
+   * Asking only the layer missed the ordinary arrangement: the list in a lower
+   * layer and the write going to the user's, which holds nothing there. So
+   * `set('items.0', 9)` wrote `{ items: { "0": 9 } }` into the user layer, an
+   * object replaced the list in the merge, and `get('items')` was `{ "0": 9 }`
+   * (SIG-250). Writing the element instead would mean seeding this layer with a
+   * copy of the merged list, which is what `push` refuses to do for the reason
+   * its entry gives -- after which a change to the defaults never reaches the
+   * user again. So it is refused, naming the whole-list ways to say it.
+   *
+   * Only a **list**, and only where this layer has nothing of its own there. A
+   * lower layer's scalar is still shadowed by the object the write makes,
+   * because a scalar has nothing inside it a path could have meant; and a layer
+   * holding its own object under a list somebody else wins with is writing to
+   * its own structure.
+   *
    * @param layer - The layer being written.
    * @param parts - The path.
-   * @throws If an ancestor of the path is not an object.
+   * @throws If an ancestor of the path is not an object, or is a list in the
+   * merged view where this layer has nothing.
    */
   #assertWritable(layer: Layer, parts: readonly string[]): void {
     let at: unknown = layer.value;
+    let seen: unknown = this.#merged;
 
     for (const [i, part] of parts.slice(0, -1).entries()) {
       at = isPlainObject(at) && Object.hasOwn(at, part) ? at[part] : undefined;
+      seen = isPlainObject(seen) && Object.hasOwn(seen, part) ? seen[part] : undefined;
+      const prefix = parts.slice(0, i + 1).join('.');
       if (at !== undefined && !isPlainObject(at)) {
-        throw new Error(__`"${parts.slice(0, i + 1).join('.')}" in ${layer.name} is not an object`);
+        throw new Error(__`"${prefix}" in ${layer.name} is not an object`);
+      }
+      if (at === undefined && Array.isArray(seen)) {
+        throw new Error(
+          __`"${prefix}" is a list, and a dotted path does not reach into one; set the whole list, or use push, pop, shift or unshift`
+        );
       }
     }
   }

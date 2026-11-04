@@ -519,6 +519,35 @@ without destroying it is SIG-154's.
   stack is ordered and the top is what wins, so writing to a lower one means
   `get()` does not change -- a mutation that looks like it did nothing.
 
+- **A dotted path does not reach into a list, in this layer or in the merged
+  view, and `set('items.0', 9)` is refused rather than written as an element.**
+  The same-layer half was already refused -- `writePath()` used to replace the
+  list with `{ "0": 9 }` -- and the guard asked only the layer being written. So
+  with the list in a lower layer and nothing in the user's, which is the ordinary
+  arrangement, the write made `{ items: { "0": 9 } }` in the user layer and an
+  object replaced the list in the merge (SIG-250). `#assertWritable()` now walks
+  the merged view beside the layer and refuses where an ancestor is a list there
+  and the layer has nothing of its own, with a message naming the whole-list ways
+  to say it: `set('items', [...])` or the four array methods.
+
+  Writing the element was the other choice, and it is refused for the reason
+  `push` already gives: the user layer would have to be seeded with a copy of the
+  merged list to hold one changed element, after which a change to the defaults
+  never reaches the user again. And `readPath()` does not walk a list either, so
+  `get('items.0')` is `undefined` -- a setter that wrote what the getter cannot
+  read would be two answers about what a path addresses. Refused from a
+  read-only layer, a `default` or an environment variable alike, because what is
+  refused is what `get()` would come to answer.
+
+  **Only a list.** A lower layer's scalar is still shadowed by the object a
+  nested write makes: `server: "off"` underneath and `set('server.port', 1)` in
+  the user layer is an override, because a scalar has nothing inside it a path
+  could have meant -- where `items.0` reads as an element and destroys the list
+  it names. Refusing scalars too would have been one rule rather than two, and it
+  would also have been a behaviour change to working overrides that no defect
+  asked for. A layer holding its own **object** under a list that a higher layer
+  wins with is writing its own structure, and is left alone.
+
 - **A mutation validates the whole layer rather than the setting at its own
   path, and the narrower version was a hole in both directions.** A path can be
   _inside_ a declared setting or _outside_ one declared under it, and a pass that

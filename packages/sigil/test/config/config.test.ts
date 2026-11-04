@@ -1482,6 +1482,46 @@ describe('the schema', () => {
     expect(config.get('server')).to.equal('off');
   });
 
+  it("should not turn a lower layer's list into an object through set('items.0')", async () => {
+    // the check above asked only the layer being written, so with the list in a
+    // lower layer and nothing in the user's, `set('items.0', 9)` wrote
+    // `{ items: { "0": 9 } }` there and the merged list became `{ "0": 9 }`.
+    // Refused rather than written as an element, because writing the element
+    // would mean seeding the user layer with a copy of the merged list -- which
+    // `push` refuses to do, for the reason its entry gives
+    const config = await createConfig({
+      schema: { plugins: { default: ['a'], multiple: true } },
+      layers: [
+        { name: 'system', readOnly: true, store: object({ deep: { items: [1, 2, 3] } }) },
+        { name: 'base', store: object({ items: [1, 2, 3], server: 'off' }) },
+        { name: 'user', store: object({}) },
+      ],
+    });
+
+    const refusal = /"items" is a list, and a dotted path does not reach into one/;
+    expect(() => config.set('items.0', 9)).toThrow(refusal);
+    expect(() => config.set('items.a.b', 9)).toThrow(refusal);
+    expect(() => config.push('items.0', 9)).toThrow(refusal);
+    // at any depth, and from a read-only layer or a default as much as a
+    // writable one, since what is refused is what `get()` would come to answer
+    expect(() => config.set('deep.items.0', 9)).toThrow(/"deep\.items" is a list/);
+    expect(() => config.set('plugins.0', 'b')).toThrow(/"plugins" is a list/);
+
+    expect(config.get('items')).to.deep.equal([1, 2, 3]);
+    expect(config.get('deep.items')).to.deep.equal([1, 2, 3]);
+    expect(config.get('plugins')).to.deep.equal(['a']);
+    expect(config.layers.find((it) => it.name === 'user')?.dirty).toBe(false);
+
+    // the whole-list ways the message names still work, into the user layer
+    config.set('items', [9, 2, 3]);
+    expect(config.get('items')).to.deep.equal([9, 2, 3]);
+
+    // and a lower layer's **scalar** is still shadowed by the object a nested
+    // write makes, because a scalar has nothing inside it a path could have meant
+    config.set('server.port', 1);
+    expect(config.get('server')).to.deep.equal({ port: 1 });
+  });
+
   it('should name the ancestor that is not an object, not the whole path', async () => {
     const config = await createConfig({
       layers: [{ name: 'a', store: object({ a: { b: 'scalar' } }) }],

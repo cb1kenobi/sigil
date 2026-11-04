@@ -2227,6 +2227,12 @@ One value per call, so that every mutator has one shape — a path, maybe a valu
 maybe a layer. A trailing layer name and a trailing string value cannot be told
 apart.
 
+A dotted path does not reach into a list: `get('items.0')` is `undefined`, and
+`set('items.0', 9)` throws rather than writing an element — whichever layer the
+list is in. Writing the element would mean copying the whole merged list into
+your layer to change one entry, which is the seeding `push` refuses. Set the
+whole list, or use the array methods.
+
 ### What `get()` hands back is frozen
 
 It is a computed value you hold a live reference to, so mutating it would change
