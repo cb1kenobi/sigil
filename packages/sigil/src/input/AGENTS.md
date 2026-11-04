@@ -76,6 +76,25 @@ the entry it belongs to.
   turns the mode off for the reason it leaves the alternate screen: a CLI that
   dies with it on hands the user a shell that puts `ESC [ 200 ~` into every
   paste, which has to be reset by hand.
+- **A marker splits like the paste does, so each is looked for across the
+  join.** The entry above held the _content_ across chunk boundaries and asked
+  for each marker in the current chunk alone, and the test split only the
+  content -- so a read that ended `ESC [ 20` and one that began `1 ~` was a paste
+  that never ended, and every key after it, Ctrl-C included, became content for
+  the life of the process. That is not a contrived split: a macOS pty hands over
+  at most 1022 bytes a read, so pastes of 1011, 1013, 1015 and 2035 bytes hung,
+  measured on a real pty (SIG-247). The end marker is now searched for in what
+  the paste holds plus the new chunk, starting just short of the join so a long
+  paste is not rescanned from the top on every read. The start marker's first
+  half is never in the paste buffer, because nothing is pasting yet: it is in
+  `held`, since every prefix of `ESC [ 200 ~` is a key that might not be whole
+  and `keys()` keeps it for the next read. So the start is looked for in `held`
+  plus the chunk, and `held` is taken only when a marker really is there -- a
+  tail that starts nothing goes back through `keys()` exactly as before, which
+  is also why this needed no buffer of its own: the one that holds a partial key
+  already holds a partial marker. A split start used to type the marker and the
+  whole paste in as keys. Pinned in `test/input/input.test.ts` at every split
+  position of both markers, each followed by a Ctrl-C that has to arrive.
 - **A paste is offered to the tree before the router's own handlers, which is
   the mouse's order and not the keys'.** `Element.onPaste` on the focused element
   and then on each ancestor, and `onPaste()` sees what none of them stopped; what

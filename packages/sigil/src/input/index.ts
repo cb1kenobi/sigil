@@ -1691,25 +1691,41 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // what stops it: a Ctrl-C binding that calls `stop()` is the ordinary way
     while (!stopped && rest !== '') {
       if (pasting !== undefined) {
-        const end = rest.indexOf(PASTE_END);
+        // looked for in what is held *and* this chunk, because a marker splits
+        // like anything else: a read that ends `ESC [ 20` and one that starts
+        // `1 ~` is a paste that ends, and asking each chunk on its own made it a
+        // paste that never did -- every later key, Ctrl-C included, became
+        // content for the life of the process. The search starts no earlier
+        // than a marker straddling the join could, so a long paste arriving in
+        // many reads is not scanned again from the top on every one of them
+        const joined = pasting + rest;
+        const end = joined.indexOf(PASTE_END, Math.max(0, pasting.length - PASTE_END.length + 1));
         if (end === -1) {
-          pasting += rest;
+          pasting = joined;
           return;
         }
-        flushPaste(pasting + rest.slice(0, end));
+        flushPaste(joined.slice(0, end));
         pasting = undefined;
-        rest = rest.slice(end + PASTE_END.length);
+        rest = joined.slice(end + PASTE_END.length);
         continue;
       }
 
-      const start = rest.indexOf(PASTE_START);
+      // and the opening marker's first half is in `held`, since every prefix of
+      // `ESC [ 200 ~` is a key that might not be whole and `keys()` keeps it for
+      // the next read. Searching the chunk alone typed the marker in as keys and
+      // the paste after it, which is what bracketing exists to prevent. Taken
+      // out of `held` only when a marker really is there, so a tail that starts
+      // nothing goes back through `keys()` exactly as it would have
+      const joined = held + rest;
+      const start = joined.indexOf(PASTE_START);
       if (start === -1) {
         break;
       }
 
-      keys(rest.slice(0, start));
+      held = '';
+      keys(joined.slice(0, start));
       pasting = '';
-      rest = rest.slice(start + PASTE_START.length);
+      rest = joined.slice(start + PASTE_START.length);
     }
 
     if (!stopped && pasting === undefined && rest !== '') {

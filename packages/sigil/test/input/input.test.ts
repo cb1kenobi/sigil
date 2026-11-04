@@ -529,6 +529,90 @@ describe('paste', () => {
     input.stop();
   });
 
+  describe('a marker split across two reads', () => {
+    // a marker splits like anything else, and on a macOS pty a read is at most
+    // 1022 bytes: pastes of 1011, 1013, 1015 and 2035 bytes put the end marker
+    // across a read boundary. Searching each chunk on its own meant the paste
+    // never ended, and every key after it -- Ctrl-C included -- was content for
+    // the life of the process
+    const start = '\u001b[200~';
+    const end = '\u001b[201~';
+
+    /** A router that records each paste and each key, Ctrl-C by name. */
+    function recording(): {
+      feed: (chunk: string) => void;
+      keys: string[];
+      pasted: string[];
+      stop: () => void;
+    } {
+      const { feed, terminal } = harness();
+      const input = createInput({ root: box({}), terminal });
+      const keys: string[] = [];
+      const pasted: string[] = [];
+      input.onPaste((event) => {
+        pasted.push(event.text);
+        event.stop();
+      });
+      input.bind((event) => {
+        keys.push(event.key.ctrl ? `ctrl-${event.key.name}` : event.key.name);
+      });
+      return { feed, keys, pasted, stop: () => input.stop() };
+    }
+
+    // every place a marker can be cut in two, which is after each byte but the last
+    const starts = Array.from({ length: start.length - 1 }, (_, i) => i + 1);
+    const ends = Array.from({ length: end.length - 1 }, (_, i) => i + 1);
+
+    it.each(ends)('should end a paste whose end marker splits after byte %i', (at) => {
+      const { feed, keys, pasted, stop } = recording();
+
+      feed(`a${start}one\ntwo${end.slice(0, at)}`);
+      expect(pasted).toEqual([]);
+      feed(`${end.slice(at)}b`);
+      expect(pasted).toEqual(['one\ntwo']);
+      feed('\u0003');
+      expect(keys).toEqual(['a', 'b', 'ctrl-c']);
+      stop();
+    });
+
+    it.each(starts)('should begin a paste whose start marker splits after byte %i', (at) => {
+      const { feed, keys, pasted, stop } = recording();
+
+      feed(`a${start.slice(0, at)}`);
+      feed(`${start.slice(at)}one\ntwo${end}b`);
+      expect(pasted).toEqual(['one\ntwo']);
+      feed('\u0003');
+      expect(keys).toEqual(['a', 'b', 'ctrl-c']);
+      stop();
+    });
+
+    it('should hold both markers when every byte is its own read', () => {
+      const { feed, keys, pasted, stop } = recording();
+
+      for (const char of `a${start}one\ntwo${end}b`) {
+        feed(char);
+      }
+      expect(pasted).toEqual(['one\ntwo']);
+      feed('\u0003');
+      expect(keys).toEqual(['a', 'b', 'ctrl-c']);
+      stop();
+    });
+
+    it('should keep content that only looks like the start of an end marker', () => {
+      // what a read ends on is held as content until the next one says whether
+      // it was a marker, and here it was not
+      const { feed, keys, pasted, stop } = recording();
+
+      feed(`${start}x\u001b[20`);
+      feed('0');
+      feed(`y${end}`);
+      expect(pasted).toEqual(['x\u001b[200y']);
+      feed('\u0003');
+      expect(keys).toEqual(['ctrl-c']);
+      stop();
+    });
+  });
+
   it('should type it in when nobody wanted it whole', () => {
     // which is what a terminal that cannot bracket a paste sends anyway
     const { feed, terminal } = harness();
