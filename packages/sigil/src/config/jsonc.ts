@@ -61,7 +61,8 @@ const BOM = '\uFEFF';
  * @param text - The source.
  * @param what - The file, for a message.
  * @returns The scan.
- * @throws If a string or a block comment is never closed.
+ * @throws If a string or a block comment is never closed, or a U+2028 or
+ * U+2029 sits outside a string.
  */
 export function scanJsonc(text: string, what: string): JsoncScan {
   // a leading byte order mark is what an editor writes and what `JSON.parse`
@@ -157,8 +158,8 @@ export function scanJsonc(text: string, what: string): JsoncScan {
         // document, so `{ "a": 1 // c\r "b": 2 }` blanked a real key and
         // `JSON.parse` succeeded as `{ "a": 1 }` -- a key dropped with no
         // error at all. Found by review. `\u2028` and `\u2029` are line
-        // terminators to JavaScript and to every JSONC reader worth agreeing
-        // with, so they end one too
+        // terminators to JavaScript, so they end one too -- and are then
+        // refused by name below, since JSON has no use for one outside a string
         end = i + 2;
         while (end < source.length && !LINE_END.test(source[end] as string)) {
           end++;
@@ -171,6 +172,24 @@ export function scanJsonc(text: string, what: string): JsoncScan {
       // a comment is trivia, so it neither opens nor closes the window a
       // pending comma is waiting in: `[1, /* two */]` is a trailing comma
       continue;
+    }
+
+    // the two line terminators JavaScript has and JSON does not. A line comment
+    // ends at one -- `LINE_END` is shared with the writer, which has to agree
+    // about where a comment ended -- and what is left is a character JSON gives
+    // no meaning outside a string, so the document is refused either way. What
+    // this adds is the sentence: `JSON.parse` met it as `Unexpected token`
+    // pointing at a character no editor draws, after a comment that looked
+    // like it ran to the end of its line. Refused rather than read as
+    // whitespace, which is the dialect `Not JSON5` refuses to invent; and not
+    // left inside the comment, because a reader that ends a comment there --
+    // `tsc` over a `tsconfig.json`, anything built on a JavaScript scanner --
+    // would then read as data what this read as a comment, with neither saying so
+    if (c === '\u2028' || c === '\u2029') {
+      const code = c === '\u2028' ? 'U+2028' : 'U+2029';
+      throw new Error(
+        __`Unexpected ${code} in ${what} on line ${lineAt(source, i)}: JSON allows it only inside a string`
+      );
     }
 
     if (c === ',') {
