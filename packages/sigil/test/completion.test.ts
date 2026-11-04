@@ -777,8 +777,9 @@ describe('the emitted scripts', () => {
 
       // a raw escape sequence in a file the shell prints on every tab is a
       // sequence waiting to be executed, which is the rule this repository keeps
-      // for what it ships. `\t`, `\n` and `\r` are the script's own formatting
-      expect(script.replaceAll(/[\t\n\r]/gu, '')).not.toMatch(/\p{Cc}/u);
+      // for what it ships. `\n` is the script's own formatting, and it is
+      // indented with spaces -- so a tab is a control character like any other
+      expect(script.replaceAll('\n', '')).not.toMatch(/\p{Cc}/u);
       expect(script).not.toContain(ESC);
     }
   );
@@ -803,8 +804,8 @@ describe('the emitted scripts', () => {
         shell
       );
 
-      // `\t` and `\n` are the script's own formatting, and nothing else is
-      expect(script.replaceAll(/[\t\n]/gu, '')).not.toMatch(/\p{Cc}/u);
+      // `\n` is the script's own formatting, and nothing else is
+      expect(script.replaceAll('\n', '')).not.toMatch(/\p{Cc}/u);
       // and the command is still there, under the spelling that reaches it
       expect(script).toContain(shell === 'bash' ? "'go sub')" : "('go sub')");
     }

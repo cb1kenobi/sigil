@@ -267,7 +267,7 @@ class Printer {
 
     return this.#lines.length === 0
       ? expression
-      : `(() => {\n${this.#lines.map((line) => `\t${line}\n`).join('')}\treturn ${expression};\n})()`;
+      : `(() => {\n${this.#lines.map((line) => `  ${line}\n`).join('')}  return ${expression};\n})()`;
   }
 
   /**

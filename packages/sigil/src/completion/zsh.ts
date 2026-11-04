@@ -104,7 +104,7 @@ function pathPattern(path: readonly string[]): string {
 
 /** One `case` arm. */
 function arm(path: readonly string[], body: string): string {
-  return `\t\t${pathPattern(path)} ${body} ;;\n`;
+  return `    ${pathPattern(path)} ${body} ;;\n`;
 }
 
 /** The arms that say which path a word at a path takes you to. See `resolveArms()` in `./bash.ts`. */
@@ -120,10 +120,10 @@ function resolveArms(spec: CompletionSpec, next: string): string {
     for (const sub of cmd.subcommands) {
       const patterns = sub.tokens.map(zshQuote).join('|');
       const reached = zshQuote([...cmd.path, sub.name].join(' '));
-      inner += `\t\t\t\t(${patterns}) ${next}=${reached} ;;\n`;
+      inner += `        (${patterns}) ${next}=${reached} ;;\n`;
     }
 
-    out += `\t\t${pathPattern(cmd.path)}\n\t\t\tcase "$2" in\n${inner}\t\t\tesac\n\t\t\t;;\n`;
+    out += `    ${pathPattern(cmd.path)}\n      case "$2" in\n${inner}      esac\n      ;;\n`;
   }
 
   return out;
@@ -193,10 +193,10 @@ function valueArm(cmd: CompletionCommand, takes: string, cands: string): string 
     const values = opt.values?.length
       ? `; ${cands}=(${opt.values.map((value) => zshPair(value)).join(' ')})`
       : '';
-    inner += `\t\t\t\t(${patterns}) ${takes}=1${values} ;;\n`;
+    inner += `        (${patterns}) ${takes}=1${values} ;;\n`;
   }
 
-  return `\t\t${pathPattern(cmd.path)}\n\t\t\tcase "$2" in\n${inner}\t\t\tesac\n\t\t\t;;\n`;
+  return `    ${pathPattern(cmd.path)}\n      case "$2" in\n${inner}      esac\n      ;;\n`;
 }
 
 /** The arms that say which options take a value. */
@@ -234,159 +234,159 @@ ${installComment('zsh', program)}
 # A word that is no command answers nothing, which is also what keeps an
 # option's value from being read as one
 ${pre}_resolve() {
-\t${next}=''
-\tcase "$1" in
-${resolveArms(spec, next)}\tesac
+  ${next}=''
+  case "$1" in
+${resolveArms(spec, next)}  esac
 }
 
 ${pre}_subs() {
-\t${cands}=()
-\tcase "$1" in
-${subArms(spec, cands)}\tesac
+  ${cands}=()
+  case "$1" in
+${subArms(spec, cands)}  esac
 }
 
 ${pre}_opts() {
-\t${cands}=()
-\tcase "$1" in
-${optArms(spec, cands)}\tesac
+  ${cands}=()
+  case "$1" in
+${optArms(spec, cands)}  esac
 }
 
 ${pre}_args() {
-\t${cands}=()
-\tcase "$1" in
-${argArms(spec, cands)}\tesac
+  ${cands}=()
+  case "$1" in
+${argArms(spec, cands)}  esac
 }
 
 # sets ${takes} and ${cands} rather than completing, because the walk has to ask
 # whether an option eats the next token without offering anything
 ${pre}_optval() {
-\t${takes}=0
-\t${cands}=()
-\tcase "$1" in
-${valueArms(spec, takes, cands)}\tesac
+  ${takes}=0
+  ${cands}=()
+  case "$1" in
+${valueArms(spec, takes, cands)}  esac
 }
 
 ${fn}() {
-\t# one option rather than \`emulate -L zsh\`, which was the first fix and broke
-\t# a real completion. A sourced function does not get what an autoloaded one
-\t# does -- \`compinit\` loads a \`_name\` from $fpath with \`autoload -Uz\` and
-\t# \`source <(app completion zsh)\` does not -- so under a user's \`ksh_arrays\`
-\t# the \`$words[i]\` walk read the wrong word and \`app db <TAB>\` offered the
-\t# root's commands. But \`localoptions\` scopes an option over everything this
-\t# function *calls*, and \`emulate\` resets them all: measured through a pty,
-\t# \`_files\` then failed with \`no matches found: *:globbed-files\` and completed
-\t# a file from the working directory instead of the option's values. So the fix
-\t# is the one option that was wrong, and nothing else moves
-\tsetopt localoptions no_ksh_arrays
+  # one option rather than \`emulate -L zsh\`, which was the first fix and broke
+  # a real completion. A sourced function does not get what an autoloaded one
+  # does -- \`compinit\` loads a \`_name\` from $fpath with \`autoload -Uz\` and
+  # \`source <(app completion zsh)\` does not -- so under a user's \`ksh_arrays\`
+  # the \`$words[i]\` walk read the wrong word and \`app db <TAB>\` offered the
+  # root's commands. But \`localoptions\` scopes an option over everything this
+  # function *calls*, and \`emulate\` resets them all: measured through a pty,
+  # \`_files\` then failed with \`no matches found: *:globbed-files\` and completed
+  # a file from the working directory instead of the option's values. So the fix
+  # is the one option that was wrong, and nothing else moves
+  setopt localoptions no_ksh_arrays
 
-\t# both are the data functions' to write: \`local\` is dynamically scoped, so
-\t# they fill this call's and leak nothing
-\tlocal -a ${cands}
-\tlocal ${takes}=0
-\tlocal ${next}=''
-\t# \`path\` is prefixed because in zsh it is a **special** parameter tied to
-\t# \`PATH\`: \`local path=''\` empties \`$PATH\` for the duration of the function,
-\t# so \`whence -p ls\` finds nothing -- measured -- and this function calls into
-\t# the whole completion system, which is third-party shell code that may run an
-\t# external command. The bash emitter prefixes it too, for one spelling across
-\t# the two rather than because bash needs it
-\tlocal ${path}='' word cur prev opt
-\tlocal -i i skip=0
+  # both are the data functions' to write: \`local\` is dynamically scoped, so
+  # they fill this call's and leak nothing
+  local -a ${cands}
+  local ${takes}=0
+  local ${next}=''
+  # \`path\` is prefixed because in zsh it is a **special** parameter tied to
+  # \`PATH\`: \`local path=''\` empties \`$PATH\` for the duration of the function,
+  # so \`whence -p ls\` finds nothing -- measured -- and this function calls into
+  # the whole completion system, which is third-party shell code that may run an
+  # external command. The bash emitter prefixes it too, for one spelling across
+  # the two rather than because bash needs it
+  local ${path}='' word cur prev opt
+  local -i i skip=0
 
-\t# the command path, read off the words before the cursor. A word that
-\t# resolves to no command leaves the path where it was -- which is also what
-\t# keeps an option's value from being read as a command
-\tfor (( i = 2; i < CURRENT; i++ )); do
-\t\tword=$words[i]
-\t\tif (( skip )); then
-\t\t\tskip=0
-\t\t\tcontinue
-\t\tfi
-\t\tcase "$word" in
-\t\t\t# after the terminator everything is an extra argument, so a file is\n\t\t\t# the answer -- which is what bash's \`-o default\` gives there\n\t\t\t('--') _files; return ;;
-\t\t\t('') continue ;;
-\t\t\t(-*)
-\t\t\t\t${pre}_optval "$${path}" "$word"
-\t\t\t\t(( ${takes} )) && skip=1
-\t\t\t\tcontinue
-\t\t\t\t;;
-\t\tesac
-\t\t${pre}_resolve "$${path}" "$word"
-\t\t# a command's path is never empty, so an empty answer is "no command"
-\t\t[[ -n $${next} ]] && ${path}=$${next}
-\tdone
+  # the command path, read off the words before the cursor. A word that
+  # resolves to no command leaves the path where it was -- which is also what
+  # keeps an option's value from being read as a command
+  for (( i = 2; i < CURRENT; i++ )); do
+    word=$words[i]
+    if (( skip )); then
+      skip=0
+      continue
+    fi
+    case "$word" in
+      # after the terminator everything is an extra argument, so a file is\n      # the answer -- which is what bash's \`-o default\` gives there\n      ('--') _files; return ;;
+      ('') continue ;;
+      (-*)
+        ${pre}_optval "$${path}" "$word"
+        (( ${takes} )) && skip=1
+        continue
+        ;;
+    esac
+    ${pre}_resolve "$${path}" "$word"
+    # a command's path is never empty, so an empty answer is "no command"
+    [[ -n $${next} ]] && ${path}=$${next}
+  done
 
-\tcur=$words[CURRENT]
-\tprev=''
-\t(( CURRENT > 1 )) && prev=$words[CURRENT-1]
+  cur=$words[CURRENT]
+  prev=''
+  (( CURRENT > 1 )) && prev=$words[CURRENT-1]
 
-\t# \`--opt=<TAB>\`: zsh keeps that as one word, so the option is the part before
-\t# the \`=\` and \`compset\` is what takes the prefix off the match
-\tif [[ $cur == -*=* ]]; then
-\t\topt=\${cur%%=*}
-\t\t${pre}_optval "$${path}" "$opt"
-\t\tif (( ${takes} )); then
-\t\t\t# by length rather than by the pattern \`*=\`, which is greedy: a value
-\t\t\t# holding an \`=\` -- \`--file=a=b\` -- had its prefix taken through the
-\t\t\t# *last* one, so the matcher saw \`b\` where bash's \`\${cur#*=}\` sees
-\t\t\t# \`a=b\`. The option's own length is exact and needs no pattern quoting
-\t\t\tcompset -p $(( \${#opt} + 1 ))
-\t\t\tif (( \${#${cands}} )); then
-\t\t\t\t_describe -t values value ${cands} && return 0
-\t\t\tfi
-\t\t\t_files && return 0
-\t\t\treturn 1
-\t\tfi
-\tfi
+  # \`--opt=<TAB>\`: zsh keeps that as one word, so the option is the part before
+  # the \`=\` and \`compset\` is what takes the prefix off the match
+  if [[ $cur == -*=* ]]; then
+    opt=\${cur%%=*}
+    ${pre}_optval "$${path}" "$opt"
+    if (( ${takes} )); then
+      # by length rather than by the pattern \`*=\`, which is greedy: a value
+      # holding an \`=\` -- \`--file=a=b\` -- had its prefix taken through the
+      # *last* one, so the matcher saw \`b\` where bash's \`\${cur#*=}\` sees
+      # \`a=b\`. The option's own length is exact and needs no pattern quoting
+      compset -p $(( \${#opt} + 1 ))
+      if (( \${#${cands}} )); then
+        _describe -t values value ${cands} && return 0
+      fi
+      _files && return 0
+      return 1
+    fi
+  fi
 
-\tif [[ $cur == -* ]]; then
-\t\t${pre}_opts "$${path}"
-\t\tif (( \${#${cands}} )); then
-\t\t\t_describe -t options option ${cands} && return 0
-\t\tfi
-\t\treturn 1
-\tfi
+  if [[ $cur == -* ]]; then
+    ${pre}_opts "$${path}"
+    if (( \${#${cands}} )); then
+      _describe -t options option ${cands} && return 0
+    fi
+    return 1
+  fi
 
-\tif [[ $prev == -* ]]; then
-\t\t${pre}_optval "$${path}" "$prev"
-\t\tif (( ${takes} )); then
-\t\t\tif (( \${#${cands}} )); then
-\t\t\t\t_describe -t values value ${cands} && return 0
-\t\t\tfi
-\t\t\t_files && return 0
-\t\t\treturn 1
-\t\tfi
-\tfi
+  if [[ $prev == -* ]]; then
+    ${pre}_optval "$${path}" "$prev"
+    if (( ${takes} )); then
+      if (( \${#${cands}} )); then
+        _describe -t values value ${cands} && return 0
+      fi
+      _files && return 0
+      return 1
+    fi
+  fi
 
-\t# both, and neither returns early: a command with subcommands may also have
-\t# positional choices -- a \`default\` subcommand's are offered at its parent --
-\t# and returning after the first \`_describe\` offered the commands and dropped
-\t# the values, where bash adds both. Found by review
-\tlocal -i ${pre}_added=0
+  # both, and neither returns early: a command with subcommands may also have
+  # positional choices -- a \`default\` subcommand's are offered at its parent --
+  # and returning after the first \`_describe\` offered the commands and dropped
+  # the values, where bash adds both. Found by review
+  local -i ${pre}_added=0
 
-\t${pre}_subs "$${path}"
-\tif (( \${#${cands}} )); then
-\t\t_describe -t commands command ${cands} && ${pre}_added=1
-\tfi
+  ${pre}_subs "$${path}"
+  if (( \${#${cands}} )); then
+    _describe -t commands command ${cands} && ${pre}_added=1
+  fi
 
-\t${pre}_args "$${path}"
-\tif (( \${#${cands}} )); then
-\t\t_describe -t values value ${cands} && ${pre}_added=1
-\tfi
+  ${pre}_args "$${path}"
+  if (( \${#${cands}} )); then
+    _describe -t values value ${cands} && ${pre}_added=1
+  fi
 
-\t(( ${pre}_added )) && return 0
+  (( ${pre}_added )) && return 0
 
-\t# a file is the answer where nothing is declared: an option whose values are
-\t# anything its type will take, and a positional with no choices
-\t_files
+  # a file is the answer where nothing is declared: an option whose values are
+  # anything its type will take, and a positional with no choices
+  _files
 }
 
 # autoloaded from $fpath, the function's own name is on the stack and this file
 # is being asked to complete; sourced, it is not and the job is to register
 if [ "$funcstack[1]" = ${zshQuote(fn)} ]; then
-\t${fn} "$@"
+  ${fn} "$@"
 else
-\tcompdef ${fn} ${q}
+  compdef ${fn} ${q}
 fi
 `;
 }

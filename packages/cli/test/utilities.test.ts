@@ -179,6 +179,15 @@ describe('the generated sheet', () => {
     expect(source).toContain('.md\\:flex-row');
   });
 
+  it('should indent with spaces, a variant inside its media query included', () => {
+    // the generator wrote `\t` as an escape, which a sweep for tab characters
+    // in the source never saw
+    const source = generateUtilities({ variants: true });
+    expect(source).not.toContain('\t');
+    expect(source).toContain('\n  .flex-row {');
+    expect(source).toMatch(/\n {2}@media [^\n]+\{\n {4}\.\S/u);
+  });
+
   it('should resolve a class string through the ordinary cascade', () => {
     const style = resolve(['flex', 'flex-col', 'gap-1', 'p-2', 'text-red', 'w-1/2']);
     expect(style.flexDirection).toBe('column');

@@ -397,18 +397,18 @@ export function generateUtilities(opts: UtilityOptions = {}): string {
   const lines: string[] = ['@layer utilities {'];
 
   for (const utility of base) {
-    lines.push(`\t${rule(utility, '')}`);
+    lines.push(`  ${rule(utility, '')}`);
   }
 
   if (base.length && (opts.variants ?? DEFAULTS.variants)) {
     for (const variant of VARIANTS) {
       const body = base.map((utility) => rule(utility, variant.name, variant.pseudo));
       if (variant.media) {
-        lines.push(`\t@media ${variant.media} {`);
-        lines.push(...body.map((line) => `\t\t${line}`));
-        lines.push('\t}');
+        lines.push(`  @media ${variant.media} {`);
+        lines.push(...body.map((line) => `    ${line}`));
+        lines.push('  }');
       } else {
-        lines.push(...body.map((line) => `\t${line}`));
+        lines.push(...body.map((line) => `  ${line}`));
       }
     }
   }
