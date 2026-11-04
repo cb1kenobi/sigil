@@ -222,6 +222,14 @@ export function createEffects(): Effects {
 
   const watcher = new Watcher(() => {
     stalled = false;
+    if (flushing) {
+      // the drain's own re-arm, announcing the work it is about to do -- and
+      // it loops until quiet, so a flush asked for here has nothing left to
+      // find. Asking anyway counted as *chained*, since this scope is mid-flush,
+      // so under a frame scheduler a writer faster than a frame made every
+      // frame a link in a chain and tripped `MAX_CHAIN` with no cycle anywhere
+      return;
+    }
     requestFlush();
   });
 
@@ -324,7 +332,8 @@ export function createEffects(): Effects {
     let passes = 0;
     for (;;) {
       // re-armed *before* draining, so a write made by an effect during
-      // this pass still schedules the next one
+      // this pass is found by the next one. What the re-arm announces asks
+      // for no flush: this loop is the flush, and it runs until quiet
       watcher.watch();
       const pending = watcher.getPending();
       if (pending.length === 0) {

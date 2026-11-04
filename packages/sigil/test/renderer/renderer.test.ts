@@ -24,7 +24,7 @@ import { Cascade, parseStylesheet } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { Screen, screenStream } from '../../src/testing/screen.js';
 import { setup } from '../components/helpers.js';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The renderer.
@@ -2528,6 +2528,111 @@ describe('a frame over an element placed by another', () => {
       expect(h.painted - painted, 'one frame, painted once').toBe(1);
       expect(h.picture().split('\n')[1]).toMatch(/^r3\.*</);
     } finally {
+      view.dispose();
+    }
+  });
+});
+
+describe('the settle guard under the frame loop', () => {
+  // the frame loop is the scheduler here, a `setTimeout` paced to `frameMs`,
+  // which is the one the microtask tests of the guard never ran under
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should not tear down a renderer whose signal is written faster than a frame', () => {
+    // every drain re-arms its watcher before each pass, and a re-arm that finds
+    // work announces it -- from inside the flush, so the flush it asked for was
+    // counted as *chained*. Under a microtask scheduler that follow-up runs at
+    // once, finds nothing, and the chain resets. Under the frame loop it runs a
+    // frame later, and a writer faster than a frame has always written again by
+    // then -- so every frame was a link, and after a hundred of them the
+    // renderer was torn down for a cross-scope cycle that did not exist. A
+    // progress bar fed every 5ms went blank after about 3.4 seconds
+    const h = harness();
+    const n = new State(0);
+    const reports: unknown[] = [];
+    const view = render(
+      () => {
+        const label = text('');
+        createEffect(() => {
+          label.setText(`n=${n.get()}`);
+        });
+        return box({}, label);
+      },
+      {
+        backend: h.backend,
+        effects,
+        frameMs: 1000 / 30,
+        onError: (error) => void reports.push(error),
+        terminal: h.terminal,
+      }
+    );
+
+    try {
+      // ten seconds at a write every 5ms is three hundred frames, three times
+      // what the chain bound allows
+      const before = h.painted;
+      for (let i = 1; i <= 2000; i++) {
+        n.set(i);
+        vi.advanceTimersByTime(5);
+      }
+      vi.advanceTimersByTime(100);
+
+      expect(reports).toEqual([]);
+      expect(view.mounted).toBe(true);
+      expect(h.painted - before).toBeGreaterThan(200);
+      expect(h.picture().split('\n')[0]).toBe('n=2000..............');
+    } finally {
+      view.dispose();
+    }
+  });
+
+  it('should still report a cycle between the frame loop and another scope', async () => {
+    // the other half: what the guard is for has to survive the fix. The
+    // renderer's effect writes what a second scope reads and that scope writes
+    // back, so each scope's drain settles in a pass and neither reaches its own
+    // bound -- only the chain can see it, and it has to under the frame loop too
+    const h = harness();
+    const a = new State(0);
+    const b = new State(0);
+    const reports: unknown[] = [];
+    const other = createEffects();
+    other.setErrorHandler((error) => void reports.push(error));
+    const stop = other.effect(() => b.set(a.get() + 1));
+
+    const view = render(
+      () => {
+        const label = text('');
+        createEffect(() => {
+          const next = b.get() + 1;
+          a.set(next);
+          label.setText(`a=${next}`);
+        });
+        return box({}, label);
+      },
+      {
+        backend: h.backend,
+        effects,
+        frameMs: 1000 / 30,
+        onError: (error) => void reports.push(error),
+        terminal: h.terminal,
+      }
+    );
+
+    try {
+      // a hundred and one frames is about 3.4 seconds at thirty a second, and
+      // the second scope's flushes are microtasks between them
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(reports).toHaveLength(1);
+      expect(String(reports[0])).toMatch(/chained flushes/);
+    } finally {
+      stop();
       view.dispose();
     }
   });
