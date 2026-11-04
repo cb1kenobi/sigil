@@ -7,14 +7,17 @@ import {
 } from '../src/updates/index.js';
 import { cacheFileName, distTagsURL } from '../src/updates/registry.js';
 import { workerSource } from '../src/updates/worker-source.js';
-import { WORKER_ARGV, WORKER_ENTRY } from '../src/updates/worker.js';
+import { fetchJSON, MAX_BODY_BYTES, WORKER_ARGV, WORKER_ENTRY } from '../src/updates/worker.js';
 import { tempDir } from './temp.js';
 import { spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import https from 'node:https';
 import { createServer, type Socket } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { dirname, join } from 'node:path';
-import { describe, it, expect } from 'vitest';
+import { PassThrough } from 'node:stream';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 
 /**
  * A cache directory of the test's own, removed once the file has finished.
@@ -327,6 +330,68 @@ describe('updates', () => {
 
       // it went and asked rather than answering `undefined` for a day
       expect(result.latest).to.match(/^\d+\.\d+\.\d+/);
+    });
+  });
+
+  // the body was appended to a string for as long as the registry kept sending,
+  // so an endless answer grew it until the runtime ran out of memory -- in a
+  // process nobody is watching. `https.get()` is faked rather than served,
+  // because serving TLS means a certificate and the bound is about bytes
+  describe('Response size', () => {
+    /** Answers the next `https.get()` with these chunks, and records a destroy. */
+    function answer(chunks: Buffer[]): { destroyed: () => boolean } {
+      let destroyed = false;
+      vi.spyOn(https, 'get').mockImplementation(((
+        _url: string,
+        _opts: unknown,
+        cb: (res: PassThrough) => void
+      ) => {
+        const req = Object.assign(new EventEmitter(), {
+          destroy: () => {
+            destroyed = true;
+          },
+          end: () => {
+            const res = Object.assign(new PassThrough(), { statusCode: 200 });
+            cb(res);
+            for (const chunk of chunks) {
+              if (!destroyed) {
+                res.write(chunk);
+              }
+            }
+            res.end();
+          },
+          setTimeout: () => req,
+        });
+        return req;
+      }) as never);
+      return { destroyed: () => destroyed };
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('should not buffer an unbounded response body', async () => {
+      const half = Buffer.alloc(MAX_BODY_BYTES / 2 + 1, 0x20);
+      const req = answer([Buffer.from('{"latest":"1.0.0"'), half, half, Buffer.from('}')]);
+
+      await expect(fetchJSON({ timeout: 0, url: 'https://example.invalid/' })).rejects.toThrow(
+        `Update check response exceeded ${MAX_BODY_BYTES} bytes`
+      );
+      expect(req.destroyed()).toBe(true);
+    });
+
+    // decoding chunk by chunk turned a character split across two of them into
+    // two replacement characters, which is what keeping bytes until the end is for
+    it('should read a body up to the bound, across chunk boundaries', async () => {
+      const text = Buffer.from('{"latest":"1.0.0","note":"caf\u00e9"}');
+      const at = text.indexOf(0xc3) + 1;
+      answer([text.subarray(0, at), text.subarray(at)]);
+
+      expect(await fetchJSON({ timeout: 0, url: 'https://example.invalid/' })).toEqual({
+        latest: '1.0.0',
+        note: 'caf\u00e9',
+      });
     });
   });
 
