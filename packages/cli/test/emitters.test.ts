@@ -427,6 +427,15 @@ describe('what the build emitter writes', () => {
     expect(hoisted).toEqual(['const $s0 = Object.freeze({ "font-weight": "bold" });']);
   });
 
+  it('should indent the statements a template needs with spaces, not tabs', () => {
+    // spelled out whole, because the emitter wrote `\t` as an escape and a
+    // sweep for tab characters in the source never saw it
+    const { source } = build(['<box>', '</box>'], 'items');
+    expect(source).toBe(
+      '(() => {\n  const $e0 = $box();\n  $appendValue($e0, (items));\n  return $e0;\n})()'
+    );
+  });
+
   it('should hoist one object for two elements whose props agree', () => {
     const { hoisted } = build([
       '<box><text color="cyan">a</text><text color="cyan">b</text></box>',

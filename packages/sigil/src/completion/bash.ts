@@ -67,7 +67,7 @@ function pathPattern(path: readonly string[]): string {
 
 /** One `case` arm, or nothing when there is nothing to say for that path. */
 function arm(path: readonly string[], body: string): string {
-  return `\t\t${pathPattern(path)}) ${body} ;;\n`;
+  return `    ${pathPattern(path)}) ${body} ;;\n`;
 }
 
 /**
@@ -101,10 +101,10 @@ function resolveArms(spec: CompletionSpec, pre: string): string {
     for (const sub of cmd.subcommands) {
       const patterns = sub.tokens.map(bashQuote).join('|');
       const reached = bashQuote([...cmd.path, sub.name].join(' '));
-      inner += `\t\t\t\t${patterns}) ${pre}_next=${reached} ;;\n`;
+      inner += `        ${patterns}) ${pre}_next=${reached} ;;\n`;
     }
 
-    out += `\t\t${pathPattern(cmd.path)})\n\t\t\tcase "$2" in\n${inner}\t\t\tesac\n\t\t\t;;\n`;
+    out += `    ${pathPattern(cmd.path)})\n      case "$2" in\n${inner}      esac\n      ;;\n`;
   }
 
   return out;
@@ -177,10 +177,10 @@ function valueArm(cmd: CompletionCommand, pre: string): string {
     const values = opt.values?.length
       ? `; ${pre}_vals=(${opt.values.map(bashQuote).join(' ')})`
       : '';
-    inner += `\t\t\t\t${patterns}) ${pre}_takes=1${values} ;;\n`;
+    inner += `        ${patterns}) ${pre}_takes=1${values} ;;\n`;
   }
 
-  return `\t\t${pathPattern(cmd.path)})\n\t\t\tcase "$2" in\n${inner}\t\t\tesac\n\t\t\t;;\n`;
+  return `    ${pathPattern(cmd.path)})\n      case "$2" in\n${inner}      esac\n      ;;\n`;
 }
 
 /** The arms that say which options take a value. */
@@ -217,19 +217,19 @@ ${installComment('bash', program)}
 # a shell somebody configured: readline replaces the whole word, so the
 # candidate has to carry the \`--opt=\` back with it
 ${pre}_add() {
-\t# \`$1\` is what every candidate sits after inside one word -- \`--opt=\` for an
-\t# attached value, empty otherwise -- so \`$1$c\` is the whole word the shell
-\t# would end up with. \`$2\` is the whole word as typed, which is what a
-\t# candidate is filtered by, and \`$3\` is the part of it readline will *not*
-\t# replace, which is what has to come back off the front of what is inserted
-\tlocal __pre="$1" __cur="$2" __keep="$3" __c __w
-\tshift 3
-\tfor __c in "$@"; do
-\t\t__w="$__pre$__c"
-\t\tcase "$__w" in
-\t\t\t"$__cur"*) COMPREPLY[\${#COMPREPLY[@]}]="\${__w#"$__keep"}" ;;
-\t\tesac
-\tdone
+  # \`$1\` is what every candidate sits after inside one word -- \`--opt=\` for an
+  # attached value, empty otherwise -- so \`$1$c\` is the whole word the shell
+  # would end up with. \`$2\` is the whole word as typed, which is what a
+  # candidate is filtered by, and \`$3\` is the part of it readline will *not*
+  # replace, which is what has to come back off the front of what is inserted
+  local __pre="$1" __cur="$2" __keep="$3" __c __w
+  shift 3
+  for __c in "$@"; do
+    __w="$__pre$__c"
+    case "$__w" in
+      "$__cur"*) COMPREPLY[\${#COMPREPLY[@]}]="\${__w#"$__keep"}" ;;
+    esac
+  done
 }
 
 # how much of a word readline keeps: everything up to and including the last
@@ -238,15 +238,15 @@ ${pre}_add() {
 # \`--mode=--mode=fast\`, measured in bash 3.2. The membership test quotes the
 # character, so a \`*\` or a \`[\` in \`$COMP_WORDBREAKS\` is matched literally
 ${pre}_keep() {
-\t${pre}_pre=''
-\tlocal __w="$1" __i=\${#1} __c
-\twhile [ "$__i" -gt 0 ]; do
-\t\t__c="\${__w:__i-1:1}"
-\t\tcase "$COMP_WORDBREAKS" in
-\t\t\t*"$__c"*) ${pre}_pre="\${__w:0:__i}"; return ;;
-\t\tesac
-\t\t__i=$((__i - 1))
-\tdone
+  ${pre}_pre=''
+  local __w="$1" __i=\${#1} __c
+  while [ "$__i" -gt 0 ]; do
+    __c="\${__w:__i-1:1}"
+    case "$COMP_WORDBREAKS" in
+      *"$__c"*) ${pre}_pre="\${__w:0:__i}"; return ;;
+    esac
+    __i=$((__i - 1))
+  done
 }
 
 # bash 4 and later split the line \`as readline would split it, using
@@ -258,172 +258,172 @@ ${pre}_keep() {
 # between two words with no space, and so does whatever follows a logical word
 # that now ends in one
 ${pre}_join() {
-\t${pre}_w=()
-\t${pre}_c=0
-\tlocal __i=0 __n=\${#COMP_WORDS[@]} __raw __last __j
-\twhile [ "$__i" -lt "$__n" ]; do
-\t\t__raw="\${COMP_WORDS[__i]}"
-\t\t__j=\${#${pre}_w[@]}
-\t\tif [ "$__j" -gt 0 ] && { ${pre}_allbreak "$__raw" || ${pre}_endsbreak "\${${pre}_w[__j-1]}"; }; then
-\t\t\t${pre}_w[__j-1]="\${${pre}_w[__j-1]}$__raw"
-\t\t\tif [ "$__i" -le "$COMP_CWORD" ]; then ${pre}_c=$((__j - 1)); fi
-\t\telse
-\t\t\t${pre}_w[__j]="$__raw"
-\t\t\tif [ "$__i" -le "$COMP_CWORD" ]; then ${pre}_c=$__j; fi
-\t\tfi
-\t\t__i=$((__i + 1))
-\tdone
+  ${pre}_w=()
+  ${pre}_c=0
+  local __i=0 __n=\${#COMP_WORDS[@]} __raw __last __j
+  while [ "$__i" -lt "$__n" ]; do
+    __raw="\${COMP_WORDS[__i]}"
+    __j=\${#${pre}_w[@]}
+    if [ "$__j" -gt 0 ] && { ${pre}_allbreak "$__raw" || ${pre}_endsbreak "\${${pre}_w[__j-1]}"; }; then
+      ${pre}_w[__j-1]="\${${pre}_w[__j-1]}$__raw"
+      if [ "$__i" -le "$COMP_CWORD" ]; then ${pre}_c=$((__j - 1)); fi
+    else
+      ${pre}_w[__j]="$__raw"
+      if [ "$__i" -le "$COMP_CWORD" ]; then ${pre}_c=$__j; fi
+    fi
+    __i=$((__i + 1))
+  done
 }
 
 # whether a word is made only of break characters, and whether one ends in a
 # break character -- the two questions \`_join\` asks per word
 ${pre}_allbreak() {
-\tlocal __w="$1" __i=0 __c
-\t[ -n "$__w" ] || return 1
-\twhile [ "$__i" -lt \${#__w} ]; do
-\t\t__c="\${__w:__i:1}"
-\t\tcase "$COMP_WORDBREAKS" in
-\t\t\t*"$__c"*) ;;
-\t\t\t*) return 1 ;;
-\t\tesac
-\t\t__i=$((__i + 1))
-\tdone
-\treturn 0
+  local __w="$1" __i=0 __c
+  [ -n "$__w" ] || return 1
+  while [ "$__i" -lt \${#__w} ]; do
+    __c="\${__w:__i:1}"
+    case "$COMP_WORDBREAKS" in
+      *"$__c"*) ;;
+      *) return 1 ;;
+    esac
+    __i=$((__i + 1))
+  done
+  return 0
 }
 
 ${pre}_endsbreak() {
-\tlocal __w="$1" __c
-\t[ -n "$__w" ] || return 1
-\t__c="\${__w:\${#__w}-1:1}"
-\tcase "$COMP_WORDBREAKS" in
-\t\t*"$__c"*) return 0 ;;
-\tesac
-\treturn 1
+  local __w="$1" __c
+  [ -n "$__w" ] || return 1
+  __c="\${__w:\${#__w}-1:1}"
+  case "$COMP_WORDBREAKS" in
+    *"$__c"*) return 0 ;;
+  esac
+  return 1
 }
 
 # which path a word takes you to, by its name or by any alias it answers to.
 # A word that is no command answers nothing, which is also what keeps an
 # option's value from being read as one
 ${pre}_resolve() {
-\t${pre}_next=''
-\tcase "$1" in
-${resolveArms(spec, pre)}\tesac
+  ${pre}_next=''
+  case "$1" in
+${resolveArms(spec, pre)}  esac
 }
 
 ${pre}_subs() {
-\tcase "$1" in
-${subArms(spec, pre)}\tesac
+  case "$1" in
+${subArms(spec, pre)}  esac
 }
 
 ${pre}_opts() {
-\tcase "$1" in
-${optArms(spec, pre)}\tesac
+  case "$1" in
+${optArms(spec, pre)}  esac
 }
 
 ${pre}_args() {
-\tcase "$1" in
-${argArms(spec, pre)}\tesac
+  case "$1" in
+${argArms(spec, pre)}  esac
 }
 
 # sets ${pre}_takes and ${pre}_vals rather than adding, because the walk has to
 # ask whether an option eats the next token without offering anything
 ${pre}_optval() {
-\t${pre}_takes=0
-\t${pre}_vals=()
-\tcase "$1" in
-${valueArms(spec, pre)}\tesac
+  ${pre}_takes=0
+  ${pre}_vals=()
+  case "$1" in
+${valueArms(spec, pre)}  esac
 }
 
 ${fn}() {
-\tlocal cur prev word
-\tlocal i skip
-\t# prefixed for the reason the zsh emitter records: there, \`path\` is a
-\t# special parameter tied to \`PATH\`. bash has no such parameter and this is
-\t# one spelling across the two
-\tlocal ${pre}_path=''
-\tlocal ${pre}_next=''
-\tlocal ${pre}_takes=0
-\t# declared rather than assigned, because \`local x=()\` is not an array
-\t# declaration in every bash this has to run in
-\tlocal -a ${pre}_vals
-\t# the rejoined words, the cursor's index into them, and the kept prefix
-\tlocal -a ${pre}_w
-\tlocal ${pre}_c=0
-\tlocal ${pre}_pre=''
+  local cur prev word
+  local i skip
+  # prefixed for the reason the zsh emitter records: there, \`path\` is a
+  # special parameter tied to \`PATH\`. bash has no such parameter and this is
+  # one spelling across the two
+  local ${pre}_path=''
+  local ${pre}_next=''
+  local ${pre}_takes=0
+  # declared rather than assigned, because \`local x=()\` is not an array
+  # declaration in every bash this has to run in
+  local -a ${pre}_vals
+  # the rejoined words, the cursor's index into them, and the kept prefix
+  local -a ${pre}_w
+  local ${pre}_c=0
+  local ${pre}_pre=''
 
-\tCOMPREPLY=()
-\t${pre}_join
-\tcur="\${${pre}_w[${pre}_c]}"
-\tprev=''
-\tif [ "$${pre}_c" -gt 0 ]; then
-\t\tprev="\${${pre}_w[${pre}_c-1]}"
-\tfi
-\t# what readline will keep of the current word, which every candidate has to
-\t# come back off the front of
-\t${pre}_keep "$cur"
+  COMPREPLY=()
+  ${pre}_join
+  cur="\${${pre}_w[${pre}_c]}"
+  prev=''
+  if [ "$${pre}_c" -gt 0 ]; then
+    prev="\${${pre}_w[${pre}_c-1]}"
+  fi
+  # what readline will keep of the current word, which every candidate has to
+  # come back off the front of
+  ${pre}_keep "$cur"
 
-\t# the command path, read off the words before the cursor. A word that
-\t# resolves to no command leaves the path where it was -- which is also what
-\t# keeps an option's value from being read as a command
-\tskip=0
-\ti=1
-\twhile [ "$i" -lt "$${pre}_c" ]; do
-\t\tword="\${${pre}_w[i]}"
-\t\ti=$((i + 1))
-\t\tif [ "$skip" = 1 ]; then
-\t\t\tskip=0
-\t\t\tcontinue
-\t\tfi
-\t\tcase "$word" in
-\t\t\t'--') return 0 ;;
-\t\t\t'') continue ;;
-\t\t\t-*)
-\t\t\t\t${pre}_optval "$${pre}_path" "$word"
-\t\t\t\tif [ "$${pre}_takes" = 1 ]; then skip=1; fi
-\t\t\t\tcontinue
-\t\t\t\t;;
-\t\tesac
-\t\t${pre}_resolve "$${pre}_path" "$word"
-\t\t# a command's path is never empty, so an empty answer is "no command"
-\t\tif [ -n "$${pre}_next" ]; then ${pre}_path="$${pre}_next"; fi
-\tdone
+  # the command path, read off the words before the cursor. A word that
+  # resolves to no command leaves the path where it was -- which is also what
+  # keeps an option's value from being read as a command
+  skip=0
+  i=1
+  while [ "$i" -lt "$${pre}_c" ]; do
+    word="\${${pre}_w[i]}"
+    i=$((i + 1))
+    if [ "$skip" = 1 ]; then
+      skip=0
+      continue
+    fi
+    case "$word" in
+      '--') return 0 ;;
+      '') continue ;;
+      -*)
+        ${pre}_optval "$${pre}_path" "$word"
+        if [ "$${pre}_takes" = 1 ]; then skip=1; fi
+        continue
+        ;;
+    esac
+    ${pre}_resolve "$${pre}_path" "$word"
+    # a command's path is never empty, so an empty answer is "no command"
+    if [ -n "$${pre}_next" ]; then ${pre}_path="$${pre}_next"; fi
+  done
 
-\t# \`--opt=<TAB>\`, which is one word now however the shell split it. The
-\t# candidates are values rather than words, so each one is offered as
-\t# \`--opt=\` plus the value -- which is what \`cur\` has to be filtered
-\t# against -- and \`_keep\` decides how much of that comes back off
-\tcase "$cur" in
-\t\t-*=*)
-\t\t\t${pre}_optval "$${pre}_path" "\${cur%%=*}"
-\t\t\tif [ "$${pre}_takes" = 1 ]; then
-\t\t\t\tif [ \${#${pre}_vals[@]} -gt 0 ]; then
-\t\t\t\t\t${pre}_add "\${cur%%=*}=" "$cur" "$${pre}_pre" "\${${pre}_vals[@]}"
-\t\t\t\tfi
-\t\t\t\treturn 0
-\t\t\tfi
-\t\t\t;;
-\tesac
+  # \`--opt=<TAB>\`, which is one word now however the shell split it. The
+  # candidates are values rather than words, so each one is offered as
+  # \`--opt=\` plus the value -- which is what \`cur\` has to be filtered
+  # against -- and \`_keep\` decides how much of that comes back off
+  case "$cur" in
+    -*=*)
+      ${pre}_optval "$${pre}_path" "\${cur%%=*}"
+      if [ "$${pre}_takes" = 1 ]; then
+        if [ \${#${pre}_vals[@]} -gt 0 ]; then
+          ${pre}_add "\${cur%%=*}=" "$cur" "$${pre}_pre" "\${${pre}_vals[@]}"
+        fi
+        return 0
+      fi
+      ;;
+  esac
 
-\tcase "$cur" in
-\t\t-*)
-\t\t\t${pre}_opts "$${pre}_path" "$cur" "$${pre}_pre"
-\t\t\treturn 0
-\t\t\t;;
-\tesac
+  case "$cur" in
+    -*)
+      ${pre}_opts "$${pre}_path" "$cur" "$${pre}_pre"
+      return 0
+      ;;
+  esac
 
-\tcase "$prev" in
-\t\t-*)
-\t\t\t${pre}_optval "$${pre}_path" "$prev"
-\t\t\tif [ "$${pre}_takes" = 1 ]; then
-\t\t\t\tif [ \${#${pre}_vals[@]} -gt 0 ]; then ${pre}_add '' "$cur" "$${pre}_pre" "\${${pre}_vals[@]}"; fi
-\t\t\t\treturn 0
-\t\t\tfi
-\t\t\t;;
-\tesac
+  case "$prev" in
+    -*)
+      ${pre}_optval "$${pre}_path" "$prev"
+      if [ "$${pre}_takes" = 1 ]; then
+        if [ \${#${pre}_vals[@]} -gt 0 ]; then ${pre}_add '' "$cur" "$${pre}_pre" "\${${pre}_vals[@]}"; fi
+        return 0
+      fi
+      ;;
+  esac
 
-\t${pre}_subs "$${pre}_path" "$cur" "$${pre}_pre"
-\t${pre}_args "$${pre}_path" "$cur" "$${pre}_pre"
-\treturn 0
+  ${pre}_subs "$${pre}_path" "$cur" "$${pre}_pre"
+  ${pre}_args "$${pre}_path" "$cur" "$${pre}_pre"
+  return 0
 }
 
 # \`-o default\` is what makes a file the answer where this has none: an option
