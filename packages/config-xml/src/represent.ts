@@ -1,4 +1,4 @@
-import { isPlainObject } from '@ttylabs/sigil/config';
+import { atPath, isPlainObject } from '@ttylabs/sigil/config';
 
 /**
  * What XML cannot hold, asked before a write rather than discovered after one.
@@ -256,7 +256,7 @@ function look(
   multiple: ReadonlySet<string>,
   inList: boolean
 ): string | undefined {
-  const at = (answer: string): string => (where === '' ? answer : `${answer} (at "${where}")`);
+  const at = (answer: string): string => atPath(answer, where);
   const answer = why(value);
 
   if (answer !== undefined) {

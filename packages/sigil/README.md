@@ -2594,6 +2594,26 @@ graphemes('á日🇯🇵'); // ['á', '日', '🇯🇵']
 unicodeVersion; // '17.0.0'
 ```
 
+### `sigil/element`
+
+The element tree the components and the help screen are built from -- `box()`,
+`text()`, `raw()` and `renderToString()`. Two of its functions are worth
+reaching for on their own when you lay text out by hand: `toDisplayText(s)` is
+what a `text` element will draw for a string, which is what to measure, since a
+tab measures nothing and draws a space; and `toDisplayLine(s)` is the same on
+one line, each line break a space, which is what a table cell or a prefix
+beside a message wants -- a cell two lines tall pushes every row after it down
+by one.
+
+### `sigil/template`
+
+The `ui` tag, its parser, and the emitter's leaves -- `applyProp()`,
+`applyText()`, `appendValue()`, `rawElement()`, `rootElement()`,
+`componentChildren()`, `rawParts()` and `textPart()` -- which `sigil build`'s
+template compiler calls rather than restating, so a compiled template and an
+interpreted one cannot come to disagree about what a prop, a child or a `<raw>`
+means.
+
 ### `sigil/help`
 
 ```js
@@ -2605,6 +2625,14 @@ renderHelp(state, { width: 100 }); // renders a context chain directly
 
 `HelpOptions` takes `ansi`, `gap`, `indent`, `maxLabel`, `name`, `sections`,
 and `width`.
+
+Two of help's own rules are published for anything else that lists a command:
+`formatValue(value)` is how a default or a choice reads in help -- a string as it
+stands unless that would show nothing or hide where it ends, anything else as
+JSON, and what JSON cannot write as itself -- and `listedSpellings(opt)` is the
+spellings a row shows, short before long, leaving off the positive spelling a
+negated flag also answers to. The toolchain's markdown reference prints with
+both, so a page and a help screen cannot come to disagree about either.
 
 ### `sigil/i18n`
 
@@ -6227,15 +6255,29 @@ swallows, `isMissing` is `ENOENT` and nothing else, `overlay` is the whole of
 of those is a recorded review finding, and it costs 102 bytes, because `json()`
 already uses four of the six and what is added is the export statements.
 
+And the kit's **text half**, which is those six put together the way every file
+store needs them: `readText(source)` and `readTextSync(source)` are what a file
+holds, or `undefined` where it is not there; `claim(theirs, value, paths,
+source)` is what a write with `WriteOptions.paths` should leave in the file; and
+`rewrite(source, render, value, opts)` and `rewriteSync()` read the file, hand
+its text to your store's `render` -- a `RenderText` -- and write the result back
+only where it changed, so a write that changes nothing fires no watcher.
+`json()`, `@ttylabs/config-xml` and `@ttylabs/config-yaml` are all three written
+over them, which leaves a store its parse and its render and nothing else.
+`atPath(answer, where)` is how a `canRepresent()` refusal names the path it
+found the trouble at, and `isArrayIndex(key)` is whether a key is one an array
+writes as an element -- which `-1`, `1.5` and `4294967295` are not.
+
 ```js
 import { createConfigSync, json, object } from '@ttylabs/sigil/config';
 ```
 
 It imports no parser module at all, which makes it usable from an app that does
-not use sigil's parser. The subpath is about 38 kB over eight modules — `paths`,
+not use sigil's parser. The subpath is about 38 kB over nine modules — `paths`,
 the type coercion, i18n, the debug logger, the environment-variable rule the
 parser shares, the directory creation the update cache shares, the atomic write
-the completion installer shares, and the module itself — which is a module
+the completion installer shares, the array-index rule the output formats share,
+and the module itself — which is a module
 rather than anything like `sigil/components`.
 
 ### `sigil/testing`
@@ -6282,6 +6324,12 @@ rather than when the framework does.
 by UTF-16 code unit, so `B` comes before `a` and the result is the same on every
 machine. Sort anything you print beside the surface with it, rather than with
 `localeCompare`, which reads the process locale.
+
+`descriptionLine(text)` is a description as one line: every run of whitespace
+one space, then every control character gone, then trimmed. It is what the
+completion script and the markdown reference both print a `desc` with, since a
+description is one line wherever it is printed and a raw escape in a file is a
+sequence waiting for something to print it.
 
 ### `sigil/which`
 

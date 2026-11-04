@@ -5,19 +5,19 @@ import { yamlCanHold } from './represent.js';
 import { candidates, reshape, shapeOf, type Shape } from './shape.js';
 import { applyInto } from './write.js';
 import {
-  isMissing,
+  claim,
   isPlainObject,
-  overlay,
-  writeAtomic,
-  writeAtomicSync,
+  readText,
+  readTextSync,
+  type RenderText,
+  rewrite,
+  rewriteSync,
   type ConfigDocument,
   type WritableConfigStore,
   type WriteOptions,
 } from '@ttylabs/sigil/config';
 import { __ } from '@ttylabs/sigil/i18n';
 import { expand } from '@ttylabs/sigil/paths';
-import { readFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { Document, LineCounter, parseDocument, type ToStringOptions } from 'yaml';
 
 /** What `yaml()` takes besides the path. */
@@ -121,30 +121,6 @@ export function yaml(path: string, opts: YamlStoreOptions = {}): WritableConfigS
 
   const source = expand(path);
 
-  /** What the file holds, or nothing where it is not there. */
-  const text = async (): Promise<string | undefined> => {
-    try {
-      return await readFile(source, 'utf8');
-    } catch (e: unknown) {
-      if (!isMissing(e)) {
-        throw new Error(__`Failed to read ${source}: ${(e as Error).message}`);
-      }
-      return undefined;
-    }
-  };
-
-  /** The same, without awaiting. */
-  const textSync = (): string | undefined => {
-    try {
-      return readFileSync(source, 'utf8');
-    } catch (e: unknown) {
-      if (!isMissing(e)) {
-        throw new Error(__`Failed to read ${source}: ${(e as Error).message}`);
-      }
-      return undefined;
-    }
-  };
-
   /**
    * Parses a document, refusing one that would read as something other than
    * what it says, and settling the layout and the residual in one pass.
@@ -222,46 +198,13 @@ export function yaml(path: string, opts: YamlStoreOptions = {}): WritableConfigS
   };
 
   /**
-   * What the file should hold: whatever it holds now, with the claimed paths of
-   * `value` written over it.
-   *
-   * `json()`'s own `claim()`, for `json()`'s own reason: a write with no claim
-   * is total, which is the only thing `write(value)` can mean on its own, and a
-   * write **with** one is the three-way merge `save()` exists to perform. The
-   * read it staged against may be stale by the time this runs, so the paths are
-   * applied to what is there now and every other key is left alone -- without
-   * which a key another process changed in that window is reverted.
-   *
-   * `overlay()` is core's rather than this package's, which is one of the five
-   * reasons the store kit is published: the null exemption, the non-object
-   * refusal and the claimed-delete no-op are each a review finding, and a
-   * second copy would inherit none of them.
-   */
-  const claim = (
-    theirs: Record<string, unknown>,
-    value: unknown,
-    paths: readonly string[] | undefined
-  ): unknown => {
-    if (paths === undefined) {
-      return value;
-    }
-
-    overlay(theirs, value, paths, source);
-    return theirs;
-  };
-
-  /**
    * The text the file should hold, given what it holds now.
    *
    * Computed before anything is written, which is what makes a refusal cost
    * nothing: a value YAML cannot hold, a source that will not parse, or a path
    * that would touch an anchor all throw with the file untouched.
    */
-  const render = (
-    now: string | undefined,
-    value: unknown,
-    paths: readonly string[] | undefined
-  ): string => {
+  const render: RenderText = (now, value, paths) => {
     const read: ReadShape = { lines: new LineCounter(), what: source };
     const blank = now === undefined || !now.trim();
     const { doc, shape, style } = blank
@@ -277,7 +220,7 @@ export function yaml(path: string, opts: YamlStoreOptions = {}): WritableConfigS
     // also be the `current` the diff compares against -- that one has to be
     // what the document still says. One read used for both would make every
     // claimed path look unchanged and the write a no-op
-    const held = claim(blank ? {} : rootOf(doc, read), value, paths);
+    const held = claim(blank ? {} : rootOf(doc, read), value, paths, source);
     const current = blank ? {} : rootOf(doc, read);
 
     // asked here as well as at `set()`, because this is public API and a
@@ -306,39 +249,17 @@ export function yaml(path: string, opts: YamlStoreOptions = {}): WritableConfigS
     },
     format,
     async read(): Promise<ConfigDocument> {
-      return document(await text());
+      return document(await readText(source));
     },
     readSync(): ConfigDocument {
-      return document(textSync());
+      return document(readTextSync(source));
     },
     source,
     async write(value: unknown, opts?: WriteOptions): Promise<void> {
-      // the current bytes, read here rather than kept from the last `read()`.
-      // `json()` records why at length, and the short of it is that a cache
-      // overwrites blindly: reading here is what makes this **the** read the
-      // merge is against, so the read and the merge cannot come apart, and it
-      // is what makes a `write()` reached directly work standalone
-      const now = await text();
-      const next = render(now, value, opts?.paths);
-
-      // a write that changes nothing touches no file, which is not tidiness:
-      // **no event fires at all**, so a watcher is not woken to read back a
-      // document it would have found identical anyway -- and it is what makes
-      // `apply()` of a freshly read value a no-op rather than a rewrite of the
-      // same bytes. Said as "it keeps the mtime, which is what the watcher
-      // reads" for a while, which names a mechanism `fs.watch` does not have:
-      // only `watchFile` under `poll` reads one. Found by review
-      if (next !== now) {
-        await writeAtomic(source, next);
-      }
+      await rewrite(source, render, value, opts);
     },
     writeSync(value: unknown, opts?: WriteOptions): void {
-      const now = textSync();
-      const next = render(now, value, opts?.paths);
-
-      if (next !== now) {
-        writeAtomicSync(source, next);
-      }
+      rewriteSync(source, render, value, opts);
     },
   };
 }

@@ -1582,6 +1582,20 @@ why rather than what: it is the record of what each round found.
 
 <!-- BEGIN:turborepo-agent-rules -->
 
+- **A helper has one definition, across packages as well as inside one.** A
+  package boundary is not a reason to copy: where `@ttylabs/cli` or a config
+  store needs something `@ttylabs/sigil` has, it is exported from the published
+  subpath it belongs with and documented in the README, and a component an app
+  can eject imports it from `@ttylabs/sigil/components` or the subpath that owns
+  it. SIG-242 audited the four `src/` trees for this and found three copies of
+  a file store's read and write, two of help's default formatting, two of the
+  template emitters' `<raw>` split, and smaller ones in every package -- each a
+  copy of a decision, carrying a comment that said whose it was. A new subpath
+  for one function is the exception that has to argue for itself. What stays
+  duplicated on purpose is recorded beside it -- the styler's and the wrapper's
+  SGR tables, the two build configs' escape pass, `addedBy()` beside
+  `generatedBy()` -- and an audit leaves those alone.
+
 - **A new decision goes beside the code it is about, and the record of how it
   was reached goes under `docs/history/`.** This file was one file for a long
   time and reached **1,997,217 bytes** — about 470k tokens, half of a 1M

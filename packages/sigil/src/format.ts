@@ -75,6 +75,7 @@
 
 import { __ } from './i18n/index.js';
 import type { OutputFormat, Schema } from './types.js';
+import { isArrayIndex } from './util/array-index.js';
 
 export type { SerializedError } from './types.js';
 
@@ -124,21 +125,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   // neither mutation could be seen
   const proto = Object.getPrototypeOf(value) as object | null;
   return proto === Object.prototype || proto === null;
-}
-
-/**
- * A canonical array index, which is the only kind of key `JSON.stringify`
- * writes when it writes an array.
- *
- * The spelling the XML store's own entry records arriving at: `String(Number(k))
- * === k` passes `-1`, `1.5`, `Infinity`, `NaN` and `4294967295`, none of which
- * is an index and every one of which is a named property JSON drops.
- *
- * @param key - The own enumerable key.
- * @returns Whether JSON writes it as an element.
- */
-function isIndex(key: string): boolean {
-  return /^(?:0|[1-9][0-9]*)$/.test(key) && Number(key) < 2 ** 32 - 1;
 }
 
 /**
@@ -295,7 +281,7 @@ function unwritten(value: object): string | undefined {
   // arriving through the one door the first spelling skipped entirely, and the
   // call the XML store already makes about a non-index own property
   if (Array.isArray(value)) {
-    const extra = Object.keys(value).find((key) => !isIndex(key));
+    const extra = Object.keys(value).find((key) => !isArrayIndex(key));
 
     return extra === undefined
       ? undefined
@@ -319,7 +305,9 @@ function unwritten(value: object): string | undefined {
 
     // a boxed string's own index keys **are** the string, so they are the one
     // set of keys not being dropped by being unwrapped
-    const extra = Object.keys(value).find((key) => typeof box.of !== 'string' || !isIndex(key));
+    const extra = Object.keys(value).find(
+      (key) => typeof box.of !== 'string' || !isArrayIndex(key)
+    );
 
     return extra === undefined
       ? undefined

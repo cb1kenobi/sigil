@@ -1160,7 +1160,7 @@ describe('what the command returned', () => {
   });
 
   /**
-   * `isIndex()` is what decides which of an array's own keys JSON writes, and
+   * `isArrayIndex()` is what decides which of an array's own keys JSON writes, and
    * both halves of it were unpinned until a sabotage pass said so. A key is an
    * index only in its **canonical** spelling, so `"00"` and `"01"` are named
    * properties JSON drops -- which `/^[0-9]+$/` reads as indices -- and the

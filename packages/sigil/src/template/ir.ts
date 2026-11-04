@@ -459,10 +459,14 @@ function emitText(node: IRElement): Element {
  * refusing it any later would mean building it first and leaving its effects on
  * the owner.
  *
+ * The build emitter asks it too, before it prints the value, so the refusal is
+ * one sentence thrown from one place on both paths.
+ *
  * @param child - The child node.
  * @returns Its value, for `applyText()` to read.
+ * @throws If the child is an element.
  */
-function textPart(child: IRNode): unknown {
+export function textPart(child: IRNode): unknown {
   if (child.kind === 'text') {
     return child.value;
   }
@@ -473,32 +477,53 @@ function textPart(child: IRNode): unknown {
 }
 
 /**
+ * A `raw`'s two callbacks and the props left over, refusing children.
+ *
+ * Both emitters ask it, which is the rule "the two emitters share every leaf"
+ * met on the one element whose props split: they each wrote out the children
+ * refusal and which two prop names are the raw's own, and two spellings of
+ * that is how the build emitter comes to pass a `measure` to the constructor
+ * that the interpreter handed to `rawElement()`.
+ *
+ * A `raw` paints its own cells, so a child has nowhere to go -- and it was
+ * silently discarded, after JSX had already built it and left its effects on
+ * the owner. Refused where `<text>` refuses an element, and for the reason
+ * AGENTS.md gives against a property the engine ignores: parsing something and
+ * doing nothing with it is worse than not accepting it. Asked before the
+ * measure and the paint are read, because the build emitter can only answer
+ * this one at build time, and two emitters reporting two different faults
+ * about one element is the divergence they exist to avoid.
+ *
+ * @param node - The element node.
+ * @returns The measure, the paint, and every other prop in order.
+ * @throws If the node has children.
+ */
+export function rawParts(node: IRElement): {
+  readonly measure: unknown;
+  readonly paint: unknown;
+  readonly props: readonly IRProp[];
+} {
+  if (node.children.length > 0) {
+    throw templateError('<raw> paints its own cells, so it cannot have children', node.loc);
+  }
+
+  return {
+    measure: node.props.find((prop) => prop.name === 'measure')?.value,
+    paint: node.props.find((prop) => prop.name === 'paint')?.value,
+    props: node.props.filter((prop) => prop.name !== 'measure' && prop.name !== 'paint'),
+  };
+}
+
+/**
  * Builds a `raw`, which paints its own cells.
  *
  * @param node - The element node.
  * @returns The raw element.
  */
 function emitRaw(node: IRElement): Element {
-  // a `raw` paints its own cells, so a child has nowhere to go -- and it was
-  // silently discarded, after JSX had already built it and left its effects on
-  // the owner. Refused where `<text>` refuses an element, and for the reason
-  // AGENTS.md gives against a property the engine ignores: parsing something
-  // and doing nothing with it is worse than not accepting it. Asked before the
-  // measure and the paint because the build emitter can only answer this one at
-  // build time, and two emitters reporting two different faults about one
-  // element is the divergence they exist to avoid
-  if (node.children.length > 0) {
-    throw templateError('<raw> paints its own cells, so it cannot have children', node.loc);
-  }
-
-  const measure = node.props.find((prop) => prop.name === 'measure')?.value;
-  const paint = node.props.find((prop) => prop.name === 'paint')?.value;
+  const { measure, paint, props } = rawParts(node);
   const element = rawElement(measure, paint, node.loc);
-
-  applyProps(
-    element,
-    node.props.filter((prop) => prop.name !== 'measure' && prop.name !== 'paint')
-  );
+  applyProps(element, props);
   return element;
 }
 
@@ -551,7 +576,20 @@ function emitComponent(node: IRElement, component: ComponentRef): Element {
  * @returns The children that survive.
  */
 export function componentChildren(node: IRElement): readonly IRNode[] {
-  return node.children.filter((child) => child.kind !== 'text' || child.value.trim() !== '');
+  return node.children.filter(isContent);
+}
+
+/**
+ * Whether a node is anything but whitespace-only text.
+ *
+ * Asked of a component's children and of a template's roots, which are the two
+ * places whitespace between tags is layout rather than content.
+ *
+ * @param node - The node.
+ * @returns `false` only for text holding nothing but whitespace.
+ */
+export function isContent(node: IRNode): boolean {
+  return node.kind !== 'text' || node.value.trim() !== '';
 }
 
 /**

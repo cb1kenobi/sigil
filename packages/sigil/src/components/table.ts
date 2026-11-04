@@ -4,7 +4,7 @@ import {
   type Element,
   renderToString,
   text as textNode,
-  toDisplayText,
+  toDisplayLine,
 } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
@@ -130,29 +130,12 @@ export function tableCells(
         return { text: '', view: value, width: Math.max(0, Math.floor(value.width)) };
       }
 
-      const shown = value === undefined || value === null ? '' : cellText(String(value));
+      const shown = value === undefined || value === null ? '' : toDisplayLine(String(value));
       return { text: shown, width: stringWidth(shown) };
     })
   );
 
-  return { cells, columns, headers: columns.map((column) => cellText(column.header ?? '')) };
-}
-
-/**
- * A cell as it will be drawn, on one line.
- *
- * Two things, and both are about the widths adding up. `toDisplayText()` is what
- * a `text` element will draw, and measuring anything else means a tab -- which
- * measures nothing and draws a space -- costs the column a column. And a newline
- * becomes a space, because a row of a table is a line: a cell two lines tall
- * would push every row after it down by one and leave the column beside it
- * looking at the wrong row.
- *
- * @param value - The cell.
- * @returns The cell, on one line, as it will be drawn.
- */
-function cellText(value: string): string {
-  return toDisplayText(value).replaceAll('\n', ' ');
+  return { cells, columns, headers: columns.map((column) => toDisplayLine(column.header ?? '')) };
 }
 
 /**

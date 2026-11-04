@@ -109,16 +109,24 @@ export class TemplateCompileError extends Error {
  * prose, and it means the search is a plain `includes()` rather than something
  * that has to know where it is looking.
  *
+ * The style shake keeps the same contract with `$css` -- the outward half of it,
+ * since a local at the splice site shadows a generated name there too, while
+ * nothing it writes prints an expression back -- and asks this function rather
+ * than a copy of it. `base` is a parameter because both passes
+ * may run over one module, and two passes choosing one prefix is two sets of
+ * names that collide.
+ *
  * @param source - The module's source.
+ * @param base - The prefix to try first.
  * @returns A prefix the module does not contain.
  */
-export function choosePrefix(source: string): string {
-  if (!source.includes('$ui')) {
-    return '$ui';
+export function choosePrefix(source: string, base = '$ui'): string {
+  if (!source.includes(base)) {
+    return base;
   }
 
   for (let n = 0; ; n++) {
-    const candidate = `$ui${n}`;
+    const candidate = `${base}${n}`;
     if (!source.includes(candidate)) {
       return candidate;
     }

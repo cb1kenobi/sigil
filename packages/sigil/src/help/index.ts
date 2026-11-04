@@ -483,19 +483,40 @@ function resolvable(opt: InternalOption): string[] {
 /**
  * How an option is spelled, shortest first.
  *
+ * @param opt - The option.
+ * @returns The spellings.
+ */
+function spellingsOf(opt: InternalOption): string[] {
+  const { long, short } = opt[Internal];
+  return listedSpellings({ long, name: opt.name, negate: opt.negate, short });
+}
+
+/**
+ * The spellings a listing shows for an option, short before long.
+ *
  * A negated flag answers to the positive spelling as well -- `--no-color` also
  * accepts `--color` -- but printing both on one row reads as two options that
  * mean opposite things. The spelling that is written is the one that does what
  * the description says.
  *
- * @param opt - The option.
- * @returns The spellings.
+ * Published because the toolchain's markdown reference is a listing too and
+ * follows help: it wrote this filter out again over a `SurfaceOption`, and two
+ * spellings of which names a row shows is how a page and a screen come to list
+ * one option differently. Shaped to take either, an `InternalOption`'s
+ * registry sets or a surface's arrays.
+ *
+ * @param opt - The option's name, whether it is negated, and its spellings.
+ * @returns The spellings, short ones first.
  */
-function spellingsOf(opt: InternalOption): string[] {
-  const internal = opt[Internal];
+export function listedSpellings(opt: {
+  readonly long: Iterable<string>;
+  readonly name: string;
+  readonly negate?: boolean;
+  readonly short: Iterable<string>;
+}): string[] {
   const positive = `--${opt.name}`;
-  const long = [...internal.long].filter((name) => !(opt.negate && name === positive));
-  return [...internal.short, ...long];
+  const long = [...opt.long].filter((name) => !(opt.negate && name === positive));
+  return [...opt.short, ...long];
 }
 
 /**
@@ -522,12 +543,12 @@ function describe(
   if (Array.isArray(choices) && choices.length > 0) {
     parts.push({
       class: 'sigil-help-note sigil-muted',
-      text: __`(choices: ${choices.map(format).join(', ')})`,
+      text: __`(choices: ${choices.map(formatValue).join(', ')})`,
     });
   }
 
   if (dflt !== undefined) {
-    parts.push({ class: 'sigil-help-note sigil-muted', text: __`(default: ${format(dflt)})` });
+    parts.push({ class: 'sigil-help-note sigil-muted', text: __`(default: ${formatValue(dflt)})` });
   }
 
   return parts;
@@ -538,10 +559,14 @@ function describe(
  * quoted -- this is prose, not JSON -- and everything else is written the way it
  * would be typed.
  *
+ * Published because the toolchain's markdown reference prints a default too, and
+ * said this again while it was private -- a reference may not fail over a default
+ * it cannot print any more than help may.
+ *
  * @param value - The value.
  * @returns The text.
  */
-function format(value: unknown): string {
+export function formatValue(value: unknown): string {
   if (typeof value === 'string') {
     // a string is printed as it is -- this is prose, not JSON -- unless printing
     // it as it is would show nothing, or would not show where it begins and

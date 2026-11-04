@@ -37,9 +37,11 @@ export {
   type IRText,
   isHost,
   rawElement,
+  rawParts,
   rootElement,
   type SourceLocation,
   templateError,
+  textPart,
   textValue,
 } from './ir.js';
 export { parse, ui } from './tag.js';

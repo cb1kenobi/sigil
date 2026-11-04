@@ -29,20 +29,11 @@
  * cascade cannot reach.
  */
 
-import { displayPath } from '../build/index.ts';
+import { displayPath, isFile } from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
-
-/** Whether a path is a file, answering `false` for anything unreadable. */
-function isFile(path: string): boolean {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
 
 /** Whether a path is a directory, answering `false` for anything unreadable. */
 function isDirectory(path: string): boolean {

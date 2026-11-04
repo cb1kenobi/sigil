@@ -60,7 +60,7 @@
 import type { Diagnostic } from './diagnostic.ts';
 import { translatedKey } from './i18n.ts';
 import { literalBoolean, literalString, objectLiteral, propertyKey } from './literals.ts';
-import { parseModule, position, type ParsedModule } from './parse-module.ts';
+import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ObjectExpression } from 'oxc-parser';
 
 /** What a command module says about itself, read statically. */
@@ -320,23 +320,4 @@ function bindingObject(parsed: ParsedModule, name: string): ObjectExpression | u
   }
 
   return undefined;
-}
-
-/**
- * A diagnostic's location, counted now because a diagnostic is being built.
- *
- * @param parsed - The module.
- * @param offset - Where in it, if anywhere.
- * @returns The file, and the line and column when there is an offset.
- */
-function locate(
-  parsed: ParsedModule,
-  offset?: number
-): { column?: number; file: string; line?: number } {
-  if (offset === undefined) {
-    return { file: parsed.file };
-  }
-
-  const { column, line } = position(parsed.source, offset);
-  return { column, file: parsed.file, line };
 }
