@@ -55,7 +55,7 @@
  * anything else is somebody's work and is refused.
  */
 
-import { isMissing, writeAtomic } from '../config/atomic.js';
+import { isMissing, realPathOf, writeAtomic } from '../config/atomic.js';
 import { __ } from '../i18n/index.js';
 import { baseDir, expand, home } from '../paths.js';
 import {
@@ -69,7 +69,15 @@ import {
   type RouteId,
 } from './install.js';
 import type { ShellName } from './shells.js';
-import { accessSync, constants, readFileSync, statSync, unlinkSync } from 'node:fs';
+import {
+  accessSync,
+  constants,
+  existsSync,
+  lstatSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs';
 import { basename, join, sep } from 'node:path';
 
 /** Which way round the plan is being read. */
@@ -1095,7 +1103,22 @@ export function applyUninstall(plan: InstallPlan): boolean {
     throw new Error(`Refusing to remove ${plan.target.file}, which sigil did not write.`);
   }
 
-  unlinkSync(plan.target.file);
+  // the file the install wrote, which through a symlink is the link's target:
+  // `writeAtomic()` writes through a link on purpose, so unlinking the path as
+  // named took the link away and left the script it had written sitting in the
+  // dotfiles repository -- where the dotfile manager's next run linked it back
+  // in. `held` was read through the link too, so the file being removed is the
+  // one `ours()` just judged
+  const linked = lstatSync(plan.target.file).isSymbolicLink();
+  unlinkSync(realPathOf(plan.target.file));
+
+  // and then the link, but only once it leads nowhere: a link to a file that is
+  // gone is not an arrangement worth keeping, and zsh's `compinit` reports one
+  // in `fpath` as `no such file or directory` when it next rebuilds its dump.
+  // One that still resolves -- something put a file back -- is left alone
+  if (linked && !existsSync(plan.target.file)) {
+    unlinkSync(plan.target.file);
+  }
   return true;
 }
 
