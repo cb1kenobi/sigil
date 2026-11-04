@@ -158,6 +158,17 @@ the entry it belongs to.
   run once and stop with its value behind; that was the same defect looking
   settled. See `test/signals/effect.test.ts`, and `Show` and `For` in
   `test/renderer/renderer.test.ts`.
+- **A disposed effect never re-subscribes, even from its own body.** An effect
+  that disposes itself is still running, and every read the body makes after the
+  `dispose()` goes through `track()` against that running computed and hooks the
+  edge straight back up -- a sink on the signal that no watcher would ever drain,
+  which is the leak `dispose()` exists to close. The body releases the computed
+  again once it returns, in a `finally` because a body that throws after
+  disposing itself re-linked just the same, and tears down whatever it made after
+  the disposal -- the cleanup it returned and any child it created -- since that
+  belongs to a run nothing will ever tear down. Kept to the body rather than
+  taught to `track()`, because a read is the graph's business and whether an
+  effect is alive is the scope's. See `test/signals/effect.test.ts`.
 - **An error in an effect is reported, never rethrown.** Under the default
   microtask scheduler a rethrow lands in a microtask nobody catches: Node prints
   a raw stack and kills the process, skipping `main()`'s error handling, the
