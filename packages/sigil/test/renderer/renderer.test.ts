@@ -615,6 +615,35 @@ describe('context', () => {
 });
 
 describe('Show', () => {
+  it('should close a branch whose own effect cleared the condition', () => {
+    // the branch is built inside `Show`'s effect, so the write landed on a run
+    // that was already marked: propagation stopped at it and the run's end
+    // marked it clean, and the screen kept a branch whose condition was false
+    const h = harness(20, 1);
+    const open = new State(true);
+    const errors: unknown[] = [];
+    const view = render(
+      () =>
+        Show({
+          children: () => {
+            // validation on mount deciding the panel should not be open
+            createEffect(() => open.set(false));
+            return text('open');
+          },
+          fallback: () => text('closed'),
+          when: () => open.get(),
+        }),
+      { backend: h.backend, effects, onError: (err) => errors.push(err), terminal: h.terminal }
+    );
+    view.frame();
+    view.frame();
+
+    expect(errors).toEqual([]);
+    expect(open.get()).toBe(false);
+    expect(h.picture()).toBe('closed..............');
+    view.dispose();
+  });
+
   it('should mount and dispose a branch as the condition turns', () => {
     const h = harness();
     const on = new State(false);
@@ -801,6 +830,41 @@ describe('Show', () => {
 });
 
 describe('For', () => {
+  it('should drop a row whose own effect removed it from the list', () => {
+    // the same write one level down: the reconcile is the effect that was
+    // running, so the list it committed was the one before the write
+    const h = harness(20, 3);
+    const items = new State<readonly string[]>(['a', 'bad', 'c']);
+    const errors: unknown[] = [];
+    const view = render(
+      () =>
+        For({
+          children: (item) => {
+            createEffect(() => {
+              if (item === 'bad') {
+                items.set(items.get().filter((x) => x !== 'bad'));
+              }
+            });
+            return text(item);
+          },
+          each: () => items.get(),
+          props: { 'flex-direction': 'column' },
+        }),
+      { backend: h.backend, effects, onError: (err) => errors.push(err), terminal: h.terminal }
+    );
+    view.frame();
+    view.frame();
+
+    expect(errors).toEqual([]);
+    expect(items.get()).toEqual(['a', 'c']);
+    expect(h.picture().split('\n')).toEqual([
+      'a...................',
+      'c...................',
+      '....................',
+    ]);
+    view.dispose();
+  });
+
   it('should keep a row that moved rather than rebuilding it', () => {
     // keyed by identity: position keying rebuilds every row after the first
     // change, which for a terminal means the focus ring moves under whoever was

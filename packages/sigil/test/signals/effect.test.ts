@@ -365,6 +365,80 @@ describe('effect', () => {
       stop();
     });
 
+    it('should re-run an effect whose nested effect wrote one of its sources', () => {
+      // the running effect was already marked, so propagation stopped at it and
+      // the end of its run marked it clean over a value computed from before the
+      // write -- which is how a `Show` kept a branch whose condition was false
+      const own = createEffects();
+      const errors: unknown[] = [];
+      own.setErrorHandler((err) => errors.push(err));
+      const s = new State(0);
+      const seen: number[] = [];
+      own.effect(() => {
+        seen.push(s.get());
+        if (s.get() === 0) {
+          own.effect(() => s.set(1));
+        }
+      });
+      own.flush();
+
+      expect(seen).toEqual([0, 1]);
+      expect(errors).toEqual([]);
+    });
+
+    it('should re-run an effect that wrote a source of a computed it had read', () => {
+      // one step removed: the write marks the computed, and the computed's
+      // reader is the effect that is running
+      const own = createEffects();
+      own.setScheduler((fn) => fn());
+      const s = new State(0);
+      const c = new Computed(() => s.get() * 10);
+      const seen: number[] = [];
+      own.effect(() => {
+        seen.push(c.get());
+        if (s.get() === 0) {
+          s.set(1);
+        }
+      });
+
+      expect(seen).toEqual([0, 10]);
+    });
+
+    it('should not re-run an effect that wrote a signal before reading it', () => {
+      // what the body went on to read is what it saw, so asking the sources
+      // settles it and there is nothing to run again for
+      const own = createEffects();
+      own.setScheduler((fn) => fn());
+      const s = new State(0);
+      const trigger = new State(0);
+      let runs = 0;
+      own.effect(() => {
+        runs++;
+        s.set(trigger.get());
+        s.get();
+      });
+      expect(runs).toBe(1);
+
+      trigger.set(1);
+      expect(runs).toBe(2);
+    });
+
+    it('should report an effect that writes what it read as a cycle', () => {
+      // it used to run once and stop, because the write was swallowed by the
+      // run's own commit -- a cycle that looked settled, with the effect behind
+      // the value it had just written
+      const own = createEffects();
+      const errors: unknown[] = [];
+      own.setErrorHandler((err) => errors.push(err));
+      own.setScheduler(() => {});
+      const s = new State(0);
+      own.effect(() => s.set(s.get() + 1));
+      own.flush();
+
+      expect(errors).toHaveLength(1);
+      expect(String(errors[0])).toMatch(/did not settle/);
+    });
+
     it('should settle an effect that a write in the same flush dirtied', () => {
       const a = new State(0);
       const b = new State(0);
@@ -639,9 +713,8 @@ describe('effect', () => {
       two.effect(() => b.set(a.get() + 1));
 
       // the default microtask scheduler, where each flush finishes before the
-      // next one starts -- which is what makes this a chain rather than a nest,
-      // and a nest damps itself out because a write lands on a run that has not
-      // committed yet
+      // next one starts -- which is what makes this a chain rather than a nest.
+      // A nest is the test below
       one.setScheduler(undefined);
       two.setScheduler(undefined);
       b.set(100);
@@ -653,6 +726,29 @@ describe('effect', () => {
       expect(errors).toHaveLength(1);
       expect(String(errors[0])).toMatch(/chained flushes/);
     }, 20000);
+
+    it('should report a cycle between two scopes under a synchronous scheduler', () => {
+      // the nested spelling, where each write lands on a run further up the
+      // stack that has not committed. That run used to swallow the write and
+      // commit clean, so the cycle damped itself out silently -- one run each,
+      // nothing reported, and `a` no longer one more than `b`. The run is told
+      // it is stale now, so the outer drain goes round until its bound says so
+      const one = createEffects();
+      const two = createEffects();
+      const errors: unknown[] = [];
+      one.setErrorHandler((err) => errors.push(err));
+      two.setErrorHandler((err) => errors.push(err));
+      one.setScheduler((fn) => fn());
+      two.setScheduler((fn) => fn());
+
+      const a = new State(0);
+      const b = new State(0);
+      one.effect(() => a.set(b.get() + 1));
+      two.effect(() => b.set(a.get() + 1));
+
+      expect(errors).toHaveLength(1);
+      expect(String(errors[0])).toMatch(/did not settle/);
+    });
 
     it('should not read its own teardown as a cycle being broken', async () => {
       // the other half of the rule above, and the half that made it hard: a
@@ -1214,12 +1310,15 @@ describe('createEffects', () => {
     const writes = new State(0);
     let runs = 0;
 
+    // counted outside the graph: a body that read `writes` and then wrote it
+    // would be a cycle of its own, which re-runs until the bound reports it
+    let made = 0;
     const stop = own.effect(() => {
       runs++;
       if (flag.get()) {
         dropped.get();
       } else {
-        writes.set(writes.get() + 1);
+        writes.set(++made);
       }
     });
     expect(runs).toBe(1);

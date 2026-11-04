@@ -73,6 +73,13 @@ interface Consumer {
    */
   seen: Set<Producer> | undefined;
   state: NodeState;
+  /**
+   * Whether a source was invalidated while this was running, which is the one
+   * announcement its state cannot hold: a running node is already marked, so
+   * propagation would stop at it, and the end of the run would then mark it
+   * clean over a value it computed from what a source held before the write.
+   */
+  stale: boolean;
   /** A watcher is notified rather than marked, and is always live. */
   readonly isWatcher: boolean;
   notify(): void;
@@ -270,6 +277,22 @@ function propagate(producer: Producer, state: NodeState, errors: unknown[]): voi
       continue;
     }
 
+    if (sink.seen !== undefined) {
+      // running: an effect body wrote one of its own sources, or one a source
+      // of it reads. Its state is already DIRTY for the run in progress, so the
+      // check below would stop here and the run's end would mark it CLEAN over
+      // a value computed from before this write -- a `Show` keeping a branch
+      // whose condition is already false. So the run is told it is stale, and
+      // what reads it hears now, once, the way it would have from a clean node:
+      // that is what schedules the re-run, and what keeps a reader from
+      // trusting a version this run is about to commit
+      if (!sink.stale) {
+        sink.stale = true;
+        propagate(sink as unknown as Producer, CHECK, errors);
+      }
+      continue;
+    }
+
     if (sink.state >= state) {
       // already at least this invalidated, so its subgraph has been told
       continue;
@@ -433,6 +456,8 @@ export class Computed<T> implements Producer, Consumer {
   /** @internal */
   state: NodeState = DIRTY;
   /** @internal */
+  stale: boolean = false;
+  /** @internal */
   readonly isWatcher: boolean = false;
 
   constructor(fn: () => T, options: SignalOptions<T> = {}) {
@@ -503,6 +528,7 @@ export class Computed<T> implements Producer, Consumer {
     // computed's liveness mid-run walks the wrong set
     const seen = new Set<Producer>();
     this.seen = seen;
+    this.stale = false;
 
     // installing `this` as the tracking context is the mechanism, not an alias
     // of convenience: every read during `#fn()` registers against whatever is
@@ -524,7 +550,13 @@ export class Computed<T> implements Producer, Consumer {
       computing = previousComputing;
       currentConsumer = previousConsumer;
       this.seen = undefined;
-      this.state = CLEAN;
+      // CHECK rather than DIRTY when a source moved during the run, because the
+      // write may have landed before the read that saw it: `sources` holds the
+      // version each read recorded, so asking them settles it -- a write to a
+      // signal the body went on to read is no reason to run again, and one to a
+      // signal it had already read, or to what a computed it read reads, is
+      this.state = this.stale ? CHECK : CLEAN;
+      this.stale = false;
     }
 
     // committed before the sweep, and the sweep is where user code runs again: a
@@ -694,6 +726,8 @@ export class Watcher implements Consumer {
   seen: Set<Producer> | undefined = undefined;
   /** @internal */
   state: NodeState = CLEAN;
+  /** @internal */
+  stale: boolean = false;
   /** @internal */
   readonly isWatcher: boolean = true;
 

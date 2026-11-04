@@ -131,10 +131,33 @@ the entry it belongs to.
   is queued rather than when it runs, because a microtask flush runs after the one
   that scheduled it has finished and by then there is nothing left to ask. A flush
   nobody was mid-flush for starts the count again, so ordinary reactivity never
-  approaches it. Worth knowing that the synchronous spelling of this cycle damps
-  itself out instead: each write lands on a run further up the stack that has not
-  committed, and a notification to a computed that is mid-run is swallowed by its
-  own commit.
+  approaches it. The synchronous spelling of this cycle is a nest rather than a
+  chain -- each write lands on a run further up the stack that has not committed
+  -- and it is caught by the outer scope's `MAX_PASSES` instead. It used to damp
+  itself out silently, because a notification to a computed that was mid-run was
+  swallowed by its own commit; that was a defect, and it is the entry below.
+- **A write that lands on a run in progress leaves that run stale, and it runs
+  again.** A running node is already marked -- DIRTY, from the refresh that
+  started it -- so propagation, which stops at a node at least as invalidated as
+  it is about to be marked, stopped there, and the end of the run then marked it
+  `CLEAN` over a value computed from what the source held _before_ the write.
+  That is how a `Show` whose branch's own effect cleared `when` kept showing the
+  branch, and a `For` whose row's effect removed the row kept drawing it: the
+  branch is built inside the control-flow effect's run, so the write landed on
+  exactly that run. So a running node is told separately -- `stale`, recognised
+  by `seen` being set, which is what "running" already means -- and what reads it
+  hears at once, the way it would from a clean node, which is what schedules the
+  re-run and what keeps a reader from trusting the version the run is about to
+  commit. The run ends `CHECK` rather than `DIRTY`, because the write may have
+  landed before the read that saw it, and `sources` holds the version each read
+  recorded: a body that writes a signal and then reads it is not run again, and
+  one that read it first is. It is glitch-free for the reason the rest of the
+  graph is -- it changes what a run in progress is told and nothing about the
+  order anything recomputes in. The cost is that an effect writing what it read
+  -- `s.set(s.get() + 1)` -- is now a cycle the bound reports, where it used to
+  run once and stop with its value behind; that was the same defect looking
+  settled. See `test/signals/effect.test.ts`, and `Show` and `For` in
+  `test/renderer/renderer.test.ts`.
 - **An error in an effect is reported, never rethrown.** Under the default
   microtask scheduler a rethrow lands in a microtask nobody catches: Node prints
   a raw stack and kills the process, skipping `main()`'s error handling, the
