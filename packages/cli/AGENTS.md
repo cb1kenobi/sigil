@@ -1899,6 +1899,25 @@ other is refused with numbers.
   the command the whole of the build. It refuses an `--out` that _is_ the app
   root or sits above it, which is the one way a mistyped path turns a build into
   data loss, and `--no-clean` opts out.
+- **"Above the app" is asked of `relative()`, because a prefix test let the
+  root through.** The guard was ``app.startsWith(`${out}${sep}`)``, and a root
+  is the one directory `resolve()` hands back already ending in its separator,
+  so `/` became `//` and `C:\` became `C:\\`. No path starts with either, so
+  the ancestor of everything was the one ancestor allowed: `sigil build --out
+  /`, a `package` with the same, or `"out": "/"` in a cloned repository's
+  `sigil.json` reached `rmSync('/', { recursive: true, force: true })`
+  (SIG-246). `holdsApp()` asks for the path from `out` down to the app, and
+  calls the app held unless that path climbs (`..` as a whole segment, so a
+  child called `..foo` is still a child) or comes back absolute (another drive).
+  That fixes a second hole in the same line: a prefix is case-sensitive and
+  Windows is not, so `--out c:\users` was not read as above `C:\Users\me\app`,
+  and `win32.relative()` already compares the way that filesystem does. It
+  takes the path module as a parameter, defaulting to the host's, so
+  `test/clean-guard.test.ts` asks POSIX and Windows semantics -- `/`, `C:\`, a
+  UNC share root and every ancestor up to each -- on every machine. Nothing in
+  that file hands `clean()` the root, because a regression would make that
+  removal real. The root only ever goes to the pure guard, and the one
+  end-to-end case is a temp directory above a temp app.
 - **Sourcemaps are on by default and `--no-sourcemap` turns them off, because
   "costs nothing" was only true of run time.** They are several times the size
   of the minified code they describe -- 203 KB against 38 KB -- and a package
