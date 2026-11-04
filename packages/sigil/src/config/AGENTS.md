@@ -1079,6 +1079,25 @@ hold, and `Config.save()` is the one caller of all four.
   `.tmp` beside the config when a process is killed between the write and the
   rename, which is litter rather than damage.
 
+- **The temp name is unpredictable and the open is exclusive, and it takes
+  both.** It was `<path>.<pid>-<seq>.tmp` with `seq` from 0, opened `'w'` -- so a
+  symlink planted at that name redirected the write to its target, and the
+  `rename()` then moved **the link** over the config, after which every later
+  save wrote through it as well. Reproduced, and found by review (SIG-250).
+  `'wx'` is `O_CREAT | O_EXCL`, which refuses a name that exists and does not
+  follow a symlink at it, dangling or not; 64 random bits from `randomBytes()`
+  are what make that refusal a coincidence rather than a save anybody can make
+  fail by guessing the next pid. Either alone leaves half of it open.
+
+  A name that turns out to be taken is **left alone** and another is drawn,
+  because whatever is there is not this process's -- which is why the open sits
+  outside the bracket that unlinks the temp file after a failure. Four draws in a
+  row taken is raised as the `EEXIST` it is, since that is a directory answering
+  `EEXIST` for everything rather than bad luck. The tests plant the file through
+  the wrapped `fs` at whatever name the open is handed, sync and async both:
+  planting at a guessed name would pass for any name at all the moment the
+  spelling changed, whether or not the open had become exclusive.
+
 - **Where it goes is pinned by a wrapped `fs` rather than by reading the
   directory afterwards.** The temp file exists only between the open and the
   rename, so nothing outside can look -- and the first version of that test read

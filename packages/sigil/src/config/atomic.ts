@@ -1,4 +1,5 @@
 import { mkdirOwnerSync } from '../util/mkdir-owner-sync.js';
+import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
   chownSync,
@@ -12,7 +13,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { chmod, chown, open, rename, unlink } from 'node:fs/promises';
+import { chmod, chown, open, rename, unlink, type FileHandle } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, sep } from 'node:path';
 
 /**
@@ -80,8 +81,14 @@ interface Keep {
   uid?: number;
 }
 
-/** So that two saves in one process cannot pick the same temp name. */
-let seq = 0;
+/**
+ * How many fresh temp names an open tries before it reports the last refusal.
+ *
+ * A name is 64 random bits, so a second attempt is a coincidence nobody will
+ * see and a fourth is a directory answering `EEXIST` for everything -- which is
+ * worth raising rather than looping on.
+ */
+const TEMP_ATTEMPTS = 4;
 
 /**
  * The errors that mean "this filesystem does not do flushes", rather than
@@ -223,9 +230,76 @@ function isRoot(): boolean {
   return process.getuid !== undefined && process.getuid() === 0;
 }
 
-/** The temp file, beside the target so that the rename is a rename. */
+/**
+ * The temp file, beside the target so that the rename is a rename.
+ *
+ * **Unpredictable, and opened exclusively, and it takes both.** The name used to
+ * be `<path>.<pid>-<seq>.tmp` with `seq` from 0, opened with `'w'` -- so a
+ * symlink planted at that name in a directory somebody else can write to
+ * redirected the bytes to whatever it pointed at, and the `rename()` then moved
+ * **the link** over the config, after which every later save wrote through it
+ * too. `'wx'` is `O_CREAT | O_EXCL`, which refuses an existing name and never
+ * follows a symlink sitting at it, dangling or not; the random name is what
+ * makes that refusal a coincidence rather than a denial of service anybody can
+ * stage by guessing the next pid. Either alone leaves half of it open.
+ */
 function tempFor(path: string): string {
-  return `${path}.${process.pid}-${seq++}.tmp`;
+  return `${path}.${randomBytes(8).toString('hex')}.tmp`;
+}
+
+/** Whether a failed exclusive open means the name was already taken. */
+function isTaken(e: unknown): boolean {
+  return (e as { code?: string }).code === 'EEXIST';
+}
+
+/**
+ * Opens a fresh temp file beside a target, exclusively.
+ *
+ * A name that is taken is **left alone** and another is drawn: whatever is at
+ * it is not this process's, so unlinking it would be deleting somebody else's
+ * file on the way past -- which is why the open is outside the bracket that
+ * cleans up after a failed write.
+ *
+ * @param path - The target the temp file is beside.
+ * @param mode - The mode to create it with.
+ * @returns The open handle and the name it was opened at.
+ * @throws The last refusal, where every attempt found its name taken, or the
+ * first refusal that is not `EEXIST`.
+ */
+async function openTemp(path: string, mode: number): Promise<{ handle: FileHandle; temp: string }> {
+  for (let attempt = 1; ; attempt++) {
+    const temp = tempFor(path);
+    try {
+      return { handle: await open(temp, 'wx', mode), temp };
+    } catch (e: unknown) {
+      if (!isTaken(e) || attempt === TEMP_ATTEMPTS) {
+        throw e;
+      }
+    }
+  }
+}
+
+/**
+ * Opens a fresh temp file beside a target, exclusively, without awaiting.
+ *
+ * `openTemp()`'s twin, for the reason `writeAtomicSync()` is `writeAtomic()`'s.
+ *
+ * @param path - The target the temp file is beside.
+ * @param mode - The mode to create it with.
+ * @returns The open descriptor and the name it was opened at.
+ * @throws For the reasons `openTemp()` does.
+ */
+function openTempSync(path: string, mode: number): { fd: number; temp: string } {
+  for (let attempt = 1; ; attempt++) {
+    const temp = tempFor(path);
+    try {
+      return { fd: openSync(temp, 'wx', mode), temp };
+    } catch (e: unknown) {
+      if (!isTaken(e) || attempt === TEMP_ATTEMPTS) {
+        throw e;
+      }
+    }
+  }
 }
 
 /**
@@ -444,8 +518,7 @@ export async function writeAtomic(path: string, text: string): Promise<void> {
   mkdirOwnerSync(dirname(real));
 
   const keep = keepOf(real);
-  const temp = tempFor(real);
-  const handle = await open(temp, 'w', keep.mode ?? 0o666);
+  const { handle, temp } = await openTemp(real, keep.mode ?? 0o666);
 
   // one bracket around everything the temp file exists for, so that whatever
   // fails there is no temp file left behind -- which is the rule
@@ -497,8 +570,7 @@ export function writeAtomicSync(path: string, text: string): void {
   mkdirOwnerSync(dirname(real));
 
   const keep = keepOf(real);
-  const temp = tempFor(real);
-  const fd = openSync(temp, 'w', keep.mode ?? 0o666);
+  const { fd, temp } = openTempSync(real, keep.mode ?? 0o666);
 
   try {
     try {
