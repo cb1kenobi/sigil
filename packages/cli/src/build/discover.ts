@@ -53,7 +53,7 @@ import {
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
 import { readFileSync, statSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import type { Expression, ObjectExpression } from 'oxc-parser';
 
 /**
@@ -306,6 +306,36 @@ export function isFile(path: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether a path lies strictly inside a directory, by path arithmetic alone.
+ *
+ * The one definition of a question four places were asking. `undo()` and
+ * `isAppsOwn()` had each written it out, and `sigil package`'s runtime cache and
+ * `sigil add`'s registry paths needed it a third and fourth time -- for input
+ * that came from somebody else's data, where a `..` is how a write lands
+ * outside the directory it was meant for.
+ *
+ * **Strictly** inside: the directory is not inside itself, because every caller
+ * is asking about a file or a subdirectory below it. With the separator, so that
+ * `dist-old` is not read as inside `dist` -- and with the root's own trailing
+ * separator respected, because `resolve('/')` already ends in one and a second
+ * would leave nothing inside it.
+ *
+ * Lexical rather than through `realpath`, for the reason `undo()` records: a
+ * symlink somebody put inside the directory is a layout they chose, and what
+ * this guards against is a path that *says* it goes elsewhere.
+ *
+ * @param dir - The directory.
+ * @param path - The path, relative to the working directory or absolute.
+ * @returns Whether `path` resolves to something under `dir`.
+ */
+export function isInside(dir: string, path: string): boolean {
+  const root = resolve(dir);
+  const prefix = root.endsWith(sep) ? root : root + sep;
+
+  return resolve(path).startsWith(prefix);
 }
 
 /**
