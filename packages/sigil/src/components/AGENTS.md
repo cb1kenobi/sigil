@@ -7641,6 +7641,16 @@ the answer.
   directory from the text held in memory. The file is `0o600`, since an answer may
   be a secret. `postfix` defaults to `.txt` and is refused if it holds a separator
   or a control character, because it is joined into a path inside that directory.
+  It is also refused if it holds a `"`, `%` or `!`, on every platform. On Windows
+  the path is double-quoted into a `cmd.exe` line, and inside those quotes a `"`
+  closes them, so `" & calc & ".md` ran a program. A `%` expands, so `%TEMP%.md`
+  named a file nobody wrote, and so does a `!` where delayed expansion is on. Not
+  on Windows alone, for the reason `\` is refused on POSIX: a postfix is the
+  app's constant, and one that breaks only on the platform its author is not on
+  is the case the rule exists for. That is also why the test needs no platform
+  seam, since the refusal comes before anything reads the platform. What it does
+  not cover is a `%` in the temp directory's own path, which comes from `TEMP`
+  rather than from the app.
 - **Every exit path removes it, and SIGINT is the editor's.** The removal is a
   `finally` around the spawn, which covers an answer, an editor that exits
   non-zero, one killed by a signal, and a spawn that fails. **SIGINT is ignored for
