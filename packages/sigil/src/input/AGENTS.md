@@ -83,9 +83,17 @@ the entry it belongs to.
   that never ended, and every key after it, Ctrl-C included, became content for
   the life of the process. That is not a contrived split: a macOS pty hands over
   at most 1022 bytes a read, so pastes of 1011, 1013, 1015 and 2035 bytes hung,
-  measured on a real pty (SIG-247). The end marker is now searched for in what
-  the paste holds plus the new chunk, starting just short of the join so a long
-  paste is not rescanned from the top on every read. The start marker's first
+  measured on a real pty (SIG-247). The end marker is now searched for in the
+  last few characters the paste holds plus the new chunk -- one short of the
+  marker's length, which is all a marker can straddle -- and the paste is kept
+  as a list of reads and joined once, when it ends. The first version searched
+  `pasting + rest` from just short of the join, which reads as linear and is
+  not: the concatenation is a V8 cons string, and `indexOf` flattens it, so
+  every read copied the whole paste and 8 MB in 1022-byte reads took **2.3s**
+  against **3.4ms** now. Starting the search late saved the scan and not the
+  copy, which is the half that cost. `should hold a large paste in time linear
+  in its size` is the pin, with a budget an order of magnitude from both
+  answers -- 16 MB is about 5ms now and was about 11s. The start marker's first
   half is never in the paste buffer, because nothing is pasting yet: it is in
   `held`, since every prefix of `ESC [ 200 ~` is a key that might not be whole
   and `keys()` keeps it for the next read. So the start is looked for in `held`

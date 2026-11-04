@@ -611,6 +611,31 @@ describe('paste', () => {
       expect(keys).toEqual(['ctrl-c']);
       stop();
     });
+
+    it('should hold a large paste in time linear in its size', () => {
+      // joining what was held to each read and searching the result made V8
+      // flatten the whole paste every time, so 16 MB in a macOS pty's 1022-byte
+      // reads took about 9s; searching the held tail takes about 5ms. The budget
+      // sits an order of magnitude from both, so neither a loaded machine nor a
+      // quadratic search lands on the wrong side of it
+      const { feed, keys, pasted, stop } = recording();
+      const chunk = 'x'.repeat(1022);
+      const reads = 16_000;
+
+      const began = performance.now();
+      feed(start);
+      for (let i = 0; i < reads; i++) {
+        feed(chunk);
+      }
+      feed(end);
+      const took = performance.now() - began;
+
+      expect(pasted.map((text) => text.length)).toEqual([reads * chunk.length]);
+      expect(took).toBeLessThan(1000);
+      feed('\u0003');
+      expect(keys).toEqual(['ctrl-c']);
+      stop();
+    });
   });
 
   it('should type it in when nobody wanted it whole', () => {

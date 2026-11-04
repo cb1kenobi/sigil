@@ -1629,7 +1629,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 
   /** Reads a chunk, holding a partial sequence or a partial paste. */
   let held = '';
-  let pasting: string | undefined;
+  /** The paste being held, as the reads it arrived in, joined once at the end. */
+  let pasting: string[] | undefined;
+  /** The last few characters of `pasting`, which is all an end marker can straddle. */
+  let pasteTail = '';
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   function flushPaste(text: string): void {
@@ -1691,22 +1694,29 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // what stops it: a Ctrl-C binding that calls `stop()` is the ordinary way
     while (!stopped && rest !== '') {
       if (pasting !== undefined) {
-        // looked for in what is held *and* this chunk, because a marker splits
-        // like anything else: a read that ends `ESC [ 20` and one that starts
-        // `1 ~` is a paste that ends, and asking each chunk on its own made it a
-        // paste that never did -- every later key, Ctrl-C included, became
-        // content for the life of the process. The search starts no earlier
-        // than a marker straddling the join could, so a long paste arriving in
-        // many reads is not scanned again from the top on every one of them
-        const joined = pasting + rest;
-        const end = joined.indexOf(PASTE_END, Math.max(0, pasting.length - PASTE_END.length + 1));
+        // looked for across the join *and* in this chunk, because a marker
+        // splits like anything else: a read that ends `ESC [ 20` and one that
+        // starts `1 ~` is a paste that ends, and asking each chunk on its own
+        // made it a paste that never did -- every later key, Ctrl-C included,
+        // became content for the life of the process. Only the held tail is
+        // searched rather than the whole paste, and the reads are kept as a list
+        // rather than a string: `pasting + rest` followed by `indexOf` makes V8
+        // flatten the whole paste on every read, so a paste arriving in many
+        // reads cost the square of its size -- 8 MB in 1022-byte reads was 2.3s
+        const window = pasteTail + rest;
+        const end = window.indexOf(PASTE_END);
         if (end === -1) {
-          pasting = joined;
+          pasting.push(rest);
+          pasteTail = window.slice(-(PASTE_END.length - 1));
           return;
         }
-        flushPaste(joined.slice(0, end));
+        // the marker cannot lie wholly inside the tail, which is shorter than it,
+        // so it ends in this chunk and what follows it is this chunk's
+        const content = pasting.join('') + rest;
+        flushPaste(content.slice(0, content.length - (window.length - end)));
         pasting = undefined;
-        rest = joined.slice(end + PASTE_END.length);
+        pasteTail = '';
+        rest = window.slice(end + PASTE_END.length);
         continue;
       }
 
@@ -1724,7 +1734,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 
       held = '';
       keys(joined.slice(0, start));
-      pasting = '';
+      pasting = [];
       rest = joined.slice(start + PASTE_START.length);
     }
 
@@ -2304,6 +2314,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       timer = undefined;
       held = '';
       pasting = undefined;
+      pasteTail = '';
 
       // and the pending sequence goes the way the hover states do, and for its
       // reason: nothing will ever clear it otherwise -- the keys have stopped --
