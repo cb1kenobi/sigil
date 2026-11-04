@@ -18,7 +18,7 @@ import {
   Show,
   useContext,
 } from '../../src/renderer/index.js';
-import { createEffects } from '../../src/signals/index.js';
+import { createEffects, sinkCount } from '../../src/signals/index.js';
 import { State } from '../../src/signals/index.js';
 import { Cascade, parseStylesheet } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
@@ -442,6 +442,107 @@ describe('lifecycle', () => {
     expect(seen).toEqual([5]);
     view.frame();
     expect(seen).toEqual([5]);
+    view.dispose();
+  });
+
+  it('should run onMount under the owner of the component it belongs to', () => {
+    // queued bare, the callback ran with no owner at all: an effect created
+    // there outlived the unmount and the renderer's `dispose()`, an
+    // `onCleanup()` was dropped, and a context read its default
+    const h = harness();
+    const on = new State(true);
+    const sig = new State(0);
+    const Ctx = createContext('default');
+    const seen: { context?: string; owned?: boolean } = {};
+    let runs = 0;
+    let cleaned = 0;
+
+    const view = render(
+      () =>
+        provideContext(Ctx, 'provided', () =>
+          Show({
+            children: () => {
+              onMount(() => {
+                seen.owned = getOwner() !== undefined;
+                seen.context = useContext(Ctx);
+                createEffect(() => {
+                  sig.get();
+                  runs++;
+                });
+                onCleanup(() => cleaned++);
+              });
+              return text('x');
+            },
+            when: () => on.get(),
+          })
+        ),
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+    view.frame();
+    expect(seen).toEqual({ context: 'provided', owned: true });
+    expect(runs).toBe(1);
+
+    // the branch goes, and what its mount callback made goes with it
+    on.set(false);
+    view.frame();
+    expect(cleaned).toBe(1);
+    sig.set(1);
+    view.frame();
+    expect(runs).toBe(1);
+    expect(sinkCount(sig)).toBe(0);
+    view.dispose();
+  });
+
+  it('should take an onMount effect down with the renderer', () => {
+    const h = harness();
+    const sig = new State(0);
+    let runs = 0;
+    const view = render(
+      () => {
+        onMount(() => {
+          createEffect(() => {
+            sig.get();
+            runs++;
+          });
+        });
+        return text('x');
+      },
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+    view.frame();
+    expect(runs).toBe(1);
+
+    view.dispose();
+    expect(sinkCount(sig)).toBe(0);
+  });
+
+  it('should skip the onMount of a component unmounted before its frame', () => {
+    // a `Show` that opened and closed again before anything was drawn built a
+    // branch that was never on screen, and its owner is gone: there is no box
+    // to read, and everything the callback tried would be refused
+    const h = harness();
+    const on = new State(false);
+    const mounted: string[] = [];
+    const view = render(
+      () =>
+        Show({
+          children: () => {
+            onMount(() => mounted.push('mounted'));
+            return text('x');
+          },
+          when: () => on.get(),
+        }),
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+    view.frame();
+
+    // built by the flush and torn down by the next one, both before a frame
+    on.set(true);
+    effects.flush();
+    on.set(false);
+    effects.flush();
+    view.frame();
+    expect(mounted).toEqual([]);
     view.dispose();
   });
 
