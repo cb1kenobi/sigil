@@ -1,6 +1,6 @@
 import { tempDir } from './temp.js';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -24,7 +24,7 @@ vi.mock('@ttylabs/sigil/paths', () => ({
   cache: (...paths: string[]) => join(box, ...paths),
 }));
 
-const { latest } = await import('../src/build/runtimes.ts');
+const { latest, resolve } = await import('../src/build/runtimes.ts');
 
 /** Where `latest()` keeps a runtime's listing. */
 function file(runtime: 'bun' | 'node'): string {
@@ -139,5 +139,104 @@ describe('caching the version listings', () => {
     writeFileSync(join(box, 'sigil/runtimes'), 'in the way');
 
     await expect(latest('node')).resolves.toEqual([]);
+  });
+});
+
+/** A version that starts like one and then climbs, with this platform's separator. */
+const climbing = ['26.12.1', '..', '..', '..', 'tmp', 'pwn'].join(sep);
+
+describe('a version a listing hands over', () => {
+  beforeEach(() => {
+    rmSync(join(box, 'sigil'), { force: true, recursive: true });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('should not offer a Node release whose version is not a version', async () => {
+    // a listing is a registry's data, and the version in it became a cache
+    // path the moment it was picked -- `latestNode()` passed it through
+    // unchecked. The line falls through to the next row that is one
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve({
+        json: () =>
+          Promise.resolve([
+            { lts: false, version: `v${climbing}` },
+            { lts: false, version: 'v26.12.0' },
+          ]),
+        ok: true,
+      })
+    );
+
+    expect(await latest('node')).toEqual([{ major: 26, version: '26.12.0' }]);
+  });
+
+  it('should not offer a Bun release whose version is not a version', async () => {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve({
+        // a line of its own, so that nothing newer in the same line hides it
+        json: () =>
+          Promise.resolve({
+            versions: { '1.3.14': {}, [['1.4.0', '..', '..', 'tmp', 'pwn'].join(sep)]: {} },
+          }),
+        ok: true,
+      })
+    );
+
+    expect(await latest('bun')).toEqual([{ major: 1, version: '1.3.14' }]);
+  });
+
+  it('should not offer one from a cached listing either', async () => {
+    vi.stubGlobal('fetch', () => {
+      throw new Error('offline');
+    });
+    hold(
+      'node',
+      [
+        { major: 26, version: climbing },
+        { major: 24, version: '24.22.1' },
+      ],
+      0
+    );
+
+    expect(await latest('node')).toEqual([{ major: 24, version: '24.22.1' }]);
+  });
+});
+
+describe('downloading a runtime', () => {
+  const target = { arch: process.arch === 'x64' ? 'x64' : 'arm64', platform: 'linux' } as const;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('should refuse a version that names a path outside the cache before fetching anything', async () => {
+    // the last gate, which a version from anywhere -- the flag, `sigil.json`,
+    // a listing -- reaches on its way to a download
+    let asked = 0;
+    vi.stubGlobal('fetch', () => {
+      asked++;
+      throw new Error('offline');
+    });
+
+    // either of `cacheDir()`'s two refusals, for the reason its own test gives
+    await expect(resolve('node', climbing, target)).rejects.toThrow(
+      /is not a node version|outside the runtime cache/
+    );
+    expect(asked).toBe(0);
+    // where `join()` took the climb to: `download()` made its partial directory
+    // there before the fetch, and the directory outlived the failed download
+    expect(existsSync(join(box, 'sigil', 'tmp'))).toBe(false);
+  });
+
+  it('should name a flag that exists when the version does not', async () => {
+    // it said `--runtime-version list`, a flag `sigil package` has never had
+    vi.stubGlobal('fetch', () => Promise.resolve({ ok: false, status: 404 }));
+
+    const failed = resolve('node', '99.0.0', target);
+
+    await expect(failed).rejects.toThrow(/--runtime node@<version>/);
+    await expect(failed).rejects.not.toThrow(/--runtime-version/);
   });
 });

@@ -52,7 +52,7 @@ the entry it belongs to.
 - **A flush drains until nothing is dirty, not once.** It follows from the
   above: an effect that writes can dirty an effect that already ran this pass,
   and stopping after one pass would leave that one a frame behind. The watcher is
-  re-armed _before_ each pass, so a write made during one schedules the next.
+  re-armed _before_ each pass, so a write made during one is found by the next.
   There is a bound, because two effects each writing what the other reads would
   otherwise spin forever with nothing said about which two. The bound stops the
   drain and only the drain; the entry below is what stops the scheduler.
@@ -169,6 +169,28 @@ the entry it belongs to.
   belongs to a run nothing will ever tear down. Kept to the body rather than
   taught to `track()`, because a read is the graph's business and whether an
   effect is alive is the scope's. See `test/signals/effect.test.ts`.
+- **A scope's own notification while it is draining asks for no flush, because
+  it was being counted as a chain.** Each pass begins with a bare `watch()`, and
+  a bare re-arm that finds work announces it -- so every drain with anything to
+  do asked for a second flush from inside the first, which `requestFlush()`
+  rightly reads as chained. Under the microtask scheduler that follow-up runs at
+  once, finds nothing, and the chain resets, which is why the suite never saw
+  it. Under the renderer's frame loop it runs a frame later, and a signal
+  written faster than a frame -- a progress bar fed per chunk, a log tail, a
+  mouse drag -- has always been written again by then, so every frame was a
+  link and the hundred-and-first tore the renderer down for a cycle that did
+  not exist. The flush asked for was never needed: the drain loops until quiet,
+  so whatever the re-arm announces is work this same drain does next. Not
+  requesting it, rather than requesting it unchained, is the fix that keeps the
+  guard honest: a queued unchained flush leaves `queued` set, and a genuinely
+  chained request from another scope arriving behind it is then swallowed and
+  the follow-up resets the count -- the cross-scope cycle reaching nothing
+  again. Only the drain is quieted: the `finally` re-arm runs after `flushing`
+  is cleared, so what a caller's disposal leaves pending still asks, and so does
+  a write from anywhere once the drain is over.
+  See "the settle guard under the frame loop" in
+  `test/renderer/renderer.test.ts`, which pins both directions under the real
+  frame scheduler.
 - **An error in an effect is reported, never rethrown.** Under the default
   microtask scheduler a rethrow lands in a microtask nobody catches: Node prints
   a raw stack and kills the process, skipping `main()`'s error handling, the

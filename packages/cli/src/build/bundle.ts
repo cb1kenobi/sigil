@@ -32,7 +32,7 @@
  */
 
 import { compileTemplates } from './compile-templates.ts';
-import { RUNTIME, type DiscoveredApp } from './discover.ts';
+import { isInside, RUNTIME, type DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
 import { MODULE_RE, parses, parseTree } from './parse-module.ts';
 import { createShaker, STYLE_MODULE, shakeStyles, type ShakenSheet, type Shaker } from './shake.ts';
@@ -849,7 +849,7 @@ export function inlinedPackages(
  * @returns Whether it is the app's own.
  */
 export function isAppsOwn(file: string, app: string): boolean {
-  if (file !== app && !file.startsWith(`${app}${sep}`)) {
+  if (file !== app && !isInside(app, file)) {
     return false;
   }
   return !file.slice(app.length).split(sep).includes('node_modules');
@@ -1177,13 +1177,12 @@ function hasJsx(file: string, source: string): boolean {
  */
 export function undo(out: string, output: readonly { fileName: string }[]): void {
   const root = resolve(out);
-  // with the separator, so that an `--out` of `dist` cannot have `dist-old`
-  // read as being inside it
-  const inside = root.endsWith(sep) ? root : root + sep;
 
   for (const chunk of output) {
     const file = resolve(join(out, chunk.fileName));
-    if (!file.startsWith(inside)) {
+    // `isInside()` carries the separator, so that an `--out` of `dist` cannot
+    // have `dist-old` read as being inside it
+    if (!isInside(root, file)) {
       continue;
     }
 
@@ -1202,7 +1201,7 @@ export function undo(out: string, output: readonly { fileName: string }[]): void
       continue;
     }
 
-    for (let dir = dirname(file); dir !== root && dir.startsWith(inside);) {
+    for (let dir = dirname(file); isInside(root, dir);) {
       try {
         rmdirSync(dir);
       } catch {

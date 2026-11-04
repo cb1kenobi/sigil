@@ -42,7 +42,7 @@ import { table } from '@ttylabs/sigil/components';
 import type { TextRun } from '@ttylabs/sigil/element';
 import { SIGIL_KEYS } from '@ttylabs/sigil/i18n-keys';
 import { existsSync, rmSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import nodePath, { isAbsolute, relative, resolve } from 'node:path';
 
 /** What reading an app turned up. */
 export interface Inspection {
@@ -462,6 +462,37 @@ export function clean(out: string, root: string, wanted: boolean): void {
 }
 
 /**
+ * Whether emptying `out` would take the app at `root` with it: `out` is the
+ * app root or any directory above it, the filesystem root included.
+ *
+ * Asked of `relative()` rather than spelled as a prefix, because the prefix was
+ * wrong at exactly the one directory that matters most. A root is the one
+ * directory `resolve()` hands back already ending in its separator -- `/`, or
+ * `C:\` -- so appending another made `//` and `C:\\`, which no path starts
+ * with: the root, the ancestor of everything, was the one ancestor
+ * let through, and `--out /` reached `rmSync('/', { recursive: true })`. A
+ * prefix is also case-sensitive where Windows is not, so `c:\users` was not
+ * read as above `C:\Users\app`; `win32.relative()` already compares the way
+ * the filesystem does. What `relative()` answers with is the path from `out`
+ * down to the app, and the app is inside unless that path climbs (`..`) or
+ * cannot be written at all (another drive, which comes back absolute). A
+ * directory really called `..foo` is a child, which is why `..` is matched as
+ * a whole segment rather than as a prefix.
+ *
+ * The path module is a parameter so both platforms' semantics can be asked on
+ * one machine; everything that is not a test takes the host's.
+ *
+ * @param out - The output directory.
+ * @param root - The app's root.
+ * @param path - The path semantics to ask with.
+ * @returns `true` if `out` is the app root or an ancestor of it.
+ */
+export function holdsApp(out: string, root: string, path: typeof nodePath = nodePath): boolean {
+  const rel = path.relative(path.resolve(out), path.resolve(root));
+  return !(rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel));
+}
+
+/**
  * Refuses an output directory that must not be emptied, without emptying any.
  *
  * Split out of `clean()` so it can be asked in a pre-flight, which is where it
@@ -485,10 +516,8 @@ export function assertCleanable(out: string, root: string, wanted: boolean): voi
     return;
   }
 
-  const resolved = resolve(out);
-  const app = resolve(root);
-
-  if (resolved === app || app.startsWith(`${resolved}${sep}`)) {
+  if (holdsApp(out, root)) {
+    const resolved = resolve(out);
     throw new Error(
       `Refusing to empty ${displayPath(resolved)}, which holds the app itself. ` +
         `Name a directory inside it, or pass --no-clean.`
