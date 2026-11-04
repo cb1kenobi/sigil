@@ -1,5 +1,6 @@
 import { type Argument, type InternalArgument } from '../../types.js';
 import { initArg } from './init-arg.js';
+import { argSpelling } from './spelling.js';
 
 /**
  * Builds a list of arguments, and enforces the two rules that are about the list
@@ -44,7 +45,7 @@ export function normalizeArgs(args: InternalArgument[], where: string): Internal
   for (let i = 0; i < args.length - 1; i++) {
     if (args[i]!.multiple) {
       throw new Error(
-        `Only the last argument can be variadic: ${label(args[i]!)} is followed by ${label(args[i + 1]!)} in ${where}`
+        `Only the last argument can be variadic: ${argSpelling(args[i]!)} is followed by ${argSpelling(args[i + 1]!)} in ${where}`
       );
     }
   }
@@ -59,15 +60,4 @@ export function normalizeArgs(args: InternalArgument[], where: string): Internal
   }
 
   return args;
-}
-
-/**
- * How an argument is spelled where it is typed, for an error message.
- *
- * @param arg - The argument.
- * @returns The spelling.
- */
-function label(arg: InternalArgument): string {
-  const name = `${arg.name}${arg.multiple ? '...' : ''}`;
-  return arg.required ? `<${name}>` : `[${name}]`;
 }

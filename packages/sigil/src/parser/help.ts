@@ -13,6 +13,7 @@ import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
 import { resolveTopic } from './command/topic.js';
 import { unknownCommand } from './suggest.js';
+import { typedOn } from './typed-on.js';
 
 /**
  * The `--help` flag and the `help` command a schema gets for free, so that
@@ -109,7 +110,7 @@ export async function detectHelp(
     return { contexts: await resolve(state, path(state, handles.command)), via: 'command' };
   }
 
-  if (handles.option && used(state, handles.option)) {
+  if (typedOn(state, handles.option)) {
     return { contexts: asked(state), via: 'option' };
   }
 
@@ -131,23 +132,6 @@ export async function detectHelp(
 function asked(state: ParseState): InternalCommand[] {
   const named = state.$.filter((parsed) => parsed.type === 'Command').length;
   return state.contexts.slice(state.contexts.length - (named + 1));
-}
-
-/**
- * Whether argv asked for help with the flag.
- *
- * Typed and true: a default or an environment variable can give `--help` a value
- * without anybody asking a question, and `--help=false` is somebody typing it and
- * saying no.
- *
- * @param state - The parse state.
- * @param option - The option to look for.
- * @returns `true` when argv turned it on.
- */
-function used(state: ParseState, option: InternalOption): boolean {
-  return state.$.some(
-    (parsed) => parsed.type === 'Option' && parsed.option === option && parsed.value === true
-  );
 }
 
 /**

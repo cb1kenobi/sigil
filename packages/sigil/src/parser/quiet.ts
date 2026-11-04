@@ -49,6 +49,7 @@
 
 import { __ } from '../i18n/index.js';
 import { Internal, type InternalCommand, type InternalOption, type ParseState } from '../types.js';
+import { typedOn } from './typed-on.js';
 
 /**
  * The `--quiet` flag a schema gets for free, so a parse can tell whether argv
@@ -121,9 +122,9 @@ export async function registerQuiet(
  * **Any** typed true wins, in either order, which is where the three flags the
  * parser owns part company with every valued option in this schema: those are
  * last-wins by destination, and `--quiet --quiet=false` is quiet. It is
- * `--help`'s rule said again rather than a decision taken here -- the three
- * flags of this shape read argv the same way, and changing one of them inside a
- * ticket about another is how they come to disagree. Worth knowing because the
+ * `typedOn()`, which `--help` and `--version` ask too, rather than a decision
+ * taken here -- the three flags of this shape read argv the same way, and one
+ * function is what keeps them doing it. Worth knowing because the
  * spelling somebody reaches for to undo it, `--no-quiet`, is not a negation of
  * this flag at all: a `no-` twin is created by declaring one, so it lands on
  * `argv` as an undeclared option instead.
@@ -133,19 +134,5 @@ export async function registerQuiet(
  * @returns Whether argv turned it on.
  */
 export function detectQuiet(state: ParseState, handles: QuietHandles): boolean {
-  const { option } = handles;
-
-  // a fast path rather than a guard, and `detectVersion()`'s own body byte for
-  // byte: a `ParsedOption` carries a required `option`, so an `undefined` one
-  // matches nothing and the scan below answers `false` either way -- which a
-  // sabotage of it said. What it skips is a walk of `state.$` for every app that
-  // declared its own, and what it would cost to delete is the two copies of one
-  // function disagreeing, which is the rule the paragraph above keeps
-  if (!option) {
-    return false;
-  }
-
-  return state.$.some(
-    (parsed) => parsed.type === 'Option' && parsed.option === option && parsed.value === true
-  );
+  return typedOn(state, handles.option);
 }

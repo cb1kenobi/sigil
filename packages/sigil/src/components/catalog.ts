@@ -17,9 +17,9 @@
  * written against a literal.
  */
 
+import { argSpelling } from '../parser/argument/spelling.js';
 import {
   Internal,
-  type InternalArgument,
   type InternalCommand,
   type InternalOption,
   type OptionDataType,
@@ -270,11 +270,6 @@ function matchedName(cmd: InternalCommand, named: Map<InternalCommand, string>):
   return named.get(cmd) ?? cmd.name;
 }
 
-function argLabel(arg: InternalArgument): string {
-  const name = `${arg.name}${arg.multiple ? '...' : ''}`;
-  return arg.required ? `<${name}>` : `[${name}]`;
-}
-
 /**
  * Whether the environment already answers for a declaration.
  *
@@ -361,7 +356,7 @@ export function slotsFor(
     slots.push({
       choices: Array.isArray(arg.choices) ? arg.choices : undefined,
       desc: typeof arg.desc === 'string' ? arg.desc : undefined,
-      label: argLabel(arg),
+      label: argSpelling(arg),
       multiple: !!arg.multiple,
       required: !!arg.required,
       type: arg.type,

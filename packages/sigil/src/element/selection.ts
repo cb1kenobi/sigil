@@ -14,6 +14,7 @@
  * so that `canvas/selection.ts` needs to know nothing about elements.
  */
 
+import { intersect } from '../canvas/buffer.js';
 import type { Box } from '../layout/index.js';
 import { paintOrder } from './hit.js';
 import type { Element } from './index.js';
@@ -36,21 +37,6 @@ function defaultFor(element: Element, inherited: boolean): boolean {
   // reaching the block at all. The condition is the raw's own claim and not the
   // property, so a sheet still cannot decide what may be copied
   return element.type === 'raw' && !element.drawsText ? false : inherited;
-}
-
-/** The rectangle two boxes both allow. */
-function clipped(area: Box, clip: Box | undefined): Box {
-  if (!clip) {
-    return area;
-  }
-  const x = Math.max(area.x, clip.x);
-  const y = Math.max(area.y, clip.y);
-  return {
-    height: Math.max(0, Math.min(area.y + area.height, clip.y + clip.height) - y),
-    width: Math.max(0, Math.min(area.x + area.width, clip.x + clip.width) - x),
-    x,
-    y,
-  };
 }
 
 /**
@@ -92,7 +78,7 @@ export function selectableAt(root: Element, width: number, height: number): Sele
       // back: the mask is only built once something says no
       return;
     }
-    const box = clipped(area, clip);
+    const box = intersect(clip, area);
     if (box.width <= 0 || box.height <= 0) {
       return;
     }

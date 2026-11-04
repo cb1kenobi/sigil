@@ -29,7 +29,13 @@
  * token *without* adding anything to `COMPREPLY`.
  */
 
-import { generatedBy, installComment, shQuote } from './install.js';
+import {
+  completionFunction,
+  generatedBy,
+  generatedPrefix,
+  installComment,
+  shQuote,
+} from './install.js';
 import type { CompletionCommand, CompletionSpec } from './spec.js';
 
 /**
@@ -57,26 +63,6 @@ export function bashQuote(text: string): string {
 /** The `case` pattern for a command path, `''` for the root. */
 function pathPattern(path: readonly string[]): string {
   return bashQuote(path.join(' '));
-}
-
-/**
- * The prefix every generated name carries.
- *
- * Sanitized because a function name has to be typable: `my-cli` becomes
- * `__my_cli_*`. Two programs whose names differ only in a character that is not
- * a letter, a digit or an underscore collide here, which matters only if both
- * are installed and is the same collision `complete -F` would have anyway.
- *
- * @param program - The program's name.
- * @returns The prefix.
- */
-export function bashPrefix(program: string): string {
-  return `__${program.replaceAll(/[^A-Za-z0-9_]/gu, '_')}`;
-}
-
-/** The name of the completion function, which is what `complete -F` names. */
-export function bashFunction(program: string): string {
-  return `_${program.replaceAll(/[^A-Za-z0-9_]/gu, '_')}`;
 }
 
 /** One `case` arm, or nothing when there is nothing to say for that path. */
@@ -210,8 +196,8 @@ function valueArms(spec: CompletionSpec, pre: string): string {
  */
 export function bashScript(spec: CompletionSpec): string {
   const { program } = spec;
-  const pre = bashPrefix(program);
-  const fn = bashFunction(program);
+  const pre = generatedPrefix(program);
+  const fn = completionFunction(program);
   const q = bashQuote(program);
 
   return `# ${generatedBy('bash', program)}

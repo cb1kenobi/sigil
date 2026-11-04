@@ -374,6 +374,40 @@ export function shQuote(text: string): string {
 }
 
 /**
+ * The prefix every generated name carries, in either shell.
+ *
+ * Sanitized because a function name has to be typable: `my-cli` becomes
+ * `__my_cli_*`. Two programs whose names differ only in a character that is not
+ * a letter, a digit or an underscore collide here, which matters only if both
+ * are installed and is the same collision `complete -F` would have anyway.
+ *
+ * Here rather than in either emitter for `shQuote()`'s reason: both scripts
+ * name their functions by it, and the bash and zsh emitters each wrote it out.
+ *
+ * @param program - The program's name.
+ * @returns The prefix.
+ */
+export function generatedPrefix(program: string): string {
+  return `__${typableName(program)}`;
+}
+
+/**
+ * The name of the completion function, which is what `complete -F` and
+ * `compdef` name.
+ *
+ * @param program - The program's name.
+ * @returns The function's name.
+ */
+export function completionFunction(program: string): string {
+  return `_${typableName(program)}`;
+}
+
+/** A program name with everything a shell function name cannot hold made `_`. */
+function typableName(program: string): string {
+  return program.replaceAll(/[^A-Za-z0-9_]/gu, '_');
+}
+
+/**
  * The routes for one shell, in the order the installer prefers them.
  *
  * The automatic ones first, which is the order the installer reads and is also

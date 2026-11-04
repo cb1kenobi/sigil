@@ -7,6 +7,7 @@ import {
   type TextRun,
 } from '../element/index.js';
 import { __, __n } from '../i18n/index.js';
+import { argSpelling } from '../parser/argument/spelling.js';
 import type { CommandRegistry } from '../parser/command/command-registry.js';
 import { labelNames } from '../parser/command/label.js';
 import type { OptionRegistry } from '../parser/option/option-registry.js';
@@ -388,18 +389,6 @@ function usageLine(parts: UsageParts): Element {
   }
 
   return hanging(__`Usage:`, [line.join(' ')], parts.width);
-}
-
-/**
- * How an argument is spelled where it is typed: angle brackets when it is
- * required, square when it is not, and `...` when it takes more than one.
- *
- * @param arg - The argument.
- * @returns The spelling.
- */
-function argSpelling(arg: InternalArgument): string {
-  const name = arg.name + (arg.multiple ? '...' : '');
-  return arg.required ? `<${name}>` : `[${name}]`;
 }
 
 /**

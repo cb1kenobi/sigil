@@ -54,7 +54,13 @@
  * pattern rather than a prefix and offers every candidate beginning `a`.
  */
 
-import { generatedBy, installComment } from './install.js';
+import {
+  completionFunction,
+  generatedBy,
+  generatedPrefix,
+  installComment,
+  shQuote,
+} from './install.js';
 import type { CompletionCommand, CompletionSpec } from './spec.js';
 
 /**
@@ -62,13 +68,16 @@ import type { CompletionCommand, CompletionSpec } from './spec.js';
  *
  * The same rule bash takes, and for the same reason: inside `'...'` every byte
  * is literal, so a backtick, a `$` or a newline cannot do anything, and `'` is
- * written as close-escape-reopen.
+ * written as close-escape-reopen. So it is `shQuote()`, as `bashQuote()` is --
+ * it was a copy of it, which is the shape `bashQuote()`'s own comment names as
+ * how one of them comes to be a line that runs on every login with a quote in
+ * it.
  *
  * @param text - The string.
  * @returns The quoted literal.
  */
 export function zshQuote(text: string): string {
-  return `'${text.replaceAll("'", "'\\''")}'`;
+  return shQuote(text);
 }
 
 /**
@@ -86,16 +95,6 @@ export function zshQuote(text: string): string {
 export function zshPair(name: string, desc?: string): string {
   const value = name.replaceAll('\\', '\\\\').replaceAll(':', '\\:');
   return zshQuote(desc === undefined ? value : `${value}:${desc}`);
-}
-
-/** The prefix every generated name carries. See `bashPrefix()`. */
-export function zshPrefix(program: string): string {
-  return `__${program.replaceAll(/[^A-Za-z0-9_]/gu, '_')}`;
-}
-
-/** The name of the completion function, which is what `compdef` names. */
-export function zshFunction(program: string): string {
-  return `_${program.replaceAll(/[^A-Za-z0-9_]/gu, '_')}`;
 }
 
 /** The `case` pattern for a command path, `''` for the root. */
@@ -213,8 +212,8 @@ function valueArms(spec: CompletionSpec, takes: string, cands: string): string {
  */
 export function zshScript(spec: CompletionSpec): string {
   const { program } = spec;
-  const pre = zshPrefix(program);
-  const fn = zshFunction(program);
+  const pre = generatedPrefix(program);
+  const fn = completionFunction(program);
   const q = zshQuote(program);
   const cands = `${pre}_cands`;
   const next = `${pre}_next`;

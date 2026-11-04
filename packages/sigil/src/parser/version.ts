@@ -25,6 +25,7 @@
 
 import { __ } from '../i18n/index.js';
 import { Internal, type InternalCommand, type InternalOption, type ParseState } from '../types.js';
+import { typedOn } from './typed-on.js';
 
 /**
  * The `--version` flag a schema gets for free, so a parse can tell whether it
@@ -96,13 +97,5 @@ export async function registerVersion(
  * @returns Whether the version was asked for.
  */
 export function detectVersion(state: ParseState, handles: VersionHandles): boolean {
-  const { option } = handles;
-
-  if (!option) {
-    return false;
-  }
-
-  return state.$.some(
-    (parsed) => parsed.type === 'Option' && parsed.option === option && parsed.value === true
-  );
+  return typedOn(state, handles.option);
 }

@@ -13,26 +13,22 @@
  * stack behind `@ttylabs/sigil/input`.
  */
 
+import { clips as clipsContent } from '../layout/flex.js';
 import type { Box } from '../layout/index.js';
-import type { Style } from '../style/index.js';
 import type { Element } from './index.js';
 
 /**
  * Whether a box clips what its descendants draw, and so may be scrolled.
  *
- * One expression, said here because three places ask it: the arrange pass, which
- * needs it to narrow the clip and to bound a subtree's extent, this module, and
- * the hit test by way of the clip the first one wrote. `flex.ts` keeps its own
- * copy and that is the boundary rather than drift -- the layout engine takes a
- * `LayoutNode` and may not import the element tree, which is the whole reason it
- * is testable with a literal.
- *
- * @param style - The resolved style.
- * @returns Whether it clips.
+ * Asked in three places: the arrange pass, which needs it to narrow the clip and
+ * to bound a subtree's extent, this module, and the hit test by way of the clip
+ * the first one wrote. It is the layout engine's `clips()` under the element
+ * tree's name rather than a copy of it. A copy was kept here on the reasoning
+ * that the layout engine takes a `LayoutNode` and may not import the element
+ * tree -- which is true, and is a rule about the other direction: the element
+ * tree already imports the engine, so asking it costs no boundary at all.
  */
-export function clipsContent(style: Style): boolean {
-  return style.overflow !== 'visible';
-}
+export { clips as clipsContent } from '../layout/flex.js';
 
 /** Keeps an offset inside `0..max`, which is what a scroll offset may be. */
 function clampOffset(value: number, max: number): number {
