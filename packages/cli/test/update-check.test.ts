@@ -745,3 +745,93 @@ describe('a packaged binary that asks in its schema', () => {
     180000
   );
 });
+
+// The worker had a `close` listener and no `error` one, and a runtime that
+// cannot be started is reported as an `error` on the child -- so an app whose
+// `process.execPath` was not there crashed with `Unhandled 'error' event ...
+// spawn ENOENT` **after** `main()` had resolved and the command had succeeded,
+// and a run that did its job exited 1 with a stack. Spawned rather than run
+// in process because what is asserted is the exit code and stderr of a real
+// process: in a vitest worker the same crash is an unhandled error charged to
+// the run rather than to the test that caused it. `-e` resolves
+// `@ttylabs/sigil` from the working directory, which is this package.
+describe('an update worker that cannot be spawned', () => {
+  const pkg = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+  /** Runs `body` in a node whose `process.execPath` names nothing, at a pretend terminal. */
+  function withNoRuntime(body: string): { cache: string; result: ReturnType<typeof spawnSync> } {
+    const dir = tempDir('sigil-upd-spawn-');
+    // not created: `check()` makes it just before it spawns, so it existing
+    // afterwards is what says the spawn was reached rather than skipped
+    const cache = join(dir, 'cache');
+    const script = [
+      `import { main } from '@ttylabs/sigil';`,
+      `import { check } from '@ttylabs/sigil/updates';`,
+      `Object.defineProperty(process, 'execPath', { value: process.env.NO_RUNTIME });`,
+      // `skipReason()` reads this, and a pty would say the same
+      `process.stderr.isTTY = true;`,
+      body,
+    ].join('\n');
+
+    // `CI` and `NO_UPDATE_NOTIFIER` are dropped because either one skips the
+    // check, and CI sets the first -- which would make this pass by never
+    // spawning anything
+    const { CI: _ci, NO_UPDATE_NOTIFIER: _quiet, ...env } = process.env;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: pkg,
+      encoding: 'utf-8',
+      env: { ...env, CACHE_DIR: cache, NO_RUNTIME: join(dir, 'no-such-runtime') },
+      timeout: 30000,
+    });
+    return { cache, result };
+  }
+
+  it('should not fail a command that succeeded', () => {
+    const { cache, result } = withNoRuntime(
+      [
+        `await main({`,
+        `  argv: [],`,
+        `  schema: {`,
+        `    help: false,`,
+        `    name: 'spawn-fails',`,
+        `    run: () => { process.stdout.write('ran\\n'); },`,
+        `    updateCheck: { cacheDir: process.env.CACHE_DIR, registryURL: 'https://127.0.0.1:1' },`,
+        `    version: '1.0.0',`,
+        `  },`,
+        `});`,
+      ].join('\n')
+    );
+
+    expect(readdirSync(cache)).toEqual([]);
+    expect(result.stdout).toBe('ran\n');
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+  });
+
+  it('should reject a check that waited, rather than crash', () => {
+    // `wait` is the caller asking for the answer, so a worker that never
+    // started is a rejection it can catch -- the same as a worker that timed
+    // out -- and not an exception nobody can
+    const { result } = withNoRuntime(
+      [
+        `try {`,
+        `  await check({`,
+        `    cacheDir: process.env.CACHE_DIR,`,
+        `    force: true,`,
+        `    packageName: 'spawn-fails',`,
+        `    packageVersion: '1.0.0',`,
+        `    registryURL: 'https://127.0.0.1:1',`,
+        `    wait: true,`,
+        `  });`,
+        `  process.stdout.write('resolved\\n');`,
+        `} catch (err) {`,
+        `  process.stdout.write('rejected: ' + err.message + '\\n');`,
+        `}`,
+      ].join('\n')
+    );
+
+    expect(result.stdout).toMatch(/^rejected: spawn .*no-such-runtime ENOENT\n$/);
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+  });
+});
