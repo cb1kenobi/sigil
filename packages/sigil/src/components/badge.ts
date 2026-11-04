@@ -1,7 +1,8 @@
-import { ansi as defaultAnsi, type ColorLevel, strip } from '../ansi/index.js';
+import { ansi as defaultAnsi, type ColorLevel } from '../ansi/index.js';
 import { type Element, renderToString, text as textNode } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
+import { labelLine } from './note.js';
 
 /** Which role a badge takes its colour from. */
 export type BadgeVariant = 'neutral' | 'success' | 'warning' | 'error' | 'info';
@@ -29,16 +30,6 @@ const ROLES: Record<Exclude<BadgeVariant, 'neutral'>, string> = {
 };
 
 /**
- * A label as the grid will draw it, on one line.
- *
- * @param value - The label.
- * @returns The label with its escape sequences and line breaks gone.
- */
-function oneLine(value: string): string {
-  return strip(value).replaceAll(/\s+/g, ' ').trim();
-}
-
-/**
  * Builds the element tree for a badge.
  *
  * A single `nowrap` text, and the padding is part of it. A `text` drops the
@@ -63,7 +54,7 @@ export function badgeView(
 ): { element: Element; width: number } {
   const variant = opts.variant ?? 'neutral';
   const level: ColorLevel = opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level;
-  const body = oneLine(label);
+  const body = labelLine(label);
   // an empty label is no badge, rather than a coloured gap two columns wide
   const [open, close] = body === '' ? ['', ''] : level === 0 ? ['[', ']'] : [' ', ' '];
   const content = `${open}${body}${close}`;

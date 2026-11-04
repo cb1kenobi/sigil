@@ -1,9 +1,9 @@
-import { ansi as defaultAnsi, strip } from '../ansi/index.js';
+import { ansi as defaultAnsi } from '../ansi/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
 import { terminalWidth, truncate } from '../wrap/index.js';
-import { unicodeSupported } from './note.js';
+import { labelLine, unicodeSupported } from './note.js';
 
 /** Where the label sits along the line. */
 export type RuleAlign = 'left' | 'center' | 'right';
@@ -70,16 +70,6 @@ export interface RuleView {
 }
 
 /**
- * A label as it will sit in the line: one line, no escape sequences.
- *
- * @param value - The label.
- * @returns The label with its escape sequences and line breaks gone.
- */
-function oneLine(value: string): string {
-  return strip(String(value)).replaceAll(/\s+/g, ' ').trim();
-}
-
-/**
  * The runs a rule is made of, left to right.
  *
  * @param width - The columns to span.
@@ -89,7 +79,7 @@ function oneLine(value: string): string {
 function runs(width: number, opts: RuleOptions): { label: boolean; text: string }[] {
   const char = LINES[opts.line ?? (unicodeSupported(opts.env, opts.platform) ? 'single' : 'ascii')];
   const align = opts.align ?? 'center';
-  const heading = opts.label === undefined ? '' : oneLine(opts.label);
+  const heading = opts.label === undefined ? '' : labelLine(opts.label);
 
   // a space either side of the words keeps the line from running into them, and
   // the line keeps a cell at the end it leans away from; where that cannot be had

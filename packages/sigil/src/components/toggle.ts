@@ -34,7 +34,7 @@ import {
   promptAnswerSlot,
   promptHeadLine,
   promptHeadWidths,
-  PromptError,
+  refusePrompt,
   type PromptOptions,
   promptLineQuestion,
   runLinePrompt,
@@ -54,11 +54,6 @@ export interface ToggleOptions extends PromptOptions, AccessibleOptions {
    * answer handed back rather than an option somebody wrote.
    */
   value?: boolean;
-}
-
-/** Names an option that cannot be used, the way `selectKey()` does. */
-function refuse(message: string, what: string): Promise<never> {
-  return Promise.reject(new PromptError(`"${message}" cannot be asked: ${what}`));
 }
 
 /**
@@ -90,12 +85,12 @@ export function toggle(opts: ToggleOptions): Promise<boolean> {
 
   const problem = fault('active', active) ?? fault('inactive', inactive);
   if (problem !== undefined) {
-    return refuse(opts.message, problem);
+    return refusePrompt(opts.message, problem);
   }
   // two states with one name are a choice the person cannot read, and the answer
   // would be a guess about which was meant
   if (active.trim() === inactive.trim()) {
-    return refuse(
+    return refusePrompt(
       opts.message,
       `\`active\` and \`inactive\` are both ${JSON.stringify(active.trim())}`
     );
@@ -104,7 +99,10 @@ export function toggle(opts: ToggleOptions): Promise<boolean> {
   // `value === state` is how the current one is found, so a truthy string would
   // leave neither marked and answer with the string
   if (opts.initial !== undefined && typeof opts.initial !== 'boolean') {
-    return refuse(opts.message, `\`initial\` is ${JSON.stringify(opts.initial)}, not a boolean`);
+    return refusePrompt(
+      opts.message,
+      `\`initial\` is ${JSON.stringify(opts.initial)}, not a boolean`
+    );
   }
 
   const terminal = opts.terminal ?? defaultTerminal;

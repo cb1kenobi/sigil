@@ -27,7 +27,7 @@ import {
   promptAnswerSlot,
   promptHeadLine,
   promptHeadWidths,
-  PromptError,
+  refusePrompt,
   type PromptOptions,
   promptNote,
   promptWindow,
@@ -135,11 +135,6 @@ export function joinList(items: readonly string[], separator: string | RegExp = 
   return items.join(glue);
 }
 
-/** Names an option that cannot be used, the way `number()` names a bad `step`. */
-function refuse(message: string, what: string): Promise<never> {
-  return Promise.reject(new PromptError(`"${message}" cannot be asked: ${what}`));
-}
-
 /** Whether two lists hold the same entries in the same order. */
 function sameList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((item, i) => item === b[i]);
@@ -157,7 +152,10 @@ export function list(opts: ListOptions): Promise<string[]> {
   const separator = opts.separator ?? ',';
 
   if (separator === '') {
-    return refuse(opts.message, '`separator` is an empty string, which splits between characters');
+    return refusePrompt(
+      opts.message,
+      '`separator` is an empty string, which splits between characters'
+    );
   }
 
   let value = '';
@@ -174,7 +172,7 @@ export function list(opts: ListOptions): Promise<string[]> {
     // would change, and the person would see a different list from the one given
     value = joinList(opts.initial, separator);
     if (!sameList(splitList(value, separator), opts.initial)) {
-      return refuse(
+      return refusePrompt(
         opts.message,
         '`initial` does not survive being joined and split on `separator`'
       );

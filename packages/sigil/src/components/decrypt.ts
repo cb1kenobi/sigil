@@ -44,7 +44,7 @@ import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { graphemes } from '../width/index.js';
 import { cutAt, type TruncateMode } from '../wrap/index.js';
-import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
+import { type Mounted, type MountOptions, mountLive, writeLine } from './mount.js';
 
 /** How long the jumble lasts before anything resolves, in milliseconds. */
 const JUMBLE = 2000;
@@ -1401,18 +1401,7 @@ export function createDecrypt(opts: DecryptOptions = {}): Decrypt {
     },
 
     write(line: string): void {
-      if (mounted) {
-        mounted.write(line);
-        return;
-      }
-      // nothing has claimed the screen, so there is nothing to write above --
-      // and this is the one place a built-in writes without going through a
-      // backend, so it is the one place that has to ask the fold itself, and
-      // *now* rather than frozen -- see the spinner's own copy of both halves
-      if (mountLevel({ ...opts, terminal }) === 'quiet') {
-        return;
-      }
-      terminal.write(line.endsWith('\n') ? line : `${line}\n`);
+      writeLine(mounted, { ...opts, terminal }, line);
     },
   };
 

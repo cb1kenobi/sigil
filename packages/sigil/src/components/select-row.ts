@@ -27,6 +27,7 @@
 import { box, type Element, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
+import { byCodeUnit } from '../util/by-code-unit.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
 import {
@@ -42,7 +43,7 @@ import {
   promptKeys,
   type PromptOptions,
   PromptError,
-  promptRowCap,
+  promptListRows,
   runPrompt,
   select,
 } from './prompt.js';
@@ -186,12 +187,10 @@ export function compareCells(a: unknown, b: unknown): number {
     return textual[0] ? 1 : -1;
   }
   if (typeof x === 'string' && typeof y === 'string') {
-    const lower = [x.toLowerCase(), y.toLowerCase()] as const;
-    if (lower[0] !== lower[1]) {
-      return lower[0] < lower[1] ? -1 : 1;
-    }
-    return x < y ? -1 : x > y ? 1 : 0;
+    return byCodeUnit(x.toLowerCase(), y.toLowerCase()) || byCodeUnit(x, y);
   }
+  // a number, a bigint, a date's time or a boolean, which `<` orders across
+  // kinds where `byCodeUnit()` takes strings alone
   return x < y ? -1 : x > y ? 1 : 0;
 }
 
@@ -426,8 +425,11 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
      */
     const room = (): { footer: boolean; rows: number } => {
       // the key footer's row is kept back with the question's and the heading's
-      const avail = Math.max(1, Math.max(1, terminal.height) - headRoom.lines - (head ? 1 : 0) - 1);
-      const fits = Math.max(1, Math.min(promptRowCap(opts.height, avail), avail));
+      const fits = promptListRows(
+        opts.height,
+        terminal.height,
+        headRoom.lines + (head ? 1 : 0) + 1
+      );
       const footer = data.length > fits && fits > 1;
       return { footer, rows: footer ? fits - 1 : fits };
     };

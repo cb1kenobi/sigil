@@ -286,8 +286,18 @@ function entryMap() {
  * './types.js'`), so a type a component imports from it is on `@ttylabs/sigil`
  * even though no tsdown entry names the file. The map above is built from the
  * entry list and cannot see that; this is the one place it is written down.
+ *
+ * `src/util/by-code-unit.ts` is the same shape for one function: `byCodeUnit()`
+ * is published from `@ttylabs/sigil/reference`, and the path and table prompts
+ * import the module itself rather than that entry, because the entry is the
+ * whole command surface and importing it put about 29 kB on the components
+ * graph for a three-token comparison. An ejected copy imports it from the
+ * subpath, where an app's own bundler shakes the rest.
  */
-const BARRELLED = new Map([['src/types.ts', 'index']]);
+const BARRELLED = new Map([
+  ['src/types.ts', 'index'],
+  ['src/util/by-code-unit.ts', 'reference'],
+]);
 
 /**
  * One import specifier, as the ejected copy should spell it.

@@ -22,6 +22,7 @@ import { box, type Element, text as textNode } from '../element/index.js';
 import { __, __n, confirmKeys } from '../i18n/index.js';
 import { baseDir } from '../paths.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
+import { byCodeUnit } from '../util/by-code-unit.js';
 import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
 import {
   type AccessibleOptions,
@@ -33,7 +34,7 @@ import {
   promptHeadLine,
   promptHeadWidths,
   type PromptOptions,
-  promptRowCap,
+  promptListRows,
   promptNote,
   promptWindow,
   promptLineQuestion,
@@ -118,6 +119,21 @@ export interface PathFilter {
  */
 function isWindows(flavour: PathFlavour): boolean {
   return flavour.sep === '\\';
+}
+
+/**
+ * A name as the file system compares it: lower case on Windows, where case does
+ * not tell two names apart, and as it is everywhere else.
+ *
+ * Exported for the file picker, which asks the same question of an entry it
+ * lands on and had its own `caseless()` saying what `isWindows()` says.
+ *
+ * @param text - The name, or part of one.
+ * @param flavour - Whose file system this is.
+ * @returns It, folded where the file system folds it.
+ */
+export function pathFoldCase(text: string, flavour: PathFlavour = nodePath): string {
+  return isWindows(flavour) ? text.toLowerCase() : text;
 }
 
 /**
@@ -222,9 +238,7 @@ export function candidatesOf(
   // a segment that starts with a dot is asking for them, and is the only way to
   // reach one without turning them all on
   const dotted = filter.hidden === true || segment.startsWith('.');
-  const caseless = isWindows(flavour);
-  const lower = (text: string): string => (caseless ? text.toLowerCase() : text);
-  const wanted = lower(segment);
+  const wanted = pathFoldCase(segment, flavour);
   const suffixes = (filter.extensions ?? []).map((ext) =>
     (ext.startsWith('.') ? ext : `.${ext}`).toLowerCase()
   );
@@ -233,7 +247,7 @@ export function candidatesOf(
     if (!dotted && entry.name.startsWith('.')) {
       return false;
     }
-    if (!lower(entry.name).startsWith(wanted)) {
+    if (!pathFoldCase(entry.name, flavour).startsWith(wanted)) {
       return false;
     }
     if (filter.directory) {
@@ -250,7 +264,7 @@ export function candidatesOf(
     if (a.dir !== b.dir) {
       return a.dir ? -1 : 1;
     }
-    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    return byCodeUnit(a.name, b.name);
   });
 }
 
@@ -270,11 +284,11 @@ export function commonPrefix(names: readonly string[], flavour: PathFlavour = no
     return '';
   }
 
-  const lower = (text: string): string => (isWindows(flavour) ? text.toLowerCase() : text);
+  const fold = (text: string): string => pathFoldCase(text, flavour);
   let end = first.length;
   for (const name of rest) {
     let i = 0;
-    while (i < end && i < name.length && lower(first[i] as string) === lower(name[i] as string)) {
+    while (i < end && i < name.length && fold(first[i] as string) === fold(name[i] as string)) {
       i++;
     }
     end = i;
@@ -651,12 +665,12 @@ export function path(opts: PathOptions): Promise<string> {
      * The rows the list has once the question and the complaint have taken theirs.
      *
      * The complaint's row is only reserved while there is one, so a list uses
-     * the room it has; `promptRowCap()` is the multiline field's own rule for a
-     * caller's `rows`, so a `NaN` or a fraction means what it means there.
+     * the room it has; `promptListRows()` reads a caller's `rows` by the
+     * multiline field's own rule, so a `NaN` or a fraction means what it means
+     * there.
      */
     const room = (): number => {
-      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines - (error ? 1 : 0));
-      return Math.max(1, Math.min(promptRowCap(opts.rows, avail), avail));
+      return promptListRows(opts.rows, terminal.height, head.lines + (error ? 1 : 0));
     };
 
     /** A row for each place the list may need, made when it first does. */

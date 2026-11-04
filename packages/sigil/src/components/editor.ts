@@ -41,6 +41,7 @@ import {
   promptAnswered,
   promptAnswerSlot,
   PromptError,
+  refusePrompt,
   promptHeadLine,
   promptHeadWidths,
   promptNote,
@@ -332,11 +333,6 @@ function answerOf(saved: string): string {
   return text.endsWith('\n') ? text.slice(0, -1) : text;
 }
 
-/** Names an option that cannot be used, the way `toggle()` does. */
-function refuse(message: string, what: string): Promise<never> {
-  return Promise.reject(new PromptError(`"${message}" cannot be asked: ${what}`));
-}
-
 /**
  * How many rows a line takes once wrapped to a width, through the wrapper the
  * text element draws with.
@@ -444,17 +440,20 @@ export async function editor(opts: EditorOptions): Promise<string> {
   // terminal up completely is the whole of what this prompt needs, and a borrowed
   // router is the one thing it cannot give up
   if ((opts as PromptOptions).router !== undefined) {
-    return refuse(opts.message, 'it opens an editor, which cannot share stdin with a router');
+    return refusePrompt(opts.message, 'it opens an editor, which cannot share stdin with a router');
   }
   if (opts.default !== undefined && typeof opts.default !== 'string') {
-    return refuse(opts.message, `\`default\` is ${JSON.stringify(opts.default)}, not a string`);
+    return refusePrompt(
+      opts.message,
+      `\`default\` is ${JSON.stringify(opts.default)}, not a string`
+    );
   }
   if (opts.editor !== undefined && (typeof opts.editor !== 'string' || opts.editor.trim() === '')) {
-    return refuse(opts.message, '`editor` is empty, and an empty command opens nothing');
+    return refusePrompt(opts.message, '`editor` is empty, and an empty command opens nothing');
   }
   const postfix = opts.postfix ?? '.txt';
   if (typeof postfix !== 'string' || /[/\\]|\p{Cc}/u.test(postfix)) {
-    return refuse(
+    return refusePrompt(
       opts.message,
       `\`postfix\` ${JSON.stringify(postfix)} would put the file outside its own directory`
     );

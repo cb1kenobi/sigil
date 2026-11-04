@@ -5347,6 +5347,27 @@ the imperative facade. Cutting a line to a width is
 `truncate()` in [`sigil/wrap`](#sigilwrap); padding one is a declared width and
 `text-align` on a `text` element.
 
+#### The pieces the built-ins share
+
+A component you eject with `sigil add` imports its siblings from
+`@ttylabs/sigil/components`, so what the built-ins share is published there
+rather than copied into each of them -- and is there for a component you write
+yourself:
+
+- `labelLine(value)` is a label as the grid draws it: escape sequences gone and
+  every run of whitespace one space. A note's title, a badge, a rule's label, a
+  tab and a chart's labels all read it.
+- `refusePrompt(message, what)` rejects with the `PromptError` a prompt gives
+  for an option it cannot use, naming the prompt by its question.
+- `writeLine(mounted, opts, line)` is a lazy component's `write()`: a line above
+  the frame where one is mounted, and through the terminal where nothing is --
+  except under `--quiet`, asked at the moment of the write.
+- `promptListRows(rows, height, reserved)` is how many rows a list prompt's list
+  has: the caller's `rows` read the way the multiline field reads it, bounded by
+  what the terminal has left once `reserved` rows are taken.
+- `pathFoldCase(text, flavour)` is a file name as the file system compares it,
+  lower case on Windows and as it is everywhere else.
+
 ### `sigil/canvas`
 
 A cell-addressable drawing surface, and the diff that puts it on screen.

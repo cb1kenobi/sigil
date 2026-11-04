@@ -139,6 +139,38 @@ export function mountLevel(opts: MountOptions = {}): OutputLevel {
 }
 
 /**
+ * A lazy component's `write()`: a line above the frame where one is mounted,
+ * and through the terminal where nothing has claimed the screen.
+ *
+ * With no mount there is nothing to write above, and this is the one place a
+ * built-in writes without going through a backend -- so it is the one place
+ * that has to ask the fold itself. It leaked `"leaked\n"` under quiet before it
+ * did: not only before a `start()`, but after every `succeed()`, which clears
+ * the mount. Asked *now* rather than frozen, which is the one place a component
+ * does not reuse a mount's answer -- and it has to be: a facade built at module
+ * scope exists before `main()` has read argv, so a level frozen at construction
+ * could never see `--quiet` at all. The mounted branch keeps what its mount
+ * resolved, which is what "resolves it once" means.
+ *
+ * The spinner, the typewriter and the decrypt effect each wrote this out, the
+ * second two pointing at the spinner's as the one with the reasons.
+ *
+ * @param mounted - The component's mount, if it has one right now.
+ * @param opts - The terminal, and whether this is progress at all.
+ * @param line - The line, with or without its newline.
+ */
+export function writeLine(mounted: Mounted | undefined, opts: MountOptions, line: string): void {
+  if (mounted) {
+    mounted.write(line);
+    return;
+  }
+  if (mountLevel(opts) === 'quiet') {
+    return;
+  }
+  (opts.terminal ?? defaultTerminal).write(line.endsWith('\n') ? line : `${line}\n`);
+}
+
+/**
  * Mounts a built-in component over an inline canvas.
  *
  * @param build - Builds the tree. Handed how much of what it draws reaches the

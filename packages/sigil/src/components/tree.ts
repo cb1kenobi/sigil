@@ -59,7 +59,7 @@ import {
   type PromptLineReply,
   type PromptOptions,
   promptNote,
-  promptRowCap,
+  promptListRows,
   promptSameValue,
   runLinePrompt,
   runPrompt,
@@ -866,8 +866,7 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
 
     // the footer's row is kept back with the question's and the error line's
     const room = (): number => {
-      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines - (error ? 1 : 0) - 1);
-      return Math.max(1, Math.min(promptRowCap(opts.rows, avail), avail));
+      return promptListRows(opts.rows, terminal.height, head.lines + (error ? 1 : 0) + 1);
     };
 
     /** A page, in rows: the window less one, so a row stays in view. */

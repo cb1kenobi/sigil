@@ -38,7 +38,7 @@ import {
   promptLineQuestion,
   type PromptOptions,
   PromptError,
-  promptRowCap,
+  promptListRows,
   promptSameValue,
   promptValue,
   runLinePrompt,
@@ -387,8 +387,7 @@ export function sort<T = string>(opts: SortOptions<T>): Promise<T[]> {
 
     // the footer's row is kept back with the question's
     const room = (): number => {
-      const avail = Math.max(1, Math.max(1, terminal.height) - head.lines - 1);
-      return Math.max(1, Math.min(promptRowCap(opts.rows, avail), avail));
+      return promptListRows(opts.rows, terminal.height, head.lines + 1);
     };
 
     function draw(): void {

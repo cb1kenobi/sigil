@@ -100,13 +100,25 @@ export function unicodeSupported(
 }
 
 /**
- * A string as the grid will draw it, on one line.
+ * A label as the grid will draw it, on one line: its escape sequences gone and
+ * every run of whitespace one space.
  *
- * @param value - The title.
- * @returns The title with its escape sequences and line breaks gone.
+ * A component's colour is a role on the component, so a sequence a caller put
+ * in a label has nowhere to go on a cell grid; and a label sits on one line of
+ * a border, a row or a bar, so a line break in one has nowhere to go either.
+ * One function for the note's title, a badge, a rule's label, a tab and a
+ * chart's labels, which each wrote it out -- and the chart's copy said its
+ * escape sequences were gone while leaving them in. `String()` first, because a
+ * label reaches here from an app's JavaScript as readily as from its types.
+ *
+ * Published from the barrel for the reason `unicodeSupported()` is: an ejected
+ * component imports its siblings from `@ttylabs/sigil/components`.
+ *
+ * @param value - The label.
+ * @returns The label as one line of plain text.
  */
-function oneLine(value: string): string {
-  return strip(value).replaceAll(/\s+/g, ' ').trim();
+export function labelLine(value: string): string {
+  return strip(String(value)).replaceAll(/\s+/g, ' ').trim();
 }
 
 /**
@@ -146,7 +158,7 @@ export function noteView(
 
   const children: Element[] = [textNode(strip(message), { class: 'sigil-note-body' })];
 
-  const heading = opts.title === undefined ? '' : oneLine(opts.title);
+  const heading = opts.title === undefined ? '' : labelLine(opts.title);
   let minWidth: number | undefined;
   // a title needs a rule cell and a corner on each side of its spaces, and one
   // column of its own; where there is not that much room the block goes without

@@ -32,7 +32,7 @@ import {
   fieldLayers,
   layoutField,
   listWindow,
-  PromptError,
+  refusePrompt,
   promptAnswered,
   promptAnswerSlot,
   promptHeadLine,
@@ -99,11 +99,6 @@ function format(n: number): string | undefined {
   return plain.includes('e') ? undefined : plain;
 }
 
-/** Names an option that cannot be used, the way `multiline()` names a bad `submit`. */
-function refuse(message: string, what: string): Promise<never> {
-  return Promise.reject(new PromptError(`"${message}" cannot be asked: ${what}`));
-}
-
 /**
  * Asks for a number.
  *
@@ -133,17 +128,17 @@ export function number(opts: NumberOptions): Promise<number> {
       continue;
     }
     if (!Number.isFinite(value)) {
-      return refuse(opts.message, `\`${name}\` is not a finite number`);
+      return refusePrompt(opts.message, `\`${name}\` is not a finite number`);
     }
     if (!float && !Number.isSafeInteger(value)) {
-      return refuse(opts.message, `\`${name}\` is not an integer, and \`float\` is not set`);
+      return refusePrompt(opts.message, `\`${name}\` is not an integer, and \`float\` is not set`);
     }
   }
   if (step <= 0) {
-    return refuse(opts.message, '`step` must be greater than zero');
+    return refusePrompt(opts.message, '`step` must be greater than zero');
   }
   if (min !== undefined && max !== undefined && min > max) {
-    return refuse(opts.message, '`min` is greater than `max`');
+    return refusePrompt(opts.message, '`min` is greater than `max`');
   }
 
   const signed = min === undefined || min < 0;
