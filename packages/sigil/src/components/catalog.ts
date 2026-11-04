@@ -20,7 +20,6 @@
 import { argSpelling } from '../parser/argument/spelling.js';
 import {
   Internal,
-  type InternalArgument,
   type InternalCommand,
   type InternalOption,
   type OptionDataType,
