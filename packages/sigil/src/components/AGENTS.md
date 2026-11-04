@@ -7764,6 +7764,32 @@ nothing already written is moved, erased or coloured.
   separator is listed when it has a letter or a digit in it and skipped when it
   does not: the default `separator()` is eight box-drawing characters, read aloud
   one name at a time.
+- **And no control character a prompt was handed, through the drawn form's own
+  `toDisplayText()`** (SIG-249). The line forms wrote their labels, hints,
+  descriptions, defaults, refusals and `Chosen:` lines raw, while the drawn form
+  never wrote one: a text element takes the control characters out before it
+  measures or paints. So `branch\u001b]0;pwned\u0007name` set the window title as
+  a line and drew `branch]0;pwnedname` as a list -- and `path()` and `filePicker()`
+  list what `readdir` returned, so a file name was enough. What was typed and
+  pasted was already filtered, by `typedText()` and `pastedLine()`; the prompt's
+  own strings were not. The fix is **one place in the engine rather than one per
+  site**: `runLine()` writes every string through `shown()`, which is
+  `toDisplayText()` with the breaks spelled `\r\n`, and writes raw only its own
+  bytes, the break that ends a line and Backspace's `\b \b`. The sites the ticket
+  named were six, and every line form outside `prompt.ts` -- the tree, the picker,
+  the search, the published `runLinePrompt()` an ejected prompt asks with -- writes
+  through the same engine, so a per-site fix was a list somebody would have had to
+  keep complete. Through the element's function rather than a second sanitizer, so
+  the two forms of one question cannot come to disagree about what is safe: what
+  a sequence introduced is left as the text it is, `]0;pwned`, in both, which says
+  something odd was in the label rather than hiding that it was. **The reply is
+  not cleaned**, only what is written of it: a Tab completes the ESC of a real
+  file name into the reply, and the answer is that file. Backspace measures what
+  was echoed, `stringWidth(toDisplayText(...))`, as the drawn field measures,
+  because a tab a multiline `value` keeps measures nothing and is echoed as a
+  space -- so it is rubbed out as one column. `test/components/prompt-accessible.test.ts`,
+  under `a line form writes no control character a prompt was handed`, reads
+  every byte; each of its five fails without the fix.
 - **What each prompt is as a line.** The six that existed when the ticket was
   written, and the six `prompt.ts` holds.
   - `text()`: the question, `(default: x)` when there is one -- the key `--help`
