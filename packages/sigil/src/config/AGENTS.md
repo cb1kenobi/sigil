@@ -581,6 +581,19 @@ without destroying it is SIG-154's.
   {3}.` -- a sentence per line would hand a translator three fragments and no way
   to reorder them, which is what the suggestion work already refuses.
 
+- **`set(path, undefined)` and `set(path, null)` do not throw it, and that is
+  the line between asking and not asking.** `set()` of either was routed to
+  `delete()` whole, so `config.set('x', argv.x)` with no `--x` -- the spelling the
+  README calls the ordinary way to reach this -- threw `Cannot delete` over the
+  ordinary stack of system defaults under a user file (SIG-250). The throw is for
+  a caller who **asked** to remove a value and can be told it is somewhere a
+  delete cannot reach; a `set()` of nothing asked for "this layer does not
+  configure `x`", which is already true where the layer holds nothing, so it is
+  a no-op there. Where the layer does hold something it is still removed, which
+  is the null rule above unchanged. A no-op rather than a write of nothing, so
+  the layer is not marked dirty and a `save()` has nothing to do. `delete()`
+  keeps its throw, and the test beside the new one asserts that it does.
+
 #### A dotted path setter is where prototype pollution lives
 
 - **`__proto__`, `constructor` and `prototype` are refused at both doors.** A

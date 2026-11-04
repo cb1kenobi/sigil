@@ -703,6 +703,34 @@ describe('deleting a value that lives in a read-only layer', () => {
     expect(config.delete('a')).to.equal(true);
     expect(config.get('a')).to.equal(1);
   });
+
+  it('should not throw from set(path, undefined) where only a read-only layer holds the path', async () => {
+    // `set()` of `null` or `undefined` was routed to `delete()` whole, so the
+    // spelling the README calls ordinary -- `config.set('x', argv.x)` with no
+    // `--x` -- threw `Cannot delete` over the ordinary stack of system defaults
+    // under a user file. The user layer already does not configure it, so there
+    // is nothing to do; an explicit `delete()` still throws, above
+    const system = file('system.json', '{"editor":{"theme":"light"}}');
+    const config = await createConfig({
+      layers: [
+        { name: 'system', readOnly: true, store: json(system) },
+        { name: 'user', store: object({}) },
+      ],
+    });
+
+    expect(() => config.set('editor.theme', undefined)).not.toThrow();
+    expect(() => config.set('editor.theme', null)).not.toThrow();
+    expect(config.get('editor.theme')).to.equal('light');
+    // a no-op rather than a write of nothing: the layer is not dirty, so a
+    // `save()` has nothing to do
+    expect(config.layers.find((it) => it.name === 'user')?.dirty).toBe(false);
+    expect(() => config.delete('editor.theme')).toThrow(/Cannot delete "editor\.theme"/);
+
+    // and where the user layer does hold it, the set still removes it
+    config.set('editor.theme', 'dark');
+    config.set('editor.theme', undefined);
+    expect(config.get('editor.theme')).to.equal('light');
+  });
 });
 
 describe('the array methods', () => {

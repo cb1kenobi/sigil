@@ -624,6 +624,10 @@ export class Config {
   /**
    * Writes a value into one layer.
    *
+   * `null` and `undefined` remove the path from that layer where it holds
+   * something, and do nothing where it does not -- so unlike `delete()`, this
+   * never throws over a value that lives in a read-only layer.
+   *
    * @param path - The dotted path.
    * @param value - The value.
    * @param name - The layer, or the topmost writable one.
@@ -641,9 +645,18 @@ export class Config {
     // `delete()` said another way rather than a value, and the alternative is a
     // `set()` whose result a re-read of the same file would not reproduce.
     // `undefined` is the one an app reaches by accident:
-    // `config.set('x', argv.x)` with no `--x` is the ordinary spelling
+    // `config.set('x', argv.x)` with no `--x` is the ordinary spelling.
+    //
+    // Only where this layer holds something, though, and otherwise nothing at
+    // all. `delete()` throws where the layer has nothing and a read-only one
+    // does, which is right for a caller who **asked** to remove a value -- and
+    // was a throw from the ordinary spelling above over the ordinary stack,
+    // system defaults under a user file. "This layer does not configure it" is
+    // already true there, so the set has nothing to do (SIG-250)
     if (value === null || value === undefined) {
-      this.delete(path, name);
+      if (readPath(layer.value, parts) !== undefined) {
+        this.delete(path, name);
+      }
       return;
     }
 
