@@ -272,6 +272,18 @@ and the pty runs are in
   and the alternative is a notice on every run for a scheme nobody declared a
   comparison for. An app whose versions are not semver writes its own `message`.
 
+- **The version is trimmed where it is read out of the answer, not where it is
+  compared.** `isNewer()` trims both sides, so a registry answering `"\r1.0.1"`
+  was newer than `1.0.0` -- and the notice printed what `versionFrom()` handed
+  back, which still held the carriage return, so the line read
+  `1.0.0 → \r1.0.1` and the terminal drew the rest of it over its own start.
+  Trimming in `versionFrom()` is one reader for every consumer: the notice, a
+  custom `message`, and an app calling `check()` itself all get the same string
+  `isNewer()` judged. An answer that is only whitespace carries no version, so
+  it is the stale-cache case above rather than an empty `latest`. Nothing past
+  whitespace can reach the notice, because `VERSION_RE` is anchored and a version
+  it cannot read is never newer.
+
 - **The default text says a newer version exists and not how to get it.** An npm
   package, a downloaded binary and a Homebrew formula are each updated
   differently, and a command that is right for one is a wrong instruction for the

@@ -162,12 +162,21 @@ export function versionFrom(body: unknown, checker: UpdateChecker): string | und
     value = (value as Record<string, unknown>)[key];
   }
 
-  if (typeof value !== 'string' || !value) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  // trimmed here, by the one reader of the answer, because `isNewer()` trims
+  // what it compares and the notice prints what this returns: a registry
+  // answering `"\r1.0.1"` was newer than `1.0.0` and printed as
+  // `1.0.0 → \r1.0.1`, a carriage return in the middle of the line
+  const version = value.trim();
+  if (!version) {
     return undefined;
   }
 
   const { prefix } = checker;
-  return prefix && value.startsWith(prefix) ? value.slice(prefix.length) : value;
+  return prefix && version.startsWith(prefix) ? version.slice(prefix.length) : version;
 }
 
 const VERSION_RE = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;

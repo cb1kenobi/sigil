@@ -199,6 +199,20 @@ describe('updates', () => {
       }
     });
 
+    // `isNewer()` trims what it compares and the notice printed what this
+    // returned, so a carriage return in the answer was newer than `1.0.0` and
+    // landed in the middle of the line the notice wrote
+    it('should not hand back the whitespace around a registry version', () => {
+      const npm = npmChecker({ packageName: 'a' });
+      expect(versionFrom({ latest: '\r1.0.1' }, npm)).to.equal('1.0.1');
+      expect(versionFrom({ latest: ' 1.0.1\n' }, npm)).to.equal('1.0.1');
+      expect(versionFrom({ latest: ' \t ' }, npm)).to.equal(undefined);
+      // and before the prefix, which a leading space would otherwise hide
+      expect(versionFrom({ tag_name: '\rv1.2.3' }, githubChecker({ repo: 'a/b' }))).to.equal(
+        '1.2.3'
+      );
+    });
+
     it('should let a custom checker name its own url and path', () => {
       const checker: UpdateChecker = {
         headers: { authorization: 'token' },
