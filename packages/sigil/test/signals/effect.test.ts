@@ -1095,6 +1095,53 @@ describe('setScheduler', () => {
     expect(events).toEqual(['cleanup', 'cleanup']);
   });
 
+  it('should not re-link an effect that disposed itself and then read a signal', () => {
+    // `dispose()` cut the edges of a computed that was still running, and the
+    // read after it went through `track()` against that computed and hooked
+    // the edge straight back up -- a sink on the signal that no watcher would
+    // ever drain, which is the leak `dispose()` exists to close
+    const own = createEffects();
+    own.setScheduler((fn) => fn());
+    const s = new State(0);
+    let runs = 0;
+    let stop: (() => void) | undefined;
+    stop = own.effect(() => {
+      runs++;
+      stop?.();
+      s.get();
+    });
+    expect(sinkCount(s)).toBe(1);
+
+    s.set(1);
+    expect(runs).toBe(2);
+    expect(sinkCount(s)).toBe(0);
+
+    s.set(2);
+    expect(runs).toBe(2);
+    expect(sinkCount(s)).toBe(0);
+  });
+
+  it('should not leave a child created after an effect disposed itself', () => {
+    // the same run, one step further: an effect the body creates once it has
+    // disposed itself is adopted by a run nobody will ever tear down
+    const own = createEffects();
+    own.setScheduler((fn) => fn());
+    const s = new State(0);
+    const t = new State(0);
+    let stop: (() => void) | undefined;
+    stop = own.effect(() => {
+      if (s.get() > 0) {
+        stop?.();
+        own.effect(() => {
+          t.get();
+        });
+      }
+    });
+
+    s.set(1);
+    expect(sinkCount(t)).toBe(0);
+  });
+
   it('should let flush be driven by hand', () => {
     const scheduler = manualScheduler();
     try {
