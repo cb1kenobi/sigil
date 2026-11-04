@@ -2681,6 +2681,31 @@ people's software and will move.
   `src/components/<name>.ts` with its imports rewritten and nothing else changed,
   so an entry that has quietly become a stale fork fails in
   `test/registry.test.ts` rather than shipping.
+- **A registry's `from` stays inside the registry and its `to` inside the
+  components directory, or the plan is refused (SIG-251).** `from` and `to` are
+  somebody else's data, joined with `join()`, which normalises -- so an entry with
+  `from: '../../../../etc/hosts'` and a `to` that climbed out planned a copy of
+  `/etc/hosts` to wherever the second one pointed, and `--yes` wrote it without
+  anybody reading the plan. Measured end to end before the fix: exit 0 and the
+  file copied. `confine()` in `planAdd()` refuses a path that is not a string, is
+  empty, is absolute, or resolves anywhere but strictly inside its directory, by
+  `isInside()` -- absolute is refused outright rather than joined, because on
+  POSIX `join(target, '/etc/hosts')` is a file under the target, which is a path
+  that means something other than what it says.
+
+  `to` is held to the **target** rather than to the app, and that is the reading
+  that works for both ways of naming one. It is what the manifest says `to` is
+  relative to; a registry knows nothing about an app's layout above that
+  directory; and `--dir ../outside` is the user naming a place outside the app on
+  purpose, where an "inside the app" rule would refuse every file it was asked
+  to write. So `--dir` is the user's and is left alone, and what the registry may
+  do is land inside whatever it was given. A subdirectory of the target is
+  inside, however deep.
+
+  Refused as the registry's bug, for the reason a missing `registryDep` is, and
+  refused for the whole plan rather than skipped per file: it is asked while
+  planning, so nothing has been written when it throws, and a registry that ships
+  one path like that is not one to take the other paths from.
 
 ### `sigil package`: a binary, and which runtime is inside it
 
@@ -2789,6 +2814,49 @@ about what a valid app is would be the worse half of the feature.
   below the `--build-sea` floor, because a row nobody can pick should not be
   there; naming such a version explicitly still explains itself in
   `parseSpec()`, which points at `bun@1.3` being node-compat 24.
+
+- **A version is a path, so it is exactly `<major>.<minor>.<patch>` wherever it
+  came from, and where it lands is checked as well (SIG-251).** The version
+  names the directory a downloaded runtime is renamed into and `chmod 0755`'d in,
+  `<cache>/<runtime>/<version>`, and `parseSpec()` checked it with
+  `/^\d+\.\d+\.\d+/` and no `$` -- so a version only had to _start_ like one.
+  `join()` normalises, and
+  `node@26.12.1/node-v26.12.1-darwin-arm64.tar.gz#/../../../../../../tmp/pwn` put
+  the install at `~/Library/tmp/pwn`, measured. Three things reach that path:
+  `--runtime`, `package.runtime` in `sigil.json` (through the same
+  `parseSpec()`), and a registry's release listing, which `latestNode()` and
+  `latestBun()` passed through unchecked. All three now go through one
+  `isVersion()`, a listing row that is not a version is not offered -- the line
+  falls through to its next row that is -- and a cached listing is held to the
+  same rule, because a file on disk is one more place a version comes from.
+
+  `cacheDir()` is the last gate, and it asks two questions rather than one: the
+  pattern, and whether the directory it names is inside the cache by
+  `isInside()`. They are two locks on one door and that is measured, not
+  asserted -- with the `$` sabotaged away, the tests on `cacheDir()` and on
+  `resolve()` still pass because containment holds, and they fail only when
+  both are removed. A pattern is a claim about what a string may say; containment
+  is the claim about where the write lands, and it is the one that survives
+  somebody loosening the pattern without knowing what it was for. The tests stub
+  `fetch` and mock `cache()`, and nothing is downloaded.
+
+  `isInside()` lives in `discover.ts` beside `isFile()`, and it is one definition
+  of a question that was written out twice before this needed it twice more:
+  `undo()` and `isAppsOwn()` in `bundle.ts` ask it now instead of spelling the
+  separator rule themselves. `assertCleanable()` asks the opposite question --
+  whether the output directory holds the app, not whether a path is under a
+  directory -- and is left as it is.
+
+  Prereleases were already refused by `latestBun()` and are now refused when
+  typed, too: `bun@1.3.14-canary.1` used to pass `parseSpec()` on the strength of
+  its first six characters. That is a narrowing, and the right one -- the cache
+  directory and the npm tarball name are both built from the string, and a
+  version grammar that is "starts with three numbers" was never a grammar.
+
+  The 404 message named `--runtime-version list`, a flag this command has never
+  had -- the entry above is the reason there is no such flag. It names
+  `--runtime <runtime>@<version>` now, and the picker, which is the real way to
+  see what exists.
 
 - **A missing runtime is resolved, never refused, and getting there took three
   goes.** The tool pre-flight asked `locate('bun')` before the bundle. First

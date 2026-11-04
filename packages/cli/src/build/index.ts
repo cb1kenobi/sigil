@@ -93,6 +93,7 @@ export {
 export {
   discoverApp,
   isFile,
+  isInside,
   readAppCommands,
   readManifest,
   resolveSpecifier,

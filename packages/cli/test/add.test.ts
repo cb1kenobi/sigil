@@ -11,7 +11,7 @@ import {
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -249,6 +249,75 @@ describe('planning an add', () => {
   });
 });
 
+describe('a registry entry whose paths leave where they belong', () => {
+  /** A registry with one entry, `pwn`, carrying the one file given. */
+  function hostile(file: { from: unknown; to: unknown }): Registry {
+    return {
+      dir: join(sigil, 'registry'),
+      manifest: {
+        entries: {
+          pwn: {
+            classes: [],
+            desc: 'pwn',
+            files: [file as { from: string; to: string }],
+            imports: [],
+            registryDeps: [],
+          },
+        },
+        name: 'hostile',
+        version: '0.0.0',
+      },
+      pkg: 'hostile',
+    };
+  }
+
+  /** Enough `..` to climb out of anything a test makes, then a name. */
+  const climb = (...name: string[]): string => join(...Array<string>(12).fill('..'), ...name);
+
+  it.each([
+    ['a from that climbs out of the registry', { from: climb('etc', 'hosts'), to: 'pwn.ts' }],
+    ['a to that climbs out of the target', { from: 'spinner.ts', to: climb('tmp', 'pwned.ts') }],
+    ['a to that climbs to a sibling of the target', { from: 'spinner.ts', to: join('..', 'x.ts') }],
+    ['an absolute from', { from: resolve(sigil, 'package.json'), to: 'pwn.ts' }],
+    ['an absolute to', { from: 'spinner.ts', to: resolve('pwned.ts') }],
+    ['a from that is the registry itself', { from: '.', to: 'pwn.ts' }],
+    ['a to that is not a string', { from: 'spinner.ts', to: 42 }],
+  ])('should refuse %s rather than plan the copy', (_, file) => {
+    // a registry is somebody else's package, and `join()` normalises: a `from`
+    // of `../../../../etc/hosts` planned a copy of `/etc/hosts`, and `--yes`
+    // wrote it to wherever the `to` pointed
+    expect(() => planAdd(hostile(file), ['pwn'], join(root, 'components'), root)).toThrow(
+      /hostile's "pwn" has a file whose (from|to) is .*bug in the registry/
+    );
+  });
+
+  it('should still take a to in a subdirectory of the target', () => {
+    // inside is inside, however deep -- the rule is about leaving, not nesting
+    const plan = planAdd(
+      hostile({ from: 'spinner.ts', to: join('prompts', 'pwn.ts') }),
+      ['pwn'],
+      join(root, 'components'),
+      root
+    );
+
+    expect(plan.files.map((file) => file.to)).toStrictEqual([
+      join(root, 'components', 'prompts', 'pwn.ts'),
+    ]);
+  });
+
+  it('should hold a --dir outside the app to the same rule, inside that directory', () => {
+    // `--dir ../outside` is the user naming the place, so it is taken -- and
+    // what the registry may do is land inside it, not climb out of it too
+    const outside = join(dirname(root), `${basename(root)}-outside`);
+    const plan = planAdd(hostile({ from: 'spinner.ts', to: 'pwn.ts' }), ['pwn'], outside, root);
+
+    expect(plan.files.map((file) => file.to)).toStrictEqual([join(outside, 'pwn.ts')]);
+    expect(() =>
+      planAdd(hostile({ from: 'spinner.ts', to: join('..', 'x.ts') }), ['pwn'], outside, root)
+    ).toThrow(/bug in the registry/);
+  });
+});
+
 describe('the command, end to end', () => {
   const cli = resolve(dirname(fileURLToPath(import.meta.url)), '../src/sigil.ts');
 
@@ -373,6 +442,39 @@ describe('the command, end to end', () => {
     const result = run('add', 'spinner', '@acme/x/y', '--yes');
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('One registry at a time');
+  });
+
+  it('should write nothing when a registry entry climbs out, even under --yes', () => {
+    // the end-to-end form of the defect: a registry the app installed, whose
+    // entry copied a file from outside the registry to a file outside the
+    // components directory, with nobody asked
+    writeFileSync(join(root, 'secret.txt'), 'not the registry');
+    const pkg = join(root, 'node_modules', 'evil');
+    mkdirSync(join(pkg, 'registry'), { recursive: true });
+    writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: 'evil', version: '1.0.0' }));
+    writeFileSync(
+      join(pkg, 'registry', 'registry.json'),
+      JSON.stringify({
+        entries: {
+          pwn: {
+            classes: [],
+            desc: 'pwn',
+            files: [{ from: join('..', '..', '..', 'secret.txt'), to: join('..', 'escaped.ts') }],
+            imports: [],
+            registryDeps: [],
+          },
+        },
+        name: 'evil',
+        version: '1.0.0',
+      })
+    );
+
+    const result = run('add', 'evil/pwn', '--yes');
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('bug in the registry');
+    expect(existsSync(join(root, 'escaped.ts'))).toBe(false);
+    expect(existsSync(join(root, 'components'))).toBe(false);
   });
 
   it('should copy something that then runs', () => {
