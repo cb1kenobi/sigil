@@ -168,6 +168,25 @@ describe('mutation marks', () => {
     expect(tree.marks.classes.size).toBe(0);
   });
 
+  it('should tell an element its focus changed when the state flips, and only then', () => {
+    // the hook and `:focus` are keyed on one state, so they cannot disagree --
+    // which is also why a write that changed nothing tells nobody anything
+    const field = box();
+    const heard: boolean[] = [];
+    field.onFocusChange = (element, focused) => {
+      expect(element).toBe(field);
+      expect(field.states.includes('focus')).toBe(focused);
+      heard.push(focused);
+    };
+
+    field.setState('focus');
+    field.setState('focus');
+    field.setState('hover');
+    field.setState('focus', false);
+    field.setState('focus', false);
+    expect(heard).toEqual([true, false]);
+  });
+
   it('should record nothing at all for a subtree not in a tree yet', () => {
     // a page being built before it is attached has nothing on screen to
     // invalidate, and marking every `append()` would hand the first frame a set

@@ -464,6 +464,33 @@ describe('focus', () => {
     input.stop();
   });
 
+  it('should tell both ends of a move, in the order the states change', () => {
+    // a control shows its focus from `onFocusChange` rather than by asking a
+    // router it was never handed, so the hook has to see every route to a move:
+    // the key here, and the router's own `focus()` an app or a click calls
+    const { feed, terminal } = harness();
+    const { first, root, second } = tree();
+    const input = createInput({ root, terminal });
+    const heard: string[] = [];
+    first.onFocusChange = (element, focused) => {
+      heard.push(`first ${focused} ${element === first}`);
+    };
+    second.onFocusChange = (element, focused) => {
+      heard.push(`second ${focused} ${element === second}`);
+    };
+
+    feed('\t');
+    feed('\t');
+    input.focus.focus(undefined);
+    expect(heard).toEqual([
+      'first true true',
+      'first false true',
+      'second true true',
+      'second false true',
+    ]);
+    input.stop();
+  });
+
   it('should follow the tree rather than a list it kept', () => {
     const { terminal } = harness();
     const { first, root, second } = tree();

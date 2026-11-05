@@ -67,6 +67,15 @@ export type RawPaint = (painter: RawPainter, box: Box, element: Element) => void
 export type ScrollHandler = (viewport: Element) => void;
 
 /**
+ * What an element does when it gains or loses the focus.
+ *
+ * One function rather than a list, for the reason `onKey` is one, and handed the
+ * element for the reason `ScrollHandler` is. `focused` says which way it went,
+ * so one handler answers for both rather than a pair that must be kept in step.
+ */
+export type FocusChangeHandler = (element: Element, focused: boolean) => void;
+
+/**
  * What an element does when the layout gave it a size it had not been told about.
  *
  * One function rather than a list, for the reason `onKey` is one, and handed the
@@ -657,6 +666,9 @@ export class Element implements LayoutNode {
       this.#states.delete(state);
     }
     this.#mark('classes');
+    if (state === 'focus') {
+      this.onFocusChange?.(this, on);
+    }
     return this;
   }
 
@@ -795,6 +807,29 @@ export class Element implements LayoutNode {
    * as keys, as it always was.
    */
   onPaste: PasteHandler | undefined;
+
+  /**
+   * What this element does when it gains or loses the focus.
+   *
+   * One function rather than a list, for the reason `onKey` is one, and called by
+   * `setState()` whenever the `focus` state flips -- which is the moment `:focus`
+   * starts or stops matching, so a control that draws its focus from here and a
+   * selector that matches it can never disagree. A Tab, a click and an app
+   * calling `focus()` all arrive through the router's one `focus()`, which is
+   * what sets the state, so all three reach this.
+   *
+   * It exists so that a control can show its focus with no router in hand. Every
+   * element component is built before anything knows which router will own it,
+   * and a `:focus` selector can only restyle: it cannot put a class on the one
+   * part that shows the focus without also matching the same part of every
+   * control nested inside, and it cannot write the content that is all colour
+   * level 0 has left. `AGENTS.md` in `src/components` has the reasons under
+   * "Focus on a control".
+   *
+   * It runs **synchronously**, after the state has changed, and a throw
+   * propagates to whatever moved the focus, as `onScroll`'s does.
+   */
+  onFocusChange: FocusChangeHandler | undefined;
 
   /**
    * What this element does when its scroll offset moved.
