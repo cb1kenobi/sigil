@@ -19,6 +19,29 @@ import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+/**
+ * sigil's cache, empty, so that nothing here depends on what this machine has
+ * fetched before -- which is the state every CI job starts in.
+ *
+ * Mocked rather than pointed at by `XDG_CACHE_HOME`, for the reason
+ * `runtimes-cache.test.ts` records: macOS ignores the variable for
+ * `~/Library/Caches`. Found when a sabotage pass did not fail: with the check
+ * that stops `askRuntime()` fetching taken out, the test asserting no fetch
+ * still passed, because a listing fetched earlier that day was in the
+ * developer's real cache (SIG-304). The directory is made inside the factory
+ * because the modules under test are imported statically, which is before
+ * anything at the top of this file has run.
+ */
+vi.mock('@ttylabs/sigil/paths', async (original) => {
+  const { tempDir } = await import('./temp.js');
+  const { join: joinPath } = await import('node:path');
+  const box = tempDir('sigil-pkg-cache-');
+  return {
+    ...(await original<typeof import('@ttylabs/sigil/paths')>()),
+    cache: (...paths: string[]) => joinPath(box, ...paths),
+  };
+});
+
 const fixtures = resolve(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
 /** Whether Bun is installed, which decides whether its half can be proved. */
@@ -105,18 +128,7 @@ describe('sigil package', () => {
       // the error *is* the feature: a runtime decides what the app runs on, so
       // inferring one from what happens to be installed would answer a question
       // about the app with a fact about the builder's laptop
-      //
-      // With no registry to reach, because the picker lists both runtimes'
-      // releases before `select()` finds there is nobody to ask, and the refusal
-      // is the same either way -- so this asked npm and nodejs.org on every run
-      // for a list it then threw away (SIG-303)
-      vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
-      let err: string;
-      try {
-        ({ err } = await sigil('package', join(fixtures, 'buildable'), '--out', out));
-      } finally {
-        vi.unstubAllGlobals();
-      }
+      const { err } = await sigil('package', join(fixtures, 'buildable'), '--out', out);
 
       expect(err).toContain('--runtime is required');
       expect(err).toContain('--runtime bun');
@@ -124,6 +136,26 @@ describe('sigil package', () => {
       // and where to say it once, which is the thing a reader wants next
       expect(err).toContain('sigil.json');
       expect(process.exitCode).toBeTruthy();
+    }, 60_000);
+
+    it('should refuse without fetching the releases it would have offered', async () => {
+      // The picker lists both runtimes' releases off npm and nodejs.org, and it
+      // used to fetch them before `select()` found there was nobody to ask -- so
+      // a CI job reached two registries, and waited on each timeout when
+      // offline, to print the refusal above (SIG-304). The suite's setup already
+      // fails any test that reaches the network; this says so where the reason
+      // is, and counts the attempts rather than leaving it to that guard.
+      const fetched = vi.fn(() => Promise.reject(new Error('offline')));
+      vi.stubGlobal('fetch', fetched);
+
+      try {
+        const { err } = await sigil('package', join(fixtures, 'buildable'), '--out', out);
+        expect(err).toContain('--runtime is required');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+
+      expect(fetched).not.toHaveBeenCalled();
     }, 60_000);
 
     it('should say when the runtime came from the file, and only then', async () => {

@@ -47,6 +47,7 @@ import { createFullscreenCanvas } from '../canvas/index.js';
 import { box, type Element, type ElementProps, text, toDisplayText } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import {
+  canReadKeys,
   createInput,
   type InputRouter,
   type InputStream,
@@ -1142,7 +1143,7 @@ export function page(content: string | readonly string[], opts: PageOptions = {}
   const terminal = opts.terminal ?? defaultTerminal;
   const stdin = opts.stdin ?? terminal.stdin;
 
-  if (!terminal.isTTY || !stdin?.isTTY) {
+  if (!canReadKeys({ stdin, terminal })) {
     const body = typeof content === 'string' ? content : content.join('\n');
     if (body !== '') {
       terminal.stdout.write(body.endsWith('\n') ? body : `${body}\n`);

@@ -26,6 +26,7 @@
 
 import { box, text as textNode, toDisplayText } from '../element/index.js';
 import { __ } from '../i18n/index.js';
+import { canReadKeys } from '../input/index.js';
 import {
   CURSOR_HOME,
   cursorUp,
@@ -482,7 +483,7 @@ export async function editor(opts: EditorOptions): Promise<string> {
   // answer, the first `ask()` rejects with the sentence every prompt rejects with,
   // and that says more than "no editor" about why nothing happened
   let command: string | undefined;
-  if (terminal.isTTY && stdin?.isTTY) {
+  if (canReadKeys({ stdin, terminal })) {
     command = opts.editor?.trim() ?? (await resolveEditor());
     if (command === undefined) {
       throw new PromptError(

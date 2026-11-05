@@ -1,5 +1,5 @@
 import { arrange, box, type Element, resolveStyles, text } from '../../src/element/index.js';
-import { createInput, InputError, type KeyEvent } from '../../src/input/index.js';
+import { canReadKeys, createInput, InputError, type KeyEvent } from '../../src/input/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { describe, expect, it } from 'vitest';
 
@@ -116,6 +116,38 @@ describe('the router', () => {
     });
 
     expect(() => createInput({ terminal })).toThrow(InputError);
+  });
+
+  it('should agree with canReadKeys() about where it can exist', () => {
+    // one rule asked two ways, by `createInput()` and the prompts before they
+    // start and by a caller deciding whether to fetch what a prompt would offer
+    // (SIG-304) -- so the two answers are held to each other rather than each
+    // to a copy of the rule
+    const tty = harness().terminal;
+    const piped = createTerminal({
+      env: {},
+      isTTY: false,
+      proc: { on() {}, pid: 1, removeListener() {} } as never,
+      stdin: undefined,
+      stdout: { write: () => true } as never,
+    });
+    const cases = [
+      { can: true, opts: { terminal: tty } },
+      // the terminal draws, but nothing types into the input it was handed
+      { can: false, opts: { stdin: { isTTY: false } as never, terminal: tty } },
+      // and the other way round: keys arrive, but nothing would show the question
+      { can: false, opts: { stdin: harness().terminal.stdin as never, terminal: piped } },
+      { can: false, opts: { terminal: piped } },
+    ];
+
+    for (const { can, opts } of cases) {
+      expect(canReadKeys(opts), JSON.stringify(can)).toBe(can);
+      if (can) {
+        createInput(opts).stop();
+      } else {
+        expect(() => createInput(opts)).toThrow(InputError);
+      }
+    }
   });
 
   // the same rule `hideCursor()` follows: a router built inside a full-screen app
