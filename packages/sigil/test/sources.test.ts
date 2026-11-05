@@ -55,6 +55,7 @@ const ALLOWED = new Set([
   'website/src/fonts/jetbrains-mono-latin-400.woff2',
   'website/src/fonts/jetbrains-mono-latin-500.woff2',
   'website/src/fonts/jetbrains-mono-latin-700.woff2',
+  'website/src/fonts/jetbrains-mono-terminal-400.woff2',
   'website/src/fonts/martian-mono-latin-500.woff2',
 ]);
 

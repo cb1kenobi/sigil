@@ -1,0 +1,70 @@
+{
+  "guide": "packages/sigil/docs/getting-started.md",
+  "columns": 80,
+  "runs": [
+    {
+      "command": "my-cli hello",
+      "output": "hello world"
+    },
+    {
+      "command": "my-cli hello Ada",
+      "output": "hello Ada"
+    },
+    {
+      "command": "my-cli --help",
+      "output": "\u001b[1mUsage: \u001b[22mmy-cli [options] <command>\n\nWhat my-cli does\n\n\u001b[1mCommands:\u001b[0m\n  completion  Print a shell completion script\n  hello\n  help        Show help for a command\n\n\u001b[1mOptions:\u001b[0m\n  -v, --verbose  Say more\n  -h, --help     Show help for a command\n  -q, --quiet    Suppress progress, not results"
+    },
+    {
+      "command": "my-cli deploy api",
+      "output": "Deploying api to staging (retries: 3)"
+    },
+    {
+      "command": "my-cli deploy api -e production --dry-run",
+      "output": "Would deploy api to production (retries: 3)"
+    },
+    {
+      "command": "DEPLOY_RETRIES=5 my-cli deploy api",
+      "output": "Deploying api to staging (retries: 5)"
+    },
+    {
+      "command": "DEPLOY_RETRIES=5 my-cli deploy api --retries 1",
+      "output": "Deploying api to staging (retries: 1)"
+    },
+    {
+      "command": "my-cli deploy --help",
+      "output": "\u001b[1mUsage: \u001b[22mmy-cli deploy [options] <service>\n\nDeploy a service\n\n\u001b[1mArguments:\u001b[0m\n  <service>  What to deploy\n\n\u001b[1mOptions:\u001b[0m\n  -e, --env [name]  Where to deploy it \u001b[2m(choices: staging, production) (default:\u001b[0m\n                    \u001b[2mstaging)\u001b[0m\n  --retries [n]     How many times to retry \u001b[2m(default: 3)\u001b[0m\n  --dry-run         Say what would happen, and do nothing\n\n\u001b[1mGlobal options:\u001b[0m\n  -v, --verbose  Say more\n  -h, --help     Show help for a command\n  -q, --quiet    Suppress progress, not results"
+    },
+    {
+      "command": "my-cli deploy",
+      "output": "Error: Missing required arguments: <service>"
+    },
+    {
+      "command": "my-cli deploy api --env prod",
+      "output": "Error: Invalid value \"prod\" for option --env"
+    },
+    {
+      "command": "my-cli deploy api --retries lots",
+      "output": "Error: Invalid integer: lots"
+    },
+    {
+      "command": "my-cli deplyo api",
+      "output": "Error: Unexpected argument \"deplyo\". Did you mean \"deploy\"?"
+    },
+    {
+      "command": "my-cli db migrate --to 7",
+      "output": "Migrating to version 7"
+    },
+    {
+      "command": "my-cli db migrate",
+      "output": "Error: Missing required options: --to"
+    },
+    {
+      "command": "my-cli db migrate --to 0",
+      "output": "Error: There is no version 0"
+    },
+    {
+      "command": "my-cli db",
+      "output": "\u001b[1mUsage: \u001b[22mmy-cli db [options] <command>\n\nDatabase tasks\n\n\u001b[1mCommands:\u001b[0m\n  migrate\n\n\u001b[1mGlobal options:\u001b[0m\n  -v, --verbose  Say more\n  -h, --help     Show help for a command\n  -q, --quiet    Suppress progress, not results"
+    }
+  ]
+}

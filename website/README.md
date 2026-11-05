@@ -21,6 +21,28 @@ tree is one a reviewer can read in the diff, and a drift test is what keeps it
 honest -- where generating at build time would make this build depend on
 importing the toolchain's own app.
 
+## Code and terminal blocks
+
+A fenced block in any markdown the site renders goes through
+`src/components/markdown-blocks.tsx`: ` ```console ` and ` ```sh `
+become a `TerminalBlock`, anything else a `CodeBlock`, highlighted by Shiki at
+build time with a theme that names the `--color-syn-*` tokens rather than
+copying them. `> [!NOTE]` becomes a callout.
+
+A terminal's colour is the program's own where it can be. A ` ```console `
+run whose text matches a capture in `src/transcripts/` is drawn from the escape
+sequences that command really printed, parsed by `@ttylabs/sigil`; anything
+else is coloured by its leading glyph. The captures are the guides in
+`packages/sigil/docs/`, replayed with colour forced, and are committed.
+`test/transcripts.test.ts` fails when a guide has moved on; refresh them with:
+
+```sh
+node scripts/capture-transcripts.ts
+```
+
+That needs `@ttylabs/sigil` built, and so does this site's build, which now
+depends on it -- turbo builds it first.
+
 ## Analytics
 
 PostHog, started from `instrumentation-client.ts` and called through
