@@ -1313,6 +1313,44 @@ resolution.
   `test/parser/regressions.test.ts`; every collision there is between two
   aliases.
 
+### Two options in one command may not share a spelling
+
+- **A short or long spelling another option in the same registry holds is
+  refused, and the option's own name is not.** `'-a, --alpha'` beside
+  `'-a, --beta'` used to be accepted, and the later declaration took `-a`
+  silently: argv `-a` was `{ beta: true, alpha: false }` while help printed `-a`
+  on both rows. `OptionRegistry.add()` now throws `Options "-a, --alpha" and
+  "-a, --beta" both declare -a: an option's spelling must be its own`, and the
+  same goes for a shared long alias (`'--alpha, --x'` beside `'--beta, --x'`)
+  and for a spelling given through the `alias` property. This is not the loose
+  format string being tightened. The root entry is about one option's _extra_
+  names becoming aliases, and two options claiming one spelling is a different
+  thing.
+- **A second registration under the same key is a replacement, and it is not
+  refused.** `'--alpha'` beside `'--alpha [v]'`, or two declarations naming one
+  destination, still leaves the later one in the registry with every spelling
+  the earlier held. A hook that swaps a declaration out works this way, and the
+  `choices` rules under `validates()` are written for it. The SIG-253 ticket said
+  a duplicate long name was "already refused". It never was: it replaces, as it
+  always has, and that is the hook mechanism rather than a collision.
+- **Why options differ from commands' kept later-wins between aliases.**
+  `CommandRegistry` lets two commands share an alias (SIG-234) because the loser
+  is still reached by its name, and because a property alias is not printed in
+  help. An option prints every spelling in its help row, so a shared one is
+  always a visible false statement, and the declaration that loses it gets
+  nothing from keeping it. What is still allowed: a twin pair with spellings of
+  their own (`-c, --cheese <type>` and `-C, --no-cheese`), and the negated
+  flag's fallback claim on the positive long spelling, `--name`, which gives way
+  to its twin in either order. That exemption covers `--name` and nothing else. A
+  twin pair declaring the same short alias is refused whichever is declared
+  first, because the two share a destination and not their spellings. The first
+  version of the check exempted the twin on every spelling, so `-c, --no-cheese`
+  declared before `-c, --cheese <type>` handed `-c` to the later one without an
+  error, which is the silent takeover this entry exists to refuse. The built-in `-h`, `-v`
+  and `-q` already ask `find()` first and add nothing over a taken spelling, so
+  none of them can trip this. Pinned in `test/parser/options.test.ts` under
+  `aliases`.
+
 ### Sharing options between commands
 
 - **Nothing declares what a command inherits, because nothing has to.** Options

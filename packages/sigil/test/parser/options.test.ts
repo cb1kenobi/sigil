@@ -1416,6 +1416,72 @@ describe('options', () => {
   });
 
   describe('aliases', () => {
+    // a later registration won a shared spelling silently, so `-a` reached
+    // `--beta` and left `alpha` at its default while help printed `-a` on both
+    // rows -- `{ beta: true, alpha: false }`, with nothing to say one of the two
+    // declarations was not doing what it said
+    it('should refuse two options declaring the same short alias', async () => {
+      for (const options of [
+        { '-a, --alpha': {}, '-a, --beta': {} },
+        { '-a': {}, '-a, --beta': {} },
+        // the alias property is a spelling like any other
+        { '--alpha': { alias: '-a' }, '-a, --beta': {} },
+        // twins share a destination, not their spellings -- in either order,
+        // since the negated twin's fallback is a claim on `--cheese` alone
+        { '-c, --cheese <type>': {}, '-c, --no-cheese': {} },
+        { '-c, --no-cheese': {}, '-c, --cheese <type>': {} },
+        { '-c, --cheese': {}, '-c, --no-cheese': {} },
+        { '-c, --no-cheese': {}, '-c, --cheese': {} },
+      ]) {
+        await expect(
+          parse({ argv: ['-a'], schema: { options } }),
+          JSON.stringify(options)
+        ).rejects.toThrow(
+          /^Options ".+" and ".+" both declare -[ac]: an option's spelling must be its own$/
+        );
+      }
+    });
+
+    it('should refuse two options declaring the same long alias', async () => {
+      await expect(
+        parse({ schema: { options: { '--alpha, --x': {}, '--beta, --x': {} } } })
+      ).rejects.toThrow('Options "--alpha, --x" and "--beta, --x" both declare --x');
+    });
+
+    // what the refusal must not reach: a twin pair, the negated flag's fallback
+    // claim on the positive spelling, and a hook replacing a declaration under
+    // its own name -- which inherits every spelling the old one held
+    it('should still pair a negated twin and let a hook replace an option', async () => {
+      for (const options of [
+        { '-c, --cheese <type>': {}, '-C, --no-cheese': {} },
+        { '-C, --no-cheese': {}, '-c, --cheese <type>': {} },
+      ]) {
+        expect((await parse({ argv: ['-C'], schema: { options } })).argv).to.deep.equal({
+          cheese: false,
+        });
+        expect(
+          (await parse({ argv: ['--cheese', 'brie'], schema: { options } })).argv
+        ).to.deep.equal({
+          cheese: 'brie',
+        });
+      }
+
+      const result = await parse({
+        argv: ['-a', 'x'],
+        schema: {
+          help: false,
+          options: { '-a, --alpha': {} },
+          hooks: {
+            beforeParse: async (state) => {
+              const { options } = state.contexts[0][Internal];
+              await options.add(await initOption({ format: '-a, --alpha [v]' }));
+            },
+          },
+        },
+      });
+      expect(result.argv).to.deep.equal({ alpha: 'x' });
+    });
+
     it("should register a single alias '--bar'", async () => {
       const result = await parse({
         schema: {

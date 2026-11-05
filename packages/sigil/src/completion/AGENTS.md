@@ -1083,6 +1083,22 @@ dispatches between the printer and the installer.
   published for this caller, which is the second time the store kit has earned
   being public.
 
+- **Uninstall removes the file the install wrote, which through a symlink is the
+  link's target -- and then the link, once it leads nowhere.** The install writes
+  through a link on purpose, and the uninstall used to `unlinkSync()` the path as
+  named, so it took the dotfile manager's link away and left the script it had
+  written sitting in the repository the link pointed into: the completion went
+  quiet until the manager's next run linked the same stale file back in. The
+  startup file was already symmetric -- `removeRc()` rewrites through the link
+  with the same `writeAtomic()` -- so it was the script alone that disagreed.
+  What `ours()` judges is read through the link, so the file deleted is the one
+  that was checked. The link goes too, but only once it dangles: a link to a file
+  that is gone is debris rather than an arrangement, and zsh's `compinit` prints
+  `no such file or directory` for one in `fpath` when it next rebuilds its dump,
+  measured. A link that still resolves after the delete -- a chain whose last hop
+  something replaced -- is left alone. Pinned by `should remove what it wrote
+  through a symlink, not the link alone`.
+
 - **There are three markers now, and the two new ones are what let a block be
   taken back out.** `addedBy()` is `generatedBy()` with one word changed, and
   deliberately: the two answer the same question about two different files, so a

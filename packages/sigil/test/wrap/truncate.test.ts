@@ -69,6 +69,30 @@ describe('truncate()', () => {
     expect(truncate('abc', 0)).to.equal('');
     expect(truncate('abc', -1)).to.equal('');
   });
+
+  // the width was measured SGR-aware and the cut was not, so `[`, `3`, `1` and
+  // `m` were four columns of text: the cut landed inside the introducer and
+  // left an unterminated CSI, which eats whatever is written after it
+  it('should not cut through an escape sequence', () => {
+    const red = '\u001b[31mabcdef\u001b[0m';
+    expect(truncate(red, 3)).to.equal(`\u001b[31mab${ELLIPSIS}\u001b[0m`);
+    expect(truncate(red, 3, 'clip')).to.equal('\u001b[31mabc\u001b[0m');
+    expect(truncate(red, 3, 'ellipsis-start')).to.equal(`\u001b[31m${ELLIPSIS}ef\u001b[0m`);
+    expect(truncate(red, 4, 'ellipsis-middle')).to.equal(`\u001b[31mab${ELLIPSIS}f\u001b[0m`);
+  });
+
+  // a sequence takes no columns, so the ones in the dropped run are kept: the
+  // close is what stops a colour or a hyperlink running on past the cut. The
+  // marker sits where the first hidden cluster was, in that cluster's state
+  it('should keep the sequences in the run it dropped', () => {
+    const link = '\u001b]8;;https://example.com\u0007abcdef\u001b]8;;\u0007 tail';
+    expect(truncate(link, 4, 'clip')).to.equal(
+      '\u001b]8;;https://example.com\u0007abcd\u001b]8;;\u0007'
+    );
+    expect(truncate('ab\u001b[1mcd\u001b[22mef', 3, 'ellipsis-start')).to.equal(
+      `${ELLIPSIS}\u001b[1m\u001b[22mef`
+    );
+  });
 });
 
 /**

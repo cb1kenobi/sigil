@@ -89,6 +89,21 @@ the entry it belongs to.
   why it reads as a process that simply never exits. Measured, not reasoned; it
   is untested in the suite for the same reason the URL moved out of the worker,
   since reaching it means a real TLS server dropping a real connection.
+- **The body is bounded, at `MAX_BODY_BYTES`, and the bound is 16 MiB.** It was
+  appended to a string for as long as the registry kept sending, so an endless
+  answer grew it until the runtime ran out of memory -- in the spawned case, a
+  process nobody is watching, and in the in-process case the CLI itself. Past the
+  bound the fetch rejects and destroys the request, which is the same exit the
+  timeout takes. 16 MiB is deliberately far over anything a checker should be
+  pointed at: a dist-tags answer is a few hundred bytes, a GitHub release with
+  every asset listed is a few hundred kilobytes, and an abbreviated packument for
+  a package with thousands of versions still fits -- so a custom checker pointed
+  at something large but legitimate keeps working, and what is refused is a body
+  no version lookup needs. The bytes are kept as bytes and decoded once at the
+  end, because decoding each chunk turned a character split across two of them
+  into two replacement characters. Tested by faking `https.get()` in process
+  rather than serving TLS, since the bound is about bytes and a certificate is
+  not.
 - **Unreffing the child's stdin cannot cost the worker the script it is being
   fed.** An unflushed write is a libuv _request_, not a handle, and `unref()` only
   touches handles -- measured: a parent with every pipe unreffed still stays alive
@@ -303,6 +318,18 @@ and the pty runs are in
   not semver and is never called newer: a check that cannot tell says nothing,
   and the alternative is a notice on every run for a scheme nobody declared a
   comparison for. An app whose versions are not semver writes its own `message`.
+
+- **The version is trimmed where it is read out of the answer, not where it is
+  compared.** `isNewer()` trims both sides, so a registry answering `"\r1.0.1"`
+  was newer than `1.0.0` -- and the notice printed what `versionFrom()` handed
+  back, which still held the carriage return, so the line read
+  `1.0.0 → \r1.0.1` and the terminal drew the rest of it over its own start.
+  Trimming in `versionFrom()` is one reader for every consumer: the notice, a
+  custom `message`, and an app calling `check()` itself all get the same string
+  `isNewer()` judged. An answer that is only whitespace carries no version, so
+  it is the stale-cache case above rather than an empty `latest`. Nothing past
+  whitespace can reach the notice, because `VERSION_RE` is anchored and a version
+  it cannot read is never newer.
 
 - **The default text says a newer version exists and not how to get it.** An npm
   package, a downloaded binary and a Homebrew formula are each updated

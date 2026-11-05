@@ -77,7 +77,10 @@ export interface EditorOptions extends Omit<PromptOptions, 'router'> {
    * `.md`, `.json`, `.yaml`. Defaults to `.txt`.
    *
    * A suffix rather than a whole name, and one with no path separator in it,
-   * because the file lives in a directory made for it and must stay there.
+   * because the file lives in a directory made for it and must stay there. Nor
+   * a `"`, `%` or `!`, which `cmd.exe` reads inside the quotes the path is put
+   * in on Windows -- refused on every platform, so a postfix that works on one
+   * works on all of them.
    */
   postfix?: string;
   /**
@@ -456,6 +459,19 @@ export async function editor(opts: EditorOptions): Promise<string> {
     return refusePrompt(
       opts.message,
       `\`postfix\` ${JSON.stringify(postfix)} would put the file outside its own directory`
+    );
+  }
+  // on Windows the path is double-quoted into a `cmd.exe` line, and inside the
+  // quotes a `"` ends them, a `%` starts an expansion and a `!` starts one where
+  // delayed expansion is on -- so the postfix could close the quote and run what
+  // followed it, or name a different file than the one written. Refused on every
+  // platform rather than on Windows alone, which is the rule the `\\` above
+  // already follows: a postfix is the app's constant, and one that breaks on
+  // the platform its author is not on is the defect that rule is for
+  if (/["%!]/.test(postfix)) {
+    return refusePrompt(
+      opts.message,
+      `\`postfix\` ${JSON.stringify(postfix)} holds a character cmd.exe reads inside a quoted path`
     );
   }
 

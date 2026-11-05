@@ -232,24 +232,24 @@ describe('the command surface', () => {
       expect(opt(eat, '--no-cheese').long).toStrictEqual(['--no-cheese']);
     });
 
-    it('should not record a short spelling a sibling option took', async () => {
+    it('should not be handed a short spelling two options declare', async () => {
       // the *short* half of the same rule, and it needs its own input: a
       // negated flag's implied positive spelling is a **long** one, so the
-      // negated case never reaches `short`. `OptionRegistry.add()` writes
-      // `#chars[alias] = key` with no `??=`, so a later option declaring the
-      // same short name simply takes it -- and `-c` documented on both would be
-      // a reference saying a token reaches an option it does not
-      const it = await surface({
-        commands: {
-          go: {
-            options: { '-c, --cheese [t]': {}, '-c, --count': { type: 'bool' } },
-            run() {},
+      // negated case never reaches `short`. `OptionRegistry.add()` used to let a
+      // later option declaring the same short name simply take it, which is what
+      // `filter(reaches)` over `short` was written against -- and now refuses
+      // it, so there is no schema in which `-c` reaches one option while the
+      // other still lists it, and nothing for a reference to mis-record
+      await expect(
+        surface({
+          commands: {
+            go: {
+              options: { '-c, --cheese [t]': {}, '-c, --count': { type: 'bool' } },
+              run() {},
+            },
           },
-        },
-      });
-
-      expect(opt(at(it, 'go'), '--cheese').short).toStrictEqual([]);
-      expect(opt(at(it, 'go'), '--count').short).toStrictEqual(['-c']);
+        })
+      ).rejects.toThrow('both declare -c');
     });
 
     it('should keep a lone negated flag answering to both spellings', async () => {

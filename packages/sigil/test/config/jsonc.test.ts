@@ -107,17 +107,32 @@ describe('the scan', () => {
     ['\u2029', 'a paragraph separator'],
   ])('should refuse rather than truncate at %j (%s)', (nl) => {
     // the other two JavaScript line terminators end a comment too, and what
-    // follows is then a **syntax error** -- because neither is JSON whitespace,
-    // so a document holding one outside a string was never valid JSON. Which is
-    // the point: ending the comment there turns a silent truncation into a
-    // refusal, and the refusal is the better of the two answers available
-    expect(() => parseJsonc(`{ "a": 1 // c${nl} , "b": 2 }`, 'f')).toThrow(/Failed to parse f/);
+    // follows is then refused -- because neither is JSON whitespace, so a
+    // document holding one outside a string was never valid JSON. Which is the
+    // point: ending the comment there turns a silent truncation into a refusal,
+    // and the refusal is the better of the two answers available
+    expect(() => parseJsonc(`{ "a": 1 // c${nl} , "b": 2 }`, 'f')).toThrow(
+      /Unexpected U\+202[89] in f on line 1/
+    );
+  });
 
-    // and what the comment blanked is the comment, which is the half that
-    // matters: `"b"` is still in the scanned output rather than blanked away,
-    // where with `\n` alone it was gone and `JSON.parse` was perfectly happy
-    // with the remains
-    expect(scanJsonc(`{ "a": 1 // c${nl} , "b": 2 }`, 'f').json).to.contain('"b": 2');
+  // `JSON.parse` met the character as `Unexpected token`, pointing at something
+  // no editor draws just past a comment that looked as though it ran to the end
+  // of its line -- so the file was unreadable and the message said nothing
+  // about why. A refusal is the recorded answer; the misleading half is the
+  // defect, and what it is replaced with names the character and the line
+  it.each([
+    ['U+2028', '\u2028'],
+    ['U+2029', '\u2029'],
+  ])('should name %s in a line comment rather than calling it a bad token', (code, nl) => {
+    const source = `{\n  "a": 1, // see${nl}the docs\n  "b": 2\n}`;
+    expect(() => parseJsonc(source, 'config.jsonc')).toThrow(
+      `Unexpected ${code} in config.jsonc on line 2: JSON allows it only inside a string`
+    );
+    // and inside a string it is content, which is JSON's own rule
+    expect(parseJsonc(`{ "a": "x${nl}y" }`, 'f').value).to.deep.equal({ a: `x${nl}y` });
+    // and inside a block comment it is the comment's
+    expect(parseJsonc(`{ "a": 1 /* x${nl}y */ }`, 'f').value).to.deep.equal({ a: 1 });
   });
 
   it('should report that it found a trailing comma', () => {

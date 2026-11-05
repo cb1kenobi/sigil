@@ -576,6 +576,21 @@ describe('editor()', () => {
       expect((error as PromptError).message).toMatch(/outside its own directory/);
     });
 
+    // on Windows the file is double-quoted into a `cmd.exe` line, where a `"`
+    // closes the quote and a `%` or `!` expands -- so `" & calc & "` ran a
+    // program and `%TEMP%.md` named a file nobody wrote. Refused everywhere, so
+    // the platform the author is on cannot hide it
+    it.each(['" & calc & ".md', '%TEMP%.md', '!x!.md'])(
+      'should refuse a postfix cmd.exe would read inside the quotes, %j',
+      async (postfix) => {
+        const ui = screenSetup({ columns: 300, rows: 6 });
+        const { error } = await settle(open(ui, fake({}), { postfix }));
+        expect((error as PromptError).message).toMatch(
+          /holds a character cmd\.exe reads inside a quoted path/
+        );
+      }
+    );
+
     it('should refuse a default that is not a string', async () => {
       const ui = screenSetup({ columns: 300, rows: 6 });
       const { error } = await settle(open(ui, fake({}), { default: 42 as unknown as string }));

@@ -66,6 +66,18 @@ export interface UpdateCache {
   ts?: number;
 }
 
+/**
+ * The most a response body may be, in bytes, before the fetch gives up on it.
+ *
+ * An npm dist-tags answer is a few hundred bytes and a GitHub release a few
+ * hundred kilobytes with every asset listed, so this is generous for any
+ * document a checker should be pointed at -- an abbreviated packument for a
+ * package with thousands of versions still fits -- and it is a bound. Without
+ * one, a registry that answers with an endless body grew a string until the
+ * runtime ran out of memory, in a process nobody is watching.
+ */
+export const MAX_BODY_BYTES: number = 16 * 1024 * 1024;
+
 /** What `fetchJSON()` is given. */
 export interface FetchJSONOptions {
   /** Request headers. */
@@ -88,14 +100,20 @@ export interface FetchJSONOptions {
  *
  * @param opts - The request.
  * @returns The parsed body.
- * @throws If the request fails, times out, or the answer is not JSON.
+ * @throws If the request fails, times out, answers more than `MAX_BODY_BYTES`,
+ * or the answer is not JSON.
  */
 export function fetchJSON(opts: FetchJSONOptions): Promise<unknown> {
   const { headers = {}, timeout, unref, url } = opts;
 
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers }, (res) => {
-      let buf = '';
+      // kept as bytes and decoded once at the end, because a chunk boundary can
+      // fall inside a multi-byte character and decoding each chunk on its own
+      // would turn both halves into replacement characters
+      const chunks: Buffer[] = [];
+      let size = 0;
+      let over = false;
       // a connection that drops part way through a body is the other way a
       // fetch never ends, and the timeout below does not cover it: the socket
       // is gone, so the inactivity timer went with it, while `end` never comes
@@ -104,15 +122,31 @@ export function fetchJSON(opts: FetchJSONOptions): Promise<unknown> {
       // is not an uncaught exception, which is why it reads as the process
       // simply never exiting
       res.on('error', reject);
-      res.on('data', (chunk) => {
-        buf += chunk;
+      res.on('data', (chunk: Buffer) => {
+        if (over) {
+          return;
+        }
+        size += chunk.length;
+        if (size > MAX_BODY_BYTES) {
+          // rejected before the request is destroyed, so the reason is this
+          // rather than whatever the torn-down socket reports after it
+          over = true;
+          chunks.length = 0;
+          reject(new Error(`Update check response exceeded ${MAX_BODY_BYTES} bytes`));
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk);
       });
       res.on('end', () => {
+        if (over) {
+          return;
+        }
         try {
           if (res.statusCode && res.statusCode >= 400) {
             throw new Error(`Update check failed ${res.statusCode} ${res.statusMessage}`);
           }
-          resolve(JSON.parse(buf));
+          resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
         } catch (err) {
           reject(err);
         }

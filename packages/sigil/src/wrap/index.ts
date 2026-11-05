@@ -1,4 +1,4 @@
-import { graphemes, stringWidth } from '../width/index.js';
+import { stringWidth } from '../width/index.js';
 import { createSgrState, isSgr, type SgrState } from './sgr-state.js';
 import { type Token, tokenize } from './tokens.js';
 
@@ -424,10 +424,7 @@ export function truncate(text: string, width: number, mode: TruncateMode = 'elli
 
   const { head, marker, tail } = cutAt(width, mode);
 
-  // `takeEnd()` materializes the cluster list before it walks, so the two modes
-  // that keep no tail do not pay for one. `take(text, 0)` breaks on its first
-  // cluster, so the head needs no such guard
-  return take(text, head).text + marker + (tail > 0 ? takeEnd(text, tail) : '');
+  return cut(tokenize(text), head, marker, tail);
 }
 
 /**
@@ -500,52 +497,71 @@ export function cutAt(width: number, mode: TruncateMode = 'ellipsis'): Cut {
 }
 
 /**
- * The longest prefix of whole clusters that fits.
+ * Lays the kept head, the marker and the kept tail end to end, over tokens.
  *
- * @param text - The text.
- * @param width - The columns available.
- * @returns The prefix and how wide it came to.
+ * Over tokens rather than clusters because a cut through an escape sequence is
+ * not a cut through text: segmenting the raw string made `[`, `3`, `1` and `m`
+ * into one-column characters, so the walk that `stringWidth()` had just measured
+ * as SGR-aware cut SGR-unaware, and `truncate('\u001b[31mabcdef', 3, 'clip')`
+ * handed back `'\u001b[31'` -- an unterminated CSI, which eats whatever is
+ * written after it. A sequence occupies no columns, so every one of them is kept,
+ * the dropped run's included: the close at the end of a styled or linked run is
+ * what stops its state leaking past the cut, and dropping it is the leak `wrap()`
+ * records for a hyperlink. The marker goes where the first hidden cluster was,
+ * after the sequences in front of it, so it takes the state of the text it stands
+ * for -- the rule the decrypt component's `cutRow()` already follows.
+ *
+ * @param tokens - The text, tokenized.
+ * @param head - Columns kept from the start.
+ * @param marker - What marks the cut.
+ * @param tail - Columns kept from the end.
+ * @returns The cut text.
  */
-function take(text: string, width: number): { text: string; used: number } {
+function cut(tokens: Token[], head: number, marker: string, tail: number): string {
+  // where the clusters are, so both walks count clusters and step over the
+  // sequences between them
+  const clusters: number[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    if ((tokens[i] as Token).type === 'cluster') {
+      clusters.push(i);
+    }
+  }
+
+  // a cluster that would straddle either edge is dropped rather than half drawn
+  let headEnd = 0;
+  for (let used = 0; headEnd < clusters.length; headEnd++) {
+    const w = (tokens[clusters[headEnd] as number] as Token).width;
+    if (used + w > head) {
+      break;
+    }
+    used += w;
+  }
+
+  let tailStart = clusters.length;
+  for (let used = 0; tailStart > headEnd; tailStart--) {
+    const w = (tokens[clusters[tailStart - 1] as number] as Token).width;
+    if (used + w > tail) {
+      break;
+    }
+    used += w;
+  }
+
+  // the caller only cuts text wider than its budget, so at least one cluster is
+  // hidden and the marker has somewhere to go; the fallback is for a caller that
+  // did not check
+  const firstHidden = clusters[headEnd] ?? tokens.length;
+  const lastHidden = tailStart > headEnd ? (clusters[tailStart - 1] as number) : -1;
   let out = '';
-  let used = 0;
 
-  for (const cluster of graphemes(text)) {
-    const w = stringWidth(cluster);
-    if (used + w > width) {
-      break;
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i] as Token;
+    if (i === firstHidden) {
+      out += marker;
     }
-    out += cluster;
-    used += w;
+    if (token.type === 'sequence' || i < firstHidden || i > lastHidden) {
+      out += token.text;
+    }
   }
 
-  return { text: out, used };
-}
-
-/**
- * The longest suffix of whole clusters that fits.
- *
- * Built by walking forwards and dropping from the front, because `graphemes()`
- * reads a string in one direction and a cluster cannot be found by stepping
- * backwards through code units.
- *
- * @param text - The text.
- * @param width - The columns available.
- * @returns The suffix.
- */
-function takeEnd(text: string, width: number): string {
-  const clusters = [...graphemes(text)];
-  let used = 0;
-  let at = clusters.length;
-
-  while (at > 0) {
-    const w = stringWidth(clusters[at - 1]);
-    if (used + w > width) {
-      break;
-    }
-    used += w;
-    at--;
-  }
-
-  return clusters.slice(at).join('');
+  return firstHidden === tokens.length ? out + marker : out;
 }

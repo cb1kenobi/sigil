@@ -240,6 +240,18 @@ describe('beginUpdateCheck', () => {
     expect(text).toContain('2.0.0');
   });
 
+  it('should not print the whitespace around a registry version', async () => {
+    seed(dir, 'mycli', '\r2.0.0\n');
+    const text = await notice({
+      name: 'mycli',
+      updateCheck: { cacheDir: dir },
+      version: '1.0.0',
+    });
+
+    expect(text).toContain('1.0.0 → 2.0.0');
+    expect(text).not.toMatch(/\r/);
+  });
+
   it('should say nothing to somebody who is current or ahead', async () => {
     seed(dir, 'mycli', '1.0.0');
     expect(await notice({ name: 'mycli', updateCheck: { cacheDir: dir }, version: '1.0.0' })).toBe(

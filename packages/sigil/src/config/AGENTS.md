@@ -668,6 +668,25 @@ without destroying it is SIG-154's.
   in <path>, on line 2` is a sentence somebody can act on, where `Unexpected token
   /` is one they have to work out. Same for a trailing comma.
 
+- **A line comment ends at any of the four JavaScript line terminators, and a
+  U+2028 or U+2029 outside a string is then refused by name.** `LINE_END` is
+  `\n`, `\r`, U+2028 and U+2029, shared by the scanner and the writer so the two
+  agree about where a comment ended. JSON gives the last two no meaning outside a
+  string -- they are not its whitespace -- so a document holding one there was
+  never JSON, and `JSON.parse` met it as `Unexpected token` pointing at a
+  character no editor draws, just past a comment that looked as though it ran to
+  the end of its line. So the scan refuses it itself, with `Unexpected U+2028 in
+  <file> on line <n>: JSON allows it only inside a string`, which is the reason
+  this layer reports a comment in a `.json` rather than letting `JSON.parse` meet
+  it. The two alternatives are both refused. Reading it as whitespace is a dialect
+  wider than JSON's, which the entry below says no to. Letting the comment run on
+  to the next `\n` would follow JSON's rule that the character is ordinary text,
+  but `tsc` over a `tsconfig.json` and anything else built on a JavaScript scanner
+  ends the comment there, so the two readers would disagree in silence about
+  whether the text after it is data. Inside a string the character is content,
+  and inside a block comment it belongs to the comment, both as before. Pinned by
+  `should name U+2028 in a line comment rather than calling it a bad token`.
+
 - **A leading byte order mark is blanked rather than trimmed.** An editor writes
   one and `JSON.parse` refuses it, and it is not a character the document holds --
   blanked so that every offset after it still means what it meant.

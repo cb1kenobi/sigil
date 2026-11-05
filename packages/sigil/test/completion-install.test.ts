@@ -849,6 +849,26 @@ describe('installing, and re-running', () => {
     expect(readFileSync(real, 'utf8')).toBe(script);
   });
 
+  // install wrote through the link and uninstall unlinked the link, so the
+  // script it had written stayed in the dotfiles repository -- and the dotfile
+  // manager's next run linked it straight back in
+  it('should remove what it wrote through a symlink, not the link alone', async () => {
+    const real = join(box, 'dotfiles', '_mycli');
+    const target = pick('zsh');
+    const script = await completionScript(await state(), 'zsh');
+
+    mkdirSync(dirname(real), { recursive: true });
+    writeFileSync(real, `${script}# stale\n`);
+    mkdirSync(target.dir, { recursive: true });
+    symlinkSync(real, target.file);
+    expect(await install(target, script)).toBe(true);
+
+    expect(applyUninstall(planUninstall(target, 'mycli'))).toBe(true);
+    expect(existsSync(real)).toBe(false);
+    // and the link with it, since it now leads nowhere and compinit reports one
+    expect(() => lstatSync(target.file)).toThrow(/ENOENT/);
+  });
+
   it.skipIf(!MODES_BITE)('should keep the mode of a file somebody chmod-ed', async () => {
     const st = await state();
     const script = await completionScript(st, 'zsh');
