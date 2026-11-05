@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "brand": "node scripts/brand-assets.ts",
     "build": "next build",
     "check:contrast": "node scripts/check-contrast.ts",
     "dev": "next dev",

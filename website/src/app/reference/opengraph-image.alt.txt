@@ -1,0 +1,1 @@
+sigil CLI reference: every command, with its arguments and options.
