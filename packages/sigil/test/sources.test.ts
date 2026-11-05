@@ -48,6 +48,14 @@ const ALLOWED = new Set([
   'packages/sigil/test/components/prompt.test.ts',
   'packages/sigil/test/input/input.test.ts',
   'website/src/app/favicon.ico',
+  'website/src/fonts/barlow-semi-condensed-latin-500.woff2',
+  'website/src/fonts/barlow-semi-condensed-latin-600.woff2',
+  'website/src/fonts/barlow-semi-condensed-latin-700.woff2',
+  'website/src/fonts/instrument-sans-latin.woff2',
+  'website/src/fonts/jetbrains-mono-latin-400.woff2',
+  'website/src/fonts/jetbrains-mono-latin-500.woff2',
+  'website/src/fonts/jetbrains-mono-latin-700.woff2',
+  'website/src/fonts/martian-mono-latin-500.woff2',
 ]);
 
 /** Everything git is tracking, which is what a reviewer sees. */

@@ -41,4 +41,5 @@
 *.zip binary
 *.7z binary
 *.ttf binary
+*.woff2 binary
 *.pyc binary
