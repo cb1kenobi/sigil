@@ -5134,7 +5134,8 @@ field's only when it was given `onSubmit`**; without one it goes on to whatever 
 around it. Up, Down and Ctrl-C are left alone too. Validation and an error line
 are the form's or the caller's, not the field's. `.sigil-text-field`, `-before`,
 `-caret`, `-after` and `-placeholder` are the theme hooks: the host carries the
-background, and the caret is `inverse` under the field's `:focus`.
+background, and the caret of a focused field carries `.sigil-focus`, the role
+every control puts on the part that shows its focus.
 
 #### A toast
 
@@ -6048,6 +6049,23 @@ Each is a value for every one of the seven roles — `.sigil-accent`,
 `.sigil-muted`, `.sigil-heading`, `.sigil-success`, `.sigil-error`, `.sigil-warn`,
 `.sigil-info` — which is the whole of what the role layer is for: seven
 declarations restyle a surface wearing a dozen component classes.
+
+**`.sigil-focus` is the eighth role, and no shipped theme restates it.** It is on
+the part of a control that shows its focus — a collapsible's title, the active
+tab of a focused row, a focused text field's caret — and it is `inverse`, the
+terminal's own two colours swapped, which is the same under any palette. A theme
+or an app restyles every control's focus with one rule:
+
+```css
+.sigil-focus {
+  inverse: false;
+  text-decoration: underline;
+}
+```
+
+A component sets it from the element's `onFocusChange`, which is called whenever
+the `focus` state flips, so a control knows its own focus without being handed
+the router.
 
 **Each colour theme carries two palettes.** The basic sixteen first, then a richer
 set inside `@media (min-color-level: 2)`, written per scheme. So a 16-colour

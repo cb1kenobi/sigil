@@ -45,7 +45,8 @@ the entry it belongs to.
 - **Every declaration a built-in shares with another built-in is on a _role_, and
   the component classes are the narrower hooks beside it.** Seven roles --
   `.sigil-accent`, `.sigil-muted`, `.sigil-heading`, `.sigil-success`,
-  `.sigil-error`, `.sigil-warn`, `.sigil-info` -- and an element carries its
+  `.sigil-error`, `.sigil-warn`, `.sigil-info` -- and since SIG-278 an eighth,
+  `.sigil-focus`, which is below; and an element carries its
   component class and its role together, so `.sigil-muted { color: blue }` reaches
   a help note, a prompt hint, a placeholder, an answer, a choice hint and a
   decrypt's cipher cells, which were six rules to find before. A role beats a
@@ -99,12 +100,27 @@ the entry it belongs to.
   `strikethrough` longhand rather than `text-decoration: line-through`, because that
   shorthand resets `underline` as well and a struck link would lose its underline.
   Everything else markdown draws is on a role. `should
-  declare on a role, bar fourteen exceptions that say why` is the invariant, and it
+  declare on a role, bar eleven exceptions that say why` is the invariant, and it
   reads the **parsed** sheet rather than the source, because the comment listing
   the component classes as hooks would otherwise be mistaken for a rule. It was
   three until SIG-136, and the sentence here still said three for a commit after
   the test had been renamed -- which a review round pointed at by asking what
-  counts elsewhere in this file the change had made false.
+  counts elsewhere in this file the change had made false. It was fourteen until
+  SIG-278, the entry below.
+
+- **The sixth, eighth and ninth are retired into an eighth role, `.sigil-focus`
+  (SIG-278).** They were three `:focus` rules saying `inverse` -- the collapsible
+  title, the focused tab row's active label, the focused field's caret -- which is
+  one declaration three built-ins share, and so a role by this file's own rule. A
+  component puts the class on the part that shows its focus from the element's
+  `onFocusChange`, since a selector cannot find that part without also finding the
+  same part of every control nested inside a focused one. The rest of the
+  exceptions keep their ordinals, because the ordinals are the order they were
+  added and are how this file, the sheet and the history name them; eleven are
+  left. The shipped themes do not restate it -- a palette is a value for the seven
+  roles that colour a surface, and the focus is the terminal's own two colours
+  swapped under any of them. The reasoning, and what every Phase 9 widget does
+  under it, is "Focus on a control" in `src/components`.
 
   The fifth is `.sigil-badge` (SIG-178), and it is `inverse` again -- the same
   declaration as the caret, for a different reason: it is how a role becomes a

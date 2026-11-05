@@ -13,7 +13,13 @@ import { describe, expect, it } from 'vitest';
  * absence would make it worse than no theme at all.
  */
 
-/** The seven roles `FRAMEWORK_CSS` defines, which is what a theme is a value for. */
+/**
+ * The seven roles that colour a surface, which is what a theme is a value for.
+ *
+ * `FRAMEWORK_CSS` has an eighth, `.sigil-focus`, and it is deliberately not here:
+ * it is the terminal's own two colours swapped, the same under every palette, so
+ * a shipped theme leaves it to the framework sheet rather than restating it.
+ */
 const ROLES = ['accent', 'muted', 'heading', 'success', 'error', 'warn', 'info'] as const;
 
 /** Every exported theme, by the name it is exported under. */

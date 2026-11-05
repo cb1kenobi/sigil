@@ -7015,8 +7015,13 @@ not answer anything: it sits in a tree beside other things and stays there.
   The helper scopes the four keys to each title, which is exactly where they work,
   and returns one disposer. The descriptions go through `__`, as the framework's
   own strings do.
-- **The framework sheet has its first `:focus` rule.** `.sigil-collapsible-title:focus
-  { inverse: true }`. Without it a Tab onto a title looks like a Tab that did
+- **A focused title is inverted, and since SIG-278 by the focus role rather than a
+  `:focus` rule.** The title's `onFocusChange` puts `.sigil-focus` on it, and that
+  role is `inverse`; what follows is why the title shows its focus at all, and was
+  written when the sheet said it with `.sigil-collapsible-title:focus { inverse:
+  true }` -- "Focus on a control", at the end of this file, retired it. The
+  sentences about specificity and the sixth exception are that rule's history. The
+  framework sheet had its first `:focus` rule here. Without it a Tab onto a title looks like a Tab that did
   nothing -- a scroll box shows its focus by scrolling, a title has nothing else to
   show it by. It is `(0,2,0)` where every other rule there is `(0,1,0)`, which
   costs a theme nothing, because the cascade decides origin before specificity. At
@@ -8088,7 +8093,13 @@ nothing and stays in the tree.
   output say which tab is active. The labels carry `.sigil-accent` and
   `.sigil-heading` on the active one and `.sigil-muted` on the others: roles only,
   no colour in props.
-- **The eighth declared exception to the role rule, and it is needed.**
+- **Only the active label shows the row's focus, and since SIG-278 it is the focus
+  role that does it.** The row's `onFocusChange` puts `.sigil-focus` on the active
+  label, and `sync()` moves it when the active tab changes under a focused row.
+  The sentence below that there is "no `onFocus` to toggle a role class from" was
+  true when it was written and is the gap "Focus on a control", at the end of this
+  file, closed; the rule it describes is retired, and the reasoning about which
+  part inverts still holds. It was the eighth declared exception to the role rule:
   `.sigil-tabs-row:focus .sigil-tabs-active { inverse: true }`. The row is the
   focusable element and nothing else shows that a Tab landed on it; there is no
   `onFocus` to toggle a role class from, and no role is inversion, so the sheet is
@@ -8590,11 +8601,13 @@ field joins like anything else focusable.
   handlers -- the modal could stop it at the backdrop now, and does not yet; and a
   prompt over a **borrowed** router takes pastes through `onPaste()`, so a field
   focused in the app's tree under it would take the paste first.
-- **The caret is drawn by a `:focus` rule, so a form of several fields shows one.**
-  `.sigil-text-field:focus .sigil-text-field-caret { inverse: true }` is the
-  sheet's ninth declared exception, the tabs row's shape again. The field cannot
-  know its own focus without a router, which it does not have when it is built, so
-  the cascade is what answers. One consequence differs from the prompt: the
+- **The caret shows only while the field has the focus, so a form of several
+  fields shows one.** Since SIG-278 the field's `onFocusChange` puts `.sigil-focus`
+  on the caret; until then it was `.sigil-text-field:focus .sigil-text-field-caret
+  { inverse: true }`, the sheet's ninth declared exception, the tabs row's shape
+  again, written because the field could not know its own focus without a router.
+  It can now, from the element, which is the whole of "Focus on a control" at the
+  end of this file. One consequence differs from the prompt: the
   prompt leaves the caret's cell undimmed when it sits on a placeholder, and the
   field mutes it, because an unfocused field would otherwise show the hint's first
   letter at full strength as if it had been typed. Focused, that cell is a dimmed
@@ -9560,3 +9573,113 @@ so does this. Tests are under `a line path() asking before a long list` and in
 - **Not done.** A pager for a list that is asked for: readline pages it with
   `--More--` when `page-completions` is on, and a pager is a redraw. A setting for
   the threshold, for the reason above.
+
+### Focus on a control: the element is told, and one role shows it (SIG-278)
+
+`src/element/index.ts`, `src/theme/index.ts`. Every Phase 9 widget -- the form
+controls (SIG-199), the list (SIG-280), the table (SIG-281), the tree (SIG-282),
+the text area (SIG-283), the menus (SIG-285) and the slider (SIG-286) -- has to
+show which control the keys go to, and the repository had two answers that
+disagreed. The modal's buttons read `input.focus.current` in an effect and wrote
+`[ Yes ]` in the accent; the collapsible title, the tab row's active label and the
+text field's caret each had a `:focus` rule in the framework sheet, the sixth,
+eighth and ninth declared exceptions to the role rule, all three `inverse`. A
+widget built next would have picked one at random, and the sheet was gaining an
+exception per widget. This is the one answer, and every widget below follows it.
+
+- **`Element.onFocusChange` tells the focused element, so a control needs no router
+  to know.** `setState()` calls it whenever the `focus` state flips, which is the
+  moment `:focus` starts or stops matching, so a control drawing its focus from it
+  and a selector matching it cannot disagree. A Tab, a click and an app's
+  `focus()` all reach it, because all three go through the router's one `focus()`,
+  which is what sets the state -- the same three routes the modal's effect was
+  written to cover. The tabs entry above recorded the gap in so many words: "there
+  is no `onFocus` to toggle a role class from". It is one handler property beside
+  `onKey` and `onPaste`, with their one-function rule.
+- **A router at build time was the other answer, and it is refused.** Every
+  element component so far -- `TextField`, `Tabs`, `Collapsible`, `ScrollBox` -- is
+  built with no router, rendered by `renderToString()` and tested without one. A
+  router handed in through context from the app runner (SIG-276) would make each
+  control behave one way inside the runner and another outside it, or carry both
+  mechanisms -- two answers again, inside one component. So the runner owes this
+  nothing: it needs no context for focus, and a control works the same in a
+  runner, under `openModal()` with an element host, and in a test.
+- **`.sigil-focus` is the eighth role, and it is `inverse`.** The three `:focus`
+  rules were one declaration said three times, which is the role rule's own
+  definition of a role: a declaration two built-ins share belongs on one. A theme
+  now restyles every control's focus with `.sigil-focus { inverse: false;
+  text-decoration: underline }` where it had to find three compound selectors,
+  and `should restyle the focus of every control with one rule` asserts exactly
+  that. `inverse` because it was already the answer three times and it is an
+  attribute, right on a light terminal and a dark one alike. The sheet's
+  exceptions go from fourteen to eleven, and the rule "every rule here is
+  `(0,1,0)`" is true again, since the three retired rules were the only compound
+  ones. **Provisional**: a role is vocabulary a theme writes against, so adding one
+  is Chris's to confirm.
+- **The component puts the role on the part, because a selector cannot find it.**
+  The obvious generic rule, `:focus .sigil-focus-mark`, also matches the mark of
+  every control nested inside a focused one -- a checkbox in a list row while the
+  list has the focus, every field in a form inside a focused scroll box -- and CSS
+  has no way to say "the nearest focusable". A child combinator avoids the leak
+  only for marks one level down, which the tab row's active label (two levels)
+  already is not. Told rather than matched, the class is on the one part and
+  nowhere else.
+- **The shipped themes leave it alone.** A theme is a palette, and the focus is
+  the terminal's own two colours swapped, which is the same under every palette:
+  `themes.test.ts`'s seven roles are the ones a palette is a value for, and the
+  eighth comes from the framework sheet under all of them. One overlap is known
+  and left: `MONO` draws `.sigil-error` as `inverse`, so under `MONO` a focused
+  part and an error look alike.
+- **At colour level 0 a focus is content, in a blank the control already reserves,
+  drawn at every level.** Degradation drops `inverse` with every attribute, so a
+  role says nothing there. The precedents are the modal's `[ Yes ]` against
+  `  Yes  ` and the prompts' `❯` in a pointer column that is `visibility: hidden`
+  until its row is active: the marker takes the place of a blank, so the focus
+  moves nothing, and it is drawn at every level, so the control needs to know
+  nothing about the level -- the badge's level-0 brackets are decided from a level
+  handed to it, which a control in a tree is never handed. It comes from the same
+  `onFocusChange`. A control whose focus has no blank to stand in -- a tab label,
+  a collapsible title, a caret -- shows no focus at level 0, which is the cost
+  the three retired rules already recorded and is not widened here.
+- **What each widget does.** Provisional where marked, since each ticket may meet
+  something this one could not see:
+  - **Button** (SIG-199): brackets in its padding, `[ OK ]` against `  OK  `, and
+    `.sigil-focus` on the label. When the modal moves onto `Button` its focused
+    button changes from accent to the focus role -- a visible change, provisional.
+  - **Checkbox, switch**: `.sigil-focus` on the label, which is the part a reader
+    looks at; the value marker (`◉`/`◯`, the switch's states) says the value and
+    never the focus. At level 0, the pointer column.
+  - **Radio set** (one focusable group): `.sigil-focus` on the highlighted
+    option's label, and the pointer column on that option.
+  - **List, table, tree** (SIG-280 to SIG-282): the current row is content -- the
+    pointer `❯` -- whether or not the widget has the focus, so an unfocused pane
+    still shows its selection, and `.sigil-focus` goes across the current row
+    while it does. At level 0 a focused pane and an unfocused one look alike: a
+    recorded cost, since the pointer is already spent on the selection.
+  - **Text area** (SIG-283): `.sigil-focus` on the caret, as `TextField` does; no
+    caret at level 0.
+  - **Menus** (SIG-285): `.sigil-focus` and the pointer on the highlighted item;
+    a menubar's open title takes the role.
+  - **Slider** (SIG-286): `.sigil-focus` on the thumb; at level 0 the thumb's
+    glyph swaps for one of the same width. Provisional: the slider picks the
+    glyphs.
+- **`:focus` is still the app's.** Nothing changes for an app writing
+  `.panel:focus { border-color: cyan }`; the selector, the state and its
+  invalidation are as they were. The framework sheet simply has no `:focus` rule
+  of its own any more.
+- **Moved onto it here, and tested where they were.** The collapsible title, the
+  tab row and the text field each set the role from `onFocusChange`, and their
+  existing focus tests pass unchanged through the new path, which is what says
+  the look did not move. New: `should tell an element its focus changed when the
+  state flips, and only then`, `should tell both ends of a move, in the order the
+  states change`, `should move the focus to the new active label while the row
+  has the focus`, and the one-rule theme test.
+- **Sabotage: nine, nine caught.** The role rule deleted (six failures); the
+  dispatch removed from `setState()` (eight); dispatched for every state, and
+  dispatched before the state changed (one each, the element test); each of the
+  three components' handlers removed (two, one and three); the tab row's toggle
+  in `sync()` removed, and its focus flag never set (one and three).
+- **Not done:** the modal onto the role, which is SIG-199's when `Button`
+  replaces its inline buttons; level-0 markers for the three existing controls,
+  which have no blank to put one in; and `:focus-within`, which nothing has asked
+  for.
