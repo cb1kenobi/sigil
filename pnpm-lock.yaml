@@ -228,6 +228,12 @@ importers:
         specifier: 5.1.0
         version: 5.1.0(@types/node@26.6.6)(@vitest/coverage-v8@5.1.0)(vite@8.2.2(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))
 
+  examples/system-monitor:
+    dependencies:
+      '@ttylabs/sigil':
+        specifier: workspace:*
+        version: link:../../packages/sigil
+
   packages/cli:
     dependencies:
       '@ttylabs/sigil':
