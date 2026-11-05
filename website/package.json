@@ -2,9 +2,13 @@
   "name": "website",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "build": "next build",
+    "check:contrast": "node scripts/check-contrast.ts",
     "dev": "next dev",
+    "fonts": "node scripts/fetch-fonts.ts",
+    "fonts:check": "node scripts/fetch-fonts.ts --check",
     "ncu": "ncu -c 1d",
     "start": "next start"
   },

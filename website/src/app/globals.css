@@ -1,28 +1,260 @@
 @import 'tailwindcss';
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * The design system. The values are the ticket's (SIG-255) and the names are
+ * what every later website ticket writes: `--color-surface` is `bg-surface`,
+ * `--color-line` is `border-line`, `--text-lede` is `text-lede`.
+ *
+ * **The site is dark only.** There is no light theme, no `:root` switch on
+ * `prefers-color-scheme` and no toggle, so there is no `dark:` variant in use
+ * and nothing here is a pair. `color-scheme: dark` below is what tells the
+ * browser to draw scrollbars and form controls to match.
+ *
+ * `static` because a theme variable Tailwind finds no utility for is otherwise
+ * left out of the stylesheet, and the tokens are read by name from places a
+ * class scan does not see: an inline `style`, the SVG logo, the cell grid.
+ * `scripts/check-contrast.ts` reads this file, so a colour is declared once and
+ * checked where it is written.
+ */
+@theme static {
+  /* Surfaces */
+  --color-bg: #131218;
+  --color-band: #17161d;
+  --color-surface: #1b1a22;
+  --color-surface-2: #24232c;
+  --color-table-head: #201f28;
+  --color-chip: #18171e;
+  --color-footer: #0f0e13;
+  --color-terminal: #0c0b10;
+
+  /* Lines */
+  --color-line: #2a2833;
+  --color-line-panel: #2e2c37;
+  --color-line-term: #23212b;
+  --color-line-input: #34323d;
+  --color-line-tag: #3a3845;
+  --color-line-strong: #4a4756;
+
+  /* Text */
+  --color-fg-strong: #f4f2f8;
+  --color-fg: #edebf3;
+  --color-fg-code: #e4e2ea;
+  --color-fg-term: #d9d7e0;
+  --color-fg-body: #c6c3cf;
+  --color-muted: #a19eac;
+  --color-dim: #8a8795;
+
+  /* Brand */
+  --color-brand: #7656db;
+  --color-brand-fg: #ffffff;
+  --color-link: #b7a2ff;
+  --color-term-accent: #a68bff;
+
+  /* Terminal */
+  --color-term-green: #7fd69c;
+  --color-term-yellow: #e6c477;
+  --color-term-red: #f08a7a;
+  --color-term-blue: #8db4f0;
+  /* A selected item inside a terminal: dark on light, the terminal inverted. */
+  --color-term-select: #f4f2f8;
+  --color-term-select-fg: #0c0b10;
+
+  /* Syntax. `syn-comment` is also italic, which a colour cannot say. */
+  --color-syn-keyword: #c4a7ff;
+  --color-syn-string: #9fd9a8;
+  --color-syn-function: #8ec5ff;
+  --color-syn-number: #f2b07a;
+  --color-syn-comment: #8a8795;
+
+  /* Badges. PASS, FAIL and beta carry bold white text (`brand-fg`). */
+  --color-badge-pass: #2f7a4c;
+  --color-badge-fail: #b83a2a;
+  --color-badge-beta: #8a6a1f;
+  --color-badge-a11y-fg: #8fe0aa;
+  --color-badge-a11y: rgb(127 214 156 / 0.14);
+
+  /*
+   * Shape. **No pill shapes anywhere**, so there is no radius here above 12px
+   * and nothing for a pill to be built from; `rounded-full` is Tailwind's and
+   * is for a circle (a status dot), never for a control.
+   */
+  --radius-panel: 12px;
+  --radius-control: 8px;
+  --radius-segment: 6px;
+  --radius-btn-sm: 5px;
+  --radius-kbd: 4px;
+  --radius-tag: 3px;
+
+  /* Content width: `max-w-page` and `max-w-docs`. */
+  --container-page: 1280px;
+  --container-docs: 1440px;
+
+  /*
+   * The type scale, as size / line height. A name that is also a colour above
+   * would be ambiguous in `text-*`, so none of these is.
+   */
+  --text-display: 68px; /* home hero h1 */
+  --text-display--line-height: 1;
+  --text-headline: 48px; /* CLI hero h2 */
+  --text-headline--line-height: 1.05;
+  --text-section: 40px; /* home section h2 */
+  --text-section--line-height: 1.1;
+  --text-page-wide: 52px; /* components and about h1 */
+  --text-page-wide--line-height: 1.05;
+  --text-page: 46px; /* docs page h1 */
+  --text-page--line-height: 1.08;
+  --text-about-h2: 30px;
+  --text-about-h2--line-height: 1.2;
+  --text-docs-h2: 26px;
+  --text-docs-h2--line-height: 1.2;
+  --text-card: 22px; /* card h3 */
+  --text-card--line-height: 1.2;
+  --text-body-docs: 16px;
+  --text-body-docs--line-height: 1.7;
+  --text-small: 14px;
+  --text-small--line-height: 1.5;
+  --text-code: 13.5px; /* source code */
+  --text-code--line-height: 1.7;
+  --text-term-hero: 14px; /* a terminal in a hero */
+  --text-term-hero--line-height: 1.65;
+  --text-term: 13.5px; /* a terminal elsewhere */
+  --text-term--line-height: 1.65;
+  --text-term-card: 13px; /* a terminal in a card */
+  --text-term-card--line-height: 1.65;
 }
 
+/*
+ * The four families. `inline` because the value is another variable:
+ * `next/font/local` declares `--font-barlow` and the rest on `<html>`, and a
+ * theme variable of the same name as the one it reads would be a cycle.
+ * The fallbacks are what shows while a face loads and for the glyphs the latin
+ * subset does not carry (✔ ✖ ▲ ℹ › and the box-drawing set).
+ */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-wordmark: var(--font-martian), ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+  }
+
+  /*
+   * Headings are set once, here, and a component asks for a different size
+   * with a `text-*` utility from the scale above. Utilities sit in a later
+   * layer, so none of that needs `!important`.
+   */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  h1 {
+    font-size: var(--text-page);
+    line-height: var(--text-page--line-height);
+  }
+
+  h2 {
+    font-size: var(--text-docs-h2);
+    line-height: var(--text-docs-h2--line-height);
+  }
+
+  h3 {
+    font-size: var(--text-card);
+    line-height: var(--text-card--line-height);
+  }
+
+  /* A 2px `link` outline, offset by 2px, on every interactive element. */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-link);
+    outline-offset: 2px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/*
+ * Type that is more than a size. `eyebrow`, `sidebar-label` and `wordmark` are
+ * a face, a case and a tracking together, and each is said once here so that a
+ * page asking for one does not re-derive the numbers.
+ */
+@utility eyebrow {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@utility sidebar-label {
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@utility wordmark {
+  font-family: var(--font-wordmark);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  text-transform: lowercase;
+}
+
+/* Ledes: hero 19 / 1.55, section 17 / 1.6, docs 18 / 1.65. */
+@utility lede-hero {
+  color: var(--color-fg-body);
+  font-size: 19px;
+  line-height: 1.55;
+}
+
+@utility lede {
+  color: var(--color-fg-body);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+@utility lede-docs {
+  color: var(--color-fg-body);
+  font-size: 18px;
+  line-height: 1.65;
+}
+
+/*
+ * Layout. The side gutter is 32px and 16px on a phone, and the content is
+ * 1280px wide on the home and components pages and 1440px on a docs page.
+ */
+@utility gutter {
+  padding-inline: 16px;
+
+  @media (min-width: 40rem) {
+    padding-inline: 32px;
+  }
+}
+
+@utility layout-page {
+  margin-inline: auto;
+  max-width: var(--container-page);
+  width: 100%;
+  @apply gutter;
+}
+
+@utility layout-docs {
+  margin-inline: auto;
+  max-width: var(--container-docs);
+  width: 100%;
+  @apply gutter;
 }
 
 /*
@@ -31,18 +263,29 @@ body {
  * Written here rather than with `@tailwindcss/typography`, which is a fourth
  * dependency for a page whose whole content is headings, tables and code --
  * `react-markdown` emits plain elements, so a handful of element selectors is
- * the whole of it.
+ * the whole of it. The headings take the base layer's scale and are not set
+ * again.
  */
+.prose-sigil {
+  color: var(--color-fg-body);
+  font-size: var(--text-body-docs);
+  line-height: var(--text-body-docs--line-height);
+}
+
 .prose-sigil h1 {
-  font-size: 1.75rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  color: var(--color-fg-strong);
+}
+
+/* The title is the command's own name, in code, at the heading's size. */
+.prose-sigil h1 code {
+  background: none;
+  font-size: 1em;
+  padding: 0;
 }
 
 .prose-sigil h2 {
-  border-top: 1px solid color-mix(in oklab, var(--foreground) 12%, transparent);
-  font-size: 1.1rem;
-  font-weight: 600;
+  border-top: 1px solid var(--color-line);
+  color: var(--color-fg-strong);
   margin-top: 2.5rem;
   padding-top: 1.25rem;
 }
@@ -57,17 +300,25 @@ body {
   padding-left: 1.25rem;
 }
 
+.prose-sigil a {
+  color: var(--color-link);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .prose-sigil code {
-  background: color-mix(in oklab, var(--foreground) 7%, transparent);
-  border-radius: 0.25rem;
-  font-family: var(--font-mono), monospace;
+  background: var(--color-surface-2);
+  border-radius: var(--radius-kbd);
+  color: var(--color-fg-code);
+  font-family: var(--font-mono);
   font-size: 0.875em;
   padding: 0.1em 0.35em;
 }
 
 .prose-sigil pre {
-  background: color-mix(in oklab, var(--foreground) 5%, transparent);
-  border-radius: 0.5rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-panel);
+  border-radius: var(--radius-panel);
   margin-top: 1rem;
   overflow-x: auto;
   padding: 0.85rem 1rem;
@@ -75,6 +326,8 @@ body {
 
 .prose-sigil pre code {
   background: none;
+  font-size: var(--text-code);
+  line-height: var(--text-code--line-height);
   padding: 0;
 }
 
@@ -86,23 +339,34 @@ body {
  * `remark-gfm` is here. Found by review.
  */
 .prose-sigil .table-scroll {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-panel);
+  border-radius: var(--radius-panel);
   margin-top: 1rem;
   overflow-x: auto;
 }
 
 .prose-sigil table {
   border-collapse: collapse;
+  font-size: var(--text-small);
+  line-height: var(--text-small--line-height);
   width: 100%;
 }
 
 .prose-sigil th {
+  background: var(--color-table-head);
+  color: var(--color-fg-strong);
   font-weight: 600;
   text-align: left;
 }
 
 .prose-sigil td,
 .prose-sigil th {
-  border-bottom: 1px solid color-mix(in oklab, var(--foreground) 12%, transparent);
-  padding: 0.45rem 0.75rem 0.45rem 0;
+  border-bottom: 1px solid var(--color-line);
+  padding: 0.55rem 0.9rem;
   vertical-align: top;
+}
+
+.prose-sigil tr:last-child td {
+  border-bottom: 0;
 }
