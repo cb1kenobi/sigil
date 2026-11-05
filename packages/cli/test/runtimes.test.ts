@@ -1,14 +1,18 @@
 import { NODE_BUILD_SEA } from '../src/build/compile.ts';
 import {
   bunTriple,
+  cacheDir,
   canEmbed,
   choices,
   compare,
   installed,
+  isVersion,
   local,
   parseSpec,
 } from '../src/build/runtimes.ts';
+import { tempDir } from './temp.js';
 import { whichSync } from '@ttylabs/sigil/which';
+import { join, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -176,6 +180,61 @@ describe('a runtime spec', () => {
   it('should not apply that floor to bun, whose versions are unrelated', () => {
     // `canEmbed` is about Node's `--build-sea`; a bun 1.2.0 is not a node 1.2.0
     expect(() => parseSpec('bun@1.2.0')).not.toThrow();
+  });
+});
+
+/**
+ * A path written out with this platform's separator, the way somebody
+ * crafting one would write it. Never a literal `/`, which is a path on POSIX
+ * and only half of one on Windows.
+ */
+const climbing = (...parts: string[]): string => parts.join(sep);
+
+describe('a version that only starts like one', () => {
+  // the version names the directory a downloaded runtime is renamed into and
+  // made executable in, and the pattern had no `$` -- so a version only had to
+  // *begin* like one, and `join()` took the tail wherever it pointed
+  it.each([
+    `node@${climbing('26.12.1', '..', '..', '..', 'tmp', 'pwn')}`,
+    `node@${climbing('26.12.1', 'node-v26.12.1-darwin-arm64.tar.gz#', '..', '..', '..', '..', 'tmp', 'pwn')}`,
+    `bun@${climbing('1.3.14', '..', '..', '..', 'tmp', 'pwn')}`,
+    'node@26.12.1garbage',
+    'bun@1.3.14 ',
+    'bun@1.3.14-canary.1',
+  ])('should refuse %o, which used to be taken as a version', (text) => {
+    expect(() => parseSpec(text)).toThrow(/is not a version/);
+  });
+
+  it('should take a version only when it is exactly <major>.<minor>.<patch>', () => {
+    expect(isVersion('26.12.1')).toBe(true);
+    expect(isVersion('1.3.14')).toBe(true);
+    expect(isVersion('26.12.1.0')).toBe(false);
+    expect(isVersion(`26.12.1${sep}`)).toBe(false);
+    expect(isVersion(undefined)).toBe(false);
+    expect(isVersion(26)).toBe(false);
+  });
+});
+
+describe('where a downloaded runtime goes', () => {
+  const root = tempDir('sigil-runtime-dir-');
+
+  it('should go in a directory named after the version, inside the cache', () => {
+    expect(cacheDir(root, 'node', '26.12.1')).toBe(join(root, '26.12.1'));
+  });
+
+  it.each([
+    climbing('26.12.1', '..', '..', '..', 'tmp', 'pwn'),
+    climbing('..', '..', 'tmp', 'pwn'),
+    '..',
+    '',
+  ])('should refuse to put a runtime at %o, outside the cache', (version) => {
+    // the gate `download()` asks before anything is made on disk, and the one a
+    // listing's version reaches as well as a typed one. Either refusal will do:
+    // the pattern and the containment check are two locks on one door, and
+    // this asserts the door rather than which lock held it
+    expect(() => cacheDir(root, 'node', version)).toThrow(
+      /is not a node version|outside the runtime cache/
+    );
   });
 });
 

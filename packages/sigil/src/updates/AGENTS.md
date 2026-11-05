@@ -230,6 +230,38 @@ runtime, through a spelling only Node accepts. The measurements are in
   all. Only the third falls through to the npm default, and collapsing the
   first two would make `"type": "none"` mean "use npm" in an installed app.
 
+- **A runtime that cannot be started is an `error` on the child, and so is a
+  script it never read -- each on its own emitter.** The worker listened for
+  `close` and nothing else, and a spawn that fails -- `ENOENT` or `EACCES` on
+  `process.execPath` -- is not an exit code: it is an `error` on the
+  `ChildProcess`, and one with no listener is an uncaught exception. On the
+  default path that lands after `main()` has resolved, so a command that
+  succeeded printed its output, then a Node stack, and exited **1** -- measured,
+  with `execPath` pointed at a file that is not there (SIG-248). The listener
+  rejects the same promise `close` settles, which on the fire-and-forget path
+  is already caught and logged; `close` still follows, with a code of `-2`, and
+  finds the promise settled. With `wait` the caller gets a rejection it can
+  catch, the same as a timeout, and `beginUpdateCheck()` catches that too.
+
+  The audit the ticket asked for found a second one: the three pipes are
+  emitters of their own and none had a listener either. A runtime that exits
+  without reading stdin closes the read end, and a write still in flight fails
+  `EPIPE` on `worker.stdin` -- measured with `true` as the runtime and a
+  two-megabyte script. Each pipe now logs and does nothing more, because
+  `close` still comes and is what says how the worker ended. It cannot be
+  provoked with the real script today, which at about nine kilobytes is written
+  into the pipe buffer before the child has started; `test/updates-pipes.test.ts`
+  swaps in a script that does not fit, which is what the real one becomes the
+  day it grows. The in-process path was checked and has nothing missing:
+  `fetchJSON()` listens on the request and the response, a socket's errors
+  reach the request, and the cache writes are synchronous inside a promise
+  somebody catches.
+
+  The spawn failure is tested from `packages/cli/test/update-check.test.ts`
+  rather than from here, because what it costs is a real process's exit code
+  and stderr -- and a spawned node can only import this package from `dist/`,
+  since its sources import `.ts` files by `.js` specifiers.
+
 ### An update check that is switched on rather than called
 
 `Schema.updateCheck` and `src/updates/auto.ts`. `check()` is the mechanism and

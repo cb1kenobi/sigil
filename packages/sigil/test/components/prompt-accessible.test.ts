@@ -2797,3 +2797,160 @@ describe('a line autocompleteMultiselect()', () => {
     expect(ui.log).toContain('Choose at least one');
   });
 });
+
+describe('a line form writes no control character a prompt was handed', () => {
+  /**
+   * An OSC that sets the window title, a C1 CSI that clears the screen, and the
+   * seven-bit spelling of the same: what a label read off disk or out of a
+   * registry can carry, and what the drawn form's text elements take out.
+   */
+  const OSC = '\u001b]0;pwned\u0007';
+  const C1 = '\u009b2J';
+  const CSI = '\u001b[2J';
+
+  /**
+   * Every control character written, the engine's own aside: the line breaks it
+   * ends a line with and the Backspace it rubs out with. The paste markers are
+   * the router's, and are taken out first.
+   */
+  function controls(ui: ScreenHarness): string[] {
+    return [...written(ui)].filter((ch) => /\p{Cc}/u.test(ch) && !'\r\n\b'.includes(ch));
+  }
+
+  it('should write a choice label, hint, description and default without them', async () => {
+    const ui = lines();
+    const answer = select({
+      accessible: true,
+      choices: [
+        separator(`Warm${C1}`),
+        { hint: `hot${CSI}`, label: `branch${OSC}name`, value: 'r' },
+        { disabled: `sold${OSC}out`, label: 'Orange', value: 'o' },
+        { description: `Like${C1}the sea`, label: `Blue${CSI}`, short: `B${OSC}`, value: 'b' },
+      ],
+      message: `Colour${OSC}`,
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, '2', ENTER);
+
+    expect(await answer).toBe('b');
+    expect(controls(ui)).toEqual([]);
+    // what the drawn list draws for the same strings: the control characters
+    // gone and what they introduced left as text, which is what says something
+    // odd was in the label rather than hiding that it was
+    expect(ui.log).toEqual([
+      'Colour]0;pwned',
+      '  Warm2J',
+      '  1. branch]0;pwnedname (hot[2J)',
+      '  - Orange (sold]0;pwnedout)',
+      '  2. Blue[2J',
+      '    Like2Jthe sea',
+      'Choose a number from 1 to 2 (default: 1) 2',
+      'Chosen: B]0;pwned',
+    ]);
+  });
+
+  it('should write a text() default, value and refusal without them', async () => {
+    const ui = lines();
+    const answer = text({
+      accessible: true,
+      default: `main${OSC}`,
+      message: 'Branch',
+      terminal: ui.terminal,
+      validate: (v) => (v === `main${OSC}` ? undefined : `No${OSC} thanks`),
+      value: `dev${C1}`,
+    });
+
+    await type(ui.stdin, ENTER, CTRL_U, ENTER);
+
+    // the reply is what the prompt was handed: only what is written is cleaned
+    expect(await answer).toBe(`main${OSC}`);
+    expect(controls(ui)).toEqual([]);
+    expect(ui.log).toEqual([
+      'Branch (default: main]0;pwned) dev2J',
+      'No]0;pwned thanks',
+      'Branch (default: main]0;pwned)',
+    ]);
+  });
+
+  it('should rub out a tab it was handed the column it was echoed as', async () => {
+    const ui = lines();
+    // a multiline field keeps a tab, which `pastedBlock()` records, and draws it
+    // as a space -- so a space is what is echoed, and what a Backspace rubs out
+    const answer = multiline({
+      accessible: true,
+      message: 'Notes',
+      terminal: ui.terminal,
+      value: 'a\tb',
+    });
+
+    await type(ui.stdin, BACKSPACE, BACKSPACE, 'c', CTRL_D);
+
+    expect(await answer).toBe('ac');
+    expect(controls(ui)).toEqual([]);
+    expect(ui.log).toEqual(['Notes (ctrl-d to submit)', 'ac']);
+  });
+
+  describe.skipIf(process.platform === 'win32')('a file name holding a sequence', () => {
+    let root: string;
+
+    /** Wide enough that no temporary path wraps, wherever the platform puts one. */
+    const wide = (): ScreenHarness => screenSetup({ columns: 1000, rows: 40 });
+
+    beforeEach(async () => {
+      root = await mkdtemp(join(tmpdir(), 'sigil-accessible-inject-'));
+      await writeFile(join(root, `evil${OSC}a.txt`), '');
+      await writeFile(join(root, `evil${OSC}b.md`), '');
+      await writeFile(join(root, `other${C1}.md`), '');
+    });
+
+    afterEach(async () => {
+      await rm(root, { force: true, recursive: true });
+    });
+
+    it('should list and complete it in path() without writing it', async () => {
+      const ui = wide();
+      const answer = path({ accessible: true, message: 'File', root, terminal: ui.terminal });
+
+      await type(ui.stdin, 'e', TAB, TAB);
+      await settleOutput(ui);
+      await type(ui.stdin, 'a', TAB);
+      await settleOutput(ui);
+      await type(ui.stdin, ENTER);
+
+      // the Tab completes the ESC and the BEL into the reply, since they are in the
+      // name, and the answer is the file -- only what is written is cleaned
+      expect(await answer).toBe(join(root, `evil${OSC}a.txt`));
+      expect(controls(ui)).toEqual([]);
+      expect(ui.log).toEqual([
+        'File evil]0;pwned',
+        '  evil]0;pwneda.txt',
+        '  evil]0;pwnedb.md',
+        'File evil]0;pwneda.txt',
+      ]);
+    });
+
+    it('should list it in filePicker() without writing it', async () => {
+      const ui = wide();
+      const answer = filePicker({
+        accessible: true,
+        confine: true,
+        message: 'File?',
+        root,
+        terminal: ui.terminal,
+      });
+
+      await settleOutput(ui);
+      const listed = ui.log.find((line) => line.endsWith('. evil]0;pwneda.txt'));
+      await type(ui.stdin, listed?.trim().split('.')[0] ?? '', ENTER);
+
+      expect(await answer).toBe(join(root, `evil${OSC}a.txt`));
+      expect(controls(ui)).toEqual([]);
+      expect(ui.log.filter((line) => line.startsWith('  ')).sort()).toEqual([
+        expect.stringMatching(/^ {2}\d\. evil\]0;pwneda\.txt$/),
+        expect.stringMatching(/^ {2}\d\. evil\]0;pwnedb\.md$/),
+        expect.stringMatching(/^ {2}\d\. other2J\.md$/),
+      ]);
+    });
+  });
+});

@@ -286,6 +286,19 @@ async function checkInWorker(opts: RunOptions): Promise<UpdateCache | undefined>
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
+
+  // each pipe is an emitter of its own, and an `error` with no listener is an
+  // uncaught exception -- which on the default path arrives after `main()` has
+  // resolved and turns a command that succeeded into an exit of 1. stdin is
+  // the one measured doing it: a runtime that exits without reading its script
+  // closes the read end, and a write still in flight fails `EPIPE`. Nothing is
+  // decided here, because `close` still comes and says how the worker ended;
+  // this only stops a best-effort check from being able to take the process
+  // down
+  for (const stream of [worker.stdin, worker.stdout, worker.stderr]) {
+    stream.on('error', (err: Error) => log(`Update worker pipe failed: ${err.message}`));
+  }
+
   worker.stdin.write(workerSource() + WORKER_ENTRY);
   worker.stdin.end();
 
@@ -315,6 +328,18 @@ async function checkInWorker(opts: RunOptions): Promise<UpdateCache | undefined>
         timer.unref();
       }
     }
+
+    // a runtime that cannot be started -- `ENOENT` or `EACCES` on
+    // `process.execPath` -- is reported as an `error` on the child and not as
+    // an exit code, and with only `close` listened for it was an uncaught
+    // exception, after the command had already succeeded. `close` follows it
+    // with a negative code, so this settles first and that one is a no-op.
+    // The error is passed through as it is, because `error` is also how a
+    // `kill()` that failed is reported, and Node's message already says which
+    worker.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
 
     worker.on('close', (code) => {
       clearTimeout(timer);

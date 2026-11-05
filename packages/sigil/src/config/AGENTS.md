@@ -519,6 +519,35 @@ without destroying it is SIG-154's.
   stack is ordered and the top is what wins, so writing to a lower one means
   `get()` does not change -- a mutation that looks like it did nothing.
 
+- **A dotted path does not reach into a list, in this layer or in the merged
+  view, and `set('items.0', 9)` is refused rather than written as an element.**
+  The same-layer half was already refused -- `writePath()` used to replace the
+  list with `{ "0": 9 }` -- and the guard asked only the layer being written. So
+  with the list in a lower layer and nothing in the user's, which is the ordinary
+  arrangement, the write made `{ items: { "0": 9 } }` in the user layer and an
+  object replaced the list in the merge (SIG-250). `#assertWritable()` now walks
+  the merged view beside the layer and refuses where an ancestor is a list there
+  and the layer has nothing of its own, with a message naming the whole-list ways
+  to say it: `set('items', [...])` or the four array methods.
+
+  Writing the element was the other choice, and it is refused for the reason
+  `push` already gives: the user layer would have to be seeded with a copy of the
+  merged list to hold one changed element, after which a change to the defaults
+  never reaches the user again. And `readPath()` does not walk a list either, so
+  `get('items.0')` is `undefined` -- a setter that wrote what the getter cannot
+  read would be two answers about what a path addresses. Refused from a
+  read-only layer, a `default` or an environment variable alike, because what is
+  refused is what `get()` would come to answer.
+
+  **Only a list.** A lower layer's scalar is still shadowed by the object a
+  nested write makes: `server: "off"` underneath and `set('server.port', 1)` in
+  the user layer is an override, because a scalar has nothing inside it a path
+  could have meant -- where `items.0` reads as an element and destroys the list
+  it names. Refusing scalars too would have been one rule rather than two, and it
+  would also have been a behaviour change to working overrides that no defect
+  asked for. A layer holding its own **object** under a list that a higher layer
+  wins with is writing its own structure, and is left alone.
+
 - **A mutation validates the whole layer rather than the setting at its own
   path, and the narrower version was a hole in both directions.** A path can be
   _inside_ a declared setting or _outside_ one declared under it, and a pass that
@@ -580,6 +609,19 @@ without destroying it is SIG-154's.
   which is read-only.\n  Set it in {2} to override the value, or\n  remove it from
   {3}.` -- a sentence per line would hand a translator three fragments and no way
   to reorder them, which is what the suggestion work already refuses.
+
+- **`set(path, undefined)` and `set(path, null)` do not throw it, and that is
+  the line between asking and not asking.** `set()` of either was routed to
+  `delete()` whole, so `config.set('x', argv.x)` with no `--x` -- the spelling the
+  README calls the ordinary way to reach this -- threw `Cannot delete` over the
+  ordinary stack of system defaults under a user file (SIG-250). The throw is for
+  a caller who **asked** to remove a value and can be told it is somewhere a
+  delete cannot reach; a `set()` of nothing asked for "this layer does not
+  configure `x`", which is already true where the layer holds nothing, so it is
+  a no-op there. Where the layer does hold something it is still removed, which
+  is the null rule above unchanged. A no-op rather than a write of nothing, so
+  the layer is not marked dirty and a `save()` has nothing to do. `delete()`
+  keeps its throw, and the test beside the new one asserts that it does.
 
 #### A dotted path setter is where prototype pollution lives
 
@@ -1097,6 +1139,25 @@ hold, and `Config.save()` is the one caller of all four.
   cross-device failure on the platforms that refuse `EXDEV`. The cost is a stray
   `.tmp` beside the config when a process is killed between the write and the
   rename, which is litter rather than damage.
+
+- **The temp name is unpredictable and the open is exclusive, and it takes
+  both.** It was `<path>.<pid>-<seq>.tmp` with `seq` from 0, opened `'w'` -- so a
+  symlink planted at that name redirected the write to its target, and the
+  `rename()` then moved **the link** over the config, after which every later
+  save wrote through it as well. Reproduced, and found by review (SIG-250).
+  `'wx'` is `O_CREAT | O_EXCL`, which refuses a name that exists and does not
+  follow a symlink at it, dangling or not; 64 random bits from `randomBytes()`
+  are what make that refusal a coincidence rather than a save anybody can make
+  fail by guessing the next pid. Either alone leaves half of it open.
+
+  A name that turns out to be taken is **left alone** and another is drawn,
+  because whatever is there is not this process's -- which is why the open sits
+  outside the bracket that unlinks the temp file after a failure. Four draws in a
+  row taken is raised as the `EEXIST` it is, since that is a directory answering
+  `EEXIST` for everything rather than bad luck. The tests plant the file through
+  the wrapped `fs` at whatever name the open is handed, sync and async both:
+  planting at a guessed name would pass for any name at all the moment the
+  spelling changed, whether or not the open had become exclusive.
 
 - **Where it goes is pinned by a wrapped `fs` rather than by reading the
   directory afterwards.** The temp file exists only between the open and the

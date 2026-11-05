@@ -1629,7 +1629,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 
   /** Reads a chunk, holding a partial sequence or a partial paste. */
   let held = '';
-  let pasting: string | undefined;
+  /** The paste being held, as the reads it arrived in, joined once at the end. */
+  let pasting: string[] | undefined;
+  /** The last few characters of `pasting`, which is all an end marker can straddle. */
+  let pasteTail = '';
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   function flushPaste(text: string): void {
@@ -1691,25 +1694,48 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // what stops it: a Ctrl-C binding that calls `stop()` is the ordinary way
     while (!stopped && rest !== '') {
       if (pasting !== undefined) {
-        const end = rest.indexOf(PASTE_END);
+        // looked for across the join *and* in this chunk, because a marker
+        // splits like anything else: a read that ends `ESC [ 20` and one that
+        // starts `1 ~` is a paste that ends, and asking each chunk on its own
+        // made it a paste that never did -- every later key, Ctrl-C included,
+        // became content for the life of the process. Only the held tail is
+        // searched rather than the whole paste, and the reads are kept as a list
+        // rather than a string: `pasting + rest` followed by `indexOf` makes V8
+        // flatten the whole paste on every read, so a paste arriving in many
+        // reads cost the square of its size -- 8 MB in 1022-byte reads was 2.3s
+        const window = pasteTail + rest;
+        const end = window.indexOf(PASTE_END);
         if (end === -1) {
-          pasting += rest;
+          pasting.push(rest);
+          pasteTail = window.slice(-(PASTE_END.length - 1));
           return;
         }
-        flushPaste(pasting + rest.slice(0, end));
+        // the marker cannot lie wholly inside the tail, which is shorter than it,
+        // so it ends in this chunk and what follows it is this chunk's
+        const content = pasting.join('') + rest;
+        flushPaste(content.slice(0, content.length - (window.length - end)));
         pasting = undefined;
-        rest = rest.slice(end + PASTE_END.length);
+        pasteTail = '';
+        rest = window.slice(end + PASTE_END.length);
         continue;
       }
 
-      const start = rest.indexOf(PASTE_START);
+      // and the opening marker's first half is in `held`, since every prefix of
+      // `ESC [ 200 ~` is a key that might not be whole and `keys()` keeps it for
+      // the next read. Searching the chunk alone typed the marker in as keys and
+      // the paste after it, which is what bracketing exists to prevent. Taken
+      // out of `held` only when a marker really is there, so a tail that starts
+      // nothing goes back through `keys()` exactly as it would have
+      const joined = held + rest;
+      const start = joined.indexOf(PASTE_START);
       if (start === -1) {
         break;
       }
 
-      keys(rest.slice(0, start));
-      pasting = '';
-      rest = rest.slice(start + PASTE_START.length);
+      held = '';
+      keys(joined.slice(0, start));
+      pasting = [];
+      rest = joined.slice(start + PASTE_START.length);
     }
 
     if (!stopped && pasting === undefined && rest !== '') {
@@ -2288,6 +2314,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       timer = undefined;
       held = '';
       pasting = undefined;
+      pasteTail = '';
 
       // and the pending sequence goes the way the hover states do, and for its
       // reason: nothing will ever clear it otherwise -- the keys have stopped --

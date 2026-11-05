@@ -1,6 +1,6 @@
 import { xml } from '../src/index.js';
 import { file } from './helpers.js';
-import type { ConfigSchema } from '@ttylabs/sigil/config';
+import { createConfigSync, type ConfigSchema } from '@ttylabs/sigil/config';
 import { describe, expect, it } from 'vitest';
 
 /** What a document reads as, through the store rather than through the mapping. */
@@ -208,6 +208,60 @@ describe('the mapping', () => {
         plugin: [{ name: 'a' }, { name: 'b' }],
       });
     });
+  });
+
+  describe("an unsafe name, which is core's refusal rather than this store's", () => {
+    // the reader assigned every name with `out[name] = ...`, so an element or an
+    // attribute called `__proto__` went through `Object.prototype`'s accessor and
+    // set the object's **prototype**: `get('s').polluted` answered `'yes'`
+    // through it, `get('s.k')` was `undefined`, nothing under `s` was frozen,
+    // and an attribute of that name was dropped without a word -- where JSON and
+    // YAML both refuse it with `Unsafe config key`. What this store owes core's
+    // refusal is the name arriving as an own property, which is the YAML store's
+    // own call for the same reason
+    const documents = {
+      'a nested element':
+        '<config><s><__proto__><polluted>yes</polluted></__proto__><k>v</k></s></config>',
+      'an attribute': '<config __proto__="yes"><a>1</a></config>',
+      'a top-level element':
+        '<config><__proto__><polluted>yes</polluted></__proto__><a>1</a></config>',
+    };
+
+    for (const [where, text] of Object.entries(documents)) {
+      it(`should refuse __proto__ as ${where} with the error JSON and YAML give`, () => {
+        const path = file(text);
+
+        expect(() => createConfigSync({ layers: [{ name: 'u', store: xml(path) }] })).toThrow(
+          /Unsafe config key "__proto__" in u/
+        );
+      });
+    }
+
+    it('should hand __proto__ over as an own property, with the prototype untouched', () => {
+      // the half a caller reading `store.readSync()` directly sees, which is
+      // the shape `JSON.parse` and the YAML store hand over
+      const doc = value(
+        `<config><s><__proto__><polluted>yes</polluted></__proto__><k>v</k></s></config>`
+      );
+      const s = (doc as { s: object }).s;
+
+      expect(Object.getPrototypeOf(s)).toBe(Object.prototype);
+      expect(Object.hasOwn(s, '__proto__')).toBe(true);
+      expect(Object.keys(s)).toStrictEqual(['__proto__', 'k']);
+      expect((s as { polluted?: unknown }).polluted).toBeUndefined();
+    });
+
+    for (const key of ['constructor', 'prototype']) {
+      it(`should refuse ${key} the same way, as an element and as an attribute`, () => {
+        // these two never needed the own assignment -- only `__proto__` has an
+        // accessor in the way -- and are pinned so that the three are one set
+        for (const text of [`<config><${key}>x</${key}></config>`, `<config ${key}="x"/>`]) {
+          expect(() =>
+            createConfigSync({ layers: [{ name: 'u', store: xml(file(text)) }] })
+          ).toThrow(new RegExp(`Unsafe config key "${key}" in u`));
+        }
+      });
+    }
   });
 
   describe('the document', () => {

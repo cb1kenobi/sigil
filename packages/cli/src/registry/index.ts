@@ -29,11 +29,11 @@
  * cascade cannot reach.
  */
 
-import { displayPath, isFile } from '../build/index.ts';
+import { displayPath, isFile, isInside } from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 /** Whether a path is a directory, answering `false` for anything unreadable. */
 function isDirectory(path: string): boolean {
@@ -313,11 +313,12 @@ export function planAdd(
     }
 
     for (const file of entry.files) {
-      const to = join(target, file.to);
+      const from = confine(registry, name, 'from', file.from, registry.dir);
+      const to = confine(registry, name, 'to', file.to, target);
       files.push({
         entry: name,
         exists: existsSync(to),
-        from: join(registry.dir, file.from),
+        from,
         shown: displayPath(join(relativeTo(root, to))),
         to,
       });
@@ -329,6 +330,63 @@ export function planAdd(
   }
 
   return { entries, files, missing, pulled };
+}
+
+/**
+ * One of an entry's paths, joined onto the directory it is relative to, and
+ * refused unless it stays there.
+ *
+ * A registry is somebody else's package, and `from` and `to` are its data: a
+ * `from` of `../../../../etc/hosts` and a `to` that climbs out of the app
+ * planned a copy of `/etc/hosts` to wherever the second one pointed, and `--yes`
+ * wrote it without anybody reading the plan. `join()` normalises, so nothing
+ * about joining a path keeps it where it was joined.
+ *
+ * `from` has to be inside the registry directory, which is what the manifest
+ * says it is relative to. `to` has to be inside the **target** -- the directory
+ * components land in -- rather than merely inside the app, and that is the
+ * reading that works for both ways of naming one: it is what the manifest says
+ * `to` is relative to, a registry knows nothing about an app's layout above it,
+ * and a `--dir` outside the app is the user asking for exactly that place, where
+ * an "inside the app" rule would refuse every file. An absolute path is refused
+ * outright rather than joined: on POSIX `join()` would quietly turn
+ * `/etc/hosts` into a file under the target, which is a path that means
+ * something different from what it says.
+ *
+ * Refused as a bug in the registry rather than skipped, because the plan is all
+ * or nothing: a half-applied entry is a component that does not compile, and
+ * a registry shipping one bad path is not one to take the other paths from.
+ * Asked here, while planning, so that nothing has been written when it throws.
+ *
+ * @param registry - The registry, for the message.
+ * @param name - The entry, for the message.
+ * @param field - Which of the two paths this is.
+ * @param path - What the entry says.
+ * @param dir - The directory it is relative to, and must stay inside.
+ * @returns The joined path.
+ * @throws If it is not a relative path inside `dir`.
+ */
+function confine(
+  registry: Registry,
+  name: string,
+  field: 'from' | 'to',
+  path: unknown,
+  dir: string
+): string {
+  if (typeof path === 'string' && path !== '' && !isAbsolute(path)) {
+    const joined = join(dir, path);
+
+    if (isInside(dir, joined)) {
+      return joined;
+    }
+  }
+
+  const where = field === 'from' ? 'its registry directory' : 'the components directory';
+
+  throw new Error(
+    `${registry.pkg}'s "${name}" has a file whose ${field} is ${JSON.stringify(path)}, which is not a path inside ${where}. ` +
+      `That is a bug in the registry, and nothing was written.`
+  );
 }
 
 /** A path relative to the app, kept readable when it escapes the root. */

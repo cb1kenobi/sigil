@@ -52,7 +52,7 @@ the entry it belongs to.
 - **A flush drains until nothing is dirty, not once.** It follows from the
   above: an effect that writes can dirty an effect that already ran this pass,
   and stopping after one pass would leave that one a frame behind. The watcher is
-  re-armed _before_ each pass, so a write made during one schedules the next.
+  re-armed _before_ each pass, so a write made during one is found by the next.
   There is a bound, because two effects each writing what the other reads would
   otherwise spin forever with nothing said about which two. The bound stops the
   drain and only the drain; the entry below is what stops the scheduler.
@@ -131,10 +131,66 @@ the entry it belongs to.
   is queued rather than when it runs, because a microtask flush runs after the one
   that scheduled it has finished and by then there is nothing left to ask. A flush
   nobody was mid-flush for starts the count again, so ordinary reactivity never
-  approaches it. Worth knowing that the synchronous spelling of this cycle damps
-  itself out instead: each write lands on a run further up the stack that has not
-  committed, and a notification to a computed that is mid-run is swallowed by its
-  own commit.
+  approaches it. The synchronous spelling of this cycle is a nest rather than a
+  chain -- each write lands on a run further up the stack that has not committed
+  -- and it is caught by the outer scope's `MAX_PASSES` instead. It used to damp
+  itself out silently, because a notification to a computed that was mid-run was
+  swallowed by its own commit; that was a defect, and it is the entry below.
+- **A write that lands on a run in progress leaves that run stale, and it runs
+  again.** A running node is already marked -- DIRTY, from the refresh that
+  started it -- so propagation, which stops at a node at least as invalidated as
+  it is about to be marked, stopped there, and the end of the run then marked it
+  `CLEAN` over a value computed from what the source held _before_ the write.
+  That is how a `Show` whose branch's own effect cleared `when` kept showing the
+  branch, and a `For` whose row's effect removed the row kept drawing it: the
+  branch is built inside the control-flow effect's run, so the write landed on
+  exactly that run. So a running node is told separately -- `stale`, recognised
+  by `seen` being set, which is what "running" already means -- and what reads it
+  hears at once, the way it would from a clean node, which is what schedules the
+  re-run and what keeps a reader from trusting the version the run is about to
+  commit. The run ends `CHECK` rather than `DIRTY`, because the write may have
+  landed before the read that saw it, and `sources` holds the version each read
+  recorded: a body that writes a signal and then reads it is not run again, and
+  one that read it first is. It is glitch-free for the reason the rest of the
+  graph is -- it changes what a run in progress is told and nothing about the
+  order anything recomputes in. The cost is that an effect writing what it read
+  -- `s.set(s.get() + 1)` -- is now a cycle the bound reports, where it used to
+  run once and stop with its value behind; that was the same defect looking
+  settled. See `test/signals/effect.test.ts`, and `Show` and `For` in
+  `test/renderer/renderer.test.ts`.
+- **A disposed effect never re-subscribes, even from its own body.** An effect
+  that disposes itself is still running, and every read the body makes after the
+  `dispose()` goes through `track()` against that running computed and hooks the
+  edge straight back up -- a sink on the signal that no watcher would ever drain,
+  which is the leak `dispose()` exists to close. The body releases the computed
+  again once it returns, in a `finally` because a body that throws after
+  disposing itself re-linked just the same, and tears down whatever it made after
+  the disposal -- the cleanup it returned and any child it created -- since that
+  belongs to a run nothing will ever tear down. Kept to the body rather than
+  taught to `track()`, because a read is the graph's business and whether an
+  effect is alive is the scope's. See `test/signals/effect.test.ts`.
+- **A scope's own notification while it is draining asks for no flush, because
+  it was being counted as a chain.** Each pass begins with a bare `watch()`, and
+  a bare re-arm that finds work announces it -- so every drain with anything to
+  do asked for a second flush from inside the first, which `requestFlush()`
+  rightly reads as chained. Under the microtask scheduler that follow-up runs at
+  once, finds nothing, and the chain resets, which is why the suite never saw
+  it. Under the renderer's frame loop it runs a frame later, and a signal
+  written faster than a frame -- a progress bar fed per chunk, a log tail, a
+  mouse drag -- has always been written again by then, so every frame was a
+  link and the hundred-and-first tore the renderer down for a cycle that did
+  not exist. The flush asked for was never needed: the drain loops until quiet,
+  so whatever the re-arm announces is work this same drain does next. Not
+  requesting it, rather than requesting it unchained, is the fix that keeps the
+  guard honest: a queued unchained flush leaves `queued` set, and a genuinely
+  chained request from another scope arriving behind it is then swallowed and
+  the follow-up resets the count -- the cross-scope cycle reaching nothing
+  again. Only the drain is quieted: the `finally` re-arm runs after `flushing`
+  is cleared, so what a caller's disposal leaves pending still asks, and so does
+  a write from anywhere once the drain is over.
+  See "the settle guard under the frame loop" in
+  `test/renderer/renderer.test.ts`, which pins both directions under the real
+  frame scheduler.
 - **An error in an effect is reported, never rethrown.** Under the default
   microtask scheduler a rethrow lands in a microtask nobody catches: Node prints
   a raw stack and kills the process, skipping `main()`'s error handling, the

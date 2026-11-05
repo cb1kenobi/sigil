@@ -403,8 +403,8 @@ function signsOn(target: Target, runtime: Runtime, identity: string | undefined)
   // on the machine that produced it. `codesign --sign - --force` over the same
   // file makes it run. So a signature being present is not a signature being
   // valid, and "the producer signed it" is not a fact this can act on -- which
-  // matters the moment `--runtime-version` lets somebody target a Bun other
-  // than the one on their PATH.
+  // matters the moment `--runtime bun@<version>` lets somebody target a Bun
+  // other than the one on their PATH.
   //
   // Re-signing a binary that was already fine is harmless, measured on Bun
   // 1.4.4's output, so the cheap answer is also the correct one: on darwin,

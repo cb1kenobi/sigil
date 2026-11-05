@@ -132,6 +132,27 @@ five things core had deliberately not published, which is the entry below.
   the spec's own answer to whitespace and therefore the attribute an author is
   most likely to write here, would be one called `space`.
 
+- **An unsafe name is core's refusal, and this store's job is to let it arrive.**
+  The reader assigned every name with `out[name] = ...`, so an element or an
+  attribute called `__proto__` went through `Object.prototype`'s accessor and set
+  the object's **prototype** rather than writing a property. Measured (SIG-250):
+  `<s><__proto__><polluted>yes</polluted></__proto__><k>v</k></s>` answered
+  `get('s').polluted === 'yes'` through the prototype, `get('s.k')` was
+  `undefined` because `isPlainObject()` no longer called `s` structure, and
+  nothing under `s` was frozen; `<config __proto__="yes">` was accepted with the
+  value dropped. JSON and YAML both refuse that key with `Unsafe config key`, out
+  of core's `copyValue()`, naming the layer -- `constructor` and `prototype` were
+  already refused here the same way, because only `__proto__` has an accessor in
+  the way.
+
+  So `put()` assigns with `Object.defineProperty`, and the guard is **not**
+  repeated: the set of unsafe keys has one definition, in `dotted.ts`, and a
+  store that refused them itself would be a second answer to that question with
+  a different message. This is the YAML store's call for the same reason, and
+  `JSON.parse` already hands the key over own. Not a copied helper either: the
+  YAML store's `defineProperty` is inline in a walk that does something else, and
+  what is shared between them is a language builtin rather than a decision.
+
 - **An element holds a scalar or named parts, never both.**
   `<name>Chris<title>Mr</title></name>` and `<name sir="yes">Chris</name>` are the
   same problem -- a value for the element itself _and_ a value for something named

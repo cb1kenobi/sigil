@@ -110,6 +110,30 @@ function wrap(value: unknown, path: string, shape: ReadShape): unknown {
 }
 
 /**
+ * Puts a name on a value as an **own** property, whatever the name is.
+ *
+ * `out[name] = ...` with a name of `__proto__` goes through
+ * `Object.prototype`'s own accessor and sets the object's **prototype** rather
+ * than writing a property -- and an element or an attribute really can be
+ * called that. So `<s><__proto__><p>yes</p></__proto__><k>v</k></s>` read as an
+ * `s` whose prototype was `{ p: 'yes' }`: `get('s').p` answered through the
+ * prototype, `get('s.k')` was `undefined` because `isPlainObject()` no longer
+ * called `s` structure, and nothing under it was frozen. An attribute of that
+ * name was dropped without a word. JSON and YAML both refuse the same key with
+ * `Unsafe config key`, out of core's `copyValue()`, naming the layer.
+ *
+ * That refusal is core's and is not repeated here -- one answer to which keys
+ * are unsafe, which is the call the YAML store takes for the same reason. What
+ * this store owes it is the key **arriving**, own and enumerable, which is what
+ * `JSON.parse` and `toJS()` already hand over. `constructor` and `prototype`
+ * never needed this, since only `__proto__` has an accessor in the way, and
+ * they go through the same call so that there is one way a name lands.
+ */
+function put(out: Record<string, unknown>, name: string, value: unknown): void {
+  Object.defineProperty(out, name, { configurable: true, enumerable: true, value, writable: true });
+}
+
+/**
  * Reads an element's value.
  *
  * @param el - The element.
@@ -173,7 +197,7 @@ export function readElement(el: XmlNode, path: string, shape: ReadShape): unknow
       );
     }
     from[name] = 'attribute';
-    out[name] = wrap((attr.value ?? '').trim(), path === '' ? name : `${path}.${name}`, shape);
+    put(out, name, wrap((attr.value ?? '').trim(), path === '' ? name : `${path}.${name}`, shape));
   }
 
   // grouped by name in document order, so that a repeat is an array at the
@@ -224,7 +248,7 @@ export function readElement(el: XmlNode, path: string, shape: ReadShape): unknow
     const here = path === '' ? name : `${path}.${name}`;
     const values = nodes.map((node) => readElement(node, here, shape));
 
-    out[name] = nodes.length > 1 ? values : wrap(values[0], here, shape);
+    put(out, name, nodes.length > 1 ? values : wrap(values[0], here, shape));
   }
 
   return out;

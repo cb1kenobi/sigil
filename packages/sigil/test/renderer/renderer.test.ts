@@ -18,13 +18,13 @@ import {
   Show,
   useContext,
 } from '../../src/renderer/index.js';
-import { createEffects } from '../../src/signals/index.js';
+import { createEffects, sinkCount } from '../../src/signals/index.js';
 import { State } from '../../src/signals/index.js';
 import { Cascade, parseStylesheet } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { Screen, screenStream } from '../../src/testing/screen.js';
 import { setup } from '../components/helpers.js';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The renderer.
@@ -445,6 +445,107 @@ describe('lifecycle', () => {
     view.dispose();
   });
 
+  it('should run onMount under the owner of the component it belongs to', () => {
+    // queued bare, the callback ran with no owner at all: an effect created
+    // there outlived the unmount and the renderer's `dispose()`, an
+    // `onCleanup()` was dropped, and a context read its default
+    const h = harness();
+    const on = new State(true);
+    const sig = new State(0);
+    const Ctx = createContext('default');
+    const seen: { context?: string; owned?: boolean } = {};
+    let runs = 0;
+    let cleaned = 0;
+
+    const view = render(
+      () =>
+        provideContext(Ctx, 'provided', () =>
+          Show({
+            children: () => {
+              onMount(() => {
+                seen.owned = getOwner() !== undefined;
+                seen.context = useContext(Ctx);
+                createEffect(() => {
+                  sig.get();
+                  runs++;
+                });
+                onCleanup(() => cleaned++);
+              });
+              return text('x');
+            },
+            when: () => on.get(),
+          })
+        ),
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+    view.frame();
+    expect(seen).toEqual({ context: 'provided', owned: true });
+    expect(runs).toBe(1);
+
+    // the branch goes, and what its mount callback made goes with it
+    on.set(false);
+    view.frame();
+    expect(cleaned).toBe(1);
+    sig.set(1);
+    view.frame();
+    expect(runs).toBe(1);
+    expect(sinkCount(sig)).toBe(0);
+    view.dispose();
+  });
+
+  it('should take an onMount effect down with the renderer', () => {
+    const h = harness();
+    const sig = new State(0);
+    let runs = 0;
+    const view = render(
+      () => {
+        onMount(() => {
+          createEffect(() => {
+            sig.get();
+            runs++;
+          });
+        });
+        return text('x');
+      },
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+    view.frame();
+    expect(runs).toBe(1);
+
+    view.dispose();
+    expect(sinkCount(sig)).toBe(0);
+  });
+
+  it('should skip the onMount of a component unmounted before its frame', () => {
+    // a `Show` that opened and closed again before anything was drawn built a
+    // branch that was never on screen, and its owner is gone: there is no box
+    // to read, and everything the callback tried would be refused
+    const h = harness();
+    const on = new State(false);
+    const mounted: string[] = [];
+    const view = render(
+      () =>
+        Show({
+          children: () => {
+            onMount(() => mounted.push('mounted'));
+            return text('x');
+          },
+          when: () => on.get(),
+        }),
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+    view.frame();
+
+    // built by the flush and torn down by the next one, both before a frame
+    on.set(true);
+    effects.flush();
+    on.set(false);
+    effects.flush();
+    view.frame();
+    expect(mounted).toEqual([]);
+    view.dispose();
+  });
+
   it('should let a detached callback borrow an owner', () => {
     // a key handler or a settling promise has no owner of its own, and creating
     // an effect from one would otherwise never be disposed
@@ -514,6 +615,35 @@ describe('context', () => {
 });
 
 describe('Show', () => {
+  it('should close a branch whose own effect cleared the condition', () => {
+    // the branch is built inside `Show`'s effect, so the write landed on a run
+    // that was already marked: propagation stopped at it and the run's end
+    // marked it clean, and the screen kept a branch whose condition was false
+    const h = harness(20, 1);
+    const open = new State(true);
+    const errors: unknown[] = [];
+    const view = render(
+      () =>
+        Show({
+          children: () => {
+            // validation on mount deciding the panel should not be open
+            createEffect(() => open.set(false));
+            return text('open');
+          },
+          fallback: () => text('closed'),
+          when: () => open.get(),
+        }),
+      { backend: h.backend, effects, onError: (err) => errors.push(err), terminal: h.terminal }
+    );
+    view.frame();
+    view.frame();
+
+    expect(errors).toEqual([]);
+    expect(open.get()).toBe(false);
+    expect(h.picture()).toBe('closed..............');
+    view.dispose();
+  });
+
   it('should mount and dispose a branch as the condition turns', () => {
     const h = harness();
     const on = new State(false);
@@ -700,6 +830,41 @@ describe('Show', () => {
 });
 
 describe('For', () => {
+  it('should drop a row whose own effect removed it from the list', () => {
+    // the same write one level down: the reconcile is the effect that was
+    // running, so the list it committed was the one before the write
+    const h = harness(20, 3);
+    const items = new State<readonly string[]>(['a', 'bad', 'c']);
+    const errors: unknown[] = [];
+    const view = render(
+      () =>
+        For({
+          children: (item) => {
+            createEffect(() => {
+              if (item === 'bad') {
+                items.set(items.get().filter((x) => x !== 'bad'));
+              }
+            });
+            return text(item);
+          },
+          each: () => items.get(),
+          props: { 'flex-direction': 'column' },
+        }),
+      { backend: h.backend, effects, onError: (err) => errors.push(err), terminal: h.terminal }
+    );
+    view.frame();
+    view.frame();
+
+    expect(errors).toEqual([]);
+    expect(items.get()).toEqual(['a', 'c']);
+    expect(h.picture().split('\n')).toEqual([
+      'a...................',
+      'c...................',
+      '....................',
+    ]);
+    view.dispose();
+  });
+
   it('should keep a row that moved rather than rebuilding it', () => {
     // keyed by identity: position keying rebuilds every row after the first
     // change, which for a terminal means the focus ring moves under whoever was
@@ -2528,6 +2693,111 @@ describe('a frame over an element placed by another', () => {
       expect(h.painted - painted, 'one frame, painted once').toBe(1);
       expect(h.picture().split('\n')[1]).toMatch(/^r3\.*</);
     } finally {
+      view.dispose();
+    }
+  });
+});
+
+describe('the settle guard under the frame loop', () => {
+  // the frame loop is the scheduler here, a `setTimeout` paced to `frameMs`,
+  // which is the one the microtask tests of the guard never ran under
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should not tear down a renderer whose signal is written faster than a frame', () => {
+    // every drain re-arms its watcher before each pass, and a re-arm that finds
+    // work announces it -- from inside the flush, so the flush it asked for was
+    // counted as *chained*. Under a microtask scheduler that follow-up runs at
+    // once, finds nothing, and the chain resets. Under the frame loop it runs a
+    // frame later, and a writer faster than a frame has always written again by
+    // then -- so every frame was a link, and after a hundred of them the
+    // renderer was torn down for a cross-scope cycle that did not exist. A
+    // progress bar fed every 5ms went blank after about 3.4 seconds
+    const h = harness();
+    const n = new State(0);
+    const reports: unknown[] = [];
+    const view = render(
+      () => {
+        const label = text('');
+        createEffect(() => {
+          label.setText(`n=${n.get()}`);
+        });
+        return box({}, label);
+      },
+      {
+        backend: h.backend,
+        effects,
+        frameMs: 1000 / 30,
+        onError: (error) => void reports.push(error),
+        terminal: h.terminal,
+      }
+    );
+
+    try {
+      // ten seconds at a write every 5ms is three hundred frames, three times
+      // what the chain bound allows
+      const before = h.painted;
+      for (let i = 1; i <= 2000; i++) {
+        n.set(i);
+        vi.advanceTimersByTime(5);
+      }
+      vi.advanceTimersByTime(100);
+
+      expect(reports).toEqual([]);
+      expect(view.mounted).toBe(true);
+      expect(h.painted - before).toBeGreaterThan(200);
+      expect(h.picture().split('\n')[0]).toBe('n=2000..............');
+    } finally {
+      view.dispose();
+    }
+  });
+
+  it('should still report a cycle between the frame loop and another scope', async () => {
+    // the other half: what the guard is for has to survive the fix. The
+    // renderer's effect writes what a second scope reads and that scope writes
+    // back, so each scope's drain settles in a pass and neither reaches its own
+    // bound -- only the chain can see it, and it has to under the frame loop too
+    const h = harness();
+    const a = new State(0);
+    const b = new State(0);
+    const reports: unknown[] = [];
+    const other = createEffects();
+    other.setErrorHandler((error) => void reports.push(error));
+    const stop = other.effect(() => b.set(a.get() + 1));
+
+    const view = render(
+      () => {
+        const label = text('');
+        createEffect(() => {
+          const next = b.get() + 1;
+          a.set(next);
+          label.setText(`a=${next}`);
+        });
+        return box({}, label);
+      },
+      {
+        backend: h.backend,
+        effects,
+        frameMs: 1000 / 30,
+        onError: (error) => void reports.push(error),
+        terminal: h.terminal,
+      }
+    );
+
+    try {
+      // a hundred and one frames is about 3.4 seconds at thirty a second, and
+      // the second scope's flushes are microtasks between them
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(reports).toHaveLength(1);
+      expect(String(reports[0])).toMatch(/chained flushes/);
+    } finally {
+      stop();
       view.dispose();
     }
   });

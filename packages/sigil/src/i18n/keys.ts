@@ -22,6 +22,7 @@ export const SIGIL_KEYS: readonly string[] = [
   '"{0}" does not fit {1}',
   '"{0}" in {1} is not a list',
   '"{0}" in {1} is not an object',
+  '"{0}" is a list, and a dotted path does not reach into one; set the whole list, or use push, pop, shift or unshift',
   '"{0}" is not a number from 1 to {1}',
   '(+{0} more line)',
   '(Enter alone to finish)',

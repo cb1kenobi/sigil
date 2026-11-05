@@ -45,6 +45,7 @@
  */
 
 import { NODE_BUILD_SEA, RUNTIMES, type Runtime, type Target } from './compile.ts';
+import { isInside } from './discover.ts';
 import { cache } from '@ttylabs/sigil/paths';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
@@ -77,6 +78,76 @@ const CACHE = 'sigil/runtimes';
  */
 function executable(runtime: Runtime): string {
   return process.platform === 'win32' ? `${runtime}.exe` : runtime;
+}
+
+/**
+ * What a runtime version looks like, anchored at **both** ends.
+ *
+ * The version is not only compared: it names the directory a downloaded
+ * runtime is renamed into and made executable in, `<cache>/<runtime>/<version>`.
+ * This was written `/^\d+\.\d+\.\d+/` with no `$`, so a version had only to
+ * *start* like one -- `node@26.12.1/../../../tmp/pwn` passed, and `join()`
+ * normalises, so the binary landed wherever the tail pointed. The one string
+ * reached that path from three places, `--runtime`, `package.runtime` in
+ * `sigil.json`, and a registry's release listing, and only the first two were
+ * checked at all.
+ */
+const VERSION_RE = /^\d+\.\d+\.\d+$/;
+
+/**
+ * Whether a string is a `<major>.<minor>.<patch>` version and nothing else.
+ *
+ * The one test every source of a version goes through, so that what is typed
+ * and what a registry lists cannot come to mean two different things.
+ *
+ * @param version - The candidate, without a leading `v`.
+ * @returns Whether it is one.
+ */
+export function isVersion(version: unknown): version is string {
+  return typeof version === 'string' && VERSION_RE.test(version);
+}
+
+/**
+ * The directory a downloaded runtime of this version goes in.
+ *
+ * Both checks, and the second is not redundant with the first so much as the
+ * guard that does not depend on it: the version is refused unless it is exactly
+ * a version, and the directory it names is refused unless it is inside the
+ * cache. A pattern is a claim about what a path can say; asking where the path
+ * actually went is the claim about where the write lands, and it is the one
+ * that survives the pattern being loosened by somebody who did not know what it
+ * was for.
+ *
+ * Exported for the reason `undo()` is: reaching it through `resolve()` means a
+ * download, and a test of a download is a test of the network.
+ *
+ * @param root - The runtime's cache directory.
+ * @param runtime - Which runtime, for the message.
+ * @param version - The version.
+ * @returns The directory.
+ * @throws If the version is not one, or names somewhere outside the cache.
+ */
+export function cacheDir(root: string, runtime: Runtime, version: string): string {
+  if (!isVersion(version)) {
+    throw new Error(
+      `"${version}" is not a ${runtime} version, so there is nothing to download. Name one as <major>.<minor>.<patch>, for example ${example(runtime)}.`
+    );
+  }
+
+  const into = join(root, version);
+
+  if (!isInside(root, into)) {
+    throw new Error(
+      `Refusing to install ${runtime} ${version} at ${into}, which is outside the runtime cache ${root}.`
+    );
+  }
+
+  return into;
+}
+
+/** A spec somebody could type, for a message. */
+function example(runtime: Runtime): string {
+  return runtime === 'bun' ? 'bun@1.3.14' : 'node@26.12.1';
 }
 
 /** Where Bun keeps the target runtimes it downloads for `--compile`. */
@@ -404,7 +475,7 @@ function cached(runtime: Runtime, within: number): Release[] | undefined {
 
   try {
     const held = JSON.parse(readFileSync(at, 'utf-8')) as {
-      releases?: Release[];
+      releases?: (Release | null)[];
       ts?: number;
     };
 
@@ -412,7 +483,9 @@ function cached(runtime: Runtime, within: number): Release[] | undefined {
       return undefined;
     }
 
-    return held.releases;
+    // a file on disk is one more place a version comes from, so it is held to
+    // the same rule as the registry it was copied out of
+    return held.releases.filter((one): one is Release => isVersion(one?.version));
   } catch {
     // unreadable, absent, or not the shape this wrote: all the same answer,
     // which is to go and ask. A cache that throws is worse than no cache
@@ -464,7 +537,15 @@ async function latestNode(): Promise<Release[]> {
 
   const lines = new Map<number, Release>();
   for (const one of all) {
-    const version = one.version.replace(/^v/, '');
+    const version = typeof one.version === 'string' ? one.version.replace(/^v/, '') : undefined;
+
+    // a listing is a registry's data, and its version becomes a cache path the
+    // moment somebody picks it -- so a row that is not a version is not offered,
+    // and the line falls through to the next row that is
+    if (!isVersion(version)) {
+      continue;
+    }
+
     const major = Number(version.split('.')[0]);
 
     // the list is newest first, so the first of each line is that line's newest
@@ -487,7 +568,9 @@ async function latestBun(): Promise<Release[]> {
   // and prereleases are dropped, because a picker should not offer one
   const lines = new Map<string, Release>();
   for (const version of Object.keys(meta.versions)) {
-    if (version.includes('-')) {
+    // a prerelease has a `-` and is not a version by this rule, and neither is
+    // anything else a registry might list that would make a path of itself
+    if (!isVersion(version)) {
       continue;
     }
 
@@ -583,7 +666,7 @@ async function download(runtime: Runtime, version: string): Promise<string> {
     );
   }
 
-  const into = join(root, version);
+  const into = cacheDir(root, runtime, version);
   const binary = join(into, executable(runtime));
   const partial = `${into}.partial-${process.pid}`;
 
@@ -595,7 +678,7 @@ async function download(runtime: Runtime, version: string): Promise<string> {
 
     if (!response.ok) {
       throw new Error(
-        `Could not download ${runtime} ${version}: ${url} answered ${response.status}.\n  Check the version exists -- "sigil package --runtime ${runtime} --runtime-version list" prints what does.`
+        `Could not download ${runtime} ${version}: ${url} answered ${response.status}.\n  Check the version exists, and pin one that does with --runtime ${runtime}@<version>. "sigil package" at a terminal, with neither --runtime nor "package.runtime" in sigil.json, offers the newest of each line.`
       );
     }
 
@@ -716,9 +799,9 @@ export function parseSpec(text: string): Spec {
     );
   }
 
-  if (version !== undefined && !/^\d+\.\d+\.\d+/.test(version)) {
+  if (version !== undefined && !isVersion(version)) {
     throw new Error(
-      `"${version}" is not a version. Name one as <major>.<minor>.<patch>, for example ${runtime === 'bun' ? 'bun@1.3.14' : 'node@26.12.1'}.`
+      `"${version}" is not a version. Name one as <major>.<minor>.<patch>, for example ${example(runtime as Runtime)}.`
     );
   }
 

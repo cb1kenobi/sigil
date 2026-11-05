@@ -20,6 +20,7 @@
  */
 
 import {
+  lstatSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -28,7 +29,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** One entry per call the write made, in order, as `verb path`. */
@@ -36,6 +37,35 @@ const calls: string[] = [];
 
 /** Which call should fail next, so that the cleanup path is reachable. */
 let fail: 'close' | 'fsync' | 'loop' | 'readlink' | 'rename' | 'stat' | undefined;
+
+/**
+ * What to put at a temp name just before it is opened, standing in for whoever
+ * got there first: a symlink to a file somebody else owns, or a plain file.
+ *
+ * Planted through the wrapper rather than at a guessed name, because the name
+ * is unpredictable now -- and a test that guessed the old `<pid>-0` spelling
+ * would pass for any name at all the moment it changed, whether or not the open
+ * had become exclusive. This way the open meets the planted file whatever it is
+ * called.
+ */
+let plant: { kind: 'file' | 'link'; times: number; victim: string } | undefined;
+
+/** Every name `plant` put something at, which the write must leave alone. */
+const planted: string[] = [];
+
+/** Puts what `plant` says at a path, once per remaining `times`. */
+function plantAt(path: string, real: typeof import('node:fs')): void {
+  if (plant === undefined || plant.times === 0) {
+    return;
+  }
+  plant.times--;
+  if (plant.kind === 'link') {
+    real.symlinkSync(plant.victim, path);
+  } else {
+    real.writeFileSync(path, 'PLANTED');
+  }
+  planted.push(path);
+}
 
 /** The code `fsync()` fails with, because *which* codes are swallowed is the claim. */
 let flushCode = 'EINVAL';
@@ -85,6 +115,7 @@ vi.mock('node:fs', async (importOriginal) => {
     },
     openSync(path: string, flags: string, mode?: number): number {
       calls.push(`open ${path}`);
+      plantAt(path, real);
       return real.openSync(path, flags, mode);
     },
     readlinkSync(path: string, opts?: unknown): unknown {
@@ -113,13 +144,29 @@ vi.mock('node:fs', async (importOriginal) => {
   };
 });
 
-const { writeAtomicSync } = await import('../../src/config/atomic.js');
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:fs/promises')>();
+  const fs = await vi.importActual<typeof import('node:fs')>('node:fs');
+
+  return {
+    ...real,
+    async open(path: string, flags: string, mode?: number): Promise<unknown> {
+      calls.push(`open ${path}`);
+      plantAt(path, fs);
+      return real.open(path, flags, mode);
+    },
+  };
+});
+
+const { writeAtomic, writeAtomicSync } = await import('../../src/config/atomic.js');
 
 let root: string;
 
 beforeEach(() => {
   calls.length = 0;
   fail = undefined;
+  plant = undefined;
+  planted.length = 0;
   flushCode = 'EINVAL';
   linkCode = 'EACCES';
   root = mkdtempSync(join(tmpdir(), 'sigil-atomic-'));
@@ -217,6 +264,86 @@ describe('where the temp file goes', () => {
       expect(readFileSync(path, 'utf8')).to.equal('new');
     }
   );
+});
+
+describe('a file somebody else put at the temp name', () => {
+  // the open was `'w'` under `<path>.<pid>-<seq>.tmp` with `seq` from 0, so a
+  // symlink planted at that name redirected the write to its target and the
+  // rename then moved **the link** over the config -- after which every later
+  // save wrote through it as well. Both halves of the write are pinned, because
+  // the sync and async opens are two real implementations of one loop
+  const writes = {
+    async: (path: string, text: string) => writeAtomic(path, text),
+    // `async` so that a throw arrives as a rejection, which is what lets one
+    // assertion read both
+    sync: async (path: string, text: string) => writeAtomicSync(path, text),
+  };
+
+  for (const [how, write] of Object.entries(writes)) {
+    it.skipIf(process.platform === 'win32')(
+      `should not write through a symlink planted at the temp name (${how})`,
+      async () => {
+        // skipped on Windows, where making a symlink takes a privilege the CI
+        // runner does not have; the plain-file case below is the portable half
+        const path = join(root, 'config.json');
+        const victim = join(root, 'victim.txt');
+        writeFileSync(path, '{"a":1}\n');
+        writeFileSync(victim, 'VICTIM\n');
+        plant = { kind: 'link', times: 1, victim };
+
+        await write(path, '{"a":2}\n');
+
+        // the victim is untouched, the config is a file rather than the link,
+        // and it holds what was written
+        expect(readFileSync(victim, 'utf8')).to.equal('VICTIM\n');
+        expect(lstatSync(path).isSymbolicLink()).toBe(false);
+        expect(readFileSync(path, 'utf8')).to.equal('{"a":2}\n');
+        // and the planted link is still where it was put: it is not this
+        // process's to delete, so a name that is taken is left alone and another
+        // is drawn
+        expect(planted).to.have.length(1);
+        expect(lstatSync(planted[0] as string).isSymbolicLink()).toBe(true);
+        expect(opened()).to.equal(planted[0]);
+        expect(calls.filter((it) => it.startsWith('open '))).to.have.length(2);
+      }
+    );
+
+    it(`should give up where every temp name it draws is taken (${how})`, async () => {
+      // a name is 64 random bits, so one collision is a coincidence and four in
+      // a row is a directory answering `EEXIST` for everything -- worth raising
+      // rather than looping on. A plain file rather than a link, so this half
+      // runs everywhere, and `'w'` would have truncated and renamed it
+      const path = join(root, 'config.json');
+      const victim = join(root, 'victim.txt');
+      writeFileSync(path, 'old');
+      plant = { kind: 'file', times: Number.POSITIVE_INFINITY, victim };
+
+      await expect(write(path, 'new')).rejects.toThrow(/EEXIST/);
+      expect(readFileSync(path, 'utf8')).to.equal('old');
+      expect(planted).to.have.length(4);
+      for (const it of planted) {
+        expect(readFileSync(it, 'utf8')).to.equal('PLANTED');
+      }
+      // nothing was unlinked: none of those files was this process's
+      expect(calls.filter((it) => it.startsWith('unlink '))).to.deep.equal([]);
+    });
+  }
+
+  it('should draw a temp name nobody can work out in advance', () => {
+    // the other half of the fix, since an exclusive open under a name anybody
+    // can predict is a save anybody can make fail. Two saves in one process used
+    // to differ only in a counter
+    const path = join(root, 'c.jsonc');
+    writeAtomicSync(path, 'x');
+    const first = opened();
+    calls.length = 0;
+    writeAtomicSync(path, 'y');
+
+    expect(first).to.not.contain(`.${process.pid}-`);
+    expect(basename(first)).to.match(/^c\.jsonc\.[0-9a-f]{16}\.tmp$/);
+    expect(basename(opened())).to.match(/^c\.jsonc\.[0-9a-f]{16}\.tmp$/);
+    expect(opened()).to.not.equal(first);
+  });
 });
 
 describe('what a failed readlink means', () => {

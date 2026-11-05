@@ -3557,9 +3557,28 @@ function sameKey(a: Key, b: Key): boolean {
 /** A line break, spelled for a terminal whatever its output translation is. */
 const NEWLINE = '\r\n';
 
-/** Text as it is written back, which is the same text with its breaks spelled. */
-function echoed(text: string): string {
-  return text.replaceAll('\n', NEWLINE);
+/**
+ * Text as a line form writes it: what a text element would draw for it, with its
+ * breaks spelled for a terminal.
+ *
+ * Every string a line form writes goes through this, whoever wrote it -- the
+ * question, a choice's label, hint and description, a default, a refusal, what a
+ * Tab completed -- because a label can come off disk: `path()` and `filePicker()`
+ * list what `readdir` returned, and a file can be called `a\u001b]0;title\u0007`.
+ * The drawn form never wrote one, since a text element takes the control
+ * characters out before it measures or paints, and a line form that wrote the
+ * same label raw handed the file's author the terminal. `toDisplayText()` is that
+ * element's own reading, so the two forms of one question cannot come to disagree
+ * about what is safe to write: a tab is a space and every other control character
+ * goes, leaving what it introduced as the text it is. The line breaks are what is
+ * left, and they are spelled here, after, so a `\r\n` a form wrote and a `\n`
+ * in a label both come out as one.
+ *
+ * The engine's own bytes -- the break that ends a line, Backspace's `\b \b` --
+ * are not text and are written past this.
+ */
+function shown(text: string): string {
+  return toDisplayText(text).replaceAll('\n', NEWLINE);
 }
 
 /** Whether a key is a multiline field's submit key, modifiers and all. */
@@ -3662,6 +3681,10 @@ function runLine<T>(
     /** One key at a time, for the reason `run()` records: a `validate` may be async. */
     let queue: Promise<void> = Promise.resolve();
     const write = (chunk: string): void => void terminal.write(chunk);
+    /** Writes text: a question, a label, a reply -- never raw, which `shown()` records. */
+    const say = (text: string): void => write(shown(text));
+    /** Writes text and ends the line it is on. */
+    const sayLine = (text: string): void => write(`${shown(text)}${NEWLINE}`);
 
     function end(): void {
       settled = true;
@@ -3681,9 +3704,9 @@ function runLine<T>(
     }
 
     function ask(): void {
-      write(form!.ask);
+      say(form!.ask);
       if (form!.echo) {
-        write(echoed(reply));
+        say(reply);
       }
     }
 
@@ -3694,7 +3717,7 @@ function runLine<T>(
       last = undefined;
       waiting = undefined;
       for (const line of next.before ?? []) {
-        write(`${line}${NEWLINE}`);
+        sayLine(line);
       }
       ask();
     }
@@ -3707,7 +3730,7 @@ function runLine<T>(
       }
       reply += admitted;
       if (form!.echo) {
-        write(echoed(admitted));
+        say(admitted);
       }
     }
 
@@ -3722,7 +3745,9 @@ function runLine<T>(
       const start = reply.lastIndexOf('\n') + 1;
       for (let n = 0; n < count && reply.length > start; n++) {
         const at = boundary(reply, reply.length, -1);
-        const width = stringWidth(reply.slice(at));
+        // what was echoed for it, which is what there is to rub out: a tab
+        // measures nothing and was written as a space
+        const width = stringWidth(toDisplayText(reply.slice(at)));
         reply = reply.slice(0, at);
         if (form!.echo && width > 0) {
           write('\b'.repeat(width) + ' '.repeat(width) + '\b'.repeat(width));
@@ -3738,7 +3763,7 @@ function runLine<T>(
         return;
       }
       if (typeof read === 'string') {
-        write(`${read}${NEWLINE}`);
+        sayLine(read);
         if (!form!.keep) {
           reply = '';
         }
@@ -3753,7 +3778,7 @@ function runLine<T>(
       }
       end();
       if (read.said) {
-        write(`${read.said}${NEWLINE}`);
+        sayLine(read.said);
       }
       resolve(read.value);
     }
@@ -3770,13 +3795,13 @@ function runLine<T>(
       if (done.lines?.length || done.query) {
         write(NEWLINE);
         for (const line of done.lines ?? []) {
-          write(`${line}${NEWLINE}`);
+          sayLine(line);
         }
         if (done.query) {
           // asked in place of the question, which is written again once a key
           // has answered it
           waiting = done.query;
-          write(done.query.ask);
+          say(done.query.ask);
         } else {
           ask();
         }
@@ -3804,15 +3829,15 @@ function runLine<T>(
       // the key is not echoed, so the question's line ends here either way
       write(NEWLINE);
       if (typeof reading === 'string') {
-        write(`${reading}${NEWLINE}`);
-        write(query.ask);
+        sayLine(reading);
+        say(query.ask);
         return;
       }
       waiting = undefined;
       // the key that answered came between, so the next key repeats nothing
       last = undefined;
       for (const line of reading) {
-        write(`${line}${NEWLINE}`);
+        sayLine(line);
       }
       ask();
     }
@@ -3933,7 +3958,7 @@ function runLine<T>(
       return;
     }
     for (const line of lead) {
-      write(`${line}${NEWLINE}`);
+      sayLine(line);
     }
     if (ready instanceof Promise) {
       // the keys queue behind it, so nothing typed meanwhile is read against a

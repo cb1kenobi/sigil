@@ -222,6 +222,14 @@ export function createEffects(): Effects {
 
   const watcher = new Watcher(() => {
     stalled = false;
+    if (flushing) {
+      // the drain's own re-arm, announcing the work it is about to do -- and
+      // it loops until quiet, so a flush asked for here has nothing left to
+      // find. Asking anyway counted as *chained*, since this scope is mid-flush,
+      // so under a frame scheduler a writer faster than a frame made every
+      // frame a link in a chain and tripped `MAX_CHAIN` with no cycle anywhere
+      return;
+    }
     requestFlush();
   });
 
@@ -324,7 +332,8 @@ export function createEffects(): Effects {
     let passes = 0;
     for (;;) {
       // re-armed *before* draining, so a write made by an effect during
-      // this pass still schedules the next one
+      // this pass is found by the next one. What the re-arm announces asks
+      // for no flush: this loop is the flush, and it runs until quiet
       watcher.watch();
       const pending = watcher.getPending();
       if (pending.length === 0) {
@@ -436,15 +445,23 @@ export function createEffects(): Effects {
         } finally {
           currentOwner = outer;
           bodies--;
+          // the body may have disposed this very effect, and `dispose()` cut
+          // the edges of a computed that was still running: every read the
+          // body made after that went through `track()` against this computed
+          // and hooked the edge straight back up, so a signal kept a sink that
+          // no watcher would ever drain. Released again here, after the last
+          // read, and in the `finally` because a body that throws after
+          // disposing itself re-linked just the same
+          if (disposed) {
+            computed.dispose();
+          }
         }
 
-        // the body may have disposed this very effect, in which case the
-        // cleanup it just returned belongs to a run nobody will ever tear
-        // down -- `dispose()` has already been and gone
-        if (disposed && cleanup) {
-          const stranded = cleanup;
-          cleanup = undefined;
-          stranded();
+        // and whatever the body did after disposing itself -- the cleanup it
+        // just returned, a child effect it created -- belongs to a run nobody
+        // will ever tear down, because `dispose()` has already been and gone
+        if (disposed) {
+          runCleanups();
         }
       },
       { [effectBody]: true }
