@@ -247,22 +247,14 @@
   margin-inline: auto;
   max-width: var(--container-page);
   width: 100%;
-  padding-inline: 16px;
-
-  @media (min-width: 40rem) {
-    padding-inline: 32px;
-  }
+  @apply gutter;
 }
 
 @utility layout-docs {
   margin-inline: auto;
   max-width: var(--container-docs);
   width: 100%;
-  padding-inline: 16px;
-
-  @media (min-width: 40rem) {
-    padding-inline: 32px;
-  }
+  @apply gutter;
 }
 
 /*
