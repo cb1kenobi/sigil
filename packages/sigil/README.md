@@ -2176,8 +2176,11 @@ both "not configured"; a key set to `""` is an empty string.** A `null` is
 removed rather than kept, so writing `"theme": null` falls back to the layer
 under it rather than shadowing it to `null`. `undefined` goes with it — no
 text format can write one, and `config.set('x', argv.x)` with no `--x` is the
-ordinary way an app reaches it, so `set()` of either is the `delete()` it means.
-A `null` _inside_ an array is data and is kept.
+ordinary way an app reaches it, so `set()` of either removes the key from that
+layer. Where that layer has nothing there it does nothing at all — it never
+throws the way `delete()` does over a value that lives in a read-only layer, so
+the ordinary spelling is safe over system defaults under a user file. A `null`
+_inside_ an array is data and is kept.
 
 ### Values arrive already typed, and a string is still coerced
 
@@ -2224,6 +2227,12 @@ One value per call, so that every mutator has one shape — a path, maybe a valu
 maybe a layer. A trailing layer name and a trailing string value cannot be told
 apart.
 
+A dotted path does not reach into a list: `get('items.0')` is `undefined`, and
+`set('items.0', 9)` throws rather than writing an element — whichever layer the
+list is in. Writing the element would mean copying the whole merged list into
+your layer to change one entry, which is the seeding `push` refuses. Set the
+whole list, or use the array methods.
+
 ### What `get()` hands back is frozen
 
 It is a computed value you hold a live reference to, so mutating it would change
@@ -2236,7 +2245,8 @@ is what lets an object layer hold a plugin.
 
 ### Deleting a value that lives in a read-only layer
 
-It throws, and the message names the layer and both ways out:
+An explicit `delete()` throws, and the message names the layer and both ways
+out:
 
 ```
 Cannot delete "editor.theme": it is set in <system defaults>, which is read-only.
@@ -2248,6 +2258,10 @@ Not a tombstone. TOML cannot represent one, it is a new value concept every stor
 must support, and it needs a sentinel that can collide with a `null` the user
 wrote. The useful half already works without it: `set()` on a writable layer
 **shadows** a read-only value. What cannot be expressed is shadowing to _absent_.
+
+`set(path, undefined)` and `set(path, null)` do not throw here: they remove what
+the writable layer holds, and where it holds nothing they do nothing, because
+"this layer does not configure it" is already true.
 
 ### Dotted paths and prototype pollution
 

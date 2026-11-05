@@ -703,6 +703,34 @@ describe('deleting a value that lives in a read-only layer', () => {
     expect(config.delete('a')).to.equal(true);
     expect(config.get('a')).to.equal(1);
   });
+
+  it('should not throw from set(path, undefined) where only a read-only layer holds the path', async () => {
+    // `set()` of `null` or `undefined` was routed to `delete()` whole, so the
+    // spelling the README calls ordinary -- `config.set('x', argv.x)` with no
+    // `--x` -- threw `Cannot delete` over the ordinary stack of system defaults
+    // under a user file. The user layer already does not configure it, so there
+    // is nothing to do; an explicit `delete()` still throws, above
+    const system = file('system.json', '{"editor":{"theme":"light"}}');
+    const config = await createConfig({
+      layers: [
+        { name: 'system', readOnly: true, store: json(system) },
+        { name: 'user', store: object({}) },
+      ],
+    });
+
+    expect(() => config.set('editor.theme', undefined)).not.toThrow();
+    expect(() => config.set('editor.theme', null)).not.toThrow();
+    expect(config.get('editor.theme')).to.equal('light');
+    // a no-op rather than a write of nothing: the layer is not dirty, so a
+    // `save()` has nothing to do
+    expect(config.layers.find((it) => it.name === 'user')?.dirty).toBe(false);
+    expect(() => config.delete('editor.theme')).toThrow(/Cannot delete "editor\.theme"/);
+
+    // and where the user layer does hold it, the set still removes it
+    config.set('editor.theme', 'dark');
+    config.set('editor.theme', undefined);
+    expect(config.get('editor.theme')).to.equal('light');
+  });
 });
 
 describe('the array methods', () => {
@@ -1452,6 +1480,46 @@ describe('the schema', () => {
     expect(() => config.push('items.0', 9)).toThrow(/"items" in a is not an object/);
     expect(config.get('items')).to.deep.equal([1, 2, 3]);
     expect(config.get('server')).to.equal('off');
+  });
+
+  it("should not turn a lower layer's list into an object through set('items.0')", async () => {
+    // the check above asked only the layer being written, so with the list in a
+    // lower layer and nothing in the user's, `set('items.0', 9)` wrote
+    // `{ items: { "0": 9 } }` there and the merged list became `{ "0": 9 }`.
+    // Refused rather than written as an element, because writing the element
+    // would mean seeding the user layer with a copy of the merged list -- which
+    // `push` refuses to do, for the reason its entry gives
+    const config = await createConfig({
+      schema: { plugins: { default: ['a'], multiple: true } },
+      layers: [
+        { name: 'system', readOnly: true, store: object({ deep: { items: [1, 2, 3] } }) },
+        { name: 'base', store: object({ items: [1, 2, 3], server: 'off' }) },
+        { name: 'user', store: object({}) },
+      ],
+    });
+
+    const refusal = /"items" is a list, and a dotted path does not reach into one/;
+    expect(() => config.set('items.0', 9)).toThrow(refusal);
+    expect(() => config.set('items.a.b', 9)).toThrow(refusal);
+    expect(() => config.push('items.0', 9)).toThrow(refusal);
+    // at any depth, and from a read-only layer or a default as much as a
+    // writable one, since what is refused is what `get()` would come to answer
+    expect(() => config.set('deep.items.0', 9)).toThrow(/"deep\.items" is a list/);
+    expect(() => config.set('plugins.0', 'b')).toThrow(/"plugins" is a list/);
+
+    expect(config.get('items')).to.deep.equal([1, 2, 3]);
+    expect(config.get('deep.items')).to.deep.equal([1, 2, 3]);
+    expect(config.get('plugins')).to.deep.equal(['a']);
+    expect(config.layers.find((it) => it.name === 'user')?.dirty).toBe(false);
+
+    // the whole-list ways the message names still work, into the user layer
+    config.set('items', [9, 2, 3]);
+    expect(config.get('items')).to.deep.equal([9, 2, 3]);
+
+    // and a lower layer's **scalar** is still shadowed by the object a nested
+    // write makes, because a scalar has nothing inside it a path could have meant
+    config.set('server.port', 1);
+    expect(config.get('server')).to.deep.equal({ port: 1 });
   });
 
   it('should name the ancestor that is not an object, not the whole path', async () => {
