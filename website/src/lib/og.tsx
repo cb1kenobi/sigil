@@ -1,7 +1,6 @@
 import { BG, BRAND, FG, FG_STRONG, MUTED } from './brand.ts';
 import { woff2ToSfnt } from './woff2.ts';
 import { ImageResponse } from 'next/og';
-import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -38,19 +37,6 @@ export const OG_CONTENT_TYPE = 'image/png';
 export const TAGLINE = 'Command-line apps in TypeScript, with nothing else to install.';
 
 const root = process.cwd();
-
-/**
- * A card's alt text, read from the `opengraph-image.alt.txt` beside its route.
- *
- * Next reads that file by itself for an image *file* and not for one generated
- * by code, which has to `export const alt`. The `.txt` is the ticket's and is
- * what a person edits, so the route reads it rather than carrying a second copy.
- *
- * @param path - The `.alt.txt`, from the package root.
- */
-export function altText(path: string): string {
-  return readFileSync(join(root, path), 'utf8').trim();
-}
 
 const font = async (file: string) => {
   const sfnt = woff2ToSfnt(await readFile(join(root, 'src/fonts', file)), { default: true });

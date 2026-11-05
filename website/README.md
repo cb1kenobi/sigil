@@ -38,8 +38,9 @@ SVG, so a 16 px favicon keeps its channel open instead of blurring it shut.
 `test/brand-assets.test.ts` regenerates all of them in memory and fails if a
 committed file differs, so editing the seal without running the script is a
 test failure. The social cards are `src/lib/og.tsx`; each route's
-`opengraph-image.tsx` is a call into it, and `opengraph-image.alt.txt` beside
-it is the alt text. `next/og` cannot read woff2, so `src/lib/woff2.ts` decodes
+`opengraph-image.tsx` is a call into it and exports its own `alt`: Next reads
+an `.alt.txt` only beside a static image, and a route that read one by a
+computed path would make Turbopack trace the whole project. `next/og` cannot read woff2, so `src/lib/woff2.ts` decodes
 the vendored fonts for it.
 
 ## Analytics

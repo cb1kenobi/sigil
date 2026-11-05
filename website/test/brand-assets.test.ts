@@ -1,9 +1,9 @@
 import { APP_ICONS, brandAssets, faviconFrames, lockupSvg } from '../scripts/brand-assets.ts';
 import { decodeIco, decodePng, hex } from '../scripts/lib/raster.ts';
+import { readFont } from '../scripts/lib/sfnt.ts';
 import manifest from '../src/app/manifest.ts';
 import { BG, BRAND, FG, FG_STRONG, ICON_GROUND, MUTED } from '../src/lib/brand.ts';
 import { SEAL_PATH, sealGrid } from '../src/lib/seal.ts';
-import { readFont } from '../src/lib/sfnt.ts';
 import { woff2ToSfnt } from '../src/lib/woff2.ts';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

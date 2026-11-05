@@ -1,8 +1,8 @@
 import { BRAND, FG_STRONG, ICON_GROUND, INK } from '../src/lib/brand.ts';
 import { SEAL_CELLS, SEAL_PATH } from '../src/lib/seal.ts';
-import { readFont } from '../src/lib/sfnt.ts';
 import { woff2ToSfnt } from '../src/lib/woff2.ts';
 import { encodeIco, encodePng, hex, sealImage } from './lib/raster.ts';
+import { readFont } from './lib/sfnt.ts';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
