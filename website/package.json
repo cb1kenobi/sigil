@@ -8,7 +8,7 @@
     "dev": "next dev",
     "ncu": "ncu -c 1d",
     "start": "next start",
-    "test": "node --test --experimental-test-module-mocks 'test/**/*.test.ts'"
+    "test": "node --test --experimental-test-module-mocks \"test/**/*.test.ts\""
   },
   "dependencies": {
     "next": "16.4.4",

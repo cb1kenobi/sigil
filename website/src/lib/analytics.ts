@@ -16,7 +16,8 @@ const configured = Boolean(
   process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN && process.env.NEXT_PUBLIC_POSTHOG_HOST
 );
 
-export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun';
+/** The install box's tabs (SIG-259), in the order it shows them. */
+export type PackageManager = 'vlt' | 'pnpm' | 'npm';
 
 /**
  * Every event this site sends, and the properties each one carries.
