@@ -1,3 +1,4 @@
+import { TTY_PRELOAD, typeKeys } from './tty-child.ts';
 import { spawn } from 'node:child_process';
 import {
   existsSync,
@@ -27,8 +28,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  * So this spawns. `runOnTerminal()` from `@ttylabs/sigil/testing` fakes the
  * three fields and deliberately writes **nothing** to the child's stdin, which
  * is right for every claim but this one: a prompt needs keys delivered over
- * time. So the preload is that helper's and the stdin writing is this file's,
- * which is the one thing it says it does not do.
+ * time. So the preload follows that helper and the keys are typed by
+ * `typeKeys()` in `./tty-child.ts`, which waits for the child to deal with each
+ * key before typing the next -- the one thing that helper says it does not do.
  *
  * It needs a built `dist/`, like everything else in this package -- and the
  * sharper form of that: it spawns the **built binary**, so an edit to `src/`
@@ -43,29 +45,6 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 /** Written as codes rather than bytes, because source carries no raw control. */
 const CR = String.fromCharCode(0x0d);
 const CTRL_C = String.fromCharCode(0x03);
-
-/**
- * A preload making the child's three streams answer `isTTY`.
- *
- * `Object.defineProperty` rather than an assignment, for the reason
- * `output-forms.test.ts` and `runOnTerminal()` both give: a piped
- * `process.stdout` is not a `tty.WriteStream` and what it does with a write to
- * a property it never declared is not a thing to depend on. **stdin** is in the
- * list here where those two have only the output streams, because the prompts
- * refuse to run unless *both* ends claim to be a terminal -- which is the
- * mechanism the no-TTY fallback is, so a preload that faked one of them would
- * be testing the fallback while believing it tested the prompt.
- */
-const TTY_PRELOAD = `data:text/javascript,${encodeURIComponent(
-  ['stdout', 'stderr', 'stdin']
-    .map(
-      (s) =>
-        `Object.defineProperty(process.${s},"isTTY",{configurable:true,value:true});` +
-        `Object.defineProperty(process.${s},"columns",{configurable:true,value:80});` +
-        `Object.defineProperty(process.${s},"rows",{configurable:true,value:24});`
-    )
-    .join('')
-)}`;
 
 /**
  * The app, which declares no `completion` of its own: the one under test is the
@@ -174,21 +153,7 @@ function run(
       settle({ code, stderr, stdout });
     });
 
-    // one key per tick rather than one write, which is the distinction
-    // `press()` is built around: a terminal delivers a keystroke as its own
-    // read, and two prompts in a row each need their own. The gap is generous
-    // because what is being waited for is a renderer's first frame
-    const keys = opts.keys ?? [];
-    let at = 0;
-    const next = (): void => {
-      if (at < keys.length) {
-        child.stdin.write(keys[at++]);
-        setTimeout(next, 250);
-      } else {
-        child.stdin.end();
-      }
-    };
-    setTimeout(next, 500);
+    typeKeys(child, opts.keys ?? []);
   });
 }
 
