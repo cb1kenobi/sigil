@@ -4,10 +4,13 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": ["VERCEL_ENV", "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", "NEXT_PUBLIC_POSTHOG_HOST"],
       "inputs": [
         "src/**",
         "scripts/**",
         "public/**",
+        ".env*",
+        "instrumentation-client.ts",
         "next.config.ts",
         "postcss.config.mjs",
         "tsconfig*.json",

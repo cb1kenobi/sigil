@@ -51,6 +51,11 @@ jobs:
       - name: Type check, lint and format check
         run: pnpm check
 
+      # The website's own tests (`website/test/`), which the root `pnpm test`
+      # does not reach: it runs vitest over `packages/*`.
+      - name: Website tests
+        run: pnpm --filter website test
+
   test:
     name: Test on node ${{ matrix.node }} and ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

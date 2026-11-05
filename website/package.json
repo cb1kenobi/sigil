@@ -10,10 +10,12 @@
     "fonts": "node scripts/fetch-fonts.ts",
     "fonts:check": "node scripts/fetch-fonts.ts --check",
     "ncu": "ncu -c 1d",
-    "start": "next start"
+    "start": "next start",
+    "test": "node --test --experimental-test-module-mocks \"test/**/*.test.ts\""
   },
   "dependencies": {
     "next": "16.4.4",
+    "posthog-js": "1.438.21",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-markdown": "10.1.0",
