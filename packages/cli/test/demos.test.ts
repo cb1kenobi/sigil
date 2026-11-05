@@ -165,6 +165,22 @@ const EXPECTED: Record<string, { code: number; stderr: RegExp }> = {
     code: 1,
     stderr: /^\s*Cannot prompt for "Project name" because the input is not a terminal\s*$/,
   },
+  // the two demos written on `runApp()`, which refuses without a terminal on both
+  // sides: nothing drawn, this one line on stderr, and 1 -- a frame of a
+  // full-screen app in a pipe is not useful output, and a refusal a script can
+  // detect is. `04-prompts.js` is the same rule for a prompt
+  'demos/element/06-panes.js': {
+    code: 1,
+    stderr: lines(
+      'Error: Cannot run an app because stdin or the output is not a terminal: it needs somebody to type and a screen to draw on'
+    ),
+  },
+  'demos/renderer/01-app.js': {
+    code: 1,
+    stderr: lines(
+      'Error: Cannot run an app because stdin or the output is not a terminal: it needs somebody to type and a screen to draw on'
+    ),
+  },
   // the demo *about* errors. Its narrative is stdout; what reaches stderr is
   // what `main()` rendered and then what a handler of the app's own did with
   // the same error -- a message each time, and never a stack, which is the

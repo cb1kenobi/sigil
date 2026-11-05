@@ -4,7 +4,7 @@ import { type App, AppContext, runApp, useApp } from '../../src/renderer/app.js'
 import { createEffect, onMount, useContext } from '../../src/renderer/index.js';
 import { State } from '../../src/signals/index.js';
 import { createTestTerminal, ctrl, KEYS, tick } from '../../src/testing/index.js';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * `runApp()`: the seven steps every interactive program used to write by hand,
@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 describe('runApp()', () => {
-  it('should draw on the alternate screen and give the screen back when Ctrl-C ends it', async () => {
+  it('should draw on the alternate screen and give the screen back when Ctrl-C ends it, with 130', async () => {
     const { app, term } = start(() => text('hello app'));
     app.view.frame();
 
@@ -45,7 +45,8 @@ describe('runApp()', () => {
     expect(app.interactive).toBe(true);
 
     await term.press(ctrl('c'));
-    await app.exited;
+    // what a shell reports for a program Ctrl-C interrupted
+    expect(await app.exited).toBe(130);
 
     expect(app.running).toBe(false);
     expect(term.screen.alternate).toBe(false);
@@ -59,7 +60,7 @@ describe('runApp()', () => {
   it('should end on Ctrl-D too, which is the rest of isAbort()', async () => {
     const { app, term } = start(() => text('x'));
     await term.press(ctrl('d'));
-    await app.exited;
+    expect(await app.exited).toBe(130);
     expect(app.running).toBe(false);
   });
 
@@ -83,12 +84,30 @@ describe('runApp()', () => {
     expect(app.input?.focus.ring()).toEqual([row]);
   });
 
-  it('should settle exited with the value exit() was given, once', async () => {
+  it('should settle exited with the code exit() was given, once', async () => {
     const { app } = start(() => text('x'));
-    const typed = app as App<string>;
-    typed.exit('first');
-    typed.exit('second');
-    await expect(typed.exited).resolves.toBe('first');
+    app.exit(3);
+    app.exit(4);
+    expect(await app.exited).toBe(3);
+  });
+
+  it('should settle exited with 0 for an exit() given no code', async () => {
+    const { app } = start(() => text('x'));
+    app.exit();
+    expect(await app.exited).toBe(0);
+  });
+
+  it('should touch neither process.exitCode nor process.exit()', async () => {
+    const quit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    try {
+      const { app } = start(() => text('x'));
+      app.exit(7);
+      expect(await app.exited).toBe(7);
+      expect(process.exitCode).toBeUndefined();
+      expect(quit).not.toHaveBeenCalled();
+    } finally {
+      quit.mockRestore();
+    }
   });
 
   it('should see the quit key before a focused element that claims every key', async () => {
@@ -129,15 +148,22 @@ describe('runApp()', () => {
   it('should end when the renderer is disposed from a handler', async () => {
     const { app } = start(() => text('x'));
     app.view.dispose();
-    await app.exited;
+    // the app ending itself, which is a clean exit
+    expect(await app.exited).toBe(0);
     expect(app.running).toBe(false);
   });
 
-  it('should end when stdin ends, since nobody is left to type', async () => {
+  it('should end with 129 when stdin ends, which is a terminal hanging up', async () => {
     const { app, term } = start(() => text('x'));
     term.stdin.end();
-    await app.exited;
+    expect(await app.exited).toBe(129);
     expect(app.running).toBe(false);
+  });
+
+  it('should end with 1 when stdin ends in an error', async () => {
+    const { app, term } = start(() => text('x'));
+    term.stdin.destroy(new Error('stdin broke'));
+    expect(await app.exited).toBe(1);
   });
 
   it('should end when a frame fails, with the terminal back before the error is reported', async () => {
@@ -164,7 +190,7 @@ describe('runApp()', () => {
 
     boom.set(true);
     app.view.frame();
-    await app.exited;
+    expect(await app.exited).toBe(1);
 
     expect(reports).toHaveLength(1);
     expect(reports[0]).toMatchObject({ alternate: false, raw: false });
@@ -205,10 +231,11 @@ describe('runApp()', () => {
     expect(term.lines.join('\n')).not.toContain('mount broke');
 
     app.exit();
-    await app.exited;
+    // survived, so the app ended itself; and the exit code is the app's to set
+    expect(await app.exited).toBe(0);
     expect(term.screen.alternate).toBe(false);
     expect(term.lines.join('\n')).toContain('mount broke');
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBeUndefined();
   });
 
   it('should hold an error reported after it started until the screen is back', async () => {
@@ -233,10 +260,10 @@ describe('runApp()', () => {
 
   it('should end cleanly when exit() is called while the component is still being built', async () => {
     const { app, term } = start(() => {
-      useApp().exit('early');
+      useApp().exit(4);
       return text('never shown for long');
     });
-    expect(await app.exited).toBe('early');
+    expect(await app.exited).toBe(4);
     expect(app.view.mounted).toBe(false);
     expect(term.screen.alternate).toBe(false);
     expect(term.stdin.rawMode).toBe(false);
@@ -259,18 +286,101 @@ describe('runApp()', () => {
     expect(term.output).not.toContain('\u001b[?2004h');
   });
 
-  it('should draw one inline frame and end at once when nobody can type', async () => {
-    const term = createTestTerminal({ columns: 30, inputTTY: false, rows: 6 });
-    const app = runApp(() => box({ 'flex-direction': 'column' }, text('one'), text('two')), {
-      terminal: term.terminal,
-    });
-    await app.exited;
+  it.each([
+    ['stdin is not a terminal', { inputTTY: false }, {}],
+    ['the output is not a terminal', { isTTY: false }, {}],
+    ['it was asked to draw inline', { inputTTY: false }, { fullscreen: false }],
+  ] as const)(
+    'should refuse with one line and 1, drawing nothing, when %s',
+    async (_, terminalOpts, appOpts) => {
+      const term = createTestTerminal({ columns: 30, rows: 6, ...terminalOpts });
+      let built = false;
+      const app = runApp(
+        () => {
+          built = true;
+          return text('a frame nobody asked for');
+        },
+        { terminal: term.terminal, ...appOpts }
+      );
 
-    expect(app.interactive).toBe(false);
-    expect(app.input).toBeUndefined();
+      expect(await app.exited).toBe(1);
+      expect(built).toBe(false);
+      expect(app.interactive).toBe(false);
+      expect(app.running).toBe(false);
+      expect(app.input).toBeUndefined();
+      expect(() => app.view).toThrow(/refused/);
+      expect(term.stdin.rawMode).toBe(false);
+      // nothing drawn: no alternate screen, no cursor hidden, no frame -- and one
+      // line, which went to stderr (the test terminal's one stream holds both)
+      expect(term.output).not.toContain('\u001b[?1049h');
+      expect(term.output).not.toContain('\u001b[?25l');
+      expect(term.output).not.toContain('a frame nobody asked for');
+      expect(term.output).toMatch(
+        /^Error: Cannot run an app because stdin or the output is not a terminal[^\n]*\n$/
+      );
+      expect(process.exitCode).toBeUndefined();
+    }
+  );
+
+  it('should write the refusal to stderr and nothing to stdout', async () => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const { createTerminal } = await import('../../src/terminal/index.js');
+    const proc = { listenerCount: () => 0, on: () => {}, removeListener: () => {} };
+    const terminal = createTerminal({
+      isTTY: false,
+      proc,
+      stderr: { write: (chunk: string) => err.push(chunk) > 0 },
+      stdout: { write: (chunk: string) => out.push(chunk) > 0 },
+    });
+    const app = runApp(() => text('x'), { terminal });
+    expect(await app.exited).toBe(1);
+    expect(out).toEqual([]);
+    expect(err.join('')).toMatch(/^Error: Cannot run an app because .*\n$/);
+    expect(err.join('').split('\n')).toHaveLength(2);
+  });
+
+  it('should end with 1 after a failed frame reported through the default onError', async () => {
+    const boom = new State(false);
+    const { app, term } = start(() => {
+      const label = text('');
+      createEffect(() => {
+        if (boom.get()) {
+          throw new Error('frame broke by default');
+        }
+        label.setText('fine');
+      });
+      return label;
+    });
+    app.view.frame();
+    boom.set(true);
+    app.view.frame();
+
+    expect(await app.exited).toBe(1);
+    expect(term.lines.join('\n')).toContain('frame broke by default');
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('should end with 1 when the first frame fails inside runApp()', async () => {
+    // a resize handler runs inside the first frame's layout, and `render()` paints
+    // that frame before it returns -- so the failure is reported before there is a
+    // renderer to ask whether it is still mounted
+    const reports: unknown[] = [];
+    const { app, term } = start(
+      () => {
+        const label = text('x');
+        label.onResize = () => {
+          throw new Error('first frame broke');
+        };
+        return label;
+      },
+      { onError: (error) => reports.push(error) }
+    );
+
+    expect(app.view.mounted).toBe(false);
+    expect(await app.exited).toBe(1);
+    expect(reports).toHaveLength(1);
     expect(term.screen.alternate).toBe(false);
-    expect(term.output).not.toContain('\u001b[?1049h');
-    expect(term.lines).toEqual(['one', 'two']);
   });
 
   it('should draw inline under the log, following its content, with fullscreen false', async () => {
@@ -405,13 +515,13 @@ describe('runApp()', () => {
 });
 
 describe('the README example', () => {
-  it('should run as written, and settle with what Enter saved', async () => {
+  it('should run as written, and settle with 0 when Enter ends it', async () => {
     function App() {
       const app = useApp();
       app.input?.bind((event) => {
         if (event.key.name === 'enter') {
           event.stop();
-          app.exit('saved');
+          app.exit();
         }
       });
       return box({ 'flex-grow': 1 }, text('Enter saves, Ctrl-C quits'));
@@ -423,7 +533,7 @@ describe('the README example', () => {
     app.view.frame();
     expect(term.viewport[0]).toContain('Enter saves');
     await term.press(KEYS.enter);
-    expect(await app.exited).toBe('saved');
+    expect(await app.exited).toBe(0);
   });
 });
 

@@ -765,8 +765,8 @@ SIG-276. `src/renderer/app.ts`, published as `@ttylabs/sigil/app`. Every interac
 demo assembled the same seven steps by hand -- both ends a terminal, `createInput()`,
 a cascade, a backend, `render()`, a quit key, and the teardown -- and Ink's whole
 first page is `render(<App />)`. `runApp(component, opts)` is those steps once, and
-returns an `App`: `exit(value?)`, `exited`, `input`, `view`, `terminal`,
-`interactive` and `running`. `useApp()` and `AppContext` are how a component reaches
+returns an `App`: `exit(code = 0)`, `exited` (a `Promise<number>`), `input`, `view`,
+`terminal`, `interactive` and `running`. `useApp()` and `AppContext` are how a component reaches
 it.
 
 - **A subpath of its own, which is the exception the root file asks to argue for
@@ -807,54 +807,82 @@ it.
   the origin is unknown and the next report asks again -- and every read after that
   is the backend's own. The alternative was building the backend before `render()`,
   which an inline app cannot do without losing the auto height above.
-- **The quit key is `isAbort()` and the first function binding, and it is not `q`.**
-  Raw mode makes Ctrl-C a key rather than a signal, so something has to bind it, and
-  binding it before the component runs puts it ahead of every binding the component
-  makes and ahead of the tree -- a focused field or an open dialog cannot swallow it.
-  `q` is not in the default for the same reason it works: a function binding sees
-  every key, so a default `q` would be a letter no text field could type. `quit`
-  takes a predicate, or `false` for an app that ends itself.
-- **`exited` never rejects, and a failure goes to `onError`.** `main()`'s rule and
-  its reason: what awaits this is a bin script, and an unhandled rejection dumping a
-  stack over a terminal just given back is the wrong default. The default `onError`
-  is `errorHandler()`, written **through the backend** rather than to stderr, which
-  is the one way it differs from `render()`'s: a full-screen backend holds a line
-  written while it owns the screen and writes it once the main screen is back, so an
-  `onMount` or a frame handler that threw is read afterwards instead of drawn into a
-  frame. A failed frame has stopped the backend before it is reported, and a stopped
-  backend writes straight through. What is reported before `render()` has returned
-  waits in a queue and goes through the backend once there is one, because the first
-  frame is painted inside `render()`.
-- **Every route out ends the app the same way.** `exit()`, the quit key, stdin
-  ending, `view.dispose()` and a failed frame -- the last two through
+- **The quit key is `isAbort()`, the first function binding, and 130 -- and it is
+  not `q`.** Raw mode makes Ctrl-C a key rather than a signal, so something has to
+  bind it, and binding it before the component runs puts it ahead of every binding
+  the component makes and ahead of the tree -- a focused field or an open dialog
+  cannot swallow it. 130 because that is what a shell reports for a program Ctrl-C
+  interrupted, and raw mode is the only reason this was a key instead. `q` is not in
+  the default for the same reason it works: a function binding sees every key, so a
+  default `q` would be a letter no text field could type. `quit` takes a predicate,
+  or `false` for an app that ends itself.
+- **`exited` is an exit code -- Chris's decision, and the reason is the design
+  rather than the type.** `exit(code = 0)` settles it with `code`; the quit key with
+  130; a failure that ended the app with 1, after `onError` has written it; the
+  refusal below with 1; stdin ending with 129, 128 plus `SIGHUP`, since a terminal
+  that went away is a hang-up, or 1 if it ended in an error; and `view.dispose()`
+  from the app's own code with 0. There is no generic value. Passing return values up
+  through layers of commands and contexts is the Vercel CLI's mistake -- every layer
+  coupled to the shape of the one below -- and `process.exitCode` is global state, so
+  `runApp()` does neither: it touches neither `process.exitCode` nor `process.exit()`
+  and resolves the code. Making it the process's is the app's one line,
+  `process.exitCode = await runApp(App).exited`, and inside a command's `run()` the
+  same line with nothing returned, for the reason the parser's output-formats entry
+  gives: what `run()` returns is the command's answer and is serialized under
+  `--format`. **The cost is real and is stated rather than hidden: an author who
+  ignores the resolved code exits 0**, after a Ctrl-C or a failure as much as after
+  a clean exit. An app that wants a stateful `App` class with an `exitCode` property
+  builds one on top. It never rejects, for `main()`'s reason: what awaits this is a
+  bin script, and an unhandled rejection dumping a stack over a terminal just given
+  back is the wrong default.
+- **A failure goes to `onError`, whose default writes one line through the backend
+  and sets no exit code.** `renderError()` rather than `errorHandler()`, because the
+  latter also writes `process.exitCode`, which is the global this module leaves
+  alone -- the 1 is `exited`'s to carry. Through the backend rather than to stderr,
+  which is the one way it differs from `render()`'s default: a full-screen backend
+  holds a line written while it owns the screen and writes it once the main screen is
+  back, so an `onMount` or a frame handler that threw is read afterwards instead of
+  drawn into a frame. A failed frame has stopped the backend before it is reported,
+  and a stopped backend writes straight through. What is reported while `render()`
+  is still running waits in a queue and goes through the backend once there is one,
+  because the first frame is painted inside `render()`. Which error ended the app is
+  read off the renderer: one that is no longer mounted when the report arrives is one
+  that failed, because `fail()` tears down first and reports second -- so the
+  `onDispose()` handler reads the code a microtask later, once the report has said.
+- **Every route out ends the app the same way, each with its code.** `exit()`, the
+  quit key, stdin ending, `view.dispose()` and a failed frame -- the last two through
   `Renderer.onDispose()`, which fires on both. A throw from the component's body
   propagates from `runApp()` with the router stopped and the terminal back, which is
   `render()`'s rule: there is a caller on the stack, and inside a command's `run()`
-  that caller is `main()`, which renders it. A signal is the terminal's own restore
-  handlers, as it always was; the runner adds none.
+  that caller is `main()`, which renders it and sets the code itself. A signal is
+  the terminal's own restore handlers, as it always was; the runner adds none.
 - **The teardown is the renderer, the router, then `restore()`.** The router is the
   half `restore()` cannot do -- raw mode comes back through either, but a `data`
   listener left on stdin holds the process open after the last frame -- and
   `restore()` is the guarantee: a cursor the app hid itself is one no backend owes
   back. The first two are in the reverse of the order they went up, and that is
   tidiness rather than a dependency; the opposite order changed nothing observable.
-- **`exit()` runs the teardown on a microtask, and the first value wins.** Called
+- **`exit()` runs the teardown on a microtask, and the first code wins.** Called
   from the component's body, a synchronous teardown ran before `render()` had
   finished, so the app reported itself gone while `render()` went on to mount, enter
   the alternate screen and paint. A microtask lands after `runApp()` has returned
   whichever context it is called from. A second call does nothing, so a quit key and
   a button arriving together settle `exited` once, with the first.
-- **With nobody to type, one inline frame and done. Provisional -- the ticket's
-  alternative was refusing with a message, the way the demos used to.** A full-screen
-  app in a pipe has no keys to read and no screen to own, and the most honest thing
-  it can say there is one frame of plain text: it is what `app | cat` and a CI log
-  want, it exits `0`, and `demos.test.ts` spawns every demo that way, so two of them
-  now print a frame where they printed an apology. `interactive` tells the code
-  which happened, and `input` is `undefined` there.
+- **No terminal on both ends is a refusal -- Chris's decision.** Where stdin or the
+  output is not a terminal, inline as well as full screen, `runApp()` builds no
+  router and no renderer, never calls the component, draws nothing, writes one line
+  to stderr through `onError` and settles `exited` with 1 at once. A single frame of
+  a full-screen app in a pipe is not useful output, and a refusal a script can detect
+  is. A terminal handed in is asked the same question, which is how a test runs one:
+  `createTestTerminal()` claims to be a terminal on both streams, and one built with
+  `inputTTY: false` or `isTTY: false` is refused like a pipe. The provisional first
+  answer -- one inline frame and exit 0 -- is gone with its tests. The two demos on
+  the runner exit 1 with that line when piped, and `demos.test.ts` lists them beside
+  `04-prompts.js`, which is the same rule for a prompt.
 - **`detect` is on by default here and nowhere else.** The rule against probing is a
   CLI paying a round trip to print one line; an app is the long-lived interactive
-  program that rule was never about, the first frame does not wait for the answer,
-  and an app with nobody to type never asks.
+  program that rule was never about, and the first frame does not wait for the
+  answer.
 - **One hook, `useApp()`, and it throws outside an app.** `useInput()` would be a
   second context for a field of the first. Throwing rather than answering
   `undefined` is because a hook every caller has to guard is a hook nobody guards;
@@ -866,16 +894,19 @@ it.
   `enableDebugOverlay(app.view, { input: app.input })`. An option would put the
   overlay's scroll box and log ring on every app's graph for an instrument most
   never open, or make the option an `await import()` whose handle arrives late.
-- **Sabotage: twenty-three, nine survivors on the first pass.** Six were made to
-  fail by a new test -- the router left listening (twice: on exit and on a body that
-  throws), `restore()` dropped, a synchronous `exit()`, an error written straight to
-  the terminal while mounted, and `paste: false` ignored. Two were deleted: a
-  `view.frame()` after a non-interactive `render()`, which had already painted, and a
-  `running` guard on a probe's rejection, which a stopped router cannot produce. One
-  is declared above, the teardown order. The other fourteen were caught first time.
+- **Sabotage, in two passes.** The first was twenty-three, with nine survivors: six
+  were made to fail by a new test -- the router left listening (twice: on exit and
+  on a body that throws), `restore()` dropped, a synchronous `exit()`, an error
+  written straight to the terminal while mounted, and `paste: false` ignored -- and
+  two were deleted: a `view.frame()` after a non-interactive `render()`, which had
+  already painted, and a `running` guard on a probe's rejection, which a stopped
+  router cannot produce. The second, after the exit codes and the refusal, was
+  thirty-four: fifteen new and nineteen of the first re-run against the new code.
+  Thirty-two were caught. One survivor was dead code and is gone -- a `!exiting`
+  clause on the failure flag, which `exit()`'s own guard already made irrelevant --
+  and the other is the teardown order, declared above.
 - **Not done:** capturing `console.log()` while the app owns the screen, which
   writes straight into the alternate buffer today -- `backend.write()` holds a line
   and the debug overlay's `captureConsole()` shows one, and neither is automatic;
-  an `App` handle to a router the caller built, since the host is what makes the
-  router exist at build time; and an exit code for the quit key, which is left alone
-  the way `main()` leaves a clean run.
+  and an `App` handle to a router the caller built, since the host is what makes the
+  router exist at build time.

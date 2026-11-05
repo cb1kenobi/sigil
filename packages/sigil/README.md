@@ -5734,7 +5734,7 @@ Four things about it that are decisions rather than gaps:
 
 One call from a component to a running full-screen program: the terminal check,
 the router, the framework sheet, the alternate screen, a quit key, and all of it
-put back on the way out.
+put back on the way out. It resolves an **exit code**.
 
 ```js
 import { runApp, useApp } from '@ttylabs/sigil/app';
@@ -5745,30 +5745,57 @@ function App() {
   app.input?.bind((event) => {
     if (event.key.name === 'enter') {
       event.stop();
-      app.exit('saved');
+      app.exit(); // 0
     }
   });
   return box({ 'flex-grow': 1 }, text('Enter saves, Ctrl-C quits'));
 }
 
-const result = await runApp(App, { sheets: ['.title { font-weight: bold }'] }).exited;
+process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] }).exited;
 ```
 
-| Option                         | Default       | What it does                                                                                |
-| ------------------------------ | ------------- | ------------------------------------------------------------------------------------------- |
-| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log             |
-| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                               |
-| `theme`                        | none          | A theme sheet                                                                               |
-| `cascade`                      | themed        | The whole cascade, in place of the themed one                                               |
-| `quit`                         | `isAbort`     | Which key ends the app; checked before anything else sees the key. `false` binds nothing    |
-| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                  |
-| `detect`                       | `true`        | Asks the terminal for its background and colour depth once the app is up                    |
-| `onError`                      | rendered      | Where a failure goes; by default rendered as `main()` renders one, after the screen is back |
-| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                               |
+| Option                         | Default       | What it does                                                                                       |
+| ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------- |
+| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                    |
+| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                      |
+| `theme`                        | none          | A theme sheet                                                                                      |
+| `cascade`                      | themed        | The whole cascade, in place of the themed one                                                      |
+| `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing |
+| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                         |
+| `detect`                       | `true`        | Asks the terminal for its background and colour depth once the app is up                           |
+| `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                      |
+| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                      |
 
-`runApp()` returns an `App`: `exit(value?)`, `exited` (a promise that settles
-with that value once the terminal is back, and never rejects), `input`, `view`
-(the `Renderer`), `terminal`, `interactive` and `running`.
+`runApp()` returns an `App`: `exit(code = 0)`, `exited`, `input`, `view` (the
+`Renderer`), `terminal`, `interactive` and `running`.
+
+**`exited` is the exit code, and setting the process's is yours.**
+
+| How the app ended                              | `exited`                                       |
+| ---------------------------------------------- | ---------------------------------------------- |
+| `exit(code)`, or `exit()`                      | `code`, or `0`                                 |
+| The quit key (Ctrl-C, Ctrl-D)                  | `130`, what a shell reports for Ctrl-C         |
+| A failed frame, after `onError` has written it | `1`                                            |
+| No terminal on both ends -- a refusal          | `1`                                            |
+| stdin ended under it, or ended in an error     | `129`, a terminal hanging up; `1` for an error |
+| `view.dispose()` from the app's own code       | `0`                                            |
+
+`runApp()` touches neither `process.exitCode` nor `process.exit()`, and does not
+hand a value back up through the layers that called it: the exit code is global
+state, and setting it is one line in the app rather than a side effect of a
+library call. **The cost is that an author who ignores the code exits `0`** --
+including after Ctrl-C or a failure. An app that wants a stateful object with an
+`exitCode` property builds one on top. Inside a command, set it and return
+nothing, so the code is not mistaken for the command's result -- which `main()`
+hands back, and serializes when `--format` was asked for:
+
+```js
+command({
+  run: async () => {
+    process.exitCode = await runApp(Dashboard).exited;
+  },
+});
+```
 
 - **The router exists while the component is being built.** The component goes
   inside a host box the router was built over, so `useApp().input` is there in
@@ -5782,10 +5809,12 @@ with that value once the terminal is back, and never rejects), `input`, `view`
   from the component's body propagates from `runApp()` with the terminal already
   restored, as it does from `render()`. A signal is the terminal's own business,
   as it always was.
-- **Nobody to type means one frame.** Where stdin or the output is not a terminal
-  the app draws one inline frame, unmounts and settles `exited` at once -- so
-  `myapp | cat` prints a screen and exits `0` rather than failing.
-- **Testing** is the same call over `createTestTerminal()`:
+- **No terminal means a refusal.** Where stdin or the output is not a terminal,
+  inline or full screen, `runApp()` builds and draws nothing, writes one line to
+  stderr and settles `exited` with `1`. A frame of a full-screen app in a pipe is
+  not useful output; a refusal a script can detect is. `myapp | cat` exits `1`.
+- **Testing** is the same call over `createTestTerminal()`, whose streams claim to
+  be a terminal:
 
   ```js
   const term = createTestTerminal({ columns: 40, rows: 10 });
@@ -5793,7 +5822,7 @@ with that value once the terminal is back, and never rejects), `input`, `view`
   app.view.frame();
   expect(term.viewport[0]).toContain('Enter saves');
   await term.press(KEYS.enter);
-  expect(await app.exited).toBe('saved');
+  expect(await app.exited).toBe(0);
   ```
 
 The debug overlay is one line on top, rather than an option, so that an app that

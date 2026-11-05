@@ -2,7 +2,7 @@
  * The hit test made visible: two scrolling panes, an overlay, and a full screen.
  *
  *   node demos/element/06-panes.js        <- hover, scroll, click, q
- *   node demos/element/06-panes.js | cat  <- no mouse to read: one frame, and done
+ *   node demos/element/06-panes.js | cat  <- refuses: one line on stderr, exit 1
  *
  * The other two mouse demos are inline canvases, which is where the hard part of
  * translating a report lives: an inline canvas does not know which screen row it is
@@ -33,7 +33,6 @@
  */
 import { runApp, useApp } from '@ttylabs/sigil/app';
 import { box, text } from '@ttylabs/sigil/element';
-import { isAbort } from '@ttylabs/sigil/input';
 import { createEffect } from '@ttylabs/sigil/renderer';
 import { State } from '@ttylabs/sigil/signals';
 
@@ -74,7 +73,14 @@ const App = () => {
   // `hovered` is the innermost element under the pointer, and it is `undefined`
   // wherever the pointer is over nothing -- including over a row that has been
   // scrolled out of its pane, which is the clip doing its job
-  const { input } = useApp();
+  const app = useApp();
+  const { input } = app;
+  input?.bind((event) => {
+    if (event.key.name === 'q') {
+      event.stop();
+      app.exit();
+    }
+  });
   input?.onMouse(() => {
     const it = input.hovered;
     under.set(it ? (it.id ?? `a ${it.type} inside ${it.parent?.id ?? 'the tree'}`) : 'nothing');
@@ -168,13 +174,12 @@ const App = () => {
 // hand-wiring asked for: `runApp()` hands the router the renderer's backend as
 // the surface a report is translated against, and puts the screen back on the
 // way out -- before the summary is printed, which is what leaving the alternate
-// buffer is for. Piped, it draws the panes once and prints the same summary
-const app = runApp(App, {
-  mouse: { motion: true },
-  quit: (key) => isAbort(key) || key.name === 'q',
-  sheets: [sheet],
-});
-await app.exited;
-console.log(`  picked: ${picked.get()}`);
-console.log(`  ${scrolled.get()}`);
-console.log('  one hit test for a clip, a scroll offset and a stacking order');
+// buffer is for. `q` is the app choosing to go and exits 0, Ctrl-C is 130, and
+// piped it refuses with 1, because there is no mouse and no screen to own
+const app = runApp(App, { mouse: { motion: true }, sheets: [sheet] });
+process.exitCode = await app.exited;
+if (app.interactive) {
+  console.log(`  picked: ${picked.get()}`);
+  console.log(`  ${scrolled.get()}`);
+  console.log('  one hit test for a clip, a scroll offset and a stacking order');
+}

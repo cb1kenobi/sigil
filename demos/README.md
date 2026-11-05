@@ -1224,8 +1224,16 @@ it covers a pane and the pane underneath does not light up.
 It is also the demo written on `runApp()`, because the wiring it used to carry is
 exactly what the runner is: a full-screen backend, a router given that backend as
 the surface a report is translated against, a quit key, and the screen back before
-the summary is printed. So piped, where there is no mouse and no screen to own, it
-draws the panes once and prints the same summary rather than refusing.
+the summary is printed. `q` exits `0` and Ctrl-C `130`, the code the demo hands
+`process.exitCode`. Piped, where there is no mouse and no screen to own, the runner
+refuses -- one line on stderr and exit `1`, which a script can test for, where one
+frame of a full-screen app would be output nobody can use:
+
+```sh
+node demos/element/06-panes.js | cat; echo $?
+# Error: Cannot run an app because stdin or the output is not a terminal: it needs somebody to type and a screen to draw on
+# 1
+```
 
 **`07-selection.js`** is selection and the clipboard. Drag to select, alt-drag for
 a rectangle -- which is what copies one pane of a two-column layout without the
@@ -1364,9 +1372,12 @@ node demos/renderer/02-tasks.js | cat
 ```
 
 `01-app.js` is written on `runApp()`, which asks the same question and answers it
-differently: an app with nobody to type draws one frame, unmounts, and exits `0`,
-so `node demos/renderer/01-app.js | cat` prints the list and the body count. The
-runner is what the hand-wired guard below was standing in for.
+as a refusal a script can detect: one line on stderr and exit `1`, the same rule
+`04-prompts.js` follows for a prompt. Run in a terminal, `q` exits `0` and Ctrl-C
+`130`; the runner resolves the code and the demo's last lines set
+`process.exitCode` from it, because `runApp()` touches neither that nor
+`process.exit()`. The runner is what the hand-wired guard below was standing in
+for.
 
 Both sides is the point rather than pedantry, and `| cat` is exactly the case that
 needs it: run from a terminal, stdin is still a TTY while stdout is a pipe. A guard

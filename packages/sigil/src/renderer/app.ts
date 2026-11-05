@@ -18,14 +18,19 @@
  *   app.input?.bind((event) => {
  *     if (event.key.name === 'enter') {
  *       event.stop();
- *       app.exit('saved');
+ *       app.exit(); // 0
  *     }
  *   });
  *   return box({ 'flex-grow': 1 }, text('Enter saves, Ctrl-C quits'));
  * }
  *
- * const result = await runApp(App).exited; // 'saved', or undefined for Ctrl-C
+ * process.exitCode = await runApp(App).exited; // 0, 130 for Ctrl-C, 1 for a failure
  * ```
+ *
+ * It resolves an exit code and touches neither `process.exitCode` nor
+ * `process.exit()`: the process's exit code is global state, and setting it is
+ * the app's one line rather than a side effect of a library call. The cost is
+ * stated rather than hidden -- an author who ignores the resolved code exits `0`.
  *
  * A subpath of its own, `@ttylabs/sigil/app`, which is the exception the root
  * `AGENTS.md` asks to argue for itself, and the argument is the import graph:
@@ -38,7 +43,7 @@
 import { createFullscreenCanvas } from '../canvas/index.js';
 import type { CanvasBackend } from '../canvas/index.js';
 import { box, type Element } from '../element/index.js';
-import { errorHandler } from '../error-handler.js';
+import { renderError } from '../error-handler.js';
 import type { DetectOptions } from '../input/capabilities.js';
 import {
   canReadKeys,
@@ -70,9 +75,8 @@ export interface AppOptions extends Pick<
   /**
    * Where frames go, in place of the one the app would pick.
    *
-   * For a test or an unusual destination. Without one, an interactive app draws
-   * on the alternate screen, or inline with `fullscreen: false`, and an app with
-   * nobody to type draws one inline frame -- see `interactive`.
+   * For a test or an unusual destination. Without one, the app draws on the
+   * alternate screen, or inline with `fullscreen: false`.
    */
   backend?: CanvasBackend;
   /**
@@ -92,7 +96,7 @@ export interface AppOptions extends Pick<
    * default here and nowhere else, because the rule it would break is a CLI
    * paying a round trip to print one line -- and an app is the long-lived,
    * interactive program that rule was never about. The first frame does not wait
-   * for it, and an app with nobody to type never asks.
+   * for it.
    */
   detect?: boolean | DetectOptions;
   /**
@@ -118,9 +122,10 @@ export interface AppOptions extends Pick<
    *
    * Checked before anything else sees the key -- the router's function bindings
    * run first and this is the first of them -- so a focused field or an open
-   * dialog cannot swallow it. `false` binds nothing, for an app that decides for
-   * itself when to go; then something has to call `exit()`, because raw mode
-   * means Ctrl-C is a key and never a signal.
+   * dialog cannot swallow it. It ends the app with 130, the code a shell gives a
+   * program interrupted by Ctrl-C, since raw mode turned that interruption into
+   * a key. `false` binds nothing, for an app that decides for itself when to go;
+   * then something has to call `exit()`.
    */
   quit?: false | ((key: Key) => boolean);
   /**
@@ -142,47 +147,55 @@ export interface AppOptions extends Pick<
 }
 
 /** A running app, and the way to end it. */
-export interface App<T = unknown> {
+export interface App {
   /**
    * Ends the app: unmounts the tree, gives the keys and the screen back, and
-   * settles `exited` with `value`.
+   * settles `exited` with `code`.
    *
    * Safe from anywhere -- a key handler, an effect, a frame -- because the
    * teardown runs on the next microtask rather than underneath whatever called
    * it. The second call does nothing, so a quit key and a button that arrive
-   * together settle it once, with the first value.
-   */
-  exit(value?: T): void;
-  /**
-   * Settles once the app has gone and the terminal is back as it was.
+   * together settle it once, with the first code.
    *
-   * With the value `exit()` was given, and `undefined` for anything else: the
-   * quit key, `view.dispose()`, a failed frame, or an app with nobody to type.
-   * It never rejects. A failure is reported to `onError` -- by default rendered
-   * the way `main()` renders one, with `process.exitCode` set -- for the reason
-   * `main()` resolves rather than rejects: what awaits this is a bin script, and
-   * an unhandled rejection dumping a stack over a terminal that was just given
-   * back is the wrong default.
+   * @param code - The exit code. Defaults to `0`.
    */
-  readonly exited: Promise<T | undefined>;
+  exit(code?: number): void;
   /**
-   * The router: keys, focus and the mouse. `undefined` when not `interactive`.
+   * The exit code, once the app has gone and the terminal is back as it was.
+   *
+   * What `exit()` was given; `130` for the quit key, which is what a shell
+   * reports for Ctrl-C; `1` for a failure that ended the app, after `onError`
+   * has written it; `1` for a refusal to start without a terminal; `129` when
+   * stdin ended under the app, which is the shell's code for a terminal that
+   * hung up, and `1` if it ended in an error; and `0` for an app the code ended
+   * itself with `view.dispose()`.
+   *
+   * A code rather than a value, and handed back rather than set. Passing return
+   * values up through layers of commands and contexts couples every layer to the
+   * one below it, and `process.exitCode` is global state, so `runApp()` does
+   * neither: it never touches `process.exitCode` or `process.exit()`. An app that
+   * wants the process to exit with it says so in one line --
+   * `process.exitCode = await app.exited` -- and one that ignores it exits `0`.
+   * It never rejects, for the reason `main()` resolves: what awaits this is a bin
+   * script, and an unhandled rejection dumping a stack over a terminal that was
+   * just given back is the wrong default.
+   */
+  readonly exited: Promise<number>;
+  /**
+   * The router: keys, focus and the mouse. `undefined` for an app that refused.
    *
    * Already built while the component's body runs, which is what `useApp()` is
    * for: a control that needs the focus ring can have it at build time.
    */
   readonly input: InputRouter | undefined;
   /**
-   * Whether anybody can type: stdin and the output both terminals.
+   * Whether the app started: stdin and the output both terminals.
    *
-   * When not, the app draws one inline frame, unmounts, and is over -- `exited`
-   * settles at once. A full-screen app in a pipe has nobody to read its keys and
-   * no screen to own, and one frame of plain text is the most honest thing it can
-   * say there: it is what `app | cat` and a CI log are for, and it exits zero
-   * rather than failing a script that only wanted to see it.
+   * `false` is a refusal. Nothing was drawn, one line went to stderr, and
+   * `exited` settled with `1` at once -- see `runApp()`.
    */
   readonly interactive: boolean;
-  /** `true` until the app has finished going. */
+  /** `true` until the app has finished going. `false` from the start for a refusal. */
   readonly running: boolean;
   /** The terminal the app is drawing on. */
   readonly terminal: Terminal;
@@ -191,10 +204,24 @@ export interface App<T = unknown> {
    *
    * Not yet there while the component's body runs, because the body is how the
    * renderer gets its tree -- reading it then throws rather than answering
-   * `undefined`. A body that wants it reads it in `onMount()` or a handler.
+   * `undefined`. A body that wants it reads it in `onMount()` or a handler. An
+   * app that refused to start has none, and reading it throws too.
    */
   readonly view: Renderer;
 }
+
+/**
+ * The exit code for the quit key: what a shell reports for a program Ctrl-C
+ * interrupted, which is 128 plus `SIGINT`'s 2. Raw mode turns that interruption
+ * into a key, so the code the shell would have reported is the one handed back.
+ */
+const EXIT_INTERRUPTED = 130;
+
+/** The exit code for stdin ending: 128 plus `SIGHUP`'s 1, a terminal hanging up. */
+const EXIT_HUNG_UP = 129;
+
+/** The exit code for a failure: an error that ended the app, or a refusal to start. */
+const EXIT_FAILED = 1;
 
 /**
  * The app everything inside `runApp()` is built under, or `undefined` outside one.
@@ -224,23 +251,31 @@ export const AppContext: Context<App | undefined> = createContext<App | undefine
  * @throws Outside `runApp()`, rather than answering `undefined` and leaving every
  *   caller to guard -- a component that can do without one reads `AppContext`.
  */
-export function useApp<T = unknown>(): App<T> {
+export function useApp(): App {
   const app = useContext(AppContext);
   if (app === undefined) {
     throw new Error('useApp() was called outside runApp(): read it in a component body under one');
   }
-  return app as App<T>;
+  return app;
 }
 
 /**
  * Mounts a component as an app, and runs it until it is told to stop.
+ *
+ * **Without a terminal on both ends it refuses.** Where stdin or the output is
+ * not a terminal it draws nothing, writes one error line to stderr through
+ * `onError`, builds no router and no renderer, and settles `exited` with `1` at
+ * once -- inline as well as full screen. A frame of a full-screen app in a pipe is
+ * not useful output, and a refusal a script can detect is. A terminal handed in
+ * as `terminal` is asked the same question, which is how a test runs one: the
+ * testing terminal says yes.
  *
  * @param component - Builds the app's root element. Runs once, under the app.
  * @param opts - The terminal, the sheets, and how it ends.
  * @returns The app. A throw from the component's body propagates from here, with
  *   the terminal already given back, as it does from `render()`.
  */
-export function runApp<T = unknown>(component: () => Element, opts: AppOptions = {}): App<T> {
+export function runApp(component: () => Element, opts: AppOptions = {}): App {
   const terminal = opts.terminal ?? defaultTerminal;
   const stdin = opts.stdin ?? (terminal.stdin as InputStream | undefined);
   const interactive = stdin !== undefined && canReadKeys({ stdin, terminal });
@@ -248,16 +283,24 @@ export function runApp<T = unknown>(component: () => Element, opts: AppOptions =
 
   let view: Renderer | undefined;
   let input: InputRouter | undefined;
-  let running = true;
+  let running = interactive;
   let exiting = false;
-  let result: T | undefined;
-  let settle: (value: T | undefined) => void = () => {};
-  const exited = new Promise<T | undefined>((resolve) => {
+  /** Whether `render()` is on the stack, which is when a report has nowhere to go yet. */
+  let rendering = false;
+  /** Whether an error ended the app, which decides the code the renderer going ends it with. */
+  let failed = false;
+  let code = 0;
+  let settle: (code: number) => void = () => {};
+  const exited = new Promise<number>((resolve) => {
     settle = resolve;
   });
 
   /**
-   * Renders an error the way `main()` does, through the backend.
+   * Writes an error as `main()` would, through the backend, and sets no exit code.
+   *
+   * `renderError()` rather than `errorHandler()`, because the latter also sets
+   * `process.exitCode` -- the global state this module does not touch. The code is
+   * `exited`'s to carry.
    *
    * Through the backend rather than straight to stderr, which is the one thing
    * that differs from `render()`'s default: a full-screen backend holds a line
@@ -266,25 +309,39 @@ export function runApp<T = unknown>(component: () => Element, opts: AppOptions =
    * middle of a frame. A failed frame has already stopped the backend by the time
    * it is reported, and a stopped backend writes straight through.
    *
-   * What is reported before there is a renderer to ask waits in `early`: the
-   * first frame is painted inside `render()`, so an `onMount` that throws on it
-   * is reported before `render()` has returned the backend it should go through.
+   * What is reported while `render()` is still running waits in `early`: the
+   * first frame is painted inside `render()`, so an `onMount` that throws on it is
+   * reported before `render()` has returned the backend it should go through.
+   * With no renderer coming at all, which is a refusal, it goes straight out.
    */
   function reportError(error: unknown): void {
-    errorHandler(error, {
-      stderr: {
-        write(chunk: string): boolean {
-          if (view) {
-            view.backend.write(chunk, 'stderr');
-          } else {
-            early.push(chunk);
-          }
-          return true;
-        },
-      } as NodeJS.WritableStream,
-    });
+    const line = `${renderError(error).replace(/[\r\n]+$/, '')}\n`;
+    if (view) {
+      view.backend.write(line, 'stderr');
+    } else if (rendering) {
+      early.push(line);
+    } else {
+      terminal.writeErr(line);
+    }
   }
   const early: string[] = [];
+
+  /**
+   * Reports an error, and remembers whether it was the one that ended the app.
+   *
+   * A renderer that is no longer mounted when an error reaches it is one that
+   * failed -- `fail()` tears down first and reports second -- while a report from
+   * a mounted renderer is an `onMount` or a frame handler, which it survives. An
+   * error during a teardown `exit()` already asked for flags it too, harmlessly:
+   * the code was fixed by that `exit()`, and the second one this would feed does
+   * nothing.
+   */
+  function reported(error: unknown): void {
+    report(error);
+    if (view !== undefined && !view.mounted) {
+      failed = true;
+    }
+  }
 
   /**
    * Takes everything down: the renderer, the router, then whatever is left.
@@ -313,20 +370,20 @@ export function runApp<T = unknown>(component: () => Element, opts: AppOptions =
     } finally {
       input?.stop();
       terminal.restore();
-      settle(result);
+      settle(code);
     }
   }
 
-  const app: App<T> = {
-    exit(value?: T): void {
+  const app: App = {
+    exit(next = 0): void {
       if (exiting) {
         return;
       }
       exiting = true;
-      result = value;
-      // a microtask rather than now: `exit()` is called from key handlers, from
-      // effects and from inside a frame, and unmounting the tree underneath any
-      // of those is the re-entrancy `runFrame()` already refuses
+      code = next;
+      // a microtask rather than now: called from the component's body, a
+      // synchronous teardown ran before `render()` had finished, so the app said
+      // it was gone while `render()` went on to mount and paint
       queueMicrotask(finish);
     },
     exited,
@@ -341,54 +398,68 @@ export function runApp<T = unknown>(component: () => Element, opts: AppOptions =
     get view(): Renderer {
       if (view === undefined) {
         throw new Error(
-          'App.view is not there while the component is being built: read it in onMount()'
+          interactive
+            ? 'App.view is not there while the component is being built: read it in onMount()'
+            : 'App.view is not there because runApp() refused to start without a terminal'
         );
       }
       return view;
     },
   };
 
+  if (!interactive) {
+    // nothing built, nothing drawn: one line, and a code a script can test
+    reported(
+      new Error(
+        'Cannot run an app because stdin or the output is not a terminal: it needs somebody to type and a screen to draw on'
+      )
+    );
+    settle(EXIT_FAILED);
+    return app;
+  }
+
   // the host the component's root goes in, built first so that the router can
   // exist before the component does -- a router is built over a root, and the
   // component's own root is not a thing anybody has until its body has run
   const host = box({ class: 'sigil-app', 'flex-direction': 'column' });
 
-  if (interactive) {
-    const mouse = opts.mouse;
-    input = createInput({
-      mouse: mouse
-        ? { motion: mouse !== true && mouse.motion === true, surface: lateSurface(() => view) }
-        : undefined,
-      paste: opts.paste,
-      root: host,
-      stdin,
-      terminal,
+  const mouse = opts.mouse;
+  const router = createInput({
+    mouse: mouse
+      ? { motion: mouse !== true && mouse.motion === true, surface: lateSurface(() => view) }
+      : undefined,
+    paste: opts.paste,
+    root: host,
+    stdin,
+    terminal,
+  });
+  input = router;
+
+  const quit = opts.quit ?? isAbort;
+  if (quit !== false) {
+    // first, so that it sees every key before anything the component binds
+    router.bind((event) => {
+      if (quit(event.key)) {
+        event.stop();
+        app.exit(EXIT_INTERRUPTED);
+      }
     });
-
-    const quit = opts.quit ?? isAbort;
-    if (quit !== false) {
-      // first, so that it sees every key before anything the component binds
-      input.bind((event) => {
-        if (quit(event.key)) {
-          event.stop();
-          app.exit();
-        }
-      });
-    }
-    // stdin ending is somebody hanging up, and an app nobody can type to is over
-    input.onEnd(() => app.exit());
   }
+  // stdin ending is the terminal hanging up, and an app nobody can type to is over
+  router.onEnd((error) => app.exit(error === undefined ? EXIT_HUNG_UP : EXIT_FAILED));
 
-  const fullscreen = opts.fullscreen !== false && interactive;
+  rendering = true;
   try {
     view = render(
       () =>
-        provideContext(AppContext, app as App, () => {
+        provideContext(AppContext, app, () => {
           host.append(component());
           return host;
         }),
       {
-        backend: opts.backend ?? (fullscreen ? createFullscreenCanvas({ terminal }) : undefined),
+        backend:
+          opts.backend ??
+          (opts.fullscreen === false ? undefined : createFullscreenCanvas({ terminal })),
         cascade:
           opts.cascade ??
           themedCascade({
@@ -403,7 +474,7 @@ export function runApp<T = unknown>(component: () => Element, opts: AppOptions =
         frameMs: opts.frameMs,
         gatherStats: opts.gatherStats,
         now: opts.now,
-        onError: report,
+        onError: reported,
         reducedMotion: opts.reducedMotion,
         terminal,
       }
@@ -412,32 +483,36 @@ export function runApp<T = unknown>(component: () => Element, opts: AppOptions =
     // `render()` has already given the terminal back; the router is the one
     // thing it did not know about
     running = false;
-    input?.stop();
-    for (const chunk of early.splice(0)) {
-      terminal.writeErr(chunk);
+    router.stop();
+    for (const line of early.splice(0)) {
+      terminal.writeErr(line);
     }
     throw error;
+  } finally {
+    rendering = false;
   }
 
-  for (const chunk of early.splice(0)) {
-    view.backend.write(chunk, 'stderr');
+  for (const line of early.splice(0)) {
+    view.backend.write(line, 'stderr');
+  }
+
+  // a first frame that failed inside `render()` was reported before there was a
+  // renderer to ask whether it had gone
+  if (!view.mounted) {
+    failed = true;
   }
 
   // the renderer going by any route ends the app: `view.dispose()` from a
-  // handler, or a frame that failed -- which has put the terminal back and is
-  // about to report why
-  view.onDispose(() => app.exit());
+  // handler, which is the app ending itself, or a frame that failed -- which
+  // tears down first and reports second, so the code is read a microtask later,
+  // once the report has said which it was
+  view.onDispose(() => queueMicrotask(() => app.exit(failed ? EXIT_FAILED : 0)));
 
-  if (!interactive) {
-    // one frame, then gone: there is nobody to type and nothing to own. The frame
-    // is `render()`'s own first one, which is synchronous, so all that is left to
-    // do here is leave
-    app.exit();
-  } else if (opts.detect !== false && input) {
+  if (opts.detect !== false) {
     // a probe rejects only where the query could not be written, which is a fault
     // rather than a quiet terminal -- and a stopped router writes nothing, so
     // there is no late rejection to guard against once the app has gone
-    view.detect(input, typeof opts.detect === 'object' ? opts.detect : undefined).catch(report);
+    view.detect(router, typeof opts.detect === 'object' ? opts.detect : undefined).catch(report);
   }
 
   return app;

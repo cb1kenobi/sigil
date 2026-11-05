@@ -1494,11 +1494,15 @@ why rather than what: it is the record of what each round found.
   produce a keystroke -- so running them this way checks the documented
   behaviour, and it needs no pty, which is what lets it run on all nine of CI's
   node-and-os combinations. A demo that does not exit `0` with nothing on stderr
-  is an explicit list of two rather than an inferred rule, for the reason the
-  raw-control-character exceptions already are: `04-prompts.js` is the non-TTY
-  rule and exits `1` with the line the README prints, and `09-errors.js` is the
-  demo about errors, whose narrative is stdout while what reaches stderr is what
-  `errorHandler()` rendered. A stack frame in either stream fails every one of
+  is an explicit list rather than an inferred rule, for the reason the
+  raw-control-character exceptions already are, and it names its entries rather
+  than counting them -- this sentence said "two" while the list held three.
+  `04-prompts.js` is the non-TTY rule and exits `1` with the line the README
+  prints; `renderer/01-app.js` and `element/06-panes.js` are the same rule for
+  `runApp()`, which refuses without a terminal with one line and `1`;
+  `09-errors.js` is the demo about errors, whose narrative is stdout while what
+  reaches stderr is what `errorHandler()` rendered; and `12-formats.js` tours the
+  output formats, whose stderr is part of what it shows. A stack frame in either stream fails every one of
   them whatever the exit code said, since that is a throw nobody caught -- and
   that is the one check that also catches an unhandled rejection which still
   exits `0`. The watchdog is the other thing worth having: a demo that hangs is

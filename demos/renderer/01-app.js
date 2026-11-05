@@ -2,7 +2,7 @@
  * A component runtime: bodies that run once, effects that update in place.
  *
  *   node demos/renderer/01-app.js        <- Tab, space, a/d, q
- *   node demos/renderer/01-app.js | cat  <- no keys to read: one frame, and done
+ *   node demos/renderer/01-app.js | cat  <- refuses: one line on stderr, exit 1
  *
  * Everything below the renderer, assembled. A component is a function of props
  * that builds elements, and its body runs **once** -- there is no re-render and
@@ -20,7 +20,6 @@
  */
 import { runApp, useApp } from '@ttylabs/sigil/app';
 import { box, text } from '@ttylabs/sigil/element';
-import { isAbort } from '@ttylabs/sigil/input';
 import { createEffect, For, onMount, Show } from '@ttylabs/sigil/renderer';
 import { State } from '@ttylabs/sigil/signals';
 
@@ -63,10 +62,15 @@ function App() {
   ranOne();
   // the app is the context the body runs under, so the keys are bound here, where
   // the state they change already is, rather than on a router built afterwards
-  const { input } = useApp();
-  input?.bind((event) => {
+  const app = useApp();
+  app.input?.bind((event) => {
     const { key } = event;
-    if (key.name === 'space') {
+    if (key.name === 'q') {
+      // the app choosing to go, which is a clean exit -- Ctrl-C is runApp()'s
+      // own quit key and hands back 130
+      event.stop();
+      app.exit();
+    } else if (key.name === 'space') {
       event.stop();
       showDone.set(!showDone.get());
     } else if (key.name === 'a') {
@@ -113,8 +117,11 @@ function App() {
 }
 
 // the TTY check, the router, the framework sheet under this one, the alternate
-// screen, Ctrl-C, and putting all of it back: `runApp()`. Without a terminal on
-// both sides it draws one frame and is over, so `| cat` prints the list
-const app = runApp(App, { quit: (key) => isAbort(key) || key.name === 'q', sheets: [sheet] });
-await app.exited;
-console.log(`${bodies.get()} component bodies ran, for every frame that was drawn`);
+// screen, Ctrl-C, and putting all of it back: `runApp()`. It resolves an exit
+// code and leaves the process's to the app, which is this one line -- `q` is a
+// clean 0, Ctrl-C is 130, and without a terminal on both sides it refuses with 1
+const app = runApp(App, { sheets: [sheet] });
+process.exitCode = await app.exited;
+if (app.interactive) {
+  console.log(`${bodies.get()} component bodies ran, for every frame that was drawn`);
+}
