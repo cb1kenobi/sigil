@@ -9614,16 +9614,28 @@ exception per widget. This is the one answer, and every widget below follows it.
   attribute, right on a light terminal and a dark one alike. The sheet's
   exceptions go from fourteen to eleven, and the rule "every rule here is
   `(0,1,0)`" is true again, since the three retired rules were the only compound
-  ones. **Provisional**: a role is vocabulary a theme writes against, so adding one
-  is Chris's to confirm.
-- **The component puts the role on the part, because a selector cannot find it.**
-  The obvious generic rule, `:focus .sigil-focus-mark`, also matches the mark of
-  every control nested inside a focused one -- a checkbox in a list row while the
-  list has the focus, every field in a form inside a focused scroll box -- and CSS
-  has no way to say "the nearest focusable". A child combinator avoids the leak
-  only for marks one level down, which the tab row's active label (two levels)
-  already is not. Told rather than matched, the class is on the one part and
-  nowhere else.
+  ones. **Decided by Chris**: a role is vocabulary a theme writes against, so
+  adding one was his call, and he made it.
+- **Why not a `:focus` selector: the component puts the role on the part, because
+  no selector can find it.** A `:focus` rule matches the focused element itself,
+  and the part that shows a control's focus is usually below it -- the active tab
+  label is two levels under the focusable row, the caret one under the field, a
+  list's current row deeper still. Reaching it means a descendant rule, and the
+  generic one, `:focus .sigil-focus-mark`, also matches the mark of every control
+  nested inside a focused one: a checkbox in a list row while the list has the
+  focus, every field of a form inside a focused scroll box. CSS has no way to say
+  "the nearest focusable ancestor", so no rule written in the sheet can stop that.
+  A child combinator avoids the leak only for marks one level down, which the tab
+  row's active label already is not. A rule per widget, keyed on that widget's own
+  class, does not leak -- that is what the three retired rules were -- but it is
+  one more exception to the role rule for every widget, and it still cannot draw
+  anything at colour level 0: there are no pseudo-elements and no `content`
+  property here, so a selector can only restyle, never add a marker. `:focus-within`
+  is not supported by the selector engine (its states are `:checked`, `:disabled`,
+  `:focus` and `:hover`), and it would not help if it were: it matches every
+  ancestor of the focused element, which is the same leak from the other side --
+  a focused checkbox inside a list would mark the list as well. Told rather than
+  matched, the class is on the one part and nowhere else.
 - **The shipped themes leave it alone.** A theme is a palette, and the focus is
   the terminal's own two colours swapped, which is the same under every palette:
   `themes.test.ts`'s seven roles are the ones a palette is a value for, and the
@@ -9645,7 +9657,8 @@ exception per widget. This is the one answer, and every widget below follows it.
   something this one could not see:
   - **Button** (SIG-199): brackets in its padding, `[ OK ]` against `  OK  `, and
     `.sigil-focus` on the label. When the modal moves onto `Button` its focused
-    button changes from accent to the focus role -- a visible change, provisional.
+    button changes from accent to the focus role -- a visible change, and decided:
+    Chris accepted it.
   - **Checkbox, switch**: `.sigil-focus` on the label, which is the part a reader
     looks at; the value marker (`◉`/`◯`, the switch's states) says the value and
     never the focus. At level 0, the pointer column.
@@ -9681,5 +9694,5 @@ exception per widget. This is the one answer, and every widget below follows it.
   in `sync()` removed, and its focus flag never set (one and three).
 - **Not done:** the modal onto the role, which is SIG-199's when `Button`
   replaces its inline buttons; level-0 markers for the three existing controls,
-  which have no blank to put one in; and `:focus-within`, which nothing has asked
-  for.
+  which have no blank to put one in; and `:focus-within`, which would not solve
+  this, as above, and which nothing has asked for for any other reason.
