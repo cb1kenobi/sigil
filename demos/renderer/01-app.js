@@ -1,7 +1,8 @@
 /**
  * A component runtime: bodies that run once, effects that update in place.
  *
- *   node demos/renderer/01-app.js      <- needs a terminal; Tab, space, a/d, q
+ *   node demos/renderer/01-app.js        <- Tab, space, a/d, q
+ *   node demos/renderer/01-app.js | cat  <- no keys to read: one frame, and done
  *
  * Everything below the renderer, assembled. A component is a function of props
  * that builds elements, and its body runs **once** -- there is no re-render and
@@ -17,24 +18,13 @@
  * `.map()` builds the list it saw, so a conditional and a list have to be
  * components -- they are the only thing that can own a branch and dispose it.
  */
+import { runApp, useApp } from '@ttylabs/sigil/app';
 import { box, text } from '@ttylabs/sigil/element';
-import { createInput, isAbort } from '@ttylabs/sigil/input';
-import { createEffect, For, onMount, render, Show } from '@ttylabs/sigil/renderer';
+import { isAbort } from '@ttylabs/sigil/input';
+import { createEffect, For, onMount, Show } from '@ttylabs/sigil/renderer';
 import { State } from '@ttylabs/sigil/signals';
-import { Cascade, parseStylesheet } from '@ttylabs/sigil/style';
 
-// both sides, which is the rule `demos/terminal/01-capabilities.js` is written
-// down for: `createInput()` refuses to exist unless stdin *and* the terminal's
-// output are terminals, because the keys arrive on one and the frame is drawn to
-// the other. Asking only about stdin let `| cat` through *from a terminal*, where
-// stdin is a TTY and stdout is a pipe, and what reached the screen was half a
-// frame and then an `InputError` stack over a minified module
-if (!process.stdin.isTTY || !process.stdout.isTTY) {
-  console.log('This demo reads keys and draws frames, so it needs a terminal on both sides.');
-  process.exit(0);
-}
-
-const sheet = parseStylesheet(`
+const sheet = `
   .app { flex-direction: column; width: 46; border: round; border-color: gray; padding: 1 }
   .title { font-weight: bold }
   .hint { color: gray }
@@ -43,7 +33,7 @@ const sheet = parseStylesheet(`
   .badge { color: cyan }
   .empty { color: gray; font-style: italic }
   .count { color: gray }
-`);
+`;
 
 const items = new State([
   { id: 1, name: 'parser' },
@@ -67,8 +57,28 @@ function Row({ index, item }) {
   return box({ class: 'row', focusable: true }, label);
 }
 
+let next = 4;
+
 function App() {
   ranOne();
+  // the app is the context the body runs under, so the keys are bound here, where
+  // the state they change already is, rather than on a router built afterwards
+  const { input } = useApp();
+  input?.bind((event) => {
+    const { key } = event;
+    if (key.name === 'space') {
+      event.stop();
+      showDone.set(!showDone.get());
+    } else if (key.name === 'a') {
+      event.stop();
+      items.set([...items.get(), { id: next, name: `thing ${next}` }]);
+      next++;
+    } else if (key.name === 'd') {
+      event.stop();
+      items.set(items.get().slice(0, -1));
+    }
+  });
+
   const counter = text('', { class: 'count' });
   createEffect(() => {
     counter.setText(`${items.get().length} items - ${bodies.get()} component bodies have run`);
@@ -102,29 +112,9 @@ function App() {
   );
 }
 
-const view = render(App, { cascade: new Cascade([sheet]) });
-const input = createInput({ root: view.root });
-
-let next = 4;
-input.bind((event) => {
-  const { key } = event;
-  if (isAbort(key) || key.name === 'q') {
-    event.stop();
-    view.dispose();
-    input.stop();
-    console.log(`${bodies.get()} component bodies ran, for every frame that was drawn`);
-    process.exit(0);
-  }
-
-  if (key.name === 'space') {
-    event.stop();
-    showDone.set(!showDone.get());
-  } else if (key.name === 'a') {
-    event.stop();
-    items.set([...items.get(), { id: next, name: `thing ${next}` }]);
-    next++;
-  } else if (key.name === 'd') {
-    event.stop();
-    items.set(items.get().slice(0, -1));
-  }
-});
+// the TTY check, the router, the framework sheet under this one, the alternate
+// screen, Ctrl-C, and putting all of it back: `runApp()`. Without a terminal on
+// both sides it draws one frame and is over, so `| cat` prints the list
+const app = runApp(App, { quit: (key) => isAbort(key) || key.name === 'q', sheets: [sheet] });
+await app.exited;
+console.log(`${bodies.get()} component bodies ran, for every frame that was drawn`);

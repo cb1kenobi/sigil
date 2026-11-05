@@ -701,6 +701,27 @@ describe('what importing the package costs', () => {
       expect(carriers(staticGraph('input.mjs'), symbol)).not.toEqual([]);
     }
   );
+
+  // The measurement `@ttylabs/sigil/app` is a subpath of its own for: the runner is
+  // the one module that needs the router, the framework sheet and the renderer at
+  // once, and the renderer keeps the first two off its graph on purpose -- a spinner
+  // pays for neither. Folded into `renderer` it would have grown that graph by the
+  // 38 KB of the router chunk and the theme. A router string, a framework-sheet
+  // selector and the runner's own message, each absent from one graph and present
+  // in the other, so that neither half can pass by a rename
+  it.each(['mouseenter', '.sigil-text-field', 'outside runApp()'])(
+    'should not load %s to import the renderer',
+    (symbol) => {
+      expect(carriers(staticGraph('renderer.mjs'), symbol)).toEqual([]);
+    }
+  );
+
+  it.each(['mouseenter', '.sigil-text-field', 'outside runApp()'])(
+    'should load %s to import the app runner',
+    (symbol) => {
+      expect(carriers(staticGraph('app.mjs'), symbol)).not.toEqual([]);
+    }
+  );
 });
 
 // `src/updates/worker.ts` is piped into a runtime rather than imported on the

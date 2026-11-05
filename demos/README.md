@@ -1221,6 +1221,12 @@ so the pointer goes straight through them. And the overlay is written before bot
 panes and lifted with `z-index`, so it is painted last and hit first: hover it where
 it covers a pane and the pane underneath does not light up.
 
+It is also the demo written on `runApp()`, because the wiring it used to carry is
+exactly what the runner is: a full-screen backend, a router given that backend as
+the surface a report is translated against, a quit key, and the screen back before
+the summary is printed. So piped, where there is no mouse and no screen to own, it
+draws the panes once and prints the same summary rather than refusing.
+
 **`07-selection.js`** is selection and the clipboard. Drag to select, alt-drag for
 a rectangle -- which is what copies one pane of a two-column layout without the
 other -- and Ctrl-Y to send it with OSC 52, which is what makes this work over ssh.
@@ -1347,15 +1353,20 @@ count it hands back rather than a set to filter, and `c`/`b`/`s`/`w` are the
 canvas's -- a cell count cannot leave a subtree out, since the diff is over a grid
 and there is no tree left to ask which element painted a cell.
 
-Without a terminal on **both** sides all three say so and exit `0`, which is what
-the component demos do and for the same reason — the keys arrive on stdin and
-the frame is drawn to the output, so either one being a pipe means there is nothing
-to run:
+Without a terminal on **both** sides `02-tasks.js` and `03-debug.js` say so and
+exit `0`, which is what the component demos do and for the same reason — the keys
+arrive on stdin and the frame is drawn to the output, so either one being a pipe
+means there is nothing to run:
 
 ```sh
-node demos/renderer/01-app.js | cat
+node demos/renderer/02-tasks.js | cat
 # This demo reads keys and draws frames, so it needs a terminal on both sides.
 ```
+
+`01-app.js` is written on `runApp()`, which asks the same question and answers it
+differently: an app with nobody to type draws one frame, unmounts, and exits `0`,
+so `node demos/renderer/01-app.js | cat` prints the list and the body count. The
+runner is what the hand-wired guard below was standing in for.
 
 Both sides is the point rather than pedantry, and `| cat` is exactly the case that
 needs it: run from a terminal, stdin is still a TTY while stdout is a pipe. A guard

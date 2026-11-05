@@ -15,12 +15,16 @@
  *
  * function App() {
  *   const app = useApp();
- *   const root = box({ 'flex-grow': 1, focusable: true }, text('q quits'));
- *   root.onKey = (event) => event.key.name === 'q' && app.exit();
- *   return root;
+ *   app.input?.bind((event) => {
+ *     if (event.key.name === 'enter') {
+ *       event.stop();
+ *       app.exit('saved');
+ *     }
+ *   });
+ *   return box({ 'flex-grow': 1 }, text('Enter saves, Ctrl-C quits'));
  * }
  *
- * await runApp(App).exited;
+ * const result = await runApp(App).exited; // 'saved', or undefined for Ctrl-C
  * ```
  *
  * A subpath of its own, `@ttylabs/sigil/app`, which is the exception the root

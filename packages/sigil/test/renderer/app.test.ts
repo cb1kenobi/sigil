@@ -164,8 +164,8 @@ describe('runApp()', () => {
     await app.exited;
 
     expect(reports).toHaveLength(1);
-    expect((reports[0]?.error as Error).message).toBe('frame broke');
-    expect(reports[0]?.alternate).toBe(false);
+    expect(reports[0]).toMatchObject({ alternate: false, raw: false });
+    expect(String(reports[0]?.error)).toContain('frame broke');
     expect(term.screen.alternate).toBe(false);
     expect(term.stdin.rawMode).toBe(false);
     expect(app.running).toBe(false);
@@ -243,6 +243,63 @@ describe('runApp()', () => {
     expect(term.viewport.slice(0, 2)).toEqual(['shown', '']);
   });
 
+  it('should draw through the framework sheet, under the app sheets', () => {
+    const muted = text('quiet', { class: 'sigil-muted' });
+    const loud = text('loud', { class: 'sigil-muted' });
+    // at a colour level, because level 0 drops every attribute at resolve time
+    const { app } = start(() => box({}, muted, box({ class: 'loud' }, loud)), {
+      colorLevel: 1,
+      sheets: ['.loud .sigil-muted { dim: false }'],
+    });
+    app.view.frame();
+    // the framework's role, which a bare `render()` would not have applied
+    expect(muted.style.dim).toBe(true);
+    // and the app's own sheet beats it
+    expect(loud.style.dim).toBe(false);
+  });
+
+  it('should give a root with no size of its own the whole width, as a block would', () => {
+    const { app, term } = start(() => box({ border: 'ascii' }, text('x')));
+    app.view.frame();
+    expect(term.viewport[0]).toBe(`+${'-'.repeat(28)}+`);
+  });
+
+  it('should fill the screen with a root that grows', () => {
+    const { app, term } = start(() => box({ border: 'ascii', 'flex-grow': 1 }, text('x')));
+    app.view.frame();
+    expect(term.viewport[5]).toBe(`+${'-'.repeat(28)}+`);
+  });
+
+  it('should quit on Ctrl-C ahead of a binding the component made that takes every key', async () => {
+    const { app, term } = start(() => {
+      useApp().input?.bind((event) => event.stop());
+      return text('x');
+    });
+    await term.press(ctrl('c'));
+    await app.exited;
+    expect(app.running).toBe(false);
+  });
+
+  it('should leave nothing on the main screen when an effect exits in the middle of a frame', async () => {
+    const leave = new State(false);
+    const { app, term } = start(() => {
+      const label = text('drawn on the alternate screen');
+      createEffect(() => {
+        if (leave.get()) {
+          useApp().exit();
+        }
+      });
+      return label;
+    });
+    app.view.frame();
+    leave.set(true);
+    app.view.frame();
+    await app.exited;
+
+    expect(term.screen.alternate).toBe(false);
+    expect(term.lines).toEqual([]);
+  });
+
   it('should deliver a click to the element under it with mouse on', async () => {
     const clicks: string[] = [];
     const button = text('press', { focusable: true });
@@ -292,6 +349,29 @@ describe('runApp()', () => {
       return text('x');
     });
     expect((thrown as Error).message).toMatch(/onMount/);
+  });
+});
+
+describe('the README example', () => {
+  it('should run as written, and settle with what Enter saved', async () => {
+    function App() {
+      const app = useApp();
+      app.input?.bind((event) => {
+        if (event.key.name === 'enter') {
+          event.stop();
+          app.exit('saved');
+        }
+      });
+      return box({ 'flex-grow': 1 }, text('Enter saves, Ctrl-C quits'));
+    }
+
+    const term = createTestTerminal({ columns: 40, rows: 10 });
+    const app = runApp(App, { detect: false, terminal: term.terminal });
+    apps.push(app);
+    app.view.frame();
+    expect(term.viewport[0]).toContain('Enter saves');
+    await term.press(KEYS.enter);
+    expect(await app.exited).toBe('saved');
   });
 });
 
