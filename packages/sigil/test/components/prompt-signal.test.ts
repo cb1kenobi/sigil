@@ -407,13 +407,32 @@ describe.each(MODES)('a prompt given an AbortSignal, $mode', ({ lines, rows }) =
       expect(ui.stdin.rawMode).to.equal(false);
     });
 
+    // a timer has no idea how far the prompt has got, so this is held to what
+    // must be true **whenever** it fires rather than to a Ctrl-C at one moment.
+    // `cancelled()` presses Ctrl-C once the prompt has finished asking, and a
+    // line `filePicker()` asks in two writes with a directory read between them:
+    // a read slower than the timer put the abort between the two, and the
+    // transcript was the question alone where the Ctrl-C's had the listing too
     it('should reject with a TimeoutError from AbortSignal.timeout', async () => {
       const ui = screenSetup({ rows: 12 });
 
       const { error } = await settle(ask(ui, AbortSignal.timeout(20)));
 
       expect((error as Error).name).to.equal('TimeoutError');
-      expectLeftAsCancelled(ui, await cancelled(ask, lines));
+      const cancel = await cancelled(ask, lines);
+      if (lines) {
+        // what it printed is the start of what a whole ask prints, however much
+        // of the ask it got through, and the next output starts a line
+        expect(cancel.log.slice(0, ui.log.length)).to.deep.equal(ui.log);
+        expect(ui.output.endsWith('\r\n'), 'the next output starts on a line of its own').to.equal(
+          true
+        );
+      } else {
+        expect(ui.log).to.deep.equal([]);
+      }
+      expect(ui.stdin.rawMode).to.equal(false);
+      expect(ui.stdin.listenerCount('data'), 'stdin is handed back unread').to.equal(0);
+      expect(ui.screen.cursorHidden).to.equal(false);
     });
 
     it('should take its listener off the signal when cancelled', async () => {
