@@ -65,6 +65,8 @@ describe('the clean guard', () => {
     // to pass as somewhere other than above `C:\Users\...`
     expect(holdsApp(win32.join('c:', 'users'), winApp, win32)).toBe(true);
     expect(holdsApp(win32.join('c:', win32.sep), winApp, win32)).toBe(true);
+    // the app root itself, spelled in another case, is the app root
+    expect(holdsApp(winApp.toLowerCase(), winApp, win32)).toBe(true);
   });
 
   it('should allow a directory inside the app, beside it, or on another drive', () => {

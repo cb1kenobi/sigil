@@ -1180,8 +1180,8 @@ export function undo(out: string, output: readonly { fileName: string }[]): void
 
   for (const chunk of output) {
     const file = resolve(join(out, chunk.fileName));
-    // `isInside()` carries the separator, so that an `--out` of `dist` cannot
-    // have `dist-old` read as being inside it
+    // `isInside()` compares whole path segments, so that an `--out` of `dist`
+    // cannot have `dist-old` read as being inside it
     if (!isInside(root, file)) {
       continue;
     }
