@@ -27,7 +27,7 @@ import { sort } from '../../src/components/sort.js';
 import { toggle } from '../../src/components/toggle.js';
 import { directoryTree, selectTree } from '../../src/components/tree.js';
 import { baseDir } from '../../src/paths.js';
-import { type ScreenHarness, screenSetup, tick } from './helpers.js';
+import { type ScreenHarness, screenSetup, settleOutput, tick } from './helpers.js';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve, sep } from 'node:path';
@@ -54,13 +54,9 @@ const reads = vi.hoisted(() => ({
 
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof import('node:fs/promises')>();
-  return {
-    ...actual,
-    readdir: (async (...args: unknown[]) => {
-      await reads.gate;
-      return (actual.readdir as (...args: unknown[]) => unknown)(...args);
-    }) as unknown as typeof actual.readdir,
-  };
+  // counted as well as gated, so `settleOutput()` can wait for a read to land
+  const { counted } = await import('./reads.js');
+  return { ...actual, readdir: counted(actual.readdir, () => reads.gate) };
 });
 
 afterEach(() => {
@@ -98,16 +94,6 @@ function written(ui: ScreenHarness): string {
 function sequences(ui: ScreenHarness): string[] {
   // eslint-disable-next-line no-control-regex
   return written(ui).match(/\u001b[^\u001b]{0,8}/g) ?? [];
-}
-
-/** Waits for a line form that reads a directory before it asks to have asked. */
-async function settleOutput(ui: ScreenHarness): Promise<void> {
-  let seen = ui.output;
-  for (let still = 0, round = 0; still < 4 && round < 100; round++) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    still = ui.output === seen ? still + 1 : 0;
-    seen = ui.output;
-  }
 }
 
 const ENTER = '\r';

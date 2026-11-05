@@ -105,7 +105,18 @@ describe('sigil package', () => {
       // the error *is* the feature: a runtime decides what the app runs on, so
       // inferring one from what happens to be installed would answer a question
       // about the app with a fact about the builder's laptop
-      const { err } = await sigil('package', join(fixtures, 'buildable'), '--out', out);
+      //
+      // With no registry to reach, because the picker lists both runtimes'
+      // releases before `select()` finds there is nobody to ask, and the refusal
+      // is the same either way -- so this asked npm and nodejs.org on every run
+      // for a list it then threw away (SIG-303)
+      vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
+      let err: string;
+      try {
+        ({ err } = await sigil('package', join(fixtures, 'buildable'), '--out', out));
+      } finally {
+        vi.unstubAllGlobals();
+      }
 
       expect(err).toContain('--runtime is required');
       expect(err).toContain('--runtime bun');
@@ -364,29 +375,29 @@ describe('sigil package', () => {
       120_000
     );
 
-    it('should leave only binaries in the output directory', async () => {
-      // the other half of the same claim, and the user-visible reason the bundle
-      // moved: `sigil package` defaulted to `dist/` beside `sigil build`, and
-      // `clean()` empties whichever directory it is given -- so each command
-      // deleted the other's output, measured in both orders
-      const { err } = await sigil(
-        'package',
-        join(fixtures, 'buildable'),
-        '--out',
-        out,
-        '--runtime',
-        'bun'
-      );
+    // Skipped without Bun rather than branched on it, for the reason the test
+    // above gives, and this one was the branch that test's comment describes.
+    // It asserted a refusal from when a missing Bun was one -- and once `sigil
+    // package` learned to fetch a runtime, the branch downloaded 85 MB of Bun,
+    // compiled a binary from it, and passed because `Fetching bun ...` matches
+    // `/bun/`, never looking at the output directory. CI installs no Bun, so
+    // every Test job did that, for 8 to 30 seconds, and the runner it starved
+    // is where the suite's timeouts came from (SIG-303)
+    it.skipIf(!hasBun)(
+      'should leave only binaries in the output directory',
+      async () => {
+        // the other half of the same claim, and the user-visible reason the bundle
+        // moved: `sigil package` defaulted to `dist/` beside `sigil build`, and
+        // `clean()` empties whichever directory it is given -- so each command
+        // deleted the other's output, measured in both orders
+        await sigil('package', join(fixtures, 'buildable'), '--out', out, '--runtime', 'bun');
 
-      if (!hasBun) {
-        expect(err).toMatch(/bun/);
-        return;
-      }
-
-      expect(readdirSync(out)).toEqual([BINARY]);
-      expect(existsSync(join(out, 'buildable.mjs'))).toBe(false);
-      expect(existsSync(join(out, 'chunks'))).toBe(false);
-    }, 120_000);
+        expect(readdirSync(out)).toEqual([BINARY]);
+        expect(existsSync(join(out, 'buildable.mjs'))).toBe(false);
+        expect(existsSync(join(out, 'chunks'))).toBe(false);
+      },
+      120_000
+    );
   });
 
   describe('what it refuses before building anything', () => {
