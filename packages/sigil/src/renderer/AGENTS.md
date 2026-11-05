@@ -758,3 +758,124 @@ needs in order to know what to re-ask.
   establish is that an author who had only the README could get there -- the
   README had nothing, and that is now the cheapest thing left to improve before
   SIG-31 asks the question properly.
+
+### Running an app: `runApp()`
+
+SIG-276. `src/renderer/app.ts`, published as `@ttylabs/sigil/app`. Every interactive
+demo assembled the same seven steps by hand -- both ends a terminal, `createInput()`,
+a cascade, a backend, `render()`, a quit key, and the teardown -- and Ink's whole
+first page is `render(<App />)`. `runApp(component, opts)` is those steps once, and
+returns an `App`: `exit(value?)`, `exited`, `input`, `view`, `terminal`,
+`interactive` and `running`. `useApp()` and `AppContext` are how a component reaches
+it.
+
+- **A subpath of its own, which is the exception the root file asks to argue for
+  itself, and the argument is the graph.** The runner is the one module that needs
+  the renderer, the router and the framework sheet at once, and the renderer keeps
+  the other two off its graph on purpose -- `renderer/index.ts` imports
+  `capabilities.js` rather than the router for exactly this reason. Measured at this
+  change: `renderer.mjs` is 160,695 B over 24 modules and `app.mjs` is 200,888 B
+  over 26, the difference being the router chunk (14,423 B), `theme.mjs`
+  (23,669 B) and the runner itself (2,357 B). Folded into `renderer` that is about
+  24% more on every spinner and prompt; folded into `input` it is the whole renderer
+  on a router; folded into `components` it is a 455 KB graph to start an app built
+  from `box` and `text`. The source sits in `src/renderer/` and the entry points at
+  it, which is the `coerce` and `routes` shape: a subpath named for what an app
+  imports, a file kept beside the code it composes. `dist.test.ts` pins the split
+  with a router string, a framework-sheet selector and the runner's own message,
+  each absent from `renderer.mjs`'s graph and present in `app.mjs`'s, so neither half
+  passes by a rename.
+- **Full screen by default, inline with `fullscreen: false`.** An app owns the
+  screen and gives it back exactly as it was, which is what the alternate buffer is;
+  inline is for the tool that wants its last frame left in the log, and it follows
+  its content's height the way a `render()` with no height does -- the renderer
+  builds that backend itself, since an injected one is never auto-sized.
+- **The router is built before the component, over a host box, so `useApp().input`
+  exists in the body.** A router's `root` is fixed when it is built, and the
+  component's own root does not exist until its body has run, so the runner builds a
+  host first -- `box({ class: 'sigil-app', 'flex-direction': 'column' })` -- builds
+  the router over it, and appends what the component returns. That is the whole
+  reason for the host, and it is what lets a control take the focus ring at build
+  time if SIG-278 settles that way. A column, so a root with no size of its own
+  takes the whole width as a block would; `flex-grow: 1` on it fills the screen.
+  `view` is the one thing a body cannot have, because the body is how the renderer
+  gets its tree: reading it then throws, naming `onMount()`, rather than answering
+  `undefined`.
+- **The mouse surface is late-bound, because the router asks where the canvas is
+  the moment it is built.** That is before `render()` has made the backend, so the
+  first ask finds nothing and answers the way a terminal that said nothing does --
+  the origin is unknown and the next report asks again -- and every read after that
+  is the backend's own. The alternative was building the backend before `render()`,
+  which an inline app cannot do without losing the auto height above.
+- **The quit key is `isAbort()` and the first function binding, and it is not `q`.**
+  Raw mode makes Ctrl-C a key rather than a signal, so something has to bind it, and
+  binding it before the component runs puts it ahead of every binding the component
+  makes and ahead of the tree -- a focused field or an open dialog cannot swallow it.
+  `q` is not in the default for the same reason it works: a function binding sees
+  every key, so a default `q` would be a letter no text field could type. `quit`
+  takes a predicate, or `false` for an app that ends itself.
+- **`exited` never rejects, and a failure goes to `onError`.** `main()`'s rule and
+  its reason: what awaits this is a bin script, and an unhandled rejection dumping a
+  stack over a terminal just given back is the wrong default. The default `onError`
+  is `errorHandler()`, written **through the backend** rather than to stderr, which
+  is the one way it differs from `render()`'s: a full-screen backend holds a line
+  written while it owns the screen and writes it once the main screen is back, so an
+  `onMount` or a frame handler that threw is read afterwards instead of drawn into a
+  frame. A failed frame has stopped the backend before it is reported, and a stopped
+  backend writes straight through. What is reported before `render()` has returned
+  waits in a queue and goes through the backend once there is one, because the first
+  frame is painted inside `render()`.
+- **Every route out ends the app the same way.** `exit()`, the quit key, stdin
+  ending, `view.dispose()` and a failed frame -- the last two through
+  `Renderer.onDispose()`, which fires on both. A throw from the component's body
+  propagates from `runApp()` with the router stopped and the terminal back, which is
+  `render()`'s rule: there is a caller on the stack, and inside a command's `run()`
+  that caller is `main()`, which renders it. A signal is the terminal's own restore
+  handlers, as it always was; the runner adds none.
+- **The teardown is the renderer, the router, then `restore()`.** The router is the
+  half `restore()` cannot do -- raw mode comes back through either, but a `data`
+  listener left on stdin holds the process open after the last frame -- and
+  `restore()` is the guarantee: a cursor the app hid itself is one no backend owes
+  back. The first two are in the reverse of the order they went up, and that is
+  tidiness rather than a dependency; the opposite order changed nothing observable.
+- **`exit()` runs the teardown on a microtask, and the first value wins.** Called
+  from the component's body, a synchronous teardown ran before `render()` had
+  finished, so the app reported itself gone while `render()` went on to mount, enter
+  the alternate screen and paint. A microtask lands after `runApp()` has returned
+  whichever context it is called from. A second call does nothing, so a quit key and
+  a button arriving together settle `exited` once, with the first.
+- **With nobody to type, one inline frame and done. Provisional -- the ticket's
+  alternative was refusing with a message, the way the demos used to.** A full-screen
+  app in a pipe has no keys to read and no screen to own, and the most honest thing
+  it can say there is one frame of plain text: it is what `app | cat` and a CI log
+  want, it exits `0`, and `demos.test.ts` spawns every demo that way, so two of them
+  now print a frame where they printed an apology. `interactive` tells the code
+  which happened, and `input` is `undefined` there.
+- **`detect` is on by default here and nowhere else.** The rule against probing is a
+  CLI paying a round trip to print one line; an app is the long-lived interactive
+  program that rule was never about, the first frame does not wait for the answer,
+  and an app with nobody to type never asks.
+- **One hook, `useApp()`, and it throws outside an app.** `useInput()` would be a
+  second context for a field of the first. Throwing rather than answering
+  `undefined` is because a hook every caller has to guard is a hook nobody guards;
+  a component that works with or without an app reads `useContext(AppContext)`.
+- **Resize is not something the runner owns.** The renderer re-matches and re-lays
+  out on a resize already, and the full-screen backend follows the screen by
+  itself, so there is nothing to wire.
+- **The debug overlay is one line on top rather than an option.**
+  `enableDebugOverlay(app.view, { input: app.input })`. An option would put the
+  overlay's scroll box and log ring on every app's graph for an instrument most
+  never open, or make the option an `await import()` whose handle arrives late.
+- **Sabotage: twenty-three, nine survivors on the first pass.** Six were made to
+  fail by a new test -- the router left listening (twice: on exit and on a body that
+  throws), `restore()` dropped, a synchronous `exit()`, an error written straight to
+  the terminal while mounted, and `paste: false` ignored. Two were deleted: a
+  `view.frame()` after a non-interactive `render()`, which had already painted, and a
+  `running` guard on a probe's rejection, which a stopped router cannot produce. One
+  is declared above, the teardown order. The other fourteen were caught first time.
+- **Not done:** capturing `console.log()` while the app owns the screen, which
+  writes straight into the alternate buffer today -- `backend.write()` holds a line
+  and the debug overlay's `captureConsole()` shows one, and neither is automatic;
+  an `App` handle to a router the caller built, since the host is what makes the
+  router exist at build time; and an exit code for the quit key, which is left alone
+  the way `main()` leaves a clean run.

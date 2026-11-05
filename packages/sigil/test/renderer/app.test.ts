@@ -51,6 +51,9 @@ describe('runApp()', () => {
     expect(term.screen.alternate).toBe(false);
     expect(term.stdin.rawMode).toBe(false);
     expect(app.view.mounted).toBe(false);
+    // and stdin is let go of, which is what lets the process end: raw mode alone
+    // comes back through `restore()`, but a `data` listener holds the loop open
+    expect(term.stdin.listenerCount('data')).toBe(0);
   });
 
   it('should end on Ctrl-D too, which is the rest of isAbort()', async () => {
@@ -182,6 +185,7 @@ describe('runApp()', () => {
       )
     ).toThrow('body broke');
     expect(term.stdin.rawMode).toBe(false);
+    expect(term.stdin.listenerCount('data')).toBe(0);
     expect(term.screen.alternate).toBe(false);
   });
 
@@ -205,6 +209,54 @@ describe('runApp()', () => {
     expect(term.screen.alternate).toBe(false);
     expect(term.lines.join('\n')).toContain('mount broke');
     expect(process.exitCode).toBe(1);
+  });
+
+  it('should hold an error reported after it started until the screen is back', async () => {
+    const { app, term } = start(() => text('still up'));
+    let thrown = false;
+    app.view.onFrame(() => {
+      if (!thrown) {
+        thrown = true;
+        throw new Error('frame handler broke');
+      }
+    });
+    app.view.invalidate();
+    app.view.frame();
+
+    expect(app.running).toBe(true);
+    expect(term.viewport.join('\n')).not.toContain('frame handler broke');
+
+    app.exit();
+    await app.exited;
+    expect(term.lines.join('\n')).toContain('frame handler broke');
+  });
+
+  it('should end cleanly when exit() is called while the component is still being built', async () => {
+    const { app, term } = start(() => {
+      useApp().exit('early');
+      return text('never shown for long');
+    });
+    expect(await app.exited).toBe('early');
+    expect(app.view.mounted).toBe(false);
+    expect(term.screen.alternate).toBe(false);
+    expect(term.stdin.rawMode).toBe(false);
+  });
+
+  it('should put back a cursor the app hid itself, which no backend owes', async () => {
+    const { app, term } = start(() => {
+      useApp().terminal.hideCursor();
+      return text('x');
+    });
+    app.exit();
+    await app.exited;
+    const out = term.output;
+    expect(out.lastIndexOf('\u001b[?25h')).toBeGreaterThan(out.lastIndexOf('\u001b[?25l'));
+  });
+
+  it('should not ask for bracketed paste with paste false', async () => {
+    const { term } = start(() => text('x'), { paste: false });
+    await tick();
+    expect(term.output).not.toContain('\u001b[?2004h');
   });
 
   it('should draw one inline frame and end at once when nobody can type', async () => {

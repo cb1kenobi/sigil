@@ -287,14 +287,19 @@ export function runApp<T = unknown>(component: () => Element, opts: AppOptions =
   const early: string[] = [];
 
   /**
-   * Takes everything down, in the order it went up and reversed.
+   * Takes everything down: the renderer, the router, then whatever is left.
    *
-   * The renderer first, while the router is still whole: a dialog the renderer
-   * closes on its way out puts the focus back through the router. Then the
-   * router, which gives back raw mode, the paste markers and the mouse. Then
-   * `restore()`, which is the guarantee rather than a step -- whatever is left,
-   * a hidden cursor or an alternate screen a backend of the caller's entered,
-   * goes back, and it is idempotent where the other two have already done it.
+   * The renderer unmounts the tree and gives the screen back. The router lets go
+   * of stdin -- the half `restore()` cannot do, and the half that matters, since a
+   * `data` listener still attached holds the process open after the last frame.
+   * Then `restore()`, which is the guarantee rather than a step: a cursor the app
+   * hid itself is one no backend owes back, and it comes back here. Idempotent
+   * where the other two already did the work.
+   *
+   * The first two in the order they went up, reversed, and that is tidiness
+   * rather than a dependency: stopping the router first was tried and nothing
+   * observable moved, because a stopped router keeps its focus ring and a
+   * dialog closing on the way out can still put the focus back.
    */
   function finish(): void {
     if (!running) {
@@ -424,17 +429,15 @@ export function runApp<T = unknown>(component: () => Element, opts: AppOptions =
   view.onDispose(() => app.exit());
 
   if (!interactive) {
-    // one frame, then gone: there is nobody to type and nothing to own
-    view.frame();
+    // one frame, then gone: there is nobody to type and nothing to own. The frame
+    // is `render()`'s own first one, which is synchronous, so all that is left to
+    // do here is leave
     app.exit();
   } else if (opts.detect !== false && input) {
-    view
-      .detect(input, typeof opts.detect === 'object' ? opts.detect : undefined)
-      .catch((error: unknown) => {
-        if (running) {
-          report(error);
-        }
-      });
+    // a probe rejects only where the query could not be written, which is a fault
+    // rather than a quiet terminal -- and a stopped router writes nothing, so
+    // there is no late rejection to guard against once the app has gone
+    view.detect(input, typeof opts.detect === 'object' ? opts.detect : undefined).catch(report);
   }
 
   return app;
