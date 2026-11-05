@@ -1911,8 +1911,13 @@ other is refused with numbers.
   child called `..foo` is still a child) or comes back absolute (another drive).
   That fixes a second hole in the same line: a prefix is case-sensitive and
   Windows is not, so `--out c:\users` was not read as above `C:\Users\me\app`,
-  and `win32.relative()` already compares the way that filesystem does. It
-  takes the path module as a parameter, defaulting to the host's, so
+  and `win32.relative()` already compares the way that filesystem does. That
+  rule is `isInside()`'s now, in `src/build/discover.ts`, and `holdsApp()` is
+  `isInside()` plus the directory itself (SIG-274): `isInside()` was a second
+  copy of the question still answered with a prefix, guarding the bundle
+  unwind, the runtime cache and the registry's paths, so it had the
+  case-sensitivity hole and also read the root as inside itself. Both take
+  the path module as a parameter, defaulting to the host's, so
   `test/clean-guard.test.ts` asks POSIX and Windows semantics -- `/`, `C:\`, a
   UNC share root and every ancestor up to each -- on every machine. Nothing in
   that file hands `clean()` the root, because a regression would make that

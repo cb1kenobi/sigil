@@ -53,7 +53,7 @@ import {
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
 import { readFileSync, statSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import nodePath, { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Expression, ObjectExpression } from 'oxc-parser';
 
 /**
@@ -318,24 +318,39 @@ export function isFile(path: string): boolean {
  * outside the directory it was meant for.
  *
  * **Strictly** inside: the directory is not inside itself, because every caller
- * is asking about a file or a subdirectory below it. With the separator, so that
- * `dist-old` is not read as inside `dist` -- and with the root's own trailing
- * separator respected, because `resolve('/')` already ends in one and a second
- * would leave nothing inside it.
+ * is asking about a file or a subdirectory below it. `holdsApp()` is the one
+ * caller that wants the directory itself counted too, and it says so beside
+ * this rather than with a path rule of its own.
+ *
+ * Asked of `relative()` rather than of a string prefix, for the reasons SIG-246
+ * found in the copy of this that `holdsApp()` used to carry. A prefix needs a
+ * separator appended, so that `dist-old` is not read as inside `dist`, and the
+ * root is the one directory `resolve()` already ends in one -- every caller had
+ * to remember that, and the clean guard did not. A prefix is also
+ * case-sensitive where Windows is not, so `c:\users\me\app\x` was outside
+ * `C:\Users\me\app`; `win32.relative()` compares the way that filesystem
+ * does. What `relative()` answers is the way down from `dir` to `target`, and
+ * `target` is inside when that is not empty (the directory itself), does not
+ * climb (`..` as a whole segment, so a child called `..foo` is a child), and
+ * is not absolute (another drive). This is one copy of that question instead of
+ * two that agree today.
  *
  * Lexical rather than through `realpath`, for the reason `undo()` records: a
  * symlink somebody put inside the directory is a layout they chose, and what
  * this guards against is a path that *says* it goes elsewhere.
  *
+ * The path module is a parameter so both platforms' semantics can be asked on
+ * one machine; everything that is not a test takes the host's.
+ *
  * @param dir - The directory.
- * @param path - The path, relative to the working directory or absolute.
- * @returns Whether `path` resolves to something under `dir`.
+ * @param target - The path, relative to the working directory or absolute.
+ * @param path - The path semantics to ask with.
+ * @returns Whether `target` resolves to something under `dir`.
  */
-export function isInside(dir: string, path: string): boolean {
-  const root = resolve(dir);
-  const prefix = root.endsWith(sep) ? root : root + sep;
+export function isInside(dir: string, target: string, path: typeof nodePath = nodePath): boolean {
+  const rel = path.relative(path.resolve(dir), path.resolve(target));
 
-  return resolve(path).startsWith(prefix);
+  return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
 }
 
 /**
