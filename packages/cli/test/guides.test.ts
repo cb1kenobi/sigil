@@ -127,3 +127,52 @@ describe('the imports in the guides', () => {
     });
   }
 });
+
+/**
+ * A guide that is written over an example rather than over a scaffold.
+ *
+ * `full-screen-apps.md` cannot be replayed the way `getting-started.md` is:
+ * its app is JSX, which Node will not run from source, and its transcripts open
+ * a full screen that waits for keys. What it can be is an excerpt of an example
+ * that `examples.test.ts` already builds, mounts, drives and quits -- so every
+ * `ts` or `tsx` block whose first line is `// src/<path>` has to appear in that
+ * example's file of the same path, line for line. A block that drifts from the
+ * code fails here; code that stops working fails there.
+ *
+ * Line for line rather than byte for byte, because the formatter re-indents a
+ * fragment inside a code fence -- a `return (` lifted out of a function body
+ * comes back at column zero -- and how far a quoted line is indented is the
+ * formatter's to say rather than a difference in what the code is.
+ */
+const EXCERPTED: readonly { example: string; file: string }[] = [
+  { example: 'hello', file: 'full-screen-apps.md' },
+];
+
+/** Text with each line's indentation taken off, which is what an excerpt is compared as. */
+function unindented(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .join('\n');
+}
+
+describe('the guides that excerpt an example', () => {
+  for (const { example, file } of EXCERPTED) {
+    it(`should quote examples/${example} line for line, in ${file}`, () => {
+      let checked = 0;
+      for (const { body, info } of blocks(readGuide(file))) {
+        const path = /^\/\/ (src\/[\w./-]+)\n/.exec(body)?.[1];
+        if ((info !== 'ts' && info !== 'tsx') || path === undefined) {
+          continue;
+        }
+        const source = unindented(readFileSync(join(root, 'examples', example, path), 'utf-8'));
+        const excerpt = unindented(body.slice(body.indexOf('\n') + 1));
+        expect(source.includes(excerpt), `${file} quotes ${path} as it no longer is`).toBe(true);
+        checked++;
+      }
+      // a fence or a path comment that stopped matching would check nothing
+      expect(checked).toBeGreaterThan(4);
+    });
+  }
+});
