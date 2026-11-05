@@ -1340,9 +1340,13 @@ resolution.
   always a visible false statement, and the declaration that loses it gets
   nothing from keeping it. What is still allowed: a twin pair with spellings of
   their own (`-c, --cheese <type>` and `-C, --no-cheese`), and the negated
-  flag's fallback claim on the positive spelling, which gives way to its twin in
-  either order. A twin pair declaring the same short alias is refused, because
-  the two share a destination and not their spellings. The built-in `-h`, `-v`
+  flag's fallback claim on the positive long spelling, `--name`, which gives way
+  to its twin in either order. That exemption covers `--name` and nothing else. A
+  twin pair declaring the same short alias is refused whichever is declared
+  first, because the two share a destination and not their spellings. The first
+  version of the check exempted the twin on every spelling, so `-c, --no-cheese`
+  declared before `-c, --cheese <type>` handed `-c` to the later one without an
+  error, which is the silent takeover this entry exists to refuse. The built-in `-h`, `-v`
   and `-q` already ask `find()` first and add nothing over a taken spelling, so
   none of them can trip this. Pinned in `test/parser/options.test.ts` under
   `aliases`.

@@ -94,21 +94,26 @@ export class OptionRegistry extends Map<string, InternalOption> {
    * key** is a replacement, which is how a hook swaps a declaration out, and it
    * inherits every spelling the one it replaces held. A spelling whose holder
    * is no longer in the registry is a stale entry, not an owner. And a negated
-   * flag's claim on the positive spelling is a fallback that gives way to its
-   * twin, so the twin taking it back is the rule rather than a clash.
+   * flag's claim on the positive long spelling, `--name`, is a fallback that
+   * gives way to its twin, so the twin taking it back is the rule rather than a
+   * clash. That exemption is for `--name` alone: a short alias both twins
+   * declare is refused whichever of them is declared first.
    *
    * @param opt - The option arriving.
    * @param key - The key it will be stored under.
    */
   #assertFree(opt: InternalOption, key: string): void {
+    const positive = `--${opt.name}`;
     const holder = (spelling: string, held: string | undefined): void => {
       if (held === undefined || held === key || !super.has(held)) {
         return;
       }
       const other = super.get(held) as InternalOption;
-      // the negated twin's fallback claim on `name` and `--name`, which it only
-      // ever took because nothing else had
-      if (!opt.negate && other.negate && other.name === opt.name) {
+      // the negated twin's fallback claim on `--name`, which it only ever took
+      // because nothing else had. That spelling and no other: a short alias the
+      // twin declared is its own, so the positive twin declaring it too is a
+      // collision in either order rather than only when it arrives first
+      if (spelling === positive && !opt.negate && other.negate && other.name === opt.name) {
         return;
       }
       throw new Error(
@@ -123,7 +128,7 @@ export class OptionRegistry extends Map<string, InternalOption> {
     for (const alias of opt[Internal].long) {
       // a negated flag claims the positive spelling only where it is free, so it
       // never collides over that one: see `add()`
-      if (!(opt.negate && alias === `--${opt.name}`)) {
+      if (!(opt.negate && alias === positive)) {
         holder(alias, this.#lookup[alias]);
       }
     }

@@ -1426,8 +1426,12 @@ describe('options', () => {
         { '-a': {}, '-a, --beta': {} },
         // the alias property is a spelling like any other
         { '--alpha': { alias: '-a' }, '-a, --beta': {} },
-        // twins share a destination, not their spellings
+        // twins share a destination, not their spellings -- in either order,
+        // since the negated twin's fallback is a claim on `--cheese` alone
         { '-c, --cheese <type>': {}, '-c, --no-cheese': {} },
+        { '-c, --no-cheese': {}, '-c, --cheese <type>': {} },
+        { '-c, --cheese': {}, '-c, --no-cheese': {} },
+        { '-c, --no-cheese': {}, '-c, --cheese': {} },
       ]) {
         await expect(
           parse({ argv: ['-a'], schema: { options } }),
