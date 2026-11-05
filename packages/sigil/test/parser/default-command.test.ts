@@ -405,6 +405,100 @@ describe('default command', () => {
       expect(state.cmd?.name).toBe('pkg');
     });
 
+    describe('a chain of defaults that leads back to itself', () => {
+      // each lazy load is a fresh command object, so a guard keyed on identity
+      // never fired and these grew the chain without end -- inside the
+      // microtask queue, where no timer, test timeout or SIGINT handler runs.
+      // The fixtures bound themselves so that a regression fails, not hangs
+      const cycle = (file: string) => path.join(__dirname, 'fixtures/default-cycle', file);
+
+      it('should refuse two modules that name each other as default', async () => {
+        await expect(
+          parse({
+            argv: [],
+            schema: { commands: { root: { default: true, path: cycle('a.js') } } },
+          })
+        ).rejects.toThrow(
+          new Error(
+            'Default commands form a cycle: "root" -> "b" -> "a", which is "root" again. A default command cannot lead back to itself, so remove "default" from one of them'
+          )
+        );
+      });
+
+      it('should refuse a module that loads itself as its own default', async () => {
+        await expect(
+          parse({
+            argv: [],
+            schema: {
+              commands: { root: { default: true, load: () => import(cycle('self.js')) } },
+            },
+          })
+        ).rejects.toThrow(
+          new Error(
+            'Default commands form a cycle: "again" -> "again". A default command cannot lead back to itself, so remove "default" from one of them'
+          )
+        );
+      });
+
+      it('should refuse a subcommandLoaded hook that hands back an ancestor', async () => {
+        // the one cycle that needs no module: the hook returns the parent, so
+        // the parent becomes its own default
+        await expect(
+          parse({
+            argv: [],
+            schema: {
+              commands: {
+                a: {
+                  commands: { b: { default: true, load: async () => ({}) } },
+                  default: true,
+                  hooks: { subcommandLoaded: ({ parent }) => parent },
+                },
+              },
+            },
+          })
+        ).rejects.toThrow(
+          new Error(
+            'Default commands form a cycle: "a" -> "b" -> "a". A default command cannot lead back to itself, so remove "default" from one of them'
+          )
+        );
+      });
+
+      it('should still dispatch a chain of defaults from two different modules', async () => {
+        const state = await parse({
+          argv: [],
+          schema: {
+            commands: {
+              root: {
+                commands: { leaf: { default: true, path: cycle('leaf.js') } },
+                default: true,
+                load: async () => ({}),
+              },
+            },
+          },
+        });
+
+        expect(state.contexts.map((c) => c.name)).toStrictEqual(['leaf', 'root', 'global']);
+      });
+
+      it('should refuse one loader adopted twice in a chain, which is the declared limit', async () => {
+        // "the same default" is the same module, and one `load` function is
+        // one module. Two placeholders sharing it, each with different inline
+        // subcommands, would have ended -- and are refused anyway, because
+        // telling them apart means comparing declarations rather than modules
+        const load = async () => ({});
+        await expect(
+          parse({
+            argv: [],
+            schema: {
+              commands: {
+                a: { commands: { b: { default: true, load } }, default: true, load },
+              },
+            },
+          })
+        ).rejects.toThrow('Default commands form a cycle: "a" -> "b", which is "a" again.');
+      });
+    });
+
     it('should error if default is not a boolean', async () => {
       await expect(
         parse({

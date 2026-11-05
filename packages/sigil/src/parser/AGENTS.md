@@ -1351,6 +1351,53 @@ resolution.
   none of them can trip this. Pinned in `test/parser/options.test.ts` under
   `aliases`.
 
+### A chain of defaults that leads back to itself is refused
+
+- **Two modules that name each other as `default` used to hang the process.**
+  SIG-301. `dispatchDefaultCommand()` kept a `visited` set so that a default
+  pointing back at itself could not loop, and it was keyed on the command
+  **object**. A lazy load never hands back the same object twice:
+  `loadCommand()` merges the module into a copy and `initCommand()` copies what
+  it is handed. So `a.js` defaulting to `b.js` defaulting to `a.js` grew the
+  chain until memory ran out. Each load resolves without leaving the microtask
+  queue, so no timer fired and no JavaScript `SIGINT` handler ran either, and
+  on an app with one, Ctrl-C did nothing. A module naming itself through `load`
+  did the same. Deleting the old guard failed no test, so nothing had ever
+  reached it.
+- **"The same default" is the same module.** The key is the resolved `path`,
+  else the `load` function, else the command object for one declared inline.
+  A module evaluates once, so its path and the `load` closures its declaration
+  holds are stable across every load. Every cycle through modules has to pass
+  one of them twice, and an inline command loads nothing, so it repeats only as
+  the same object.
+- **It throws rather than cutting the chain.** The old guard returned `false`,
+  which quietly ran whichever command the cycle closed on. A default chain that
+  leads back to itself cannot mean anything, which is why two siblings both
+  marked `default` already throw. The message names the chain from where it
+  starts: `Default commands form a cycle: "root" -> "b" -> "a", which is "root"
+  again`. English and not a `__` key, because it is a mistake in the app's own
+  schema.
+- **The declared limit: one loader adopted twice in a chain is refused even
+  where it would have ended.** Two placeholders sharing one `load` function, or
+  one `path`, each with different inline subcommands, can make a finite chain
+  that visits the module twice. Telling that apart from a cycle means comparing
+  declarations rather than modules, and nothing has asked for the case. It is
+  pinned as the limit rather than left to be found.
+- **Not reachable through a routed directory, and a generator is out of
+  scope.** A route placeholder does not know its module says `default: true`
+  until the module loads, so a symlink cycle under `commands/` is never
+  dispatched as a default. A `load` that builds a new declaration and a new
+  closure on every call is an infinite tree rather than a cycle. Only a depth
+  cap could bound it, which would be an arbitrary number.
+- **The tests bound themselves, because a regression here hangs instead of
+  failing.** A test timeout is a timer, and the loop never lets a timer run. So
+  the fixtures in `test/parser/fixtures/default-cycle/` throw from their own
+  `parse` hook after fifty dispatches. Keying on identity again fails three of
+  the five tests in milliseconds and does not hang. A second check, run after
+  the load for a `subcommandLoaded` hook that hands back an ancestor, was
+  written and deleted: the next dispatch refuses that ancestor anyway, with the
+  same message.
+
 ### Sharing options between commands
 
 - **Nothing declares what a command inherits, because nothing has to.** Options
