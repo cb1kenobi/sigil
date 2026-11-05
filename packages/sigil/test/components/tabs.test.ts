@@ -218,6 +218,19 @@ describe('Tabs', () => {
     ).not.toContain(';7;');
   });
 
+  it('should move the focus to the new active label while the row has the focus', () => {
+    // the role is put on the active label by the component rather than matched by
+    // a selector, so a change of tab under a focused row has to carry it across
+    const active = new State(1);
+    const host = tabs(active);
+    rowOf(host).setState('focus');
+    active.set(2);
+    flush();
+    const out = renderToString(host, { cascade: themedCascade(), colorLevel: 1, width: 30 });
+    expect(out).toContain(`;1;7;36m Summary `);
+    expect(out).not.toContain(`7;36m Settings`);
+  });
+
   it('should keep the host class and add its own', () => {
     const host = tabs(0, { props: { class: 'mine' } });
     expect(host.classes).toEqual(['mine', 'sigil-tabs']);

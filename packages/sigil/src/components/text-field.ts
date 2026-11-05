@@ -150,6 +150,11 @@ export function TextField(props: TextFieldProps = {}): Element {
   // which is the rule `ScrollBox` keeps
   host.addClass('sigil-text-field');
   host.append(before, caret, after);
+  // a form holds several fields and only the one the keys go to shows a caret,
+  // so the caret takes the focus role while the field has the focus
+  host.onFocusChange = (_, focused): void => {
+    caret.toggleClass('sigil-focus', focused);
+  };
 
   /** Where the caret is, as an offset into the value. */
   let cursor = value.get().length;

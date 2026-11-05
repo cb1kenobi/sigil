@@ -95,6 +95,20 @@ export const FRAMEWORK_CSS = `
  * inherit, so a bordered box that wants a state's colour on its edge has to carry
  * the role class itself -- and a role is the only site this sheet lets a
  * declaration live, so the pair is one rule rather than a compound selector.
+ *
+ * The eighth is .sigil-focus, and it is the part of a control that says the keys
+ * go there: a collapsible's title, the active tab of a focused row, a text
+ * field's caret. Those were three :focus rules saying inverse three times, which
+ * is this sheet's own definition of a role. A component puts the class on the one
+ * part that shows its focus, from the element's onFocusChange, rather than a
+ * selector finding it -- a descendant of :focus would also find the same part of
+ * every control nested inside a focused one. Inverse, because it was already the
+ * answer three times and is an attribute, so it is right on a light terminal and
+ * a dark one alike. At colour level 0 it is dropped like every attribute, and what
+ * shows a focus there is content the component draws. The three retired rules
+ * were the sixth, eighth and ninth of the exceptions below, which are numbered in
+ * the order they were added; the rest keep their numbers, because that is how
+ * AGENTS.md and the history name them.
  */
 .sigil-accent { color: cyan }
 .sigil-muted { dim: true }
@@ -103,6 +117,7 @@ export const FRAMEWORK_CSS = `
 .sigil-error { color: red; border-color: red }
 .sigil-warn { color: yellow; border-color: yellow }
 .sigil-info { color: blue; border-color: blue }
+.sigil-focus { inverse: true }
 
 /*
  * The classes that carry no default and are here to be written against:
@@ -128,10 +143,10 @@ export const FRAMEWORK_CSS = `
  *   .sigil-spinner-frame  .sigil-progress-bar  .sigil-scroll-thumb
  *   .sigil-scroll  .sigil-scroll-row  .sigil-scroll-viewport  .sigil-scroll-content
  *   .sigil-scroll-bar  .sigil-scroll-slot  .sigil-scroll-spacer
- *   .sigil-collapsible  .sigil-collapsible-marker  .sigil-collapsible-label
- *   .sigil-collapsible-body
+ *   .sigil-collapsible  .sigil-collapsible-title  .sigil-collapsible-marker
+ *   .sigil-collapsible-label  .sigil-collapsible-body
  *   .sigil-tabs  .sigil-tabs-row  .sigil-tabs-labels  .sigil-tabs-tab
- *   .sigil-tabs-more  .sigil-tabs-more-left  .sigil-tabs-more-right
+ *   .sigil-tabs-active  .sigil-tabs-more  .sigil-tabs-more-left  .sigil-tabs-more-right
  *   .sigil-tabs-filler  .sigil-tabs-rules  .sigil-tabs-rule
  *   .sigil-tabs-panels  .sigil-tabs-panel
  *   .sigil-pager  .sigil-pager-line  .sigil-pager-number  .sigil-pager-text
@@ -231,23 +246,6 @@ export const FRAMEWORK_CSS = `
 .sigil-scroll-track { color: gray }
 
 /*
- * a collapsible
- *
- * The sixth declared exception to the role rule, and inverse for the reason the
- * caret is: no role is inversion. It is also the one :focus rule in this sheet,
- * and the reason is that nothing else says
- * which title the keys go to: a scroll box shows its focus by scrolling, and a
- * collapsible title that is focused and drawn the same as one that is not is a
- * Tab that appears to do nothing. Inverse is an attribute rather than a colour,
- * so it is right on a light terminal and a dark one alike. It is (0,2,0) where
- * every other rule here is (0,1,0), which costs a theme nothing: origin is
- * decided before specificity, so a one-class theme rule on the title still beats
- * it. At colour level 0 the attribute is dropped and the focus is not shown,
- * which is true of every :focus rule an app writes as well.
- */
-.sigil-collapsible-title:focus { inverse: true }
-
-/*
  * a pager
  *
  * A match is inverse, which is the seventh declared exception to the role rule and
@@ -263,35 +261,12 @@ export const FRAMEWORK_CSS = `
 .sigil-pager-match { inverse: true }
 
 /*
- * tabs
- *
- * The eighth declared exception to the role rule, and inverse for the reason the
- * caret and the collapsible title are: no role is inversion, and the row is
- * focusable with nothing else to say that the keys go to it -- a Tab onto it
- * would look like a Tab that did nothing. Only the active label is inverted, so
- * the one thing the keys change is the one thing that shows the focus. The
- * active label is .sigil-accent and .sigil-heading together (cyan, bold) and the
- * rest .sigil-muted, so this rule adds a reversal to a colour the roles already
- * chose rather than choosing one. A descendant selector keyed on the row's state,
- * which is what the cascade's invalidation was written to follow; at colour level 0
- * the attribute is dropped and the focus is not shown, which is true of every
- * :focus rule. The active tab is still said there by the heavy stretch of the
- * rule under it.
- */
-.sigil-tabs-row:focus .sigil-tabs-active { inverse: true }
-
-/*
  * a text field
  *
- * The ninth declared exception to the role rule, and the caret's own declaration
- * keyed on the field's focus: a form holds several fields and only the one the
- * keys go to may show a caret, so the reversal is the :focus state's to give
- * rather than the component's. A placeholder is .sigil-muted and a disabled field
- * is too, so neither needs a rule here; at colour level 0 the attribute is
- * dropped and the caret is not shown, which is the prompt caret's own answer at
- * that level.
+ * The caret of a focused field is .sigil-focus, and a placeholder and a disabled
+ * field are .sigil-muted, so none of them needs a rule here.
  *
- * The tenth is the field's background, and it is what says the thing is a field
+ * The tenth exception is the field's background, and it is what says the thing is a field
  * at all: without it an unfocused field is its value and nothing else, the same
  * bytes as a label beside it. A background rather than an underline, because an
  * underline marks the characters and leaves the room to the right of them
@@ -305,7 +280,6 @@ export const FRAMEWORK_CSS = `
  * it, since a field that cannot be edited now is still a field. At colour level 0
  * it is dropped, and a field at rest is its value again.
  */
-.sigil-text-field:focus .sigil-text-field-caret { inverse: true }
 .sigil-text-field { background-color: gray }
 
 /*
