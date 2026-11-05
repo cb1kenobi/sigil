@@ -8,6 +8,7 @@ import {
 } from '../../src/terminal/index.js';
 import { createLiveRegion, type LiveRegion } from '../../src/terminal/live.js';
 import { Screen, screenStream } from '../../src/testing/screen.js';
+import { reading } from './reads.js';
 import { PassThrough } from 'node:stream';
 
 /**
@@ -196,6 +197,35 @@ export async function tick(times = 2): Promise<void> {
   // the prompt before it had seen the keys
   for (let i = 0; i < times; i++) {
     await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+/**
+ * Waits for a prompt to have dealt with what it was sent: its output still, and
+ * no directory read it is waiting on still out.
+ *
+ * Still output alone was the rule, in two copies, and it is a guess about a read
+ * it cannot see. Four rounds of 5ms with nothing written passed while a `readdir`
+ * of a hundred entries was still out, so on a loaded runner a test asserted
+ * before the Tab it typed had been answered -- `[ 'File' ]` where the completion
+ * and the question belonged (SIG-303). The read is the one thing the output
+ * cannot report, so a file that mocks `readdir` with `counted()` from
+ * `./reads.ts` is waited for until every read has landed; one that does not
+ * costs nothing, since its count never leaves zero.
+ *
+ * Bounded in wall time rather than in rounds, so a read that never lands is an
+ * assertion failing over what was on screen rather than a test that hangs.
+ *
+ * @param ui - The harness.
+ * @returns Once the output has stopped moving and nothing is being read.
+ */
+export async function settleOutput(ui: ScreenHarness): Promise<void> {
+  const deadline = Date.now() + 5000;
+  let seen = ui.output;
+  for (let still = 0; still < 4 && Date.now() < deadline;) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    still = ui.output === seen && reading.count === 0 ? still + 1 : 0;
+    seen = ui.output;
   }
 }
 

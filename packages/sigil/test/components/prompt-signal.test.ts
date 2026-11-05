@@ -30,9 +30,17 @@ import { commandPalette } from '../../src/components/palette.js';
 import { box, text as textNode } from '../../src/element/index.js';
 import { createInput } from '../../src/input/index.js';
 import { parse } from '../../src/parser/parse.js';
-import { type PromptName, type ScreenHarness, screenSetup, tick } from './helpers.js';
+import { type PromptName, type ScreenHarness, screenSetup, settleOutput, tick } from './helpers.js';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
+
+// the real `readdir`, counted while it is out, so `asked()` can wait for a line
+// form's directory read to land rather than for its output to look finished
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>();
+  const { counted } = await import('./reads.js');
+  return { ...actual, readdir: counted(actual.readdir) };
+});
 
 /** Asks one prompt the smallest question it will take, under `signal`. */
 type Ask = (ui: ScreenHarness, signal: AbortSignal) => Promise<unknown>;
@@ -253,20 +261,15 @@ function counted(): { added: () => number; controller: AbortController; removed:
 /**
  * Waits for a prompt to have asked, which is a tick for most and a directory read
  * for a line form that lists one -- `filePicker()`, `directoryTree()` -- whose
- * question is written once the read lands. Waiting on the output to stop moving
- * rather than on a tick count is what keeps an abort and the Ctrl-C it is held to
- * landing on the same transcript, however long the read takes.
+ * question is written once the read lands. Waiting for the read itself rather than
+ * on a tick count is what keeps an abort and the Ctrl-C it is held to landing on
+ * the same transcript, however long the read takes -- which the output stopping
+ * alone did not, because nothing is written while a read is out (SIG-303).
  */
 async function asked(ui: ScreenHarness, lines: boolean): Promise<void> {
   await tick();
-  if (!lines) {
-    return;
-  }
-  let seen = ui.output;
-  for (let still = 0, round = 0; still < 4 && round < 100; round++) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    still = ui.output === seen ? still + 1 : 0;
-    seen = ui.output;
+  if (lines) {
+    await settleOutput(ui);
   }
 }
 

@@ -12,6 +12,22 @@ describe('what YAML can hold', () => {
     return { back: (yaml(path).readSync().value as { k: unknown }).k, wrote: read(path) };
   };
 
+  /**
+   * Every one of `values` written in one document and read back, in order.
+   *
+   * One write rather than one each, because a write is a temporary file, an
+   * `fsync()` and a rename, and on a loaded Windows runner that measured about
+   * 1.3s apiece: a loop of twenty-eight `roundTrip()`s ran 23.6s against a 10s
+   * deadline (SIG-303). Each value is still a scalar of its own under a key of
+   * its own, which is all that writing it alone ever was.
+   */
+  const roundTripAll = (values: readonly unknown[]): unknown[] => {
+    const path = file('k: 0\n');
+    yaml(path).writeSync(Object.fromEntries(values.map((value, i) => [`k${i}`, value])));
+    const back = yaml(path).readSync().value as Record<string, unknown>;
+    return values.map((_, i) => back[`k${i}`]);
+  };
+
   describe('what it allows that jsonCanHold() refuses', () => {
     it('should hold Infinity, because YAML has a spelling for it and JSON does not', () => {
       // `.inf` reads back as `Infinity` and `checkValue(Infinity, 'number')`
@@ -43,7 +59,7 @@ describe('what YAML can hold', () => {
       // escape for most of them. Measured through a real UTF-8 file: `yaml`
       // reaches for a double-quoted scalar when it has to and every one of
       // these comes back byte for byte
-      for (const value of [
+      const values = [
         '',
         ' padded ',
         'yes',
@@ -72,20 +88,26 @@ describe('what YAML can hold', () => {
         '\uDC00',
         '\uFEFF',
         '😀',
-      ]) {
+      ];
+
+      const back = roundTripAll(values);
+      for (const [i, value] of values.entries()) {
         expect(yamlCanHold(value, 'a'), JSON.stringify(value)).toBe(true);
-        expect(roundTrip(value).back, JSON.stringify(value)).toBe(value);
+        expect(back[i], JSON.stringify(value)).toBe(value);
       }
     });
 
     it('should hold any key, because YAML quotes one', () => {
       // XML holds a key to its `Name` production; YAML quotes it. What a key
       // still cannot be is unreachable-by-path, and that is **core's** refusal
-      // rather than this one's
-      for (const key of ['a b', 'a:b', '1', 'true', '#c', '- x', '  pad  ', '\u0001']) {
-        const path = file('z: 0\n');
-        yaml(path).writeSync({ [key]: 1, z: 0 });
-        expect(Object.keys(yaml(path).readSync().value as object), key).toContain(key);
+      // rather than this one's. In one mapping, for the reason `roundTripAll()`
+      // gives: a write apiece was eight of the slowest thing this suite does
+      const keys = ['a b', 'a:b', '1', 'true', '#c', '- x', '  pad  ', '\u0001'];
+      const path = file('z: 0\n');
+      yaml(path).writeSync({ ...Object.fromEntries(keys.map((key) => [key, 1])), z: 0 });
+      const back = Object.keys(yaml(path).readSync().value as object);
+      for (const key of keys) {
+        expect(back, key).toContain(key);
       }
     });
   });
@@ -142,9 +164,11 @@ describe('what YAML can hold', () => {
     it('should not write a file its own next read refuses', () => {
       // the two halves meeting, which is the claim rather than either guard:
       // every number the write accepts is one the read takes back
-      for (const value of [1e21, 1.5e20, 2 ** 53, 8080, -1.5, Infinity]) {
+      const values = [1e21, 1.5e20, 2 ** 53, 8080, -1.5, Infinity];
+      const back = roundTripAll(values);
+      for (const [i, value] of values.entries()) {
         expect(yamlCanHold(value, 'k'), String(value)).toBe(true);
-        expect(roundTrip(value).back).toStrictEqual(value);
+        expect(back[i], String(value)).toStrictEqual(value);
       }
     });
 
