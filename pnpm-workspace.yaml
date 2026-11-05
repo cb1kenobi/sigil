@@ -4,4 +4,6 @@ packages:
   - 'website'
 
 allowBuilds:
+  # posthog-js depends on it; its postinstall is a funding message.
+  core-js: false
   lefthook: true

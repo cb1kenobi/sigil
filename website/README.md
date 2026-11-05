@@ -21,6 +21,16 @@ tree is one a reviewer can read in the diff, and a drift test is what keeps it
 honest -- where generating at build time would make this build depend on
 importing the toolchain's own app.
 
+## Analytics
+
+PostHog, started from `instrumentation-client.ts` and called through
+`src/lib/analytics.ts`, which owns the list of events. Both
+`NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` and `NEXT_PUBLIC_POSTHOG_HOST` are optional:
+with either unset analytics is off and nothing else changes, so nobody needs a
+PostHog project to work on the site (`.env.example`). A production deploy
+(`VERCEL_ENV=production`) refuses to build without them, which `next.config.ts`
+enforces. `pnpm --filter website test` runs the tests in `website/test/`.
+
 ## Getting Started
 
 First, run the development server:
