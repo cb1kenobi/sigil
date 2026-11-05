@@ -659,6 +659,7 @@ describe('@ttylabs/cli', () => {
     interface DryRun {
       globalCacheInputs: { hashOfInternalDependencies?: string };
       tasks: {
+        command: string;
         inputs: Record<string, string>;
         resolvedTaskDefinition: { inputs: string[]; outputs: string[] };
         taskId: string;
@@ -850,10 +851,16 @@ describe('@ttylabs/cli', () => {
       // `tsconfig.json`, so every directory its `include` names is read by the
       // build, and one the hash leaves out is a type error a cache hit
       // reports as a success. An example that includes `test` has to say so in
-      // a `turbo.json` of its own, the way `packages/cli/turbo.json` does
+      // a `turbo.json` of its own, the way `packages/cli/turbo.json` does.
+      // Turbo lists a `#build` for every workspace member, and one with no
+      // `build` script reports its command as `<NONEXISTENT>` and is skipped:
+      // an unbuilt example like the system monitor has no type check to hash
       const examples = resolve(root, '../../examples');
       const built = dryRun().tasks.filter(
-        (entry) => entry.taskId.startsWith('@ttylabs/example-') && entry.taskId.endsWith('#build')
+        (entry) =>
+          entry.taskId.startsWith('@ttylabs/example-') &&
+          entry.taskId.endsWith('#build') &&
+          entry.command !== '<NONEXISTENT>'
       );
 
       expect(built.length, 'no example build to check').toBeGreaterThan(0);
