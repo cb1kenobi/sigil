@@ -76,6 +76,7 @@ import {
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { PromptError, select, table, text } from '@ttylabs/sigil/components';
+import { canReadKeys } from '@ttylabs/sigil/input';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
@@ -419,16 +420,25 @@ async function chooseRuntime(
  * author had never been asked. The scaffold stopped writing it; the question
  * stays open until somebody answers it.
  *
- * The TTY rule is still not spelled here, for the reason it never was:
- * `select()` refuses where there is nobody to answer, so this asks and
- * translates that one rejection into the message a non-interactive caller
- * needs. An aborted prompt travels untouched.
+ * The TTY rule is still not spelled here, for the reason it never was: a copy
+ * of it is a copy that can disagree with the prompt's. What changed is that it
+ * is *asked*, of `canReadKeys()` -- the definition `select()` itself uses --
+ * before the listings are fetched rather than after. The picker lists both
+ * runtimes' releases off npm and nodejs.org, so leaving the question to
+ * `select()` meant a CI job reached both registries, and waited on each one's
+ * timeout when offline, for a list it threw away to print `--runtime is
+ * required` (SIG-304). `select()` refusing is still translated the same way,
+ * since the two cannot disagree; an aborted prompt travels untouched.
  *
  * @param target - What is being built, for naming Bun's cached runtimes.
  * @returns The runtime and version to embed.
  * @throws If there is nobody to ask.
  */
 async function askRuntime(target: Target): Promise<Spec> {
+  if (!canReadKeys()) {
+    throw required();
+  }
+
   const [bunReleases, nodeReleases] = await Promise.all([latest('bun'), latest('node')]);
   const rows = choices(
     { bun: local('bun', target), node: local('node', target) },

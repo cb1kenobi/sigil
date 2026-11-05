@@ -27,6 +27,16 @@ the entry it belongs to.
   hanging, and a router exists to read keys -- so one that never can is a bug in
   the app rather than a state to carry through every dispatch as a branch. An app
   that runs without input does not build one.
+- **`canReadKeys()` is that rule, and the only spelling of it.** It was written
+  inline five times -- `createInput()`, both prompt engines, `editor()` and
+  `page()` -- and published once a caller in another package needed to ask it
+  _ahead_ of a prompt: `sigil package` fetched the runtime releases its picker
+  offers before `select()` found nobody there, so a CI job reached npm and
+  nodejs.org to print `--runtime is required` (SIG-304). A copy of the rule in
+  that command would have been one that can disagree with the prompt's. It lives
+  here rather than in `components` because input is the lower layer and the
+  router is its first reader. `createInput()` still tests `stdin === undefined`
+  beside it, for the type checker, since a boolean cannot narrow.
 - **Bindings, then the focused element, then its ancestors, then the default.**
   A binding sees every key first, which is where quitting belongs: an app that
   cannot be quit because a focused input swallowed Ctrl-C is the failure the

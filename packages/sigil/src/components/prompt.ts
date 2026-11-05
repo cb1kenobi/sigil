@@ -11,6 +11,7 @@ import { __, __n, confirmKeys } from '../i18n/index.js';
 import {
   type BindingHelp,
   type BindingInfo,
+  canReadKeys,
   createInput,
   formatKey,
   type InputRouter,
@@ -471,7 +472,7 @@ function run<T>(opts: PromptOptions, make: () => Handlers<T>): Promise<T> {
   // nobody is there to answer, and waiting on a stdin that will never produce a
   // keystroke is a hung build with no explanation. The message names the prompt,
   // because "no TTY" on its own does not say which question went unanswered
-  if (!terminal.isTTY || !stdin?.isTTY) {
+  if (!canReadKeys({ stdin, terminal })) {
     return Promise.reject(
       new PromptError(__`Cannot prompt for "${opts.message}" because the input is not a terminal`)
     );
@@ -3650,7 +3651,7 @@ function runLine<T>(
   // the rule the drawn prompts keep, and asked first for their reason. Asking as
   // lines is a different way to draw a question, not a different answer to
   // whether anybody is there to read one
-  if (!terminal.isTTY || !stdin?.isTTY) {
+  if (!canReadKeys({ stdin, terminal })) {
     return Promise.reject(
       new PromptError(__`Cannot prompt for "${opts.message}" because the input is not a terminal`)
     );

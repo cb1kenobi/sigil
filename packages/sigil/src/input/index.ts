@@ -705,6 +705,31 @@ function attached(element: Element, root: Element | undefined): boolean {
 }
 
 /**
+ * Whether keys can be read: the terminal and its input both a TTY.
+ *
+ * The rule a router is built under, and every prompt asks it too before it
+ * asks anything, so it is what "is anybody there to answer" means everywhere in
+ * the package. Published so that work only a prompt or a router needs can be
+ * skipped where neither could run: `editor()` looks for an editor only when
+ * this says yes, and `sigil package` fetches the runtime releases it would
+ * offer only then, rather than reaching two registries to print
+ * `--runtime is required` (SIG-304).
+ *
+ * It was written out five times -- here, both prompt engines, `editor()` and
+ * `page()` -- and it is one answer. A caller that skipped work on this saying
+ * no, where a prompt then asked anyway, would be the two copies disagreeing.
+ *
+ * @param opts - The terminal and input a router or prompt would read; the
+ *   process's own terminal and its stdin otherwise, as for either.
+ * @returns `true` where a router can be built and a prompt would ask.
+ */
+export function canReadKeys(opts: Pick<InputOptions, 'stdin' | 'terminal'> = {}): boolean {
+  const terminal = opts.terminal ?? defaultTerminal;
+  const stdin = opts.stdin ?? (terminal.stdin as InputStream | undefined);
+  return Boolean(terminal.isTTY && stdin?.isTTY);
+}
+
+/**
  * Builds the input router.
  *
  * Throws where stdin is not a terminal rather than carrying a router that can
@@ -720,7 +745,9 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   const terminal = opts.terminal ?? defaultTerminal;
   const stdin = opts.stdin ?? (terminal.stdin as InputStream | undefined);
 
-  if (!terminal.isTTY || !stdin?.isTTY) {
+  // `stdin === undefined` is for the type checker, which a boolean cannot narrow:
+  // `canReadKeys()` already says no to a missing input
+  if (stdin === undefined || !canReadKeys({ stdin, terminal })) {
     throw new InputError(
       'Cannot read keys because the input is not a terminal: build a router only where there is somebody to type'
     );

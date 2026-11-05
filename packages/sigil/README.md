@@ -3344,7 +3344,9 @@ less, or a `min` above the `max`, rejects the prompt rather than asking it.
 > pipeline, a CI job, or a `cron` entry. Waiting on a stdin that will never
 > produce a keystroke is a hung build with no explanation, so `PromptError`
 > names the question that went unanswered. `err.aborted` tells the two cases
-> apart: `true` is Ctrl-C, `false` is nobody there to ask.
+> apart: `true` is Ctrl-C, `false` is nobody there to ask. To skip work that only
+> a prompt needs, such as fetching what it would offer, ask
+> [`canReadKeys()`](#sigilinput) first: it is the check every prompt makes.
 
 #### Prompts as one flow
 
@@ -5585,6 +5587,13 @@ taken. A paste cannot quit anything, so nothing about it needs the bindings firs
 A router refuses to exist where stdin is not a terminal. It exists to read keys,
 so one that never can is a bug in the app rather than a state to carry through
 every dispatch as a branch.
+
+`canReadKeys({ terminal, stdin })` asks that question without building
+anything: `true` when the terminal and its input are both a TTY. Both default
+the way `createInput()`'s do. Every prompt asks it before asking anything, so it
+is how to skip work that only a prompt or a router needs. `sigil package` uses
+it to refuse without fetching the runtime releases its picker would have
+offered.
 
 #### Describing a binding
 
