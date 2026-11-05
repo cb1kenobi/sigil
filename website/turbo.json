@@ -6,6 +6,7 @@
       "dependsOn": ["^build"],
       "inputs": [
         "src/**",
+        "scripts/**",
         "public/**",
         "next.config.ts",
         "postcss.config.mjs",

@@ -66,9 +66,9 @@ export function ReferencePage({ doc }: { doc: ReferenceDoc }) {
     // `flex-col` below `sm` rather than `hidden`, which is what the nav was: the
     // subcommand table was then the only way off the index on a phone, and
     // every link in it 404'd. Found by review
-    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-10 px-6 py-12 sm:flex-row">
-      <nav aria-label="Commands" className="w-full shrink-0 text-sm sm:w-56">
-        <p className="mb-3 font-semibold text-zinc-500 dark:text-zinc-400">Commands</p>
+    <div className="layout-docs flex flex-1 flex-col gap-10 py-12 sm:flex-row">
+      <nav aria-label="Commands" className="text-small w-full shrink-0 sm:w-56">
+        <p className="sidebar-label mb-3">Commands</p>
         <ul className="space-y-1">
           {docs.map((it) => (
             <li key={it.slug} style={{ paddingLeft: `${it.path.length * 0.75}rem` }}>
@@ -77,9 +77,7 @@ export function ReferencePage({ doc }: { doc: ReferenceDoc }) {
                 // page this is reaches a reader who is not looking at either
                 aria-current={it.slug === doc.slug ? 'page' : undefined}
                 className={
-                  it.slug === doc.slug
-                    ? 'font-medium text-black dark:text-zinc-50'
-                    : 'text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50'
+                  it.slug === doc.slug ? 'font-medium text-link' : 'text-muted hover:text-fg-strong'
                 }
                 href={referenceHref(it.slug)}
               >
