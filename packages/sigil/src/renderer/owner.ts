@@ -247,10 +247,24 @@ export function onCleanup(fn: Cleanup): void {
  * bare `createRoot()` never fires -- that is the honest answer rather than
  * running it early against a tree that has no boxes.
  *
+ * The callback runs under the owner of the component that registered it, so an
+ * effect it creates, an `onCleanup()` it registers and a `useContext()` it reads
+ * mean what they would have meant in the body. Queued bare, it ran with no owner
+ * at all: its effects outlived the unmount and the renderer's `dispose()`, its
+ * cleanups were dropped, and every context read its default. A component that is
+ * already gone by the time the frame lands -- a `Show` that closed again before
+ * anything was drawn -- was never on screen, so its callback is skipped rather
+ * than run against an owner that would refuse everything it tried.
+ *
  * @param fn - What to run.
  */
 export function onMount(fn: Cleanup): void {
-  current?.root().mounts?.push(fn);
+  const owner = current;
+  owner?.root().mounts?.push(() => {
+    if (!owner.disposed) {
+      runWithOwner(owner, fn);
+    }
+  });
 }
 
 /**

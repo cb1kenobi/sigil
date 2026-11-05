@@ -270,6 +270,22 @@ the entry it belongs to.
   forty frames later. Under a bare `createRoot()` nothing drains the queue and
   the callback never fires, which is the honest answer rather than running it
   early against a tree that has no boxes.
+- **...and it runs under the owner of the component that registered it, or not
+  at all.** The queue used to hold the bare callback, and the frame that drains
+  it runs with no owner -- so an effect created in an `onMount` belonged to
+  nothing, outliving both the component's unmount and the renderer's
+  `dispose()`, an `onCleanup()` there was dropped, and `useContext()` answered
+  the default. Measured on the review's repro: the effect still ran, and still
+  held its edge, after the renderer was gone. The callback is queued with the
+  owner it was registered under and run through `runWithOwner()`, so it means
+  what the body would have meant. The owner can be gone by the time the frame
+  lands -- a `Show` that opened and closed again between two frames built a
+  branch that was never drawn -- and then the callback is **skipped** rather
+  than run against a disposed owner: the component was never on screen, it has
+  no box to read, and every effect it tried to start would be refused anyway,
+  while a cleanup would run on the spot. Not firing is the same honest answer the
+  bare `createRoot()` case gives. See the three `onMount` tests under
+  `lifecycle` in `test/renderer/renderer.test.ts`.
 - **Control flow is components, and they are the runtime primitive.** An `if` in
   a body runs once and a `.map()` builds the list it saw, so a conditional and a
   list have to be `Show` and `For` -- a component is the only thing that can own
