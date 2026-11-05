@@ -569,20 +569,21 @@ function applyFallback(
  * `state.$`, because no token in argv named it.
  *
  * @param state - The parse state.
- * @param visited - The default commands already adopted, so that a schema that
- * points a command at itself cannot loop forever.
+ * @param adopted - The default commands already adopted, by where each came
+ * from, so that a chain of defaults leading back to itself is refused rather
+ * than walked forever.
  * @returns `true` when a default command joined the chain.
  */
 async function dispatchDefaultCommand(
   state: ParseState,
-  visited: Set<InternalCommand>
+  adopted: Map<unknown, string>
 ): Promise<boolean> {
   const cmd = state.contexts[0][Internal].commands.default;
 
-  if (!cmd || visited.has(cmd)) {
+  if (!cmd) {
     return false;
   }
-  visited.add(cmd);
+  adoptDefault(adopted, cmd);
 
   log(`Dispatching default command "${cmd.name}"`);
 
@@ -596,9 +597,12 @@ async function dispatchDefaultCommand(
 
   const loaded = await loadCommand(cmd, parent);
   if (loaded !== cmd) {
+    // not checked against `adopted` here: a `subcommandLoaded` hook handing
+    // back an ancestor is refused one dispatch later, when the ancestor's own
+    // default is asked for, with the same message. A check here was written
+    // and deleted for failing no test
     state.contexts[0] = loaded;
     state.cmd = loaded;
-    visited.add(loaded);
     parent[Internal].commands.replace(cmd, loaded);
   }
 
@@ -607,9 +611,58 @@ async function dispatchDefaultCommand(
   return true;
 }
 
+/**
+ * What makes two default commands the same one, for the purpose of a cycle.
+ *
+ * Not the command object: a lazily loaded module is merged into a copy and
+ * `initCommand()` copies what it is handed, so every load of one module is a
+ * new object and a guard keyed on identity never fires -- two modules naming
+ * each other as `default` grew the chain until memory ran out, and without
+ * once leaving the microtask queue, so not even a `SIGINT` handler could stop
+ * it. A module evaluates once, so its resolved `path` and the `load` function
+ * its declaration holds are stable across every load of it. A command declared
+ * inline loads nothing, and is the same command only if it is the same object.
+ *
+ * @param cmd - A default command, loaded or not.
+ * @returns Its module, else the command itself.
+ */
+function defaultSource(cmd: InternalCommand): unknown {
+  const { load, path } = cmd[Internal];
+  return path ?? load ?? cmd;
+}
+
+/**
+ * Records a default command joining the chain, refusing one that has joined
+ * it before.
+ *
+ * A default that leads back to itself cannot mean anything: dispatching it
+ * never ends. So it is refused as a mistake in the schema, which is what two
+ * siblings both marked `default` already are, rather than the chain being cut
+ * wherever the cycle happened to close -- which is what the identity-keyed
+ * guard this replaced did, in the one case it could see.
+ *
+ * @param adopted - Every default adopted so far, in order, by its source.
+ * @param cmd - The default joining now.
+ */
+function adoptDefault(adopted: Map<unknown, string>, cmd: InternalCommand): void {
+  const source = defaultSource(cmd);
+  const first = adopted.get(source);
+  if (first !== undefined) {
+    // from where the cycle starts, found by source: two different defaults
+    // can share a name, so a name cannot say which one it was
+    const from = [...adopted.keys()].indexOf(source);
+    const chain = [...[...adopted.values()].slice(from), cmd.name].map((n) => `"${n}"`);
+    const again = first === cmd.name ? '' : `, which is "${first}" again`;
+    throw new Error(
+      `Default commands form a cycle: ${chain.join(' -> ')}${again}. A default command cannot lead back to itself, so remove "default" from one of them`
+    );
+  }
+  adopted.set(source, cmd.name);
+}
+
 async function parseArgv(state: ParseState): Promise<void> {
   const { $, contexts } = state;
-  const defaults = new Set<InternalCommand>();
+  const defaults = new Map<unknown, string>();
   const separator = topicSeparator(state.schema);
 
   await state.schema.hooks?.beforeParse?.(state);
