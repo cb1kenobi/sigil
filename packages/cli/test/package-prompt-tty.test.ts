@@ -1,4 +1,5 @@
 import { binaryName, hostTarget } from '../src/build/compile.ts';
+import { TTY_PRELOAD, typeKeys } from './tty-child.ts';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
@@ -46,23 +47,6 @@ const BINARY = binaryName('buildable', hostTarget());
 /** Whether Bun is installed, which decides whether the answer can be acted on. */
 const hasBun = Boolean(whichSync('bun'));
 
-/**
- * Both ends faked, which is what the prompt requires.
- *
- * `columns` and `rows` come with it: a renderer with no width draws nothing
- * assertable, and `prompt.ts` reads the terminal's width for its own layout.
- */
-const TTY_PRELOAD = `data:text/javascript,${encodeURIComponent(
-  ['stdout', 'stderr', 'stdin']
-    .map(
-      (s) =>
-        `Object.defineProperty(process.${s},"isTTY",{configurable:true,value:true});` +
-        `Object.defineProperty(process.${s},"columns",{configurable:true,value:80});` +
-        `Object.defineProperty(process.${s},"rows",{configurable:true,value:24});`
-    )
-    .join('')
-)}`;
-
 interface Ran {
   code: number | null;
   stderr: string;
@@ -108,17 +92,7 @@ function run(
       settle({ code, stderr, stdout });
     });
 
-    const keys = opts.keys ?? [];
-    let at = 0;
-    const next = (): void => {
-      if (at < keys.length) {
-        child.stdin.write(keys[at++]);
-        setTimeout(next, 250);
-      } else {
-        child.stdin.end();
-      }
-    };
-    setTimeout(next, 500);
+    typeKeys(child, opts.keys ?? []);
   });
 }
 
