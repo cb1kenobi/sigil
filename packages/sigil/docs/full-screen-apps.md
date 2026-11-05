@@ -23,8 +23,9 @@ The JSX half also needs `@ttylabs/cli`, which provides `sigil build`, and
 
 ## How the pieces fit
 
-A full-screen app is four things from four subpaths, and it helps to know
-which does what before writing one:
+A full-screen app is four things, and `runApp()` from `@ttylabs/sigil/app`
+puts them together in one call. It helps to know which does what before
+writing one:
 
 - **An element tree**, built by a component. A component is a function that
   runs **once** and returns elements. Nothing re-renders: the parts that change
@@ -37,6 +38,8 @@ which does what before writing one:
   no scrollback, so whatever was there before is untouched.
 - **An input router**, which owns the keyboard: app-wide bindings, a focus ring
   that Tab walks, and keys delivered to whatever has the focus.
+
+A component reaches the running app, and its router, through `useApp()`.
 
 ## The stylesheet
 
@@ -64,7 +67,10 @@ whatever element has the focus, so no component code is needed for it.
 
 ```tsx
 // src/root.tsx
-export function App({ exit, input }: AppProps): Element {
+export function App(): Element {
+  // the app this is running under: its router, and the way to end it. Read in
+  // the body, since a handler that runs later has no owner to ask
+  const app = useApp();
   const counts = ITEMS.map(() => new State(0));
 
   const rows = ITEMS.map((name, index) => {
@@ -86,16 +92,22 @@ export function App({ exit, input }: AppProps): Element {
     return row;
   });
 
-  input.bind('up', () => input.focus.previous());
-  input.bind('down', () => input.focus.next());
-  input.bind('q', () => exit(0));
+  app.input?.bind('up', () => app.input?.focus.previous());
+  app.input?.bind('down', () => app.input?.focus.next());
+  app.input?.bind('q', () => app.exit());
 
   // after the first frame, which is when the ring has something in it
-  onMount(() => input.focus.focus(rows[0]));
+  onMount(() => app.input?.focus.focus(rows[0]));
 ```
 
-Four things in there are worth reading twice:
+Five things in there are worth reading twice:
 
+- **`App` takes no props.** `useApp()` hands it the app it is running under:
+  `input` is the router, and `exit()` ends the app. Call `useApp()` in the
+  body, as here, and keep what it returns, because a handler that runs later
+  has no component around it to ask. `input` is typed as possibly undefined
+  only because an app that refused to start has none, and that app never calls
+  `App` at all.
 - **JSX makes elements, not descriptions of them.** `<box>` returns a real
   element, so `row.onKey = ...` on the next line sets a handler on the row that
   will be drawn. There is no virtual DOM.
@@ -105,8 +117,9 @@ Four things in there are worth reading twice:
 - **`focusable` puts an element in the focus ring**, which Tab and Shift-Tab
   walk in document order. A key goes to the focused element first and then up
   through its ancestors, so a row handles its own Enter.
-- **`input.bind('q', ...)` is an app-wide binding.** It fires wherever the
-  focus is.
+- **`app.input?.bind('q', ...)` is an app-wide binding.** It fires wherever
+  the focus is. `app.exit()` ends the app with exit code `0`. Ctrl-C needs no
+  binding: the runner ends the app on it, with `130`.
 
 The rest of the component is the screen itself:
 
@@ -137,52 +150,7 @@ For the compiler to read that, `tsconfig.json` names sigil as the JSX source:
 
 `sigil new` writes those two lines for you.
 
-## Putting it on the screen
-
-Mounting the app means building the router and the full-screen canvas, and
-rendering the component into them. In `hello` that is a function called
-`start()`:
-
-```ts
-// src/start.ts
-const root = box({ 'flex-direction': 'column', height: '100%', width: '100%' });
-const backend = createFullscreenCanvas({ terminal });
-const input = createInput({
-  mouse: opts.mouse ? { surface: backend } : undefined,
-  root,
-  terminal,
-});
-```
-
-and then the render itself, with your stylesheet cascaded over the framework's:
-
-```ts
-// src/start.ts
-view = render(
-  () => {
-    root.append(app({ exit, input }));
-    return root;
-  },
-  {
-    backend,
-    cascade: themedCascade({ sheets: opts.stylesheet ? [opts.stylesheet] : [] }),
-    onError: (error) => finish(() => fail(error)),
-    terminal,
-  }
-);
-```
-
-The root box is created before `render()` so that the router exists while
-the component's body runs: the body binds keys, and it needs the router to do
-that. Copy [`start.ts`](../../../examples/hello/src/start.ts) whole. It also
-handles Ctrl-C, gives the terminal back on exit or on a throw, and prints a line
-instead of drawing when there is no terminal to draw on.
-
-`start()` is a stopgap. A runner that does all of this in one call is on the way
-([SIG-276](https://linear.app/cb1kenobi/issue/SIG-276)). When it ships,
-`start.ts` goes and each call to `start()` becomes a call to the runner.
-
-## The entry, and the build
+## Running it
 
 The app is still a sigil CLI. Its entry is a schema whose `run` opens the
 screen, so `hello --help` prints help like any other command:
@@ -194,10 +162,22 @@ export default {
   desc: 'The smallest full-screen sigil app',
 
   async run(): Promise<void> {
-    process.exitCode = await start(App, { stylesheet });
+    process.exitCode = await runApp(App, { sheets: [stylesheet] }).exited;
   },
 };
 ```
+
+`runApp()` builds the router, takes the alternate screen, cascades your
+stylesheet over the framework's, and renders `App` into it. When the app ends
+-- `exit()`, Ctrl-C, or an error -- it gives the terminal back exactly as it
+was, and `exited` resolves with the exit code: `0` from `exit()`, `130` for
+Ctrl-C, `1` for a failure. `runApp()` never sets the process's exit code itself,
+so the `process.exitCode = ...` line is yours to write. Nothing is returned
+from `run()`, because what a command's `run()` returns is printed as its
+answer.
+
+Without a terminal on both ends, piped into `cat` for example, `runApp()`
+refuses: it draws nothing, writes one line to stderr, and resolves `1`.
 
 With `"bin": { "hello": "./dist/hello.mjs" }` in `package.json`, `sigil build`
 type-checks the app, compiles the JSX, and writes the bundle:
@@ -230,7 +210,8 @@ as `<${Row} />`, since a tag function has no scope to look a name up in. What
 you give up is the checking. A misspelt prop is refused when the template runs,
 not underlined in your editor.
 
-The unbuilt entry is the same schema over this component:
+The unbuilt entry, `src/ui.ts`, is the same schema over this component, run by
+`main()`:
 
 ```console
 $ node src/ui.ts
@@ -247,13 +228,15 @@ an app with a build, the tag for a script or a prototype that must run as it is.
 can be mounted, typed at, and read back with no terminal and no child process:
 
 ```ts
+import { runApp } from '@ttylabs/sigil/app';
 import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
 
-// frames are drawn on a clock, about 30 a second, rather than once per key
+// frames are drawn on a clock, about 30 a second, rather than once per key.
+// SIG-309 is a helper that waits for the next one; until then, a timer
 const frame = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 const term = createTestTerminal({ columns: 60, rows: 16 });
-const done = start(App, { stylesheet, terminal: term.terminal });
+const done = runApp(App, { detect: false, sheets: [stylesheet], terminal: term.terminal }).exited;
 await frame();
 
 await term.press(KEYS.enter, KEYS.down, KEYS.enter);
@@ -264,6 +247,7 @@ await done; // 0, and the terminal is back on its main screen
 ```
 
 The first `frame()` matters: the first row takes the focus once the first frame
-has drawn, so a key pressed before then has no row to go to.
+has drawn, so a key pressed before then has no row to go to. `detect: false`
+skips asking the terminal what it is, which a test terminal cannot answer.
 
 The [examples](../../../examples) are complete apps built this way.

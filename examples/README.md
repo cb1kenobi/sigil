@@ -16,8 +16,9 @@ $ pnpm --filter @ttylabs/example-hello start:ui    # the ui-tag twin, unbuilt
 
 Or from inside an example's directory, `pnpm start` and `pnpm start:ui`.
 
-Every example quits on `q` and on Ctrl-C, and without a terminal on both sides
-it says so and exits instead of drawing.
+Every example quits on `q`, and on Ctrl-C. Without a terminal on both sides,
+piped into `cat` for example, an example refuses: it draws nothing, writes one
+line to stderr, and exits `1`.
 
 | Example          | What it shows                                                                                                                                                                           |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

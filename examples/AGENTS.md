@@ -30,19 +30,21 @@ the `ui` tag run by plain `node`.
 - **The contract, which `packages/cli/test/examples.test.ts` reads.** An example
   is `examples/<name>/` with:
 
-  | Path                    | What it is                                                                                                                                                                  |
-  | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `package.json`          | `"name": "@ttylabs/example-<name>"`, `"private": true`, `"type": "module"`, `@ttylabs/sigil` as `workspace:*`                                                               |
-  | `src/root*.{tsx,ts,js}` | One per syntax: `root.tsx` for JSX, `root.ui.ts` (or `root.ts`/`root.js` in a `ui`-only example) for the tag. Each exports `App(props: AppProps): Element` and `stylesheet` |
-  | `src/start.{ts,js}`     | `start(App, { stylesheet?, terminal?, mouse? }): Promise<number>`. Transitional; see below                                                                                  |
-  | `src/ui.{ts,js}`        | The entry Node runs unbuilt, when there is a `ui`-tag root                                                                                                                  |
-  | `bin`, `scripts.build`  | A JSX example only: `"build": "sigil build"` and exactly one `bin`, which is what it builds to                                                                              |
-  | `test/`                 | Tests of the example's own, which vitest picks up as a project named after the package                                                                                      |
+  | Path                    | What it is                                                                                                                                                                             |
+  | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `package.json`          | `"name": "@ttylabs/example-<name>"`, `"private": true`, `"type": "module"`, `@ttylabs/sigil` as `workspace:*`                                                                          |
+  | `src/root*.{tsx,ts,js}` | One per syntax: `root.tsx` for JSX, `root.ui.ts` (or `root.ts`/`root.js` in a `ui`-only example) for the tag. Each exports `App(): Element`, taking no props, and `stylesheet: string` |
+  | `src/ui.{ts,js}`        | The entry Node runs unbuilt, when there is a `ui`-tag root; with `src/index.ts`, an entry is `process.exitCode = await runApp(App, { sheets: [stylesheet] }).exited`                   |
+  | `bin`, `scripts.build`  | A JSX example only: `"build": "sigil build"` and exactly one `bin`, which is what it builds to                                                                                         |
+  | `test/`                 | Tests of the example's own, which vitest picks up as a project named after the package                                                                                                 |
 
-  `AppProps` is `{ exit(code?: number): void; input: InputRouter }`. Every example
-  quits with `0` on `q`, and `start()` ends it with `130` on Ctrl-C whatever the
-  app binds. Without a terminal on both sides `start()` writes one line saying so
-  and resolves `0`, which is the non-TTY rule every interactive demo follows.
+  `App` reaches the app it runs under through `useApp()`: `input` for the router
+  and `exit()` to end it. Every example quits with `0` on `q` through
+  `useApp().exit()`, and Ctrl-C is `runApp()`'s own quit key, with `130`. Piped,
+  with no terminal on both ends, an entry is refused the way `runApp()` refuses:
+  exit `1`, nothing on stdout, one line on stderr. There is no `src/start.*`,
+  and the contract test fails if one comes back. `examples/system-monitor`
+  (SIG-291) follows this contract too, as every example does.
 
 - **The root module is `root`, never `app`, `main`, `cli` or `index`.** All four
   are names `sigil build` looks for an entry under (`ENTRY_NAMES` in
@@ -109,10 +111,15 @@ the `ui` tag run by plain `node`.
   has to leave the alternate screen, show the cursor and put raw mode back. Where
   an example has more than one root, all of them have to draw the same first
   screen -- the claim the two syntaxes rest on, one IR behind both, checked on a
-  real app. The entries are what the in-process half cannot see, so the built
-  `bin` and `src/ui.*` are each spawned piped and have to exit 0 with nothing on
-  stderr and no stack: the built one is the only check that `sigil build`
-  produced a bundle that loads. The spawn helper and `STACK` moved out of
+  real app. Each root is run with `runApp(App, { detect: false, sheets, terminal })`
+  -- the runner the entries use, so the harness mounts nothing its own way --
+  and the codes asserted are the ones `exited` resolves. The entries are what
+  the in-process half cannot see, so the built `bin` and `src/ui.*` are each
+  spawned piped and have to show `runApp()`'s refusal exactly: exit `1`, nothing
+  on stdout, the refusal's own line on stderr (matched by its wording, so an
+  entry dying of something else with a `1` is not mistaken for it), and no stack.
+  An entry that exits `0` piped has stopped refusing, and fails. The built one is
+  the only check that `sigil build` produced a bundle that loads. The spawn helper and `STACK` moved out of
   `demos.test.ts` into `packages/cli/test/spawned.ts`, one definition for both.
   It lives in `packages/cli` for `demos.test.ts`'s reason: it needs `dist/`.
 
@@ -126,16 +133,22 @@ the `ui` tag run by plain `node`.
   The same-screen assertion is what proves the in-process twin produced sigil
   elements at all.
 
-- **`start()` is copied into every example until SIG-276's `runApp()` exists.**
-  The one exception to "one definition of each helper", and temporary by
-  construction: it is shaped like the runner, so the swap is one line per caller
-  -- `start(App, { stylesheet })` in an entry and
-  `start(App, { stylesheet, terminal })` in the smoke test become `runApp(...)`,
-  and `src/start.*` is deleted. Shared rather than copied would have meant a
-  module every example imports, which is a published package's worth of surface
-  standing in for one that is days away. The root box is made before `render()`,
-  because `render()` hands its root back only after the component body has run,
-  and a body that binds a key needs the router while it runs.
+- **`runApp()` runs every example, and `start()` is gone.** Until SIG-276
+  landed, each example carried a hand-wired `start()` shaped like the runner,
+  so that moving onto it would be one line per caller. It was: the entries and
+  the harness now call `runApp()`, the root components lost their props for
+  `useApp()`, and `src/start.ts` was deleted. Two things changed on the way. The
+  piped answer is the runner's refusal -- exit `1` and a line on stderr --
+  rather than `start()`'s line on stdout and `0`, which was Chris's decision on
+  SIG-276: a refusal a script can detect is worth more than a `0` that says
+  nothing happened. And an entry sets `process.exitCode` itself, because
+  `runApp()` resolves a code and leaves the process's alone.
+
+- **The harness and the guide wait on timers for frames, which is SIG-309.** A
+  frame is drawn on the renderer's clock rather than once per key, and nothing
+  yet says when the next has landed, so the harness polls the screen until it
+  stops changing and the guide's testing snippet waits 50ms. Both comments name
+  SIG-309, which is the call that would replace them.
 
 - **The guide quotes the example rather than being replayed.**
   `packages/sigil/docs/full-screen-apps.md` sits beside `getting-started.md`,
@@ -154,8 +167,8 @@ the `ui` tag run by plain `node`.
   matches a file reads it as a config file, and vitest refuses
   `examples/AGENTS.md` as one with a startup error rather than skipping it.
 
-- **Sabotage: fifteen, none survived, one caught by the build rather than the
-  suite, and one test written before the pass.** Dropping the example from the
+- **Sabotage, against the first harness: fifteen, none survived, one caught by
+  the build rather than the suite, and one test written before the pass.** Dropping the example from the
   build filter, a throw in the JSX body, the two twins disagreeing by one
   letter, no `dispose()`, no `input.stop()`, no `q` binding, a ranged
   devDependency, a `test/` the tsconfig includes but the hash does not, a guide
@@ -164,7 +177,16 @@ the `ui` tag run by plain `node`.
   fails the suite. A wrong `jsxImportSource` is caught by `sigil build`'s
   `TS2875`, for the reason above. Removing the Ctrl-C binding would have
   survived the first harness, which only quit on `q`; the Ctrl-C test was added
-  for it before the pass, and the binding's removal fails it.
+  for it before the pass, and the binding's removal fails it. `start()` is gone
+  now, so the `dispose()` and `input.stop()` sabotages are the runner's to keep,
+  and its own suite does.
+
+- **Sabotage, after the move onto `runApp()`: ten, none survived.** An entry
+  that exits `0` piped, unbuilt and built; a root that ignores `q`, in either
+  syntax; a root that takes props; an entry that throws, which exits `1` but
+  prints a stack; an entry that writes to stdout before refusing; an entry that
+  exits `1` with some other error line; the twins disagreeing by one letter; and
+  a `src/start.ts` left behind. Each fails the suite.
 
 - **Not done:** the focus highlight is a background colour, so at colour level 0
   (a pipe, `NO_COLOR`) nothing on screen says which row has the focus -- what a

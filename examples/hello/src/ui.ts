@@ -8,8 +8,8 @@
  */
 
 import { App, stylesheet } from './root.ui.ts';
-import { start } from './start.ts';
 import { main } from '@ttylabs/sigil';
+import { runApp } from '@ttylabs/sigil/app';
 
 await main({
   schema: {
@@ -17,7 +17,7 @@ await main({
     desc: 'The smallest full-screen sigil app',
 
     async run(): Promise<void> {
-      process.exitCode = await start(App, { stylesheet });
+      process.exitCode = await runApp(App, { sheets: [stylesheet] }).exited;
     },
   },
 });

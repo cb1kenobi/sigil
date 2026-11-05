@@ -14,7 +14,7 @@
  */
 
 import { ITEMS } from './common.ts';
-import type { AppProps } from './start.ts';
+import { useApp } from '@ttylabs/sigil/app';
 import type { Element } from '@ttylabs/sigil/element';
 import { onMount } from '@ttylabs/sigil/renderer';
 import { State } from '@ttylabs/sigil/signals';
@@ -25,10 +25,12 @@ export { stylesheet } from './common.ts';
 /**
  * Three rows to move between and press, and a line that adds them up.
  *
- * @param props - The router and the way out.
  * @returns The screen.
  */
-export function App({ exit, input }: AppProps): Element {
+export function App(): Element {
+  // the app this is running under: its router, and the way to end it. Read in
+  // the body, since a handler that runs later has no owner to ask
+  const app = useApp();
   const counts = ITEMS.map(() => new State(0));
 
   const rows = ITEMS.map((name, index) => {
@@ -48,11 +50,11 @@ export function App({ exit, input }: AppProps): Element {
     return row;
   });
 
-  input.bind('up', () => input.focus.previous());
-  input.bind('down', () => input.focus.next());
-  input.bind('q', () => exit(0));
+  app.input?.bind('up', () => app.input?.focus.previous());
+  app.input?.bind('down', () => app.input?.focus.next());
+  app.input?.bind('q', () => app.exit());
 
-  onMount(() => input.focus.focus(rows[0]));
+  onMount(() => app.input?.focus.focus(rows[0]));
 
   return ui`
     <box class="app">

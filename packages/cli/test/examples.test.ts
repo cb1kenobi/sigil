@@ -1,4 +1,5 @@
-import { run, STACK } from './spawned.ts';
+import { type Ran, run, STACK } from './spawned.ts';
+import { runApp } from '@ttylabs/sigil/app';
 import type { Element } from '@ttylabs/sigil/element';
 import { createTestTerminal, ctrl, KEYS, type TestTerminal } from '@ttylabs/sigil/testing';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -11,23 +12,26 @@ import { describe, expect, it } from 'vitest';
  *
  * `examples/AGENTS.md` has the contract this reads, and the reasons for it.
  * In short: an example is a workspace member whose `src/root*.{tsx,ts,js}`
- * modules each export a root component `App` and its `stylesheet`, one per
- * template syntax, and whose `src/start.{ts,js}` exports the `start()` that
- * mounts one full screen -- until SIG-276's `runApp()` takes its place. `q`
- * quits with `0`, in every example.
+ * modules each export a root component `App`, which takes no props and reaches
+ * the app through `useApp()`, and its `stylesheet` -- one module per template
+ * syntax. Its entries run it with `runApp()`. `q` quits with `0` through
+ * `useApp().exit()`, and Ctrl-C is the runner's, with `130`.
  *
- * **In-process, over a test terminal**, each root component is mounted, drawn,
- * walked with Tab and quit with `q`, and the screen has to be given back. Where
+ * **In-process, over a test terminal**, each root component is run with
+ * `runApp()`, drawn, walked with Tab and quit with `q` and with Ctrl-C, and the
+ * screen has to be given back. Where
  * an example is written in more than one syntax, every one of them has to draw
  * the same first screen -- which is the claim the two syntaxes rest on, one IR
  * behind both, checked on a real app rather than asserted in prose.
  *
- * **Spawned, piped**, each runnable entry has to exit `0` with nothing on
- * stderr and no stack anywhere: the built `bin` for a JSX example, which is
- * the only thing that proves `sigil build` produced a bundle that loads, and
- * `src/ui.{ts,js}` for the twin Node runs as it is. Piped is the non-TTY rule,
- * the same one `demos.test.ts` checks: no terminal means a line saying so,
- * never a hang waiting for keys and never a crash.
+ * **Spawned, piped**, each runnable entry has to be refused the way `runApp()`
+ * refuses: exit `1`, nothing on stdout, the one line on stderr, and no stack
+ * anywhere. The built `bin` for a JSX example, which is the only thing that
+ * proves `sigil build` produced a bundle that loads, and `src/ui.{ts,js}` for
+ * the twin Node runs as it is. A full-screen app in a pipe has nobody to type
+ * and no screen to draw on, and a refusal a script can detect is the answer
+ * Chris chose over a frame and a `0` -- so an entry that exits `0` piped has
+ * stopped refusing, which is a failure here.
  *
  * Lives in this package for the reason `demos.test.ts` does: it needs `dist/`,
  * of `@ttylabs/sigil` for the test terminal and of the examples for their
@@ -51,7 +55,7 @@ interface Example {
   readonly name: string;
   /** The root modules, one per syntax. */
   readonly roots: readonly string[];
-  /** `src/start.*`, or `undefined` when there is none -- which the contract test reports. */
+  /** `src/start.*`, the hand-wired runner `runApp()` replaced; the contract test wants none. */
   readonly start: string | undefined;
   /** `src/ui.*`: the twin Node runs unbuilt. */
   readonly unbuilt: string | undefined;
@@ -98,19 +102,24 @@ function examples(): Example[] {
 
 /** What a root module exports. */
 interface RootModule {
-  App: (props: never) => Element;
-  stylesheet?: string;
+  App: () => Element;
+  stylesheet: string;
 }
 
-/** What a start module exports. */
-interface StartModule {
-  start(
-    app: RootModule['App'],
-    opts: { stylesheet?: string; terminal: TestTerminal['terminal'] }
-  ): Promise<number>;
-}
+/**
+ * The line `runApp()` writes when it refuses to start, as the default `onError`
+ * renders it. Its wording is `src/renderer/app.ts`'s; pinned here rather than
+ * any one line, so that an entry dying of something else on the way is not
+ * mistaken for the refusal.
+ */
+const REFUSAL = /^Error: Cannot run an app because stdin or the output is not a terminal\b.*\r?\n$/;
 
-/** Waits for `test` to hold, or fails saying what was being waited for. */
+/**
+ * Waits for `test` to hold, or fails saying what was being waited for.
+ *
+ * Polling, because a frame is drawn on the renderer's clock rather than per
+ * key, and nothing yet says when the next one has landed -- which is SIG-309.
+ */
 async function until(test: () => boolean, what: string, ms = 2000): Promise<void> {
   const deadline = Date.now() + ms;
   while (!test()) {
@@ -131,7 +140,10 @@ function within<T>(promise: Promise<T>, what: string, ms = 2000): Promise<T> {
   ]);
 }
 
-/** The screen once the frame loop has gone quiet, so that two runs compare like for like. */
+/**
+ * The screen once the frame loop has gone quiet, so that two runs compare like
+ * for like. A wait SIG-309 would make a call.
+ */
 async function settled(term: TestTerminal): Promise<string[]> {
   let last = '';
   let steady = 0;
@@ -154,31 +166,38 @@ const COLUMNS = 60;
 const ROWS = 16;
 
 /**
- * Mounts one root component, and hands back what it drew and how it ended.
+ * Runs one root component the way its entry does, over a test terminal, and
+ * hands back what it drew and the exit code to come.
  *
- * @param example - Whose `start()` to mount it with.
+ * `detect: false` because nothing at the far end of a test terminal answers a
+ * capability query, and an app's first frame does not wait for one anyway.
+ *
  * @param file - The root module.
  * @returns The first settled screen, and the terminal for whatever comes next.
  */
 async function mount(
-  example: Example,
   file: string
 ): Promise<{ done: Promise<number>; screen: string[]; term: TestTerminal }> {
   const rootModule = (await import(pathToFileURL(file).href)) as RootModule;
-  const startModule = (await import(pathToFileURL(example.start!).href)) as StartModule;
 
   const term = createTestTerminal({ columns: COLUMNS, rows: ROWS });
-  const done = startModule.start(rootModule.App, {
-    stylesheet: rootModule.stylesheet,
+  const done = runApp(rootModule.App, {
+    detect: false,
+    sheets: [rootModule.stylesheet],
     terminal: term.terminal,
-  });
-  // a start() that threw before drawing anything surfaces here rather than as
-  // a timeout below
-  done.catch(() => {});
+  }).exited;
 
   await until(() => term.screen.alternate, 'the app to take the whole screen');
   const screen = await settled(term);
   return { done, screen, term };
+}
+
+/** What `runApp()` refusing looks like from outside: `1`, one line on stderr, nothing else. */
+function refused({ code, stderr, stdout }: Ran): void {
+  expect(`${stdout}${stderr}`, 'a stack reached the output').not.toMatch(STACK);
+  expect(code, 'exit code: the refusal is 1, and 0 means it drew or did nothing').toBe(1);
+  expect(stdout, 'nothing on stdout').toBe('');
+  expect(stderr, 'the one line runApp() refuses with').toMatch(REFUSAL);
 }
 
 const found = examples();
@@ -201,7 +220,8 @@ describe('the examples', () => {
           example.roots.length,
           'a root module: src/root.tsx, src/root.ts or src/root.js'
         ).toBeGreaterThan(0);
-        expect(example.start, 'src/start.ts or src/start.js').toBeDefined();
+        // the hand-wired runner examples carried before `runApp()` existed
+        expect(example.start, 'src/start.* is runApp() now; delete it').toBeUndefined();
         // a JSX root needs a build, and a build needs a `bin` to write
         if (example.roots.some((file) => file.endsWith('.tsx'))) {
           expect(manifest.scripts?.build, 'a JSX example builds').toBe('sigil build');
@@ -219,8 +239,18 @@ describe('the examples', () => {
       });
 
       for (const file of example.roots) {
+        it(`should export App, taking no props, and its stylesheet: ${basename(file)}`, async () => {
+          // the app is reached through `useApp()`, so a root that still takes
+          // props is one somebody has to remember to wire, and `runApp()` will
+          // not
+          const rootModule = (await import(pathToFileURL(file).href)) as RootModule;
+          expect(typeof rootModule.App, 'App').toBe('function');
+          expect(rootModule.App.length, 'App takes no props').toBe(0);
+          expect(typeof rootModule.stylesheet, 'stylesheet').toBe('string');
+        });
+
         it(`should draw, take Tab, and give the screen back on q: ${basename(file)}`, async () => {
-          const { done, screen, term } = await mount(example, file);
+          const { done, screen, term } = await mount(file);
 
           expect(screen.join('').trim(), 'the first screen is blank').not.toBe('');
 
@@ -241,7 +271,7 @@ describe('the examples', () => {
           // whatever the app binds, Ctrl-C ends it: an app that cannot be quit
           // is the failure a function binding seeing every key first exists to
           // prevent. 130 is what a shell reports for an interrupt
-          const { done, term } = await mount(example, file);
+          const { done, term } = await mount(file);
           await term.press(ctrl('c'));
 
           expect(await within(done, 'quitting on Ctrl-C')).toBe(130);
@@ -254,7 +284,7 @@ describe('the examples', () => {
         it('should draw the same screen in every syntax', async () => {
           const drawn: string[][] = [];
           for (const file of example.roots) {
-            const { done, screen, term } = await mount(example, file);
+            const { done, screen, term } = await mount(file);
             drawn.push(screen);
             await term.press('q');
             await within(done, 'quitting on q');
@@ -269,7 +299,7 @@ describe('the examples', () => {
       if (bin !== undefined) {
         const built = join(example.dir, bin);
 
-        it.concurrent(`should run ${bin} piped`, async () => {
+        it.concurrent(`should refuse to run ${bin} piped`, async () => {
           // `pnpm test` builds every example that has a build before vitest
           // starts, and `the root build filter` fails if one is left out -- so
           // a missing bundle here means vitest was run on its own. Whether a
@@ -279,23 +309,15 @@ describe('the examples', () => {
           // bundle that is exactly right. `examples/AGENTS.md` has the
           // measurement
           expect(existsSync(built), `${bin} is missing; run pnpm build`).toBe(true);
-          const { code, stderr, stdout } = await run(built, example.dir);
-          expect(`${stdout}${stderr}`, 'a stack reached the output').not.toMatch(STACK);
-          expect(code, 'exit code').toBe(0);
-          expect(stderr, 'nothing was expected on stderr').toBe('');
-          expect(stdout).toMatch(/needs a terminal/);
+          refused(await run(built, example.dir));
         }, 45_000);
       }
 
       if (example.unbuilt !== undefined) {
         const unbuilt = example.unbuilt;
 
-        it.concurrent(`should run ${basename(unbuilt)} piped, with nothing built`, async () => {
-          const { code, stderr, stdout } = await run(unbuilt, example.dir);
-          expect(`${stdout}${stderr}`, 'a stack reached the output').not.toMatch(STACK);
-          expect(code, 'exit code').toBe(0);
-          expect(stderr, 'nothing was expected on stderr').toBe('');
-          expect(stdout).toMatch(/needs a terminal/);
+        it.concurrent(`should refuse to run ${basename(unbuilt)} piped, with nothing built`, async () => {
+          refused(await run(unbuilt, example.dir));
         }, 45_000);
       }
     });
