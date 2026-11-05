@@ -886,6 +886,23 @@ describe('the facade', () => {
   it('should throw rather than draw nothing for an empty payload', () => {
     expect(() => qrcode('')).to.throw(/needs something to encode/);
   });
+
+  it('should refuse a payload that is not a string rather than encoding its spelling', () => {
+    // each of these used to draw a valid code that scanned as `null`,
+    // `undefined`, `42`, `[object Object]` and `a`
+    const cases: [unknown, string][] = [
+      [null, 'null'],
+      [undefined, 'undefined'],
+      [42, 'number'],
+      [{}, 'object'],
+      [['a'], 'object'],
+    ];
+    for (const [value, got] of cases) {
+      const message = `A QR code encodes a string, got ${got}`;
+      expect(() => encodeQr(value as string)).to.throw(TypeError, message);
+      expect(() => qrcode(value as string)).to.throw(TypeError, message);
+    }
+  });
 });
 
 describe('what one segment costs', () => {

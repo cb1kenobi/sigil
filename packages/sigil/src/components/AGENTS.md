@@ -3713,6 +3713,19 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   code somebody photographs twice. That is the `PromptError` rule: a thing with
   nobody to answer it fails loudly.
 
+- **So is a payload that is not a string, and for the same reason one step
+  earlier (SIG-302).** Only `''` was refused, and everything else was turned into a
+  string on the way in -- `RegExp.test()` and `TextEncoder` both stringify what
+  they are handed -- so `qrcode(user.inviteUrl)` with the field missing drew a
+  valid code that scans as the word `undefined`, and `null`, `42` and `{}` scanned
+  as their spellings. That is the empty string's failure with a word in it, and it
+  is harder to see, because the code still prints. It is a `TypeError` checked at
+  run time, which the types already rule out and which the options beside it are
+  checked at for the same reason: a caller in plain JavaScript, or holding an
+  `any`, has no type to stop it. A number is refused rather than read as its
+  digits, because guessing what a caller meant is the thing a QR code cannot
+  afford -- `String(n)` is one call away.
+
 ##### How the codes were established to be scannable
 
 Three layers, and only the third needs a camera. This is the component whose
