@@ -1102,10 +1102,21 @@ export interface QrEncodeOptions {
  * @param value - The payload.
  * @param opts - The level, the version floor, and the mask.
  * @returns The symbol.
- * @throws If the string is empty, if it does not fit version 40, or if an option
- *   is out of range.
+ * @throws If the value is not a string or is empty, if it does not fit version
+ *   40, or if an option is out of range.
  */
 export function encodeQr(value: string, opts: QrEncodeOptions = {}): QrCode {
+  // the same mistake as the empty string below, one step earlier: `RegExp.test()`
+  // and `TextEncoder` both stringify what they are handed, so a missing field
+  // drew a perfectly valid code that scans as the word `undefined` -- and a code
+  // that prints is a code somebody photographs. Checked at run time for the
+  // reason the options below are: a caller in plain JavaScript has no type to
+  // stop it
+  if (typeof value !== 'string') {
+    const got = value === null ? 'null' : typeof value;
+    throw new TypeError(`A QR code encodes a string, got ${got}`);
+  }
+
   // a symbol of nothing is a symbol that scans to nothing, which is a worse
   // answer than an error: a caller interpolating a value that turned out to be
   // empty gets told where, rather than a code somebody photographs twice
