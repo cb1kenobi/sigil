@@ -2,9 +2,9 @@
  * The monitor: per-core load, memory and network over time, and a process table.
  *
  * Written in the `ui` tag, so it runs under plain `node` with nothing compiling
- * it. `App` is the whole screen and knows nothing about where it is drawn:
- * `main.js` builds the terminal, the router and the renderer around it, and a
- * test builds the same thing over a fake terminal.
+ * it. `App` is the whole screen, mounted by `runApp()`: `src/ui.js` runs it on
+ * the real terminal, and the tests run it over a fake one with a fake machine
+ * behind `SystemContext`.
  */
 
 import {
@@ -16,6 +16,8 @@ import {
   sortProcesses,
 } from './data.js';
 import { LiveChart, Panel, ProcessTable } from './stand-ins.js';
+import { SystemContext } from './system.js';
+import { useApp } from '@ttylabs/sigil/app';
 import {
   confirmModal,
   gaugeView,
@@ -24,21 +26,55 @@ import {
   sparklineView,
   TextField,
 } from '@ttylabs/sigil/components';
-import { createEffect, For, onCleanup } from '@ttylabs/sigil/renderer';
+import { createEffect, For, onCleanup, onMount, useContext } from '@ttylabs/sigil/renderer';
 import { Computed, State, untrack } from '@ttylabs/sigil/signals';
 import { ui } from '@ttylabs/sigil/template';
-import { parseTheme, themedCascade } from '@ttylabs/sigil/theme';
 import { AMBER, MONO, NEON, PHOSPHOR, VIOLET } from '@ttylabs/sigil/themes';
 
 /** How many samples each chart keeps: two minutes at one a second. */
 const HISTORY = 120;
 
+/** What `t` cycles through. `sigil` is the framework's own roles, with no class at all. */
+const THEMES = Object.freeze([
+  ['sigil', ''],
+  ['mono', MONO],
+  ['violet', VIOLET],
+  ['amber', AMBER],
+  ['phosphor', PHOSPHOR],
+  ['neon', NEON],
+]);
+
 /**
- * The layout. Every colour comes from a role class (`sigil-accent`,
- * `sigil-muted`, ...), so a theme restyles the whole screen.
+ * A theme's rules, scoped under a class on the app's host.
+ *
+ * The themes are written for `runApp()`'s `theme` option, which is set once:
+ * the cascade it builds has no way to take a sheet back out, so switching by
+ * adding sheets is adding forever, with every role restated so the last theme
+ * cannot leak through (SIG-307 is the swap that would make this unnecessary).
+ * Scoped instead, every theme is in the one stylesheet from the start and only
+ * the one whose class is on the host matches -- the way a web app puts `.dark`
+ * on `<html>`. A scoped rule is one class more specific than the framework's own,
+ * so the active theme wins and anything it leaves unset falls back to the
+ * defaults. Every line of these themes is a `.sigil-<role>` rule, an `@media` or a
+ * closing brace, which is what makes a line-anchored rewrite exact.
+ *
+ * @param {string} name - The theme.
+ * @param {string} css - Its rules, as `@ttylabs/sigil/themes` ships them.
+ * @returns {string} The same rules, matching only under `.theme-<name>`.
  */
-const LAYOUT = `
-  .app { flex-direction: column; width: 100%; height: 100% }
+function scopeTheme(name, css) {
+  return css.replace(/^(\s*)\.sigil-/gm, `$1.theme-${name} .sigil-`);
+}
+
+/**
+ * The layout, then every theme. Every colour comes from a role class
+ * (`sigil-accent`, `sigil-muted`, ...), so a theme restyles the whole screen.
+ */
+export const stylesheet = `
+  /* min-height: 0, or the root keeps the automatic minimum of a flex item, which
+     is its content's height: flex-grow would grow it to the screen and never
+     shrink it there, and the cores would never wrap */
+  .app { flex-direction: column; flex-grow: 1; min-height: 0 }
   .top { flex-direction: row; flex-grow: 1; flex-basis: 0; min-height: 0 }
   .side { flex-direction: column; flex-grow: 1; flex-basis: 0; min-width: 0 }
   .panel {
@@ -68,93 +104,23 @@ const LAYOUT = `
   .table-row.selected { inverse: true }
   .filter { flex-direction: row; height: 1; column-gap: 1 }
   .footer { height: 1; padding-left: 1; column-gap: 2 }
+${THEMES.map(([name, css]) => scopeTheme(name, css)).join('\n')}
 `;
-
-/**
- * Every role back to nothing, so that a theme applied after another one does
- * not inherit what the last one set and this one did not.
- *
- * Restates what `demos/style/04-theme-switcher.js` restates, because a cascade
- * has no way to take a sheet back out: switching is adding, forever.
- */
-const RESET = ['accent', 'muted', 'heading', 'success', 'error', 'warn', 'info']
-  .map(
-    (role) =>
-      `.sigil-${role} { color: initial; dim: false; font-weight: normal; ` +
-      `text-decoration: none; inverse: false; italic: false }`
-  )
-  .join('\n');
-
-/** The framework's own roles, restated so that cycling can come back to them. */
-const SIGIL = `
-  .sigil-accent { color: cyan }
-  .sigil-muted { dim: true }
-  .sigil-heading { font-weight: bold }
-  .sigil-success { color: green }
-  .sigil-error { color: red }
-  .sigil-warn { color: yellow }
-  .sigil-info { color: blue }
-  @media (prefers-color-scheme: light) {
-    .sigil-muted { color: gray; dim: false }
-  }
-`;
-
-/** What `t` cycles through. */
-export const THEMES = Object.freeze([
-  ['sigil', SIGIL],
-  ['mono', MONO],
-  ['violet', VIOLET],
-  ['amber', AMBER],
-  ['phosphor', PHOSPHOR],
-  ['neon', NEON],
-]);
-
-/**
- * The cascade the monitor draws through: the framework's defaults and the layout.
- *
- * @returns {import('@ttylabs/sigil/style').Cascade} A cascade a theme can be added to.
- */
-export function monitorCascade() {
-  return themedCascade({ sheets: [LAYOUT] });
-}
-
-/**
- * @typedef {object} Shell
- * @property {import('@ttylabs/sigil/input').InputRouter} input
- * @property {import('@ttylabs/sigil/components').ModalHost} host - Where a dialog goes.
- * @property {() => void} restyle - Called after a sheet is added to the cascade.
- * @property {() => void} quit
- */
-
-/**
- * @typedef {object} AppProps
- * @property {{ sample(): Promise<import('./sampler.js').Snapshot> }} sampler
- * @property {import('@ttylabs/sigil/style').Cascade} cascade - What `t` adds a theme to.
- * @property {State<Shell | undefined>} shell - The router and the renderer, which
- *   exist only after the tree does: stand-in for SIG-276.
- * @property {{ every(ms: number, fn: () => void): () => void }} [clock] - How the
- *   ticks are scheduled. Defaults to `setInterval`.
- * @property {number} [interval] - Milliseconds between samples. Defaults to 1000.
- * @property {(pid: number) => void} [kill] - Defaults to `process.kill(pid, 'SIGTERM')`.
- */
-
-/** The default clock. */
-const realClock = {
-  every(ms, fn) {
-    const id = setInterval(fn, ms);
-    return () => clearInterval(id);
-  },
-};
 
 /**
  * The whole screen.
  *
- * @param {AppProps} props - Where the data comes from and what it is drawn into.
  * @returns {import('@ttylabs/sigil/element').Element} The root.
  */
-export function App(props) {
-  const clock = props.clock ?? realClock;
-  const kill = props.kill ?? ((pid) => process.kill(pid, 'SIGTERM'));
+export function App() {
+  const app = useApp();
+  // always there under `runApp()`, which refuses to call a component at all
+  // without a terminal to read keys from -- typed as possibly missing for that
+  const input = app.input;
+  if (!input) {
+    throw new Error('The system monitor needs keys: run it with runApp() on a terminal');
+  }
+  const system = useContext(SystemContext);
 
   // -- state ------------------------------------------------------------------
   const cores = new State(/** @type {number[][]} */ ([]));
@@ -164,32 +130,32 @@ export function App(props) {
   const sort = new State(/** @type {keyof typeof import('./data.js').SORTS} */ ('cpu'));
   const filter = new State('');
   const selected = new State(/** @type {number | undefined} */ (undefined));
-  const theme = new State(0);
   const status = new State('');
+  let theme = 0;
 
   const rows = new Computed(() =>
     sortProcesses(filterProcesses(processes.get(), filter.get()), sort.get())
   );
 
-  // the selection follows its pid through a re-sort, a refresh and a filter
+  // the selection follows its pid through a re-sort, a refresh and a filter.
+  // The selection is read untracked: this runs when the rows change, and a move
+  // of the selection is not a reason to look again
   let shown = /** @type {readonly import('./data.js').Process[]} */ ([]);
   createEffect(() => {
     const next = rows.get();
-    const pid = reselect(
-      shown,
-      next,
-      untrack(() => selected.get())
-    );
+    const was = untrack(() => selected.get());
+    const pid = reselect(shown, next, was);
     shown = next;
-    if (pid !== untrack(() => selected.get())) {
+    if (pid !== was) {
       selected.set(pid);
     }
   });
 
   // -- sampling ---------------------------------------------------------------
+  const sampler = system.sampler();
   let disposed = false;
   const tick = async () => {
-    const snap = await props.sampler.sample();
+    const snap = await sampler.sample();
     if (disposed) {
       return;
     }
@@ -208,7 +174,7 @@ export function App(props) {
     processes.set(snap.processes);
   };
   void tick();
-  const stopClock = clock.every(props.interval ?? 1000, () => void tick());
+  const stopClock = system.clock.every(system.interval, () => void tick());
   onCleanup(() => {
     disposed = true;
     stopClock();
@@ -311,7 +277,7 @@ export function App(props) {
   table.element.addClass('grow');
 
   const field = TextField({
-    onSubmit: () => props.shell.get()?.input.focus.focus(table.element),
+    onSubmit: () => input.focus.focus(table.element),
     placeholder: 'press / to filter',
     value: filter,
   });
@@ -329,17 +295,11 @@ export function App(props) {
   );
 
   // -- the footer -------------------------------------------------------------
-  // stand-in for SIG-276: the footer reads the router's bindings, and the router
-  // is made after this tree. A source that reads it through the shell signal is
-  // what lets the footer redraw the moment it arrives
   // the footer asks for a width before the root exists, and is not told when the
   // layout changes it: it asks again only when the bindings or the focus move
   /** @type {import('@ttylabs/sigil/element').Element | undefined} */
   let root;
-  const footer = keyHelp(
-    { bindings: () => props.shell.get()?.input.bindings() ?? [] },
-    { width: () => Math.max(20, (root?.box?.width ?? 80) - 24) }
-  );
+  const footer = keyHelp(input, { width: () => Math.max(20, (root?.box?.width ?? 80) - 24) });
 
   root = ui`<box class="app">
     <box class="top">
@@ -354,55 +314,54 @@ export function App(props) {
   </box>`;
 
   // -- keys -------------------------------------------------------------------
-  const cycleTheme = (shell) => {
-    const at = (theme.get() + 1) % THEMES.length;
-    theme.set(at);
-    const [name, css] = THEMES[at];
-    props.cascade.add(parseTheme(`${RESET}\n${css}`));
-    shell.restyle();
+  const cycleTheme = () => {
+    // on the app's host rather than on this root, so that a dialog -- which is
+    // appended beside this root, not inside it -- takes the theme too
+    const host = app.view.root;
+    const [was] = THEMES[theme];
+    theme = (theme + 1) % THEMES.length;
+    const [name] = THEMES[theme];
+    host.removeClass(`theme-${was}`);
+    host.addClass(`theme-${name}`);
     status.set(`theme: ${name}`);
   };
 
-  const askKill = async (shell) => {
+  const askKill = async () => {
     const pid = selected.get();
     const p = rows.get().find((it) => it.pid === pid);
     if (!p) {
       return;
     }
-    const yes = await confirmModal(shell.host, {
+    const yes = await confirmModal(app.view, {
       initial: 'no',
-      input: shell.input,
+      input,
       message: `Send SIGTERM to ${p.name} (pid ${p.pid})?`,
       title: 'Kill process',
     });
-    shell.input.focus.focus(table.element);
+    input.focus.focus(table.element);
     if (!yes) {
       return;
     }
     try {
-      kill(p.pid);
+      system.kill(p.pid);
       status.set(`sent SIGTERM to ${p.pid}`);
     } catch (err) {
       status.set(`could not kill ${p.pid}: ${/** @type {Error} */ (err).message}`);
     }
   };
 
-  // the keys are the root's, reached by bubbling from whatever has the focus,
-  // rather than router bindings -- a binding sees every key first, so `q` typed
-  // into the filter would quit
+  // the app's keys are the root's, reached by bubbling from whatever has the
+  // focus, rather than router bindings: a binding sees every key before the
+  // focused element, so `q` typed into the filter would quit. A layer of app
+  // keys that a focused text field outranks is SIG-308
   root.onKey = (event) => {
-    const shell = props.shell.get();
-    if (!shell) {
-      return;
-    }
     const { key } = event;
-    const typing = shell.input.focus.current.get() === field;
-    if (typing) {
+    if (input.focus.current.get() === field) {
       // Escape abandons the filter, where Enter keeps it
       if (key.name === 'escape') {
         event.stop();
         filter.set('');
-        shell.input.focus.focus(table.element);
+        input.focus.focus(table.element);
       }
       return;
     }
@@ -410,7 +369,7 @@ export function App(props) {
     switch (key.name) {
       case 'q':
         handled();
-        shell.quit();
+        app.exit();
         return;
       case 'up':
       case 'k':
@@ -447,45 +406,40 @@ export function App(props) {
       }
       case 't':
         handled();
-        cycleTheme(shell);
+        cycleTheme();
         return;
       case 'x':
         handled();
-        void askKill(shell);
+        void askKill();
         return;
       default:
         if (key.sequence === '/') {
           handled();
-          shell.input.focus.focus(field);
+          input.focus.focus(field);
         }
     }
   };
 
-  // what the footer lists, once there is a router to list it on
-  createEffect(() => {
-    const shell = props.shell.get();
-    if (!shell) {
-      return;
+  // what the footer lists. In the body rather than in an effect: inside one,
+  // `describe()` would make the effect depend on the list it writes (SIG-306)
+  const undo = [
+    input.describe('up', { description: 'select', priority: 3 }),
+    input.describe('down', { description: 'select', priority: 3 }),
+    input.describe('s', { description: 'sort', priority: 2 }),
+    input.describe('/', { description: 'filter', priority: 2 }),
+    input.describe('x', { description: 'kill', priority: 2 }),
+    input.describe('t', { description: 'theme', priority: 1 }),
+    input.describe('q', { description: 'quit', priority: 3 }),
+  ];
+  onCleanup(() => {
+    for (const fn of undo) {
+      fn();
     }
-    // untracked: describing a key writes the router's list of bindings, and
-    // reading that list back is part of writing it -- tracked, this effect would
-    // be its own dependency and never settle
-    const undo = untrack(() => [
-      shell.input.describe('up', { description: 'select', priority: 3 }),
-      shell.input.describe('down', { description: 'select', priority: 3 }),
-      shell.input.describe('s', { description: 'sort', priority: 2 }),
-      shell.input.describe('/', { description: 'filter', priority: 2 }),
-      shell.input.describe('x', { description: 'kill', priority: 2 }),
-      shell.input.describe('t', { description: 'theme', priority: 1 }),
-      shell.input.describe('q', { description: 'quit', priority: 3 }),
-    ]);
-    untrack(() => shell.input.focus.focus(table.element));
-    onCleanup(() => {
-      for (const fn of undo) {
-        fn();
-      }
-    });
   });
+
+  // nothing focused means the keys reach the router's bindings and nothing else,
+  // so the table takes the focus once it is in the tree
+  onMount(() => input.focus.focus(table.element));
 
   return root;
 }

@@ -5,13 +5,18 @@ CPU core, memory and network over time, and a process table that refreshes
 every second.
 
 ```
-node examples/system-monitor/src/main.js
+pnpm build
+node examples/system-monitor/src/ui.js
 ```
 
-It needs a terminal on both ends (stdin and stdout), and `pnpm build` first,
-since it imports `@ttylabs/sigil` by name. It reads the system with no
-dependencies: `os` for cores and memory, `vm_stat`, `ps` and `netstat` on
-macOS, `/proc` on Linux. Windows is not supported.
+Or `pnpm start` from this directory. It is written in the `ui` tag, so nothing
+compiles it; `pnpm build` is for `@ttylabs/sigil` itself, which it imports by
+name. `q` exits 0 and Ctrl-C exits 130. Without a terminal on both ends,
+`runApp()` refuses: one line on stderr, exit 1.
+
+It reads the system with no dependencies: `os` for cores and memory,
+`vm_stat`, `ps` and `netstat` on macOS, `/proc` on Linux. Windows is not
+supported.
 
 | Key          | Does                                                         |
 | ------------ | ------------------------------------------------------------ |
@@ -22,7 +27,8 @@ macOS, `/proc` on Linux. Windows is not supported.
 | `/`          | Filter by name, user or pid; Enter keeps it, Escape drops it |
 | `x`          | Send SIGTERM to the selected process, after a confirm        |
 | `t`          | Cycle the themes `@ttylabs/sigil/themes` ships               |
-| `q`, Ctrl-C  | Quit                                                         |
+| `q`          | Quit, with 0                                                 |
+| Ctrl-C       | Quit, with 130                                               |
 
 The selection follows its process, not its row: when a refresh re-sorts the
 table, the process you were about to kill stays selected.
@@ -31,16 +37,28 @@ table, the process you were about to kill stays selected.
 
 | File               | What it is                                                                 |
 | ------------------ | -------------------------------------------------------------------------- |
-| `src/main.js`      | The wiring: TTY check, full-screen backend, renderer, router, quit         |
-| `src/app.js`       | `App`, the whole screen, written in the `ui` tag                           |
+| `src/ui.js`        | The entry: `process.exitCode = await runApp(App, ...).exited`              |
+| `src/root.js`      | `App`, the whole screen, and `stylesheet`                                  |
+| `src/system.js`    | `SystemContext`: the sampler, the clock and the kill, replaceable in tests |
 | `src/stand-ins.js` | Components sigil does not have yet (below)                                 |
 | `src/sampler.js`   | Reads the system once a tick and turns two readings into rates             |
 | `src/data.js`      | Pure parsers and helpers, tested against fixtures                          |
 | `test/`            | The parsers, the sampler over a fake machine, the app over a fake terminal |
 
-`App` knows nothing about where it is drawn, so `test/app.test.js` mounts it
-over `createTestTerminal()` with a sampler and a clock the test drives, and
-presses keys at it. `pnpm test` from this directory runs those tests.
+`App` takes no props. It reaches the router and `exit()` through `useApp()`,
+and the machine through `SystemContext`, so `test/app.test.js` runs it with
+`runApp()` over `createTestTerminal()`, behind a fake sampler, clock and kill,
+and asserts the code it exits with.
+
+## Themes
+
+`t` moves a class on the app's host. Every theme is in `stylesheet` from the
+start, each scoped under its own class (`.theme-mono .sigil-accent ...`), the
+way a web app puts `.dark` on `<html>`. The class goes on the host rather than
+on `App`'s root so that a dialog, which is appended beside the root, follows
+the theme too. Switching by adding the theme's sheet to the cascade instead
+would mean restating every role so the last theme cannot leak through, because
+a cascade has no way to take a sheet back out: SIG-307.
 
 ## What is a stand-in
 
@@ -56,9 +74,10 @@ and is the least that works.
   on screen, and learns its size through `onResize`.
 - **`ProcessTable`** stands in for SIG-281. Its columns are padded strings and
   its rows are a pool of text elements that it rewrites in place.
-- **The shell** stands in for SIG-276. The router is created after the tree it
-  routes, so `App` takes it later through a signal (`shell`), and `main.js` is
-  wiring that a runner should replace.
+
+The app's own keys are on `App`'s root `onKey` rather than router bindings: a
+binding sees every key before a focused field does, so `q` typed into the
+filter would quit. A layer of app keys a focused field outranks is SIG-308.
 
 ## Not yet
 

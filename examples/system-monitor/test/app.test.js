@@ -1,14 +1,16 @@
-import { App, monitorCascade } from '../src/app.js';
-import { createFullscreenCanvas } from '@ttylabs/sigil/canvas';
-import { createInput, ESCAPE_TIMEOUT } from '@ttylabs/sigil/input';
-import { render } from '@ttylabs/sigil/renderer';
-import { flush, State } from '@ttylabs/sigil/signals';
-import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
+import { App, stylesheet } from '../src/root.js';
+import { SystemContext } from '../src/system.js';
+import { runApp } from '@ttylabs/sigil/app';
+import { ESCAPE_TIMEOUT } from '@ttylabs/sigil/input';
+import { provideContext } from '@ttylabs/sigil/renderer';
+import { flush } from '@ttylabs/sigil/signals';
+import { createTestTerminal, ctrl, KEYS } from '@ttylabs/sigil/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
- * The monitor mounted over a fake terminal, with a sampler and a clock the test
- * drives: what `main.js` does, minus the process.
+ * The monitor run by `runApp()` over a fake terminal, with a fake machine behind
+ * `SystemContext`: a sampler, a clock and a kill the test drives. Exactly what
+ * `src/ui.js` does, minus the real terminal and the real machine.
  */
 
 const proc = (pid, cpu, mem) => ({
@@ -22,62 +24,56 @@ const proc = (pid, cpu, mem) => ({
 
 const mounted = [];
 
-function mount({ colorLevel = 0, columns = 100, rows = 30, processes = [] } = {}) {
+function mount({
+  colorLevel = 0,
+  columns = 100,
+  cores = [0.25, 0.75],
+  rows = 30,
+  processes = [],
+} = {}) {
   const term = createTestTerminal({ colorLevel, columns, rows });
   const data = { processes };
   let n = 0;
-  const sampler = {
-    async sample() {
-      n++;
-      return {
-        cores: [0.25, 0.75],
-        memory: { total: 16 * 1024 ** 3, used: 8 * 1024 ** 3 },
-        net: { rx: 1024 * n, tx: 512 * n },
-        processes: data.processes,
-      };
-    },
-  };
   let tick;
   let stopped = false;
-  const clock = {
-    every(_ms, fn) {
-      tick = fn;
-      return () => {
-        stopped = true;
-      };
-    },
-  };
-  const cascade = monitorCascade();
-  const shell = new State(undefined);
   const killed = [];
-  const state = { quit: false };
-  const view = render(
-    () => App({ cascade, clock, kill: (pid) => killed.push(pid), sampler, shell }),
-    {
-      backend: createFullscreenCanvas({ terminal: term.terminal }),
-      cascade,
-      colorLevel,
-      terminal: term.terminal,
-    }
-  );
-  const input = createInput({ root: view.root, terminal: term.terminal });
-  shell.set({
-    host: view,
-    input,
-    quit: () => {
-      state.quit = true;
+  const system = {
+    clock: {
+      every(_ms, fn) {
+        tick = fn;
+        return () => {
+          stopped = true;
+        };
+      },
     },
-    restyle: () => {
-      view.restyler.touchSheets();
-      view.frame();
-    },
+    interval: 1000,
+    kill: (pid) => killed.push(pid),
+    sampler: () => ({
+      async sample() {
+        n++;
+        return {
+          cores,
+          memory: { total: 16 * 1024 ** 3, used: 8 * 1024 ** 3 },
+          net: { rx: 1024 * n, tx: 512 * n },
+          processes: data.processes,
+        };
+      },
+    }),
+  };
+  const app = runApp(() => provideContext(SystemContext, system, App), {
+    colorLevel,
+    detect: false,
+    sheets: [stylesheet],
+    terminal: term.terminal,
   });
 
   const settle = async () => {
     for (let i = 0; i < 4; i++) {
       await new Promise((resolve) => setImmediate(resolve));
       flush();
-      view.frame();
+      if (app.running) {
+        app.view.frame();
+      }
     }
   };
   const press = async (...keys) => {
@@ -97,17 +93,13 @@ function mount({ colorLevel = 0, columns = 100, rows = 30, processes = [] } = {}
   };
   const screen = () => term.viewport.join('\n');
   const it = {
+    app,
     data,
-    dispose: () => {
-      input.stop();
-      view.dispose();
-    },
     escape,
     killed,
     press,
     screen,
     settle,
-    state,
     step,
     get stopped() {
       return stopped;
@@ -118,9 +110,10 @@ function mount({ colorLevel = 0, columns = 100, rows = 30, processes = [] } = {}
   return it;
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const it of mounted.splice(0)) {
-    it.dispose();
+    it.app.exit();
+    await it.app.exited;
   }
 });
 
@@ -224,13 +217,32 @@ describe('the system monitor', () => {
     const app = mount({ processes: [proc(1, 5, 1)] });
     await app.step();
     await app.press('/', 'q');
-    expect(app.state.quit).toBe(false);
+    expect(app.app.running).toBe(true);
     expect(app.screen()).toContain('processes · 0 of 1');
 
     await app.escape();
     expect(app.screen()).toContain('processes · 1 of 1');
     await app.press('q');
-    expect(app.state.quit).toBe(true);
+    expect(await app.app.exited).toBe(0);
+  });
+
+  it('should exit 0 on q and give the terminal back', async () => {
+    const app = mount();
+    await app.step();
+    expect(app.term.screen.alternate).toBe(true);
+
+    await app.press('q');
+    expect(await app.app.exited).toBe(0);
+    expect(app.term.screen.alternate).toBe(false);
+    expect(app.term.stdin.rawMode).toBe(false);
+  });
+
+  it('should exit 130 on Ctrl-C, even with the filter focused', async () => {
+    const app = mount();
+    await app.step();
+    await app.press('/', 'ab', ctrl('c'));
+    expect(await app.app.exited).toBe(130);
+    expect(app.term.screen.alternate).toBe(false);
   });
 
   it('should switch themes with t', async () => {
@@ -238,6 +250,23 @@ describe('the system monitor', () => {
     await app.step();
     await app.press('t');
     expect(app.screen()).toContain('theme: mono');
+  });
+
+  it('should restyle the roles when the theme moves, a dialog included', async () => {
+    const ESC = String.fromCharCode(0x1b);
+    const app = mount({ colorLevel: 1, processes: [proc(1, 5, 1)] });
+    await app.step();
+    // the framework's accent is cyan, and violet's is magenta
+    expect(app.term.output).toContain(`${ESC}[36m`);
+    expect(app.term.output).not.toContain(`${ESC}[35m`);
+
+    await app.press('t', 't');
+    expect(app.term.output).toContain(`${ESC}[35mtheme: violet`);
+
+    // a dialog is appended beside the app's root rather than inside it, so the
+    // theme has to be on the host for the focused button's accent to follow
+    await app.press('x');
+    expect(app.term.output).toMatch(new RegExp(`${ESC}\\[35m\\[ No \\]`));
   });
 
   it('should reflow into a smaller screen', async () => {
@@ -252,11 +281,24 @@ describe('the system monitor', () => {
     expect(app.screen()).toContain('proc-1');
   });
 
-  it('should stop sampling when it is disposed', async () => {
+  it('should fit the screen however many cores there are, wrapping them into columns', async () => {
+    // the root is a flex item of the runner's host, and a flex item keeps its
+    // content's height as a minimum unless told otherwise: eighteen cores then
+    // pushed the screen past its bottom edge and never wrapped
+    const app = mount({ cores: Array.from({ length: 18 }, () => 0.5), rows: 24 });
+    await app.step();
+    const lines = app.term.viewport;
+    expect(lines.at(-1)).toContain('↑/↓ select');
+    expect(lines.some((line) => /cpu0 .* cpu9 /.test(line))).toBe(true);
+    expect(app.screen()).toContain('─ processes ·');
+  });
+
+  it('should stop sampling when it exits', async () => {
     const app = mount();
     await app.step();
     expect(app.stopped).toBe(false);
-    app.dispose();
+    app.app.exit();
+    await app.app.exited;
     expect(app.stopped).toBe(true);
   });
 });

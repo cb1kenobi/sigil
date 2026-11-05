@@ -5,8 +5,7 @@
   "description": "A system monitor in the shape of btop and htop, written with the ui tag",
   "type": "module",
   "scripts": {
-    "start": "node src/main.js",
-    "test": "vitest run"
+    "start": "node src/ui.js"
   },
   "dependencies": {
     "@ttylabs/sigil": "workspace:*"
