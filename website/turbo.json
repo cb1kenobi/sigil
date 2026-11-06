@@ -11,6 +11,8 @@
         "../packages/sigil/package.json",
         "scripts/**",
         "public/**",
+        "!public/_pagefind/**",
+        "!public/symbols.json",
         ".env*",
         "instrumentation-client.ts",
         "next.config.ts",
@@ -18,7 +20,7 @@
         "tsconfig*.json",
         "package.json"
       ],
-      "outputs": [".next/**", "!.next/cache/**"]
+      "outputs": [".next/**", "!.next/cache/**", "public/_pagefind/**", "public/symbols.json"]
     }
   }
 }
