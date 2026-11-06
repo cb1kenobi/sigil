@@ -2,7 +2,7 @@ import { blockComponents, remarkCallouts, textOf } from '@/components/markdown-b
 import { remarkDocPage } from '@/lib/markdown-doc';
 import Link from 'next/link';
 import type { ComponentProps } from 'react';
-import type { ExtraProps } from 'react-markdown';
+import type { ExtraProps, Options } from 'react-markdown';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -66,12 +66,16 @@ function anchor(resolve: (href: string | undefined) => string | undefined) {
  *
  * @param props.source - The markdown, title included.
  * @param props.link - Where a relative link in it goes on this site.
+ * @param props.plugins - Remark plugins a kind of page adds after these: the command reference's
+ *   option anchors.
  */
 export function DocsMarkdown({
   link,
+  plugins,
   source,
 }: {
   link: (href: string | undefined) => string | undefined;
+  plugins?: Options['remarkPlugins'];
   source: string;
 }) {
   return (
@@ -90,7 +94,7 @@ export function DocsMarkdown({
             </div>
           ),
         }}
-        remarkPlugins={[remarkGfm, remarkCallouts, remarkDocPage]}
+        remarkPlugins={[remarkGfm, remarkCallouts, remarkDocPage, ...(plugins ?? [])]}
       >
         {source}
       </Markdown>
