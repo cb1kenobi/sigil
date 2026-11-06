@@ -798,6 +798,15 @@ it.
   reason for the host, and it is what lets a control take the focus ring at build
   time if SIG-278 settles that way. A column, so a root with no size of its own
   takes the whole width as a block would; `flex-grow: 1` on it fills the screen.
+  And `.sigil-app > * { min-height: 0 }`, in a sheet of the runner's own between
+  the theme and the app's sheets, so that it also _stays_ on the screen: the root
+  is a flex item, a flex item's automatic minimum is its content, and a column root
+  taller than the screen kept that height -- `flex-grow` can only grow it -- so its
+  bottom rows were drawn nowhere. The system monitor found it with more cores than
+  rows, and every app would have had to know to write the rule. A sheet rather than
+  an inline style because an app sheet's own `min-height` on the root has to win,
+  and the selectors tie, so the later sheet does. A `cascade` passed whole goes
+  without it, which is what passing one whole means.
   `view` is the one thing a body cannot have, because the body is how the renderer
   gets its tree: reading it then throws, naming `onMount()`, rather than answering
   `undefined`.

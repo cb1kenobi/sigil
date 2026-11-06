@@ -432,6 +432,36 @@ describe('runApp()', () => {
     expect(term.viewport[5]).toBe(`+${'-'.repeat(28)}+`);
   });
 
+  it('should keep a root that grows on the screen when its content is taller than the screen', () => {
+    // a flex item's automatic minimum is its content, so without the host's rule
+    // the root is twelve rows tall on a six-row screen and its bottom edge is
+    // drawn nowhere -- the trap the system monitor walked into with 18 cores
+    const lines = Array.from({ length: 10 }, (_, i) => text(`line ${i}`));
+    const { app, term } = start(() =>
+      box(
+        { border: 'ascii', 'flex-direction': 'column', 'flex-grow': 1, overflow: 'hidden' },
+        ...lines
+      )
+    );
+    app.view.frame();
+    expect(term.viewport[5]).toBe(`+${'-'.repeat(28)}+`);
+  });
+
+  it('should let the app sheets give the root a minimum of their own', () => {
+    const lines = Array.from({ length: 10 }, (_, i) => text(`line ${i}`));
+    const { app, term } = start(
+      () =>
+        box(
+          { border: 'ascii', class: 'root', 'flex-direction': 'column', 'flex-grow': 1 },
+          ...lines
+        ),
+      { sheets: ['.root { min-height: auto }'] }
+    );
+    app.view.frame();
+    // the author asked for the content minimum back, so the bottom edge is off screen
+    expect(term.viewport[5]).toBe(`|line 4${' '.repeat(22)}|`);
+  });
+
   it('should quit on Ctrl-C ahead of a binding the component made that takes every key', async () => {
     const { app, term } = start(() => {
       useApp().input?.bind((event) => event.stop());

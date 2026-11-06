@@ -54,7 +54,7 @@ import {
   type Key,
   type MouseSurface,
 } from '../input/index.js';
-import type { Cascade, Stylesheet } from '../style/index.js';
+import { type Cascade, parseStylesheet, type Stylesheet } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { themedCascade } from '../theme/index.js';
 import { render, type Renderer, type RenderOptions } from './index.js';
@@ -85,7 +85,8 @@ export interface AppOptions extends Pick<
    * The escape hatch: without it the app draws through `themedCascade()` --
    * the framework's own sheet, then `theme`, then `sheets` -- which is what every
    * built-in component is styled for. A cascade passed here is used as it is,
-   * framework sheet or not.
+   * framework sheet or not -- and without the runner's `.sigil-app > *` rule, so
+   * a column root taller than the screen wants `min-height: 0` of its own.
    */
   cascade?: Cascade;
   /**
@@ -222,6 +223,22 @@ const EXIT_HUNG_UP = 129;
 
 /** The exit code for a failure: an error that ended the app, or a refusal to start. */
 const EXIT_FAILED = 1;
+
+/**
+ * The runner's own rule: the component's root may shrink to the screen.
+ *
+ * The root is a flex item in a column host the screen's height, and a flex item's
+ * automatic minimum is its content's height -- so a column root taller than the
+ * screen kept that height, `flex-grow: 1` could only grow it, and its bottom rows
+ * were drawn nowhere. A system monitor with more cores than rows is the ordinary
+ * way to get there, and every app's root wanted `min-height: 0` written by hand.
+ *
+ * Its own sheet between the theme and the app's sheets rather than an inline
+ * style, so that a root's own `min-height` in an app sheet still wins: the
+ * selectors tie, and a later sheet takes a tie. Parsed on first use, so a module
+ * that only imports the subpath pays nothing.
+ */
+let hostSheet: Stylesheet | undefined;
 
 /**
  * The app everything inside `runApp()` is built under, or `undefined` outside one.
@@ -465,7 +482,10 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
           themedCascade({
             colorScheme: opts.colorScheme,
             reducedMotion: opts.reducedMotion,
-            sheets: opts.sheets,
+            sheets: [
+              (hostSheet ??= parseStylesheet('.sigil-app > * { min-height: 0 }')),
+              ...(opts.sheets ?? []),
+            ],
             theme: opts.theme,
           }),
         colorLevel: opts.colorLevel,
