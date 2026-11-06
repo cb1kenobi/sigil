@@ -72,8 +72,30 @@
     "shared": [],
     "signature": "function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>): ModalHandle<T>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "tab",
+        "shiftTab"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "space",
+        "enter",
+        "escape"
+      ]
+    }
+  ],
   "registryDescription": "A modal: a dialog over the screen with a focus trap, Escape to dismiss, and a yes-or-no helper",
+  "source": "packages/sigil/src/components/modal.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "parser.ts\nca╭──────────────────────────────────╮\nla│ \u001b[1mDelete it?\u001b[0m                       │\n  │ parser.ts will be gone for good. │\n  │                                  │\n  │                     Yes   \u001b[36m[ No ]\u001b[0m │\n  ╰──────────────────────────────────╯"
+    },
     "rendered": {
       "columns": 80,
       "output": "parser.ts\ncanvas.ts             ╭──────────────────────────────────╮\nlayout.ts             │ \u001b[1mDelete it?\u001b[0m                       │\n                      │ parser.ts will be gone for good. │\n                      │                                  │\n                      │                     Yes   \u001b[36m[ No ]\u001b[0m │\n                      ╰──────────────────────────────────╯"

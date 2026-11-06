@@ -92,7 +92,9 @@ in `src/content/components/<slug>.mjs`, ordinary app code that the page shows as
 its source; `scripts/lib/run-example.mjs` runs it on a faked terminal with a fake
 clock, so the frame it keeps is the same on every machine, and the result goes
 to `src/transcripts/components/` with the options read off the built
-declarations. `test/component-captures.test.ts` fails when one has gone stale.
+declarations. A component's page shows it three ways (80 columns, accessible,
+40 columns), and its Keys are what its key-help footer lists plus what pressing
+each key on the running example was seen to do. `test/component-captures.test.ts` fails when one has gone stale.
 The list of components is `src/lib/components.ts`, and
 `test/components.test.ts` fails on an export of `@ttylabs/sigil/components`
 that is neither a component there nor a helper with a reason.

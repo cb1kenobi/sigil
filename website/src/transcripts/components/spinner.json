@@ -54,7 +54,12 @@
     "signature": "function createSpinner(opts?: SpinnerOptions): Spinner"
   },
   "registryDescription": "An animated spinner that settles into a success or failure line",
+  "source": "packages/sigil/src/components/spinner.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m⠴\u001b[0m Resolving dependencies"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m⠴\u001b[0m Resolving dependencies"

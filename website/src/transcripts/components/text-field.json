@@ -47,7 +47,7 @@
         "type": "string | State<string>"
       },
       {
-        "description": "How many columns the field takes. Defaults to what the layout gives it -- the whole width in a column, and its own content in a row, where an empty field is one column wide. A field in a row wants this or a `flex-grow`.",
+        "description": "How many columns the field takes. Defaults to what the layout gives it -- the whole width in a column, and in a row its whole value and the caret, or the placeholder while it is empty, shrinking to its share where the row is short. A `flex-grow` gives it the rest of a row instead.",
         "default": "what the layout gives it -- the whole width in a column",
         "name": "width",
         "optional": true,
@@ -57,8 +57,33 @@
     "shared": [],
     "signature": "function TextField(props?: TextFieldProps): Element"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "left",
+        "home",
+        "tab",
+        "shiftTab",
+        "space",
+        "backspace"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "enter",
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A text field: one editable line as an element, for a form or a dialog",
+  "source": "packages/sigil/src/components/text-field.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "Name \u001b[100mledger\u001b[0m\u001b[100;7m \u001b[0m\u001b[100m                 \u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "Name \u001b[100mledger\u001b[0m\u001b[100;7m \u001b[0m\u001b[100m                 \u001b[0m"

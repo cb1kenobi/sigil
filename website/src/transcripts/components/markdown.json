@@ -54,7 +54,12 @@
     "signature": "function markdown(source: string | readonly MarkdownBlock[], opts?: MarkdownOptions): string"
   },
   "registryDescription": "Markdown drawn as styled text: headings, emphasis, code, lists, quotes, tables and OSC 8 links, wrapped to the terminal",
+  "source": "packages/sigil/src/components/markdown.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[1mUnreleased\u001b[0m\n\n\u001b[2m• \u001b[0mTooltips follow a \u001b[1mscrolled \u001b[0manchor\n\u001b[2m• \u001b[0m\u001b[36mselect() \u001b[0mtakes an AbortSignal\n\n\u001b[2m│ \u001b[0mRun \u001b[36mpnpm build \u001b[0monce before the tests."
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[1mUnreleased\u001b[0m\n\n\u001b[2m• \u001b[0mTooltips follow a \u001b[1mscrolled \u001b[0manchor\n\u001b[2m• \u001b[0m\u001b[36mselect() \u001b[0mtakes an AbortSignal\n\n\u001b[2m│ \u001b[0mRun \u001b[36mpnpm build \u001b[0monce before the tests."

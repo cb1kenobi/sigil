@@ -110,8 +110,45 @@
     ],
     "signature": "function filePicker(opts: FilePickerOptions): Promise<string>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "left",
+        "right",
+        "home",
+        "end",
+        "pageUp",
+        "pageDown",
+        "backspace"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A file picker: browse a directory tree with the arrows, and answer the entry you land on",
+  "source": "packages/sigil/src/components/file-picker.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Entry point\nIn /home/you/my-app\n  1. src/\n  2. test/\n  3. .. (up a level)\nChoose a number from 1 to 3 (default: 1) 1\nIn /home/you/my-app/src\n  1. commands/\n  2. config.ts\n  3. index.ts\n  4. .. (up a level)\nChoose a number from 1 to 4 (default: 1)"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mEntry point\u001b[0m \u001b[2m/home/you/my-app/src\u001b[0m\n    commands/\n  \u001b[36m❯\u001b[0m \u001b[36mconfig.ts\u001b[0m\n    index.ts"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mEntry point\u001b[0m \u001b[2m/home/you/my-app/src\u001b[0m\n    commands/\n  \u001b[36m❯\u001b[0m \u001b[36mconfig.ts\u001b[0m\n    index.ts"

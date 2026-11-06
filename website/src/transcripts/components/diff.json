@@ -62,7 +62,12 @@
     "signature": "function diff(input: DiffInput, opts?: DiffOptions): string"
   },
   "registryDescription": "A diff view: unified or side by side, over two texts or a unified patch, with the edited words set apart",
+  "source": "packages/sigil/src/components/diff.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[34m@@ -1,2 +1,2 @@\u001b[0m\n\u001b[2m1   \u001b[0m\u001b[31m-const retries = \u001b[0m\u001b[31;1m3\u001b[0m\u001b[31m;\u001b[0m\n  \u001b[2m1 \u001b[0m\u001b[32m+const retries = \u001b[0m\u001b[32;1m5\u001b[0m\u001b[32m;\u001b[0m\n\u001b[2m2 2  run(env);\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[34m@@ -1,2 +1,2 @@\u001b[0m\n\u001b[2m1   \u001b[0m\u001b[31m-const retries = \u001b[0m\u001b[31;1m3\u001b[0m\u001b[31m;\u001b[0m\n  \u001b[2m1 \u001b[0m\u001b[32m+const retries = \u001b[0m\u001b[32;1m5\u001b[0m\u001b[32m;\u001b[0m\n\u001b[2m2 2  run(env);\u001b[0m"

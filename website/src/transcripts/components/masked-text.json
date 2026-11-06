@@ -92,8 +92,35 @@
     ],
     "signature": "function maskedText(opts: MaskedTextOptions): Promise<string>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "left",
+        "right",
+        "home",
+        "backspace",
+        "enter"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A masked text prompt: a line that follows a template, with fixed characters skipped",
+  "source": "packages/sigil/src/components/masked-text.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Phone (format: (___) ___-____) 6125550142\nEntered: (612) 555-0142\nTexting (612) 555-0142"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mPhone\u001b[0m (612) 555-\u001b[7m_\u001b[0m___"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mPhone\u001b[0m (612) 555-\u001b[7m_\u001b[0m___"

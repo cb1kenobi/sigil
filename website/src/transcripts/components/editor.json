@@ -70,7 +70,12 @@
     "signature": "function editor(opts: EditorOptions): Promise<string>"
   },
   "registryDescription": "An editor prompt: write the answer in $VISUAL or $EDITOR, from a temporary file removed on every exit",
+  "source": "packages/sigil/src/components/editor.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mRelease notes\u001b[0m \u001b[2mPress Enter to open your\u001b[0m\n                \u001b[2meditor\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mRelease notes\u001b[0m \u001b[2mPress Enter to open your editor\u001b[0m"

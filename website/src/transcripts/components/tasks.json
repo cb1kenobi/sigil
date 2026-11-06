@@ -62,7 +62,12 @@
     "signature": "function tasks(list: readonly Task[], opts?: TasksOptions): Promise<TaskOutcome[]>"
   },
   "registryDescription": "tasks() and taskLog(): a list of work under spinners, and a subprocess's output in a window",
+  "source": "packages/sigil/src/components/tasks.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[32m✔ \u001b[0mResolved 12 packages\n\u001b[32m✔ \u001b[0mBuilt 10 modules\n\u001b[36m⠇\u001b[0m Upload assets"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[32m✔ \u001b[0mResolved 12 packages\n\u001b[32m✔ \u001b[0mBuilt 10 modules\n\u001b[36m⠇\u001b[0m Upload assets"

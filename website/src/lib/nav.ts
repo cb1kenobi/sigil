@@ -1,4 +1,4 @@
-import { COMPONENTS_HREF, FAMILIES, familyHref } from './components.ts';
+import { COMPONENTS_HREF, FAMILIES, familyHref, type FamilyId } from './components.ts';
 
 /**
  * The site's top-level sections: what the header's nav and the phone menu list,
@@ -107,8 +107,9 @@ export interface SidebarLink {
 /** A labelled group of links in the sidebar. */
 export interface SidebarSection {
   /** What the section is, for a key and for a test; not shown. */
-  id: 'docs' | 'parser' | 'cli' | 'components' | 'about';
-  label: string;
+  id: 'docs' | 'parser' | 'cli' | 'components' | 'about' | 'all-components' | FamilyId;
+  /** Shown over the links; none for a section that is one link back. */
+  label?: string;
   links: SidebarLink[];
 }
 
@@ -151,6 +152,39 @@ export function sidebarSections(source: SidebarSource): SidebarSection[] {
     },
     { id: 'about', label: 'About', links: [{ label: 'The story of sigil', href: '/docs/about' }] },
   ];
+}
+
+/**
+ * The sidebar on a component's page: back to the index, and the component's
+ * family with the component marked.
+ *
+ * The same sidebar as everywhere else under `(sidebar)`, scoped: a reader on
+ * `select()` is choosing between prompts, and the guides and the commands are a
+ * click away through "All components" and the header. Which family is the one
+ * whose links hold the page, so a page in none -- every page that is not a
+ * component's -- gets the whole sidebar.
+ *
+ * @param families - Each family's components, as `docsSidebar.ts` builds them.
+ * @param pathname - The current path.
+ * @returns The scoped sidebar, or nothing for a page that is not a component's.
+ */
+export function componentSidebar(
+  families: readonly SidebarSection[],
+  pathname: string
+): SidebarSection[] | undefined {
+  const family = families.find((section) =>
+    section.links.some((link) => isCurrentLink(link, pathname))
+  );
+
+  return family
+    ? [
+        {
+          id: 'all-components',
+          links: [{ label: '← All components', href: COMPONENTS_HREF }],
+        },
+        family,
+      ]
+    : undefined;
 }
 
 /**

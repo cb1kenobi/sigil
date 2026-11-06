@@ -101,8 +101,42 @@
     ],
     "signature": "function date(opts: DateOptions): Promise<Date>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "left",
+        "right",
+        "tab",
+        "shiftTab"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A date prompt: year, month and day segments, with min and max",
+  "source": "packages/sigil/src/components/date.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Release date (YYYY-MM-DD, default: 2026-11-04) 2026-11-20\nReleasing on Fri Nov 20 2026"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mRelease date\u001b[0m 2026\u001b[2m-\u001b[0m\u001b[7m12\u001b[0m\u001b[2m-\u001b[0m04"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mRelease date\u001b[0m 2026\u001b[2m-\u001b[0m\u001b[7m12\u001b[0m\u001b[2m-\u001b[0m04"

@@ -79,7 +79,12 @@
     "signature": "function decrypt(text: string, opts?: DecryptOptions): Promise<void>"
   },
   "registryDescription": "A decrypt effect: text that jumbles and then resolves into itself",
+  "source": "packages/sigil/src/components/decrypt.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "Se\u001b[2m╜Φ^\u001b[0m \u001b[2mΣ╪σ√\u001b[0mo\u001b[2m┤°\u001b[0mm\u001b[2m╫╗\u001b[0m \u001b[2m@≤╚\u001b[0m \u001b[2m▌?ⁿ▀\u001b[0m \u001b[2mε÷Ω≈\u001b[0me\u001b[2m*\u001b[0ms"
+    },
     "rendered": {
       "columns": 80,
       "output": "Se\u001b[2m╜Φ^\u001b[0m \u001b[2mΣ╪σ√\u001b[0mo\u001b[2m┤°\u001b[0mm\u001b[2m╫╗\u001b[0m \u001b[2m@≤╚\u001b[0m \u001b[2m▌?ⁿ▀\u001b[0m \u001b[2mε÷Ω≈\u001b[0me\u001b[2m*\u001b[0ms"

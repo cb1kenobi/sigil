@@ -20,7 +20,12 @@
     "signature": "function largeText(value: string, opts: LargeTextOptions): string"
   },
   "registryDescription": "Banner text: a FIGlet renderer and the .flf format",
+  "source": "packages/sigil/src/components/large-text.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": " ████ ███  ████ ███ █\n█      █  █      █  █\n ███   █  █  ██  █  █\n    █  █  █   █  █  █\n████  ███  ███  ███ █████"
+    },
     "rendered": {
       "columns": 80,
       "output": " ████ ███  ████ ███ █\n█      █  █      █  █\n ███   █  █  ██  █  █\n    █  █  █   █  █  █\n████  ███  ███  ███ █████"

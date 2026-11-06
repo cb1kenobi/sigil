@@ -5,7 +5,12 @@
     "signature": "const log: Log;"
   },
   "registryDescription": "Leveled status lines: info, success, warn, error and step, above any live region",
+  "source": "packages/sigil/src/components/log.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m❯ \u001b[0mDeploying to staging\n\u001b[34mℹ \u001b[0mUsing the lockfile from the last run\n  \u001b[2mpackages=42\u001b[0m\n\u001b[32m✔ \u001b[0mMigrations applied\n\u001b[33m⚠ \u001b[0mThe cache is 3 days old\n\u001b[31m✖ \u001b[0meu-west-1 timed out \u001b[2mafter=30s\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m❯ \u001b[0mDeploying to staging\n\u001b[34mℹ \u001b[0mUsing the lockfile from the last run \u001b[2mpackages=42\u001b[0m\n\u001b[32m✔ \u001b[0mMigrations applied\n\u001b[33m⚠ \u001b[0mThe cache is 3 days old\n\u001b[31m✖ \u001b[0meu-west-1 timed out \u001b[2mafter=30s\u001b[0m"

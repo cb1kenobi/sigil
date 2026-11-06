@@ -138,8 +138,45 @@
     ],
     "signature": "function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T>"
   },
+  "keys": [
+    {
+      "footer": "pick",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "left",
+        "right",
+        "home",
+        "end",
+        "pageUp",
+        "pageDown",
+        "space"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A tree: nested data printed with ├── and └──, a prompt that opens and closes branches read on demand, and a directory tree",
+  "source": "packages/sigil/src/components/tree.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Region\n  1. Americas (go in)\n  2. Europe (go in)\n  3. Asia Pacific (go in)\nChoose a number from 1 to 3 (default: 1)"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mRegion\u001b[0m\n  \u001b[2m├── ▸ \u001b[0mAmericas\n  \u001b[2m├── ▾ \u001b[0mEurope\n\u001b[36m❯\u001b[0m \u001b[2;36m│   ├──   \u001b[0m\u001b[36meu-west\u001b[0m\n  \u001b[2m│   └──   \u001b[0meu-central\n  \u001b[2m└── ▸ \u001b[0mAsia Pacific\n  \u001b[36menter\u001b[0m \u001b[2mpick\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mRegion\u001b[0m\n  \u001b[2m├── ▸ \u001b[0mAmericas\n  \u001b[2m├── ▾ \u001b[0mEurope\n\u001b[36m❯\u001b[0m \u001b[2;36m│   ├──   \u001b[0m\u001b[36meu-west\u001b[0m\n  \u001b[2m│   └──   \u001b[0meu-central\n  \u001b[2m└── ▸ \u001b[0mAsia Pacific\n  \u001b[36menter\u001b[0m \u001b[2mpick\u001b[0m"

@@ -76,12 +76,32 @@ export type Step =
 
 /** How a component's example is run for its captures. */
 export interface Example {
-  /** What is done once it has drawn, before the screen is kept. */
+  /** What is done once it has drawn, for the rendered and 40-column views. */
   readonly steps?: readonly Step[];
+  /** The same for the accessible view, which is answered by typing a line. */
+  readonly accessibleSteps?: readonly Step[];
+  /** What the caption under the views says the steps were, after "The prompt ...". */
+  readonly caption?: string;
   /** Where it is run, from the repository root, when not the example project. */
   readonly cwd?: string;
   /** Rows of the screen, for an example taller than 24. */
   readonly rows?: number;
+  /** `false` to list no keys, for an example whose keys hand the terminal to something else. */
+  readonly probe?: false;
+}
+
+/** A recipe on a component's page: one more example, beside its output. */
+export interface Recipe {
+  /** The heading's anchor. */
+  readonly id: string;
+  readonly title: string;
+  /** What it is for, a sentence or two. */
+  readonly body: string;
+  /** The example file in `src/content/components/`, without `.mjs`. */
+  readonly file: string;
+  /** What the shell line over its output says was run. */
+  readonly command: string;
+  readonly steps?: readonly Step[];
 }
 
 export interface ComponentEntry {
@@ -99,7 +119,12 @@ export interface ComponentEntry {
    * entry, whose description is that entry's.
    */
   readonly description?: string;
+  /** A sentence or two more for the page's lede, after the description. */
+  readonly lede?: string;
   readonly example?: Example;
+  readonly recipes?: readonly Recipe[];
+  /** Siblings to link from the page, by slug; the rest of the family by default. */
+  readonly related?: readonly string[];
 }
 
 /** Every component, by family, in the order each family lists them. */
@@ -112,7 +137,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     exports: ['text'],
     registry: 'prompt',
     description: 'One line of text, with a default, a placeholder and validation.',
-    example: { steps: [{ text: 'ledger' }] },
+    example: { steps: [{ text: 'ledger' }], accessibleSteps: [{ text: 'ledger' }, 'enter'] },
   },
   {
     slug: 'password',
@@ -121,7 +146,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     exports: ['password'],
     registry: 'prompt',
     description: 'Text that is never shown as it is typed, for a token or a passphrase.',
-    example: { steps: [{ text: 'hunter22' }] },
+    example: { steps: [{ text: 'hunter22' }], accessibleSteps: [{ text: 'hunter22' }, 'enter'] },
   },
   {
     slug: 'number',
@@ -129,7 +154,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     family: 'prompts',
     exports: ['number'],
     registry: 'number',
-    example: { steps: ['up', 'up'] },
+    example: { steps: ['up', 'up'], accessibleSteps: ['backspace', { text: '5' }, 'enter'] },
   },
   {
     slug: 'masked-text',
@@ -137,7 +162,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     family: 'prompts',
     exports: ['maskedText'],
     registry: 'masked-text',
-    example: { steps: [{ text: '612555' }] },
+    example: { steps: [{ text: '612555' }], accessibleSteps: [{ text: '6125550142' }, 'enter'] },
   },
   {
     slug: 'multiline',
@@ -146,7 +171,11 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     exports: ['multiline'],
     registry: 'prompt',
     description: 'Several lines of text, for a commit message or anything longer than a line.',
-    example: { steps: [{ text: 'Sort help by code unit' }, 'enter', { text: 'so it is stable' }] },
+    example: {
+      steps: [{ text: 'Sort help by code unit' }, 'enter', { text: 'so it is stable' }],
+      // Ctrl-D, which is what submits
+      accessibleSteps: [{ text: 'Sort help by code unit' }, 'enter', { text: '\u0004' }],
+    },
   },
   {
     slug: 'autocomplete',
@@ -155,7 +184,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     exports: ['autocomplete'],
     registry: 'autocomplete',
     description: 'Type to narrow a list, or to search a source that answers as you type.',
-    example: { steps: [{ text: 'eu' }] },
+    example: { steps: [{ text: 'eu' }], accessibleSteps: [{ text: 'eu' }, 'enter'] },
   },
   {
     slug: 'autocomplete-multiselect',
@@ -164,7 +193,10 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     exports: ['autocompleteMultiselect'],
     registry: 'autocomplete',
     description: 'Several choices from a list you filter by typing, ticks kept across filters.',
-    example: { steps: [{ text: 're' }, 'space', 'down', 'space'] },
+    example: {
+      steps: [{ text: 're' }, 'space', 'down', 'space'],
+      accessibleSteps: [{ text: 're' }, 'enter'],
+    },
   },
   {
     slug: 'path',
@@ -172,7 +204,10 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     family: 'prompts',
     exports: ['path'],
     registry: 'path',
-    example: { steps: [{ text: 'src/c' }, 'tab'] },
+    example: {
+      steps: [{ text: 'src/c' }, 'tab'],
+      accessibleSteps: [{ text: 'src/config.ts' }, 'enter'],
+    },
   },
   {
     slug: 'file-picker',
@@ -180,7 +215,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     family: 'prompts',
     exports: ['filePicker'],
     registry: 'file-picker',
-    example: { steps: ['enter', 'down'] },
+    example: { steps: ['enter', 'down'], accessibleSteps: [{ text: '1' }, 'enter'] },
   },
   {
     slug: 'date',
@@ -188,7 +223,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     family: 'prompts',
     exports: ['date'],
     registry: 'date',
-    example: { steps: ['right', 'up'] },
+    example: { steps: ['right', 'up'], accessibleSteps: [{ text: '2026-11-20' }, 'enter'] },
   },
   {
     slug: 'pick-date',
@@ -196,7 +231,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     family: 'prompts',
     exports: ['pickDate'],
     description: 'A day picked from a month drawn as a calendar, with the arrows.',
-    example: { steps: ['right', 'down'] },
+    example: { steps: ['right', 'down'], accessibleSteps: [{ text: '2026-11-20' }, 'enter'] },
   },
   {
     slug: 'confirm',
@@ -205,6 +240,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     exports: ['confirm'],
     registry: 'prompt',
     description: 'Yes or no, with the default in capitals.',
+    example: { accessibleSteps: [{ text: 'y' }, 'enter'] },
   },
   {
     slug: 'toggle',
@@ -212,7 +248,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     family: 'prompts',
     exports: ['toggle'],
     registry: 'toggle',
-    example: { steps: ['right'] },
+    example: { steps: ['right'], accessibleSteps: [{ text: 'on' }, 'enter'] },
   },
   {
     slug: 'select',
@@ -221,7 +257,23 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     exports: ['select', 'separator'],
     registry: 'prompt',
     description: 'One choice from a list, answered with the arrow keys and Enter.',
-    example: { steps: ['down'] },
+    lede: 'The prompt resolves to the value of the choice, and settles to one line once it is answered.',
+    example: {
+      steps: ['down'],
+      caption: 'after one press of the down arrow',
+      accessibleSteps: [{ text: '2' }, 'enter'],
+    },
+    recipes: [
+      {
+        id: 'timeout',
+        title: 'Use a default after a timeout',
+        body: "A deploy script shouldn't wait forever for somebody who walked away. Give the prompt a signal, and fall back when it fires: the prompt rejects with the signal's own reason, a `TimeoutError`, and gives the screen back as a cancel does.",
+        file: 'select-timeout',
+        command: 'node deploy.mjs',
+        steps: [{ wait: 10_000 }],
+      },
+    ],
+    related: ['select-key', 'autocomplete', 'group'],
   },
   {
     slug: 'multiselect',
@@ -230,7 +282,10 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     exports: ['multiselect'],
     registry: 'prompt',
     description: 'Any number of choices from a list, ticked with Space.',
-    example: { steps: ['space', 'down', 'down', 'space'] },
+    example: {
+      steps: ['space', 'down', 'down', 'space'],
+      accessibleSteps: [{ text: '1, 3' }, 'enter'],
+    },
   },
   {
     slug: 'group-multiselect',
@@ -246,6 +301,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     family: 'prompts',
     exports: ['selectKey'],
     registry: 'select-key',
+    example: { accessibleSteps: [{ text: 's' }, 'enter'] },
   },
   {
     slug: 'select-row',
@@ -269,7 +325,10 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     family: 'prompts',
     exports: ['list'],
     registry: 'list',
-    example: { steps: [{ text: 'api, cli, docs' }] },
+    example: {
+      steps: [{ text: 'api, cli, docs' }],
+      accessibleSteps: [{ text: 'api, cli' }, 'enter'],
+    },
   },
   {
     slug: 'select-tree',
@@ -303,6 +362,8 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     family: 'prompts',
     exports: ['editor'],
     registry: 'editor',
+    // Enter hands the terminal to another program, which a capture cannot show
+    example: { probe: false },
   },
   {
     slug: 'group',
@@ -570,6 +631,8 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     family: 'fullscreen',
     exports: ['showToast'],
     registry: 'toast',
+    // the only key an app with a toast in it has is the app's own quit key
+    example: { probe: false },
   },
   {
     slug: 'tooltip',
@@ -585,6 +648,8 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     family: 'fullscreen',
     exports: ['keyHelp'],
     registry: 'key-help',
+    // its keys are the app's, which is the whole point of it: they are what it draws
+    example: { probe: false },
   },
   {
     slug: 'pager',
@@ -600,7 +665,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     family: 'fullscreen',
     exports: ['enableDebugOverlay', 'captureConsole', 'createLogRing'],
     registry: 'debug-overlay',
-    example: { steps: [{ wait: 100 }] },
+    example: { steps: [{ wait: 100 }], probe: false },
   },
 ];
 
@@ -774,6 +839,11 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'themedCascade',
   ],
 };
+
+/** The three ways a component page shows its example's output, in the order of its tabs. */
+export const VIEW_IDS = ['rendered', 'accessible', 'narrow'] as const;
+
+export type ViewId = (typeof VIEW_IDS)[number];
 
 /** A family, by id. */
 export function family(id: FamilyId): (typeof FAMILIES)[number] {

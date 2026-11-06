@@ -110,8 +110,43 @@
     ],
     "signature": "function multiline(opts: MultilineOptions): Promise<string>"
   },
+  "keys": [
+    {
+      "footer": "submit",
+      "keys": [
+        "ctrl-d"
+      ]
+    },
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "left",
+        "home",
+        "pageUp",
+        "space",
+        "backspace",
+        "enter"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "The six prompts: text, multiline, password, confirm, select and multiselect",
+  "source": "packages/sigil/src/components/prompt.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Commit message (ctrl-d to submit)\nSort help by code unit\n\nSort help by code unit"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mCommit message\u001b[0m\n  Sort help by code unit\n  so it is stable\u001b[7m \u001b[0m\n  \u001b[36mctrl-d\u001b[0m \u001b[2msubmit\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mCommit message\u001b[0m\n  Sort help by code unit\n  so it is stable\u001b[7m \u001b[0m\n  \u001b[36mctrl-d\u001b[0m \u001b[2msubmit\u001b[0m"

@@ -105,7 +105,12 @@
     "signature": "function barChart(data: BarData, opts?: BarChartOptions): string"
   },
   "registryDescription": "Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge",
+  "source": "packages/sigil/src/components/chart.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "parser   \u001b[36m███████████▋                   \u001b[0m\n\u001b[36m     \u001b[0m412\nprompts  \u001b[36m███████████                    \u001b[0m\n\u001b[36m     \u001b[0m388\nrenderer \u001b[36m███████████████████████████████\u001b[0m\n\u001b[36m███ \u001b[0m1200\nlayout   \u001b[36m██████████████████▏            \u001b[0m\n\u001b[36m     \u001b[0m640"
+    },
     "rendered": {
       "columns": 80,
       "output": "parser   \u001b[36m███████████▋                        \u001b[0m412\nprompts  \u001b[36m███████████                         \u001b[0m388\nrenderer \u001b[36m██████████████████████████████████ \u001b[0m1200\nlayout   \u001b[36m██████████████████▏                 \u001b[0m640"

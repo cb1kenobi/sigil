@@ -45,19 +45,36 @@ export interface View {
   readonly output: string;
 }
 
+/** What pressing a key did, when the component does not say in a footer. */
+export type KeyEffect = 'answer' | 'cancel' | 'change';
+
+/** One line of the Keys list: the keys, and what they do. */
+export interface KeyRow {
+  /** The keys, by their names in `KEYS` from `@ttylabs/sigil/testing`, or a footer's own. */
+  readonly keys: readonly string[];
+  /** The key-help footer's words for them, when the component draws one that lists them. */
+  readonly footer?: string;
+  /** What pressing them was seen to do, when no footer says. */
+  readonly effect?: KeyEffect;
+}
+
 /** What one component's capture holds. */
 export interface ComponentCapture {
   readonly api: ComponentApi;
+  /** The Keys list, for a prompt or a full-screen element. */
+  readonly keys?: readonly KeyRow[];
+  /** Each recipe's output, by its id. */
+  readonly recipes?: Readonly<Record<string, View>>;
   /** What `sigil add` says of the entry the component is copied in with. */
   readonly registryDescription?: string;
-  readonly views: { readonly rendered: View };
+  /** The module that declares it, from the repository's root. */
+  readonly source: string;
+  /** Rendered at 80 columns and at 40, and as lines for one that has a line form. */
+  readonly views: { readonly rendered: View; readonly narrow: View; readonly accessible?: View };
 }
 
 /** Where `src/` is, read from the working directory as `reference.ts` does. */
 const SRC = join(process.cwd(), 'src');
-
-/** The examples, from the repository's root, for a View source link. */
-export const EXAMPLES_REPO_DIR = 'website/src/content/components';
 
 /**
  * A component's capture.
@@ -66,22 +83,34 @@ export const EXAMPLES_REPO_DIR = 'website/src/content/components';
  * @returns What was captured.
  */
 export function componentCapture(slug: string): ComponentCapture {
-  const file = join(SRC, 'transcripts', 'components', `${slug}.json`);
-  try {
-    return JSON.parse(readFileSync(file, 'utf-8')) as ComponentCapture;
-  } catch {
-    throw new Error(`no capture for "${slug}": run \`node scripts/capture-transcripts.ts\``);
+  let capture = captures.get(slug);
+  if (!capture) {
+    const file = join(SRC, 'transcripts', 'components', `${slug}.json`);
+    try {
+      capture = JSON.parse(readFileSync(file, 'utf-8')) as ComponentCapture;
+    } catch {
+      throw new Error(`no capture for "${slug}": run \`node scripts/capture-transcripts.ts\``);
+    }
+    captures.set(slug, capture);
   }
+  return capture;
 }
 
 /**
- * A component's example, exactly as it was run.
+ * Each capture once it has been read: a page asks for its siblings' too, and the
+ * index for all of them, several times each. A build is one read of committed
+ * files, so nothing here can go stale under it.
+ */
+const captures = new Map<string, ComponentCapture>();
+
+/**
+ * An example, exactly as it was run: a component's, or a recipe's.
  *
- * @param slug - Which component.
+ * @param file - The file in `src/content/components/`, without `.mjs`.
  * @returns The file's text.
  */
-export function exampleSource(slug: string): string {
-  return readFileSync(join(SRC, 'content', 'components', `${slug}.mjs`), 'utf-8').trimEnd();
+export function exampleSource(file: string): string {
+  return readFileSync(join(SRC, 'content', 'components', `${file}.mjs`), 'utf-8').trimEnd();
 }
 
 /**

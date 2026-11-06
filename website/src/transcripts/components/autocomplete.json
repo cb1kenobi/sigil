@@ -94,8 +94,45 @@
     ],
     "signature": "function autocomplete<T = string>(opts: AutocompleteOptions<T>): Promise<T>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "left",
+        "home",
+        "pageDown",
+        "tab",
+        "shiftTab",
+        "space",
+        "backspace"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "autocomplete() and autocompleteMultiselect(): type to filter a list, or search an async source",
+  "source": "packages/sigil/src/components/autocomplete.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Region eu\n  1. eu-west-1 (Ireland)\n  2. eu-central-1 (Frankfurt)\n  3. Search again\nChoose a number from 1 to 3 (default: 1)"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mRegion\u001b[0m eu\u001b[7m \u001b[0m\n  \u001b[36m❯\u001b[0m \u001b[1;36meu\u001b[0m\u001b[36m-west-1\u001b[0m \u001b[2;36mIreland\u001b[0m\n    \u001b[1meu\u001b[0m-central-1 \u001b[2mFrankfurt\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mRegion\u001b[0m eu\u001b[7m \u001b[0m\n  \u001b[36m❯\u001b[0m \u001b[1;36meu\u001b[0m\u001b[36m-west-1\u001b[0m \u001b[2;36mIreland\u001b[0m\n    \u001b[1meu\u001b[0m-central-1 \u001b[2mFrankfurt\u001b[0m"

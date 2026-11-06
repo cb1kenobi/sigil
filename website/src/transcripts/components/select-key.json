@@ -80,8 +80,25 @@
     ],
     "signature": "function selectKey<T = string>(opts: SelectKeyOptions<T>): Promise<T>"
   },
+  "keys": [
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A select-by-key prompt: press a choice's key, number the choices, or expand a compact line",
+  "source": "packages/sigil/src/components/select-key.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "src/index.ts exists\n  o) Overwrite\n  s) Skip\n  d) Show the diff\nChoose a key s\nChosen: Skip\nskip"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1msrc/index.ts exists\u001b[0m\n  \u001b[36mo)\u001b[0m Overwrite\n  \u001b[36ms)\u001b[0m Skip\n  \u001b[36md)\u001b[0m Show the diff"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1msrc/index.ts exists\u001b[0m\n  \u001b[36mo)\u001b[0m Overwrite\n  \u001b[36ms)\u001b[0m Skip\n  \u001b[36md)\u001b[0m Show the diff"

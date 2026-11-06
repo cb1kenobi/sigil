@@ -32,8 +32,32 @@
     "shared": [],
     "signature": "function Tabs(props: TabsProps): Element"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "left",
+        "right",
+        "home",
+        "end",
+        "tab",
+        "shiftTab"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "Tabs: a row of labels with one active, and the panels it switches",
+  "source": "packages/sigil/src/components/tabs.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[2m Overview \u001b[0m\u001b[1;7;36m Logs \u001b[0m\u001b[2m Network \u001b[0m\n\u001b[2m──────────\u001b[0m\u001b[36m━━━━━━\u001b[0m\u001b[2m────────────────────────\u001b[0m\n12:01 deploy started\n12:04 migrations ran\n12:05 deploy finished"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[2m Overview \u001b[0m\u001b[1;7;36m Logs \u001b[0m\u001b[2m Network \u001b[0m\n\u001b[2m──────────\u001b[0m\u001b[36m━━━━━━\u001b[0m\u001b[2m────────────────────────────────────────────────────────────────\u001b[0m\n12:01 deploy started\n12:04 migrations ran\n12:05 deploy finished"

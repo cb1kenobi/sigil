@@ -1,6 +1,6 @@
 'use client';
 
-import { isCurrentLink, type SidebarSection } from '@/lib/nav';
+import { componentSidebar, isCurrentLink, type SidebarSection } from '@/lib/nav';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -28,6 +28,13 @@ import { useEffect, useRef, useState } from 'react';
  * It lives in a layout, so it is not remounted by a navigation: the column
  * keeps its scroll position from one guide to the next, which a sidebar a page
  * renders cannot (titaniumsdk.com's `RailScroll` exists to put that back).
+ *
+ * ## A component's page
+ *
+ * Shows "← All components" and the component's family instead of everything,
+ * which `componentSidebar()` works out from the path. Both lists come from the
+ * layout and the choice is made here, because the layout is not told which page
+ * it is under and the path is what both sides of hydration have.
  */
 
 const LINK = 'block rounded-segment px-3 py-[7px] transition-colors';
@@ -39,8 +46,16 @@ function visibleIn(box: HTMLElement, child: HTMLElement): boolean {
   return row.top >= frame.top && row.bottom <= frame.bottom;
 }
 
-export function DocsSidebar({ sections }: { sections: SidebarSection[] }) {
+export function DocsSidebar({
+  families,
+  sections: everything,
+}: {
+  /** Each component family's pages, for the sidebar a component's page has instead. */
+  families: SidebarSection[];
+  sections: SidebarSection[];
+}) {
   const pathname = usePathname();
+  const sections = componentSidebar(families, pathname) ?? everything;
   // The path the menu was opened on, and open only while the reader is still on
   // it: following a link leaves the layout mounted, so a plain flag would keep
   // the list they just used over the page they asked for. Derived rather than
@@ -117,7 +132,7 @@ export function DocsSidebar({ sections }: { sections: SidebarSection[] }) {
       >
         {sections.map((section) => (
           <div key={section.id} className="flex flex-col gap-0.5">
-            <p className="sidebar-label px-3 pb-1.5">{section.label}</p>
+            {section.label ? <p className="sidebar-label px-3 pb-1.5">{section.label}</p> : null}
             <ul className="flex flex-col gap-0.5">
               {section.links.map((link) => {
                 const current = isCurrentLink(link, pathname);

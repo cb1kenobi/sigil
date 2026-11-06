@@ -96,8 +96,58 @@
     ],
     "signature": "function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): Promise<T[]>"
   },
+  "keys": [
+    {
+      "footer": "select",
+      "keys": [
+        "space"
+      ]
+    },
+    {
+      "footer": "all",
+      "keys": [
+        "a"
+      ]
+    },
+    {
+      "footer": "invert",
+      "keys": [
+        "i"
+      ]
+    },
+    {
+      "footer": "confirm",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "home",
+        "end"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A multiselect with its choices under named groups, where a group ticks its children",
+  "source": "packages/sigil/src/components/group-multiselect.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Stack\n  Frontend (1-3)\n  1. React\n  2. Vue\n  3. Svelte\n  Backend (4-5)\n  4. Express\n  5. Fastify\n  Tooling (6-7)\n  6. CI\n  7. Linting (oxlint)\nChoose numbers from 1 to 7, separated by commas (default: none)"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mStack\u001b[0m\n  \u001b[36m◐\u001b[0m \u001b[1mFrontend\u001b[0m\n    \u001b[32m◉\u001b[0m React\n    ◯ Vue\n    ◯ Svelte\n\u001b[36m❯\u001b[0m \u001b[32m◉\u001b[0m \u001b[1;36mBackend\u001b[0m\n    \u001b[32m◉\u001b[0m Express\n    \u001b[32m◉\u001b[0m Fastify\n  ◯ \u001b[1mTooling\u001b[0m\n    ◯ CI\n    ◯ Linting \u001b[2moxlint\u001b[0m\n  \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36ma\u001b[0m \u001b[2mall\u001b[0m \u001b[2m·\u001b[0m \u001b[36menter\u001b[0m \u001b[2mconfirm\u001b[0m \u001b[2m…\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mStack\u001b[0m\n  \u001b[36m◐\u001b[0m \u001b[1mFrontend\u001b[0m\n    \u001b[32m◉\u001b[0m React\n    ◯ Vue\n    ◯ Svelte\n\u001b[36m❯\u001b[0m \u001b[32m◉\u001b[0m \u001b[1;36mBackend\u001b[0m\n    \u001b[32m◉\u001b[0m Express\n    \u001b[32m◉\u001b[0m Fastify\n  ◯ \u001b[1mTooling\u001b[0m\n    ◯ CI\n    ◯ Linting \u001b[2moxlint\u001b[0m\n  \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36ma\u001b[0m \u001b[2mall\u001b[0m \u001b[2m·\u001b[0m \u001b[36mi\u001b[0m \u001b[2minvert\u001b[0m \u001b[2m·\u001b[0m \u001b[36menter\u001b[0m \u001b[2mconfirm\u001b[0m"

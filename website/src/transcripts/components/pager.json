@@ -68,8 +68,34 @@
     "shared": [],
     "signature": "function page(content: string | readonly string[], opts?: PageOptions): Promise<void>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "home",
+        "end",
+        "pageUp",
+        "pageDown",
+        "space",
+        "enter"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A pager over a scroll box: less keys, line numbers, and / search with highlighted matches",
+  "source": "packages/sigil/src/components/pager.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[2m 23 \u001b[0m- Changed entry 100                \u001b[90m│\u001b[0m\n\u001b[2m 24 \u001b[0m- Fixed entry 99                   \u001b[90m│\u001b[0m\n\u001b[2m 25 \u001b[0m- Added entry 98                   \u001b[90m│\u001b[0m\n\u001b[2m 26 \u001b[0m- Changed entry 97                 \u001b[90m│\u001b[0m\n\u001b[2m 27 \u001b[0m- Fixed entry 96                   \u001b[90m│\u001b[0m\n\u001b[2m 28 \u001b[0m- Added entry 95                   \u001b[36m█\u001b[0m\n\u001b[2m 29 \u001b[0m- Changed entry 94                 \u001b[36m█\u001b[0m\n\u001b[2m 30 \u001b[0m- Fixed entry 93                   \u001b[36m█\u001b[0m\n\u001b[2m 31 \u001b[0m- Added entry 92                   \u001b[36m█\u001b[0m\n\u001b[2m 32 \u001b[0m- Changed entry 91                 \u001b[90m│\u001b[0m\n\u001b[2m 33 \u001b[0m- Fixed entry 90                   \u001b[90m│\u001b[0m\n\u001b[2m 34 \u001b[0m- Added entry 89                   \u001b[90m│\u001b[0m\n\u001b[2m 35 \u001b[0m- Changed entry 88                 \u001b[90m│\u001b[0m\n\u001b[2m 36 \u001b[0m- Fixed entry 87                   \u001b[90m│\u001b[0m\n\u001b[2m 37 \u001b[0m- Added entry 86                   \u001b[90m│\u001b[0m\n\u001b[2m 38 \u001b[0m- Changed entry 85                 \u001b[90m│\u001b[0m\n\u001b[2m 39 \u001b[0m- Fixed entry 84                   \u001b[90m│\u001b[0m\n\u001b[2m 40 \u001b[0m- Added entry 83                   \u001b[90m│\u001b[0m\n\u001b[2m 41 \u001b[0m- Changed entry 82                 \u001b[90m│\u001b[0m\n\u001b[2m 42 \u001b[0m- Fixed entry 81                   \u001b[90m│\u001b[0m\n\u001b[2m 43 \u001b[0m- Added entry 80                   \u001b[90m│\u001b[0m\n\u001b[2m 44 \u001b[0m- Changed entry 79                 \u001b[90m│\u001b[0m\n\u001b[2m 45 \u001b[0m- Fixed entry 78                   \u001b[90m│\u001b[0m\n                                     \u001b[2m37%\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[2m 23 \u001b[0m- Changed entry 100                                                        \u001b[90m│\u001b[0m\n\u001b[2m 24 \u001b[0m- Fixed entry 99                                                           \u001b[90m│\u001b[0m\n\u001b[2m 25 \u001b[0m- Added entry 98                                                           \u001b[90m│\u001b[0m\n\u001b[2m 26 \u001b[0m- Changed entry 97                                                         \u001b[90m│\u001b[0m\n\u001b[2m 27 \u001b[0m- Fixed entry 96                                                           \u001b[90m│\u001b[0m\n\u001b[2m 28 \u001b[0m- Added entry 95                                                           \u001b[36m█\u001b[0m\n\u001b[2m 29 \u001b[0m- Changed entry 94                                                         \u001b[36m█\u001b[0m\n\u001b[2m 30 \u001b[0m- Fixed entry 93                                                           \u001b[36m█\u001b[0m\n\u001b[2m 31 \u001b[0m- Added entry 92                                                           \u001b[36m█\u001b[0m\n\u001b[2m 32 \u001b[0m- Changed entry 91                                                         \u001b[90m│\u001b[0m\n\u001b[2m 33 \u001b[0m- Fixed entry 90                                                           \u001b[90m│\u001b[0m\n\u001b[2m 34 \u001b[0m- Added entry 89                                                           \u001b[90m│\u001b[0m\n\u001b[2m 35 \u001b[0m- Changed entry 88                                                         \u001b[90m│\u001b[0m\n\u001b[2m 36 \u001b[0m- Fixed entry 87                                                           \u001b[90m│\u001b[0m\n\u001b[2m 37 \u001b[0m- Added entry 86                                                           \u001b[90m│\u001b[0m\n\u001b[2m 38 \u001b[0m- Changed entry 85                                                         \u001b[90m│\u001b[0m\n\u001b[2m 39 \u001b[0m- Fixed entry 84                                                           \u001b[90m│\u001b[0m\n\u001b[2m 40 \u001b[0m- Added entry 83                                                           \u001b[90m│\u001b[0m\n\u001b[2m 41 \u001b[0m- Changed entry 82                                                         \u001b[90m│\u001b[0m\n\u001b[2m 42 \u001b[0m- Fixed entry 81                                                           \u001b[90m│\u001b[0m\n\u001b[2m 43 \u001b[0m- Added entry 80                                                           \u001b[90m│\u001b[0m\n\u001b[2m 44 \u001b[0m- Changed entry 79                                                         \u001b[90m│\u001b[0m\n\u001b[2m 45 \u001b[0m- Fixed entry 78                                                           \u001b[90m│\u001b[0m\n                                                                             \u001b[2m37%\u001b[0m"

@@ -34,7 +34,12 @@
     "signature": "function stopwatch(opts?: ClockOptions): Stopwatch"
   },
   "registryDescription": "A stopwatch and a timer: a count as signals, with a readout that ticks only where it can draw",
+  "source": "packages/sigil/src/components/clock.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "Installing 3s"
+    },
     "rendered": {
       "columns": 80,
       "output": "Installing 3s"

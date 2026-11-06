@@ -34,7 +34,12 @@
     "signature": "function table(rows: readonly TableRow[], opts?: TableOptions): string"
   },
   "registryDescription": "A table with measured column widths, alignment and truncation",
+  "source": "packages/sigil/src/components/table.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[1msuite     status   time\u001b[0m\nparser    \u001b[7;32m PASS \u001b[0m  412ms\nprompts   \u001b[7;32m PASS \u001b[0m  388ms\nrenderer  \u001b[7;31m FAIL \u001b[0m  1.20s"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[1msuite     status   time\u001b[0m\nparser    \u001b[7;32m PASS \u001b[0m  412ms\nprompts   \u001b[7;32m PASS \u001b[0m  388ms\nrenderer  \u001b[7;31m FAIL \u001b[0m  1.20s"

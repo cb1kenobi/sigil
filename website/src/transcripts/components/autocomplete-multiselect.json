@@ -114,8 +114,51 @@
     ],
     "signature": "function autocompleteMultiselect<T = string>(opts: AutocompleteMultiselectOptions<T>): Promise<T[]>"
   },
+  "keys": [
+    {
+      "footer": "select",
+      "keys": [
+        "space"
+      ]
+    },
+    {
+      "footer": "confirm",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "left",
+        "home",
+        "pageUp",
+        "pageDown",
+        "tab",
+        "shiftTab",
+        "backspace"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "autocomplete() and autocompleteMultiselect(): type to filter a list, or search an async source",
+  "source": "packages/sigil/src/components/autocomplete.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Packages re\n  1. react\n  2. redux\n  3. react-dom\n  4. express\nChoose numbers from 1 to 4, separated by commas (default: none)"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mPackages\u001b[0m re\u001b[7m \u001b[0m\n    \u001b[32m◉\u001b[0m \u001b[1mre\u001b[0mact\n  \u001b[36m❯\u001b[0m \u001b[32m◉\u001b[0m \u001b[1;36mre\u001b[0m\u001b[36mdux\u001b[0m\n    ◯ \u001b[1mre\u001b[0mact-dom\n    ◯ exp\u001b[1mre\u001b[0mss\n  \u001b[2mSelected: 2\u001b[0m\n  \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36menter\u001b[0m \u001b[2mconfirm\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mPackages\u001b[0m re\u001b[7m \u001b[0m\n    \u001b[32m◉\u001b[0m \u001b[1mre\u001b[0mact\n  \u001b[36m❯\u001b[0m \u001b[32m◉\u001b[0m \u001b[1;36mre\u001b[0m\u001b[36mdux\u001b[0m\n    ◯ \u001b[1mre\u001b[0mact-dom\n    ◯ exp\u001b[1mre\u001b[0mss\n  \u001b[2mSelected: 2\u001b[0m\n  \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36menter\u001b[0m \u001b[2mconfirm\u001b[0m"

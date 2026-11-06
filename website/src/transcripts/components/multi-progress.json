@@ -82,7 +82,12 @@
     "signature": "function createMultiProgress(opts?: MultiProgressOptions): MultiProgress"
   },
   "registryDescription": "Several progress bars in one live region, each with a rate and a time remaining",
+  "source": "packages/sigil/src/components/multi-progress.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "react installed \u001b[36m█████████████\u001b[0m 100%\ntypescript      \u001b[36m██████████░░░\u001b[0m  80%\nesbuild         \u001b[36m██████████░░░\u001b[0m  75%"
+    },
     "rendered": {
       "columns": 80,
       "output": "react installed \u001b[36m██████████████████████████\u001b[0m 100%\ntypescript      \u001b[36m█████████████████████░░░░░\u001b[0m  80%\nesbuild         \u001b[36m████████████████████░░░░░░\u001b[0m  75%"

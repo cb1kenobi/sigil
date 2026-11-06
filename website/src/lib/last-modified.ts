@@ -26,6 +26,29 @@ const git: Git = (args) =>
  *   say.
  */
 export function lastModified(path: string, run: Git = git): string | undefined {
+  if (run !== git) {
+    return ask(path, run);
+  }
+  if (!answered.has(path)) {
+    answered.set(path, ask(path, run));
+  }
+  return answered.get(path);
+}
+
+/**
+ * What git said of each file, for the life of the process.
+ *
+ * The 404 suggests the nearest page from the sitemap's list, and its boundary is
+ * rendered with every page a build prerenders -- so without this, each page
+ * asked git two questions per entry in the sitemap, which was a second a page
+ * once the components joined it. A build is one checkout at one commit, so an
+ * answer cannot change under it. Only the real git is remembered: a test's seam
+ * answers what it is told to each time.
+ */
+const answered = new Map<string, string | undefined>();
+
+/** Asks git, every time. */
+function ask(path: string, run: Git): string | undefined {
   try {
     // anything but a plain `false` is a shallow clone, or a git too old to be
     // asked (before 2.15 it prints the flag back), and neither can be trusted

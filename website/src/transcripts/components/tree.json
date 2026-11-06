@@ -63,7 +63,12 @@
     "signature": "function tree(items: readonly OutlineItem[] | TreeRoot, opts?: TreeOptions): string"
   },
   "registryDescription": "A tree: nested data printed with ├── and └──, a prompt that opens and closes branches read on demand, and a directory tree",
+  "source": "packages/sigil/src/components/tree.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "my-app\n\u001b[2m├── \u001b[0mpackage.json\n\u001b[2m├── \u001b[0msrc\n\u001b[2m│   ├── \u001b[0mindex.ts\n\u001b[2m│   └── \u001b[0mcommands\n\u001b[2m│       ├── \u001b[0mbuild.ts\n\u001b[2m│       └── \u001b[0mdeploy.ts\n\u001b[2m└── \u001b[0mtest\n    \u001b[2m└── \u001b[0mbuild.test.ts"
+    },
     "rendered": {
       "columns": 80,
       "output": "my-app\n\u001b[2m├── \u001b[0mpackage.json\n\u001b[2m├── \u001b[0msrc\n\u001b[2m│   ├── \u001b[0mindex.ts\n\u001b[2m│   └── \u001b[0mcommands\n\u001b[2m│       ├── \u001b[0mbuild.ts\n\u001b[2m│       └── \u001b[0mdeploy.ts\n\u001b[2m└── \u001b[0mtest\n    \u001b[2m└── \u001b[0mbuild.test.ts"
