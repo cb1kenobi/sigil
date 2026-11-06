@@ -21,6 +21,28 @@ tree is one a reviewer can read in the diff, and a drift test is what keeps it
 honest -- where generating at build time would make this build depend on
 importing the toolchain's own app.
 
+## The docs layout
+
+`/docs/[slug]` renders the guides in `packages/sigil/docs/` in place (they are
+not copied: `packages/cli/test/guides.test.ts` and `markdown-links.test.ts` read
+the originals, and `turbo.json` lists them as build inputs). The command
+reference is in the same layout. Both are in the `(sidebar)` route group, whose
+layout is the sidebar; a page renders its content and its "On this page" rail
+(`src/components/docs-page.tsx`), and a docs page with no sidebar of its own
+goes outside the group.
+
+- `src/lib/nav.ts` is the one definition of the sidebar (`sidebarSections()`),
+  of which guides there are and in what order (`GUIDE_SLUGS`), and of the
+  Previous and Next cards (`pagerAround()`, within a section).
+- A heading's anchor is the slug GitHub gives it (`src/lib/markdown-doc.ts`),
+  because the guides link to themselves with fragments only GitHub's rule has
+  to satisfy. `test/guides.test.ts` follows every link in them: one to a sibling
+  guide becomes its route, one to anything else in the repository becomes that
+  file on GitHub (`src/lib/guide-links.ts`).
+- The parser reference is one page. Its 17 sections cross-link by fragment, the
+  link test checks them against one file's headings, and the rail is the
+  navigation a split would have needed.
+
 ## Brand assets
 
 The seal's geometry is `src/lib/seal.ts` and the `Seal` component draws it
