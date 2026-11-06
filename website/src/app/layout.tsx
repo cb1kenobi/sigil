@@ -20,15 +20,17 @@ import './globals.css';
  * of its own name would be a cycle.
  */
 
-/** Headings h1 to h3. */
+/**
+ * Headings h1 to h3, which `globals.css` sets at 600 and nothing sets at any
+ * other weight -- so 600 is the one file. Every face here is preloaded on every
+ * page, so a weight nothing draws is a request every visitor pays for; 500 and
+ * 700 were, until SIG-273 measured which faces each page loads.
+ */
 const barlow = localFont({
-  src: [
-    { path: '../fonts/barlow-semi-condensed-latin-500.woff2', weight: '500', style: 'normal' },
-    { path: '../fonts/barlow-semi-condensed-latin-600.woff2', weight: '600', style: 'normal' },
-    { path: '../fonts/barlow-semi-condensed-latin-700.woff2', weight: '700', style: 'normal' },
-  ],
+  src: '../fonts/barlow-semi-condensed-latin-600.woff2',
   variable: '--font-barlow',
   display: 'swap',
+  weight: '600',
 });
 
 /** Body and UI. One variable file covers 400 to 700. */

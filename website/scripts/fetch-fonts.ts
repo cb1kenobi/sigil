@@ -35,16 +35,17 @@ const css = (family: string, wght: string) =>
   `https://fonts.googleapis.com/css2?family=${family}:wght@${wght}&display=swap`;
 
 /**
- * Barlow Semi Condensed and JetBrains Mono are served as one static file per
- * weight, so each weight is its own entry. Instrument Sans is a variable font,
- * and one file covers 400 to 700. Martian Mono is used for the wordmark alone,
- * at one weight.
+ * JetBrains Mono is served as one static file per weight, so each weight is its
+ * own entry. Barlow Semi Condensed is the headings, which are only ever 600.
+ * Instrument Sans is a variable font, and one file covers 400 to 700. Martian
+ * Mono is used for the wordmark alone, at one weight. A weight is here only if
+ * a page draws it, since `layout.tsx` preloads every one.
  */
 const FAMILIES = [
-  ...[500, 600, 700].map((w) => ({
-    file: `barlow-semi-condensed-latin-${w}.woff2`,
-    url: css('Barlow+Semi+Condensed', String(w)),
-  })),
+  {
+    file: 'barlow-semi-condensed-latin-600.woff2',
+    url: css('Barlow+Semi+Condensed', '600'),
+  },
   { file: 'instrument-sans-latin.woff2', url: css('Instrument+Sans', '400..700') },
   ...[400, 500, 700].map((w) => ({
     file: `jetbrains-mono-latin-${w}.woff2`,
@@ -135,7 +136,9 @@ function vendor(file: string, bytes: Buffer): void {
 for (const family of FAMILIES) {
   const { file, url } = family;
   const stylesheet = await get(url, { headers: { 'User-Agent': UA } }).then((r) => r.text());
-  const res = await get(subsetUrl(stylesheet, 'subset' in family ? family.subset : SUBSET));
+  const res = await get(
+    subsetUrl(stylesheet, family.subset === undefined ? SUBSET : family.subset)
+  );
   vendor(file, Buffer.from(await res.arrayBuffer()));
 }
 
