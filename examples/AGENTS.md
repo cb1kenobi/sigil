@@ -182,8 +182,10 @@ the `ui` tag run by plain `node`.
   poll arriving more than a frame period after the last restarts the window,
   and a window that looks finished yields past the timers phase
   (`setImmediate`) and reads again. Three tests: changes at 45ms and 95ms with
-  a literal floor of 155ms, so neither a fixed sleep nor a smaller `QUIET_MS`
-  passes; a synchronous stall with a change already due, which fails with both
+  a literal floor of 155ms, so a smaller `QUIET_MS` fails, and so does a fixed
+  sleep shorter than the floor -- one of 155ms or more passes all three, since
+  it outlasts every timer they arm, and no finite set of timings can refuse
+  every sleep without an upper bound that would flake under load; a synchronous stall with a change already due, which fails with both
   guards removed; and a stall whose frame is armed by a timer the stall
   delayed, which only the restart sees. Either guard alone passes the second,
   and no deterministic test separates the yield from the restart: the case it
@@ -248,7 +250,8 @@ the `ui` tag run by plain `node`.
   catches for examples. A missing bundle fails with the message above.
 
 - **Sabotage, after review round 2: eight, none survived.** `settled()` with
-  neither stall guard, with a fixed sleep, with `QUIET_MS` halved, and without
+  neither stall guard, with a fixed sleep of the round-2 length (110ms), with
+  `QUIET_MS` halved, and without
   the restart (the delayed-arming test); the guide's `tsconfig` as `{}`,
   without `jsxImportSource`, and naming `react`; and `src/ui.ts` reading
   `package.json` from the working directory.
