@@ -156,6 +156,101 @@ export function literalString(node: Expression): string | undefined {
 }
 
 /**
+ * Whether a node is a value written down, of whatever type, as against one the
+ * source only computes.
+ *
+ * What separates "the wrong type" from "cannot be read": `alias: 42` is a
+ * declaration the runtime refuses on every run, while `alias: names` is one
+ * whose value is not in the source. The first is the author's mistake and the
+ * second is this pass's limit, and they are answered differently. A function
+ * counts, because it is written down and is not a string either; an
+ * identifier does not, `undefined` included -- that one is the caller's to
+ * handle, since the runtime reads it as absent.
+ *
+ * @param node - The expression.
+ * @returns Whether its type is known from the source alone.
+ */
+export function isLiteralValue(node: Expression): boolean {
+  const value = unwrapShallow(node);
+
+  switch (value.type) {
+    case 'Literal':
+    case 'ObjectExpression':
+    case 'ArrayExpression':
+    case 'ArrowFunctionExpression':
+    case 'FunctionExpression':
+      return true;
+    case 'TemplateLiteral':
+      // `${x}` is a string whatever x is, but its value is not in the source
+      return false;
+    case 'UnaryExpression':
+      // `-1` and `!0`: an operator over a literal is still a literal's type
+      return value.operator !== 'typeof' && isLiteralValue(value.argument);
+    default:
+      return false;
+  }
+}
+
+/** What a string or a list of strings written in source came to. */
+export type StringList =
+  /** Every string is written down. */
+  | { readonly kind: 'strings'; readonly values: string[] }
+  /** Something written down is not a string, so the runtime refuses it. */
+  | { readonly kind: 'wrong' }
+  /** Nothing written down is the wrong type, but a value is not in the source. */
+  | { readonly kind: 'computed' };
+
+/**
+ * Reads a string or a list of strings, the two shapes a command's `alias`
+ * takes.
+ *
+ * The runtime reads a string as a list of one, so both come back as a list.
+ * All or nothing: a list with one element this cannot read is not a list this
+ * can say anything about, and a subset would make the answer depend on which
+ * elements happened to be readable. A wrong type outranks an unreadable value
+ * in the same list, because the runtime refuses the list either way and the
+ * build should say the thing that is certain.
+ *
+ * @param node - The expression.
+ * @returns The strings, or why there are none.
+ */
+export function stringList(node: Expression): StringList {
+  const single = literalString(node);
+  if (single !== undefined) {
+    return { kind: 'strings', values: [single] };
+  }
+
+  const value = unwrapShallow(node);
+  if (value.type !== 'ArrayExpression') {
+    return { kind: isLiteralValue(node) ? 'wrong' : 'computed' };
+  }
+
+  const values: string[] = [];
+  let computed = false;
+  for (const element of value.elements) {
+    // a hole is `undefined`, which is not a string
+    if (element === null) {
+      return { kind: 'wrong' };
+    }
+    if (element.type === 'SpreadElement') {
+      computed = true;
+      continue;
+    }
+
+    const text = literalString(element);
+    if (text !== undefined) {
+      values.push(text);
+    } else if (isLiteralValue(element)) {
+      return { kind: 'wrong' };
+    } else {
+      computed = true;
+    }
+  }
+
+  return computed ? { kind: 'computed' } : { kind: 'strings', values };
+}
+
+/**
  * The boolean a node is, when it is one written down.
  *
  * Only `true` and `false`. A `hidden: 1` is not a boolean, and the runtime

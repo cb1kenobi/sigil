@@ -1,0 +1,7 @@
+{
+  "name": "computed-alias",
+  "type": "module",
+  "devDependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

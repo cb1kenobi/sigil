@@ -418,6 +418,31 @@ describe('sigil build', () => {
     expect(existsSync(join(out, 'fixture-app.mjs'))).toBe(true);
   }, 60_000);
 
+  it('should refuse an alias of the wrong type, as the app does from source', async () => {
+    // `alias: 42` throws on every run from source. A build that warned and
+    // carried on would write an app that starts, which is a worse answer than
+    // the error the author already gets
+    const { err } = await sigil('build', join(fixtures, 'discover', 'wrong-types'), '--out', out);
+
+    expect(err).toContain('Expected alias in "number" command to be a string or list of strings');
+    expect(err).toContain('Expected default in "text" command to be a boolean');
+    expect(process.exitCode).toBe(1);
+    expect(existsSync(join(out, 'wrong-types.mjs'))).toBe(false);
+  }, 60_000);
+
+  it('should build despite a placeholder property it cannot carry, and say which', async () => {
+    // an inline `run`, `options`, `args` and the rest apply from source and not
+    // after a build (SIG-320); until they are baked the build says so rather than
+    // writing an app that quietly behaves differently
+    const { err } = await sigil('build', join(fixtures, 'discover', 'unbaked'), '--out', out);
+
+    expect(err).toContain('the "hi" command declares "run"');
+    expect(err).toContain('the "remove" command declares "options"');
+    expect(err).toContain('SIG-320');
+    expect(process.exitCode).toBeFalsy();
+    expect(existsSync(join(out, 'unbaked.mjs'))).toBe(true);
+  }, 60_000);
+
   it('should refuse --bin beside a filesystem command directory', async () => {
     // a built executable has no directories to walk, so an app bundled as it
     // stands would read paths that are not beside it

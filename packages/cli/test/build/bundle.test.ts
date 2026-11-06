@@ -567,6 +567,122 @@ describe('an app whose output is JSX', () => {
   });
 });
 
+describe('a command whose placeholder declares an alias', () => {
+  /**
+   * The `alias` property on a schema's command, which worked from source and
+   * did nothing in a built app.
+   *
+   * The build bakes a `{ desc, hidden, load }` literal per command, and the
+   * module behind a `load` is not read until argv has matched the placeholder --
+   * so an alias the placeholder declared and the literal left out was a spelling
+   * nothing could ever match: `Unexpected argument "del"`, with `hidden` from the
+   * very same placeholder surviving. It is the placeholder's `alias` and never
+   * the module's that is baked; see "`name` and `alias` are deliberately _not_
+   * lifted from a module" in `packages/cli/AGENTS.md` for why the module's stays
+   * where it is.
+   */
+  let aliasOut: string;
+  let aliasBin: string;
+
+  beforeAll(async () => {
+    aliasOut = mkdtempSync(join(tmpdir(), 'sigil-alias-'));
+
+    const aliasApp = resolve(__dirname, '../fixtures/aliased');
+    const found = discoverApp(aliasApp);
+    const declared = readAppCommands(found);
+    const commands = declared.commands?.kind === 'inline' ? declared.commands.commands : [];
+
+    const result = await bundleApp({
+      app: found,
+      binName: 'aliased',
+      out: aliasOut,
+      tree: { commands, diagnostics: [] },
+    });
+    aliasBin = result.bin;
+  }, 60_000);
+
+  afterAll(() => {
+    rmSync(aliasOut, { force: true, recursive: true });
+  });
+
+  /** Runs the built binary. */
+  function run(...argv: string[]) {
+    return spawnSync(process.execPath, [aliasBin, ...argv], { cwd: tmpdir(), encoding: 'utf-8' });
+  }
+
+  it('should run the command under an alias given as a string', () => {
+    const result = run('del');
+
+    expect(result.stderr).toBe('');
+    expect(result.stdout.trim()).toBe('remove');
+  });
+
+  it('should run the command under each alias of a list', () => {
+    expect(run('ls').stdout.trim()).toBe('list');
+    expect(run('dir').stdout.trim()).toBe('list');
+  });
+
+  it('should still run it under its name', () => {
+    expect(run('remove').stdout.trim()).toBe('remove');
+  });
+
+  it('should run a nested command under its alias', () => {
+    expect(run('db', 'rm').stdout.trim()).toBe('drop');
+  });
+
+  it('should dispatch the default its placeholder declared when argv named no command', () => {
+    // the same placeholder as the alias above it, and the same reason: `default`
+    // is read when the command is registered, so a built app that dropped it
+    // printed the namespace's help instead
+    expect(run('db').stdout.trim()).toBe('drop');
+  });
+
+  it('should run a command under the labels of the name its declaration carries', () => {
+    // a `name` on the declaration beats the key it sits under, and the runtime's
+    // own parser turns `purge, pg` into a name and an alias -- the build keys the
+    // tree by the string and parses nothing
+    expect(run('pg').stdout.trim()).toBe('purge');
+    expect(run('purge').stdout.trim()).toBe('purge');
+    // `@zz` is an alias, and the bare `clear` is the name
+    expect(run('zz').stdout.trim()).toBe('clear');
+    expect(run('clear').stdout.trim()).toBe('clear');
+  });
+
+  it('should list the labels of a name string the way source does', () => {
+    const help = run('--help').stdout;
+
+    expect(help).toMatch(/^\s+purge, pg\b/m);
+    expect(help).toMatch(/^\s+zz, clear\b/m);
+  });
+
+  it('should run a hidden command under its alias', () => {
+    expect(run('sh').stdout.trim()).toBe('secret');
+  });
+
+  it('should keep an alias out of help, as the runtime does', () => {
+    const help = run('--help').stdout;
+
+    // a row whose first word is the name: `del` is not a row, and neither is
+    // it a word anywhere else on a screen that has no reason to say it
+    expect(help).toMatch(/^\s+remove\b/m);
+    expect(help).toMatch(/^\s+list\b/m);
+    for (const alias of ['del', 'ls', 'dir', 'sh']) {
+      expect(help).not.toMatch(new RegExp(`\\b${alias}\\b`));
+    }
+    expect(run('db', '--help').stdout).not.toMatch(/\brm\b/);
+  });
+
+  it('should resolve an alias in completion without offering it', () => {
+    const script = run('completion', 'bash').stdout;
+
+    // the walk maps each spelling to its command, so a word already typed
+    // resolves...
+    expect(script).toMatch(/'remove'\|'del'\)/);
+    // ...and no menu offers one, which is what a menu of `add` calls is
+    expect(script).not.toMatch(/_add .*'(del|ls|dir|sh|rm)'/);
+  });
+});
+
 describe('a translated app', () => {
   /**
    * A command description that is both lifted and translated, which before the

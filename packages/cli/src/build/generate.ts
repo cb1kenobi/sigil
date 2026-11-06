@@ -46,7 +46,9 @@
  * runtime's behaviour of matching, listing, and having nothing to run. And a
  * `desc` or `hidden` the extractor could not read is simply absent, which
  * leaves the command exactly where an unbundled one is: described once its
- * module loads.
+ * module loads. An `alias` or a `default` is the exception to that, and is
+ * printed whenever the placeholder wrote one: it is read when the command is
+ * registered, so there is no later moment at which the module could supply it.
  *
  * ## A translated description is emitted as a thunk
  *
@@ -186,6 +188,17 @@ function printCommand(command: ResolvedCommand, from: string, depth: number): st
       ? `() => ${TAG}${backtick(command.desc)}`
       : quote(command.desc);
     fields.push(`${pad}desc: ${desc},`);
+  }
+
+  // routing a placeholder declares, which a built app has no other source for:
+  // the runtime reads both when the command is registered, before its module
+  // could be loaded
+  if (command.alias?.length) {
+    fields.push(`${pad}alias: [${command.alias.map(quote).join(', ')}],`);
+  }
+
+  if (command.default !== undefined) {
+    fields.push(`${pad}default: ${command.default},`);
   }
 
   if (command.hidden !== undefined) {

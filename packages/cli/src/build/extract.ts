@@ -32,7 +32,9 @@
  * exists precisely because `hidden` could not be seen in time.
  *
  * `name` and `alias` are the ones it would be tempting to lift next, and doing
- * so would be a bug. They decide *routing* -- what a user types -- and the
+ * so would be a bug -- from a *module*. (What a *placeholder* in the schema
+ * declares is a different source and is carried; see `placeholderRouting()` in
+ * `discover.ts`.) They decide *routing* -- what a user types -- and the
  * runtime rule is that only the placeholder's name can match, because the
  * command has to be matched before the module that renames it can be loaded.
  * Baking a module's own `name` would make a command reachable bundled under a

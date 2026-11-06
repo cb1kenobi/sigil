@@ -1,0 +1,7 @@
+{
+  "name": "wrong-types",
+  "type": "module",
+  "devDependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}
