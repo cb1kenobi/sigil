@@ -35,6 +35,13 @@ describe('a heading slug', () => {
     assert.deepEqual(ids('## Trailing hashes ##'), ['trailing-hashes']);
   });
 
+  it('should be the one a heading names for itself with an anchor', () => {
+    assert.deepEqual(ids('## <a id="agents"></a>Use sigil with an agent'), ['agents']);
+    assert.deepEqual(ids('## <a name="top"></a>Top'), ['top']);
+    // and a heading that would have slugged to it later steps aside
+    assert.deepEqual(ids('## <a id="agents"></a>Use\n\n## Agents'), ['agents', 'agents-1']);
+  });
+
   it('should keep each space as a hyphen, so a dash that was dropped leaves two', () => {
     assert.equal(slugify('A — b'), 'a--b');
   });
@@ -115,6 +122,20 @@ describe('the markdown plugin', () => {
     );
     assert.deepEqual(tree.children[0]?.data?.hProperties?.className, ['lede-docs']);
     assert.equal(tree.children[1]?.data?.hProperties?.id, 'one');
+  });
+
+  it('should take the anchor that named a heading out of what is drawn', () => {
+    const tree = parseMarkdown('## <a id="agents"></a>Use sigil with an agent\n');
+    remarkDocPage()(tree);
+    const heading = tree.children[0];
+
+    assert.equal(heading?.data?.hProperties?.id, 'agents');
+    assert.deepEqual(
+      heading?.type === 'heading'
+        ? heading.children.map((child) => [child.type, 'value' in child ? child.value : ''])
+        : [],
+      [['text', 'Use sigil with an agent']]
+    );
   });
 
   it('should leave a paragraph that is not directly under the title unmarked', () => {

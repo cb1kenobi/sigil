@@ -8,6 +8,10 @@ import {
   referenceRepoPath,
   type ReferenceDoc,
 } from '@/lib/reference';
+import { remarkOptionAnchors } from '@/lib/reference-options';
+
+/** What a reference page's markdown adds to a guide's. */
+const PLUGINS = [remarkOptionAnchors];
 
 /**
  * One page of the generated command reference, in the docs layout.
@@ -21,6 +25,9 @@ import {
  * `remark-gfm` is not optional here. Every argument and option list is a GFM
  * table, so without it they render as paragraphs of pipes -- and it is in
  * `DocsMarkdown`, which is what this renders through.
+ *
+ * Each option's row is its own anchor, `#--out` (`remarkOptionAnchors()`), which
+ * is where a search result for one lands.
  *
  * "Edit on GitHub" points at the generated page, which is the file the page is
  * made from; a change made there is overwritten by the next `sigil reference`,
@@ -42,6 +49,7 @@ export function ReferencePage({ doc }: { doc: ReferenceDoc }) {
       link={referenceLink}
       mono
       pager={pagerAround(commandLinks(), href)}
+      plugins={PLUGINS}
       repoPath={referenceRepoPath(doc.slug)}
       source={doc.body}
       title={doc.title}

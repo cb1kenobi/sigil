@@ -1,9 +1,11 @@
-import { CopyButton } from '@/components/copy-button';
+import { CopyButton, type CopyEvent } from '@/components/copy-button';
 import { highlight } from '@/lib/highlight';
 
 export interface CodeBlockProps {
   /** The code, exactly as it is copied. */
   readonly code: string;
+  /** What copying it sends, when it is not `command_copied`. */
+  readonly event?: CopyEvent;
   /** The fence's language, which decides the highlighting. */
   readonly lang?: string;
   /** What the title bar names: `src/index.ts`. Defaults to the language. */
@@ -24,7 +26,7 @@ export interface CodeBlockProps {
  * block and is focusable, so a keyboard can scroll it too, and the page never
  * does.
  */
-export function CodeBlock({ code, lang, title }: CodeBlockProps) {
+export function CodeBlock({ code, event, lang, title }: CodeBlockProps) {
   const lines = highlight(code, lang);
   const name = title ?? lang;
 
@@ -37,6 +39,7 @@ export function CodeBlock({ code, lang, title }: CodeBlockProps) {
       <div className="flex items-center gap-3 border-b border-line py-2 pr-2 pl-[18px] font-mono text-xs text-muted">
         <span className="min-w-0 flex-1 truncate">{name}</span>
         <CopyButton
+          event={event}
           label={title ? `Copy ${title}` : 'Copy the code'}
           language={lang}
           location="code_block"

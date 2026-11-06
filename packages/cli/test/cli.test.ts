@@ -346,6 +346,14 @@ describe('@ttylabs/cli', () => {
    * not read it, arrives with nothing to stop it.
    */
   describe('pinned dependencies', () => {
+    // every example is a workspace member with a manifest of its own, read off
+    // the directory rather than listed: there is one per example and they are
+    // the manifests most often written by copying another
+    const examples = readdirSync(resolve(root, '../../examples'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => `examples/${entry.name}/package.json`)
+      .filter((path) => existsSync(resolve(root, '../..', path)));
+
     const manifests = [
       'package.json',
       'demos/package.json',
@@ -354,6 +362,7 @@ describe('@ttylabs/cli', () => {
       'packages/config-xml/package.json',
       'packages/config-yaml/package.json',
       'website/package.json',
+      ...examples,
     ].map((path) => ({
       json: JSON.parse(readFileSync(resolve(root, '../..', path), 'utf-8')) as Record<
         string,
@@ -365,7 +374,8 @@ describe('@ttylabs/cli', () => {
     it('should find every manifest it means to check', () => {
       // a path that stopped resolving would pass this suite by checking
       // nothing, which is the failure mode a list of paths has
-      expect(manifests).toHaveLength(7);
+      expect(examples.length).toBeGreaterThan(0);
+      expect(manifests).toHaveLength(7 + examples.length);
       for (const { json, path } of manifests) {
         expect(json.name, `${path} has no name`).toBeDefined();
       }
@@ -529,6 +539,36 @@ describe('@ttylabs/cli', () => {
       }
     });
 
+    it('should name every example that has a build', () => {
+      // `examples.test.ts` spawns an example's built `bin`, so a build the
+      // filter skipped is a bundle of whatever the source used to be. Spelled
+      // out for the reason the packages are: a glob that matches nothing exits
+      // 0. An example with no `build` script is a `ui`-tag one that Node runs
+      // as it is, and naming it would build nothing
+      const examples = resolve(root, '../../examples');
+      const building = readdirSync(examples, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => resolve(examples, entry.name, 'package.json'))
+        .filter((path) => existsSync(path))
+        .map(
+          (path) =>
+            JSON.parse(readFileSync(path, 'utf-8')) as {
+              name: string;
+              scripts?: Record<string, string>;
+            }
+        )
+        .filter((manifest) => manifest.scripts?.build !== undefined)
+        .map((manifest) => manifest.name);
+
+      expect(building.length).toBeGreaterThan(0);
+
+      for (const script of filtered) {
+        for (const name of building) {
+          expect(rootPkg.scripts[script], `the "${script}" script`).toContain(`--filter=${name}`);
+        }
+      }
+    });
+
     it('should build before it tests, and stop if the build fails', () => {
       for (const script of filtered) {
         expect(rootPkg.scripts[script]).toMatch(/^turbo run build .*&& vitest/);
@@ -619,6 +659,7 @@ describe('@ttylabs/cli', () => {
     interface DryRun {
       globalCacheInputs: { hashOfInternalDependencies?: string };
       tasks: {
+        command: string;
         inputs: Record<string, string>;
         resolvedTaskDefinition: { inputs: string[]; outputs: string[] };
         taskId: string;
@@ -766,14 +807,20 @@ describe('@ttylabs/cli', () => {
       // about -- so `packages/cli/turbo.json` has to repeat the root's list to
       // add `test/**` to it, and a root entry added later would be silently
       // missing from the package that overrode it. That is the one drift this
-      // arrangement can produce, so it is the one thing asserted about it
+      // arrangement can produce, so it is the one thing asserted about it. An
+      // example whose tests its build type-checks overrides it the same way,
+      // so every example build is asked too
       const rootConfig = JSON.parse(readFileSync(resolve(root, '../../turbo.json'), 'utf-8')) as {
         tasks: { build: { inputs: string[] } };
       };
+      const examples = dryRun()
+        .tasks.map((entry) => entry.taskId)
+        .filter((taskId) => taskId.startsWith('@ttylabs/example-') && taskId.endsWith('#build'));
 
       expect(rootConfig.tasks.build.inputs.length).toBeGreaterThan(3);
+      expect(examples.length, 'no example build to check').toBeGreaterThan(0);
 
-      for (const taskId of published) {
+      for (const taskId of [...published, ...examples]) {
         const resolved = task(taskId).resolvedTaskDefinition.inputs;
         for (const pattern of rootConfig.tasks.build.inputs) {
           expect(resolved, `${taskId} drops the root input ${pattern}`).toContain(pattern);
@@ -796,6 +843,46 @@ describe('@ttylabs/cli', () => {
         expect(outputs, `${taskId} captures no registry/`).toContain('registry/**');
       }
       expect(task('@ttylabs/sigil#build').resolvedTaskDefinition.inputs).toContain('scripts/**');
+    });
+
+    it("should hash everything an example's type check reads into its build", () => {
+      // `@ttylabs/cli`'s lesson, generalized to every app this repository
+      // builds with `sigil build`: the build type-checks with the app's own
+      // `tsconfig.json`, so every directory its `include` names is read by the
+      // build, and one the hash leaves out is a type error a cache hit
+      // reports as a success. An example that includes `test` has to say so in
+      // a `turbo.json` of its own, the way `packages/cli/turbo.json` does.
+      // Turbo lists a `#build` for every workspace member, and one with no
+      // `build` script reports its command as `<NONEXISTENT>` and is skipped:
+      // an unbuilt example like the system monitor has no type check to hash
+      const examples = resolve(root, '../../examples');
+      const built = dryRun().tasks.filter(
+        (entry) =>
+          entry.taskId.startsWith('@ttylabs/example-') &&
+          entry.taskId.endsWith('#build') &&
+          entry.command !== '<NONEXISTENT>'
+      );
+
+      expect(built.length, 'no example build to check').toBeGreaterThan(0);
+
+      for (const entry of built) {
+        const name = entry.taskId.slice('@ttylabs/example-'.length, -'#build'.length);
+        const config = JSON.parse(
+          readFileSync(resolve(examples, name, 'tsconfig.json'), 'utf-8')
+        ) as { include: string[] };
+        const inputs = Object.keys(entry.inputs).map((path) => path.replaceAll('\\', '/'));
+
+        for (const included of config.include) {
+          const dir = included.replace(/^\.\//, '').replace(/\/$/, '');
+          if (!existsSync(resolve(examples, name, dir))) {
+            continue;
+          }
+          expect(
+            inputs.some((path) => path === dir || path.startsWith(`${dir}/`)),
+            `${entry.taskId} type-checks ${dir}/ and does not hash it`
+          ).toBe(true);
+        }
+      }
     });
   });
 

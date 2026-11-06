@@ -82,7 +82,9 @@ Paths below are inside `packages/sigil/` unless noted.
 
 At the repository root: `demos/` (runnable examples that import `@ttylabs/sigil` by
 name, so they need `pnpm build` first, and a workspace member so that the name
-resolves), `website/` (the Next.js site), `scripts/` (checks that span every
+resolves), `examples/` (complete full-screen apps, one workspace member each, in JSX
+and the `ui` tag -- see [examples/AGENTS.md](examples/AGENTS.md)), `website/` (the
+Next.js site), `scripts/` (checks that span every
 package, run by hand: `temp-leaks.mjs` is `pnpm test:leaks`), `turbo.json`,
 `tsconfig.base.json`, and the shared oxlint and oxfmt configs. Each package extends the base tsconfig and
 sets its own `outDir`.
@@ -112,12 +114,14 @@ keep -- the second time through, the list was a checklist rather than a
 discovery. The website is a private Next.js app at the top level, a workspace
 member so it shares the lockfile, with its own `website/turbo.json` overriding
 the root `build` task's `dist/**` for `.next/**`. `demos/` is the second such
-member, for the reason the entry below gives -- neither is under `packages/`,
-and neither is published. Turbo captures nothing from an output glob that does
+member, for the reason the entry below gives, and each example under
+`examples/` is a member for the same one -- none is under `packages/`, and none
+is published. Turbo captures nothing from an output glob that does
 not match, so inheriting the root's would cache a build it never saw and
 restore an empty directory on a hit. `pnpm test` and `pnpm coverage` filter
-their build to `./packages/*`: a test run has no use for the site, and CI runs
-the suite on nine node-and-os combinations.
+their build to the published packages and the examples that have a build: a
+test run has no use for the site, and CI runs the suite on nine node-and-os
+combinations.
 
 **Every directory a build writes is in `outputs`, and `registry/**` was the one
 that was not.** The same rule the website's override is written for, missed on
@@ -1318,6 +1322,7 @@ decision being re-litigated or "fixed".
 
 | decisions for                                                              | entries                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`examples`](examples/AGENTS.md)                                           | A gallery of full-screen apps, in both template syntaxes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | [`packages/cli`](packages/cli/AGENTS.md)                                   | The build: reading an app off disk · Writing the CLI in sigil · `sigil new` · The registry: what `sigil add` copies · `sigil package`: a binary, and which runtime is inside it · A markdown command reference, and a surface snapshot · What the build tells an app's update check to look at                                                                                                                                                                                                                                                        |
 | [`packages/config-xml`](packages/config-xml/AGENTS.md)                     | An XML config store, in a package of its own                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | [`packages/config-yaml`](packages/config-yaml/AGENTS.md)                   | A YAML config store, and the second time an outsider implemented `ConfigStore`                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |

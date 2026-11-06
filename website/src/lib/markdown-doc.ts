@@ -21,7 +21,30 @@ import { unified } from 'unified';
  * One function builds the id and every reader goes through it: the heading that
  * is drawn, the rail that lists it, the sidebar that links to it, and the test
  * that follows the links in the guides.
+ *
+ * ## A heading's own address
+ *
+ * A heading may name its id, with an anchor at its start:
+ * `## <a id="agents"></a>Use sigil with an agent`. GitHub answers `#agents` for
+ * that anchor and still gives the heading its slug, and `markdown-links.test.ts`
+ * reads both; here the anchor **is** the heading's id, so the rail and the `#`
+ * beside the heading say the short address that other pages link to, and the
+ * anchor itself is taken out of what is drawn.
  */
+
+/** An anchor that names a heading's id: `<a id="agents">` or `<a name="agents">`. */
+const ANCHOR = /^<a\s+(?:id|name)="([^"]+)"\s*>$/u;
+
+/** The id a heading names for itself with an anchor, if it does. */
+function explicitId(node: HeadingNode): string | undefined {
+  for (const child of node.children) {
+    const match = child.type === 'html' ? ANCHOR.exec(child.value.trim()) : null;
+    if (match) {
+      return match[1];
+    }
+  }
+  return undefined;
+}
 
 /** One heading of a page, with the anchor it is rendered with. */
 export interface Heading {
@@ -114,6 +137,12 @@ export function headingsOf(tree: Root): Heading[] {
 
   return headingNodes(tree).map((node) => {
     const text = textOf(node).replace(/\s+/g, ' ').trim();
+    const named = explicitId(node);
+    if (named !== undefined) {
+      taken.set(named, 0);
+      return { depth: node.depth, id: named, text };
+    }
+
     const base = slugify(textOf(node));
     let id = base;
 
@@ -211,7 +240,7 @@ export function describe(lede: string, max = 160): string {
 /**
  * Makes a page of markdown into the page the site draws.
  *
- * - every heading gets its anchor, as `id`
+ * - every heading gets its anchor, as `id`, and loses an `<a id>` that named it
  * - the title is taken out, because the layout draws it above the content
  * - the paragraph after it is marked as the lede, which is the larger type
  *
@@ -229,6 +258,16 @@ export function remarkDocPage() {
     nodes.forEach((node, index) => {
       if (ids[index]) {
         node.data = { ...node.data, hProperties: { ...node.data?.hProperties, id: ids[index] } };
+      }
+      // the anchor and its closing tag, which are markup with nothing to draw
+      if (explicitId(node) !== undefined) {
+        node.children = node.children.filter(
+          (child) => child.type !== 'html' || !/^<\/?a\b[^>]*>$/u.test(child.value.trim())
+        );
+        const first = node.children[0];
+        if (first?.type === 'text') {
+          first.value = first.value.replace(/^\s+/u, '');
+        }
       }
     });
 

@@ -1,3 +1,4 @@
+import { expandIncludes } from './includes.ts';
 import { describe, outline, type Heading } from './markdown-doc.ts';
 import { GUIDE_SLUGS } from './nav.ts';
 import { readFileSync } from 'node:fs';
@@ -28,7 +29,10 @@ export interface Guide {
   readonly sections: readonly Heading[];
   /** The route segment, which is the file's name without its extension. */
   readonly slug: string;
-  /** The markdown, line endings normalized. It still holds the title. */
+  /**
+   * The markdown, line endings normalized and includes expanded (`includes.ts`).
+   * It still holds the title.
+   */
   readonly source: string;
   /** The first heading. */
   readonly title: string;
@@ -49,7 +53,10 @@ export const GUIDE_SUMMARY = 'A guide to building command-line apps with sigil.'
  * @returns The guide.
  */
 export function readGuide(slug: string): Guide {
-  const source = readFileSync(join(GUIDES_DIR, `${slug}.md`), 'utf-8').replaceAll('\r\n', '\n');
+  const source = expandIncludes(
+    readFileSync(join(GUIDES_DIR, `${slug}.md`), 'utf-8').replaceAll('\r\n', '\n'),
+    GUIDES_DIR
+  );
   const { headings, lede, title } = outline(source);
 
   return {

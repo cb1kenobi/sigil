@@ -119,6 +119,32 @@ lists the pages as sections; a new part of the site adds a function and a line
 to `SECTIONS`. `lastModified` comes from git and is left out in a shallow clone,
 where every file would claim the deploy's own date.
 
+## Search
+
+Ported from titaniumsdk.com, in two halves. `src/lib/search-records.ts` builds
+one record per command, per option and per guide section from the same markdown
+the pages render, with one function per source in `SOURCES`; a new part of the
+site is one more function there. Two generators run before `next build`:
+
+```sh
+pnpm --filter website search:index    # Pagefind, into public/_pagefind/
+pnpm --filter website search:symbols  # the name matcher's public/symbols.json
+```
+
+Pagefind answers prose. The name matcher (`src/components/search/symbols.ts`)
+answers names, including misspelt ones, through `nearMiss()` from
+`@ttylabs/sigil/suggest`, so the site corrects `--singel` the way the CLI does.
+Its file has a 40 KB brotli budget, enforced by the generator. The dialog is
+`src/components/search/site-search.tsx`, mounted once in the root layout and
+opened by `openSearch()`, ⌘K, Ctrl+K or `/`. An option's row on a reference page
+is its own anchor (`/reference/build#--out`), which is where its result lands.
+
+Both outputs are gitignored. `turbo.json` excludes them from the build's
+`inputs`, because an explicit `inputs` list hashes gitignored files and the
+build would otherwise move its own hash, and lists them in `outputs`, so a cache
+hit restores them with `.next/`. `next dev` does not run the generators; run
+them once for search to work there.
+
 ## Analytics
 
 PostHog, started from `instrumentation-client.ts` and called through

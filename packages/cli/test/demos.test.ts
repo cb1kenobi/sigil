@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { run, STACK } from './spawned.ts';
 import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
@@ -184,7 +184,7 @@ const EXPECTED: Record<string, { code: number; stderr: RegExp }> = {
   // the demo *about* errors. Its narrative is stdout; what reaches stderr is
   // what `main()` rendered and then what a handler of the app's own did with
   // the same error -- a message each time, and never a stack, which is the
-  // rule `errorHandler()` exists to keep and which `STACK` below re-checks
+  // rule `errorHandler()` exists to keep and which `STACK` re-checks
   'demos/parser/09-errors.js': {
     code: 0,
     stderr: lines(
@@ -221,51 +221,6 @@ const EXPECTED: Record<string, { code: number; stderr: RegExp }> = {
   },
 };
 
-/**
- * A stack frame reaching the output is a throw nobody caught, exit code or not
- * -- which is also what catches an unhandled rejection that still exits `0`.
- *
- * The alternation is parenthesised because it means to be either whole branch
- * and not `^(\s+at .+)` or `(node:internal\/)$`: an alternation binds looser
- * than the anchors, which is the trap `optionTypesRE` in the parser is written
- * down for.
- */
-const STACK = /(^\s+at .+$)|(node:internal\/)/m;
-
-interface Ran {
-  code: number | null;
-  stderr: string;
-  stdout: string;
-}
-
-function run(file: string): Promise<Ran> {
-  return new Promise((settle, fail) => {
-    const child = spawn(process.execPath, [file], {
-      cwd: root,
-      // a demo must never wait on stdin here; that is what `04-prompts.js` proves
-      env: { ...process.env, COLUMNS: '80' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stderr = '';
-    let stdout = '';
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      fail(new Error(`${relative(root, file)} did not finish within 30s`));
-    }, 30_000);
-
-    child.stderr.on('data', (chunk: Buffer) => void (stderr += chunk.toString()));
-    child.stdout.on('data', (chunk: Buffer) => void (stdout += chunk.toString()));
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      fail(error);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      settle({ code, stderr, stdout });
-    });
-  });
-}
-
 describe('running the demos', () => {
   for (const file of scripts(demos)) {
     // the keys above are written the way the repository spells a path
@@ -273,7 +228,7 @@ describe('running the demos', () => {
     const expected = EXPECTED[name];
 
     it.concurrent(`should run ${name}`, async () => {
-      const { code, stderr, stdout } = await run(file);
+      const { code, stderr, stdout } = await run(file, root);
 
       expect(`${stdout}${stderr}`, 'a stack reached the output').not.toMatch(STACK);
       expect(code, 'exit code').toBe(expected?.code ?? 0);

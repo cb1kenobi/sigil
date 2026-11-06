@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "brand": "node scripts/brand-assets.ts",
-    "build": "next build",
+    "build": "node scripts/generate-search-index.ts && node scripts/generate-symbol-index.ts && next build",
     "check:contrast": "node scripts/check-contrast.ts",
     "dev": "next dev",
     "fonts": "node scripts/fetch-fonts.ts",
     "fonts:check": "node scripts/fetch-fonts.ts --check",
     "ncu": "ncu -c 1d",
+    "search:index": "node scripts/generate-search-index.ts",
+    "search:symbols": "node scripts/generate-symbol-index.ts",
     "start": "next start",
     "test": "node --test --experimental-test-module-mocks \"test/**/*.test.ts\""
   },
@@ -35,6 +37,7 @@
     "@types/react-dom": "19.3.0",
     "babel-plugin-react-compiler": "1.0.0",
     "oxc-parser": "0.157.0",
+    "pagefind": "1.5.2",
     "tailwindcss": "4.3.4",
     "typescript": "7.0.2"
   }

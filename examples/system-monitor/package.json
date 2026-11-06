@@ -1,0 +1,13 @@
+{
+  "name": "@ttylabs/example-system-monitor",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A system monitor in the shape of btop and htop, written with the ui tag",
+  "type": "module",
+  "scripts": {
+    "start": "node src/ui.js"
+  },
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  }
+}
