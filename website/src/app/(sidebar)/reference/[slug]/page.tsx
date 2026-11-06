@@ -4,9 +4,6 @@ import { pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
-/** An address that is not a command is a 404, not a page rendered from the segment. */
-export const dynamicParams = false;
-
 /**
  * Every command that has a page, which is what makes this statically rendered.
  *
