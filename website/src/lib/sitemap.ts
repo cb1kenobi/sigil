@@ -1,4 +1,6 @@
+import { guideFile, guides } from './guides.ts';
 import { lastModified } from './last-modified.ts';
+import { guideHref } from './nav.ts';
 import { referenceDocs, referenceFile, referenceHref } from './reference.ts';
 import { absoluteUrl } from './site.ts';
 import type { MetadataRoute } from 'next';
@@ -14,8 +16,8 @@ import type { MetadataRoute } from 'next';
  * ## Sections
  *
  * Each part of the site is a function returning its own entries, and
- * `SECTIONS` lists them. The docs pages and the component pages are not here
- * because they do not exist yet: when they do, each is one more function that
+ * `SECTIONS` lists them. The component pages are not here because they do not
+ * exist yet: when they do, each is one more function that
  * reads the same source as its `generateStaticParams` (so the sitemap cannot
  * name a URL that is a 404) and one more line in the list. Nothing else changes.
  *
@@ -52,8 +54,27 @@ function reference(): Entry[] {
   });
 }
 
+/**
+ * The guides: one page each, dated by its own markdown file.
+ *
+ * The file is `packages/sigil/docs/<slug>.md`, outside `website/`, so the date
+ * is of the guide itself and moves when the guide does -- which is also why
+ * `turbo.json` lists it as an input. `guides()` is what `generateStaticParams`
+ * builds the routes from.
+ */
+function docs(): Entry[] {
+  return guides().map((guide) => {
+    const modified = lastModified(guideFile(guide.slug));
+
+    return {
+      url: absoluteUrl(guideHref(guide.slug)),
+      ...(modified ? { lastModified: modified } : {}),
+    };
+  });
+}
+
 /** Every section, in the order its entries are listed. */
-const SECTIONS: readonly (() => Entry[])[] = [home, reference];
+const SECTIONS: readonly (() => Entry[])[] = [home, docs, reference];
 
 /** @returns The entries, absolute and without duplicates. */
 export function sitemapEntries(): Entry[] {

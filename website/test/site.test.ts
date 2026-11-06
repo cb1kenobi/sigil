@@ -1,5 +1,13 @@
 import { isIndexableHost } from '../src/lib/site.ts';
-import { SITE_URL, TITLE_TEMPLATE, absoluteUrl, fullTitle } from '../src/lib/site.ts';
+import {
+  REPO_NEW_ISSUE_URL,
+  REPO_URL,
+  SITE_URL,
+  TITLE_TEMPLATE,
+  absoluteUrl,
+  fullTitle,
+  repoFileUrl,
+} from '../src/lib/site.ts';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
@@ -54,5 +62,18 @@ describe('fullTitle', () => {
 
   it('should give the home page the site tagline title', () => {
     assert.equal(fullTitle(), 'sigil: command-line apps in TypeScript');
+  });
+});
+
+describe('a link into the repository', () => {
+  it('should be the file on main, built from the repository the site names', () => {
+    assert.equal(
+      repoFileUrl('packages/sigil/docs/parser.md'),
+      `${REPO_URL}/blob/main/packages/sigil/docs/parser.md`
+    );
+  });
+
+  it('should open a new issue on the same repository', () => {
+    assert.equal(REPO_NEW_ISSUE_URL, 'https://github.com/cb1kenobi/sigil/issues/new');
   });
 });
