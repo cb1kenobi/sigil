@@ -6,10 +6,15 @@ import { snapshotJson, snapshotOf } from '../src/reference/snapshot.ts';
 import { syncReference } from '../src/reference/write.ts';
 import type { CommandExample, Schema } from '@ttylabs/sigil';
 import { commandSurface, type CommandSurface, type SurfaceCommand } from '@ttylabs/sigil/reference';
+import type { Root, RootContent } from 'mdast';
+import { toString } from 'mdast-util-to-string';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import remarkGfm from 'remark-gfm';
+import remarkParse from 'remark-parse';
+import { unified } from 'unified';
 import { afterAll, describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -42,6 +47,35 @@ function pageFor(pages: { body: string; file: string }[], file: string): string 
     throw new Error(`No ${file}: ${JSON.stringify(pages.map((it) => it.file))}`);
   }
   return found.body;
+}
+
+/**
+ * A page as the tree the website renders it from.
+ *
+ * `remark-parse` with `remark-gfm` is the parser `react-markdown` runs there
+ * (`website/src/lib/markdown-doc.ts` says so), and a table is only a table
+ * with the second. The front matter is data the website takes off first, so it
+ * is taken off here.
+ */
+function parsed(body: string): Root {
+  return unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .parse(body.slice(body.indexOf('\n---\n', 3) + 5));
+}
+
+/**
+ * What a reader of the rendered page sees of a node: text and code, and nothing
+ * for a tag, which is what a renderer does with raw HTML it does not allow --
+ * the very thing a description with a `<word>` in it lost.
+ */
+function textOf(node: Root | RootContent): string {
+  return toString(node, { includeHtml: false });
+}
+
+/** Every node under a tree, itself included, in document order. */
+function nodes(node: Root | RootContent): (Root | RootContent)[] {
+  return [node, ...('children' in node ? node.children.flatMap(nodes) : [])];
 }
 
 /** The lines of a markdown table that starts at a heading. */
@@ -430,6 +464,18 @@ describe('the markdown reference', () => {
 
     expect(ordered).toContain('\n1\\. first\n');
 
+    // and a bullet or a rule made of `*` or `_`, which are inline markup as well
+    // and so are escaped by the same pass as the rest of the line
+    for (const open of ['* starred', '___', '~~~ fenced']) {
+      const page = pageFor(
+        referencePages(await surface({ commands: { go: { desc: open, run() {} } } })),
+        'go.md'
+      );
+
+      expect(page, open).toContain(`\n\\${open[0]}`);
+      expect(page, open).not.toContain(`\n${open}\n`);
+    }
+
     // and an HTML block, which is the worst of the openers rather than one more
     // of them: CommonMark's type 1 and type 2 blocks -- `<pre`, `<script`,
     // `<style`, `<textarea`, `<!--` -- do **not** end at a blank line, so a
@@ -442,10 +488,149 @@ describe('the markdown reference', () => {
         'go.md'
       );
 
-      expect(page, open).toContain(`\n\\${open}\n`);
+      expect(page, open).toContain(`\n\\${open.replace('>', '\\>')}\n`);
       // the rest of the page is still the page
       expect(page, open).toContain('\n## Usage\n');
     }
+  });
+
+  it('should render a declaration\u2019s text as the text it is, in every place the reference writes prose', async () => {
+    // the defect: `A <platform>-<arch> to build for` was written into the cell
+    // raw, and a renderer reads `<platform>` as an HTML tag and drops it, so the
+    // website said "A -<arch> to build for" and its search index lost the word.
+    // Asserted through the parser the website renders with rather than on the
+    // bytes, because "what a renderer makes of this" is the claim and a string
+    // comparison would pass any escape at all, including one that shows a
+    // backslash. Every character below is one that markup can start with
+    const said =
+      'A <platform>-<arch> to build for, a & b | c &amp; d, *.js _x_ ~~y~~ [z](w) `v` C:\\*.js \\*a\\* \\<b\\>';
+    const pages = referencePages(
+      await surface({
+        commands: {
+          go: {
+            args: [{ desc: said, name: '[who]' }],
+            commands: { sub: { desc: said, run() {} } },
+            desc: said,
+            examples: [{ label: said, text: 'mycli go' }],
+            options: { '--target [target]': { default: '<none> & more', desc: said } },
+            run() {},
+          },
+        },
+      })
+    );
+    const body = pageFor(pages, 'go.md');
+    const tree = parsed(body);
+
+    // nothing was read as markup: no tag, no emphasis, no strike, no reference.
+    // The one link is the subcommand's own, which `linked()` writes on purpose
+    const kinds = nodes(tree).map((node) => node.type);
+
+    for (const kind of ['html', 'emphasis', 'strong', 'delete', 'linkReference']) {
+      expect(kinds, kind).not.toContain(kind);
+    }
+    expect(kinds.filter((kind) => kind === 'link')).toHaveLength(1);
+
+    const texts = nodes(tree)
+      .filter((node) => node.type === 'paragraph' || node.type === 'tableCell')
+      .map(textOf);
+
+    // four places say it as it stands -- the command's description, the
+    // example's label, an argument's cell and a subcommand's -- and the fifth,
+    // an option's, has its default after it
+    expect(texts).toContain(said);
+    expect(texts.filter((it) => it === said)).toHaveLength(4);
+    expect(texts).toContain(`${said} (default: <none> & more)`);
+    // and the code spans are still code, with a bar inside one intact
+    expect(texts).toContain('--target [target]');
+  });
+
+  it('should keep a bare URL\u2019s text as typed, and a link where it was one', async () => {
+    // GFM recognises an autolink literal in the *text*, so an escape inside one
+    // is kept in the link and in its label -- `a\_b` is a link to a URL with a
+    // backslash in it, measured through `remark-gfm` and GitHub's renderer, where
+    // it was a correct link before anything was escaped. And leaving a run alone
+    // is no answer either: `http://_x_` is emphasis and `www._x_` is too. Each
+    // row is a description, and the links it is expected to make
+    const rows: [string, [string, string][]][] = [
+      // nothing in it to escape: as typed, and linked as it always was
+      [
+        'see https://example.com/a-b?x=1 now',
+        [['https://example.com/a-b?x=1', 'https://example.com/a-b?x=1']],
+      ],
+      ['see www.example.com/x ok', [['http://www.example.com/x', 'www.example.com/x']]],
+      // trailing punctuation is prose, and an unbalanced `)` with it
+      ['see https://x.com/a.', [['https://x.com/a', 'https://x.com/a']]],
+      ['(see https://x.com/a_b)', [['https://x.com/a_b', 'https://x.com/a_b']]],
+      ['see https://x.com/a_(b)', [['https://x.com/a_(b)', 'https://x.com/a_(b)']]],
+      // something markup can start with: a CommonMark autolink, read verbatim
+      [
+        'see https://example.com/a_b?x=1&y=2 now',
+        [['https://example.com/a_b?x=1&y=2', 'https://example.com/a_b?x=1&y=2']],
+      ],
+      // the final `*` is trailing punctuation, which GFM leaves out of a link
+      ['url: https://e.com/a*b*', [['https://e.com/a*b', 'https://e.com/a*b']]],
+      // a final `_` is trailing punctuation too, so it is prose after the link
+      ['http://_x_ y', [['http://_x', 'http://_x']]],
+      ['a https://e.com/p|q b', [['https://e.com/p|q', 'https://e.com/p|q']]],
+      // and `www.`, which has no such form: the text is the thing
+      ['see www._x_ now', []],
+      ['see www.foo_bar.com, *not* emphasis', []],
+    ];
+
+    for (const [said, links] of rows) {
+      const body = pageFor(
+        referencePages(
+          await surface({
+            commands: { go: { args: [{ desc: said, name: '[who]' }], desc: said, run() {} } },
+          })
+        ),
+        'go.md'
+      );
+      const tree = parsed(body);
+      const found = nodes(tree).filter((node) => node.type === 'link');
+
+      // once in the paragraph and once in the cell
+      expect(
+        found.map((node) => [node.url, textOf(node)]),
+        said
+      ).toStrictEqual([...links, ...links]);
+      expect(
+        nodes(tree)
+          .filter((node) => node.type === 'paragraph' || node.type === 'tableCell')
+          .map(textOf)
+          .filter((it) => it === said),
+        said
+      ).toHaveLength(2);
+      expect(
+        nodes(tree).map((node) => node.type),
+        said
+      ).not.toContain('emphasis');
+    }
+  });
+
+  it('should write the text a code span holds without escaping it as markup', async () => {
+    // a code span is the one place an escape would be *shown*: `\<` inside one
+    // is a backslash and a bracket. So a name holding the characters `text()`
+    // escapes is left as it is, a bar in a cell is the one thing escaped, and
+    // all of it reads back as typed
+    const body = pageFor(
+      referencePages(
+        await surface({
+          commands: {
+            go: { options: { '--a [a]': { choices: ['a', '<b>', '&c'], desc: 'x' } }, run() {} },
+          },
+        })
+      ),
+      'go.md'
+    );
+
+    expect(body).not.toContain('\\<');
+    expect(body).not.toContain('&amp;');
+    const cells = nodes(parsed(body)).flatMap((node) =>
+      node.type === 'inlineCode' ? [node.value] : []
+    );
+
+    expect(cells).toContain('--a [a|<b>|&c]');
   });
 
   it('should fence an example past a fence of its own that is indented', async () => {
@@ -772,9 +957,9 @@ describe('the markdown reference', () => {
     // vanishing between them -- which is what `\\s+` collapsing before the
     // control characters go is for
     expect(body).toContain('| `--mode [m]` | `string` | The mode (default: a b) |');
-    expect(body).toContain('| `--root [dir]` | `string` | From where (default: () => { return');
+    expect(body).toContain('| `--root [dir]` | `string` | From where (default: () =\\> { return');
     // and the ESC dropped, which is what the description already did with one
-    expect(body).toContain('(default: [31mred)');
+    expect(body).toContain('(default: \\[31mred)');
     expect(body).not.toContain('\u001b');
   });
 
