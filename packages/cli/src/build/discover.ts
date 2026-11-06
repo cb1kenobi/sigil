@@ -41,6 +41,7 @@
 import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { factsOf } from './extract.ts';
 import {
+  isWrongType,
   literalBoolean,
   literalString,
   loaderSpecifier,
@@ -49,6 +50,8 @@ import {
   outermostWith,
   plainProperty,
   propertyKey,
+  stringList,
+  unwrapShallow,
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
@@ -615,6 +618,9 @@ function readCommand(
   const nested = plainProperty(object, 'commands');
   const declaredDesc = plainProperty(object, 'desc');
   const declaredHidden = plainProperty(object, 'hidden');
+  const routing = placeholderRouting(object, parsed, diagnostics, name);
+  warnUnbaked(object, parsed, diagnostics, name);
+  const named = placeholderName(object, parsed, diagnostics, name);
 
   // what the *placeholder* declares is what help shows before the module loads,
   // so a readable `desc` here is the answer to every question the module's own
@@ -634,6 +640,7 @@ function readCommand(
   );
 
   return {
+    ...routing,
     commands: nested
       ? objectLiteral(nested.value)
         ? readInline(objectLiteral(nested.value)!, from, parsed, diagnostics)
@@ -646,9 +653,269 @@ function readCommand(
     hidden: declaredHidden ? (literalBoolean(declaredHidden.value) ?? facts.hidden) : facts.hidden,
     kind: 'inline',
     module: facts.module,
-    name,
+    name: named,
   };
 }
+
+/**
+ * What a placeholder says about how it is *reached*, which no module can say for
+ * it.
+ *
+ * `alias` and `default` are routing: the runtime reads them off the
+ * placeholder when the command is registered, before argv has matched anything
+ * and so before the module behind it could be loaded. A built app has nothing
+ * else to read them from -- the tree it bakes is the only declaration it has --
+ * so one left out is not deferred to the module, it is gone: `alias: 'del'`
+ * answered from source and was `Unexpected argument "del"` after a build.
+ *
+ * This is the placeholder's own and never the module's, which is why it sits
+ * beside the module's facts rather than in them: a module's `alias` is only
+ * known once it has loaded, and baking it would make a command reachable under
+ * a spelling that does not resolve from source.
+ *
+ * Two different things can stop a value being read and they are answered
+ * differently. A **computed** one (`alias: names`) is this pass's limit, so it
+ * is a warning, and the worse of the warnings since the command is unreachable
+ * by that spelling rather than listed wrongly. A **literal of the wrong type**
+ * (`alias: 42`, `default: 'yes'`) is the author's mistake: the runtime throws on
+ * it at every start, so a build that only warned would turn an app that cannot
+ * run from source into one that runs. That fails the build, in the runtime's
+ * own words.
+ *
+ * @param object - The command literal.
+ * @param parsed - The module, for positions.
+ * @param diagnostics - Where to report.
+ * @param name - The command, for the message.
+ * @returns The routing it declares, absent where it declares none.
+ */
+function placeholderRouting(
+  object: ObjectExpression,
+  parsed: ParsedModule,
+  diagnostics: Diagnostic[],
+  name: string
+): { alias?: readonly string[]; default?: boolean } {
+  const routing: { alias?: readonly string[]; default?: boolean } = {};
+
+  // `undefined` is what the runtime reads as not declared
+  const declared = (property: { value: Expression } | undefined) =>
+    property && !isUndefined(property.value) ? property : undefined;
+
+  const alias = declared(plainProperty(object, 'alias'));
+  if (alias) {
+    const list = stringList(alias.value);
+    if (list.kind === 'wrong') {
+      diagnostics.push({
+        ...locate(parsed, alias.value.start),
+        message: `Expected alias in "${name}" command to be a string or list of strings`,
+        severity: 'error',
+      });
+    } else if (list.kind === 'computed') {
+      diagnostics.push({
+        ...locate(parsed, alias.value.start),
+        message: `the "${name}" command's "alias" is computed rather than a string or a list of strings, so it cannot be read at build time; the built app will not answer to it`,
+        severity: 'warning',
+      });
+    } else if (list.values.length) {
+      routing.alias = list.values;
+    }
+  }
+
+  const isDefault = declared(plainProperty(object, 'default'));
+  if (isDefault) {
+    const flag = literalBoolean(isDefault.value);
+    if (flag !== undefined) {
+      routing.default = flag;
+    } else if (isWrongType(isDefault.value, 'boolean')) {
+      diagnostics.push({
+        ...locate(parsed, isDefault.value.start),
+        message: `Expected default in "${name}" command to be a boolean`,
+        severity: 'error',
+      });
+    } else {
+      diagnostics.push({
+        ...locate(parsed, isDefault.value.start),
+        message: `the "${name}" command's "default" is computed rather than a boolean literal, so it cannot be read at build time; the built app will not run it when argv names no command`,
+        severity: 'warning',
+      });
+    }
+  }
+
+  return routing;
+}
+
+/**
+ * The name string a placeholder is registered under.
+ *
+ * A `name` the declaration carries **wins over the key** it was written under:
+ * the runtime only fills the key in when `name` is `undefined`. So
+ * `remove: { name: 'remove, rm', ... }` is registered as `remove, rm` and the
+ * key is never consulted -- the extra labels route, `!` hides, `@` makes an
+ * alias, and the first bare label is the name, all through the one parser the
+ * runtime owns. The build does not parse any of that: the tree is keyed by the
+ * name string, as it already is for a key written `'hello, hi'`, and the
+ * built app's own `initCommand()` does the reading. Doing it here too would be
+ * a second reading of rules that have to stay one.
+ *
+ * A literal that is not a non-empty string throws from source (`Expected
+ * command name to be a non-empty string`), so it fails the build in those
+ * words; a computed one is a warning and leaves the key as the name.
+ *
+ * @param object - The command literal.
+ * @param parsed - The module, for positions.
+ * @param diagnostics - Where to report.
+ * @param key - What the command was written under, which is its name when it
+ *   declares none.
+ * @returns The name string to register it under.
+ */
+function placeholderName(
+  object: ObjectExpression,
+  parsed: ParsedModule,
+  diagnostics: Diagnostic[],
+  key: string
+): string {
+  const declared = plainProperty(object, 'name');
+  if (!declared || isUndefined(declared.value)) {
+    return key;
+  }
+
+  const text = literalString(declared.value);
+  if (text) {
+    return text;
+  }
+
+  if (text === '' || isWrongType(declared.value, 'string')) {
+    diagnostics.push({
+      ...locate(parsed, declared.value.start),
+      message: `Expected command name to be a non-empty string in the "${key}" command`,
+      severity: 'error',
+    });
+  } else {
+    diagnostics.push({
+      ...locate(parsed, declared.value.start),
+      message: `the "${key}" command's "name" is computed rather than a string literal, so it cannot be read at build time; the built app will name it "${key}", and any other spelling it declares will not answer`,
+      severity: 'warning',
+    });
+  }
+
+  return key;
+}
+
+/**
+ * Whether a node is `undefined`, which the runtime reads as not declared:
+ * the identifier, or `void` over anything, which is how a minifier spells it.
+ */
+function isUndefined(node: Expression): boolean {
+  const value = unwrapShallow(node);
+  return (
+    (value.type === 'Identifier' && value.name === 'undefined') ||
+    (value.type === 'UnaryExpression' && value.operator === 'void')
+  );
+}
+
+/**
+ * What a placeholder declares that a built app does not carry.
+ *
+ * The runtime reads **every** property off a placeholder -- `initCommand()`
+ * copies the declaration, and `loadCommand()` merges it over a module that left
+ * the key `undefined` -- but the tree a build bakes holds only the properties
+ * below. The rest apply from source and silently do not after a build: an
+ * inline `run` with no module prints help and exits 0, and `options` and `args`
+ * on a placeholder are gone, so `remove --force x` parses differently.
+ * Baking them is SIG-320. Until then the divergence is said out loud, once per
+ * property, rather than left to be found by running the built app.
+ *
+ * What is carried is exactly what `readCommand()` reads: `desc` and `hidden`
+ * (the lift), `alias`, `default` and `name` (routing), `path` and `load` (the
+ * module), and `commands` when it is an object literal.
+ *
+ * Properties only. A spread or a computed key can carry anything, and is
+ * reported by neither this nor the reads above.
+ *
+ * @param object - The command literal.
+ * @param parsed - The module, for positions.
+ * @param diagnostics - Where to report.
+ * @param name - The command, for the message.
+ */
+function warnUnbaked(
+  object: ObjectExpression,
+  parsed: ParsedModule,
+  diagnostics: Diagnostic[],
+  name: string
+): void {
+  for (const property of object.properties) {
+    if (property.type === 'SpreadElement') {
+      continue;
+    }
+
+    const key = propertyKey(property);
+    if (key === undefined || key === '__proto__') {
+      continue;
+    }
+
+    // `commands` is carried only in the one shape the build reads, and the
+    // others are dropped whole -- a path to a directory of them, a list
+    if (key === 'commands') {
+      if (property.kind === 'init' && !property.method && objectLiteral(property.value)) {
+        continue;
+      }
+    } else if (BAKED.has(key)) {
+      continue;
+    }
+
+    diagnostics.push({
+      ...locate(parsed, property.start),
+      message: `the "${name}" command declares "${key}" in the schema, which \`sigil build\` does not carry into a built app (SIG-320); it applies when the app runs from source and not after a build${advice(key)}`,
+      severity: 'warning',
+    });
+  }
+}
+
+/**
+ * What to do about a property the build does not carry.
+ *
+ * Per property, because the right answer differs and one that points at the
+ * module is wrong for anything that routes: a name or an alias declared inside
+ * a module does not route, since the command has to be matched before the
+ * module can be loaded. The properties a module's own declaration does supply
+ * are the ones its merge reads when the module leaves them `undefined`, and
+ * those are the only ones moving it helps.
+ *
+ * @param key - The property.
+ * @returns A clause to follow the message, led by its own punctuation.
+ */
+function advice(key: string): string {
+  if (key === 'commands') {
+    return ', so write it as an object literal of commands, which is the one form the build reads';
+  }
+
+  if (MODULE_OWNED.has(key)) {
+    return ", so declare it in the command's module instead";
+  }
+
+  return '';
+}
+
+/** What a command's module can declare for itself, and so what moving it helps. */
+const MODULE_OWNED: ReadonlySet<string> = new Set([
+  'args',
+  'examples',
+  'format',
+  'help',
+  'hooks',
+  'options',
+  'run',
+]);
+
+/** The properties of a placeholder that the baked tree holds. */
+const BAKED: ReadonlySet<string> = new Set([
+  'alias',
+  'default',
+  'desc',
+  'hidden',
+  'load',
+  'name',
+  'path',
+]);
 
 /**
  * The specifier a command declares its module by, whichever way it declares it.

@@ -26,7 +26,8 @@ which provides the `sigil` command.
   is only loaded once argv has matched the file. For a second spelling, list
   the commands in the schema instead of a directory:
   `commands: { 'hello, hi': './commands/hello.ts' }` runs `hi` and shows both
-  spellings in help.
+  spellings in help. To run `hi` without listing it, give the command an
+  `alias`: `commands: { hello: { alias: 'hi', path: './commands/hello.ts' } }`.
 - To fail, throw an `Error`. `main()` from `@ttylabs/sigil` prints its message
   without a stack and exits with 1, or with the error's integer `exitCode`.
 - For output a script can read, return data from `run()` and set

@@ -156,9 +156,155 @@ export function literalString(node: Expression): string | undefined {
 }
 
 /**
+ * The type of a node, where the source settles it whether or not it settles
+ * the value.
+ *
+ * What separates "the wrong type" from "cannot be read": `alias: 42` is a
+ * declaration the runtime refuses on every run, while `alias: names` is one
+ * whose value is not in the source. The first is the author's mistake and the
+ * second is this pass's limit, and they are answered differently. It is a type
+ * rather than a yes or no because "the type is known" is not the question --
+ * `default: !flag` has a known type and an unknown value, and it is a boolean,
+ * so it is unreadable rather than wrong. A function counts, because it is
+ * written down; an identifier does not, `undefined` included -- that one is
+ * the caller's to handle, since the runtime reads it as absent.
+ *
+ * @param node - The expression.
+ * @returns Its type, or `undefined` where the source does not say.
+ */
+export function literalType(node: Expression): LiteralType | undefined {
+  const value = unwrapShallow(node);
+
+  switch (value.type) {
+    case 'Literal':
+      // a regular expression's value is the `RegExp`, which is an object
+      return value.value === null ? 'null' : (typeof value.value as LiteralType);
+    case 'TemplateLiteral':
+      // `${x}` is a string whatever x is, even where its value is not in the source
+      return 'string';
+    case 'ObjectExpression':
+    case 'ArrayExpression':
+      return 'object';
+    case 'ArrowFunctionExpression':
+    case 'FunctionExpression':
+    case 'ClassExpression':
+      return 'function';
+    case 'UnaryExpression':
+      // an operator decides its result's type whatever it is applied to, which
+      // is the whole of why it is asked here: `!0` is a boolean and `void 0` is
+      // `undefined`, and taking either for "a literal's type" without asking
+      // which refused a `default: !0` the runtime registers as the default
+      switch (value.operator) {
+        case '!':
+        case 'delete':
+          return 'boolean';
+        case 'void':
+          return 'undefined';
+        case 'typeof':
+          return 'string';
+        default:
+          // `-`, `+` and `~`: a number, or a bigint, and never anything else
+          return literalType(value.argument) === 'bigint' ? 'bigint' : 'number';
+      }
+    default:
+      return undefined;
+  }
+}
+
+/** The type `typeof` would give a value, with `null` told apart from an object. */
+export type LiteralType =
+  | 'bigint'
+  | 'boolean'
+  | 'function'
+  | 'null'
+  | 'number'
+  | 'object'
+  | 'string'
+  | 'symbol'
+  | 'undefined';
+
+/**
+ * Whether a value the source settles the type of is not of the type a property
+ * needs, which is a declaration the runtime refuses on every run.
+ *
+ * `undefined` is the caller's to have handled first, since the runtime reads it
+ * as not declared rather than as the wrong type -- except inside a list, where
+ * it is an element and is wrong.
+ *
+ * @param node - The expression.
+ * @param wanted - The type the property takes.
+ * @returns Whether it is known, from the source alone, to be something else.
+ */
+export function isWrongType(node: Expression, wanted: LiteralType): boolean {
+  const type = literalType(node);
+  return type !== undefined && type !== wanted;
+}
+
+/** What a string or a list of strings written in source came to. */
+export type StringList =
+  /** Every string is written down. */
+  | { readonly kind: 'strings'; readonly values: string[] }
+  /** Something written down is not a string, so the runtime refuses it. */
+  | { readonly kind: 'wrong' }
+  /** Nothing written down is the wrong type, but a value is not in the source. */
+  | { readonly kind: 'computed' };
+
+/**
+ * Reads a string or a list of strings, the two shapes a command's `alias`
+ * takes.
+ *
+ * The runtime reads a string as a list of one, so both come back as a list.
+ * All or nothing: a list with one element this cannot read is not a list this
+ * can say anything about, and a subset would make the answer depend on which
+ * elements happened to be readable. A wrong type outranks an unreadable value
+ * in the same list, because the runtime refuses the list either way and the
+ * build should say the thing that is certain.
+ *
+ * @param node - The expression.
+ * @returns The strings, or why there are none.
+ */
+export function stringList(node: Expression): StringList {
+  const single = literalString(node);
+  if (single !== undefined) {
+    return { kind: 'strings', values: [single] };
+  }
+
+  const value = unwrapShallow(node);
+  if (value.type !== 'ArrayExpression') {
+    return { kind: isWrongType(node, 'string') ? 'wrong' : 'computed' };
+  }
+
+  const values: string[] = [];
+  let computed = false;
+  for (const element of value.elements) {
+    // a hole is `undefined`, which is not a string
+    if (element === null) {
+      return { kind: 'wrong' };
+    }
+    if (element.type === 'SpreadElement') {
+      computed = true;
+      continue;
+    }
+
+    const text = literalString(element);
+    if (text !== undefined) {
+      values.push(text);
+    } else if (isWrongType(element, 'string')) {
+      return { kind: 'wrong' };
+    } else {
+      computed = true;
+    }
+  }
+
+  return computed ? { kind: 'computed' } : { kind: 'strings', values };
+}
+
+/**
  * The boolean a node is, when it is one written down.
  *
- * Only `true` and `false`. A `hidden: 1` is not a boolean, and the runtime
+ * `true` and `false`, and `!` over a value whose truthiness is written down --
+ * `!0` and `!1` are how a minifier spells the two, and both are booleans the
+ * runtime reads as such. A `hidden: 1` is not a boolean, and the runtime
  * throws on a non-boolean `hidden` rather than coercing it -- so reading it as
  * truthy here would bake a value the app it came from refuses to start with.
  *
@@ -168,7 +314,50 @@ export function literalString(node: Expression): string | undefined {
 export function literalBoolean(node: Expression): boolean | undefined {
   const value = unwrapShallow(node);
 
+  if (value.type === 'UnaryExpression' && value.operator === '!') {
+    const truthy = literalTruthiness(value.argument);
+    return truthy === undefined ? undefined : !truthy;
+  }
+
   return value.type === 'Literal' && typeof value.value === 'boolean' ? value.value : undefined;
+}
+
+/**
+ * Whether a value written down is truthy, for `!` to negate.
+ *
+ * Only where the source settles it: a literal (a regular expression is an
+ * object, so truthy, and a bigint is truthy unless it is zero), a template
+ * with nothing interpolated, an object, an array or a function, and `!` over
+ * any of those.
+ *
+ * @param node - The expression.
+ * @returns Its truthiness, or `undefined`.
+ */
+function literalTruthiness(node: Expression): boolean | undefined {
+  const value = unwrapShallow(node);
+
+  switch (value.type) {
+    case 'Literal':
+      // the parser hands a bigint over as a bigint and a pattern as a `RegExp`
+      return Boolean(value.value);
+    case 'TemplateLiteral':
+      return value.expressions.length === 0 ? Boolean(literalString(value)) : undefined;
+    case 'ObjectExpression':
+    case 'ArrayExpression':
+    case 'ArrowFunctionExpression':
+    case 'FunctionExpression':
+    case 'ClassExpression':
+      return true;
+    case 'UnaryExpression': {
+      if (value.operator !== '!') {
+        return undefined;
+      }
+      const inner = literalTruthiness(value.argument);
+      return inner === undefined ? undefined : !inner;
+    }
+    default:
+      return undefined;
+  }
 }
 
 /**

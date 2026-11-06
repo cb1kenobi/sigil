@@ -230,6 +230,40 @@ describe('generating a command tree', () => {
     expect(source).to.match(/computed: \{\n    load:/);
   });
 
+  it('should emit the alias and default a placeholder declared, and nothing for one that did not', () => {
+    const source = generateCommands(
+      {
+        commands: [
+          {
+            alias: ['del', 'rm "quoted"'],
+            commands: [],
+            default: true,
+            desc: 'remove it',
+            kind: 'inline',
+            module: join(app, 'commands', 'remove.js'),
+            name: 'remove',
+          },
+          {
+            commands: [],
+            kind: 'inline',
+            module: join(app, 'commands', 'plain.js'),
+            name: 'plain',
+          },
+          { alias: [], commands: [], kind: 'inline', name: 'empty' },
+        ],
+        diagnostics: [],
+      },
+      { from: app }
+    );
+
+    // JSON's quoting, for the reason a description gets it
+    expect(source).to.contain('alias: ["del", "rm \\"quoted\\""],');
+    expect(source).to.contain('default: true,');
+    expect(source).to.match(/plain: \{\n    load:/);
+    // an empty list says what absence says, and the runtime reads both as none
+    expect(source).to.match(/empty: \{\},/);
+  });
+
   it('should emit no name, because the key is the name', () => {
     const tree = resolveCommandTree(commandsDir, { facts: false });
     expect(generateCommands(tree, { from: app })).to.not.contain('name:');

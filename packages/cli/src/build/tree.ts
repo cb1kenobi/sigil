@@ -47,8 +47,21 @@ export type CommandKind = RouteKind | 'inline';
 
 /** One command in a resolved tree. */
 export interface ResolvedCommand {
+  /**
+   * The extra spellings its placeholder declared with the `alias` property.
+   *
+   * Only ever an inline command's: a walked route is named by its file, and a
+   * module's own `alias` is not known until it loads -- see `placeholderRouting()`
+   * in `discover.ts`.
+   */
+  readonly alias?: readonly string[];
   /** Its subcommands, resolved the same way, sorted as the routes were. */
   readonly commands: readonly ResolvedCommand[];
+  /**
+   * Whether it is the command that runs when argv named none, as its
+   * placeholder declared. Routing, for the reason `alias` is.
+   */
+  readonly default?: boolean;
   /** What it does, lifted from its module or read from its manifest. */
   readonly desc?: string;
   /**

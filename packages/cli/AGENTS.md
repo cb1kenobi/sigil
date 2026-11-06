@@ -222,13 +222,84 @@ makes it testable with a fixture directory and no bundler at all.
   is the point rather than a divergence to avoid: unbundled is the one that is
   wrong, and the `!` name prefix already exists precisely because `hidden` could
   not be seen in time.
-- **`name` and `alias` are deliberately _not_ lifted.** They are the two it
-  would be tempting to bake next and doing so would be a bug: they decide
+- **`name` and `alias` are deliberately _not_ lifted from a module.** They are the
+  two it would be tempting to bake next and doing so would be a bug: they decide
   _routing_, and the runtime rule is that only the placeholder's name can match,
   because a command has to be matched before the module that renames it can be
   loaded. Baking a module's own `name` would make a command reachable bundled
   under a spelling that does not resolve unbundled, which is exactly what the
   shared route rules exist to prevent.
+- **...but a _placeholder's_ `alias` and `default` are carried, because the same
+  rule is what requires it.** The runtime reads both off the placeholder when the
+  command is registered, which is before any module could be loaded, and a built
+  app's baked tree is the only declaration it has -- so `alias: 'del'` ran the
+  command from source and was `Unexpected argument "del"` after a build, with
+  `hidden` from that very placeholder surviving. Two different things were
+  being called "the alias": the module's, known only after the load and so
+  rightly left out, and the placeholder's, known to the build as plainly as its
+  `desc` and not baked for no reason but that nobody had asked. `readCommand()`
+  in `discover.ts` reads them through `placeholderRouting()`, `generate.ts`
+  prints them, and nothing about what help, completion or the markdown reference
+  list changes: the `alias` property is resolved and not offered in a build
+  exactly as from source (SIG-225, SIG-229). A string and a list of strings are
+  both read, printed as a list since the runtime reads a string as a list of one;
+  one that is computed is a warning naming the command, because a missed alias is
+  a spelling that cannot be reached rather than a command listed wrongly, and it
+  is all-or-nothing for a list for the reason a partly readable list says nothing.
+  Covered by `a command whose placeholder declares an alias` in
+  `test/build/bundle.test.ts`, through a real bundle.
+
+  **A placeholder's `name` is carried too, by being the tree's key.** The runtime
+  lets a `name` on the declaration win over the key it was written under, so
+  `remove: { name: 'remove, rm', path: ... }` is registered as `remove, rm` and
+  `rm` routes from source (and `purge pg`, `@zz, clear`, `!hid, hx` the same;
+  probed). `placeholderName()` keys the baked tree by that string and does not
+  parse it: the built app's own `initCommand()` reads the name-string rules, which
+  is why none of them is written down a second time here. The advice a warning
+  gives is per property (`advice()` in `discover.ts`): "declare it in the command's
+  module" is right only for what a module's merge supplies -- `run`, `options`,
+  `args`, `examples`, `format`, `help`, `hooks` -- and wrong for anything that
+  routes, since a name or an alias declared inside a module does not route.
+
+  A literal of the **wrong type** is not that case and fails the build:
+  `alias: 42`, `['del', 42]`, `alias: null` and `default: 'yes'` throw
+  `Expected alias in "remove" command to be a string or list of strings` (and the
+  boolean one) from source on every run, so a build that warned and carried on
+  would turn an app that cannot start into one that does. `undefined` is read as
+  the runtime reads it, as not declared. Only a value the source does not hold --
+  an identifier, a call -- is "computed", and only that says so.
+
+  "Wrong" means the source settles a type **and it is not the one the property
+  takes**, which is why `literalType()` answers with a type rather than a yes or
+  no. The first version asked only whether the type was known, and took any
+  operator over a literal for a literal: so `default: !0`, which is `true` and is
+  registered as the default from source, failed the build as not a boolean, and
+  `void 0` anywhere, which the runtime reads as not declared, failed it as the
+  wrong type -- the reverse of what the rule is for. Found by review. An operator
+  decides its result's type whatever it is applied to: `!` is a boolean, `void`
+  is `undefined` (and so absent, as the identifier is), `typeof` is a string, and
+  `-`, `+` and `~` are numbers. So `default: !flag` is a boolean whose value is
+  not in the source, and is "computed", not wrong; `!0` and `!1` are read as the
+  booleans they are.
+
+  **A known divergence, not a rule: a built app carries none of the rest of what
+  a placeholder declares.** The runtime reads every property off a placeholder
+  (`initCommand()` copies the declaration and `loadCommand()` merges it over a
+  module that left the key `undefined`), and the baked tree holds `desc`,
+  `hidden`, `alias`, `default`, `name`, the module and a nested `commands` written
+  as an object literal. So `run` (an inline handler with no module prints help and
+  exits 0), `options`, `args`, `examples`, `format`, `hooks`, `help`, `routeInfo`,
+  custom data, and a nested `commands` given as a path or a list are
+  dropped, and a placeholder with `options: { '--force': { type: 'bool' } }` and
+  `args: [{ name: 'target' }]` answers `remove --force x` as
+  `{"force":true,"target":"x"}` from source and `{"force":"x"}` built. That is a
+  bug, tracked as SIG-320, and not something the design wants. What this ticket
+  did about it is the warning: `warnUnbaked()` in `discover.ts` names the command
+  and the property for each one, so the build no longer says nothing. Add a
+  property to the baked set and to `BAKED` together, and delete the warning for it
+  with the fix. A spread or a computed key can carry any of them and is reported
+  by nothing.
+
 - **`export default cmd` is followed to the `const` it names, because that is
   the shape this repo's own rules force.** `--isolatedDeclarations` refuses to
   infer a default export, so an app that has it on _cannot_ write the literal

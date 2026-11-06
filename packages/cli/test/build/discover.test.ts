@@ -197,6 +197,153 @@ describe("reading where an app's commands are", () => {
       expect(at(list, 'inline').desc).toBe('declared here, no module');
     });
 
+    it("should read a placeholder's alias, as a string or as a list", () => {
+      const app = discoverApp(join(__dirname, '../fixtures/aliased'));
+      const { commands, diagnostics } = readAppCommands(app);
+      const list = commands?.kind === 'inline' ? commands.commands : [];
+
+      expect(at(list, 'remove').alias).toStrictEqual(['del']);
+      // the template literal with no substitutions is a string somebody wrote
+      expect(at(list, 'list').alias).toStrictEqual(['ls', 'dir']);
+      expect(at(at(list, 'db').commands, 'drop').alias).toStrictEqual(['rm']);
+      expect(at(at(list, 'db').commands, 'drop').default).toBe(true);
+      expect(at(list, 'secret').alias).toStrictEqual(['sh']);
+      expect(at(list, 'secret').hidden).toBe(true);
+      // ...and a command that wrote none has none, rather than an empty list
+      expect(at(at(list, 'db').commands, 'drop').hidden).toBeUndefined();
+      expect(at(list, 'db').alias).toBeUndefined();
+      expect(diagnostics).toStrictEqual([]);
+    });
+
+    it("should register a command under its declaration's name string, which beats the key", () => {
+      // the runtime fills the key in only when `name` is undefined, so the string
+      // is what the tree is keyed by and the built app's own parser reads it
+      const app = discoverApp(join(__dirname, '../fixtures/aliased'));
+      const { commands, diagnostics } = readAppCommands(app);
+      const list = commands?.kind === 'inline' ? commands.commands : [];
+
+      expect(list.map((command) => command.name)).toStrictEqual([
+        'remove',
+        'list',
+        'secret',
+        'purge, pg',
+        '@zz, clear',
+        'db',
+      ]);
+      expect(diagnostics).toStrictEqual([]);
+    });
+
+    it('should refuse an alias or a default of the wrong type, in the runtime’s words', () => {
+      // each of these throws from source on every run, so a build that warned and
+      // carried on would turn an app that cannot start into one that does. The
+      // message is the runtime's own, with the command named
+      const app = discoverApp(join(apps, 'wrong-types'));
+      const { commands, diagnostics } = readAppCommands(app);
+      const list = commands?.kind === 'inline' ? commands.commands : [];
+
+      const errors = diagnostics.filter((d) => d.severity === 'error').map((d) => d.message);
+      expect(errors).toStrictEqual([
+        'Expected alias in "number" command to be a string or list of strings',
+        'Expected alias in "mixed" command to be a string or list of strings',
+        'Expected alias in "nothing" command to be a string or list of strings',
+        'Expected default in "text" command to be a boolean',
+        'Expected command name to be a non-empty string in the "empty" command',
+        'Expected command name to be a non-empty string in the "named" command',
+        'Expected alias in "flag" command to be a string or list of strings',
+      ]);
+      // ...and says nothing of being "computed", which none of them is
+      expect(diagnostics.some((d) => d.message.includes('computed'))).toBe(false);
+      expect(at(list, 'number').alias).toBeUndefined();
+      expect(at(list, 'text').default).toBeUndefined();
+    });
+
+    it('should read `undefined` as the runtime does, which is as not declared', () => {
+      const app = discoverApp(join(apps, 'wrong-types'));
+      const { commands, diagnostics } = readAppCommands(app);
+      const list = commands?.kind === 'inline' ? commands.commands : [];
+
+      expect(at(list, 'absent').alias).toBeUndefined();
+      expect(at(list, 'absent').default).toBeUndefined();
+      expect(diagnostics.filter((d) => d.message.includes('"absent"'))).toStrictEqual([]);
+    });
+
+    it('should read `void 0` as `undefined` and `!0` as `true`, as the runtime does', () => {
+      // both were refused as the wrong type, because an operator over a literal
+      // was taken to have a known type without asking which one -- so a schema
+      // the app runs from source failed to build
+      const app = discoverApp(join(apps, 'wrong-types'));
+      const { commands, diagnostics } = readAppCommands(app);
+      const list = commands?.kind === 'inline' ? commands.commands : [];
+
+      expect(at(list, 'voided').alias).toBeUndefined();
+      expect(at(list, 'voided').default).toBeUndefined();
+      expect(diagnostics.filter((d) => d.message.includes('"voided"'))).toStrictEqual([]);
+      expect(at(list, 'negated').default).toBe(true);
+      expect(diagnostics.filter((d) => d.message.includes('"negated"'))).toStrictEqual([]);
+    });
+
+    it('should warn about every property of a placeholder it does not bake', () => {
+      const app = discoverApp(join(apps, 'unbaked'));
+      const { diagnostics } = readAppCommands(app);
+
+      const warned = diagnostics.map((d) => {
+        expect(d.severity).toBe('warning');
+        expect(d.message).toContain('SIG-320');
+        return /the "(\w+)" command declares "(\w+)"/.exec(d.message)?.slice(1).join('.');
+      });
+
+      // the advice is per property: a module can supply what it merges in, and
+      // cannot supply anything that routes
+      const messages = diagnostics.map((d) => d.message);
+      expect(messages.find((m) => m.includes('"run"'))).toContain("command's module");
+      expect(messages.find((m) => m.includes('"options"'))).toContain("command's module");
+      expect(messages.find((m) => m.includes('"commands"'))).not.toContain('module');
+      expect(messages.find((m) => m.includes('"commands"'))).toContain('object literal');
+
+      // `quiet` declares only what is baked, and `remove` has a `load` of its
+      // own that is not mentioned either
+      expect(warned).toStrictEqual([
+        'hi.run',
+        'remove.args',
+        'remove.examples',
+        'remove.format',
+        'remove.hooks',
+        'remove.options',
+        'tagged.tag',
+        'nested.commands',
+        // a nested placeholder is read like any other
+        'drop.run',
+      ]);
+    });
+
+    it('should warn about an alias or a default it cannot read, naming the command', () => {
+      // unreadable is not the same as absent, and an alias is the one property
+      // whose loss makes a spelling unreachable rather than merely unlisted --
+      // so it is said, and the command is not given a guess
+      const app = discoverApp(join(apps, 'computed-alias'));
+      const { commands, diagnostics } = readAppCommands(app);
+      const list = commands?.kind === 'inline' ? commands.commands : [];
+
+      expect(at(list, 'remove').alias).toBeUndefined();
+      expect(at(list, 'list').alias).toBeUndefined();
+      expect(at(list, 'ship').default).toBeUndefined();
+
+      const warnings = diagnostics.filter((d) => d.severity === 'warning').map((d) => d.message);
+      expect(warnings).toHaveLength(6);
+      expect(warnings.every((message) => message.includes('is computed'))).toBe(true);
+      expect(warnings[0]).toContain('"remove" command\'s "alias"');
+      expect(warnings[1]).toContain('"list" command\'s "alias"');
+      expect(warnings[2]).toContain('"ship" command\'s "default"');
+      // a computed name leaves the key as the name, and says so
+      expect(warnings[3]).toContain('"push" command\'s "name"');
+      expect(warnings[3]).toContain('will name it "push"');
+      // the right type with a value the source does not hold is computed rather
+      // than wrong: `!x` is a boolean, and a template is a string
+      expect(warnings[4]).toContain('"armed" command\'s "default"');
+      expect(warnings[5]).toContain('"tagged" command\'s "name"');
+      expect(diagnostics.some((d) => d.severity === 'error')).toBe(false);
+    });
+
     it('should report a module that does not resolve as an error', () => {
       // a command whose module is not there is an app that fails when that
       // command is run, which the build has no business shipping
