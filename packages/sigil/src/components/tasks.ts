@@ -2,7 +2,7 @@ import { ansi as defaultAnsi, strip } from '../ansi/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
 import { __, __n } from '../i18n/index.js';
 import { createEffect, createRoot, For, onCleanup } from '../renderer/index.js';
-import { State } from '../signals/index.js';
+import { State, untrack } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
@@ -771,7 +771,9 @@ function createRun(opts: TasksOptions): Run {
   const offResize = mounted ? terminal.onResize(() => changed()) : undefined;
 
   function changed(): void {
-    version.set(version.get() + 1);
+    // untracked, so a task changed from inside an effect does not subscribe that
+    // effect to the counter this write bumps
+    version.set(untrack(() => version.get()) + 1);
     mounted?.frame();
   }
 
@@ -984,15 +986,20 @@ function createRun(opts: TasksOptions): Run {
         },
 
         message(text: string): void {
-          if (!alive || node.settled || text === node.view.label.get()) {
-            return;
-          }
-          node.view.label.set(text);
-          if (mounted) {
-            mounted.frame();
-          } else {
-            line(node, text);
-          }
+          // untracked, whole: this is called from task bodies, which are as likely
+          // to be inside an effect as not, and the guard's read of the label would
+          // subscribe that effect to the line this very call writes
+          untrack(() => {
+            if (!alive || node.settled || text === node.view.label.get()) {
+              return;
+            }
+            node.view.label.set(text);
+            if (mounted) {
+              mounted.frame();
+            } else {
+              line(node, text);
+            }
+          });
         },
 
         signal: scope.signal,

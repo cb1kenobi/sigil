@@ -1,7 +1,7 @@
 import { box, type Element, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { createEffect } from '../renderer/index.js';
-import { State } from '../signals/index.js';
+import { State, untrack } from '../signals/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
 import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
@@ -515,15 +515,21 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
     mounted.frame();
   }
 
+  // The methods that move the value run untracked, and the reason is the caller's: one
+  // called from an effect would otherwise be subscribed to everything it read on
+  // the way -- the current value, the total, the tracker's reads -- and re-run
+  // on a write that has nothing to do with it (SIG-306, `src/signals/AGENTS.md`).
   return {
     get current() {
       return state.current.get();
     },
 
     set current(next: number) {
-      state.current.set(clamp(next));
-      track.update();
-      draw();
+      untrack(() => {
+        state.current.set(clamp(next));
+        track.update();
+        draw();
+      });
     },
 
     /**
@@ -544,13 +550,15 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
      * @param final - What to say instead, if anything.
      */
     done(final?: string): void {
-      if (final !== undefined) {
-        state.label.set(final);
-      }
-      state.current.set(state.total.get());
-      track.update();
-      draw();
-      mounted.done();
+      untrack(() => {
+        if (final !== undefined) {
+          state.label.set(final);
+        }
+        state.current.set(state.total.get());
+        track.update();
+        draw();
+        mounted.done();
+      });
     },
 
     /** Gives the terminal back, for the reason `done()` records. */
@@ -568,7 +576,9 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
     },
 
     tick(delta = 1): void {
-      this.current = state.current.get() + delta;
+      untrack(() => {
+        this.current = state.current.get() + delta;
+      });
     },
 
     get total() {
@@ -576,10 +586,12 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
     },
 
     set total(next: number) {
-      state.total.set(next > 0 ? next : 1);
-      state.current.set(clamp(state.current.get()));
-      track.update();
-      draw();
+      untrack(() => {
+        state.total.set(next > 0 ? next : 1);
+        state.current.set(clamp(state.current.get()));
+        track.update();
+        draw();
+      });
     },
 
     write(line: string): void {

@@ -295,3 +295,37 @@ the entry it belongs to.
   signal written to `1` and back to `0` before the flush still re-runs its
   effects, once, with the value it settled on. Nothing records what a signal held
   before a burst, and both writes were real changes when they happened.
+- **A method that writes, and can be called from an effect, runs untracked --
+  the whole body.** The rule is that the caller is left subscribed to nothing it
+  did not ask to read. `n.set(n.get() + 1)` is the loud case: run inside an effect
+  it subscribes that effect to the signal it is about to change, and the effect
+  re-runs on its own write until the scheduler gives up after 100 passes. A toggle
+  (`open.set(!open.get())`) is the same and never converges, 101 runs measured. The
+  quiet case is every other read on the way to the write -- the total a clamp
+  looks at, whether a clock was running, a tracker that re-reads the value just
+  written, the text a `skip()` measures -- because each leaves the caller
+  subscribed too, so a later write from outside re-runs the effect and the effect
+  writes again: a second `tick()`, a bar added twice, a clock that pauses itself
+  the moment something starts it, a focus taken back. Reading only the
+  self-referencing signal untracked stops the loop and nothing else, which is
+  what the first version of this fix did and what a review found.
+
+  So the body of the method is `untrack()`ed, not the one line. A read-only getter
+  is the opposite and stays tracked: reading is what an effect is for. SIG-306 was
+  `describe()`, found by the system monitor describing its keys from inside an
+  effect; the rest came from an audit of every read-before-write in `src/`, and
+  what they have in common is only that an app can call them from one. **Which
+  methods those are is not listed here, because a list goes stale; the
+  `runsOf()` tests are where it is enforced** -- `test/runs-of.ts` runs a call
+  from an effect, then makes a write from outside, and asserts the exact run
+  count. Exact because a count of "fewer than N" is how a third run hid. A new
+  public method that writes gets one.
+
+  Not every write method needed it: measured on the unfixed code, a single bar's
+  `write()`, `stop()` and `text`, a group's own `done()`, `write()` and `stop()`,
+  and a task log's `message()` leave their caller subscribed to nothing, and were
+  left alone. A handler is not an effect, which is the only reason
+  `collapsible.ts`'s toggle is safe as it stands. Nor does a later read in the same
+  run "settle" a write: that a read after the write happened not to loop is an
+  accident of `track()` overwriting the version it recorded, and the subscription
+  is made all the same.

@@ -4,6 +4,7 @@ import { createSpinner } from '../../src/components/spinner.js';
 import { loadCatalog } from '../../src/i18n/index.js';
 import { effect, flush } from '../../src/signals/index.js';
 import { setQuiet } from '../../src/style/output.js';
+import { runsOf } from '../runs-of.js';
 import { screenSetup, setup } from './helpers.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -633,5 +634,54 @@ describe('what a clock does where nothing is drawn', () => {
 
     expect(down.finished).to.equal(true);
     expect(vi.getTimerCount()).to.equal(0);
+  });
+});
+
+describe('a clock driven from an effect', () => {
+  it('should pause once, and stay running when it is started from outside', () => {
+    const watch = stopwatch({ quiet: true }).start();
+
+    expect(
+      runsOf(
+        () => watch.pause(),
+        () => watch.start()
+      )
+    ).toBe(2);
+    expect(watch.running).to.equal(true);
+  });
+
+  it('should start once, and stay stopped when it is paused from outside', () => {
+    const watch = stopwatch({ quiet: true });
+
+    expect(
+      runsOf(
+        () => watch.start(),
+        () => watch.pause()
+      )
+    ).toBe(2);
+    expect(watch.running).to.equal(false);
+  });
+
+  it('should reset once, and stay running when it is started from outside', () => {
+    const watch = stopwatch({ quiet: true });
+
+    expect(
+      runsOf(
+        () => watch.reset(),
+        () => watch.start()
+      )
+    ).toBe(2);
+    expect(watch.running).to.equal(true);
+  });
+
+  it('should cancel once, and not again when a reset arrives from outside', () => {
+    const down = timer(5000, { quiet: true }).start();
+
+    expect(
+      runsOf(
+        () => down.cancel(),
+        () => down.reset()
+      )
+    ).toBe(2);
   });
 });

@@ -1,6 +1,6 @@
 import type { Element } from '../element/index.js';
 import { For } from '../renderer/index.js';
-import { State } from '../signals/index.js';
+import { State, untrack } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
 import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
@@ -235,10 +235,16 @@ export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgr
         return Math.min(state.total.get(), Math.max(0, next));
       }
 
-      rows.set([...rows.get(), state]);
-      measure();
-      mount();
-      draw();
+      // untracked, like every method here that writes: an effect that adds a bar
+      // must not be subscribed to the rows and the label column it read doing it,
+      // or the next bar anybody adds runs it again and it adds another
+      // (SIG-306, `src/signals/AGENTS.md`)
+      untrack(() => {
+        rows.set([...rows.get(), state]);
+        measure();
+        mount();
+        draw();
+      });
 
       const bar: MultiProgressBar = {
         get current() {
@@ -246,9 +252,11 @@ export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgr
         },
 
         set current(next: number) {
-          state.current.set(clamp(next));
-          track.update();
-          draw();
+          untrack(() => {
+            state.current.set(clamp(next));
+            track.update();
+            draw();
+          });
         },
 
         done(text?: string): void {
@@ -256,24 +264,26 @@ export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgr
             return;
           }
           finished = true;
-          if (text !== undefined) {
-            state.label.set(text);
-            measure();
-          }
-          state.current.set(state.total.get());
-          track.update();
-
-          if (mounted && !keep && mine === generation) {
-            // the line a log would have ended on, written above the frame, and
-            // the row it came from gone
-            const line = plain(state);
-            rows.set(rows.get().filter((row) => row !== state));
-            measure();
-            if (!quiet()) {
-              mounted.write(line);
+          untrack(() => {
+            if (text !== undefined) {
+              state.label.set(text);
+              measure();
             }
-          }
-          draw();
+            state.current.set(state.total.get());
+            track.update();
+
+            if (mounted && !keep && mine === generation) {
+              // the line a log would have ended on, written above the frame, and
+              // the row it came from gone
+              const line = plain(state);
+              rows.set(rows.get().filter((row) => row !== state));
+              measure();
+              if (!quiet()) {
+                mounted.write(line);
+              }
+            }
+            draw();
+          });
         },
 
         get finished() {
@@ -282,11 +292,13 @@ export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgr
 
         stop(): void {
           finished = true;
-          rows.set(rows.get().filter((row) => row !== state));
-          measure();
-          if (mounted && mine === generation && !quiet()) {
-            mounted.frame();
-          }
+          untrack(() => {
+            rows.set(rows.get().filter((row) => row !== state));
+            measure();
+            if (mounted && mine === generation && !quiet()) {
+              mounted.frame();
+            }
+          });
         },
 
         get text() {
@@ -294,13 +306,17 @@ export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgr
         },
 
         set text(next: string) {
-          state.label.set(next);
-          measure();
-          draw();
+          untrack(() => {
+            state.label.set(next);
+            measure();
+            draw();
+          });
         },
 
         tick(delta = 1): void {
-          bar.current = state.current.get() + delta;
+          untrack(() => {
+            bar.current = state.current.get() + delta;
+          });
         },
 
         get total() {
@@ -308,10 +324,12 @@ export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgr
         },
 
         set total(next: number) {
-          state.total.set(next > 0 ? next : 1);
-          state.current.set(clamp(state.current.get()));
-          track.update();
-          draw();
+          untrack(() => {
+            state.total.set(next > 0 ? next : 1);
+            state.current.set(clamp(state.current.get()));
+            track.update();
+            draw();
+          });
         },
       };
 

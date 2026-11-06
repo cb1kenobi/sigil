@@ -13,6 +13,7 @@ import { renderToString } from '../../src/element/index.js';
 import { createRoot } from '../../src/renderer/index.js';
 import { createEffects, Computed } from '../../src/signals/index.js';
 import { themedCascade } from '../../src/theme/index.js';
+import { runsOf } from '../runs-of.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -510,5 +511,96 @@ describe('paginatorView()', () => {
     it.dispose();
     state.page.set(2);
     expect(it.read()).to.equal('● ○ ○');
+  });
+});
+
+describe('a paginator moved from an effect', () => {
+  const make = (): ReturnType<typeof createPaginator> =>
+    createPaginator({ perPage: 10, total: 100 });
+
+  it('should turn one page, and not another when the total changes from outside', () => {
+    const p = make();
+
+    expect(
+      runsOf(
+        () => p.next(),
+        () => {
+          p.total = 200;
+        }
+      )
+    ).toBe(2);
+    expect(p.page).to.equal(1);
+  });
+
+  it('should go to the last page once, and not again when the total changes from outside', () => {
+    const p = make();
+
+    expect(
+      runsOf(
+        () => p.last(),
+        () => {
+          p.total = 200;
+        }
+      )
+    ).toBe(2);
+    expect(p.page).to.equal(9);
+  });
+
+  it('should go back a page once, and not again when the total changes from outside', () => {
+    const p = make();
+    p.goTo(5);
+
+    expect(
+      runsOf(
+        () => p.previous(),
+        () => {
+          p.total = 30;
+        }
+      )
+    ).toBe(2);
+    // back to 4 by the effect, and then clamped to the last page of three
+    expect(p.page).to.equal(2);
+  });
+
+  it('should go to a page once, and stay when the page size changes from outside', () => {
+    const p = make();
+
+    expect(
+      runsOf(
+        () => p.goTo(3),
+        () => {
+          p.perPage = 20;
+        }
+      )
+    ).toBe(2);
+    expect(p.page).to.equal(1);
+  });
+
+  it('should set the page size once, and not again when the page moves from outside', () => {
+    const p = make();
+
+    expect(
+      runsOf(
+        () => {
+          p.perPage = 5;
+        },
+        () => p.next()
+      )
+    ).toBe(2);
+    expect(p.perPage).to.equal(5);
+  });
+
+  it('should set the total once, and not again when the page moves from outside', () => {
+    const p = make();
+
+    expect(
+      runsOf(
+        () => {
+          p.total = 40;
+        },
+        () => p.next()
+      )
+    ).toBe(2);
+    expect(p.total).to.equal(40);
   });
 });

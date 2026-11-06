@@ -13,7 +13,7 @@
 import { ansi as defaultAnsi } from '../ansi/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
 import { createEffect } from '../renderer/index.js';
-import { State } from '../signals/index.js';
+import { State, untrack } from '../signals/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
 import { unicodeSupported } from './note.js';
@@ -210,11 +210,18 @@ export function createPaginator(opts: PaginatorOptions = {}): Paginator {
   const pages = (): number => pageCount(state.total.get(), state.perPage.get());
   const current = (): number => clampPage(state.page.get(), pages());
 
+  // Everything that writes runs untracked, `goTo()` and the moves built on it
+  // included: one called from an effect would otherwise be subscribed to the
+  // page, the size and the total it read on the way, and a later change to any
+  // of them would run the effect and move the page again (SIG-306,
+  // `src/signals/AGENTS.md`)
   function goTo(next: number): boolean {
-    const before = current();
-    state.page.set(clampPage(next, pages()));
+    return untrack(() => {
+      const before = current();
+      state.page.set(clampPage(next, pages()));
 
-    return current() !== before;
+      return current() !== before;
+    });
   }
 
   const paginator: Paginator = {
@@ -227,8 +234,8 @@ export function createPaginator(opts: PaginatorOptions = {}): Paginator {
 
     indicator: (indicatorOpts) => pageIndicator(current(), pages(), indicatorOpts),
 
-    last: () => goTo(pages() - 1),
-    next: () => goTo(current() + 1),
+    last: () => untrack(() => goTo(pages() - 1)),
+    next: () => untrack(() => goTo(current() + 1)),
 
     get onFirstPage() {
       return current() === 0;
@@ -255,13 +262,15 @@ export function createPaginator(opts: PaginatorOptions = {}): Paginator {
     },
 
     set perPage(next: number) {
-      // read before it is written: the first item is where the old size put it
-      const first = paginator.start;
-      state.perPage.set(size(next));
-      state.page.set(clampPage(Math.floor(first / state.perPage.get()), pages()));
+      untrack(() => {
+        // read before it is written: the first item is where the old size put it
+        const first = paginator.start;
+        state.perPage.set(size(next));
+        state.page.set(clampPage(Math.floor(first / state.perPage.get()), pages()));
+      });
     },
 
-    previous: () => goTo(current() - 1),
+    previous: () => untrack(() => goTo(current() - 1)),
 
     slice<T>(items: readonly T[]): T[] {
       const start = paginator.start;
@@ -280,8 +289,10 @@ export function createPaginator(opts: PaginatorOptions = {}): Paginator {
     },
 
     set total(next: number) {
-      state.total.set(count(next));
-      state.page.set(current());
+      untrack(() => {
+        state.total.set(count(next));
+        state.page.set(current());
+      });
     },
   };
 

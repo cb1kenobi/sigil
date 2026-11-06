@@ -13,6 +13,7 @@ import { createRoot } from '../../src/renderer/index.js';
 import { createEffects, State } from '../../src/signals/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { graphemes } from '../../src/width/index.js';
+import { runsOf } from '../runs-of.js';
 import { screenSetup, setup } from './helpers.js';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -1502,5 +1503,39 @@ describe('createTypewriter()', () => {
       expect(it.revealing).to.equal(false);
       expect(ui.log.join('')).to.equal('');
     });
+  });
+});
+
+describe('createTypewriter() called from an effect', () => {
+  it('should append once, and not again for a later append from outside', () => {
+    const ui = screenSetup();
+    const writer = createTypewriter({ ansi: ui.ansi, terminal: ui.terminal, text: 'a' });
+
+    expect(
+      runsOf(
+        () => writer.append('b'),
+        () => writer.append('c')
+      )
+    ).toBe(2);
+    expect(writer.text).to.equal('abc');
+  });
+
+  it('should skip once, and not again when text is appended from outside', () => {
+    const ui = screenSetup();
+    const writer = createTypewriter({ ansi: ui.ansi, terminal: ui.terminal, text: 'abc' }).start();
+    let skips = 0;
+
+    expect(
+      runsOf(
+        () => {
+          writer.skip();
+          skips++;
+        },
+        () => writer.append('def')
+      )
+    ).toBe(2);
+    expect(skips).to.equal(1);
+    // appended after the skip, so it is typed rather than shown at once
+    expect(writer.revealed).to.equal('abc');
   });
 });

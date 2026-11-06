@@ -1,5 +1,6 @@
 import { skip, taskLog, tasks } from '../../src/components/tasks.js';
 import { setQuiet } from '../../src/style/output.js';
+import { runsOf } from '../runs-of.js';
 import { screenSetup, setup, tick } from './helpers.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -1564,5 +1565,29 @@ describe('tasks() when asked to be quiet', () => {
 
     expect(ran).to.equal(2);
     expect(stdout.output).to.equal('');
+  });
+});
+
+describe('a task line set from an effect', () => {
+  it('should not re-run the effect when the line is changed from outside', async () => {
+    const ui = screenSetup({ rows: 12 });
+    let runs = 0;
+
+    await tasks(
+      [
+        {
+          task: (ctx) => {
+            runs = runsOf(
+              () => ctx.message('one'),
+              () => ctx.message('two')
+            );
+          },
+          title: 'Build',
+        },
+      ],
+      { ansi: ui.ansi, terminal: ui.terminal }
+    );
+
+    expect(runs).toBe(2);
   });
 });

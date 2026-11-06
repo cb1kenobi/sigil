@@ -1,4 +1,8 @@
-import { createMultiProgress } from '../../src/components/multi-progress.js';
+import {
+  createMultiProgress,
+  type MultiProgress,
+  type MultiProgressBar,
+} from '../../src/components/multi-progress.js';
 import {
   createProgress,
   createRateEstimator,
@@ -7,6 +11,7 @@ import {
 } from '../../src/components/progress.js';
 import { loadCatalog } from '../../src/i18n/index.js';
 import { setQuiet } from '../../src/style/output.js';
+import { runsOf } from '../runs-of.js';
 import { screenSetup, setup } from './helpers.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -647,5 +652,197 @@ describe('createMultiProgress()', () => {
 
       expect(a.current).to.equal(3);
     });
+  });
+});
+
+describe('a bar moved from an effect', () => {
+  function bar(opts: { rate?: boolean } = {}): ReturnType<typeof createProgress> {
+    const ui = screenSetup();
+    return createProgress({ ansi: ui.ansi, terminal: ui.terminal, total: 1000, ...opts });
+  }
+
+  it('should tick once, and not again for a tick from outside', () => {
+    const b = bar();
+
+    expect(
+      runsOf(
+        () => b.tick(),
+        () => b.tick()
+      )
+    ).toBe(2);
+    expect(b.current).to.equal(2);
+  });
+
+  it('should tick once with a rate, whose tracker reads the value it just wrote', () => {
+    const b = bar({ rate: true });
+
+    expect(
+      runsOf(
+        () => b.tick(),
+        () => b.tick()
+      )
+    ).toBe(2);
+    expect(b.current).to.equal(2);
+  });
+
+  it('should tick once when the total is changed from outside', () => {
+    const b = bar();
+
+    expect(
+      runsOf(
+        () => b.tick(),
+        () => {
+          b.total = 2000;
+        }
+      )
+    ).toBe(2);
+    expect(b.current).to.equal(1);
+  });
+
+  it('should set the total once when the value is changed from outside', () => {
+    const b = bar();
+
+    expect(
+      runsOf(
+        () => {
+          b.total = 50;
+        },
+        () => b.tick()
+      )
+    ).toBe(2);
+    expect(b.total).to.equal(50);
+  });
+
+  it('should finish once when the total is changed from outside', () => {
+    const b = bar();
+
+    expect(
+      runsOf(
+        () => b.done(),
+        () => {
+          b.total = 7;
+        }
+      )
+    ).toBe(2);
+    // done() filled it to 1000, and the new total of 7 then clamped it
+    expect(b.current).to.equal(7);
+  });
+
+  it('should set the value once when the total is changed from outside', () => {
+    const b = bar();
+
+    expect(
+      runsOf(
+        () => {
+          b.current = 5;
+        },
+        () => {
+          b.total = 2000;
+        }
+      )
+    ).toBe(2);
+    expect(b.current).to.equal(5);
+  });
+});
+
+describe('a bar in a group moved from an effect', () => {
+  function group(): { first: MultiProgressBar; group: MultiProgress; second: MultiProgressBar } {
+    const ui = screenSetup({ rows: 10 });
+    const g = createMultiProgress({ ansi: ui.ansi, terminal: ui.terminal });
+    return { first: g.add({ total: 1000 }), group: g, second: g.add({ total: 1000 }) };
+  }
+
+  it('should tick once, and not again for a tick from outside', () => {
+    const { first } = group();
+
+    expect(
+      runsOf(
+        () => first.tick(),
+        () => first.tick()
+      )
+    ).toBe(2);
+    expect(first.current).to.equal(2);
+  });
+
+  it('should add one bar, and not another when a bar is added from outside', () => {
+    const { group: g } = group();
+    let added = 0;
+
+    expect(
+      runsOf(
+        () => {
+          g.add({ total: 10 });
+          added++;
+        },
+        () => {
+          g.add({ total: 10 });
+        }
+      )
+    ).toBe(2);
+    expect(added).to.equal(1);
+  });
+
+  it('should stop a bar once, and not again when a bar is added from outside', () => {
+    const { first, group: g } = group();
+    let stopped = 0;
+
+    expect(
+      runsOf(
+        () => {
+          first.stop();
+          stopped++;
+        },
+        () => {
+          g.add({ total: 10 });
+        }
+      )
+    ).toBe(2);
+    expect(stopped).to.equal(1);
+  });
+
+  it('should relabel a bar once, and not again when another is relabelled', () => {
+    const { first, second } = group();
+
+    expect(
+      runsOf(
+        () => {
+          first.text = 'a';
+        },
+        () => {
+          second.text = 'a much longer label';
+        }
+      )
+    ).toBe(2);
+  });
+
+  it('should finish a bar once, and not again when its total changes from outside', () => {
+    const { first } = group();
+    let work = 0;
+
+    expect(
+      runsOf(
+        () => {
+          first.done();
+          work++;
+        },
+        () => {
+          first.total = 7;
+        }
+      )
+    ).toBe(2);
+    expect(work).to.equal(1);
+  });
+
+  it('should set a total once, and not again when the value moves from outside', () => {
+    const { first } = group();
+
+    expect(
+      runsOf(
+        () => {
+          first.total = 50;
+        },
+        () => first.tick()
+      )
+    ).toBe(2);
   });
 });

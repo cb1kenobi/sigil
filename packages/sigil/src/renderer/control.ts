@@ -202,7 +202,9 @@ export function For<T>(props: ForProps<T>): Element {
         if (kept) {
           // the same row, possibly somewhere else: tell it where, and leave
           // everything it built alone
-          moved.push({ from: kept.index.get(), row: kept });
+          // untracked: the next line writes this index, and a reconcile that read it
+          // tracked would depend on a signal it is in the middle of changing
+          moved.push({ from: untrack(() => kept.index.get()), row: kept });
           kept.index.set(at);
           next.push(kept);
           continue;

@@ -503,8 +503,7 @@ export function App() {
     }
   };
 
-  // what the footer lists. In the body rather than in an effect: inside one,
-  // `describe()` would make the effect depend on the list it writes (SIG-306)
+  // what the footer lists, and unlisted with the component
   const undo = [
     input.describe('up', { description: 'select', priority: 3 }),
     input.describe('down', { description: 'select', priority: 3 }),

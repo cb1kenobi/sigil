@@ -11,6 +11,7 @@ import {
   text,
 } from '../../src/components/prompt.js';
 import { createInput } from '../../src/input/index.js';
+import { runsOf } from '../runs-of.js';
 import { type ScreenHarness, screenSetup, tick } from './helpers.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -1408,5 +1409,30 @@ describe('a router the app already owns', () => {
 
     off();
     router.stop();
+  });
+});
+
+describe('promptKeys() called from an effect', () => {
+  it('should not re-run an effect that added a key, on its own write or a later one', () => {
+    const keys = promptKeys<void>();
+
+    expect(
+      runsOf(
+        () => keys.on('a', () => undefined, { description: 'first' }),
+        () => keys.on('b', () => undefined, { description: 'second' })
+      )
+    ).toBe(2);
+    expect(keys.bindings().map((b) => b.keys)).to.deep.equal(['a', 'b']);
+  });
+
+  it('should not re-run an effect that refreshed the table, on its own write or a later one', () => {
+    const keys = promptKeys<void>();
+
+    expect(
+      runsOf(
+        () => keys.refresh(),
+        () => keys.refresh()
+      )
+    ).toBe(2);
   });
 });

@@ -21,7 +21,7 @@ import {
   parseKeys,
 } from '../input/index.js';
 import { isAbort } from '../input/index.js';
-import { State } from '../signals/index.js';
+import { State, untrack } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { graphemes, stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
@@ -1041,25 +1041,29 @@ function promptKeys<R>(): PromptKeys<R> {
       return entries.find((entry) => entry.spec === spec)?.run;
     },
 
+    // untracked, whole: called from inside effects, which a read of the revision
+    // it bumps would subscribe to their own write (SIG-306, `src/signals/AGENTS.md`)
     on(keys: string | KeyPattern, run: (k: Key) => R, help?: PromptKeyHelp): void {
-      let pattern: KeyPattern;
-      if (typeof keys === 'string') {
-        const patterns = parseKeys(keys);
-        // a prompt reads one key at a time, so a sequence is a binding that could
-        // never be matched -- refused where it is written, like the router's own
-        if (patterns.length !== 1) {
-          throw new TypeError(`A prompt key is one key, not a sequence: "${keys}"`);
+      untrack(() => {
+        let pattern: KeyPattern;
+        if (typeof keys === 'string') {
+          const patterns = parseKeys(keys);
+          // a prompt reads one key at a time, so a sequence is a binding that could
+          // never be matched -- refused where it is written, like the router's own
+          if (patterns.length !== 1) {
+            throw new TypeError(`A prompt key is one key, not a sequence: "${keys}"`);
+          }
+          pattern = patterns[0] as KeyPattern;
+        } else {
+          pattern = keys;
         }
-        pattern = patterns[0] as KeyPattern;
-      } else {
-        pattern = keys;
-      }
-      entries.push({ help, run, spec: formatKey(pattern) });
-      revision.set(revision.get() + 1);
+        entries.push({ help, run, spec: formatKey(pattern) });
+        revision.set(revision.get() + 1);
+      });
     },
 
     refresh(): void {
-      revision.set(revision.get() + 1);
+      untrack(() => revision.set(revision.get() + 1));
     },
   };
 }
