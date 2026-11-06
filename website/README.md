@@ -169,9 +169,12 @@ every page concatenated, both in the docs sidebar's order.
   `.md`.
 - A `route.ts` cannot share a segment with a `page.tsx`, so `next.config.ts`
   rewrites the `.md` suffix onto `app/md/[...path]`, and `src/proxy.ts` refuses
-  `/md/...` asked for by name, negotiates on `Accept`, and answers 404 for the
-  sitemap and the whole corpus off the production host (`isIndexableHost()`, the
-  guard `robots.txt` uses). That keeps every one of those routes prerendered.
+  `/md/...` asked for by name and negotiates on `Accept`. That keeps every one
+  of those routes prerendered.
+- The corpus is served on every host, previews and `localhost` included, unlike
+  titaniumsdk.com's. It is the same documents every host serves as HTML, so a
+  host guard hid nothing and only made it untestable off production. Only the
+  sitemap is production-only, because it claims the canonical addresses.
 - A Markdown answer says `Vary: Accept`. The HTML page cannot: Next sets a
   page's `Vary` outright, over anything the proxy or `next.config.ts` adds, so a
   cache can at worst give an agent the HTML, never a browser the Markdown.

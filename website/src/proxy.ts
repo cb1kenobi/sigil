@@ -3,13 +3,14 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 /**
- * The production-only files, and the docs' Markdown copies.
+ * The sitemap's host guard, and the docs' Markdown copies.
  *
- * - No sitemap, `llms.txt`, `llms-full.txt` or `.md` copy off the production
- *   host. `robots.txt` closes a preview to crawlers, but a sitemap is a list of
- *   addresses on the production origin that a preview has no business offering,
- *   and a corpus on a preview is one nothing asks a model not to read; answering
- *   for them here keeps their routes static. See `app/sitemap.ts`.
+ * - No sitemap off the production host. `robots.txt` closes a preview to
+ *   crawlers, but a sitemap is a list of addresses on the production origin
+ *   that a preview has no business offering; answering for it here keeps its
+ *   route static. See `app/sitemap.ts`. The corpus (`llms.txt`,
+ *   `llms-full.txt`, the `.md` copies) is served on every host: see
+ *   `proxyAnswer()` for why.
  * - `/md/...`, where `next.config.ts` sends a `.md` address, is refused when it
  *   is asked for by name.
  * - A docs page asked for with an `Accept` that prefers `text/markdown` is its
@@ -43,14 +44,5 @@ export const config = {
   // Literal, because Next reads the matcher at build time. Every path
   // `proxyAnswer()` has a rule for, and nothing else: a page outside them never
   // pays for the proxy.
-  matcher: [
-    '/sitemap.xml',
-    '/llms.txt',
-    '/llms-full.txt',
-    '/md/:path*',
-    '/docs.md',
-    '/docs/:path*',
-    '/reference.md',
-    '/reference/:path*',
-  ],
+  matcher: ['/sitemap.xml', '/md/:path*', '/docs/:path*', '/reference/:path*'],
 };

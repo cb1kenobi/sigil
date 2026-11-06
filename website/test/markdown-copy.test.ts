@@ -81,32 +81,39 @@ describe('proxyAnswer', () => {
     }
   });
 
-  it('should serve the corpus and the sitemap on the production host only', () => {
+  it('should serve the sitemap on the production host only', () => {
+    assert.deepEqual(ask('/sitemap.xml', PRODUCTION), { pass: true });
+    assert.ok('notFound' in ask('/sitemap.xml', PREVIEW));
+    assert.ok('notFound' in ask('/sitemap.xml', null));
+    assert.ok('notFound' in ask('/sitemap.xml', 'localhost:3000'));
+  });
+
+  // The corpus is the same documents every host already serves as HTML, so
+  // hiding it off production hid nothing and only made it untestable.
+  it('should serve the corpus on every host', () => {
     for (const path of [
       '/llms.txt',
       '/llms-full.txt',
-      '/sitemap.xml',
       '/docs/parser.md',
       '/reference.md',
       '/reference/add.md',
     ]) {
-      assert.deepEqual(ask(path, PRODUCTION), { pass: true }, path);
-      assert.ok('notFound' in ask(path, PREVIEW), path);
-      assert.ok('notFound' in ask(path, null), path);
-      assert.ok('notFound' in ask(path, 'localhost:3000'), path);
+      for (const host of [PRODUCTION, PREVIEW, 'localhost:3000', null]) {
+        assert.deepEqual(ask(path, host), { pass: true }, `${path} on ${host}`);
+      }
     }
   });
 
-  it('should answer a docs page with its copy for a client that prefers Markdown', () => {
-    assert.deepEqual(ask('/docs/parser', PRODUCTION, 'text/markdown'), {
-      rewrite: '/md/docs/parser',
-    });
-    assert.deepEqual(ask('/reference/', PRODUCTION, 'text/markdown'), { rewrite: '/md/reference' });
+  it('should answer a docs page with its copy for a client that prefers Markdown, on any host', () => {
+    for (const host of [PRODUCTION, PREVIEW, 'localhost:3000']) {
+      assert.deepEqual(ask('/docs/parser', host, 'text/markdown'), { rewrite: '/md/docs/parser' });
+      assert.deepEqual(ask('/reference/', host, 'text/markdown'), { rewrite: '/md/reference' });
+    }
   });
 
-  it('should answer HTML to a browser, and to anybody off the production host', () => {
+  it('should answer HTML to a browser', () => {
     assert.deepEqual(ask('/docs/parser', PRODUCTION, '*/*'), { pass: true });
-    assert.deepEqual(ask('/docs/parser', PREVIEW, 'text/markdown'), { pass: true });
+    assert.deepEqual(ask('/docs/parser', PREVIEW, 'text/html,*/*;q=0.8'), { pass: true });
   });
 
   it('should leave a page with no copy alone', () => {

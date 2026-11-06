@@ -121,9 +121,6 @@ export function prefersMarkdown(accept: string | null | undefined): boolean {
 export const CORPUS_CACHE_CONTROL =
   'public, max-age=600, s-maxage=3600, stale-while-revalidate=86400';
 
-/** The files that are published on the production host and nowhere else, besides the `.md` copies. */
-const PRODUCTION_ONLY = new Set(['/sitemap.xml', '/llms.txt', '/llms-full.txt']);
-
 /** What `proxy.ts` does with a request. */
 export type ProxyAnswer =
   /** Serve it as the route would. */
@@ -142,15 +139,20 @@ export type ProxyAnswer =
  *   request that names it is refused, so each document keeps one. The proxy
  *   runs before `next.config.ts`'s rewrites, so it only ever sees the path that
  *   was asked for -- `/docs/parser.md`, not where that was sent.
- * - The sitemap, `llms.txt`, `llms-full.txt` and every `.md` copy exist on the
- *   production host and are a 404 everywhere else: a sitemap is a list of
- *   production addresses a preview has no business offering, and a corpus on a
- *   preview is one nothing tells a model not to read. `robots.txt` shares
- *   `isIndexableHost()` with this, so the two cannot disagree about which host
- *   that is. Answering here keeps every one of those routes static.
- * - A docs page asked for with an `Accept` that prefers Markdown is its copy,
- *   on the production host. Off it the copy does not exist, so the page is what
- *   there is.
+ * - The sitemap is a 404 off the production host. It is a list of production
+ *   addresses that says "these are this site's canonical pages", which a
+ *   preview has no business claiming. `robots.txt` shares `isIndexableHost()`
+ *   with this, so the two cannot disagree about which host that is, and
+ *   answering here keeps `app/sitemap.ts` static.
+ * - A docs page asked for with an `Accept` that prefers Markdown is its copy.
+ *
+ * **The corpus is served on every host, and that is deliberate.** `llms.txt`,
+ * `llms-full.txt` and the `.md` copies are the same documents as the HTML pages
+ * beside them, which every host serves, so withholding them off production hid
+ * nothing a reader could not fetch one address over -- and it made the feature
+ * untestable on `localhost` and on a preview. titaniumsdk.com gates `llms.txt`
+ * by host; this does not follow it there. A preview is still closed to crawlers
+ * by `robots.txt`, which covers these addresses like any other.
  *
  * **The Markdown says `Vary: Accept` and the HTML cannot.** Next's app-page
  * runtime sets a page's `Vary` outright (`res.setHeader`, in
@@ -182,16 +184,11 @@ export function proxyAnswer({
     return { notFound: 'Not found.\n' };
   }
 
-  const production = isIndexableHost(host);
-  const copy = pathname.endsWith('.md') && hasMarkdownCopy(pathname.slice(0, -'.md'.length));
-
-  if (copy || PRODUCTION_ONLY.has(pathname)) {
-    return production
-      ? { pass: true }
-      : { notFound: `Not found. This is published on ${new URL(SITE_URL).host} only.\n` };
+  if (pathname === '/sitemap.xml' && !isIndexableHost(host)) {
+    return { notFound: `Not found. The sitemap is published on ${new URL(SITE_URL).host} only.\n` };
   }
 
-  return production && hasMarkdownCopy(pathname) && prefersMarkdown(accept)
+  return hasMarkdownCopy(pathname) && prefersMarkdown(accept)
     ? { rewrite: `/md${pathname.replace(/\/+$/u, '')}` }
     : { pass: true };
 }

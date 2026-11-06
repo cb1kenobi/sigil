@@ -33,15 +33,15 @@ import { CORPUS_CACHE_CONTROL } from '@/lib/markdown-copy';
  * asked for. One address per document, which is what the canonical in each
  * page's head assumes.
  *
- * ## Prerendered, and production only
+ * ## Prerendered, on every host
  *
  * Every page is built from committed files, so every `.md` is written at build
  * time, which titaniumsdk.com's are not: its host guard read `headers()` here
- * and made the route request-time. Here the guard is `proxy.ts`'s, which
- * already answers 404 for the sitemap off the production host, so a preview
- * never publishes a corpus and this can stay static -- the same call
- * `app/sitemap.ts` makes. It also means the guides, which live outside
- * `website/`, are read during the build and never at request time.
+ * and made the route request-time. There is no host guard here at all -- a copy
+ * is the same document as the page beside it, which every host serves -- so
+ * this stays static, the same call `app/sitemap.ts` makes. It also means the
+ * guides, which live outside `website/`, are read during the build and never at
+ * request time.
  */
 
 export const dynamic = 'force-static';

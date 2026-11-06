@@ -6,7 +6,7 @@ import { CORPUS_CACHE_CONTROL } from '@/lib/markdown-copy';
  * (SIG-267).
  *
  * Ported from titaniumsdk.com's `app/llms-full.txt/route.ts` (TI-57), without
- * its size cap: `lib/llms.ts` says why. Production only and static for the
+ * its size cap: `lib/llms.ts` says why. On every host and static for the
  * reason `llms.txt` is; see that route.
  */
 
