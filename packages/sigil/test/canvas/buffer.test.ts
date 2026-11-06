@@ -355,6 +355,24 @@ describe('CellBuffer', () => {
       expect(buffer.toLines()).toEqual([' a   ']);
     });
 
+    it('should walk a string into a clip that starts right of where it does', () => {
+      // SIG-318: only column zero was a left edge, so the first cell left of a
+      // clip one column in read as the end of the row and nothing was painted --
+      // which is every scrolled `overflow: hidden` box not at the left margin
+      const buffer = new CellBuffer(6, 1);
+      buffer.clipTo({ height: 1, width: 3, x: 2, y: 0 });
+      buffer.write(0, 0, 'abcdef', 0);
+      expect(buffer.toLines()).toEqual(['  cde ']);
+    });
+
+    it('should refuse one straddling a clip on the left without dropping the rest', () => {
+      const buffer = new CellBuffer(6, 1);
+      buffer.clipTo({ height: 1, width: 4, x: 1, y: 0 });
+      // the lead is left of the clip, so only the continuation would land
+      buffer.write(0, 0, '漢ab', 0);
+      expect(buffer.toLines()).toEqual(['  ab  ']);
+    });
+
     it('should stop a string before a cluster that will not fit', () => {
       const buffer = new CellBuffer(3, 1);
       buffer.write(0, 0, 'a漢b', 0);

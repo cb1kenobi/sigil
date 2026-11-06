@@ -522,16 +522,24 @@ export class CellBuffer {
       );
     }
 
+    // the left edge is the clip's where there is one, not only the grid's: a run
+    // that starts left of a clip one column in walks into it exactly as one that
+    // starts left of column zero walks into the grid. Only the grid's was asked,
+    // so a scrolled `overflow: hidden` box anywhere but the left margin painted
+    // nothing -- its first cell left of the clip was read as the end of the row
+    // (SIG-318)
+    const left = Math.max(0, this.#clip?.x ?? 0);
+
     for (const cluster of graphemes(plain)) {
       if (column >= this.#width) {
         break;
       }
 
-      if (column < 0) {
-        // left of the grid, which is not the answer the right edge gives:
-        // advancing from here walks *into* it, so the run is clipped rather
-        // than abandoned -- `fill()` already clips this way and the two are
-        // painting the same thing. A wide cluster straddling column zero is
+      if (column < left) {
+        // left of the grid or the clip, which is not the answer the right edge
+        // gives: advancing from here walks *into* it, so the run is clipped
+        // rather than abandoned -- `fill()` already clips this way and the two
+        // are painting the same thing. A wide cluster straddling the edge is
         // still refused, because a survivor is half a glyph, but only that
         // cluster and not the rest of the string
         column += cellWidth(cluster);
