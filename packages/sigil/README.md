@@ -5776,9 +5776,15 @@ process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] 
 | `exit(code)`, or `exit()`                      | `code`, or `0`                                 |
 | The quit key (Ctrl-C, Ctrl-D)                  | `130`, what a shell reports for Ctrl-C         |
 | A failed frame, after `onError` has written it | `1`                                            |
+| A throw from the component's body              | `1`, and the throw propagates from `runApp()`  |
 | No terminal on both ends -- a refusal          | `1`                                            |
 | stdin ended under it, or ended in an error     | `129`, a terminal hanging up; `1` for an error |
 | `view.dispose()` from the app's own code       | `0`                                            |
+
+Of two intentional codes the first wins, and a failure beats both: an `exit(0)`
+followed by a frame that throws, or by stdin failing, settles `1`. A cleanup that
+throws while the app is ending by `exit()` or `view.dispose()` is written and does
+not change the code.
 
 `runApp()` touches neither `process.exitCode` nor `process.exit()`, and does not
 hand a value back up through the layers that called it: the exit code is global
