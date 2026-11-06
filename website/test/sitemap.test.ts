@@ -1,3 +1,4 @@
+import { guides } from '../src/lib/guides.ts';
 import { referenceDocs, referenceHref } from '../src/lib/reference.ts';
 import { robotsRules } from '../src/lib/seo.ts';
 import { SITE_URL } from '../src/lib/site.ts';
@@ -37,6 +38,20 @@ describe('the sitemap', () => {
 
     assert.notEqual(wanted.length, 0);
     assert.deepEqual(listed, wanted);
+  });
+
+  it('should list exactly the guides the site renders, each at its own address', () => {
+    const listed = urls.filter((url) => url.startsWith(`${SITE_URL}/docs`)).toSorted();
+    const wanted = guides()
+      .map((guide) => `${SITE_URL}/docs/${guide.slug}`)
+      .toSorted();
+
+    assert.notEqual(wanted.length, 0);
+    assert.deepEqual(listed, wanted);
+  });
+
+  it('should not list the /docs redirect', () => {
+    assert.equal(urls.includes(`${SITE_URL}/docs`), false);
   });
 
   it('should list the root command once, at /reference and not at /reference/index', () => {

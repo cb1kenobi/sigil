@@ -168,6 +168,120 @@ describe('mutation marks', () => {
     expect(tree.marks.classes.size).toBe(0);
   });
 
+  it('should tell an element its focus changed when the state flips, and only then', () => {
+    // the hook and `:focus` are keyed on one state, so they cannot disagree --
+    // which is also why a write that changed nothing tells nobody anything
+    const field = box();
+    const heard: boolean[] = [];
+    field.onFocusChange = (element, focused) => {
+      expect(element).toBe(field);
+      expect(field.states.includes('focus')).toBe(focused);
+      heard.push(focused);
+    };
+
+    field.setState('focus');
+    field.setState('focus');
+    field.setState('hover');
+    field.setState('focus', false);
+    field.setState('focus', false);
+    expect(heard).toEqual([true, false]);
+  });
+
+  it('should go on telling elements their focus after a handler threw', () => {
+    // the queue latches while it drains, so a throw that left the latch set would
+    // leave every later focus change untold for the life of the process
+    const field = box();
+    const heard: boolean[] = [];
+    field.onFocusChange = (_, focused) => {
+      heard.push(focused);
+      if (focused) {
+        throw new Error('boom');
+      }
+    };
+
+    expect(() => field.setState('focus')).toThrow('boom');
+    expect(field.states).toContain('focus');
+    field.setState('focus', false);
+    expect(heard).toEqual([true, false]);
+  });
+
+  it('should refuse a setState of the focus while the focus is being announced', () => {
+    // taken, the write turned `:focus` on for an element nothing had moved the
+    // focus to, after the announcement it should have been part of -- so its
+    // handler painted the role on a second control. The router's `focus()` is
+    // the spelling that works from a handler
+    const a = box();
+    const b = box();
+    const heard: string[] = [];
+    a.onFocusChange = (_, focused) => {
+      heard.push(`a ${focused}`);
+      b.setState('focus');
+    };
+    b.onFocusChange = (_, focused) => heard.push(`b ${focused}`);
+
+    expect(() => a.setState('focus')).toThrow(/focus\.focus\(\)/);
+    expect(a.states).toContain('focus');
+    expect(b.states).not.toContain('focus');
+    expect(heard).toEqual(['a true']);
+    // and outside an announcement a direct write is still taken and told
+    a.onFocusChange = undefined;
+    b.setState('focus');
+    expect(heard).toEqual(['a true', 'b true']);
+  });
+
+  it('should go on telling elements their focus after reading one threw', () => {
+    // the drain latches while it walks, and the state is read outside the
+    // handler's own `try` -- a throw there used to leave the latch set, and every
+    // later focus change in the process committed and told nobody
+    const a = box();
+    const b = box();
+    const heard: string[] = [];
+    a.onFocusChange = (_, focused) => heard.push(`a ${focused}`);
+    b.onFocusChange = (_, focused) => heard.push(`b ${focused}`);
+    Object.defineProperty(a, 'states', {
+      configurable: true,
+      get() {
+        throw new Error('unreadable');
+      },
+    });
+
+    expect(() => a.setState('focus')).toThrow('unreadable');
+    delete (a as { states?: unknown }).states;
+    b.setState('focus');
+    expect(heard).toEqual(['b true']);
+    // and the element whose state could not be read is told at its next change,
+    // rather than skipped as though it had heard the one it missed
+    a.setState('focus', false);
+    expect(heard).toEqual(['b true', 'a false']);
+  });
+
+  it('should keep both errors when the mark callback and the focus handler throw outside a move', () => {
+    // the handler is told from a `finally` around the mark, and a `finally` that
+    // throws replaces what the `try` was carrying -- so the mark's error was lost
+    const root = box();
+    const a = box();
+    root.append(a);
+    createTree(root, () => {
+      throw new Error('mark');
+    });
+    a.onFocusChange = () => {
+      throw new Error('handler');
+    };
+
+    let caught: unknown;
+    try {
+      a.setState('focus');
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(AggregateError);
+    expect((caught as AggregateError).errors.map((error: Error) => error.message)).toEqual([
+      'mark',
+      'handler',
+    ]);
+    expect(a.states).toContain('focus');
+  });
+
   it('should record nothing at all for a subtree not in a tree yet', () => {
     // a page being built before it is attached has nothing on screen to
     // invalidate, and marking every `append()` would hand the first frame a set

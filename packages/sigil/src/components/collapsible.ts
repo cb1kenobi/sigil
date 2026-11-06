@@ -154,6 +154,12 @@ export function Collapsible(props: CollapsibleProps): Element {
     marker,
     label
   );
+  // the focus role on the title itself, which is the one part that says the keys
+  // go here: inverted while focused, so a Tab onto it does not look like a Tab
+  // that did nothing
+  title.onFocusChange = (_, focused): void => {
+    title.toggleClass('sigil-focus', focused);
+  };
   // indented by the marker and its margin, so the body hangs under the title's
   // text rather than under the triangle
   const body = box({
