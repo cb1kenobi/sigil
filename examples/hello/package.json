@@ -1,0 +1,26 @@
+{
+  "name": "@ttylabs/example-hello",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The smallest full-screen sigil app, written twice: in JSX, built, and in the ui tag, run as it is",
+  "bin": {
+    "hello": "./dist/hello.mjs"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "sigil build",
+    "start": "node dist/hello.mjs",
+    "start:ui": "node src/ui.ts",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  },
+  "devDependencies": {
+    "@ttylabs/cli": "workspace:*",
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}
