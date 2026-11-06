@@ -64,7 +64,7 @@ export function MobileNav({ active }: { active: Section | undefined }) {
           ref.current?.showModal();
           setOpen(true);
         }}
-        className="ml-auto grid size-10 place-items-center rounded-control border border-line-input text-fg-body hover:text-white md:hidden"
+        className="ml-auto grid size-11 place-items-center rounded-control border border-line-input text-fg-body hover:text-white md:hidden"
       >
         <svg
           viewBox="0 0 24 24"
@@ -95,7 +95,7 @@ export function MobileNav({ active }: { active: Section | undefined }) {
             type="button"
             onClick={close}
             aria-label="Close menu"
-            className="grid size-10 place-items-center rounded-control text-fg-body hover:text-white"
+            className="grid size-11 place-items-center rounded-control text-fg-body hover:text-white"
           >
             <svg
               viewBox="0 0 24 24"
@@ -135,7 +135,7 @@ export function MobileNav({ active }: { active: Section | undefined }) {
 
         <div className="flex flex-col gap-3 border-t border-line px-5 py-4">
           <SearchTrigger className="w-full" onActivate={close} />
-          <GithubLink location="header" className="h-10 px-3">
+          <GithubLink location="header" className="h-11 px-3">
             <span className="text-small">GitHub</span>
           </GithubLink>
         </div>

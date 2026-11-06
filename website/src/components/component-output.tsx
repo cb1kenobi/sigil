@@ -90,7 +90,7 @@ export function ComponentOutput({
                   tabIndex={selected ? 0 : -1}
                   onClick={() => choose(view)}
                   onKeyDown={(event) => onKeyDown(event, index)}
-                  className={`h-9 cursor-pointer rounded-segment border px-3.5 font-mono text-xs ${
+                  className={`relative h-9 cursor-pointer rounded-segment border px-3.5 font-mono text-xs after:absolute after:inset-x-0 after:-inset-y-[5px] ${
                     selected
                       ? 'border-line-strong bg-surface-2 text-fg-strong'
                       : 'border-transparent text-muted hover:text-fg-body'
@@ -112,7 +112,7 @@ export function ComponentOutput({
             hidden={view.id !== current.id}
             // scrolls sideways, so it has to be reachable by keyboard
             tabIndex={0}
-            className="overflow-x-auto px-5 pt-4 pb-5 font-mono text-term text-fg-term"
+            className="overflow-x-auto px-5 pt-4 pb-5 font-mono text-term text-fg-term focus-visible:-outline-offset-2"
           >
             {view.panel}
           </div>

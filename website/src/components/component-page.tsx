@@ -246,8 +246,13 @@ export function ComponentPage({ slug }: { slug: string }) {
         />
 
         <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-3">
-          <h1 className="font-mono text-[30px] leading-[1.1] font-bold tracking-[-0.02em] text-fg-strong sm:text-[44px]">
-            {entry.name}
+          {/* `autocompleteMultiselect()` is one word to the browser, and wider than a
+              phone: it may break before each capital, and anywhere at all
+              before it pushes the page sideways. */}
+          <h1 className="min-w-0 font-mono text-[30px] leading-[1.1] font-bold tracking-[-0.02em] break-words text-fg-strong sm:text-[44px]">
+            {entry.name
+              .split(/(?=[A-Z])/u)
+              .flatMap((part, at) => (at ? [<wbr key={at} />, part] : [part]))}
           </h1>
           <div className="flex flex-wrap items-center gap-2">
             <Badge>{home.title.replace(/s$/, '')}</Badge>

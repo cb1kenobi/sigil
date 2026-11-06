@@ -79,7 +79,7 @@ export function TerminalBlock({
         />
       </div>
       <div
-        className={`overflow-x-auto font-mono text-fg-term ${
+        className={`overflow-x-auto font-mono text-fg-term focus-visible:-outline-offset-2 ${
           size === 'hero' ? 'px-[22px] pt-5 pb-6 text-term-hero' : 'px-5 pt-4 pb-5 text-term'
         }`}
         data-copy-body=""

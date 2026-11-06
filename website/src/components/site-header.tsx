@@ -23,7 +23,7 @@ export function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-bg/86 backdrop-blur-md">
-      <div className={`${width} flex items-center gap-7 py-3`}>
+      <div className={`${width} flex items-center gap-7 py-2.5 md:py-3`}>
         <SiteLockup variant="header" />
 
         <nav aria-label="Main" className="hidden md:block">
@@ -50,7 +50,7 @@ export function SiteHeader() {
 
         <div className="hidden grow md:block" />
         <div className="hidden items-center gap-3 md:flex">
-          <SearchTrigger />
+          <SearchTrigger className="w-36 lg:w-60" />
           <GithubLink location="header" />
         </div>
 

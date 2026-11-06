@@ -144,16 +144,10 @@ export default function Home() {
         className="relative overflow-hidden border-t border-line bg-band"
       >
         <Glow at="24% 50%" size="38% 55%" variant="radial" />
-        <div className="layout-page relative flex flex-wrap-reverse items-center gap-16 py-16 sm:py-[104px]">
-          <div className="min-w-0 flex-[1_1_520px]">
-            <HomeScreen
-              cwd="~"
-              id="cli"
-              label="The sigil command's help screen"
-              shadow
-              size="hero"
-            />
-          </div>
+        {/* The text comes first, so a phone, a screen reader and the Tab key all
+            meet the heading before the terminal; `flex-row-reverse` puts the
+            terminal on the left where the two fit side by side. */}
+        <div className="layout-page relative flex flex-row-reverse flex-wrap items-center gap-16 py-16 sm:py-[104px]">
           <div className="flex min-w-0 flex-[1_1_420px] flex-col gap-6">
             <Eyebrow link>The sigil CLI</Eyebrow>
             <h2
@@ -173,6 +167,15 @@ export default function Home() {
                 CLI reference <Arrow />
               </Link>
             </div>
+          </div>
+          <div className="min-w-0 flex-[1_1_520px]">
+            <HomeScreen
+              cwd="~"
+              id="cli"
+              label="The sigil command's help screen"
+              shadow
+              size="hero"
+            />
           </div>
         </div>
       </section>

@@ -203,6 +203,67 @@ PostHog project to work on the site (`.env.example`). A production deploy
 (`VERCEL_ENV=production`) refuses to build without them, which `next.config.ts`
 enforces. `pnpm --filter website test` runs the tests in `website/test/`.
 
+## Checking the built site
+
+The pre-launch pass (SIG-273) is a script, so it can be run again:
+
+```sh
+pnpm --filter website build
+pnpm --filter website start -p 3273
+node scripts/check-pages.ts            # eight representative pages
+node scripts/check-pages.ts --all      # every prerendered page, and the 404
+node scripts/check-pages.ts --shots <dir>   # and a full-page PNG of each
+```
+
+It drives the Chrome that is installed (`CHROME` names another) over the
+DevTools protocol with Node's own `WebSocket` (`scripts/lib/chrome.ts`), so it
+needs no Playwright. At 390, 768 and 1280px it fails on sideways scroll, on
+landmarks (one banner, main and contentinfo, every `nav` labelled), on a first
+tab stop that is not the skip link, on any tab stop without the 2px `link` ring
+or with the ring cut off by an ancestor's `overflow`, on a control without a
+name, on a touch target under 44px at 390px, and on anything still moving under
+`prefers-reduced-motion: reduce`. `test/launch.test.ts` holds what of the same
+list is true of the source. Screenshots are for looking at, not for committing.
+
+Lighthouse is not a dependency; run it with `npx`:
+
+```sh
+npx lighthouse@13.6.0 http://localhost:3273/ --chrome-flags="--headless=new"
+```
+
+Its SEO score is 66 on `localhost`, and that is the site working: `robots.txt`
+disallows every host but the production one (`src/proxy.ts`). To score SEO as
+production would, the request has to arrive as `https://ttylabs.dev`, and `.dev`
+is HSTS-preloaded, so plain HTTP will not do. A local HTTPS proxy with a
+self-signed certificate, forwarding to port 3273 with `Host: ttylabs.dev`, and a
+Chrome started with `--ignore-certificate-errors` and
+`--host-resolver-rules="MAP ttylabs.dev:443 127.0.0.1:<proxy port>"` does it;
+pass that Chrome to Lighthouse with `--port`.
+
+Decisions the pass made, so they are not undone:
+
+- **The focus ring is `:where(:focus-visible)`, not a list of elements.** Chrome
+  makes a box that scrolls focusable without a `tabindex`, and the list left the
+  tables' scroll wrappers the browser's own 1px ring. Anything flush with the edge
+  of a box that clips it -- a code block's body, a tab panel, a segment of the
+  family filter, a search result -- draws the ring inside itself with
+  `-outline-offset-2`, and the sidebar and the rail carry 4px of padding and
+  `scroll-py-2` for the same reason.
+- **A control smaller than 44px gets a bigger target than it is drawn.** An
+  absolutely positioned `::after` grows a Copy button, a tab or the header's
+  lockup into the padding around it, so the design does not move. Where there is
+  no padding to grow into -- the title-bar install tabs, the search button -- it
+  grows on `pointer-coarse`. The checker measures the `::after` as well.
+- **Reduced motion stops every transition and animation**, in one block in
+  `globals.css`, rather than picking through which of them count as motion.
+- **Only the weights a page draws ship.** Every face is preloaded on every page,
+  so a weight nothing uses is a request every visitor pays for. Barlow is 600
+  alone: reading `document.fonts` after loading every page found 500 and 700
+  drawn nowhere.
+- **The CLI hero's text comes first in the source**, with `flex-row-reverse`
+  putting the terminal on the left on a wide screen, so a phone, a screen reader
+  and the Tab key all meet its heading before its terminal.
+
 ## Getting Started
 
 First, run the development server:

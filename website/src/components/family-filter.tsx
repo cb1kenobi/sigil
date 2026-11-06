@@ -36,7 +36,7 @@ export function FamilyFilter({ segments }: { segments: readonly FamilySegment[] 
               <a
                 href={segment.href}
                 aria-current={current ? 'location' : undefined}
-                className={`flex h-11 grow items-center justify-center gap-2.5 px-[18px] text-small font-semibold ${
+                className={`flex h-11 grow items-center justify-center gap-2.5 px-[18px] text-small font-semibold focus-visible:-outline-offset-2 focus-visible:shadow-[inset_0_0_0_4px_var(--color-bg)] ${
                   current ? 'bg-brand text-brand-fg' : 'bg-chip text-fg hover:text-white'
                 }`}
               >
