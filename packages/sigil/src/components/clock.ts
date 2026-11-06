@@ -1,6 +1,6 @@
 import { type Element, text as textNode } from '../element/index.js';
 import { createEffect } from '../renderer/index.js';
-import { State } from '../signals/index.js';
+import { State, untrack } from '../signals/index.js';
 import { type MountOptions, mountLevel } from './mount.js';
 import { formatDuration } from './progress.js';
 
@@ -256,13 +256,19 @@ function createClock(limit: number | undefined, opts: ClockOptions): Timer {
   }
 
   const clock = {
+    // The methods that write run untracked, whole: one called from an effect
+    // would otherwise be subscribed to what it read on the way -- the counter it
+    // bumps, whether it was running -- and re-run on a write that is none of its
+    // business (SIG-306, `src/signals/AGENTS.md`)
     cancel(): void {
-      freeze();
-      bump();
-      if (!settled) {
-        settled = true;
-        settle(false);
-      }
+      untrack(() => {
+        freeze();
+        bump();
+        if (!settled) {
+          settled = true;
+          settle(false);
+        }
+      });
     },
 
     get done() {
@@ -282,8 +288,10 @@ function createClock(limit: number | undefined, opts: ClockOptions): Timer {
     },
 
     pause(): void {
-      freeze();
-      bump();
+      untrack(() => {
+        freeze();
+        bump();
+      });
     },
 
     get remaining() {
@@ -292,23 +300,25 @@ function createClock(limit: number | undefined, opts: ClockOptions): Timer {
     },
 
     reset(): void {
-      const was = isRunning.get();
-      clearTimers();
-      base = 0;
-      startedAt = now();
-      if (settled) {
-        // a timer that had run out is a new one: the promise it settled is
-        // spent, and whoever awaits the next run needs one of their own
-        settled = false;
-        done = new Promise<boolean>((resolve) => {
-          settle = resolve;
-        });
-      }
-      bump();
-      if (was) {
-        arm();
-        watch();
-      }
+      untrack(() => {
+        const was = isRunning.get();
+        clearTimers();
+        base = 0;
+        startedAt = now();
+        if (settled) {
+          // a timer that had run out is a new one: the promise it settled is
+          // spent, and whoever awaits the next run needs one of their own
+          settled = false;
+          done = new Promise<boolean>((resolve) => {
+            settle = resolve;
+          });
+        }
+        bump();
+        if (was) {
+          arm();
+          watch();
+        }
+      });
     },
 
     get running() {
@@ -316,29 +326,31 @@ function createClock(limit: number | undefined, opts: ClockOptions): Timer {
     },
 
     start() {
-      if (isRunning.get()) {
-        return clock;
-      }
-      if (settled) {
-        // a timer that ran out or was cancelled stays stopped until it is
-        // reset: `done` has already said how it ended, so a new run would hold
-        // the process open for a countdown nobody can await
-        return clock;
-      }
-      if (limit !== undefined && spent() >= limit) {
-        // a duration of zero is over as it starts
-        finish();
-        return clock;
-      }
-      // asked now rather than frozen at construction: a clock built in a
-      // module's own body exists before `main()` has read argv, so a level read
-      // then could never see `--quiet`
-      isLive.set(mountLevel(opts) === 'live');
-      startedAt = now();
-      isRunning.set(true);
-      bump();
-      arm();
-      watch();
+      untrack(() => {
+        if (isRunning.get()) {
+          return;
+        }
+        if (settled) {
+          // a timer that ran out or was cancelled stays stopped until it is
+          // reset: `done` has already said how it ended, so a new run would hold
+          // the process open for a countdown nobody can await
+          return;
+        }
+        if (limit !== undefined && spent() >= limit) {
+          // a duration of zero is over as it starts
+          finish();
+          return;
+        }
+        // asked now rather than frozen at construction: a clock built in a
+        // module's own body exists before `main()` has read argv, so a level read
+        // then could never see `--quiet`
+        isLive.set(mountLevel(opts) === 'live');
+        startedAt = now();
+        isRunning.set(true);
+        bump();
+        arm();
+        watch();
+      });
       return clock;
     },
 

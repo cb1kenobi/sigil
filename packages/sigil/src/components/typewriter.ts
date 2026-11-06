@@ -555,8 +555,10 @@ export function createTypewriter(opts: TypewriterOptions = {}): Typewriter {
       // nothing is done about an append of nothing, and nothing has to be: the
       // text is the same string, so the signal refuses the write and the frame
       // after it finds nothing to draw. A guard here failed its sabotage
-      state.text.set(state.text.get() + more);
-      mounted?.frame();
+      untrack(() => {
+        state.text.set(state.text.get() + more);
+        mounted?.frame();
+      });
     },
 
     done(final?: string): void {
@@ -585,8 +587,12 @@ export function createTypewriter(opts: TypewriterOptions = {}): Typewriter {
     },
 
     skip(): void {
-      state.revealed.set(state.text.get().length);
-      mounted?.frame();
+      // untracked, whole, like `append()`: the length it reads is the text, which
+      // an effect that skips must not be re-run by (SIG-306, `src/signals/AGENTS.md`)
+      untrack(() => {
+        state.revealed.set(state.text.get().length);
+        mounted?.frame();
+      });
     },
 
     start(next?: string): Typewriter {

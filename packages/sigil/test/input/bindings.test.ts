@@ -3,6 +3,7 @@ import { createInput, KeySpecError } from '../../src/input/index.js';
 import { createEffect } from '../../src/renderer/index.js';
 import { flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, tick } from '../../src/testing/index.js';
+import { runsOf } from '../runs-of.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -155,16 +156,12 @@ describe('described bindings', () => {
     }).toThrow(TypeError);
   });
 
-  // KNOWN BUG, pinned with `it.fails` so it flips the day it is fixed. `describe()`
-  // bumps its revision with `describedRev.set(describedRev.get() + 1)`, and the
-  // `get()` subscribes whatever effect is running -- so an effect that describes
-  // keys depends on the list it just wrote and re-runs itself forever. Found by
-  // the SIG-291 system monitor, which describes its keys once the router exists.
-  // The fix is reading the revision untracked
-  it.fails('should let an effect describe keys without depending on what it described', () => {
+  it('should let an effect describe keys without depending on what it described', () => {
     const { input } = setup();
     const ready = new State(false);
+    let runs = 0;
     const stop = createEffect(() => {
+      runs++;
       if (ready.get()) {
         input.describe('a', { description: 'first' });
         input.describe('b', { description: 'second' });
@@ -174,6 +171,103 @@ describe('described bindings', () => {
     ready.set(true);
     expect(() => flush()).not.toThrow();
     expect(input.bindings().map((b) => b.keys)).toEqual(['a', 'b']);
+    // once to find out it was not ready, once when it was; its own writes are not a third
+    expect(runs).toBe(2);
     stop();
+  });
+
+  it('should let an effect unlist a description without depending on the list', () => {
+    const { input } = setup();
+    const off = input.describe('a', { description: 'first' });
+    const leave = new State(false);
+    let runs = 0;
+    const stop = createEffect(() => {
+      runs++;
+      if (leave.get()) {
+        off();
+      }
+    });
+
+    leave.set(true);
+    expect(() => flush()).not.toThrow();
+    expect(input.bindings()).toEqual([]);
+    expect(runs).toBe(2);
+    stop();
+  });
+
+  it('should describe once, and not again when a description is added from outside', () => {
+    const { input } = setup();
+
+    expect(
+      runsOf(
+        () => input.describe('a', { description: 'first' }),
+        () => input.describe('b', { description: 'second' })
+      )
+    ).toBe(2);
+    expect(input.bindings().map((b) => b.keys)).toEqual(['a', 'b']);
+  });
+
+  it('should still re-run an effect that reads the list when a description is added', () => {
+    const { input } = setup();
+    const seen: number[] = [];
+    const stop = createEffect(() => {
+      seen.push(input.bindings().length);
+    });
+
+    input.describe('a', { description: 'first' });
+    flush();
+    expect(seen).toEqual([0, 1]);
+    stop();
+  });
+});
+
+describe('moving the focus from an effect', () => {
+  function ring(): { input: ReturnType<typeof createInput>; a: Element; b: Element } {
+    const { a, b, input } = setup();
+    return { a, b, input };
+  }
+
+  it('should step once, not round the ring until the scheduler gives up', () => {
+    const { a, input } = ring();
+
+    expect(runsOf(() => input.focus.next())).toBe(2);
+    expect(input.focus.current.get()).toBe(a);
+  });
+
+  it('should step once, and not again when the focus is moved from outside', () => {
+    const { a, b, input } = ring();
+
+    expect(
+      runsOf(
+        () => input.focus.next(),
+        () => input.focus.focus(b)
+      )
+    ).toBe(2);
+    expect(input.focus.current.get()).toBe(b);
+    expect(a).not.toBe(b);
+  });
+
+  it('should step back once, and not again when the focus is moved from outside', () => {
+    const { a, input } = ring();
+
+    expect(
+      runsOf(
+        () => input.focus.previous(),
+        () => input.focus.focus(a)
+      )
+    ).toBe(2);
+    expect(input.focus.current.get()).toBe(a);
+  });
+
+  it('should focus an element once, and not take it back when another is focused', () => {
+    const { a, b, input } = ring();
+
+    expect(
+      runsOf(
+        () => input.focus.focus(a),
+        () => input.focus.focus(b)
+      )
+    ).toBe(2);
+    expect(input.focus.current.get()).toBe(b);
   });
 });

@@ -58,7 +58,7 @@ import type { Element } from '../element/index.js';
 // focus ring needs one function out of the element tree and reaching it through
 // the barrel would put the layout engine and the cascade behind this module
 import { scrollIntoView } from '../element/scroll.js';
-import { State } from '../signals/index.js';
+import { State, untrack } from '../signals/index.js';
 import {
   PASTE_END,
   PASTE_START,
@@ -800,23 +800,29 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * otherwise reach a footer as `undefined`, a long way from the line that wrote it.
    */
   function describe(patterns: readonly KeyPattern[], opts: DescribeOptions): () => void {
-    if (typeof opts?.description !== 'string' || opts.description === '') {
-      throw new TypeError('A binding description has to be a non-empty string');
-    }
-    const info: BindingInfo = Object.freeze({
-      description: opts.description,
-      group: opts.group,
-      keys: patterns.map((pattern) => formatKey(pattern)).join(' '),
-      priority: Number.isFinite(opts.priority) ? (opts.priority as number) : 0,
-      scope: opts.scope,
-    });
-    described.add(info);
-    describedRev.set(describedRev.get() + 1);
-    return () => {
-      if (described.delete(info)) {
-        describedRev.set(describedRev.get() + 1);
+    // untracked, whole, here and in the disposer: this is called from inside
+    // effects, and a tracked read of the revision it is about to bump would
+    // subscribe that effect to its own write (SIG-306, `src/signals/AGENTS.md`)
+    return untrack(() => {
+      if (typeof opts?.description !== 'string' || opts.description === '') {
+        throw new TypeError('A binding description has to be a non-empty string');
       }
-    };
+      const info: BindingInfo = Object.freeze({
+        description: opts.description,
+        group: opts.group,
+        keys: patterns.map((pattern) => formatKey(pattern)).join(' '),
+        priority: Number.isFinite(opts.priority) ? (opts.priority as number) : 0,
+        scope: opts.scope,
+      });
+      described.add(info);
+      describedRev.set(describedRev.get() + 1);
+      return () =>
+        untrack(() => {
+          if (described.delete(info)) {
+            describedRev.set(describedRev.get() + 1);
+          }
+        });
+    });
   }
 
   /** Where the focused element sat in the ring, for when it is unmounted. */
@@ -1114,53 +1120,59 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     current,
 
     focus(element: Element | undefined): void {
-      // mid-write -- a `focus()` from the tree's mark callback, inside one of this
-      // router's own state writes -- the element losing the focus is the one the
-      // open move is writing towards, since `current` does not name it yet
-      const previous = writingTo ? writingTo.element : current.get();
-      if (previous === element) {
-        return;
-      }
+      // the whole move runs untracked: it reads the element losing the focus
+      // before it writes the one gaining it, so one made from an effect would
+      // otherwise be subscribed to `current` and take the focus back whenever
+      // anything else moved it (SIG-306, `src/signals/AGENTS.md`)
+      untrack(() => {
+        // mid-write -- a `focus()` from the tree's mark callback, inside one of this
+        // router's own state writes -- the element losing the focus is the one the
+        // open move is writing towards, since `current` does not name it yet
+        const previous = writingTo ? writingTo.element : current.get();
+        if (previous === element) {
+          return;
+        }
 
-      // and a half-entered sequence does not survive the move: one entered into
-      // a log pane must not complete in the editor beside it, because the
-      // second key was typed at something else. Before the states move rather
-      // than after, so that an effect woken by `:focus` already reads the
-      // pending sequence as gone. A focus change *caused by* a completing
-      // sequence costs nothing here -- `fire()` is handed the keys and the
-      // state is already clear by the time the handler can move anything
-      clearSequence();
+        // and a half-entered sequence does not survive the move: one entered into
+        // a log pane must not complete in the editor beside it, because the
+        // second key was typed at something else. Before the states move rather
+        // than after, so that an effect woken by `:focus` already reads the
+        // pending sequence as gone. A focus change *caused by* a completing
+        // sequence costs nothing here -- `fire()` is handed the keys and the
+        // state is already clear by the time the handler can move anything
+        clearSequence();
 
-      // the state is what `:focus` matches, so moving focus restyles both ends
-      // of the move and nothing else. Committed whole before any
-      // `onFocusChange` runs: a handler told between these writes saw `current`
-      // still naming the element it had just been told it lost, so a handler
-      // that moved the focus itself finished this move twice and left two
-      // elements focused -- `focus.ts` in `src/element` holds the queue
-      const move = ++moves;
-      writingTo = { element };
-      moveFocus(
-        previous,
-        element,
-        () => {
-          writingTo = undefined;
-          current.set(element);
-          if (element) {
-            lastIndex = Math.max(0, focusables(root).indexOf(element));
-            // and it is brought on screen, unconditionally. The ring already
-            // skips a `display: none` subtree because there is nothing on screen
-            // there to move the focus to; a row below the fold is that case with
-            // the opposite answer -- it is on screen, somewhere the user cannot
-            // see -- so the fix is to scroll rather than to skip. Left out, Tab
-            // into a long list moves a highlight nobody can find, which reads as
-            // an app that stopped responding
-            scrollIntoView(element);
-          }
-        },
-        // superseded by a move started inside this one's writes, which finished
-        // the job -- and cleared `writingTo` in its own commit
-        () => moves === move
-      );
+        // the state is what `:focus` matches, so moving focus restyles both ends
+        // of the move and nothing else. Committed whole before any
+        // `onFocusChange` runs: a handler told between these writes saw `current`
+        // still naming the element it had just been told it lost, so a handler
+        // that moved the focus itself finished this move twice and left two
+        // elements focused -- `focus.ts` in `src/element` holds the queue
+        const move = ++moves;
+        writingTo = { element };
+        moveFocus(
+          previous,
+          element,
+          () => {
+            writingTo = undefined;
+            current.set(element);
+            if (element) {
+              lastIndex = Math.max(0, focusables(root).indexOf(element));
+              // and it is brought on screen, unconditionally. The ring already
+              // skips a `display: none` subtree because there is nothing on screen
+              // there to move the focus to; a row below the fold is that case with
+              // the opposite answer -- it is on screen, somewhere the user cannot
+              // see -- so the fix is to scroll rather than to skip. Left out, Tab
+              // into a long list moves a highlight nobody can find, which reads as
+              // an app that stopped responding
+              scrollIntoView(element);
+            }
+          },
+          // superseded by a move started inside this one's writes, which finished
+          // the job -- and cleared `writingTo` in its own commit
+          () => moves === move
+        );
+      });
     },
 
     next(): void {
@@ -1185,17 +1197,22 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * can be wrong.
    */
   function step(by: number): void {
-    const ring = focusables(root);
-    if (ring.length === 0) {
-      focus.focus(undefined);
-      return;
-    }
+    // untracked, whole: it reads where the focus is and then moves it, so one
+    // called from an effect would be subscribed to the focus it just moved and
+    // step again on every pass, round the ring until the scheduler gave up
+    untrack(() => {
+      const ring = focusables(root);
+      if (ring.length === 0) {
+        focus.focus(undefined);
+        return;
+      }
 
-    const at = current.get();
-    const from = at ? ring.indexOf(at) : -1;
-    const index =
-      from === -1 ? (by > 0 ? 0 : ring.length - 1) : (from + by + ring.length) % ring.length;
-    focus.focus(ring[index]);
+      const at = current.get();
+      const from = at ? ring.indexOf(at) : -1;
+      const index =
+        from === -1 ? (by > 0 ? 0 : ring.length - 1) : (from + by + ring.length) % ring.length;
+      focus.focus(ring[index]);
+    });
   }
 
   /**

@@ -1714,3 +1714,13 @@ may be copied, `src/terminal/clipboard.ts` is OSC 52, and
 - **Measured: the `input` entry grew by 861 B (13,272 to 14,133 B for its chunk)
   as of this change.** The ceiling in `test/dist.test.ts` is 100 KiB over the whole
   graph and is untouched.
+- **`describe()`, the disposer it returns, `focus.focus()`, `next()` and
+  `previous()` run untracked, whole.** `describedRev.set(describedRev.get() + 1)`
+  made an effect that described keys depend on the list it had just written and
+  re-run forever (SIG-306); `step()` read the focus and then moved it, so it
+  cycled the ring 101 times, and `focus()` read the element it was taking the
+  focus from, so an effect that focused something took it back whenever anything
+  else moved it. `bindings()` still reads the revision tracked, which is the whole
+  point of it. The rule, and why untracking only the self-read is not enough, is
+  under "A method that writes, and can be called from an effect" in `src/signals`;
+  `test/input/bindings.test.ts` is where these are enforced.

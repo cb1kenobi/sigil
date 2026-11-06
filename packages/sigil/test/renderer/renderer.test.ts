@@ -865,6 +865,39 @@ describe('For', () => {
     view.dispose();
   });
 
+  it('should not re-run the reconcile for the row indices it wrote itself', () => {
+    // moving a kept row writes its index, and reading the old one tracked made
+    // the reconcile depend on every index it was about to change -- one more
+    // pass for every reorder, running to completion before it found nothing to do
+    const h = harness();
+    const a = { n: 'a' };
+    const b = { n: 'b' };
+    const items = new State<readonly { n: string }[]>([a, b]);
+    let evaluated = 0;
+
+    const view = render(
+      () =>
+        For({
+          children: (item) => text(item.n),
+          each: () => {
+            evaluated++;
+            return items.get();
+          },
+          props: { 'flex-direction': 'column' },
+        }),
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+    view.frame();
+    expect(evaluated).toBe(1);
+
+    items.set([b, a]);
+    view.frame();
+    view.frame();
+
+    expect(evaluated).toBe(2);
+    view.dispose();
+  });
+
   it('should keep a row that moved rather than rebuilding it', () => {
     // keyed by identity: position keying rebuilds every row after the first
     // change, which for a terminal means the focus ring moves under whoever was
