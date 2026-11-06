@@ -19,6 +19,7 @@ const proc = (pid, cpu, mem) => ({
   name: `proc-${pid}`,
   pid,
   rss: pid * 1024,
+  started: 'at boot',
   user: 'chris',
 });
 
@@ -38,6 +39,8 @@ function mount({
   const data = { processes };
   let n = 0;
   let tick;
+  /** Lets go of a reading `data.hold` held, with what it read when it began. */
+  let release = () => {};
   let stopped = false;
   let samplerStopped = false;
   const killed = [];
@@ -58,12 +61,20 @@ function mount({
         sample ??
         (async () => {
           n++;
-          return {
+          const snap = {
             cores,
             memory,
             net: { rx: 1024 * n, tx: 512 * n },
             processes: data.processes,
           };
+          // a slow `ps`: it read the machine when it began, and answers later
+          if (data.hold) {
+            data.hold = false;
+            await new Promise((resolve) => {
+              release = resolve;
+            });
+          }
+          return snap;
         }),
       stop() {
         samplerStopped = true;
@@ -108,6 +119,7 @@ function mount({
     escape,
     killed,
     press,
+    release: () => release(),
     tick: () => tick(),
     screen,
     settle,
@@ -180,18 +192,49 @@ describe('the system monitor', () => {
     expect(app.screen()).toContain('sent SIGTERM to 3');
   });
 
-  it('should send nothing when the pid went to another process while the dialog was open', async () => {
+  it('should send nothing when the pid went to a new process of the same name and user', async () => {
     const app = mount({ processes: [proc(1, 5, 1), proc(2, 90, 2), proc(3, 40, 3)] });
     await app.step();
     await app.press('j', 'x');
     expect(app.screen()).toContain('Send SIGTERM to proc-3 (pid 3)?');
 
-    // proc-3 exits and its pid is handed to something else before the answer
-    app.data.processes = [proc(1, 5, 1), proc(2, 90, 2), { ...proc(3, 40, 3), name: 'other' }];
-    await app.step();
+    // proc-3 exits and its pid goes to another proc-3 of the same user before the
+    // answer, with no tick in between: only the start time tells them apart, and
+    // only a reading taken after Yes can see it
+    app.data.processes = [proc(1, 5, 1), proc(2, 90, 2), { ...proc(3, 40, 3), started: 'later' }];
     await app.press(KEYS.tab, KEYS.enter);
     expect(app.killed).toEqual([]);
     expect(app.screen()).toContain('proc-3 (pid 3) has exited: nothing sent');
+  });
+
+  it('should wait for the reading in flight, then take one of its own, before it checks the pid', async () => {
+    const app = mount({ processes: [proc(1, 5, 1), proc(2, 90, 2), proc(3, 40, 3)] });
+    await app.step();
+    await app.press('j', 'x');
+
+    // a reading begins while proc-3 is still there, and is slow to answer
+    app.data.hold = true;
+    app.tick();
+    await app.press(KEYS.tab, KEYS.enter);
+    expect(app.killed).toEqual([]);
+
+    // proc-3 exits and its pid is reused, and only then does the slow reading
+    // answer -- with proc-3 in it, because that is what it saw
+    app.data.processes = [proc(1, 5, 1), proc(2, 90, 2), { ...proc(3, 40, 3), started: 'later' }];
+    app.release();
+    await app.settle();
+    expect(app.killed).toEqual([]);
+    expect(app.screen()).toContain('proc-3 (pid 3) has exited: nothing sent');
+  });
+
+  it('should still send when only the user column changed, from a uid to a name', async () => {
+    // /etc/passwd could not be read for the first sample and could for the next
+    const app = mount({ processes: [{ ...proc(3, 40, 3), user: '1000' }] });
+    await app.step();
+    await app.press('x');
+    app.data.processes = [proc(3, 40, 3)];
+    await app.press(KEYS.tab, KEYS.enter);
+    expect(app.killed).toEqual([3]);
   });
 
   it('should refuse to kill pid 1 or the monitor itself, without asking', async () => {
@@ -371,6 +414,25 @@ describe('the system monitor', () => {
 
     finish({ cores: [0.5], memory: { total: 2, used: 1 }, net: { rx: 0, tx: 0 }, processes: [] });
     await app.settle();
+    app.tick();
+    await app.settle();
+    expect(calls).toBe(2);
+  });
+
+  it('should report a reading that fails, and read again on the next tick', async () => {
+    let calls = 0;
+    const sample = async () => {
+      calls++;
+      if (calls === 1) {
+        throw new Error('ps went away');
+      }
+      return { cores: [0.5], memory: { total: 2, used: 1 }, net: { rx: 0, tx: 0 }, processes: [] };
+    };
+    const app = mount({ sample });
+    await app.settle();
+    expect(app.screen()).toContain('could not read the system: ps went away');
+
+    // a failed reading is over, so the next tick is not skipped as overlapping it
     app.tick();
     await app.settle();
     expect(calls).toBe(2);

@@ -34,11 +34,15 @@ The selection follows its process, not its row: when a refresh re-sorts the
 table, the process you were about to kill stays selected.
 
 `x` refuses pid 1, which is init (`launchd`, `systemd`), and the monitor's own
-pid, without asking. The table keeps refreshing while the confirm is open, so
-when you answer yes the signal is sent only if the latest sample still lists
-that pid with the same name and user; a process that exited, or whose pid was
-handed to something else, gets `has exited: nothing sent` in the footer. That
-check is as good as the latest sample, which is up to a second old.
+pid, without asking. While the confirm is open the process may exit and its pid
+go to another, so Yes waits for any reading in flight, takes a fresh one, and
+sends the signal only if that reading has the same process under the pid: the
+same pid and start time, which is `starttime` from `/proc/<pid>/stat` on Linux
+and `ps`'s `lstart` on macOS. Otherwise the footer says `has exited: nothing
+sent`. Two gaps are left. `lstart` is to the second, so on macOS a pid reused
+within the second its last owner started is not caught. And a reuse in the
+milliseconds between that fresh reading and the signal cannot be caught without
+a pidfd, which Node does not offer.
 
 Process memory on Linux is `/proc/<pid>/stat`'s rss, which is counted in pages.
 The page size is a kernel setting (4 KiB on x86-64, 16 or 64 KiB on many arm64
@@ -46,8 +50,10 @@ and ppc64 kernels), so it comes from `getconf PAGESIZE`, asked once, with 4 KiB
 only if `getconf` cannot answer.
 
 A reading that takes longer than the one-second interval is not overlapped:
-the tick that arrives while one is in flight is skipped. Quitting kills any
-`ps`, `netstat` or `vm_stat` still running, so the shell comes back at once.
+the tick that arrives while one is in flight is skipped, and a reading that
+fails is reported in the footer. Quitting ends a reading in flight: on macOS it
+kills the `ps`, `netstat` or `vm_stat` still running, and on Linux the `/proc`
+walk stops at the next file, so the shell comes back at once.
 
 ## Layout
 
@@ -93,14 +99,17 @@ and is the least that works.
 
 The stand-ins are built with `box()` and `text()` rather than the `ui` tag for
 a reason that is a gap of its own: a template has no way to put a handler on a
-node inside it. The props a template knows besides style are `class`,
-`focusable`, `id`, `key`, `selectable` and `tabindex` (`ReservedProps` in
-`packages/sigil/src/template/props.ts`), and there is no `ref`. Measured,
-`` ui`<box onKey=${fn} onResize=${fn}></box>` `` builds without complaint and
-attaches neither. A handler goes on an element you already hold: the root a
-template returns, which is how `App` takes its keys (`root.onKey = ...`), or a
-node built with `box()`. `ProcessTable` needs `onResize` and `onMouse` on its
-body, which is inside it, so it is built by hand.
+node inside it. Besides style, a template knows `class`, `focusable`, `id`,
+`key`, `selectable` and `tabindex` (`ReservedProps` in
+`packages/sigil/src/template/props.ts`), and it has no `ref`. A function in any
+other prop is a reactive getter: the template calls it while it builds and
+takes what it returns as a style value. So `onKey=${(e) => e.stop()}` throws a
+`TypeError` during the build, a function returning a string throws
+`StyleError: Unknown property "onKey"`, and one returning nothing is called and
+dropped. A handler goes on an element you already hold: the root a template
+returns, which is how `App` takes its keys (`root.onKey = ...`), or a node built
+with `box()`. `ProcessTable` needs `onResize` and `onMouse` on its body, which
+is inside it, so it is built by hand.
 
 The app's own keys are on `App`'s root `onKey` rather than router bindings: a
 binding sees every key before a focused field does, so `q` typed into the

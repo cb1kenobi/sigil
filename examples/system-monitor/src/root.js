@@ -153,22 +153,8 @@ export function App() {
   // -- sampling ---------------------------------------------------------------
   const sampler = system.sampler();
   let disposed = false;
-  // a reading slower than the interval -- a few thousand processes, a slow
-  // `/proc` -- would otherwise overlap the next one: two points for one second,
-  // and whichever finished last setting the baseline. So a tick that comes while
-  // one is still reading is skipped
-  let reading = false;
-  const tick = async () => {
-    if (reading) {
-      return;
-    }
-    reading = true;
-    let snap;
-    try {
-      snap = await sampler.sample();
-    } finally {
-      reading = false;
-    }
+  const read = async () => {
+    const snap = await sampler.sample();
     if (disposed) {
       return;
     }
@@ -185,6 +171,23 @@ export function App() {
       tx: pushHistory(net.get().tx, snap.net.tx, HISTORY),
     });
     processes.set(snap.processes);
+  };
+  // the reading in flight, if there is one. A reading slower than the interval
+  // -- a few thousand processes, a slow `/proc` -- would otherwise overlap the
+  // next: two points for one second, and whichever finished last setting the
+  // baseline. So a tick that comes while one is out joins it instead, and a kill
+  // can wait for it. A reading that fails is reported and the next tick tries again
+  /** @type {Promise<void> | undefined} */
+  let reading;
+  const tick = () => {
+    reading ??= read()
+      .catch((err) =>
+        status.set(`could not read the system: ${/** @type {Error} */ (err).message}`)
+      )
+      .finally(() => {
+        reading = undefined;
+      });
+    return reading;
   };
   void tick();
   const stopClock = system.clock.every(system.interval, () => void tick());
@@ -361,11 +364,19 @@ export function App() {
     if (!yes) {
       return;
     }
-    // sampling went on while the dialog was open, and the process may have
-    // exited and its pid gone to something else. The signal goes to a pid, so it
-    // is sent only if the latest sample still has the same process under it
-    const now = processes.get().find((it) => it.pid === p.pid);
-    if (!now || now.name !== p.name || now.user !== p.user) {
+    // the process may have exited while the dialog was open, and its pid gone to
+    // something else. The signal goes to a pid, so first take a reading begun
+    // after the answer -- waiting out one already in flight, which began before
+    // it -- and send only if that reading still has the same process under the
+    // pid. The same process is the same pid and start time: a name or a user can
+    // match by chance, and a user column can change from a uid to a name
+    await reading;
+    await tick();
+    if (disposed) {
+      return;
+    }
+    const now = processes.get().find((it) => it.pid === p.pid && it.started === p.started);
+    if (!now) {
       status.set(`${p.name} (pid ${p.pid}) has exited: nothing sent`);
       return;
     }

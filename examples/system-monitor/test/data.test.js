@@ -54,15 +54,31 @@ describe('parsePs', () => {
   it('should read every column and take the name off the end of the path', () => {
     const out = parsePs(
       [
-        '    1 root               0.3  0.1  26576 /sbin/launchd',
-        '16847 chris              3.3  1.6 802000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '    1 root               0.3  0.1  26576 Wed Nov  4 03:04:40 2026     /sbin/launchd',
+        '16847 chris              3.3  1.6 802000 Thu Nov  5 15:05:50 2026     /Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
         'garbage',
         '',
       ].join('\n')
     );
     expect(out).toEqual([
-      { cpu: 0.3, mem: 0.1, name: 'launchd', pid: 1, rss: 26576 * 1024, user: 'root' },
-      { cpu: 3.3, mem: 1.6, name: 'Google Chrome', pid: 16847, rss: 802000 * 1024, user: 'chris' },
+      {
+        cpu: 0.3,
+        mem: 0.1,
+        name: 'launchd',
+        pid: 1,
+        rss: 26576 * 1024,
+        started: 'Wed Nov 4 03:04:40 2026',
+        user: 'root',
+      },
+      {
+        cpu: 3.3,
+        mem: 1.6,
+        name: 'Google Chrome',
+        pid: 16847,
+        rss: 802000 * 1024,
+        started: 'Thu Nov 5 15:05:50 2026',
+        user: 'chris',
+      },
     ]);
   });
 });
@@ -78,12 +94,13 @@ describe('the /proc readers', () => {
 
   it('should count stat fields from the last parenthesis, since a command may hold one', () => {
     const fields = Array.from({ length: 30 }, (_, i) => i + 3);
-    // field 14 is utime, 15 stime and 24 rss, by proc(5)'s numbering
+    // field 14 is utime, 15 stime, 22 starttime and 24 rss, by proc(5)'s numbering
     const stat = `42 (a (weird) name) ${fields.join(' ')}`;
     expect(parseProcPidStat(stat)).toEqual({
       name: 'a (weird) name',
       pid: 42,
       rssPages: 24,
+      started: '22',
       ticks: 14 + 15,
     });
   });

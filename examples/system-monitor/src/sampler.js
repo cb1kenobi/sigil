@@ -45,18 +45,23 @@ const FALLBACK_PAGE_SIZE = 4096;
  * @property {() => number} now - Milliseconds.
  * @property {string} platform
  * @property {(file: string, args: string[], signal: AbortSignal) => Promise<string>} exec - Runs
- *   a command and resolves with what it printed. Aborting `signal` kills it.
+ *   a command in the C locale and resolves with what it printed. Aborting `signal`
+ *   kills it.
  * @property {(path: string) => Promise<string>} readFile
  * @property {(path: string) => Promise<string[]>} readdir
  * @property {(path: string) => Promise<number>} uidOf
  */
 
-/** The real system. */
+/**
+ * The real system. Commands run in the C locale because the parsers read their
+ * words: `ps`'s start time is `Thu Nov  5` there and `Do.  5 Nov.` in German.
+ */
 export const systemDeps = /** @type {SamplerDeps} */ ({
   cpus: () => os.cpus(),
   exec: (file, args, signal) =>
     new Promise((resolve, reject) => {
-      execFile(file, args, { maxBuffer: 16 * 1024 * 1024, signal }, (err, stdout) =>
+      const env = { ...process.env, LC_ALL: 'C' };
+      execFile(file, args, { env, maxBuffer: 16 * 1024 * 1024, signal }, (err, stdout) =>
         err ? reject(err) : resolve(stdout)
       );
     }),
@@ -78,9 +83,10 @@ export const systemDeps = /** @type {SamplerDeps} */ ({
  * One sample at a time: each one moves the baseline the next is measured from,
  * so the app does not ask for another while one is still being read.
  *
- * `stop()` kills whatever `ps`, `netstat` or `vm_stat` is still running. A child
- * process keeps node alive until it exits, so without it quitting the app would
- * hand back the screen and then keep the shell waiting on a `ps`.
+ * `stop()` ends a reading still in flight: on macOS it kills whatever `ps`,
+ * `netstat` or `vm_stat` is running, and on Linux the `/proc` walk stops at the
+ * next file. Either keeps node alive until it finishes, so without it quitting
+ * the app would hand back the screen and then keep the shell waiting.
  *
  * @param {Partial<SamplerDeps>} [overrides] - What to read instead of the system.
  * @returns {{ sample(): Promise<Snapshot>, stop(): void }} The sampler.
@@ -138,6 +144,9 @@ export function createSampler(overrides = {}) {
     const ticks = new Map();
     const out = [];
     for (const entry of await deps.readdir('/proc')) {
+      // a file read takes no signal, so the walk asks between reads whether it
+      // was stopped. Throwing abandons the reading; nobody is waiting for it
+      running.signal.throwIfAborted();
       if (!/^\d+$/.test(entry)) {
         continue;
       }
@@ -162,6 +171,7 @@ export function createSampler(overrides = {}) {
           name: it.name,
           pid: it.pid,
           rss,
+          started: it.started,
           user: names.get(uid) ?? String(uid),
         });
       } catch {
@@ -190,7 +200,7 @@ export function createSampler(overrides = {}) {
     try {
       return deps.platform === 'linux'
         ? await linuxProcesses(cores, totalmem)
-        : parsePs(await exec('ps', ['-axo', 'pid=,user=,pcpu=,pmem=,rss=,comm=']));
+        : parsePs(await exec('ps', ['-axo', 'pid=,user=,pcpu=,pmem=,rss=,lstart=,comm=']));
     } catch {
       return [];
     }

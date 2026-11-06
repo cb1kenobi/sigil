@@ -32,11 +32,13 @@ export function cpuLoad(prev, next) {
 }
 
 /**
- * Parses `ps -axo pid=,user=,pcpu=,pmem=,rss=,comm=`.
+ * Parses `ps -axo pid=,user=,pcpu=,pmem=,rss=,lstart=,comm=`, run in the C locale.
  *
  * The command is the last column and the only one that may hold a space, so it
  * takes the rest of the line. macOS prints a full path there; the name is its last
- * segment, which is what htop shows by default.
+ * segment, which is what htop shows by default. `lstart` is when the process
+ * started, five words such as `Thu Nov  5 21:14:03 2026` -- in the C locale only,
+ * since another one spells the day and month its own way.
  *
  * @param {string} text - What `ps` printed.
  * @returns {Process[]} One entry per process.
@@ -44,16 +46,20 @@ export function cpuLoad(prev, next) {
 export function parsePs(text) {
   const out = [];
   for (const line of text.split('\n')) {
-    const m = /^\s*(\d+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
+    const m =
+      /^\s*(\d+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(\w+\s+\w+\s+\d+\s+[\d:]+\s+\d+)\s+(.+?)\s*$/.exec(
+        line
+      );
     if (!m) {
       continue;
     }
     out.push({
       cpu: Number(m[3]),
       mem: Number(m[4]),
-      name: basename(m[6]),
+      name: basename(m[7]),
       pid: Number(m[1]),
       rss: Number(m[5]) * 1024,
+      started: m[6].replace(/\s+/g, ' '),
       user: m[2],
     });
   }
@@ -89,10 +95,12 @@ export function parseProcStatTotal(text) {
  * The command sits in parentheses and may itself hold spaces and parentheses, so
  * the fields are counted from the **last** closing one. After it, field 3 of
  * `proc(5)` -- the state -- is index 0, which puts `utime` (14) at 11, `stime`
- * (15) at 12 and `rss` (24, in pages) at 21.
+ * (15) at 12, `starttime` (22, in ticks since boot) at 19 and `rss` (24, in
+ * pages) at 21.
  *
  * @param {string} text - The file's contents.
- * @returns {{ name: string, pid: number, rssPages: number, ticks: number } | undefined}
+ * @returns {{ name: string, pid: number, rssPages: number, started: string, ticks: number }
+ *   | undefined}
  *   The parts the monitor uses, or nothing for a line that is not one.
  */
 export function parseProcPidStat(text) {
@@ -112,6 +120,7 @@ export function parseProcPidStat(text) {
     name: text.slice(open + 1, close),
     pid: Number(text.slice(0, open).trim()),
     rssPages: Number(rest[21]),
+    started: rest[19],
     ticks: Number(rest[11]) + Number(rest[12]),
   };
 }
@@ -383,6 +392,9 @@ export function formatBytes(n) {
  * @property {number} mem - Percent of physical memory.
  * @property {number} rss - Resident bytes.
  * @property {string} name
+ * @property {string} started - When it started, as the system printed it. With the
+ *   pid, this is what tells a process from the next one to be given its pid, so
+ *   it is compared and never shown.
  */
 
 function sum(times) {

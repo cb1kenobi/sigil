@@ -50,9 +50,10 @@ function linux({
   passwd = 'chris:x:1000:1000::/home/chris:/bin/sh\n',
 } = {}) {
   const state = { passwd, ticks: 0, total: 0 };
-  // after the state, utime is the 11th field and rss the 21st: see parseProcPidStat
-  const stat = () =>
-    `9 (worker) S ${Array.from({ length: 25 }, (_, i) => (i === 10 ? state.ticks : i === 20 ? 2 : 0)).join(' ')}`;
+  // the fields after the state: utime is the 11th, starttime the 19th and rss
+  // the 21st, which parseProcPidStat counts from the state itself, one earlier
+  const field = (i) => ({ 10: state.ticks, 18: 4321, 20: 2 })[i] ?? 0;
+  const stat = () => `9 (worker) S ${Array.from({ length: 25 }, (_, i) => field(i)).join(' ')}`;
   const m = machine(
     'linux',
     {
@@ -75,7 +76,7 @@ describe('createSampler', () => {
       {},
       {
         netstat: () => `en0 1500 <Link#1> aa 1 0 ${rx} 1 0 ${rx / 2} 0`,
-        ps: '  7 chris 1.0 2.0 100 /bin/zsh\n',
+        ps: '  7 chris 1.0 2.0 100 Thu Nov  5 21:14:03 2026 /bin/zsh\n',
       }
     );
     const sampler = createSampler(m.deps);
@@ -107,7 +108,15 @@ describe('createSampler', () => {
     const first = await sampler.sample();
     // two pages of the size getconf reported, not of an assumed 4 KiB
     expect(first.processes).toEqual([
-      { cpu: 0, mem: (2 * 16384 * 100) / 16, name: 'worker', pid: 9, rss: 32768, user: 'chris' },
+      {
+        cpu: 0,
+        mem: (2 * 16384 * 100) / 16,
+        name: 'worker',
+        pid: 9,
+        rss: 32768,
+        started: '4321',
+        user: 'chris',
+      },
     ]);
 
     // two cores' worth of machine, 200 jiffies, with 50 of them spent in the
@@ -121,6 +130,45 @@ describe('createSampler', () => {
   it('should count rss in 4 KiB pages when getconf cannot say', async () => {
     const sampler = createSampler(linux().deps);
     expect((await sampler.sample()).processes[0]?.rss).toBe(2 * 4096);
+  });
+
+  it('should ask getconf for the page size once, not every sample', async () => {
+    let asked = 0;
+    const m = linux({
+      commands: {
+        getconf: () => {
+          asked++;
+          return '16384\n';
+        },
+      },
+    });
+    const sampler = createSampler(m.deps);
+    await sampler.sample();
+    await sampler.sample();
+    expect(asked).toBe(1);
+  });
+
+  it('should stop a /proc walk at the next file when it is stopped', async () => {
+    let reads = 0;
+    /** @type {ReturnType<typeof createSampler>} */
+    let sampler;
+    const stat = (pid) => () => {
+      reads++;
+      // quit arrives while the walk is on its second process
+      if (reads === 2) {
+        sampler.stop();
+      }
+      return `${pid} (p) S ${Array.from({ length: 25 }, () => 0).join(' ')}`;
+    };
+    const files = Object.fromEntries(
+      [1, 2, 3, 4, 5].map((pid) => [`/proc/${pid}/stat`, stat(pid)])
+    );
+    sampler = createSampler(
+      machine('linux', { ...files, '/etc/passwd': '', '/proc/stat': 'cpu  0 0 0 0\n' }).deps
+    );
+    const snap = await sampler.sample();
+    expect(reads).toBe(2);
+    expect(snap.processes).toEqual([]);
   });
 
   it('should read a pid reused since the last sample as a new process, not a negative cpu', async () => {
@@ -202,5 +250,14 @@ describe('systemDeps.exec', () => {
     );
     running.abort();
     await expect(child).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('should run commands in the C locale, whose words the parsers read', async () => {
+    const out = await systemDeps.exec(
+      process.execPath,
+      ['-e', 'process.stdout.write(process.env.LC_ALL)'],
+      new AbortController().signal
+    );
+    expect(out).toBe('C');
   });
 });
