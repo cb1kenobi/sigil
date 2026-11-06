@@ -96,8 +96,12 @@ the `ui` tag run by plain `node`.
   `../package.json` itself, as a function the way the toolchain's own
   `version()` does. Without it, `node src/ui.ts --version` was an undeclared
   option and opened the app while the bin printed `0.0.0`. `should print the
-  package version for --version` spawns every entry and compares with the
-  manifest.
+  package version for --version` spawns every entry from its own directory,
+  where there is no manifest, so a read against the working directory fails
+  rather than passing because the test stood in the right place. A literal
+  `'0.0.0'` would still pass while the manifest says the same: catching it
+  needs a copy of the example at another version, outside the workspace, where
+  `@ttylabs/sigil` does not resolve.
 
 - **Every example with a build joins `pnpm test`'s build filter by name.** The
   smoke test spawns the built `bin`, so a build the filter skipped is a bundle of
@@ -170,9 +174,21 @@ the `ui` tag run by plain `node`.
   SIG-309, which is the call that would replace them. "Stops changing" is two
   frame periods by the clock (`QUIET_MS`), never a count of polls: the first
   version counted three equal reads 10ms apart, which returned in about 30ms,
-  inside one 33ms frame, under a comment saying it had waited one out.
-  `settled()` has a test of its own that lands a change just after a frame
-  period and fails on the count.
+  inside one 33ms frame, under a comment saying it had waited one out. And the
+  clock only counts while the loop runs (review round 2, probed): node fires
+  due timers in the order they fell due, the 10ms poll is armed before a frame
+  a change scheduled, so after a stall longer than the window the poll ran
+  first and returned the screen from before a frame already due. Two guards: a
+  poll arriving more than a frame period after the last restarts the window,
+  and a window that looks finished yields past the timers phase
+  (`setImmediate`) and reads again. Three tests: changes at 45ms and 95ms with
+  a literal floor of 155ms, so neither a fixed sleep nor a smaller `QUIET_MS`
+  passes; a synchronous stall with a change already due, which fails with both
+  guards removed; and a stall whose frame is armed by a timer the stall
+  delayed, which only the restart sees. Either guard alone passes the second,
+  and no deterministic test separates the yield from the restart: the case it
+  alone covers is a sub-frame stall where the poll and a frame fall due in one
+  tick, which a test can only hit by luck.
 
 - **The guide quotes the example rather than being replayed.**
   `packages/sigil/docs/full-screen-apps.md` sits beside `getting-started.md`,
@@ -182,7 +198,10 @@ the `ui` tag run by plain `node`.
   every code block is headed `// <path>` and has to appear in
   `examples/hello/<path>`, which `guides.test.ts` asserts: `ts` and `tsx` line
   for line, because oxfmt re-indents a fragment inside a fence, and `json` by
-  value, every key the block sets being set the same in the file. An unheaded
+  value: a non-empty object that may leave out a top-level key but never part
+  of one, so `compilerOptions` is quoted whole and `extends` and `include`,
+  which place the example in this repository, are left out. The first rule was
+  a plain subset, which let `{}` or a dropped `jsxImportSource` pass. An unheaded
   block fails, because the guide says every file it shows is an excerpt; only
   `console` is exempt. `json` rather than `jsonc` because oxfmt gives a `jsonc`
   fence trailing commas `JSON.parse()` refuses. The testing snippet used to be
@@ -227,6 +246,12 @@ the `ui` tag run by plain `node`.
   losing its heading; the example's `turbo.json` deleted, which the type-check
   hash guard catches, and missing `sigil.json`, which the override guard now
   catches for examples. A missing bundle fails with the message above.
+
+- **Sabotage, after review round 2: eight, none survived.** `settled()` with
+  neither stall guard, with a fixed sleep, with `QUIET_MS` halved, and without
+  the restart (the delayed-arming test); the guide's `tsconfig` as `{}`,
+  without `jsxImportSource`, and naming `react`; and `src/ui.ts` reading
+  `package.json` from the working directory.
 
 - **Not done:** the focus highlight is a background colour, so at colour level 0
   (a pipe, `NO_COLOR`) nothing on screen says which row has the focus -- what a

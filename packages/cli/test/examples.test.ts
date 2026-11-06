@@ -162,26 +162,49 @@ const QUIET_MS = 2 * FRAME_MS;
  * Measured by the clock rather than by counting polls, because a count says
  * nothing about time: three matching reads 10ms apart return inside one frame
  * period, which is a snapshot on whichever side of the next frame it fell.
- * Late timers cannot shorten the window either, since node fires them in the
- * order they fall due and a frame scheduled by the last change falls due first.
+ *
+ * And measured only while the loop is running, because node fires due timers in
+ * the order they were *due*, and this poll was armed before a frame that a
+ * change already scheduled. After a stall longer than the window the poll runs
+ * first, reads a clock that says the window is over, and would return the screen
+ * from before a frame that is already due. So two things hold the window shut:
+ * a poll that arrives more than a frame period after the one before it restarts
+ * the window rather than counting the stall as quiet, and a window that looks
+ * finished yields past the timers phase before it is believed, so every timer
+ * already due -- a frame among them -- has run and the screen is read again.
+ * What can still be pending after that is a frame dirtied inside the last
+ * period, which is a change that started after the screen settled rather than
+ * one the wait missed.
  */
 async function settled(term: Pick<TestTerminal, 'viewport'>): Promise<string[]> {
+  const deadline = Date.now() + 3000;
   let last = term.viewport.join('\n');
   let since = Date.now();
-  await until(
-    () => {
-      const now = term.viewport.join('\n');
-      if (now !== last) {
-        last = now;
-        since = Date.now();
-        return false;
+  let polled = since;
+
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const at = Date.now();
+    const stalled = at - polled > FRAME_MS;
+    polled = at;
+
+    let now = term.viewport.join('\n');
+    if (!stalled && now === last && at - since >= QUIET_MS) {
+      // setImmediate runs in the check phase, after every timer that was due
+      await new Promise((resolve) => setImmediate(resolve));
+      now = term.viewport.join('\n');
+      if (now === last) {
+        return term.viewport;
       }
-      return Date.now() - since >= QUIET_MS;
-    },
-    'the screen to stop changing',
-    3000
-  );
-  return term.viewport;
+    }
+    if (stalled || now !== last) {
+      last = now;
+      since = Date.now();
+    }
+    if (Date.now() > deadline) {
+      throw new Error('timed out waiting for the screen to stop changing');
+    }
+  }
 }
 
 const COLUMNS = 60;
@@ -234,20 +257,60 @@ function refused({ code, stderr, stdout }: Ran): void {
 const found = examples();
 
 describe('settled()', () => {
-  it('should wait out more than a frame period with nothing changing', async () => {
-    // a frame that lands a little over one period after the first read is one
-    // the wait has to see: the screen it draws is the one handed back
-    let screen = ['first'];
-    const term = {
-      get viewport() {
-        return screen;
+  /** A screen that is whatever the test last set it to. */
+  function screen(initial: string): { set: (next: string) => void; term: { viewport: string[] } } {
+    let current = [initial];
+    return {
+      set: (next) => void (current = [next]),
+      term: {
+        get viewport() {
+          return current;
+        },
       },
     };
-    setTimeout(() => (screen = ['second']), FRAME_MS + 10);
+  }
+
+  it('should wait two frame periods after the last change, whenever it lands', async () => {
+    // the second change is inside the window the first one opened, so it has
+    // to restart it. Literals rather than QUIET_MS: two frames at 30fps are
+    // 66ms, and a floor read off the constant shrinks along with it
+    const fake = screen('first');
+    setTimeout(() => fake.set('second'), 45);
+    setTimeout(() => fake.set('third'), 95);
 
     const started = Date.now();
-    expect(await settled(term)).toStrictEqual(['second']);
-    expect(Date.now() - started).toBeGreaterThanOrEqual(FRAME_MS + 10 + QUIET_MS - 1);
+    expect(await settled(fake.term)).toStrictEqual(['third']);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(95 + 60);
+  });
+
+  it('should not count a stalled loop as quiet', async () => {
+    // the change is armed first and falls due second: the wait's first poll is
+    // due at 10ms, the change at 45ms, and the loop is then held past the
+    // window, so the poll runs first with the change already due
+    const fake = screen('first');
+    setTimeout(() => fake.set('second'), 45);
+    const waiting = settled(fake.term);
+
+    const stall = Date.now() + 100;
+    while (Date.now() < stall) {
+      // a busy worker: GC, or a CPU somebody else has
+    }
+    expect(await waiting).toStrictEqual(['second']);
+  });
+
+  it('should restart the window after a stall, for a frame the stall delayed arming', async () => {
+    // a state change at 45ms that only arms its frame when it runs, which is
+    // after the stall: yielding past the due timers runs the change and finds
+    // the frame still a period away, so only restarting the window sees it
+    const fake = screen('first');
+    setTimeout(() => setTimeout(() => fake.set('second'), FRAME_MS), 45);
+    const waiting = settled(fake.term);
+
+    const stall = Date.now() + 100;
+    while (Date.now() < stall) {
+      // a busy worker: GC, or a CPU somebody else has
+    }
+    expect(await waiting).toStrictEqual(['second']);
   });
 });
 
@@ -386,11 +449,14 @@ describe('the examples', () => {
           // `sigil build` bakes the manifest's version into the bin, and the
           // unbuilt entry has no build to do that for it, so it reads the
           // manifest itself -- otherwise `--version` is an option nobody
-          // declared, and the app runs instead of answering
+          // declared, and the app runs instead of answering. Run from the
+          // entry's own directory, where there is no manifest, so that one
+          // read from the working directory rather than beside the file fails
+          // here instead of passing because the test stood in the right place
           if (file === built) {
             expect(existsSync(file), missing(example, label)).toBe(true);
           }
-          const ran = await run(file, example.dir, ['--version']);
+          const ran = await run(file, dirname(file), ['--version']);
           expect(`${ran.stdout}${ran.stderr}`, 'a stack reached the output').not.toMatch(STACK);
           expect(ran.stderr).toBe('');
           expect(ran.stdout).toBe(`${example.manifest.version}\n`);

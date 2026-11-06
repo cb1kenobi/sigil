@@ -159,10 +159,14 @@ describe('the imports in the guides', () => {
  * the formatter re-indents a fragment inside a code fence -- a `return (` lifted
  * out of a function body comes back at column zero -- and how far a quoted line
  * is indented is the formatter's to say rather than a difference in what the
- * code is. `json` is compared by value, with the heading taken off first: every
- * key the block sets has to be set to the same in the file, which is what a
- * reader copying it into their own config relies on, and the keys around them
- * are the example's business. The heading is a comment, so only a file that
+ * code is. `json` is compared by value, with the heading taken off first, and
+ * the rule is that a block may leave out a top-level key but never part of one:
+ * it has to be a non-empty object, and every key it shows holds exactly what
+ * the file's does, nested objects and all. So `compilerOptions` is quoted
+ * whole and `extends` and `include`, which are about where the example sits in
+ * this repository, can be left out. A plain subset was the first rule and it
+ * let `{}`, or a block that dropped `jsxImportSource`, pass while the prose
+ * above it said otherwise. The heading is a comment, so only a file that
  * allows one -- a `tsconfig.json` -- can be shown this way; a `jsonc` fence is
  * not used because the formatter adds trailing commas to one, which
  * `JSON.parse()` refuses and `@ttylabs/sigil` does not export its JSONC reader.
@@ -180,19 +184,21 @@ function unindented(text: string): string {
     .join('\n');
 }
 
-/** Whether every key `excerpt` sets is set to the same value in `source`, at any depth. */
-function subset(excerpt: unknown, source: unknown): boolean {
+/**
+ * Whether `excerpt` quotes `source` whole but for top-level keys left out: a
+ * non-empty object every key of which holds exactly the file's value.
+ */
+function quotes(excerpt: unknown, source: unknown): boolean {
   const isObject = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === 'object' && !Array.isArray(value);
-  if (isObject(excerpt)) {
-    return (
-      isObject(source) &&
-      Object.entries(excerpt).every(
-        ([key, value]) => Object.hasOwn(source, key) && subset(value, source[key])
-      )
-    );
-  }
-  return isDeepStrictEqual(excerpt, source);
+  return (
+    isObject(excerpt) &&
+    isObject(source) &&
+    Object.keys(excerpt).length > 0 &&
+    Object.entries(excerpt).every(
+      ([key, value]) => Object.hasOwn(source, key) && isDeepStrictEqual(value, source[key])
+    )
+  );
 }
 
 describe('the guides that excerpt an example', () => {
@@ -217,8 +223,8 @@ describe('the guides that excerpt an example', () => {
           ).toBe(true);
         } else if (info === 'json') {
           expect(
-            subset(JSON.parse(excerpt), JSON.parse(source)),
-            `${file} sets something in ${path} that the file does not`
+            quotes(JSON.parse(excerpt), JSON.parse(source)),
+            `${file} quotes ${path} other than whole, or as it no longer is`
           ).toBe(true);
         } else {
           throw new Error(

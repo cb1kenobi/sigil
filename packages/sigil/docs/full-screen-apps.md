@@ -138,19 +138,24 @@ return (
 );
 ```
 
-For the compiler to read that, `tsconfig.json` names sigil as the JSX source:
+For the compiler to read that, `tsconfig.json` names sigil as the JSX source.
+`allowImportingTsExtensions` is there because the imports name the files they
+mean, `./root.tsx` included, and it needs `noEmit`, since `sigil build` is what
+writes the output:
 
 ```json
 // tsconfig.json
 {
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
-    "jsxImportSource": "@ttylabs/sigil"
+    "jsxImportSource": "@ttylabs/sigil",
+    "noEmit": true
   }
 }
 ```
 
-`sigil new` writes those two lines for you.
+`sigil new` writes all four for you.
 
 ## Running it
 
