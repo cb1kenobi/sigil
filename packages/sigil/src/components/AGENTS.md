@@ -8623,12 +8623,38 @@ field joins like anything else focusable.
   reversal, which is still a caret.
 - **The room is the layout's, learned through `onResize`, the way the tabs row
   learns its width.** `width` declares it; without one the field takes what the
-  layout gives -- stretched in a column, its content in a row. `min-width: 0` is
-  the declaration that makes a field in a row shrink to its share at all: a box's
-  automatic minimum is its content's, and a field's content is the whole value.
-  `overflow: hidden` on the host was written and deleted for failing its sabotage:
-  a frame cuts the window before it paints, and even a two-column caret in a
-  one-column field is refused by the grid rather than drawn past the edge.
+  layout gives -- stretched in a column, its whole value in a row. `min-width: 0`
+  is the declaration that makes a field in a row shrink to its share at all: a
+  box's automatic minimum is its content's, and a field's content is the whole
+  value.
+- **The pieces hold the whole value and the host scrolls, because a field that
+  drew its window was as wide as its last window (SIG-318).** The entry above said
+  the field's content was the whole value while the pieces held only what
+  `promptWindow()` kept -- cut to the room the last layout gave. In a column that
+  is harmless, since the width is the parent's whatever the field draws. In a row
+  with no width the field is as wide as what it draws, so the room and the drawing
+  each set the other and could only shrink: empty, it was the placeholder's width;
+  one key later it drew `p` and the caret and was laid out two wide; the next key
+  was cut to two columns, and from then on it showed the caret and the last letter
+  whatever had been typed. Found by the system monitor's filter (SIG-291), which
+  worked around it with a `flex-grow` before this was filed.
+
+  So the pieces always hold the whole value and the field asks the layout for all
+  of it. Where it gets less, `overflow: hidden` cuts the right of the value off
+  and `scrollTo()` takes the left away -- by exactly the columns `promptWindow()`
+  drops from the front, so the window is still the prompt's, whole clusters come
+  off, and a wide character is never cut in half at the left edge. `overflow:
+  hidden` was once written here and deleted for failing its sabotage; it is load
+  bearing now, since without it the rest of the value draws over whatever follows
+  the field. Getting a scrolled box to paint at all inside a row took a canvas
+  fix: `write()` treated column zero as the only left edge, so a run starting
+  left of a clip further in painted nothing (`canvas/AGENTS.md`).
+
+  Sabotage: seven, none survived -- no `overflow`, no `scrollTo()`, the offset left
+  out of the change signature, an offset of the bare overflow rather than whole
+  clusters, the windowed pieces put back, no `min-width: 0`, and the canvas's left
+  edge back to column zero alone.
+
 - **A control character the app wrote is drawn as nothing.** The keys cannot type
   one and a paste is flattened, so only a write the app made can carry one -- and
   nothing is what `stringWidth()` measures it as, so the window's arithmetic and

@@ -409,6 +409,54 @@ describe('the sideways scroll', () => {
     expect(picture(host)[0]).toBe('>ijklmnop');
   });
 
+  it('should grow with what is typed in a row, not show only the last letter', async () => {
+    // SIG-318: content-sized in a row, the field was as wide as what it drew and
+    // drew what fitted the width it was laid out at -- so one key per frame left
+    // it the caret and the last letter wide, whatever had been typed
+    const value = new State('');
+    const field = TextField({ placeholder: 'press / to filter', value });
+    const row = box({ 'flex-direction': 'row', 'column-gap': 1 }, text('filter'), field);
+    const s = scene(row);
+    s.input.focus.focus(field);
+
+    for (const key of 'proc') {
+      await s.term.press(key);
+      // a frame per key, which is what a person typing gets
+      picture(s.root);
+    }
+    expect(value.get()).toBe('proc');
+    expect(picture(s.root)[0]).toBe('filter proc');
+  });
+
+  it('should still cut a content-sized field in a row to the room the row has', () => {
+    // the other half: as wide as its value where there is room, and windowed
+    // around the caret where there is not
+    const field = TextField({ value: 'abcdefghijklmnop' });
+    const row = box({ 'flex-direction': 'row', width: 10 }, text('>'), field);
+    expect(picture(row)[0]).toBe('>ijklmnop');
+  });
+
+  it('should cut the value at its right edge rather than draw over what follows it', async () => {
+    // the pieces hold the whole value, so the part right of the window is still
+    // there to be drawn -- and `overflow` is what keeps it inside the field
+    const field = TextField({ props: { 'flex-grow': 1 }, value: 'abcdefghijkl' });
+    const row = box({ 'flex-direction': 'row', width: 8 }, field, text('|'));
+    const s = scene(row);
+    s.input.focus.focus(field);
+
+    await s.term.press(KEYS.home);
+    expect(picture(s.root)[0]).toBe('abcdefg|');
+  });
+
+  it('should scroll whole wide characters off the left, never half of one', () => {
+    // the scroll is the columns the prompt's window drops, which are whole
+    // clusters: a scroll of the bare overflow would leave half of the first
+    // wide character on screen, which the grid draws as a blank
+    const field = TextField({ value: '漢字漢字漢', width: 6 });
+    const host = box({ 'flex-direction': 'column', width: 10 }, field);
+    expect(picture(host)[0]).toBe('字漢');
+  });
+
   it('should say whether a new size changed what it draws', () => {
     const field = TextField({ value: 'abcdefghij' });
     const resize = (width: number): boolean =>

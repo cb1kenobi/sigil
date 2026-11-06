@@ -87,8 +87,9 @@ export interface TextFieldProps {
   value?: string | State<string>;
   /**
    * How many columns the field takes. Defaults to what the layout gives it --
-   * the whole width in a column, and its own content in a row, where an empty
-   * field is one column wide. A field in a row wants this or a `flex-grow`.
+   * the whole width in a column, and in a row its whole value and the caret, or
+   * the placeholder while it is empty, shrinking to its share where the row is
+   * short. A `flex-grow` gives it the rest of a row instead.
    */
   width?: number;
 }
@@ -138,12 +139,16 @@ export function TextField(props: TextFieldProps = {}): Element {
 
   const host = box({
     ...props.props,
-    // after the caller's: the three pieces are placed against these, and a
-    // `min-width` of its content would stop the field shrinking to the room it is
-    // given, which is the room the window is cut to. `focusable` is `disabled`'s
+    // after the caller's: the three pieces are placed against these. The pieces
+    // hold the whole value, so the field asks the layout for all of it, and
+    // `min-width: 0` is what lets it take less -- a box's automatic minimum is its
+    // content's. Where it gets less, `overflow` cuts the right of the value off
+    // and the scroll takes the left of it away, which is the window.
+    // `focusable` is `disabled`'s
     'flex-direction': 'row',
     focusable: !disabled.get(),
     'min-width': 0,
+    overflow: 'hidden',
     ...(props.width === undefined ? {} : { 'flex-shrink': 0, width: props.width }),
   });
   // added rather than written into the props, so an app's own `class` is kept,
@@ -188,6 +193,8 @@ export function TextField(props: TextFieldProps = {}): Element {
     }
 
     let parts: [string, string, string];
+    /** How many columns of the value are scrolled off the left. */
+    let offset = 0;
     const hinted = now === '' && placeholder !== '';
     if (hinted) {
       // the caret sits on the first character of the hint, so a focused empty
@@ -196,15 +203,25 @@ export function TextField(props: TextFieldProps = {}): Element {
       const end = boundary(placeholder, 0, 1);
       parts = ['', placeholder.slice(0, end), placeholder.slice(end)];
     } else {
-      const pane = promptWindow(now, cursor, room);
+      // the whole value, never the window: what the pieces hold is what the field
+      // measures, and a field that drew only the window was as wide as the room
+      // it was last given -- in a row with no width, one key per frame shrank it
+      // to the caret and the last letter (SIG-318)
+      const end = boundary(now, cursor, 1);
+      const head = shown(now.slice(0, cursor));
       // past the last character there is nothing to mark, so the caret is a
       // column of its own rather than a mark on one
-      parts = [shown(pane.before), shown(pane.under) || ' ', shown(pane.after)];
+      parts = [head, shown(now.slice(cursor, end)) || ' ', shown(now.slice(end))];
+      // the window is still the prompt's: it says which whole clusters come off
+      // the front to keep the caret in the room, and the scroll takes exactly
+      // those, so a wide character is never cut in half at the left edge
+      offset = stringWidth(head) - stringWidth(shown(promptWindow(now, cursor, room).before));
     }
 
     before.setText(parts[0]);
     caret.setText(parts[1]);
     after.setText(parts[2]);
+    host.scrollTo(offset, 0);
     // muted on the caret's cell too: unfocused, a hint whose first letter alone
     // is at full strength reads as something typed
     caret.toggleClass('sigil-text-field-placeholder', hinted);
@@ -212,7 +229,7 @@ export function TextField(props: TextFieldProps = {}): Element {
     after.toggleClass('sigil-text-field-placeholder', hinted);
     after.toggleClass('sigil-muted', hinted);
 
-    const signature = `${hinted}|${parts.join('\u0000')}`;
+    const signature = `${hinted}|${offset}|${parts.join('\u0000')}`;
     const changed = signature !== drawn;
     drawn = signature;
     return changed;
