@@ -44,8 +44,31 @@
     "shared": [],
     "signature": "function Collapsible(props: CollapsibleProps): Element"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "left",
+        "tab",
+        "shiftTab",
+        "space",
+        "enter"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A collapsible section: a focusable title that opens and closes its body, alone or as an accordion",
+  "source": "packages/sigil/src/components/collapsible.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[7;36m▾\u001b[0m \u001b[7mEnvironment\u001b[0m\n  NODE_ENV=production\n  PORT=8080\n\u001b[36m▾\u001b[0m Build options\n  minify: on\n  sourcemap: off"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[7;36m▾\u001b[0m \u001b[7mEnvironment\u001b[0m\n  NODE_ENV=production\n  PORT=8080\n\u001b[36m▾\u001b[0m Build options\n  minify: on\n  sourcemap: off"

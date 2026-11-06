@@ -12,8 +12,36 @@
     "shared": [],
     "signature": "function group<T>(steps: GroupSteps<T>, opts?: GroupOptions<T>): Promise<T>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "end",
+        "space"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "group() to run prompts as one flow, and intro, outro and cancel to frame the session",
+  "source": "packages/sigil/src/components/group.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m▶ \u001b[0m\u001b[1mcreate-app\u001b[0m\n\u001b[32m?\u001b[0m \u001b[1mProject name\u001b[0m \u001b[2mledger\u001b[0m\n\u001b[36m?\u001b[0m \u001b[1mTemplate for ledger\u001b[0m\n\u001b[36m❯\u001b[0m \u001b[36mcli\u001b[0m\n  full-screen\n  prompts only"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m▶ \u001b[0m\u001b[1mcreate-app\u001b[0m\n\u001b[32m?\u001b[0m \u001b[1mProject name\u001b[0m \u001b[2mledger\u001b[0m\n\u001b[36m?\u001b[0m \u001b[1mTemplate for ledger\u001b[0m\n\u001b[36m❯\u001b[0m \u001b[36mcli\u001b[0m\n  full-screen\n  prompts only"

@@ -108,8 +108,42 @@
     ],
     "signature": "function path(opts: PathOptions): Promise<string>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "left",
+        "home",
+        "space",
+        "backspace"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A path prompt: a text field that completes against the file system",
+  "source": "packages/sigil/src/components/path.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Config file src/config.ts\nReading src/config.ts"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mConfig file\u001b[0m src/co\u001b[7m \u001b[0m\n    commands/\n    config.json\n    config.ts"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mConfig file\u001b[0m src/co\u001b[7m \u001b[0m\n    commands/\n    config.json\n    config.ts"

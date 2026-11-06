@@ -55,7 +55,12 @@
     "signature": "function sparkline(values: readonly number[], opts?: SparklineOptions): string"
   },
   "registryDescription": "Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge",
+  "source": "packages/sigil/src/components/chart.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "latency \u001b[36m▁▁▁▂▃▃▂▄▇▆▄▃▂▂▂▃▅▇█▆\u001b[0m  41ms"
+    },
     "rendered": {
       "columns": 80,
       "output": "latency \u001b[36m▁▁▁▂▃▃▂▄▇▆▄▃▂▂▂▃▅▇█▆\u001b[0m  41ms"

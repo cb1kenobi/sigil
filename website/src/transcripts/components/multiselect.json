@@ -96,8 +96,56 @@
     ],
     "signature": "function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[]>"
   },
+  "keys": [
+    {
+      "footer": "select",
+      "keys": [
+        "space"
+      ]
+    },
+    {
+      "footer": "all",
+      "keys": [
+        "a"
+      ]
+    },
+    {
+      "footer": "invert",
+      "keys": [
+        "i"
+      ]
+    },
+    {
+      "footer": "confirm",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "The six prompts: text, multiline, password, confirm, select and multiselect",
+  "source": "packages/sigil/src/components/prompt.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Features\n  1. TypeScript\n  2. Linting\n  3. Testing\n  4. Shell completion\nChoose numbers from 1 to 4, separated by commas (default: none) 1, 3\nChosen: TypeScript, Testing\nAdding TypeScript, Testing"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mFeatures\u001b[0m\n  \u001b[32m◉\u001b[0m TypeScript\n  ◯ Linting\n\u001b[36m❯\u001b[0m \u001b[32m◉\u001b[0m \u001b[36mTesting\u001b[0m\n  ◯ Shell completion\n  \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36ma\u001b[0m \u001b[2mall\u001b[0m \u001b[2m·\u001b[0m \u001b[36menter\u001b[0m \u001b[2mconfirm\u001b[0m \u001b[2m…\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mFeatures\u001b[0m\n  \u001b[32m◉\u001b[0m TypeScript\n  ◯ Linting\n\u001b[36m❯\u001b[0m \u001b[32m◉\u001b[0m \u001b[36mTesting\u001b[0m\n  ◯ Shell completion\n  \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36ma\u001b[0m \u001b[2mall\u001b[0m \u001b[2m·\u001b[0m \u001b[36mi\u001b[0m \u001b[2minvert\u001b[0m \u001b[2m·\u001b[0m \u001b[36menter\u001b[0m \u001b[2mconfirm\u001b[0m"

@@ -106,8 +106,41 @@
     ],
     "signature": "function number(opts: NumberOptions): Promise<number>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "left",
+        "home",
+        "backspace"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A number prompt: min, max, step, and arrows that change the value",
+  "source": "packages/sigil/src/components/number.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Retries 5\nRetrying up to 5 times"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mRetries\u001b[0m 5\u001b[7m \u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mRetries\u001b[0m 5\u001b[7m \u001b[0m"

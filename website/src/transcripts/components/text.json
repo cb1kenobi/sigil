@@ -80,8 +80,40 @@
     ],
     "signature": "function text(opts: TextOptions): Promise<string>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "left",
+        "home",
+        "space",
+        "backspace"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "The six prompts: text, multiline, password, confirm, select and multiselect",
+  "source": "packages/sigil/src/components/prompt.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Project name ledger\nCreating ledger"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mProject name\u001b[0m ledger\u001b[7m \u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mProject name\u001b[0m ledger\u001b[7m \u001b[0m"

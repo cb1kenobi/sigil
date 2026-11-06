@@ -76,8 +76,46 @@
     ],
     "signature": "function select<T = string>(opts: SelectOptions<T>): Promise<T>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "home",
+        "end"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
+  "recipes": {
+    "timeout": {
+      "columns": 52,
+      "output": "\u001b[33m⚠ \u001b[0mNo answer, using us-east-1\n\u001b[32m✔ \u001b[0mDeploying to us-east-1"
+    }
+  },
   "registryDescription": "The six prompts: text, multiline, password, confirm, select and multiselect",
+  "source": "packages/sigil/src/components/prompt.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Template\n  1. cli (a parser and two commands)\n  2. full-screen (layout, focus and input)\n  3. prompts only\nChoose a number from 1 to 3 (default: 1) 2\nChosen: full-screen\nScaffolding the app template"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mTemplate\u001b[0m\n  cli \u001b[2ma parser and two commands\u001b[0m\n\u001b[36m❯\u001b[0m \u001b[36mfull-screen\u001b[0m \u001b[2;36mlayout, focus and input\u001b[0m\n  prompts only"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mTemplate\u001b[0m\n  cli \u001b[2ma parser and two commands\u001b[0m\n\u001b[36m❯\u001b[0m \u001b[36mfull-screen\u001b[0m \u001b[2;36mlayout, focus and input\u001b[0m\n  prompts only"

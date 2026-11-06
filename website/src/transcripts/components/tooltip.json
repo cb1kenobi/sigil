@@ -59,8 +59,29 @@
     "shared": [],
     "signature": "function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHandle"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "tab",
+        "shiftTab",
+        "escape"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A tooltip: text anchored to an element, shown on hover or focus, flipped to stay on screen",
+  "source": "packages/sigil/src/components/tooltip.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[7m Deploy\u001b[0m\n╭──────────────────────────────────╮\n│ Ships the main branch to staging │\n╰──────────────────────────────────╯"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[7m Deploy\u001b[0m\n╭──────────────────────────────────╮\n│ Ships the main branch to staging │\n╰──────────────────────────────────╯"

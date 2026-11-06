@@ -95,7 +95,43 @@
     ],
     "signature": "function pickDate(opts: PickDateOptions): Promise<Date>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "left",
+        "right",
+        "home",
+        "end",
+        "pageUp",
+        "pageDown"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
+  "source": "packages/sigil/src/components/calendar.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Which day? (YYYY-MM-DD, default: 2026-11-04) 2026-11-20\nBooked for Fri Nov 20 2026"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mWhich day?\u001b[0m 2026-11-12\n         \u001b[1mNovember 2026\u001b[0m\n  \u001b[2m Su\u001b[0m \u001b[2m Mo\u001b[0m \u001b[2m Tu\u001b[0m \u001b[2m We\u001b[0m \u001b[2m Th\u001b[0m \u001b[2m Fr\u001b[0m \u001b[2m Sa\u001b[0m\n    1   2   3   4   5   6   7\n    8   9  10  11 \u001b[7m[12]\u001b[0m 13  14\n   15  16  17  18  19  20  21\n   22  23  24  25  26  27  28\n   29  30"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mWhich day?\u001b[0m 2026-11-12\n         \u001b[1mNovember 2026\u001b[0m\n  \u001b[2m Su\u001b[0m \u001b[2m Mo\u001b[0m \u001b[2m Tu\u001b[0m \u001b[2m We\u001b[0m \u001b[2m Th\u001b[0m \u001b[2m Fr\u001b[0m \u001b[2m Sa\u001b[0m\n    1   2   3   4   5   6   7\n    8   9  10  11 \u001b[7m[12]\u001b[0m 13  14\n   15  16  17  18  19  20  21\n   22  23  24  25  26  27  28\n   29  30"

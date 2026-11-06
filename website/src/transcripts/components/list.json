@@ -87,8 +87,40 @@
     ],
     "signature": "function list(opts: ListOptions): Promise<string[]>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "left",
+        "home",
+        "space",
+        "backspace"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A list prompt: one line split on a separator and returned as an array",
+  "source": "packages/sigil/src/components/list.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Tags api, cli\nTagged 2: api / cli"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mTags\u001b[0m api, cli, docs\u001b[7m \u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mTags\u001b[0m api, cli, docs\u001b[7m \u001b[0m"

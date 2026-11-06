@@ -115,4 +115,54 @@ describe('the components list', () => {
       assert.ok(componentCapture(entry.slug).views.rendered.output.length > 0, entry.slug);
     }
   });
+
+  it('should only give accessible steps to a component that has a line form to take them', () => {
+    for (const entry of COMPONENTS.filter((it) => it.example?.accessibleSteps)) {
+      assert.ok(componentCapture(entry.slug).views.accessible, entry.slug);
+    }
+  });
+
+  it('should have a file for every recipe and a page for every related component', () => {
+    for (const entry of COMPONENTS) {
+      for (const recipe of entry.recipes ?? []) {
+        assert.ok(existsSync(join(EXAMPLES, `${recipe.file}.mjs`)), recipe.file);
+      }
+      for (const slug of entry.related ?? []) {
+        assert.ok(
+          COMPONENTS.some((it) => it.slug === slug && it.slug !== entry.slug),
+          slug
+        );
+      }
+    }
+  });
+});
+
+describe('the select() page', () => {
+  const captured = componentCapture('select');
+
+  it("should show the real options, not the mockup's guess", () => {
+    const names = captured.api.options.map((option) => option.name);
+
+    for (const name of ['message', 'choices', 'initial', 'loop', 'value', 'signal', 'accessible']) {
+      assert.ok(names.includes(name), name);
+    }
+    assert.equal(captured.api.options.find((it) => it.name === 'initial')?.default, '0');
+    assert.equal(captured.api.options.find((it) => it.name === 'choices')?.optional, false);
+  });
+
+  it('should have all three views, and keys found by pressing them', () => {
+    assert.deepEqual(Object.keys(captured.views).toSorted(), ['accessible', 'narrow', 'rendered']);
+    assert.deepEqual(captured.keys, [
+      { effect: 'change', keys: ['up', 'down', 'home', 'end'] },
+      { effect: 'answer', keys: ['enter'] },
+      { effect: 'cancel', keys: ['ctrlC'] },
+    ]);
+  });
+
+  it('should show a timeout falling back to a default in its recipe', () => {
+    const output = captured.recipes?.timeout?.output ?? '';
+
+    assert.match(output, /No answer, using us-east-1/);
+    assert.match(output, /Deploying to us-east-1/);
+  });
 });

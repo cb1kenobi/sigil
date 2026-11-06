@@ -1,3 +1,4 @@
+import { COMPONENTS, componentHref } from '../src/lib/components.ts';
 import { guides } from '../src/lib/guides.ts';
 import { referenceDocs, referenceHref } from '../src/lib/reference.ts';
 import { robotsRules } from '../src/lib/seo.ts';
@@ -36,6 +37,14 @@ describe('the sitemap', () => {
     const wanted = referenceDocs()
       .map((doc) => `${SITE_URL}${referenceHref(doc.slug)}`)
       .toSorted();
+
+    assert.notEqual(wanted.length, 0);
+    assert.deepEqual(listed, wanted);
+  });
+
+  it('should list every component page, at the address the index links to', () => {
+    const listed = urls.filter((url) => url.startsWith(`${SITE_URL}/docs/components/`)).toSorted();
+    const wanted = COMPONENTS.map((entry) => `${SITE_URL}${componentHref(entry.slug)}`).toSorted();
 
     assert.notEqual(wanted.length, 0);
     assert.deepEqual(listed, wanted);

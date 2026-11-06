@@ -57,8 +57,33 @@
     "shared": [],
     "signature": "function TextField(props?: TextFieldProps): Element"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "left",
+        "home",
+        "tab",
+        "shiftTab",
+        "space",
+        "backspace"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "enter",
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A text field: one editable line as an element, for a form or a dialog",
+  "source": "packages/sigil/src/components/text-field.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "Name \u001b[100mledger\u001b[0m\u001b[100;7m \u001b[0m\u001b[100m                 \u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "Name \u001b[100mledger\u001b[0m\u001b[100;7m \u001b[0m\u001b[100m                 \u001b[0m"

@@ -86,7 +86,12 @@
     "signature": "function showToast(host: ToastHost, opts: ToastOptions): ToastHandle"
   },
   "registryDescription": "A toast: a timed message in a corner of the screen that stacks, never takes the focus, and stays out of --quiet",
+  "source": "packages/sigil/src/components/toast.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "Editing \u001b[32m╭──────────────────────────────╮\u001b[0m\n        \u001b[32m│ \u001b[0m\u001b[32;1mSaved\u001b[0m\u001b[32m                        │\u001b[0m\n        \u001b[32m│ config.json is written       │\u001b[0m\n        \u001b[32m╰──────────────────────────────╯\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "Editing config.json                             \u001b[32m╭──────────────────────────────╮\u001b[0m\n                                                \u001b[32m│ \u001b[0m\u001b[32;1mSaved\u001b[0m\u001b[32m                        │\u001b[0m\n                                                \u001b[32m│ config.json is written       │\u001b[0m\n                                                \u001b[32m╰──────────────────────────────╯\u001b[0m"

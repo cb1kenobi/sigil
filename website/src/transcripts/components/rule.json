@@ -55,7 +55,12 @@
     "signature": "function rule(opts?: RuleOptions): string"
   },
   "registryDescription": "A horizontal divider across the terminal, with an optional label set into it",
+  "source": "packages/sigil/src/components/rule.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "Unit tests passed\n\u001b[2m───────────── \u001b[0m\u001b[1mIntegration \u001b[0m\u001b[2m──────────────\u001b[0m\nStarting the browser"
+    },
     "rendered": {
       "columns": 80,
       "output": "Unit tests passed\n\u001b[2m───────────────────────────────── \u001b[0m\u001b[1mIntegration \u001b[0m\u001b[2m──────────────────────────────────\u001b[0m\nStarting the browser"

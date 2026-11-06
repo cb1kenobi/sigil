@@ -65,8 +65,35 @@
     ],
     "signature": "function commandPalette(target: CatalogTarget, opts?: PaletteOptions): Promise<PaletteResult | undefined>"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "left",
+        "home",
+        "pageDown",
+        "space",
+        "backspace"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "enter",
+        "escape",
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A command palette generated from the command registry, answering with an argv",
+  "source": "packages/sigil/src/components/palette.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mRun a command\u001b[0m dep\u001b[7m \u001b[0m\n  \u001b[36m❯\u001b[0m \u001b[1;36mdep\u001b[0m\u001b[36mloy\u001b[0m  \u001b[2;36mShip it to an environment\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mRun a command\u001b[0m dep\u001b[7m \u001b[0m\n  \u001b[36m❯\u001b[0m \u001b[1;36mdep\u001b[0m\u001b[36mloy\u001b[0m  \u001b[2;36mShip it to an environment\u001b[0m"

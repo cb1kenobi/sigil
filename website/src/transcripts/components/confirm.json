@@ -63,8 +63,31 @@
     ],
     "signature": "function confirm(opts: ConfirmOptions): Promise<boolean>"
   },
+  "keys": [
+    {
+      "effect": "answer",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "The six prompts: text, multiline, password, confirm, select and multiselect",
+  "source": "packages/sigil/src/components/prompt.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Overwrite dist/? (y/N) y\nOverwriting"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mOverwrite dist/?\u001b[0m \u001b[2m(y/N)\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mOverwrite dist/?\u001b[0m \u001b[2m(y/N)\u001b[0m"

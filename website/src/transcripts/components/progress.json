@@ -88,7 +88,12 @@
     "signature": "function createProgress(opts?: ProgressOptions): Progress"
   },
   "registryDescription": "A progress bar that falls back to a percentage where there is no terminal",
+  "source": "packages/sigil/src/components/progress.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "Copying src/file-25.js \u001b[36m████████░░░░░\u001b[0m 60%"
+    },
     "rendered": {
       "columns": 80,
       "output": "Copying src/file-25.js \u001b[36m████████████████░░░░░░░░░░\u001b[0m 60%"

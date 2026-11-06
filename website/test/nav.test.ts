@@ -1,6 +1,8 @@
+import { componentFamilies } from '../src/lib/docs-sidebar.ts';
 import {
   NAV_ITEMS,
   activeSection,
+  componentSidebar,
   isCurrentLink,
   isDocsPath,
   pagerAround,
@@ -129,6 +131,39 @@ describe('the sidebar', () => {
       for (const link of section.links) {
         assert.match(link.href, /^\/[a-z/-]*(#[a-z-]+)?$/, link.href);
       }
+    }
+  });
+});
+
+describe("a component page's sidebar", () => {
+  const families = componentFamilies();
+
+  it("should be the way back to the index, then the component's family with it marked", () => {
+    const scoped = componentSidebar(families, '/docs/components/select/');
+
+    assert.deepEqual(
+      scoped?.map((section) => section.id),
+      ['all-components', 'prompts']
+    );
+    assert.deepEqual(scoped?.[0]?.links, [{ label: '← All components', href: '/docs/components' }]);
+    assert.equal(scoped?.[1]?.label, 'Prompts');
+    assert.ok(
+      scoped?.[1]?.links.some((link) => isCurrentLink(link, '/docs/components/select')),
+      'select() is marked'
+    );
+  });
+
+  it('should list a family in the order the index does, set in mono', () => {
+    const output = componentSidebar(families, '/docs/components/table')?.[1];
+
+    assert.equal(output?.id, 'output');
+    assert.ok(output?.links.every((link) => link.mono));
+    assert.equal(output?.links[0]?.href, '/docs/components/log');
+  });
+
+  it('should leave every other page the whole sidebar', () => {
+    for (const path of ['/docs/components', '/docs/getting-started', '/reference/add']) {
+      assert.equal(componentSidebar(families, path), undefined, path);
     }
   });
 });

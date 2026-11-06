@@ -54,7 +54,12 @@
     "signature": "function enableDebugOverlay(view: Renderer, opts?: DebugOverlayOptions): DebugOverlayHandle"
   },
   "registryDescription": "A debug overlay: captured console output and frame stats, inside the app",
+  "source": "packages/sigil/src/components/debug-overlay.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\u001b[40m┌──────────────────────────────────────┐\u001b[0m\n\u001b[40m│\u001b[0m\u001b[40;1mdebug\u001b[0m\u001b[40m \u001b[0m\u001b[40;2m2 lines  stats off\u001b[0m\u001b[40m              │\u001b[0m\n\u001b[40m│loaded 3 services                    \u001b[0m\u001b[40;36m█\u001b[0m\u001b[40m│\u001b[0m\n\u001b[40m│\u001b[0m\u001b[40;33meu-west-1 is slow to answer\u001b[0m\u001b[40m          \u001b[0m\u001b[40;36m█\u001b[0m\u001b[40m│\u001b[0m\n\u001b[40m│                                     \u001b[0m\u001b[40;36m█\u001b[0m\u001b[40m│\u001b[0m\n\u001b[40m└──────────────────────────────────────┘\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\u001b[40m┌──────────────────────────────────────────────────────────────────────────────┐\u001b[0m\n\u001b[40m│\u001b[0m\u001b[40;1mdebug\u001b[0m\u001b[40m \u001b[0m\u001b[40;2m2 lines  stats off\u001b[0m\u001b[40m                                                      │\u001b[0m\n\u001b[40m│loaded 3 services                                                            \u001b[0m\u001b[40;36m█\u001b[0m\u001b[40m│\u001b[0m\n\u001b[40m│\u001b[0m\u001b[40;33meu-west-1 is slow to answer\u001b[0m\u001b[40m                                                  \u001b[0m\u001b[40;36m█\u001b[0m\u001b[40m│\u001b[0m\n\u001b[40m│                                                                             \u001b[0m\u001b[40;36m█\u001b[0m\u001b[40m│\u001b[0m\n\u001b[40m└──────────────────────────────────────────────────────────────────────────────┘\u001b[0m"

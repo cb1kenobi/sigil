@@ -1,3 +1,4 @@
+import { COMPONENTS, FAMILIES, componentHref } from './components.ts';
 import { guides } from './guides.ts';
 import { guideHref, sidebarSections, type SidebarLink, type SidebarSection } from './nav.ts';
 import { referenceDocs, referenceHref } from './reference.ts';
@@ -40,4 +41,23 @@ export function docsSidebar(): SidebarSection[] {
     guides: guideLinks(),
     parser: parserLinks(),
   });
+}
+
+/**
+ * Each family's components, as sidebar sections, for `componentSidebar()`.
+ *
+ * Built here rather than in `nav.ts` so that the component list stays out of
+ * the header's client bundle: the layout hands these to the sidebar, which
+ * picks the one the page is in.
+ */
+export function componentFamilies(): SidebarSection[] {
+  return FAMILIES.map((family) => ({
+    id: family.id,
+    label: family.title,
+    links: COMPONENTS.filter((entry) => entry.family === family.id).map((entry) => ({
+      label: entry.name,
+      href: componentHref(entry.slug),
+      mono: true,
+    })),
+  }));
 }

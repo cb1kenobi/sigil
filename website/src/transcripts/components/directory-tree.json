@@ -131,8 +131,45 @@
     ],
     "signature": "function directoryTree(opts: DirectoryTreeOptions): Promise<string>"
   },
+  "keys": [
+    {
+      "footer": "toggle",
+      "keys": [
+        "space",
+        "enter"
+      ]
+    },
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "left",
+        "right",
+        "home",
+        "end",
+        "pageUp",
+        "pageDown"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A tree: nested data printed with ├── and └──, a prompt that opens and closes branches read on demand, and a directory tree",
+  "source": "packages/sigil/src/components/tree.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Open which file?\nIn my-app/\n  1. src/ (go in)\n  2. test/ (go in)\n  3. README.md\n  4. package.json\nChoose a number from 1 to 4 (default: 1)"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mOpen which file?\u001b[0m\n  \u001b[2m▾ \u001b[0mmy-app/\n  \u001b[2m├── ▾ \u001b[0msrc/\n\u001b[36m❯\u001b[0m \u001b[2;36m│   ├── ▸ \u001b[0m\u001b[36mcommands/\u001b[0m\n  \u001b[2m│   ├──   \u001b[0mconfig.json\n  \u001b[2m│   ├──   \u001b[0mconfig.ts\n  \u001b[2m│   └──   \u001b[0mindex.ts\n  \u001b[2m├── ▸ \u001b[0mtest/\n  \u001b[2m├──   \u001b[0mREADME.md\n  \u001b[2m└──   \u001b[0mpackage.json\n  \u001b[36mspace/enter\u001b[0m \u001b[2mtoggle\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mOpen which file?\u001b[0m\n  \u001b[2m▾ \u001b[0mmy-app/\n  \u001b[2m├── ▾ \u001b[0msrc/\n\u001b[36m❯\u001b[0m \u001b[2;36m│   ├── ▸ \u001b[0m\u001b[36mcommands/\u001b[0m\n  \u001b[2m│   ├──   \u001b[0mconfig.json\n  \u001b[2m│   ├──   \u001b[0mconfig.ts\n  \u001b[2m│   └──   \u001b[0mindex.ts\n  \u001b[2m├── ▸ \u001b[0mtest/\n  \u001b[2m├──   \u001b[0mREADME.md\n  \u001b[2m└──   \u001b[0mpackage.json\n  \u001b[36mspace/enter\u001b[0m \u001b[2mtoggle\u001b[0m"

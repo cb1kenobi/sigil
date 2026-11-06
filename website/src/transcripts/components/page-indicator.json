@@ -62,7 +62,12 @@
     "shared": [],
     "signature": "function pageIndicator(page: number, pages: number, opts?: PageIndicatorOptions): string"
   },
+  "source": "packages/sigil/src/components/paginator.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "result-6.log  result-7.log  result-8.log\n  result-9.log  result-10.log\n\u001b[2m○ \u001b[0m\u001b[36m● \u001b[0m\u001b[2m○ ○ ○ \u001b[0m2/5"
+    },
     "rendered": {
       "columns": 80,
       "output": "result-6.log  result-7.log  result-8.log  result-9.log  result-10.log\n\u001b[2m○ \u001b[0m\u001b[36m● \u001b[0m\u001b[2m○ ○ ○ \u001b[0m2/5"

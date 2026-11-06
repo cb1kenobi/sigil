@@ -44,7 +44,12 @@
     "signature": "function createTypewriter(opts?: TypewriterOptions): Typewriter"
   },
   "registryDescription": "A typewriter that reveals text a grapheme, word or line at a time",
+  "source": "packages/sigil/src/components/typewriter.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "Resolving depend█"
+    },
     "rendered": {
       "columns": 80,
       "output": "Resolving depend█"

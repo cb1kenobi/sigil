@@ -1,4 +1,4 @@
-import { COMPONENTS_HREF } from './components.ts';
+import { COMPONENTS, COMPONENTS_HREF, componentHref } from './components.ts';
 import { guideFile, guides } from './guides.ts';
 import { lastModified } from './last-modified.ts';
 import { guideHref } from './nav.ts';
@@ -74,15 +74,25 @@ function docs(): Entry[] {
 }
 
 /**
- * The components index, dated by the list it is drawn from.
+ * The components index and one page per component.
  *
- * `src/lib/components.ts` is what decides what the page lists, so its commit is
- * when the page last changed in substance.
+ * The index is dated by `src/lib/components.ts`, which decides what it lists,
+ * and a component's page by its capture, which is written whenever what the page
+ * shows of it -- its output, options or keys -- changes. `COMPONENTS` is the list
+ * the route's `generateStaticParams` reads, so no entry here is a 404.
  */
 function components(): Entry[] {
-  const modified = lastModified('src/lib/components.ts');
+  const dated = (url: string, file: string): Entry => {
+    const modified = lastModified(file);
+    return { url: absoluteUrl(url), ...(modified ? { lastModified: modified } : {}) };
+  };
 
-  return [{ url: absoluteUrl(COMPONENTS_HREF), ...(modified ? { lastModified: modified } : {}) }];
+  return [
+    dated(COMPONENTS_HREF, 'src/lib/components.ts'),
+    ...COMPONENTS.map((entry) =>
+      dated(componentHref(entry.slug), `src/transcripts/components/${entry.slug}.json`)
+    ),
+  ];
 }
 
 /** Every section, in the order its entries are listed. */

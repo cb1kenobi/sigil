@@ -109,8 +109,51 @@
     ],
     "signature": "function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>): Promise<R>"
   },
+  "keys": [
+    {
+      "footer": "pick",
+      "keys": [
+        "enter"
+      ]
+    },
+    {
+      "footer": "sort",
+      "keys": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ]
+    },
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "home",
+        "end",
+        "pageUp",
+        "pageDown"
+      ]
+    },
+    {
+      "effect": "cancel",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A table prompt: a cursor over rows, a sticky heading, and a sort by column",
+  "source": "packages/sigil/src/components/select-row.ts",
   "views": {
+    "accessible": {
+      "columns": 80,
+      "output": "Which deployment?\n  1. Name: web, Region: eu-west, Status: running, Age (d): 12\n  2. Name: api, Region: us-east, Status: running, Age (d): 3\n  3. Name: worker, Region: ap-south, Status: failed, Age (d): 40\n  4. Name: cron, Region: eu-west, Status: stopped, Age (d): 90\nChoose a number from 1 to 4 (default: 1)"
+    },
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mWhich deployment?\u001b[0m\n  \u001b[1mName\u001b[0m    \u001b[1mRegion\u001b[0m    \u001b[1mStatus\u001b[0m      \u001b[1mAge (d)\u001b[0m\n  web     eu-west   running          12\n  api     us-east   running           3\n\u001b[36m❯\u001b[0m \u001b[36mworker\u001b[0m  \u001b[36map-south\u001b[0m  \u001b[36mfailed\u001b[0m           \u001b[36m40\u001b[0m\n  cron    eu-west   stopped          90\n  \u001b[36menter\u001b[0m \u001b[2mpick\u001b[0m \u001b[2m·\u001b[0m \u001b[36m1/2/3/4\u001b[0m \u001b[2msort\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[36m?\u001b[0m \u001b[1mWhich deployment?\u001b[0m\n  \u001b[1mName\u001b[0m    \u001b[1mRegion\u001b[0m    \u001b[1mStatus\u001b[0m      \u001b[1mAge (d)\u001b[0m\n  web     eu-west   running          12\n  api     us-east   running           3\n\u001b[36m❯\u001b[0m \u001b[36mworker\u001b[0m  \u001b[36map-south\u001b[0m  \u001b[36mfailed\u001b[0m           \u001b[36m40\u001b[0m\n  cron    eu-west   stopped          90\n  \u001b[36menter\u001b[0m \u001b[2mpick\u001b[0m \u001b[2m·\u001b[0m \u001b[36m1/2/3/4\u001b[0m \u001b[2msort\u001b[0m"

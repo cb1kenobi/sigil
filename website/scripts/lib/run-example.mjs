@@ -31,9 +31,10 @@ import { pathToFileURL } from 'node:url';
  * - **The keys are pressed one read at a time**, as `press()` does, with the
  *   clock advanced a frame after each so that what the key caused is drawn.
  *
- * It prints one JSON object on the real stdout, `{ output }`: the bytes the
- * example wrote. Run by `component-capture.ts`, one child per run, so every run
- * starts from a fresh module graph and a fresh default terminal.
+ * It prints one JSON object on the real stdout: `{ output }` for a view, the
+ * bytes the example wrote, or `{ probes }` for a probe, which is what each key
+ * did. Run by `component-capture.ts`, one child per run, so every run starts
+ * from a fresh module graph and a fresh default terminal.
  *
  *   node run-example.mjs '{"file": "...", "columns": 80, "rows": 24, "steps": ["down"]}'
  */
@@ -326,6 +327,10 @@ function start(tag) {
   return { error: () => error, state: () => state };
 }
 
+if (spec.probe) {
+  await probe(spec.probe);
+}
+
 const run = start('view');
 await advance(FRAME);
 await play(spec.steps ?? []);
@@ -338,3 +343,62 @@ if (run.error() !== undefined) {
 
 writeOut(`${JSON.stringify({ output: written })}\n`);
 process.exit(0);
+
+/**
+ * What each key does, printed as `{ probes }`, and then the process ends.
+ *
+ * Each key is pressed on the screen the example opens on and on the screen its
+ * steps leave -- Home on the first choice moves nothing, and Home on the second
+ * does -- with a fresh run of the example each time, so that one key's effect is
+ * never read off another's. A key **answered** if the example finished,
+ * **cancelled** if it threw, **changed** the screen if what is drawn differs,
+ * colour included (a caret or an inverted tab is only colour), and otherwise
+ * did nothing.
+ *
+ * @param {readonly string[]} keys - The keys, by their names in `KEYS`.
+ */
+async function probe(keys) {
+  const { StyledScreen } = await import('./styled-screen.ts');
+  const RANK = ['none', 'change', 'cancel', 'answer'];
+  const probes = {};
+  let runs = 0;
+
+  const screen = (bytes) => {
+    const model = new StyledScreen(spec.columns, spec.rows);
+    model.write(bytes);
+    return model.toSgr();
+  };
+
+  for (const key of keys) {
+    for (const from of [[], spec.steps ?? []]) {
+      written = '';
+      const run = start(runs++);
+      await advance(FRAME);
+      await play(from);
+      const before = written;
+      await play([key]);
+
+      const state = run.state();
+      const effect =
+        state === 'resolved'
+          ? 'answer'
+          : state.startsWith('rejected')
+            ? 'cancel'
+            : screen(written) === screen(before)
+              ? 'none'
+              : 'change';
+      if (RANK.indexOf(effect) >= RANK.indexOf(probes[key] ?? 'none')) {
+        probes[key] = effect;
+      }
+
+      if (run.state() === 'pending') {
+        // given up, so that the next run's prompt is the only one reading keys
+        stdin.write('\u0003');
+        await advance(FRAME);
+      }
+    }
+  }
+
+  writeOut(`${JSON.stringify({ probes })}\n`);
+  process.exit(0);
+}

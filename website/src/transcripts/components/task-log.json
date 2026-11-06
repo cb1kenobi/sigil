@@ -33,7 +33,12 @@
     "signature": "function taskLog(opts: TaskLogOptions): TaskLog"
   },
   "registryDescription": "tasks() and taskLog(): a list of work under spinners, and a subprocess's output in a window",
+  "source": "packages/sigil/src/components/tasks.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "npm test\n  \u001b[2mparser: 212 passed\u001b[0m\n  \u001b[2mrenderer: 96 passed\u001b[0m\n  \u001b[2mprompts: running\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "npm test\n  \u001b[2mparser: 212 passed\u001b[0m\n  \u001b[2mrenderer: 96 passed\u001b[0m\n  \u001b[2mprompts: running\u001b[0m"

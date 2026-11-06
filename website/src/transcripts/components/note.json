@@ -62,7 +62,12 @@
     "signature": "function note(message: string, opts?: NoteOptions): string"
   },
   "registryDescription": "A titled, bordered block that shrinks to its message, in a state role colour",
+  "source": "packages/sigil/src/components/note.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[34m╭─ \u001b[0m\u001b[34;1mBefore you start \u001b[0m\u001b[34m─────────────────╮\u001b[0m\n\u001b[34m│ Run `pnpm build` before the tests: │\u001b[0m\n\u001b[34m│ they read dist/.                   │\u001b[0m\n\u001b[34m╰────────────────────────────────────╯\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[34m╭─ \u001b[0m\u001b[34;1mBefore you start \u001b[0m\u001b[34m──────────────────────────────────╮\u001b[0m\n\u001b[34m│ Run `pnpm build` before the tests: they read dist/. │\u001b[0m\n\u001b[34m╰─────────────────────────────────────────────────────╯\u001b[0m"

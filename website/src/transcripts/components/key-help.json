@@ -26,7 +26,12 @@
     "signature": "function keyHelp(router: KeyHelpSource, opts?: KeyHelpOptions): Element"
   },
   "registryDescription": "A key-help footer generated from the key bindings that are live",
+  "source": "packages/sigil/src/components/key-help.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "3 services running\n\u001b[36mr\u001b[0m \u001b[2mrefresh\u001b[0m \u001b[2m·\u001b[0m \u001b[36md\u001b[0m \u001b[2mdeploy\u001b[0m \u001b[2m·\u001b[0m \u001b[36m?\u001b[0m \u001b[2mhelp\u001b[0m"
+    },
     "rendered": {
       "columns": 80,
       "output": "3 services running\n\u001b[36mr\u001b[0m \u001b[2mrefresh\u001b[0m \u001b[2m·\u001b[0m \u001b[36md\u001b[0m \u001b[2mdeploy\u001b[0m \u001b[2m·\u001b[0m \u001b[36m?\u001b[0m \u001b[2mhelp\u001b[0m"

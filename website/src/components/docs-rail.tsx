@@ -20,12 +20,15 @@ export function DocsRail({
   editHref,
   headings,
   reportHref,
+  source = false,
 }: {
   /** The page's source file on GitHub. */
   editHref: string;
   headings: readonly Heading[];
   /** Where to open an issue. */
   reportHref: string;
+  /** Whether `editHref` is the source of a component rather than of the page. */
+  source?: boolean;
 }) {
   const active = useSectionInView(headings.map((heading) => heading.id));
 
@@ -53,7 +56,7 @@ export function DocsRail({
 
       <div className="my-3 h-px bg-line" />
 
-      <DocsPageLinks editHref={editHref} reportHref={reportHref} />
+      <DocsPageLinks editHref={editHref} reportHref={reportHref} source={source} />
     </aside>
   );
 }

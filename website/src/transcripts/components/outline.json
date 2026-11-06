@@ -55,7 +55,12 @@
     "signature": "function outline(items: readonly OutlineItem[], opts?: OutlineOptions): string"
   },
   "registryDescription": "Bulleted, numbered and nested lists, with a function for an enumerator and a hanging indent",
+  "source": "packages/sigil/src/components/outline.ts",
   "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[2m1. \u001b[0mInstall the package\n\u001b[2m2. \u001b[0mConfigure it\n   \u001b[2ma. \u001b[0mPick a theme\n   \u001b[2mb. \u001b[0mPick a shell for completions\n\u001b[2m3. \u001b[0mShip it"
+    },
     "rendered": {
       "columns": 80,
       "output": "\u001b[2m1. \u001b[0mInstall the package\n\u001b[2m2. \u001b[0mConfigure it\n   \u001b[2ma. \u001b[0mPick a theme\n   \u001b[2mb. \u001b[0mPick a shell for completions\n\u001b[2m3. \u001b[0mShip it"
