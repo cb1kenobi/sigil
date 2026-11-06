@@ -6068,9 +6068,14 @@ A component sets it from the element's `onFocusChange`, which is called whenever
 the `focus` state flips, so a control knows its own focus without being handed
 the router. A move through the router is committed whole -- both ends and
 `input.focus.current` -- before either handler runs, so a handler may move the
-focus again, to trap it or pass it on, and the last call each element gets is
-the state it ends in. A handler that throws does not stop the other end being
-told; the error is rethrown once both have been.
+focus again with `input.focus.focus()`, to trap it or pass it on, and the last
+call each element gets is the state it ends in. A `setState('focus')` from a
+handler, or from anything else while the focus is moving, throws: the router is
+the one writer of the focus. A handler that throws does not stop the others
+being told, and the error is rethrown from the outermost focus change once they
+all have been -- the handlers run in one queue per process, so a `focus()` on a
+second router made from inside a handler returns before that router's handlers
+run, and what they throw comes out of the outer call.
 
 **Each colour theme carries two palettes.** The basic sixteen first, then a richer
 set inside `@media (min-color-level: 2)`, written per scheme. So a 16-colour

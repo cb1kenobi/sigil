@@ -9601,10 +9601,11 @@ exception per widget. This is the one answer, and every widget below follows it.
   moment `:focus` starts or stops matching, so a control drawing its focus from it
   and a selector matching it are keyed on one state. They cannot disagree while
   the handler returns; one that throws before it has drawn leaves its drawing
-  stale until the state flips again, which is the handler's own, and the state,
-  `:focus` and the router still agree -- review round 1 found the first wording of
-  this promised more, and that a throw used to break the router too. A handler is
-  told only once the router's move has committed, and may move the focus itself:
+  stale until the state flips again, which is the handler's own, and for focus the
+  router moves the state, `:focus` and the router still agree -- review round 1
+  found the first wording of this promised more, and that a throw used to break
+  the router too. A handler is told only once the router's move has committed, and
+  may move the focus itself with the router's `focus()` but not with `setState`:
   "A focus handler is told after the move has committed" in `src/element` has the
   rules. A Tab, a click and an app's
   `focus()` all reach it, because all three go through the router's one `focus()`,
@@ -9726,6 +9727,11 @@ exception per widget. This is the one answer, and every widget below follows it.
   a difference from the cell before, so `sync()` adding the role and never taking
   it off passed it on a move to an earlier tab; it now asks the labels' classes in
   both directions, and that sabotage fails it.
+- **Review round 2: what wrote the focus without going through `focus()`.** A
+  direct `setState('focus')` during a move, a bound that gave up on a long chain
+  and left an element deaf, one queue shared by every router, and a latch a throw
+  could leave set. All four are in `src/element`'s entry, and the rounds and their
+  sabotages are in its history file.
 - **Not done:** the modal onto the role, which is SIG-199's when `Button`
   replaces its inline buttons; level-0 markers for the three existing controls,
   which have no blank to put one in; and `:focus-within`, which would not solve

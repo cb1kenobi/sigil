@@ -51,7 +51,7 @@ import {
 // `element/hit.js` rather than the element barrel, which is the same precision
 // the renderer takes over this module: `Element` is a type and erases, while these
 // two are real code and this is the one file that needs them
-import { holdFocusChanges } from '../element/focus.js';
+import { moveFocus } from '../element/focus.js';
 import { ancestry, hitTest } from '../element/hit.js';
 import type { Element } from '../element/index.js';
 // `scroll.js` imports nothing but types, for the same reason `hit.js` does: the
@@ -1106,9 +1106,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       // still naming the element it had just been told it lost, so a handler
       // that moved the focus itself finished this move twice and left two
       // elements focused -- `focus.ts` in `src/element` holds the queue
-      holdFocusChanges(() => {
-        previous?.setState('focus', false);
-        element?.setState('focus', true);
+      moveFocus(previous, element, () => {
         current.set(element);
         if (element) {
           lastIndex = Math.max(0, focusables(root).indexOf(element));

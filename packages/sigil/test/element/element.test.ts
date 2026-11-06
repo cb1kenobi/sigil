@@ -205,31 +205,54 @@ describe('mutation marks', () => {
     expect(heard).toEqual([true, false]);
   });
 
-  it('should give up rather than hang when two handlers keep moving the focus', () => {
-    // telling them inline overflowed the stack; a queue would spin for ever, so
-    // it is bounded the way an effect flush is
+  it('should refuse a setState of the focus while the focus is being announced', () => {
+    // taken, the write turned `:focus` on for an element nothing had moved the
+    // focus to, after the announcement it should have been part of -- so its
+    // handler painted the role on a second control. The router's `focus()` is
+    // the spelling that works from a handler
     const a = box();
     const b = box();
+    const heard: string[] = [];
     a.onFocusChange = (_, focused) => {
-      if (focused) {
-        a.setState('focus', false);
-        b.setState('focus', true);
-      }
+      heard.push(`a ${focused}`);
+      b.setState('focus');
     };
-    b.onFocusChange = (_, focused) => {
-      if (focused) {
-        b.setState('focus', false);
-        a.setState('focus', true);
-      }
-    };
+    b.onFocusChange = (_, focused) => heard.push(`b ${focused}`);
 
-    expect(() => a.setState('focus')).toThrow(/did not settle/);
-    // and the queue is usable again afterwards
-    const c = box();
-    const heard: boolean[] = [];
-    c.onFocusChange = (_, focused) => heard.push(focused);
-    c.setState('focus');
-    expect(heard).toEqual([true]);
+    expect(() => a.setState('focus')).toThrow(/focus\.focus\(\)/);
+    expect(a.states).toContain('focus');
+    expect(b.states).not.toContain('focus');
+    expect(heard).toEqual(['a true']);
+    // and outside an announcement a direct write is still taken and told
+    a.onFocusChange = undefined;
+    b.setState('focus');
+    expect(heard).toEqual(['a true', 'b true']);
+  });
+
+  it('should go on telling elements their focus after reading one threw', () => {
+    // the drain latches while it walks, and the state is read outside the
+    // handler's own `try` -- a throw there used to leave the latch set, and every
+    // later focus change in the process committed and told nobody
+    const a = box();
+    const b = box();
+    const heard: string[] = [];
+    a.onFocusChange = (_, focused) => heard.push(`a ${focused}`);
+    b.onFocusChange = (_, focused) => heard.push(`b ${focused}`);
+    Object.defineProperty(a, 'states', {
+      configurable: true,
+      get() {
+        throw new Error('unreadable');
+      },
+    });
+
+    expect(() => a.setState('focus')).toThrow('unreadable');
+    delete (a as { states?: unknown }).states;
+    b.setState('focus');
+    expect(heard).toEqual(['b true']);
+    // and the element whose state could not be read is told at its next change,
+    // rather than skipped as though it had heard the one it missed
+    a.setState('focus', false);
+    expect(heard).toEqual(['b true', 'a false']);
   });
 
   it('should record nothing at all for a subtree not in a tree yet', () => {
