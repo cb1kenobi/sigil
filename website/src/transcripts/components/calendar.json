@@ -1,0 +1,56 @@
+{
+  "api": {
+    "interface": "CalendarOptions",
+    "options": [
+      {
+        "description": "Any day in the month to show. Defaults to today.",
+        "default": "today",
+        "name": "date",
+        "optional": true,
+        "type": "Date"
+      },
+      {
+        "description": "Days to mark, as `Date`s. Only the day is read, in local time. A marked day carries a `*` after its number, so it survives a terminal with no colour, and the `sigil-calendar-highlight` role besides.",
+        "name": "highlight",
+        "optional": true,
+        "type": "readonly Date[]"
+      },
+      {
+        "description": "How far the whole block is indented. Defaults to 0.",
+        "default": "0",
+        "name": "indent",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The language month and weekday names are written in, as a BCP 47 tag. Defaults to the locale the app's catalog resolved, else the system's.",
+        "default": "the locale the app's catalog resolved",
+        "name": "locale",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The selected day, drawn in reverse and set in `[]`. Defaults to none.",
+        "default": "none",
+        "name": "selected",
+        "optional": true,
+        "type": "Date"
+      },
+      {
+        "description": "The weekday a row starts on: 0 is Sunday, 1 is Monday, up to 6. Defaults to what the locale says, and to Sunday where the runtime cannot say.",
+        "default": "what the locale says",
+        "name": "weekStart",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function calendar(opts?: CalendarOptions): string"
+  },
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "       \u001b[1mNovember 2026\u001b[0m\n \u001b[2mSu  Mo  Tu  We  Th  Fr  Sa\u001b[0m\n  1   2   \u001b[36m3*  \u001b[0m4   5   6   7\n  8   9  10  11 \u001b[7m[12]\u001b[0m 13  14\n 15  16  17  18  19  \u001b[36m20* \u001b[0m21\n 22  23  24  25  26  27  28\n 29  30"
+    }
+  }
+}

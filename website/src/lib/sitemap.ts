@@ -1,3 +1,4 @@
+import { COMPONENTS_HREF } from './components.ts';
 import { guideFile, guides } from './guides.ts';
 import { lastModified } from './last-modified.ts';
 import { guideHref } from './nav.ts';
@@ -16,10 +17,9 @@ import type { MetadataRoute } from 'next';
  * ## Sections
  *
  * Each part of the site is a function returning its own entries, and
- * `SECTIONS` lists them. The component pages are not here because they do not
- * exist yet: when they do, each is one more function that
- * reads the same source as its `generateStaticParams` (so the sitemap cannot
- * name a URL that is a 404) and one more line in the list. Nothing else changes.
+ * `SECTIONS` lists them. A new part of the site is one more function that reads
+ * the same source as its `generateStaticParams` (so the sitemap cannot name a URL
+ * that is a 404) and one more line in the list. Nothing else changes.
  *
  * ## Dates
  *
@@ -73,8 +73,20 @@ function docs(): Entry[] {
   });
 }
 
+/**
+ * The components index, dated by the list it is drawn from.
+ *
+ * `src/lib/components.ts` is what decides what the page lists, so its commit is
+ * when the page last changed in substance.
+ */
+function components(): Entry[] {
+  const modified = lastModified('src/lib/components.ts');
+
+  return [{ url: absoluteUrl(COMPONENTS_HREF), ...(modified ? { lastModified: modified } : {}) }];
+}
+
 /** Every section, in the order its entries are listed. */
-const SECTIONS: readonly (() => Entry[])[] = [home, docs, reference];
+const SECTIONS: readonly (() => Entry[])[] = [home, docs, components, reference];
 
 /** @returns The entries, absolute and without duplicates. */
 export function sitemapEntries(): Entry[] {

@@ -1,0 +1,63 @@
+{
+  "api": {
+    "interface": "DebugOverlayOptions",
+    "options": [
+      {
+        "description": "Whether the pane follows the newest line. Defaults to `true`.",
+        "default": "`true`",
+        "name": "follow",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "How many cells tall the pane is. Defaults to 12. A floor of three.",
+        "default": "12",
+        "name": "height",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Where the key binding goes. Without one there is no key and `toggle()` is it.",
+        "name": "input",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "Which key toggles the pane, as a predicate over the decoded key.",
+        "name": "key",
+        "optional": true,
+        "type": "(key: Key) => boolean"
+      },
+      {
+        "description": "The ring the pane shows. Defaults to one of its own.",
+        "default": "one of its own",
+        "name": "log",
+        "optional": true,
+        "type": "LogRing"
+      },
+      {
+        "description": "Whether to draw the stats line. Defaults to `true`.",
+        "default": "`true`",
+        "name": "stats",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether it starts visible. Defaults to `false`.",
+        "default": "`false`",
+        "name": "visible",
+        "optional": true,
+        "type": "boolean"
+      }
+    ],
+    "shared": [],
+    "signature": "function enableDebugOverlay(view: Renderer, opts?: DebugOverlayOptions): DebugOverlayHandle"
+  },
+  "registryDescription": "A debug overlay: captured console output and frame stats, inside the app",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\u001b[40m┌──────────────────────────────────────────────────────────────────────────────┐\u001b[0m\n\u001b[40m│\u001b[0m\u001b[40;1mdebug\u001b[0m\u001b[40m \u001b[0m\u001b[40;2m2 lines  stats off\u001b[0m\u001b[40m                                                      │\u001b[0m\n\u001b[40m│loaded 3 services                                                            \u001b[0m\u001b[40;36m█\u001b[0m\u001b[40m│\u001b[0m\n\u001b[40m│\u001b[0m\u001b[40;33meu-west-1 is slow to answer\u001b[0m\u001b[40m                                                  \u001b[0m\u001b[40;36m█\u001b[0m\u001b[40m│\u001b[0m\n\u001b[40m│                                                                             \u001b[0m\u001b[40;36m█\u001b[0m\u001b[40m│\u001b[0m\n\u001b[40m└──────────────────────────────────────────────────────────────────────────────┘\u001b[0m"
+    }
+  }
+}

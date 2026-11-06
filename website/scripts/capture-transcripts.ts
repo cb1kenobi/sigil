@@ -7,6 +7,7 @@ import {
   steps,
   write,
 } from '../../packages/cli/test/guides.ts';
+import { captureComponents } from './lib/component-capture.ts';
 import { captureHome } from './lib/home-capture.ts';
 import { strip } from '@ttylabs/sigil/ansi';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -43,6 +44,10 @@ import { join, relative } from 'node:path';
  * source of, shell completion, and `sigil --help` -- into
  * `src/transcripts/home/screens.json`. A subdirectory, because `captures()` reads
  * every `.json` beside the guides' and those have a `guide` and a list of runs.
+ *
+ * The components pages are the third, from `lib/component-capture.ts`: every
+ * component's example run on a faked terminal, and its options read off the
+ * built declarations, into `src/transcripts/components/<slug>.json`.
  *
  * It needs `@ttylabs/sigil` built, as the guide test does, and `@ttylabs/cli`
  * for the help screen.
@@ -102,4 +107,16 @@ const home = await captureHome();
 writeFileSync(homeFile, `${JSON.stringify(home, null, 2)}\n`);
 console.log(
   `  wrote ${relative(process.cwd(), homeFile)}  ${Object.keys(home.screens).length} screens`
+);
+
+const componentsDir = join(OUT, 'components');
+// emptied first, so that a component that has gone leaves no capture behind
+rmSync(componentsDir, { force: true, recursive: true });
+mkdirSync(componentsDir, { recursive: true });
+const components = await captureComponents();
+for (const [slug, capture] of Object.entries(components)) {
+  writeFileSync(join(componentsDir, `${slug}.json`), `${JSON.stringify(capture, null, 2)}\n`);
+}
+console.log(
+  `  wrote ${relative(process.cwd(), componentsDir)}/  ${Object.keys(components).length} components`
 );

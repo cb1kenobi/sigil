@@ -1,0 +1,97 @@
+{
+  "api": {
+    "interface": "ListOptions",
+    "options": [
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Returned when the line holds no entries. Shown dimmed in the empty field, joined the way `initial` is, unless `placeholder` says otherwise.",
+        "name": "default",
+        "optional": true,
+        "type": "readonly string[]"
+      },
+      {
+        "description": "What the field starts with, editable. A string is the line as it is; an array is joined with the separator, and is refused if splitting that line would not give the array back (an entry holding the separator, say, or one with whitespace around it). Unlike `default`, it is not a fallback.",
+        "name": "initial",
+        "optional": true,
+        "type": "string | readonly string[]"
+      },
+      {
+        "description": "Shown dimmed when nothing has been typed, in place of `default`.",
+        "name": "placeholder",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "What ends one entry and starts the next. A string is matched literally; a `RegExp` is matched wherever it matches, so `/[\\s,]+/` takes commas and spaces alike. Defaults to `','`. An empty string is refused: it would split between every character.",
+        "default": "`','`",
+        "name": "separator",
+        "optional": true,
+        "type": "string | RegExp"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "Checks the answer, after the line has been read. Return a string to reject it with that message, or anything falsy to accept. This is where a minimum or a maximum number of entries is enforced.",
+        "name": "validate",
+        "optional": true,
+        "type": "(value: string[]) => string | undefined | false | Promise<string | undefined | false>"
+      },
+      {
+        "description": "An answer to start from: the field opens holding it joined with the separator, which beats `initial`. One that does not survive being joined and split -- an answer given under another separator, say -- is dropped rather than refused, leaving `initial`.",
+        "name": "value",
+        "optional": true,
+        "type": "readonly string[]"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function list(opts: ListOptions): Promise<string[]>"
+  },
+  "registryDescription": "A list prompt: one line split on a separator and returned as an array",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mTags\u001b[0m api, cli, docs\u001b[7m \u001b[0m"
+    }
+  }
+}

@@ -61,6 +61,9 @@ describe('the header width', () => {
   it('should follow the docs layout for docs pages and no others', () => {
     assert.equal(isDocsPath('/docs/getting-started'), true);
     assert.equal(isDocsPath('/docs/components/spinner'), true);
+    // the index has no sidebar, and is as wide as the pages that have none
+    assert.equal(isDocsPath('/docs/components'), false);
+    assert.equal(isDocsPath('/docs/components/'), false);
     assert.equal(isDocsPath('/'), false);
     // the command reference has the sidebar and the rail, so it is as wide
     assert.equal(isDocsPath('/reference'), true);

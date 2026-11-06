@@ -1,0 +1,97 @@
+{
+  "api": {
+    "interface": "ProgressOptions",
+    "options": [
+      {
+        "description": "How wide the bar itself is. Defaults to a third of the terminal, 10-40.",
+        "default": "a third of the terminal",
+        "name": "barWidth",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The character drawn for the part still to do. Defaults to a light block.",
+        "default": "a light block",
+        "name": "empty",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Shows the time remaining beside the percentage. Defaults to false.",
+        "default": "false",
+        "name": "eta",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The character drawn for the part done. Defaults to a full block.",
+        "default": "a full block",
+        "name": "filled",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Reads the clock, in milliseconds. Defaults to `performance.now()`; a test passes its own.",
+        "default": "`performance.now()`",
+        "name": "now",
+        "optional": true,
+        "type": "() => number"
+      },
+      {
+        "description": "Shows how fast the work is going, in units a second. Defaults to false.",
+        "default": "false",
+        "name": "rate",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "How often a plain log line is written when there is no terminal, in percent. Defaults to 10.",
+        "default": "10",
+        "name": "step",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "A label shown before the bar.",
+        "name": "text",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "How many units of work there are. Defaults to 100.",
+        "default": "100",
+        "name": "total",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "What a unit of work is called, shown after the rate: `files` reads `3.2 files/s`.",
+        "name": "unit",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The estimator's time constant, in milliseconds. Defaults to 5000.",
+        "default": "5000",
+        "name": "window",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function createProgress(opts?: ProgressOptions): Progress"
+  },
+  "registryDescription": "A progress bar that falls back to a percentage where there is no terminal",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "Copying src/file-25.js \u001b[36m████████████████░░░░░░░░░░\u001b[0m 60%"
+    }
+  }
+}

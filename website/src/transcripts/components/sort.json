@@ -1,0 +1,93 @@
+{
+  "api": {
+    "interface": "SortOptions",
+    "options": [
+      {
+        "description": "What to put in order, in the order it starts in. A choice marked `disabled` is pinned: it keeps its place in the list, cannot be picked up, and the rows around it move past it.",
+        "name": "choices",
+        "optional": false,
+        "type": "readonly (Choice<T> | string)[]"
+      },
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Which row starts highlighted, by index into `choices`. Defaults to 0. A disabled choice is passed over for the next one that can be moved.",
+        "default": "0",
+        "name": "initial",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Whether the highlight wraps from one end of the list to the other. Defaults to `true`. A row being carried never wraps, whatever this says.",
+        "default": "`true`",
+        "name": "loop",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "How many rows the list may take. Defaults to what the terminal has left under the question.",
+        "default": "what the terminal has left under the question",
+        "name": "rows",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "An answer to start from: the order the list opens in. The rows it names come first, in its order, and the rest after them in theirs; a pinned row keeps its place either way, and a value no movable row holds is dropped.",
+        "name": "value",
+        "optional": true,
+        "type": "readonly T[]"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function sort<T = string>(opts: SortOptions<T>): Promise<T[]>"
+  },
+  "registryDescription": "A sort prompt: pick a row up and move it to put a list in order",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mRelease order\u001b[0m\n\u001b[1;36m❯\u001b[0m \u001b[2;36m1.\u001b[0m \u001b[1;36mrenderer\u001b[0m\n  \u001b[2m2.\u001b[0m parser\n  \u001b[2m3.\u001b[0m prompts\n  \u001b[2m4.\u001b[0m toolchain\n  \u001b[36m↑/↓\u001b[0m \u001b[2mmove\u001b[0m \u001b[2m·\u001b[0m \u001b[36mspace\u001b[0m \u001b[2mdrop\u001b[0m \u001b[2m·\u001b[0m \u001b[36menter\u001b[0m \u001b[2mconfirm\u001b[0m"
+    }
+  }
+}

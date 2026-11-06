@@ -1,0 +1,42 @@
+{
+  "api": {
+    "interface": "TabsProps",
+    "options": [
+      {
+        "description": "The tabs, in order. At least one.",
+        "name": "tabs",
+        "optional": false,
+        "type": "readonly Tab[]"
+      },
+      {
+        "description": "Which tab is active, as a zero-based index.",
+        "default": "the first",
+        "name": "active",
+        "optional": true,
+        "type": "number | State<number>"
+      },
+      {
+        "description": "Draw the row with ASCII only. Defaults to what `unicodeSupported()` says, which is the rule `Collapsible` and the charts keep.",
+        "default": "what `unicodeSupported()` says",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The host box's own props: a class, a margin, a width, a height.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementProps"
+      }
+    ],
+    "shared": [],
+    "signature": "function Tabs(props: TabsProps): Element"
+  },
+  "registryDescription": "Tabs: a row of labels with one active, and the panels it switches",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[2m Overview \u001b[0m\u001b[1;7;36m Logs \u001b[0m\u001b[2m Network \u001b[0m\n\u001b[2m──────────\u001b[0m\u001b[36m━━━━━━\u001b[0m\u001b[2m────────────────────────────────────────────────────────────────\u001b[0m\n12:01 deploy started\n12:04 migrations ran\n12:05 deploy finished"
+    }
+  }
+}

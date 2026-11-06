@@ -1,5 +1,5 @@
-import { environment, run } from '../../../packages/cli/test/guides.ts';
-import { StyledScreen } from './styled-screen.ts';
+import { run } from '../../../packages/cli/test/guides.ts';
+import { captureEnv as env, runJson, screenOf } from './capture.ts';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,20 +10,22 @@ import { join } from 'node:path';
  *
  * Every terminal on the home page is something a program printed, with its
  * colour: the toolchain's own `--help`, the `todo` app the parser section shows
- * the source of, the prompts and components in the hero, the card previews and
- * the accessible-mode pair. This is where each one is produced, and
+ * the source of, the prompts in the hero and the accessible-mode pair. This is
+ * where each one is produced, and
  * `capture-transcripts.ts` writes the result to
  * `src/transcripts/home/screens.json` -- the same mechanism, and the same
  * reasons, as the guides' captures beside it. `test/home-captures.test.ts`
  * runs this again and fails when the committed file is not what comes back, so
  * a change to a demo, a component, a command or the `todo` source cannot leave
- * the page showing output nobody produces any more.
+ * the page showing output nobody produces any more. The component cards are the
+ * components index's, captured from each component's own example by
+ * `component-capture.ts` through the same `capture.ts`.
  *
  * Four sources, and none of them is typed by hand:
  *
  * - the **scenes** in `home-scenes.mjs`, which are prompts driven through
- *   `createTestTerminal()` and components called with their real options, run
- *   as a child so that colour can be forced on the process;
+ *   `createTestTerminal()`, run as a child so that colour can be forced on the
+ *   process;
  * - the **`todo` app** in `src/content/home/todo.mjs`, which is also the source
  *   the page shows, so the listing and the output cannot disagree;
  * - **shell completion**, which is the script `todo completion bash` prints,
@@ -62,34 +64,14 @@ export interface HomeCapture {
   readonly screens: Readonly<Record<string, HomeScreen>>;
 }
 
-/** The environment a capture is run in: colour forced, everything else fixed. */
-function env(columns = COLUMNS): NodeJS.ProcessEnv {
-  return { ...environment([], {}), COLUMNS: String(columns), FORCE_COLOR: '1' };
-}
-
 /** What `home-scenes.mjs` prints. */
 type Scenes = Record<string, { columns: number; kind: 'screen' | 'text'; output: string }>;
 
 /** Runs the scenes as a child, with colour forced on the process. */
 function scenes(): Promise<Scenes> {
-  return new Promise((settle, fail) => {
-    const child = spawn(process.execPath, [join(import.meta.dirname, 'home-scenes.mjs')], {
-      cwd: SITE,
-      env: env(),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stderr = '';
-    let stdout = '';
-    child.stderr.on('data', (chunk: Buffer) => void (stderr += chunk.toString()));
-    child.stdout.on('data', (chunk: Buffer) => void (stdout += chunk.toString()));
-    child.on('error', fail);
-    child.on('close', (code) => {
-      if (code !== 0) {
-        fail(new Error(`home-scenes.mjs exited ${code}:\n${stderr}`));
-        return;
-      }
-      settle(JSON.parse(stdout) as Scenes);
-    });
+  return runJson<Scenes>(join(import.meta.dirname, 'home-scenes.mjs'), [], {
+    cwd: SITE,
+    env: env(COLUMNS),
   });
 }
 
@@ -156,14 +138,12 @@ export async function captureHome(): Promise<HomeCapture> {
       out[id] = { columns: scene.columns, runs: [{ output: scene.output }] };
       continue;
     }
-    const screen = new StyledScreen(scene.columns, 24);
-    screen.write(scene.output);
-    out[id] = { columns: scene.columns, runs: [{ output: screen.toSgr() }] };
+    out[id] = { columns: scene.columns, runs: [{ output: screenOf(scene.output, scene.columns) }] };
   }
 
   const todo = async (command: string, argv: string[]) => ({
     command,
-    output: (await run(join(TODO, '..'), ['todo.mjs', ...argv], env())).output,
+    output: (await run(join(TODO, '..'), ['todo.mjs', ...argv], env(COLUMNS))).output,
   });
 
   out.parser = {

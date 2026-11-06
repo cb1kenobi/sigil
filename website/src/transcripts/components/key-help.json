@@ -1,0 +1,35 @@
+{
+  "api": {
+    "interface": "KeyHelpOptions",
+    "options": [
+      {
+        "description": "Whether to list every binding under its group, one to a line.",
+        "name": "expanded",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
+        "description": "The terminal whose width is the default.",
+        "name": "terminal",
+        "optional": true,
+        "type": "{ readonly width: number; }"
+      },
+      {
+        "description": "How many columns the short form may use.",
+        "default": "the terminal's width",
+        "name": "width",
+        "optional": true,
+        "type": "number | (() => number)"
+      }
+    ],
+    "shared": [],
+    "signature": "function keyHelp(router: KeyHelpSource, opts?: KeyHelpOptions): Element"
+  },
+  "registryDescription": "A key-help footer generated from the key bindings that are live",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "3 services running\n\u001b[36mr\u001b[0m \u001b[2mrefresh\u001b[0m \u001b[2m·\u001b[0m \u001b[36md\u001b[0m \u001b[2mdeploy\u001b[0m \u001b[2m·\u001b[0m \u001b[36m?\u001b[0m \u001b[2mhelp\u001b[0m"
+    }
+  }
+}

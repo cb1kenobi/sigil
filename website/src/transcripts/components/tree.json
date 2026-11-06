@@ -1,0 +1,72 @@
+{
+  "api": {
+    "interface": "TreeOptions",
+    "options": [
+      {
+        "description": "Draw with ASCII only. Defaults to what `unicodeSupported()` says of `env` and `platform`.",
+        "default": "what `unicodeSupported()` says of `env` and `platform`",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "A marker drawn after the guide, as `outline()` draws one: a style name, a function of `{ index, depth, count, item }`, or an array of either read by depth. Defaults to `'none'`, which is a tree with no numbering.",
+        "default": "`'none'`",
+        "name": "enumerator",
+        "optional": true,
+        "type": "OutlineEnumerator | readonly OutlineEnumerator[]"
+      },
+      {
+        "description": "The environment to read the terminal from. Defaults to `process.env`.",
+        "default": "`process.env`",
+        "name": "env",
+        "optional": true,
+        "type": "Record<string, string | undefined>"
+      },
+      {
+        "description": "The lines between items. Defaults to `plain`.",
+        "default": "`plain`",
+        "name": "guide",
+        "optional": true,
+        "type": "TreeGuide"
+      },
+      {
+        "description": "How far the whole block is indented. Defaults to 0.",
+        "default": "0",
+        "name": "indent",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The platform to detect for. Defaults to `process.platform`.",
+        "default": "`process.platform`",
+        "name": "platform",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The number a counting enumerator starts from. Defaults to 1.",
+        "default": "1",
+        "name": "start",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The widest the block may be. Defaults to `terminalWidth()`.",
+        "default": "`terminalWidth()`",
+        "name": "width",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function tree(items: readonly OutlineItem[] | TreeRoot, opts?: TreeOptions): string"
+  },
+  "registryDescription": "A tree: nested data printed with ├── and └──, a prompt that opens and closes branches read on demand, and a directory tree",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "my-app\n\u001b[2m├── \u001b[0mpackage.json\n\u001b[2m├── \u001b[0msrc\n\u001b[2m│   ├── \u001b[0mindex.ts\n\u001b[2m│   └── \u001b[0mcommands\n\u001b[2m│       ├── \u001b[0mbuild.ts\n\u001b[2m│       └── \u001b[0mdeploy.ts\n\u001b[2m└── \u001b[0mtest\n    \u001b[2m└── \u001b[0mbuild.test.ts"
+    }
+  }
+}

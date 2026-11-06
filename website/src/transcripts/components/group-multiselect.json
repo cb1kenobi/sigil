@@ -1,0 +1,106 @@
+{
+  "api": {
+    "interface": "GroupMultiselectOptions",
+    "options": [
+      {
+        "description": "What to offer, as group name to the choices under it. Groups are listed in the order the object holds them. A choice is what `multiselect()` takes: `disabled` and `selected` mean the same, and a `description` is shown while it is highlighted. A separator is not allowed -- the groups are the headings.",
+        "name": "choices",
+        "optional": false,
+        "type": "Readonly<Record<string, readonly (Choice<T> | string)[]>>"
+      },
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether the cursor wraps from one end of the list to the other. Defaults to `true`; `false` stops it at the first and last row on offer.",
+        "default": "`true`",
+        "name": "loop",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Refuse more than this many choices. Unlimited if omitted. Groups are not counted.",
+        "name": "max",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Refuse fewer than this many. Defaults to 0, or 1 when `required`.",
+        "default": "0",
+        "name": "min",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Refuse an empty selection. Defaults to `false`. Same as `min: 1`.",
+        "default": "`false`",
+        "name": "required",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "Whether a group's heading can be ticked. Defaults to `true`. `false` makes a heading a heading: the cursor steps over it and only the choices under it can be ticked.",
+        "default": "`true`",
+        "name": "selectableGroups",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "An answer to start from: exactly the choices on offer whose `value` is in it start ticked, and every `selected` is ignored -- what `multiselect()` does with one. A value no choice on offer holds is dropped.",
+        "name": "value",
+        "optional": true,
+        "type": "readonly T[]"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): Promise<T[]>"
+  },
+  "registryDescription": "A multiselect with its choices under named groups, where a group ticks its children",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mStack\u001b[0m\n  \u001b[36m◐\u001b[0m \u001b[1mFrontend\u001b[0m\n    \u001b[32m◉\u001b[0m React\n    ◯ Vue\n    ◯ Svelte\n\u001b[36m❯\u001b[0m \u001b[32m◉\u001b[0m \u001b[1;36mBackend\u001b[0m\n    \u001b[32m◉\u001b[0m Express\n    \u001b[32m◉\u001b[0m Fastify\n  ◯ \u001b[1mTooling\u001b[0m\n    ◯ CI\n    ◯ Linting \u001b[2moxlint\u001b[0m\n  \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36ma\u001b[0m \u001b[2mall\u001b[0m \u001b[2m·\u001b[0m \u001b[36mi\u001b[0m \u001b[2minvert\u001b[0m \u001b[2m·\u001b[0m \u001b[36menter\u001b[0m \u001b[2mconfirm\u001b[0m"
+    }
+  }
+}

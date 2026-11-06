@@ -1,0 +1,111 @@
+{
+  "api": {
+    "interface": "DateOptions",
+    "options": [
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Shows a month grid under the field, with the day the field holds selected. `true` takes the defaults; an object also names the language, the weekday a row starts on and the days to mark. Page Up and Page Down then change the month.",
+        "name": "calendar",
+        "optional": true,
+        "type": "boolean | CalendarGridOptions"
+      },
+      {
+        "description": "Where the field starts. Defaults to now, truncated to what is shown and pulled into `min` and `max`. One given here is taken as it is, so it can start outside the range -- and Enter on it is then an error rather than a quiet move to the nearest bound.",
+        "default": "now",
+        "name": "initial",
+        "optional": true,
+        "type": "Date"
+      },
+      {
+        "description": "The latest answer, inclusive at the precision shown.",
+        "name": "max",
+        "optional": true,
+        "type": "Date"
+      },
+      {
+        "description": "The earliest answer, inclusive at the precision shown.",
+        "name": "min",
+        "optional": true,
+        "type": "Date"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "Shows the second too, which implies `time`. Defaults to `false`.",
+        "default": "`false`",
+        "name": "seconds",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "Shows the hour and minute as well. Defaults to `false`: a date.",
+        "default": "`false`: a date",
+        "name": "time",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Checks the answer. Return a string to reject it with that message, or anything falsy to accept.",
+        "name": "validate",
+        "optional": true,
+        "type": "(value: Date) => string | undefined | false | Promise<string | undefined | false>"
+      },
+      {
+        "description": "An answer to start from: where the field starts, beating `initial` and taken as it is the same way. One that is not a valid date is dropped rather than refused, leaving `initial` to decide.",
+        "name": "value",
+        "optional": true,
+        "type": "Date"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function date(opts: DateOptions): Promise<Date>"
+  },
+  "registryDescription": "A date prompt: year, month and day segments, with min and max",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mRelease date\u001b[0m 2026\u001b[2m-\u001b[0m\u001b[7m12\u001b[0m\u001b[2m-\u001b[0m04"
+    }
+  }
+}

@@ -103,6 +103,17 @@ describe('tighten()', () => {
     );
   });
 
+  it('should leave a column of labelled bars alone, which are lines that hold a bar', () => {
+    const rows = glyphRows(
+      'react      ████████ 100%\ntypescript ██████░░  80%\nesbuild    █████░░░  75%'
+    );
+
+    assert.deepEqual(
+      rows.map((row) => row.tight === true),
+      [false, false, false]
+    );
+  });
+
   it('should not mark rows with no blocks in them', () => {
     assert.equal(
       tighten([{ spans: [{ text: '─────' }] }, { spans: [{ text: '│ x │' }] }]).some(

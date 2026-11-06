@@ -1,0 +1,22 @@
+{
+  "api": {
+    "interface": "GroupOptions",
+    "options": [
+      {
+        "description": "Called with the answers collected so far when a step is cancelled.",
+        "name": "onCancel",
+        "optional": true,
+        "type": "(partial: Partial<T>, error: PromptError) => Error | Promise<Error | void> | void"
+      }
+    ],
+    "shared": [],
+    "signature": "function group<T>(steps: GroupSteps<T>, opts?: GroupOptions<T>): Promise<T>"
+  },
+  "registryDescription": "group() to run prompts as one flow, and intro, outro and cancel to frame the session",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m▶ \u001b[0m\u001b[1mcreate-app\u001b[0m\n\u001b[32m?\u001b[0m \u001b[1mProject name\u001b[0m \u001b[2mledger\u001b[0m\n\u001b[36m?\u001b[0m \u001b[1mTemplate for ledger\u001b[0m\n\u001b[36m❯\u001b[0m \u001b[36mcli\u001b[0m\n  full-screen\n  prompts only"
+    }
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "api": {
+    "interface": "MaskedTextOptions",
+    "options": [
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "The shape of the answer. A slot character takes input and any other is drawn as it is.",
+        "name": "template",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Answered when nothing has been typed. A string is read the way a paste is, so `'5551234567'` and `'(555) 123-4567'` are the same default; it has to fill every slot, and the answer is the formatted text either way. Shown dimmed in the empty field in place of the blank template, unless `placeholder` says otherwise.",
+        "name": "default",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "What the field starts with, editable. Read the way a paste is, and refused if any of it does not fit the template. It may leave slots empty; unlike `default` it is not a fallback.",
+        "name": "initial",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Shown dimmed while nothing has been typed, in place of the blank template.",
+        "name": "placeholder",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Slots of your own, by the character that stands for them in `template`, each a single character. They are added to `MASK_SLOTS`, and replace one of those where they share a character.",
+        "name": "slots",
+        "optional": true,
+        "type": "Readonly<Record<string, MaskSlot>>"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "Checks the answer, once every slot is filled. Receives the formatted text. Return a string to reject it with that message, or anything falsy to accept.",
+        "name": "validate",
+        "optional": true,
+        "type": "(value: string) => string | undefined | false | Promise<string | undefined | false>"
+      },
+      {
+        "description": "An answer to start from: the field opens holding it, read the way `initial` is, which it beats. One that does not fit the template -- an answer to a template that has since changed -- is dropped rather than refused, leaving `initial`.",
+        "name": "value",
+        "optional": true,
+        "type": "string"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function maskedText(opts: MaskedTextOptions): Promise<string>"
+  },
+  "registryDescription": "A masked text prompt: a line that follows a template, with fixed characters skipped",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mPhone\u001b[0m (612) 555-\u001b[7m_\u001b[0m___"
+    }
+  }
+}

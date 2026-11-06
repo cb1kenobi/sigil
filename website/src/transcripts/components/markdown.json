@@ -1,0 +1,63 @@
+{
+  "api": {
+    "interface": "MarkdownOptions",
+    "options": [
+      {
+        "description": "What a relative link is resolved against, such as the repository a README came from. Without one a relative link is not a hyperlink -- a terminal has nothing to resolve it against -- and its path is shown beside its words.",
+        "name": "baseUrl",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The environment to read the terminal from. Defaults to `process.env`.",
+        "default": "`process.env`",
+        "name": "env",
+        "optional": true,
+        "type": "Record<string, string | undefined>"
+      },
+      {
+        "description": "Says which stretches of a code block are which tokens, for syntax highlighting -- the hook `diff()` and `multiline()` take, with the block's language beside the code.",
+        "name": "highlight",
+        "optional": true,
+        "type": "(code: string, lang: string | undefined) => readonly HighlightSpan[]"
+      },
+      {
+        "description": "Whether a link is an OSC 8 hyperlink, with its URL out of sight, or its words with the URL after them. Defaults to `supportsHyperlinks()` for `stream`, and is always the second at colour level 0, which writes no escape sequence.",
+        "default": "`supportsHyperlinks()` for `stream`",
+        "name": "hyperlinks",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The platform to detect for. Defaults to `process.platform`.",
+        "default": "`process.platform`",
+        "name": "platform",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The stream the output is bound for. Defaults to `process.stdout`.",
+        "default": "`process.stdout`",
+        "name": "stream",
+        "optional": true,
+        "type": "{ columns?: number; isTTY?: boolean; }"
+      },
+      {
+        "description": "The columns to wrap at. Defaults to `terminalWidth()`, never under 10.",
+        "default": "`terminalWidth()`",
+        "name": "width",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function markdown(source: string | readonly MarkdownBlock[], opts?: MarkdownOptions): string"
+  },
+  "registryDescription": "Markdown drawn as styled text: headings, emphasis, code, lists, quotes, tables and OSC 8 links, wrapped to the terminal",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[1mUnreleased\u001b[0m\n\n\u001b[2m• \u001b[0mTooltips follow a \u001b[1mscrolled \u001b[0manchor\n\u001b[2m• \u001b[0m\u001b[36mselect() \u001b[0mtakes an AbortSignal\n\n\u001b[2m│ \u001b[0mRun \u001b[36mpnpm build \u001b[0monce before the tests."
+    }
+  }
+}

@@ -1,3 +1,4 @@
+import { Breadcrumb, type Crumb } from '@/components/breadcrumb';
 import { DocsMarkdown } from '@/components/docs-markdown';
 import { DocsPageLinks } from '@/components/docs-page-links';
 import { DocsRail } from '@/components/docs-rail';
@@ -6,12 +7,6 @@ import type { PagerLink } from '@/lib/nav';
 import { REPO_NEW_ISSUE_URL, repoFileUrl } from '@/lib/site';
 import Link from 'next/link';
 import type { ComponentProps } from 'react';
-
-/** One step of the path to a page. The last has no `href` and is the page. */
-export interface Crumb {
-  label: string;
-  href?: string;
-}
 
 /**
  * A card at the foot of a page: the page before or after it, in its section.
@@ -99,22 +94,7 @@ export function DocsPage({
   return (
     <>
       <div className="min-w-0 max-w-[760px] flex-1 pt-8 pb-24 md:pt-12">
-        <nav aria-label="Breadcrumb">
-          <ol className="flex flex-wrap items-center gap-x-1.5 font-mono text-xs text-muted">
-            {crumbs.map((crumb, index) => (
-              <li key={crumb.label} className="flex items-center gap-x-1.5">
-                {index > 0 ? <span aria-hidden="true">/</span> : null}
-                {crumb.href ? (
-                  <Link href={crumb.href} className="hover:text-white">
-                    {crumb.label}
-                  </Link>
-                ) : (
-                  <span aria-current="page">{crumb.label}</span>
-                )}
-              </li>
-            ))}
-          </ol>
-        </nav>
+        <Breadcrumb crumbs={crumbs} />
 
         <h1
           className={`mt-5 text-fg-strong ${mono ? 'font-mono text-[30px] sm:text-[40px]' : 'text-[38px] sm:text-page'}`}

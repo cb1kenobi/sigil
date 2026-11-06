@@ -1,14 +1,15 @@
 import { CodeBlock } from '@/components/code-block';
+import { ComponentCard } from '@/components/component-card';
 import { Glow } from '@/components/glow';
-import { HomeScreen, ScreenPreview } from '@/components/home-screen';
+import { HomeScreen } from '@/components/home-screen';
 import { InstallCommand } from '@/components/install-command';
 import { Seal } from '@/components/seal';
+import { COMPONENTS_HREF } from '@/lib/components';
 import {
   ACCESSIBLE_MODE_HREF,
-  COMPONENT_CARDS,
+  HOME_COMPONENTS,
   HOME_LEDE,
   TODO_FILE,
-  componentHref,
   todoSource,
   WRITING_CARD,
 } from '@/lib/home';
@@ -223,23 +224,14 @@ export default function Home() {
                 </p>
               </SectionIntro>
             </div>
-            <Link className={`h-11 ${OUTLINE_BUTTON}`} href="/docs/components">
+            <Link className={`h-11 ${OUTLINE_BUTTON}`} href={COMPONENTS_HREF}>
               All components <Arrow />
             </Link>
           </div>
           <ul className="flex flex-wrap gap-5">
-            {COMPONENT_CARDS.map((card) => (
-              <li className="flex min-w-0 flex-[1_1_360px]" key={card.slug}>
-                <Link
-                  className="flex w-full min-w-0 flex-col overflow-hidden rounded-panel border border-line-panel bg-surface hover:border-line-strong"
-                  href={componentHref(card.slug)}
-                >
-                  <ScreenPreview id={card.screen} />
-                  <span className="flex flex-col gap-1.5 px-5 pt-4 pb-5">
-                    <span className="font-mono text-sm font-bold text-fg-strong">{card.name}</span>
-                    <span className="text-small text-muted">{card.description}</span>
-                  </span>
-                </Link>
+            {HOME_COMPONENTS.map((slug) => (
+              <li className="flex min-w-0 flex-[1_1_360px]" key={slug}>
+                <ComponentCard size="home" slug={slug} />
               </li>
             ))}
           </ul>

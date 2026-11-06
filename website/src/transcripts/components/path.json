@@ -1,0 +1,118 @@
+{
+  "api": {
+    "interface": "PathOptions",
+    "options": [
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Candidates and answers are directories only. Defaults to `false`.",
+        "default": "`false`",
+        "name": "directory",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Which files are offered, by extension, with or without the dot. Directories are always offered, because the way to a file is through one.",
+        "name": "extensions",
+        "optional": true,
+        "type": "readonly string[]"
+      },
+      {
+        "description": "Offer dotfiles. Defaults to `false`; a segment that starts with `.` asks for them.",
+        "default": "`false`",
+        "name": "hidden",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "What the field starts with.",
+        "name": "initial",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Shown dimmed when nothing has been typed.",
+        "name": "placeholder",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Where a relative path starts. Defaults to the working directory.",
+        "default": "the working directory",
+        "name": "root",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "How many rows the list may take. Defaults to what the terminal has left.",
+        "default": "what the terminal has left",
+        "name": "rows",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "Checks the answer. Return a string to reject it with that message, or anything falsy to accept. Receives the answer in the form it will be returned in -- `~` expanded, resolved against `root` if one was given.",
+        "name": "validate",
+        "optional": true,
+        "type": "(value: string) => string | undefined | false | Promise<string | undefined | false>"
+      },
+      {
+        "description": "An answer to start from: the field opens holding it, as it does `initial`, which it beats. An answer is absolute when `root` was given, and a field that starts with an absolute path completes from there like any other.",
+        "name": "value",
+        "optional": true,
+        "type": "string"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function path(opts: PathOptions): Promise<string>"
+  },
+  "registryDescription": "A path prompt: a text field that completes against the file system",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mConfig file\u001b[0m src/co\u001b[7m \u001b[0m\n    commands/\n    config.json\n    config.ts"
+    }
+  }
+}

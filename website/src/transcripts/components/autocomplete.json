@@ -1,0 +1,104 @@
+{
+  "api": {
+    "interface": "AutocompleteOptions",
+    "options": [
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "What to offer, filtered by what is typed. Give this or `source`, not both. A choice marked `disabled` is left out, and a list of nothing else is refused the way an empty one is.",
+        "name": "choices",
+        "optional": true,
+        "type": "readonly (Choice<T> | string)[]"
+      },
+      {
+        "description": "The text the field starts with. Defaults to nothing.",
+        "default": "nothing",
+        "name": "initial",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Shown dimmed when nothing has been typed.",
+        "name": "placeholder",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "How many rows the list may take. Defaults to what the terminal has left under the question.",
+        "default": "what the terminal has left under the question",
+        "name": "rows",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Looks the choices up instead of filtering a list. The result is shown as it is: the source is the filter, so nothing is re-ranked here.",
+        "name": "source",
+        "optional": true,
+        "type": "AutocompleteSource<T>"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "Checks the chosen value. Return a string to refuse it with that message, or anything falsy to accept.",
+        "name": "validate",
+        "optional": true,
+        "type": "(value: T) => string | undefined | false | Promise<string | undefined | false>"
+      },
+      {
+        "description": "An answer to start from: the choice whose `value` this is starts highlighted in the first list on offer -- the one `choices` gives for `initial`, or what the source answers first. Compared the way a `Map` compares keys, and dropped when that list does not hold it or a key is pressed before it arrives.",
+        "name": "value",
+        "optional": true,
+        "type": "T"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function autocomplete<T = string>(opts: AutocompleteOptions<T>): Promise<T>"
+  },
+  "registryDescription": "autocomplete() and autocompleteMultiselect(): type to filter a list, or search an async source",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mRegion\u001b[0m eu\u001b[7m \u001b[0m\n  \u001b[36m❯\u001b[0m \u001b[1;36meu\u001b[0m\u001b[36m-west-1\u001b[0m \u001b[2;36mIreland\u001b[0m\n    \u001b[1meu\u001b[0m-central-1 \u001b[2mFrankfurt\u001b[0m"
+    }
+  }
+}

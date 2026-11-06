@@ -1,0 +1,79 @@
+{
+  "api": {
+    "interface": "EditorOptions",
+    "options": [
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "What the file starts with, which the person then edits.",
+        "name": "default",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The command to run, ahead of `$VISUAL` and `$EDITOR`.",
+        "name": "editor",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Appended to the temporary file's name, so the editor picks a syntax mode: `.md`, `.json`, `.yaml`. Defaults to `.txt`.",
+        "default": "`.txt`",
+        "name": "postfix",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "Checks the answer. Return a string to reject it with that message, or anything falsy to accept. A rejected answer is shown under the question, and Enter opens the editor again on exactly what was saved.",
+        "name": "validate",
+        "optional": true,
+        "type": "(value: string) => string | undefined | false | Promise<string | undefined | false>"
+      },
+      {
+        "description": "An answer to start from: the file opens holding it, the way it would hold `default`. Beats `default`, which is how `group()` re-asks a step with the answer it was given. A value that is not a string is dropped rather than refused, because after going back a stale answer is the ordinary case.",
+        "name": "value",
+        "optional": true,
+        "type": "string"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function editor(opts: EditorOptions): Promise<string>"
+  },
+  "registryDescription": "An editor prompt: write the answer in $VISUAL or $EDITOR, from a temporary file removed on every exit",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mRelease notes\u001b[0m \u001b[2mPress Enter to open your editor\u001b[0m"
+    }
+  }
+}

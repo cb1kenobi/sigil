@@ -1,0 +1,87 @@
+{
+  "api": {
+    "interface": "ToggleOptions",
+    "options": [
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "What the `true` state is called. Defaults to `on`.",
+        "default": "`on`",
+        "name": "active",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "What the `false` state is called. Defaults to `off`.",
+        "default": "`off`",
+        "name": "inactive",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The state the prompt starts in. Defaults to `false`, which is the left-hand one.",
+        "default": "`false`",
+        "name": "initial",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "An answer to start from: the state the prompt opens in, which beats `initial`. A value that is not a boolean is dropped rather than refused, since it is an answer handed back rather than an option somebody wrote.",
+        "name": "value",
+        "optional": true,
+        "type": "boolean"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function toggle(opts: ToggleOptions): Promise<boolean>"
+  },
+  "registryDescription": "A toggle prompt: a setting with two named states, flipped with the arrows, Tab or Space",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mTelemetry\u001b[0m \u001b[2m◯ off\u001b[0m  \u001b[36m◉ on\u001b[0m"
+    }
+  }
+}

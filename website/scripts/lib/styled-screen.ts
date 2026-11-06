@@ -23,13 +23,24 @@ import { createSgrState } from '@ttylabs/sigil/wrap';
  * What it does not model is a screen that scrolls, because a record keyed by row
  * would then name the wrong rows. `toSgr()` throws instead, which is the signal
  * to give the scene more rows than it uses.
+ *
+ * The alternate screen is a second record, as it is a second buffer to
+ * `Screen`: a full-screen app draws on it, and `toSgr()` answers whichever of the
+ * two is in front -- which is what the reader of a running app is looking at.
  */
 
 const ESC = String.fromCharCode(0x1b);
 
-/** One token of output: an SGR sequence, an erase, or anything else. */
+/**
+ * One token of output: an SGR sequence, an erase, a query, or anything else.
+ *
+ * A query is a CSI with a private marker (`ESC[>q`, which asks the terminal's
+ * name and version) or the device-attributes request `ESC[c`: a full-screen app
+ * asks both as it starts, they draw nothing, and `Screen` does not parse them,
+ * so they are dropped here before it sees them.
+ */
 const TOKEN = new RegExp(
-  `${ESC}\\[([\\d;:]*)([mJK])|${ESC}\\[[\\d;:?]*[A-Za-z]|${ESC}\\][^${ESC}\\u0007]*(?:${ESC}\\\\|\\u0007)|[\\r\\n\\b]|[^${ESC}\\r\\n\\b]+|${ESC}`,
+  `(${ESC}\\[[<=>][\\d;:]*[ -/]*[@-~]|${ESC}\\[0?c)|${ESC}\\[([\\d;:]*)([mJK])|${ESC}\\[[\\d;:?]*[A-Za-z]|${ESC}\\][^${ESC}\\u0007]*(?:${ESC}\\\\|\\u0007)|[\\r\\n\\b]|[^${ESC}\\r\\n\\b]+|${ESC}`,
   'gu'
 );
 
@@ -41,18 +52,29 @@ const TOKEN = new RegExp(
 type Style = string;
 
 export class StyledScreen extends Screen {
-  /** Row, then column, to the style that cell was written in. */
-  readonly #styles: (Style | undefined)[][];
+  /** Row, then column, to the style that cell was written in, for the main screen. */
+  readonly #main: (Style | undefined)[][];
+  /** The same for the alternate screen, which entering it clears. */
+  #alt: (Style | undefined)[][] = [];
   readonly #state = createSgrState();
 
   constructor(width: number, height: number) {
     super(width, height);
-    this.#styles = Array.from({ length: height }, () => []);
+    this.#main = Array.from({ length: height }, () => []);
+  }
+
+  /** The record of whichever screen is in front. */
+  get #styles(): (Style | undefined)[][] {
+    return this.alternate ? this.#alt : this.#main;
   }
 
   override write(output: string): void {
     for (const match of output.matchAll(TOKEN)) {
-      const [token, params, final] = match;
+      const [token, query, params, final] = match;
+
+      if (query) {
+        continue;
+      }
 
       if (final === 'm') {
         // the tracker the wrapper uses: a close code takes one attribute away
@@ -69,7 +91,12 @@ export class StyledScreen extends Screen {
       }
 
       if (token.startsWith(ESC) || token === '\r' || token === '\n' || token === '\b') {
+        const was = this.alternate;
         super.write(token);
+        if (this.alternate && !was) {
+          // entering it clears it, so its record starts empty
+          this.#alt = Array.from({ length: this.height }, () => []);
+        }
         continue;
       }
 
@@ -137,7 +164,7 @@ export class StyledScreen extends Screen {
    * @returns The screen, with its colour.
    */
   toSgr(): string {
-    if (this.log.length !== this.height) {
+    if (!this.alternate && this.log.length !== this.height) {
       throw new Error('a scene scrolled: give it a taller screen than the rows it uses');
     }
     const lines: string[] = [];

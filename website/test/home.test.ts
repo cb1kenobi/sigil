@@ -1,5 +1,6 @@
+import { componentEntry, componentHref } from '../src/lib/components.ts';
 import {
-  COMPONENT_CARDS,
+  HOME_COMPONENTS,
   HOME_LEDE,
   HOME_SCREENS,
   homeRows,
@@ -37,7 +38,7 @@ describe('the home page', () => {
     const colour = (id: Parameters<typeof homeRows>[0]) =>
       homeRows(id).rows.some((row) => row.spans.some((span) => span.className));
 
-    for (const id of ['hero', 'select', 'log', 'tasks', 'diff', 'rendered'] as const) {
+    for (const id of ['hero', 'rendered'] as const) {
       assert.ok(colour(id), `${id} has colour`);
     }
   });
@@ -63,21 +64,28 @@ describe('the parser section', () => {
 });
 
 describe('the components section', () => {
-  it('should name six components, each made of exports of the components entry', () => {
+  it('should show six components, each one in the components list', () => {
     const exported = components as Record<string, unknown>;
 
-    assert.equal(COMPONENT_CARDS.length, 6);
-    for (const card of COMPONENT_CARDS) {
-      for (const name of card.name.match(/[a-z]+/g) ?? []) {
-        assert.ok(name in exported, `${name} is exported by ${card.name}`);
-      }
+    assert.equal(HOME_COMPONENTS.length, 6);
+    for (const slug of HOME_COMPONENTS) {
+      const entry = componentEntry(slug);
+      assert.ok(entry, `${slug} is in src/lib/components.ts`);
+      assert.ok(entry.exports[0]! in exported, `${entry.exports[0]} is exported`);
     }
   });
 
-  it('should link each card to a component page under /docs/components', () => {
+  it('should link each card to its component page under /docs/components', () => {
     assert.deepEqual(
-      COMPONENT_CARDS.map((card) => card.slug),
-      ['select', 'table', 'log', 'tasks', 'markdown', 'diff']
+      HOME_COMPONENTS.map((slug) => componentHref(slug)),
+      [
+        '/docs/components/select',
+        '/docs/components/table',
+        '/docs/components/log',
+        '/docs/components/tasks',
+        '/docs/components/markdown',
+        '/docs/components/diff',
+      ]
     );
   });
 });

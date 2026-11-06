@@ -1,0 +1,119 @@
+{
+  "api": {
+    "interface": "SelectRowOptions",
+    "options": [
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "What to pick from, as objects or as arrays of cells. Never changed.",
+        "name": "rows",
+        "optional": false,
+        "type": "readonly R[]"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The columns, as for `table()`. Inferred from the first row's keys when not given.",
+        "name": "columns",
+        "optional": true,
+        "type": "(SelectRowColumn | string)[]"
+      },
+      {
+        "description": "The columns between one column and the next. Defaults to 2.",
+        "default": "2",
+        "name": "gap",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Whether to draw the heading row. Defaults to `true` when any column has one.",
+        "default": "`true` when any column has one",
+        "name": "head",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "How many body rows the table may take. Defaults to what the terminal has left under the question and the heading. Named for the height rather than `rows`, which is what the other list prompts call it, because here `rows` is the data -- as it is for `table()`.",
+        "default": "what the terminal has left under the question and the heading",
+        "name": "height",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Which row starts under the cursor, by index into `rows`. Defaults to 0.",
+        "default": "0",
+        "name": "initial",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Whether the cursor wraps from one end of the table to the other. Defaults to `true`.",
+        "default": "`true`",
+        "name": "loop",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "What is shown once answered, for a row whose cells joined with commas are too long a line to leave behind. A `TableCellView` cell has no text to join, so the default leaves it out; a row whose view is the point of it says so here.",
+        "name": "short",
+        "optional": true,
+        "type": "(row: R) => string"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "An answer to start from: the row that is this one starts under the cursor, and beats `initial`. The row itself, compared the way a `Map` compares keys -- so it is found when `rows` is the same objects it was answered from, and dropped, leaving `initial` to decide, when it is not.",
+        "name": "value",
+        "optional": true,
+        "type": "R"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>): Promise<R>"
+  },
+  "registryDescription": "A table prompt: a cursor over rows, a sticky heading, and a sort by column",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mWhich deployment?\u001b[0m\n  \u001b[1mName\u001b[0m    \u001b[1mRegion\u001b[0m    \u001b[1mStatus\u001b[0m      \u001b[1mAge (d)\u001b[0m\n  web     eu-west   running          12\n  api     us-east   running           3\n\u001b[36m❯\u001b[0m \u001b[36mworker\u001b[0m  \u001b[36map-south\u001b[0m  \u001b[36mfailed\u001b[0m           \u001b[36m40\u001b[0m\n  cron    eu-west   stopped          90\n  \u001b[36menter\u001b[0m \u001b[2mpick\u001b[0m \u001b[2m·\u001b[0m \u001b[36m1/2/3/4\u001b[0m \u001b[2msort\u001b[0m"
+    }
+  }
+}

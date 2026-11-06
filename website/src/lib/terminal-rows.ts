@@ -57,16 +57,28 @@ const BLOCK = /[▀-▟]/u;
  * meets the next. At the body's line height of 1.65 they are separated by a gap
  * of more than half a row, which is what made the seal unreadable on the canvas.
  *
- * Only a **run** of two or more such rows is tightened. A single row with a
- * block in it is a progress bar or a sparkline, which sits among ordinary lines
- * and should keep their spacing; the joining is between rows, so a lone row has
- * nothing to join to.
+ * A row is part of such a picture when the first thing drawn on it is a block
+ * character, as every row of a banner or a code is -- the seal's lockup has the
+ * name beside it, and that is still a picture with a caption. A row that opens
+ * with words -- a progress bar, a labelled bar chart, a gauge -- is a line of text
+ * that happens to hold a bar, and keeps the spacing of the lines around it:
+ * several of them in a column are still lines, and squeezed together their
+ * labels collide. And only a **run** of two or more picture rows is tightened:
+ * the joining is between rows, so a lone row has nothing to join to.
  *
  * @param rows - The rows.
  * @returns The same rows, with `tight` set on every row in a run.
  */
 export function tighten(rows: readonly Row[]): Row[] {
-  const blocky = rows.map((row) => row.spans.some((span) => BLOCK.test(span.text)));
+  const blocky = rows.map((row) =>
+    BLOCK.test(
+      row.spans
+        .map((span) => span.text)
+        .join('')
+        .trimStart()
+        .charAt(0)
+    )
+  );
 
   return rows.map((row, at) => {
     const tight = blocky[at] && (blocky[at - 1] === true || blocky[at + 1] === true);

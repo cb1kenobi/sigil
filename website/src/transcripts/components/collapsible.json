@@ -1,0 +1,54 @@
+{
+  "api": {
+    "interface": "CollapsibleProps",
+    "options": [
+      {
+        "description": "What the title says.",
+        "name": "title",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Draw the marker with ASCII only, `>` and `v`. Defaults to what `unicodeSupported()` says, which is the rule `outline()` and the charts keep.",
+        "default": "what `unicodeSupported()` says",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The body. Built once, whether the section starts open or not.",
+        "name": "children",
+        "optional": true,
+        "type": "() => Element"
+      },
+      {
+        "description": "An exclusive group to belong to.",
+        "name": "group",
+        "optional": true,
+        "type": "CollapsibleGroup"
+      },
+      {
+        "description": "Whether the section is open.",
+        "default": "closed",
+        "name": "open",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
+        "description": "The host box's own props: a class, a margin, a width.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementProps"
+      }
+    ],
+    "shared": [],
+    "signature": "function Collapsible(props: CollapsibleProps): Element"
+  },
+  "registryDescription": "A collapsible section: a focusable title that opens and closes its body, alone or as an accordion",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[7;36m▾\u001b[0m \u001b[7mEnvironment\u001b[0m\n  NODE_ENV=production\n  PORT=8080\n\u001b[36m▾\u001b[0m Build options\n  minify: on\n  sourcemap: off"
+    }
+  }
+}

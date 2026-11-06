@@ -52,4 +52,20 @@ describe('StyledScreen', () => {
 
     assert.throws(() => screen.toSgr(), /scrolled/);
   });
+
+  it('should draw the alternate screen while it is in front, with its own colour', () => {
+    const screen = new StyledScreen(20, 3);
+    screen.write(`${ESC}[32mmain${ESC}[39m`);
+    screen.write(`${ESC}[?1049h${ESC}[H${ESC}[36mapp${ESC}[39m`);
+
+    assert.equal(screen.toSgr(), `${ESC}[36mapp${ESC}[0m`);
+  });
+
+  it('should drop the terminal queries a full-screen app asks, which draw nothing', () => {
+    const screen = new StyledScreen(20, 1);
+    // the terminal's name and version, then its device attributes
+    screen.write(`${ESC}[>q${ESC}[cok`);
+
+    assert.equal(screen.toSgr(), 'ok');
+  });
 });

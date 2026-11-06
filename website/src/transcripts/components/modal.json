@@ -1,0 +1,82 @@
+{
+  "api": {
+    "interface": "ModalOptions",
+    "options": [
+      {
+        "description": "The router the keys come from, which is also where the focus lives.",
+        "name": "input",
+        "optional": false,
+        "type": "InputRouter"
+      },
+      {
+        "description": "The buttons. Defaults to one that says OK.",
+        "default": "one that says OK",
+        "name": "actions",
+        "optional": true,
+        "type": "readonly ModalAction<T>[]"
+      },
+      {
+        "description": "Draw the border with ASCII only. Defaults to what `unicodeSupported()` says, which is the rule `note()` and the collapsible keep.",
+        "default": "what `unicodeSupported()` says",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "What is said: a string, which wraps, or an element for anything else.",
+        "name": "body",
+        "optional": true,
+        "type": "Element | string"
+      },
+      {
+        "description": "Whether a click on the screen outside the panel dismisses it. Defaults to `false`: a click that lands on nothing is more often a slip than a request.",
+        "default": "`false`: a click that lands on nothing is more often a slip than a request",
+        "name": "closeOnClickOutside",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether Escape dismisses it. Defaults to `true`.",
+        "default": "`true`",
+        "name": "dismissible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Which button holds the focus when it opens, by position. Defaults to the first.",
+        "default": "the first",
+        "name": "initial",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The panel's own props: a margin, a class. Geometry only, never a colour.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementProps"
+      },
+      {
+        "description": "The heading.",
+        "name": "title",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "How wide the panel is, in cells. It never exceeds the screen. Defaults to 50.",
+        "default": "50",
+        "name": "width",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>): ModalHandle<T>"
+  },
+  "registryDescription": "A modal: a dialog over the screen with a focus trap, Escape to dismiss, and a yes-or-no helper",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "parser.ts\ncanvas.ts             ╭──────────────────────────────────╮\nlayout.ts             │ \u001b[1mDelete it?\u001b[0m                       │\n                      │ parser.ts will be gone for good. │\n                      │                                  │\n                      │                     Yes   \u001b[36m[ No ]\u001b[0m │\n                      ╰──────────────────────────────────╯"
+    }
+  }
+}

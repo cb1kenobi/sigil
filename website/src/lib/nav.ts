@@ -1,3 +1,5 @@
+import { COMPONENTS_HREF, FAMILIES, familyHref } from './components.ts';
+
 /**
  * The site's top-level sections: what the header's nav and the phone menu list,
  * and what "the current section" means.
@@ -17,7 +19,7 @@ export interface NavItem {
 /** In the order the header shows them. */
 export const NAV_ITEMS: readonly NavItem[] = [
   { section: 'docs', label: 'Docs', href: '/docs/getting-started' },
-  { section: 'components', label: 'Components', href: '/docs/components' },
+  { section: 'components', label: 'Components', href: COMPONENTS_HREF },
   // The generated command reference, `/reference`.
   { section: 'cli', label: 'CLI', href: '/reference' },
   { section: 'examples', label: 'Examples', href: '/examples' },
@@ -43,7 +45,7 @@ function under(pathname: string, base: string): boolean {
  * is in two places.
  */
 export function activeSection(pathname: string): Section | undefined {
-  if (under(pathname, '/docs/components')) {
+  if (under(pathname, COMPONENTS_HREF)) {
     return 'components';
   }
   if (under(pathname, '/docs')) {
@@ -64,9 +66,16 @@ export function activeSection(pathname: string): Section | undefined {
  *
  * The command reference is in it: its pages have the sidebar and the rail, so
  * they are as wide as the guides are, even though the address is `/reference`
- * and not under `/docs` (SIG-260).
+ * and not under `/docs` (SIG-260). The components index is not, though it is
+ * under `/docs`: it is a page with no sidebar, 1280px wide (SIG-263), and a
+ * header 160px wider than the page under it would line up with nothing. The
+ * component pages under it have the sidebar again, and are in.
  */
 export function isDocsPath(pathname: string): boolean {
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/u, '') : pathname;
+  if (path === COMPONENTS_HREF) {
+    return false;
+  }
   return under(pathname, '/docs') || under(pathname, '/reference');
 }
 
@@ -135,10 +144,9 @@ export function sidebarSections(source: SidebarSource): SidebarSection[] {
       id: 'components',
       label: 'Components',
       links: [
-        { label: 'Prompts', href: '/docs/components#prompts' },
-        { label: 'Output', href: '/docs/components#output' },
-        { label: 'Full-screen', href: '/docs/components#fullscreen' },
-        { label: 'All components', href: '/docs/components' },
+        // the families, as the index's sections, from the one list of them
+        ...FAMILIES.map((family) => ({ label: family.title, href: familyHref(family.id) })),
+        { label: 'All components', href: COMPONENTS_HREF },
       ],
     },
     { id: 'about', label: 'About', links: [{ label: 'The story of sigil', href: '/docs/about' }] },

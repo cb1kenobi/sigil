@@ -1,0 +1,64 @@
+{
+  "api": {
+    "interface": "SparklineOptions",
+    "options": [
+      {
+        "description": "Draw with ASCII only. Defaults to what `unicodeSupported()` says of `env` and `platform`, since block elements and braille are not safe where box drawing is not.",
+        "default": "what `unicodeSupported()` says of `env` and `platform`",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The environment to read the terminal from. Defaults to `process.env`.",
+        "default": "`process.env`",
+        "name": "env",
+        "optional": true,
+        "type": "Record<string, string | undefined>"
+      },
+      {
+        "description": "The value drawn as the top. Defaults to the largest value.",
+        "default": "the largest value",
+        "name": "max",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The value drawn as the bottom. Defaults to the smallest value.",
+        "default": "the smallest value",
+        "name": "min",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The platform to detect for. Defaults to `process.platform`.",
+        "default": "`process.platform`",
+        "name": "platform",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Which role colours the data. Defaults to `accent`.",
+        "default": "`accent`",
+        "name": "role",
+        "optional": true,
+        "type": "ChartRole"
+      },
+      {
+        "description": "The most columns to draw. A longer series is cut to its **latest** values, since a sparkline is a trend and the end of it is the part that is news.",
+        "name": "width",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function sparkline(values: readonly number[], opts?: SparklineOptions): string"
+  },
+  "registryDescription": "Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "latency \u001b[36m▁▁▁▂▃▃▂▄▇▆▄▃▂▂▂▃▅▇█▆\u001b[0m  41ms"
+    }
+  }
+}
