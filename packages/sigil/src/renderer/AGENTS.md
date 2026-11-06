@@ -859,10 +859,17 @@ it.
   drawn into a frame. A failed frame has stopped the backend before it is reported,
   and a stopped backend writes straight through. What is reported while `render()`
   is still running waits in a queue and goes through the backend once there is one,
-  because the first frame is painted inside `render()`. Which error ended the app is
-  read off the renderer: one that is no longer mounted when the report arrives is one
-  that failed, because `fail()` tears down first and reports second -- so the
-  `onDispose()` handler reads the code a microtask later, once the report has said.
+  because the first frame is painted inside `render()`. Whether a failure ended the
+  app is **asked** of the renderer, through `Renderer.failed`, rather than inferred
+  from its reports. The first answer inferred it -- a report arriving while the
+  renderer was unmounted was the failure -- and that cannot tell a failed frame from
+  a cleanup that threw during an unmount somebody chose: both reach `onError` from
+  an unmounted renderer, in the same order, through the same teardown. A flag the
+  runner set around its own `dispose()` covered `exit()` and missed a
+  `view.dispose()` the app called, which settled 1 for the app ending itself the
+  moment a cleanup threw. Only the renderer knows which of `fail()` and `dispose()`
+  tore it down, so it says: `failed` is set before `fail()`'s teardown starts, so an
+  `onDispose()` handler can already read it, and stays `false` for a `dispose()`.
 - **Every route out ends the app the same way, each with its code.** `exit()`, the
   quit key, stdin ending, `view.dispose()` and a failed frame -- the last two through
   `Renderer.onDispose()`, which fires on both. A throw from the component's body
@@ -878,7 +885,17 @@ it.
   listener on stdout holding the canvas for the life of the process, one per
   caught retry. Stdin ending in an error is reported through `onError`, held by
   the backend and written once the screen is back, rather than leaving a 1 with no
-  line beside it. A signal is the terminal's own restore handlers, as it always
+  line beside it -- and it is flagged as the failure, so it beats a code `exit()`
+  already latched, which its own `exit(1)` could not do as the second call. That
+  includes an error whose **event** was still on its way: `destroy(err)` sets
+  `errored` at once and emits on `nextTick`, so an `exit(0)` and a destroy in one
+  turn had the teardown's microtask take the router's listener off first, and the
+  emit then found nobody -- an uncaught exception, crashing a CLI after the screen
+  was back, on the way out of a quit it handled. The router owns that guard, under
+  "A router stopped over a failed stream" in `src/input`: it tells `onEnd()` from
+  inside `stop()`, which `finish()` calls before it reads the code, so the error is
+  reported once and the code is 1 whichever of the two orderings it arrived in. A
+  signal is the terminal's own restore handlers, as it always
   was; the runner adds none.
 - **The teardown is the renderer, the router, then `restore()`.** The router is the
   half `restore()` cannot do -- raw mode comes back through either, but a `data`
@@ -897,10 +914,15 @@ it.
   fail, which `fail()` reports and `onDispose()` answers with an `exit()` the first
   call's guard swallowed -- so a crash settled 0, after printing the crash. The
   code is therefore read in `finish()`, as the failure's if one ended the app and
-  the latched one otherwise. A cleanup that throws while `finish()` is unmounting is
-  reported and does not count, since the app was already going by an `exit()` that
-  chose its code -- Chris's decision, taken over letting a teardown failure beat
-  the code too.
+  the latched one otherwise. A cleanup that throws during an **intentional**
+  unmount is reported and does not count, since the app was already going by an
+  `exit()` that chose its code -- Chris's decision, taken over letting a teardown
+  failure beat the code too. Intentional means `exit()`'s teardown and a
+  `view.dispose()` the app's own code called, which is the same decision reached by
+  another door: both settle with the code that was chosen, 0 for the dispose, and
+  `Renderer.failed` above is what makes the rule hold for both. A cleanup that
+  throws while a failed frame tears down is part of that failure, which settles 1
+  either way.
 - **No terminal on both ends is a refusal -- Chris's decision.** Where stdin or the
   output is not a terminal, inline as well as full screen, `runApp()` builds no
   router and no renderer, never calls the component, draws nothing, writes one line
@@ -915,7 +937,16 @@ it.
 - **`detect` is on by default here and nowhere else.** The rule against probing is a
   CLI paying a round trip to print one line; an app is the long-lived interactive
   program that rule was never about, and the first frame does not wait for the
-  answer.
+  answer. **It is not asked of an app already going.** `exit()` from the body, or
+  from an effect or an `onMount` of the first frame -- which `render()` also runs --
+  leaves the teardown a microtask away, and the renderer's own guard against
+  probing a renderer that has gone reads `disposed`, which is not set yet. The probe
+  writes XTVERSION and DA1 the moment it is asked, so the terminal answered onto a
+  stdin the router stopped reading a microtask later, and the reply landed in the
+  shell. A quit while a probe of an app that stayed up is still in flight -- a
+  window as long as the terminal takes to answer, a few milliseconds -- is the same
+  reply arriving late, and is left: the queries are already written,
+  and nothing short of holding the teardown for the deadline would take them back.
 - **One hook, `useApp()`, and it throws outside an app.** `useInput()` would be a
   second context for a field of the first. Throwing rather than answering
   `undefined` is because a hook every caller has to guard is a hook nobody guards;
@@ -942,13 +973,26 @@ it.
   code over a failure, dropping the unmount guard on the failure flag, the body
   throw left unsettled or settled with the latched code, the canvas built before
   the cascade, and the stdin error dropped or written straight to the terminal.
-  Two lines that survived were unreachable and are gone: flagging a stdin error as
-  the failure, which only mattered with an `exit()` latched and its teardown not
-  yet run -- a microtask an event cannot get in front of -- and resetting the
-  unmount guard after the one teardown there is. Stopping a runner-built backend
+  Two lines that survived were deleted as unreachable: flagging a stdin error as the
+  failure, and resetting the unmount guard after the one teardown there is. **The
+  first was wrong to delete**, and the second review round found it: the reasoning
+  was that the flag only mattered with an `exit()` latched and its teardown not yet
+  run, a microtask an event cannot get in front of. An event emitted synchronously
+  in the same turn as the `exit()` does get in front of it -- and one that cannot,
+  `destroy(err)`'s `nextTick`, was not harmless but uncaught. A sabotage that
+  survives is evidence that no test reaches the line, which is a claim about the
+  tests before it is one about the code; the flag is back, with both orderings
+  pinned. Stopping a runner-built backend
   in the body-throw path, on top of the reordering, was considered and left out
   for the same reason: reading `render()` from its first line to its `try` around
-  the component found nothing that throws once the canvas is built.
+  the component found nothing that throws once the canvas is built. The fourth, for
+  the second round's three, was eight, with one survivor: the router's guard also
+  taking itself off on `'close'`, which nothing reaches because a guard is only left
+  for an error not yet heard, and that error is emitted exactly once -- so it is
+  gone. Caught: the stdin error not flagged, the router not delivering the pending
+  error, no guard (an uncaught exception, as well as two failures), the router
+  delivering an error it already heard, `failed` reading true after any dispose,
+  `finish()` ignoring `view.failed`, and a probe for an app already going.
 - **Not done:** capturing `console.log()` while the app owns the screen, which
   writes straight into the alternate buffer today -- `backend.write()` holds a line
   and the debug overlay's `captureConsole()` shows one, and neither is automatic;

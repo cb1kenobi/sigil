@@ -149,6 +149,31 @@ the entry it belongs to.
   router exists to replace, kept alive for a single case. `onEnd()` fires for the
   stream ending and for it erroring, since what a caller does about either is the
   same thing.
+- **A router stopped over a failed stream reports the failure and guards the event
+  still on its way.** SIG-276, review round 2. `destroy(err)` sets `destroyed` and
+  `errored` at once and emits `'error'` on `nextTick`, so a router stopped in
+  between -- `runApp()`'s teardown runs on a microtask, which is exactly that gap --
+  took its listener off an error already in flight. The emit found nobody, and an
+  `'error'` with no listener is an uncaught exception: a CLI crashed after its
+  screen was back, on the way out of a quit it handled. So `stop()` asks whether the
+  stream was destroyed with an error its own listener never heard, and if so does
+  two things. It tells `onEnd()`, **last**, with everything else put back -- raw mode
+  included, so a handler writing the error writes it to a cooked terminal -- because
+  the stream failed while this router was listening and only the event was due
+  later, so the failure is the router's to report as it would have been a tick
+  sooner. And it leaves a guard on `'error'` that takes itself off when the emit
+  arrives, which is the terminal's `EPIPE` rule in `src/terminal`: put back what you
+  attached, and not while what it was there for is still in flight. Not a listener
+  left on for good, which is the leak that rule was written about.
+
+  What is **not** guarded is a stream destroyed after `stop()`: that error belongs
+  to whoever reads the stream next, and the router has let go of it as it found it.
+  Nor is a stream nobody destroyed -- a paused stream reads nothing, so it raises
+  no read error of its own. `destroyed` and `errored` are optional on
+  `InputStream`, and a stream without them is never guarded, which is the old
+  behaviour. Pinned in `test/input/input.test.ts`, and through the runner in
+  `test/renderer/app.test.ts`.
+
 - **Resize is the router's to carry and the renderer's to mean.** The event
   belongs with the other one a terminal produces, so an app subscribes in one
   place for the two halves of one frame. What it _means_ -- re-evaluate the width

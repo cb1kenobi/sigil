@@ -386,6 +386,18 @@ export interface Renderer {
    * @returns Puts it back in. Idempotent, and safe after `dispose()`.
    */
   excludeFromStats(element: Element): () => void;
+  /**
+   * Whether this renderer went because something it ran threw.
+   *
+   * `true` once a frame, an effect, a layout handler or the first paint has failed
+   * and the renderer has torn itself down -- set before that teardown starts, so a
+   * dispose handler can already read it. `false` while mounted and after
+   * `dispose()`, which is somebody deciding it was done. `mounted` is `false` in
+   * both cases, which is the question this answers and that one cannot: a
+   * cleanup reported during either teardown looks the same from `onError`, and
+   * whether the unmount was a failure or a decision is the renderer's to say.
+   */
+  readonly failed: boolean;
   /** Settles and paints a frame now, whatever the pacing says. */
   frame(): void;
   /** Asks for a frame, for a mutation a signal did not make. */
@@ -1367,6 +1379,10 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
       return () => {
         excluded.delete(element);
       };
+    },
+
+    get failed() {
+      return failed;
     },
 
     frame: runFrame,

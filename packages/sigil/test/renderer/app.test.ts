@@ -252,7 +252,7 @@ describe('runApp()', () => {
             }
             throw new Error('body broke');
           },
-          { detect: false, terminal: term.terminal }
+          { detect: false, mouse: { motion: true }, terminal: term.terminal }
         )
       ).toThrow('body broke');
       // the handle `useApp()` gave the body is one a caller can keep, and the app
@@ -260,6 +260,14 @@ describe('runApp()', () => {
       const settled = await Promise.race([held?.exited, tick(20).then(() => 'pending')]);
       expect(settled).toBe(1);
       expect(held?.running).toBe(false);
+      // and the router is let go of with everything it turned on: listeners, raw
+      // mode and the mouse tracking a shell would otherwise go on receiving
+      for (const event of ['data', 'end', 'error']) {
+        expect(term.stdin.listenerCount(event)).toBe(0);
+      }
+      expect(term.stdin.rawMode).toBe(false);
+      expect(term.output).toContain('\u001b[?1003l');
+      expect(term.output).toContain('\u001b[?1006l');
     }
   );
 
@@ -478,6 +486,7 @@ describe('runApp()', () => {
 
   it('should settle exited with 1 when a later frame fails after exit() was latched in it', async () => {
     const go = new State(false);
+    const reports: unknown[] = [];
     const { app } = start(
       () => {
         const held = useApp();
@@ -493,12 +502,13 @@ describe('runApp()', () => {
         });
         return text('x');
       },
-      { onError: () => {} }
+      { onError: (error) => reports.push(error) }
     );
     app.view.frame();
     go.set(true);
     app.view.frame();
     expect(await app.exited).toBe(1);
+    expect(reports.map(String)).toEqual(['Error: frame broke after exit']);
   });
 
   it('should keep the code exit() chose when a cleanup throws on the way out', async () => {
@@ -517,6 +527,87 @@ describe('runApp()', () => {
     // throws on the way is reported, and is not the failure that ended it
     expect(await app.exited).toBe(3);
     expect(reports.map(String)).toEqual(['Error: cleanup broke']);
+  });
+
+  it('should settle exited with 0 when a cleanup throws during a view.dispose() the app called', async () => {
+    const { app, term } = start(() => {
+      onCleanup(() => {
+        throw new Error('cleanup on dispose');
+      });
+      return text('x');
+    });
+    app.view.frame();
+    app.view.dispose();
+    // an unmount the app's own code asked for is as intentional as `exit()`, so
+    // its cleanup throwing is reported -- once, on the main screen -- and does not
+    // turn the app ending itself into a failure
+    expect(await app.exited).toBe(0);
+    expect(term.screen.alternate).toBe(false);
+    expect(term.lines.join('\n')).toContain('cleanup on dispose');
+    expect(term.output.split('cleanup on dispose')).toHaveLength(2);
+  });
+
+  it('should settle exited with 1 when stdin errors after exit() latched a code, before the teardown', async () => {
+    const reports: unknown[] = [];
+    const { app, term } = start(() => text('x'), { onError: (error) => reports.push(error) });
+    app.exit(0);
+    // in the same turn, so the listener is still there and the teardown is not
+    term.stdin.emit('error', new Error('stdin broke after exit'));
+    expect(await app.exited).toBe(1);
+    expect(reports.map(String)).toEqual(['Error: stdin broke after exit']);
+  });
+
+  it('should report, not crash on, the error stdin was destroyed with after exit() latched a code', async () => {
+    const { app, term } = start(() => text('x'));
+    app.view.frame();
+    app.exit(0);
+    // `destroy(err)` emits a tick later, which is after the teardown's microtask
+    // has taken the router's listener off -- an `'error'` nobody listens for is
+    // an uncaught exception, on the way out of a quit the app handled
+    term.stdin.destroy(new Error('late stdin'));
+    expect(await app.exited).toBe(1);
+    expect(term.screen.alternate).toBe(false);
+    // the event is still on its way, and something is there to take it
+    expect(term.stdin.listenerCount('error')).toBe(1);
+    await tick();
+    // and it took itself off with it
+    expect(term.stdin.listenerCount('error')).toBe(0);
+    expect(term.lines.join('\n')).toContain('late stdin');
+    expect(term.output.split('late stdin')).toHaveLength(2);
+  });
+
+  it.each([
+    [
+      'the body',
+      () => {
+        useApp().exit(0);
+        return text('gone');
+      },
+    ],
+    [
+      "the first frame's onMount",
+      () => {
+        const app = useApp();
+        onMount(() => app.exit(0));
+        return text('gone');
+      },
+    ],
+  ])('should not probe the terminal for an app %s already ended', async (_, component) => {
+    const term = createTestTerminal({ columns: 30, rows: 6 });
+    const written: string[] = [];
+    const write = term.terminal.write.bind(term.terminal);
+    term.terminal.write = (chunk) => {
+      written.push(String(chunk));
+      return write(chunk);
+    };
+    const app = runApp(component, { terminal: term.terminal });
+    apps.push(app);
+    expect(await app.exited).toBe(0);
+    await tick();
+    // neither XTVERSION nor the DA1 every probe ends on: a reply would come back
+    // on a stdin nobody reads any more, and land in the shell
+    expect(written.join('')).not.toContain('\u001b[>q');
+    expect(written.join('')).not.toContain('\u001b[c');
   });
 
   it('should draw inline under the log, following its content, with fullscreen false', async () => {

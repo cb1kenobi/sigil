@@ -1,6 +1,7 @@
 import { arrange, box, type Element, resolveStyles, text } from '../../src/element/index.js';
 import { canReadKeys, createInput, InputError, type KeyEvent } from '../../src/input/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
+import { createTestTerminal, tick } from '../../src/testing/index.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -194,6 +195,42 @@ describe('the router', () => {
 
     expect(seen).to.deep.equal([boom]);
     input.stop();
+  });
+
+  // `destroy(err)` sets `errored` at once and emits a tick later, so a router
+  // stopped in between took its listener off an error already on its way: the
+  // emit found nobody, which is an uncaught exception
+  it('should hand onEnd an error the stream was destroyed with and had yet to emit when it stopped', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
+    const seen: unknown[] = [];
+    const boom = new Error('destroyed');
+    input.onEnd((error) => seen.push(error));
+
+    term.stdin.destroy(boom);
+    input.stop();
+    // told before `stop()` returns, with raw mode already put back
+    expect(seen).toEqual([boom]);
+    expect(term.stdin.rawMode).toBe(false);
+    expect(term.stdin.listenerCount('error')).toBe(1);
+
+    await tick();
+    // the emit landed on the guard, which went with it -- and was not told twice
+    expect(term.stdin.listenerCount('error')).toBe(0);
+    expect(seen).toEqual([boom]);
+  });
+
+  it('should not tell onEnd twice about a destroyed stream whose error it already heard', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
+    const seen: unknown[] = [];
+    input.onEnd((error) => seen.push(error));
+
+    term.stdin.destroy(new Error('heard'));
+    await tick();
+    input.stop();
+    expect(seen.map(String)).toEqual(['Error: heard']);
+    expect(term.stdin.listenerCount('error')).toBe(0);
   });
 
   it('should stop reporting it once the handler is removed', () => {

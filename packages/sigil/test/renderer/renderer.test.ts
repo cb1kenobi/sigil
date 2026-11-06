@@ -1188,6 +1188,52 @@ describe('Renderer.onDispose()', () => {
     expect(fired).toEqual(['gone']);
   });
 
+  it('should say failed for a renderer a frame took down, already inside the handler', () => {
+    const h = harness();
+    const count = new State(0);
+    const seen: boolean[] = [];
+    const view = render(
+      () => {
+        const label = text('');
+        createEffect(() => {
+          if (count.get() > 0) {
+            throw new Error('boom');
+          }
+          label.setText('ok');
+        });
+        return label;
+      },
+      { backend: h.backend, effects, onError: () => {}, terminal: h.terminal }
+    );
+    expect(view.failed).toBe(false);
+    view.onDispose(() => seen.push(view.failed));
+
+    count.set(1);
+    view.frame();
+    expect(seen).toEqual([true]);
+    expect(view.failed).toBe(true);
+  });
+
+  it('should not say failed for a dispose() whose cleanup threw, which is a decision', () => {
+    const h = harness();
+    const reports: unknown[] = [];
+    const view = render(
+      () => {
+        onCleanup(() => {
+          throw new Error('cleanup broke');
+        });
+        return text('x');
+      },
+      { backend: h.backend, effects, onError: (error) => reports.push(error), terminal: h.terminal }
+    );
+    view.dispose();
+    expect(view.mounted).toBe(false);
+    expect(reports).toHaveLength(1);
+    // the report looks exactly like a failed frame's from `onError`; this is the
+    // one place the difference is said
+    expect(view.failed).toBe(false);
+  });
+
   it('should report a handler that throws and still run the rest, and the teardown', () => {
     const { order, view } = mounted();
     view.onDispose(() => {

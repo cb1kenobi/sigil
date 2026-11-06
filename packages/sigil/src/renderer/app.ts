@@ -177,8 +177,11 @@ export interface App {
    * Of two intentional codes the first wins. A failure beats both: an `exit(0)`
    * called from the body, or from an effect, leaves the frame it was called in to
    * finish -- and a frame that then fails is a crash, so it settles `1`, never the
-   * success that was asked for. A cleanup that throws while the app is already
-   * going is reported and does not count, since it did not end the app.
+   * success that was asked for. So does stdin failing before the teardown has let
+   * go of it, including an error whose event was still on its way. A cleanup that
+   * throws during an intentional unmount -- `exit()`'s, or a `view.dispose()` the
+   * app called -- is reported and does not count, since it did not end the app;
+   * one thrown while a failed frame tears down is part of that failure.
    *
    * A code rather than a value, and handed back rather than set. Passing return
    * values up through layers of commands and contexts couples every layer to the
@@ -314,14 +317,11 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   let exiting = false;
   /** Whether `render()` is on the stack, which is when a report has nowhere to go yet. */
   let rendering = false;
-  /** Whether `finish()` is unmounting the tree, so that what its cleanups throw is not the failure. */
-  let disposing = false;
   /**
-   * Whether an error ended the app, which beats whatever code `exit()` latched:
-   * an `exit(0)` from the body defers its teardown so the first frame can run, and
-   * that frame can still fail -- which is a crash, not the success it asked for.
+   * Whether stdin failed under the app -- the one failure the renderer does not
+   * know about, so it is kept here beside `view.failed`, which is the other.
    */
-  let failed = false;
+  let stdinFailed = false;
   let code = 0;
   let settle: (code: number) => void = () => {};
   const exited = new Promise<number>((resolve) => {
@@ -360,23 +360,6 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   const early: string[] = [];
 
   /**
-   * Reports an error, and remembers whether it was the one that ended the app.
-   *
-   * A renderer that is no longer mounted when an error reaches it is one that
-   * failed -- `fail()` tears down first and reports second -- while a report from
-   * a mounted renderer is an `onMount` or a frame handler, which it survives. A
-   * cleanup that throws while `finish()` is unmounting is reported and does not
-   * count: the app was already going, by an `exit()` that chose its code, and a
-   * failure beating that code is about a failure that *ended* the app.
-   */
-  function reported(error: unknown): void {
-    report(error);
-    if (!disposing && view !== undefined && !view.mounted) {
-      failed = true;
-    }
-  }
-
-  /**
    * Takes everything down: the renderer, the router, then whatever is left.
    *
    * The renderer unmounts the tree and gives the screen back. The router lets go
@@ -393,7 +376,12 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
    *
    * The code is the failure's where one ended the app, whatever `exit()` latched
    * first: two intentional codes are settled by the first, and a failure is not an
-   * intention.
+   * intention. Read after `input.stop()`, because a stream destroyed with an error
+   * whose event was still a tick away is told to `onEnd()` from inside it. What
+   * failed is asked of the renderer rather than inferred from its reports: a
+   * cleanup that throws during an intentional unmount -- this `dispose()`, or one
+   * the app's own code called -- is reported exactly as a failed frame is, and only
+   * the renderer knows which of the two tore it down.
    */
   function finish(): void {
     if (!running) {
@@ -402,13 +390,12 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     running = false;
     try {
       if (view?.mounted) {
-        disposing = true;
         view.dispose();
       }
     } finally {
       input?.stop();
       terminal.restore();
-      settle(failed ? EXIT_FAILED : code);
+      settle(stdinFailed || view?.failed === true ? EXIT_FAILED : code);
     }
   }
 
@@ -447,7 +434,7 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
 
   if (!interactive) {
     // nothing built, nothing drawn: one line, and a code a script can test
-    reported(
+    report(
       new Error(
         'Cannot run an app because stdin or the output is not a terminal: it needs somebody to type and a screen to draw on'
       )
@@ -486,12 +473,15 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   // stdin ending is the terminal hanging up, and an app nobody can type to is
   // over. Ending in an error is a failure like any other, so it is reported the
   // same way -- held by the backend and written once the screen is back -- rather
-  // than leaving a 1 on stderr with no reason beside it
+  // than leaving a 1 on stderr with no reason beside it. And flagged, because a
+  // failure beats a code `exit()` has already latched, which this `exit()` alone
+  // could not do: it would be the second call
   router.onEnd((error) => {
     if (error === undefined) {
       app.exit(EXIT_HUNG_UP);
       return;
     }
+    stdinFailed = true;
     report(error);
     app.exit(EXIT_FAILED);
   });
@@ -530,7 +520,7 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
         frameMs: opts.frameMs,
         gatherStats: opts.gatherStats,
         now: opts.now,
-        onError: reported,
+        onError: report,
         reducedMotion: opts.reducedMotion,
         terminal,
       }
@@ -560,24 +550,21 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     view.backend.write(line, 'stderr');
   }
 
-  // a first frame that failed inside `render()` was reported before there was a
-  // renderer to ask whether it had gone
-  if (!view.mounted) {
-    failed = true;
-  }
-
   // the renderer going by any route ends the app: `view.dispose()` from a
-  // handler, which is the app ending itself, or a frame that failed -- which
-  // tears down first and reports second, so this handler runs before anybody
-  // knows which it was. It need not know: `exit()` defers the teardown to a
-  // microtask, `finish()` reads `failed` then, once the report has said, and a
-  // failure beats the 0 this asks for
+  // handler, which is the app ending itself, or a frame that failed. The handler
+  // need not know which -- `finish()` asks `view.failed`, and a failure beats the
+  // 0 this asks for. A first frame that failed inside `render()` has already
+  // gone, so this is called at once
   view.onDispose(() => app.exit());
 
-  if (opts.detect !== false) {
-    // a probe rejects only where the query could not be written, which is a fault
-    // rather than a quiet terminal -- and a stopped router writes nothing, so
-    // there is no late rejection to guard against once the app has gone
+  if (opts.detect !== false && !exiting) {
+    // not for an app already going: `exit()` from the body, or from an effect or
+    // an `onMount` of the first frame -- which `render()` also runs -- leaves the
+    // teardown a microtask away, and the probe writes its queries the moment it
+    // is asked, so the terminal's replies would arrive on a stdin nobody reads
+    // any more and land in the shell. A probe rejects only where a query could
+    // not be written, which is a fault rather than a quiet terminal, and is
+    // reported without deciding the code
     view.detect(router, typeof opts.detect === 'object' ? opts.detect : undefined).catch(report);
   }
 

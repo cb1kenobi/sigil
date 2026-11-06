@@ -655,6 +655,10 @@ export interface InputOptions {
 
 /** A readable stream, as narrow as this module needs it. */
 export interface InputStream {
+  /** Whether `destroy()` has been called, which a `Readable` sets at once. */
+  readonly destroyed?: boolean;
+  /** What it was destroyed with, set at once although `'error'` is emitted a tick later. */
+  readonly errored?: unknown;
   isTTY?: boolean;
   off?: (event: string, fn: (...args: unknown[]) => void) => unknown;
   on?: (event: string, fn: (...args: unknown[]) => void) => unknown;
@@ -2064,7 +2068,12 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   };
 
   const onStreamEnd = (): void => ended();
-  const onStreamError = (...args: unknown[]): void => ended(args[0]);
+  /** Whether the stream's error reached `onStreamError`, which `stop()` asks. */
+  let errorDelivered = false;
+  const onStreamError = (...args: unknown[]): void => {
+    errorDelivered = true;
+    ended(args[0]);
+  };
 
   const resizers = new Set<(size: { height: number; width: number }) => void>();
   const offResize = terminal.onResize((size) => {
@@ -2336,6 +2345,24 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       off?.call(stdin, 'data', onData);
       off?.call(stdin, 'end', onStreamEnd);
       off?.call(stdin, 'error', onStreamError);
+      // a stream destroyed with an error while this was listening has that error
+      // on its way to the listener just removed: `destroy(err)` sets `errored` at
+      // once and emits a tick later. Taking the listener off left it bare for that
+      // emit, and an `'error'` with no listener is an uncaught exception -- a CLI
+      // crashing on the way out of a quit it handled. So it is told to `onEnd()`
+      // below, and the emit itself lands on a guard that takes itself off with
+      // it, which is the terminal's `EPIPE` rule: put back what you attached,
+      // and not while what it was there for is still in flight
+      const failedWith =
+        !errorDelivered && stdin.destroyed === true && stdin.errored != null
+          ? stdin.errored
+          : undefined;
+      if (failedWith !== undefined) {
+        // only on an error not yet heard, so one is coming: a stream emits the
+        // error it was destroyed with exactly once
+        const guard = (): void => void off?.call(stdin, 'error', guard);
+        stdin.on?.('error', guard);
+      }
       offResize();
       clearTimeout(timer);
       timer = undefined;
@@ -2379,6 +2406,14 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       }
       hovering = [];
       pressed.clear();
+
+      // last, with everything put back -- raw mode included, so a handler that
+      // writes the error writes it to a cooked terminal. The stream failed while
+      // this was listening and only the event was due later, so the failure is
+      // this router's to report, as it would have been a tick sooner
+      if (failedWith !== undefined) {
+        ended(failedWith);
+      }
     },
   };
 
