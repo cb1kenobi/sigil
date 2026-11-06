@@ -46,13 +46,16 @@ export const GUIDES: readonly Guide[] = [{ file: 'getting-started.md', scaffold:
 export interface Block {
   readonly body: string;
   readonly info: string;
+  /** The line of the markdown file the opening fence is on, counting from 1. */
+  readonly line: number;
 }
 
 /** Every fenced block in a markdown file, in order. */
 export function blocks(markdown: string): Block[] {
   const found: Block[] = [];
   for (const match of markdown.matchAll(/^```(\S*)[^\n]*\n([\s\S]*?)^```$/gm)) {
-    found.push({ body: match[2]!, info: match[1]! });
+    const line = markdown.slice(0, match.index).split('\n').length;
+    found.push({ body: match[2]!, info: match[1]!, line });
   }
   return found;
 }
@@ -67,8 +70,46 @@ export type Step =
       readonly typed: string;
     };
 
-/** A path comment on a block's first line: `// src/commands/deploy.ts`. */
-const PATH = /^\/\/ ([\w./-]+\.(?:[cm]?[jt]s))\n/;
+/**
+ * A path comment, as one line: `// src/commands/deploy.ts`. It names a file only
+ * on a block's first line, and `misplaced()` looks for it on the others.
+ */
+const PATH = /^\/\/ ([\w./-]+\.(?:[cm]?[jt]s))$/;
+
+/** Whether a fence's language is one whose blocks can be files. */
+function isFile(info: string): boolean {
+  return info === 'js' || info === 'ts';
+}
+
+/**
+ * The `// <path>` comments in a guide that are not on their block's first line.
+ *
+ * `steps()` writes a block only when its first line is the comment, so one that
+ * has moved down is a file nothing runs -- and nothing says so, because the
+ * block is then just another fragment. oxfmt sorts the imports in a markdown
+ * code block and a comment travels with the import under it, which is how a
+ * heading ends up on line 2.
+ *
+ * @param guide - The guide.
+ * @param markdown - Its text.
+ * @returns One description per misplaced comment, naming the markdown line it is on.
+ */
+export function misplaced(guide: Guide, markdown: string): string[] {
+  const found: string[] = [];
+  for (const { body, info, line } of blocks(markdown)) {
+    if (!isFile(info)) {
+      continue;
+    }
+    body.split('\n').forEach((text, row) => {
+      if (row > 0 && PATH.test(text)) {
+        found.push(
+          `${guide.file}:${line + row + 1}: "${text}" is on line ${row + 1} of its block, not line 1`
+        );
+      }
+    });
+  }
+  return found;
+}
 
 /** A leading `NAME=value` on a transcript line. */
 const ASSIGN = /^([A-Z_][A-Z0-9_]*)=(\S*)$/;
@@ -91,8 +132,8 @@ export function steps(guide: Guide, markdown: string): { skipped: string[]; step
   const skipped: string[] = [];
 
   for (const { body, info } of blocks(markdown)) {
-    if (info === 'js' || info === 'ts') {
-      const path = PATH.exec(body)?.[1];
+    if (isFile(info)) {
+      const path = PATH.exec(body.split('\n', 1)[0]!)?.[1];
       if (path !== undefined) {
         out.push({ body: body.slice(body.indexOf('\n') + 1), kind: 'write', path });
       }

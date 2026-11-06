@@ -2,6 +2,7 @@ import {
   blocks,
   environment,
   GUIDES,
+  misplaced,
   prepare,
   readGuide,
   root,
@@ -33,8 +34,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
  *   path, replacing whatever an earlier block wrote there. oxfmt sorts the
  *   imports inside a markdown code block and a comment travels with the import
  *   under it, so write a block's imports in sorted order or the path comment
- *   moves -- and the block silently stops being a file, which the skipped-line
- *   assertion below is what notices;
+ *   moves -- and the block silently stops being a file. The skipped-line
+ *   assertion does not notice that, since it collects `$` lines and not blocks;
+ *   `should have every path comment on its block's first line` is what does;
  * - a `console` block is a transcript, and every `$` line in it that calls the
  *   app's bin is run from source, with the lines under it as the output it must
  *   print -- stdout, then stderr, since a transcript has no way to say which
@@ -87,6 +89,10 @@ for (const guide of GUIDES) {
         'node dist/my-cli.mjs --help',
         'node dist/my-cli.mjs --version',
       ]);
+    });
+
+    it("should have every path comment on its block's first line", () => {
+      expect(misplaced(guide, markdown)).toEqual([]);
     });
 
     all.forEach((step, index) => {
