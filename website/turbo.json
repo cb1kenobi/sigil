@@ -8,6 +8,7 @@
       "inputs": [
         "src/**",
         "../packages/sigil/docs/**",
+        "../packages/sigil/package.json",
         "scripts/**",
         "public/**",
         ".env*",

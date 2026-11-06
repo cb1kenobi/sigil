@@ -1,7 +1,8 @@
 'use client';
 
-import { capture } from '@/lib/analytics';
+import { capture, type AnalyticsEvents } from '@/lib/analytics';
 import { copyText } from '@/lib/clipboard';
+import type { CopyEventName } from '@/lib/fence';
 import { useEffect, useRef, useState } from 'react';
 
 /** How long the button says what happened before it goes back to "Copy". */
@@ -12,6 +13,14 @@ type Said = 'idle' | 'copied' | 'selected';
 
 const LABEL: Record<Said, string> = { copied: 'Copied', idle: 'Copy', selected: 'Selected' };
 
+/**
+ * An event to send in place of `command_copied`, with its properties: worked
+ * out on the server, like the text, so the button only has to send it.
+ */
+export type CopyEvent = {
+  [E in CopyEventName]: { readonly name: E; readonly properties: AnalyticsEvents[E] };
+}[CopyEventName];
+
 export interface CopyButtonProps {
   /** What it copies: the block's plain text, never its markup. */
   readonly text: string;
@@ -21,6 +30,8 @@ export interface CopyButtonProps {
   readonly location: string;
   /** The block's language, for `command_copied`. */
   readonly language?: string;
+  /** What to send instead of `command_copied`: the agent instructions' own event. */
+  readonly event?: CopyEvent;
 }
 
 /**
@@ -40,7 +51,7 @@ export interface CopyButtonProps {
  * What changed is announced through a live region beside the button, because a
  * button's own text changing is not something every screen reader reads out.
  */
-export function CopyButton({ label, language, location, text }: CopyButtonProps) {
+export function CopyButton({ event, label, language, location, text }: CopyButtonProps) {
   const [said, setSaid] = useState<Said>('idle');
   const button = useRef<HTMLButtonElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -56,7 +67,11 @@ export function CopyButton({ label, language, location, text }: CopyButtonProps)
   const onClick = async () => {
     if (await copyText(text)) {
       // a no-op when analytics is not configured, which `capture()` decides
-      capture('command_copied', { location, ...(language ? { language } : {}) });
+      if (event) {
+        capture(event.name, event.properties);
+      } else {
+        capture('command_copied', { location, ...(language ? { language } : {}) });
+      }
       settle('copied');
       return;
     }
