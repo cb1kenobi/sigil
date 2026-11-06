@@ -169,3 +169,33 @@ export function referenceDocs(): ReferenceDoc[] {
 export function referenceDoc(slug: string): ReferenceDoc | undefined {
   return referenceDocs().find((doc) => doc.slug === slug);
 }
+
+/**
+ * Where a page's file is, for anything that asks git about it.
+ *
+ * @param slug - The route segment.
+ * @returns The absolute path of the page's markdown.
+ */
+export function referenceFile(slug: string): string {
+  return join(DIR, `${slug}.md`);
+}
+
+/**
+ * The route one page's slug is at.
+ *
+ * One function, because the nav and the links inside a page are two readers of
+ * "where is this page" and they came to disagree: the nav interpolated the slug
+ * raw, so a command called `go#x` -- a legal route whose page is `go#x.md` --
+ * gave `/reference/go#x`, which a URL parser reads as `/reference/go` with a
+ * fragment of `#x`. `?` is the same one query along. The links inside a page had
+ * just been taught to encode and the nav had not. Measured. Found by review.
+ *
+ * @param slug - The page's slug, which is its file name without the extension.
+ * @returns The route.
+ */
+export function referenceHref(slug: string): string {
+  return slug === 'index' ? '/reference' : `/reference/${encodeURIComponent(slug)}`;
+}
+
+/** What the command reference is, for a page that has no description of its own. */
+export const REFERENCE_SUMMARY = 'Every sigil command, with its arguments and options.';

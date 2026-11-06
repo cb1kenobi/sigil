@@ -1,4 +1,5 @@
 import { BG, BRAND, FG, FG_STRONG, MUTED } from './brand.ts';
+import { TAGLINE } from './site.ts';
 import { woff2ToSfnt } from './woff2.ts';
 import { ImageResponse } from 'next/og';
 import { readFile } from 'node:fs/promises';
@@ -32,9 +33,6 @@ import { join } from 'node:path';
 export const OG_SIZE = { width: 1200, height: 630 };
 
 export const OG_CONTENT_TYPE = 'image/png';
-
-/** What the site says it is: SIG-102's line, and the default card's tagline. */
-export const TAGLINE = 'Command-line apps in TypeScript, with nothing else to install.';
 
 const root = process.cwd();
 

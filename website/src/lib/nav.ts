@@ -23,9 +23,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { section: 'examples', label: 'Examples', href: '/examples' },
 ];
 
-/** The repository, for the header's and the footer's GitHub link. */
-export const GITHUB_URL = 'https://github.com/cb1kenobi/sigil';
-
 /**
  * Whether `pathname` is `base` or something under it.
  *

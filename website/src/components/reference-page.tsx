@@ -1,5 +1,5 @@
 import { blockComponents, remarkCallouts } from '@/components/markdown-blocks';
-import { referenceDocs, type ReferenceDoc } from '@/lib/reference';
+import { referenceDocs, referenceHref, type ReferenceDoc } from '@/lib/reference';
 import Link from 'next/link';
 import type { ComponentProps } from 'react';
 import type { ExtraProps } from 'react-markdown';
@@ -8,23 +8,6 @@ import remarkGfm from 'remark-gfm';
 
 /** What `react-markdown` hands a component: the element's props and the node. */
 type Renderer<T extends keyof React.JSX.IntrinsicElements> = ComponentProps<T> & ExtraProps;
-
-/**
- * The route one page's slug is at.
- *
- * One function, because the nav and the links inside a page are two readers of
- * "where is this page" and they came to disagree: the nav interpolated the slug
- * raw, so a command called `go#x` -- a legal route whose page is `go#x.md` --
- * gave `/reference/go#x`, which a URL parser reads as `/reference/go` with a
- * fragment of `#x`. `?` is the same one query along. The links inside a page had
- * just been taught to encode and the nav had not. Measured. Found by review.
- *
- * @param slug - The page's slug, which is its file name without the extension.
- * @returns The route.
- */
-export function referenceHref(slug: string): string {
-  return slug === 'index' ? '/reference' : `/reference/${encodeURIComponent(slug)}`;
-}
 
 /**
  * Where a generated link points on this site.

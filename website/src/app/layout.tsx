@@ -1,6 +1,9 @@
 import { SiteFooter } from '@/components/site-footer';
 import { SiteHeader } from '@/components/site-header';
-import type { Metadata } from 'next';
+import { BG } from '@/lib/brand';
+import { OPEN_GRAPH } from '@/lib/seo';
+import { HOME_TITLE, SITE_NAME, SITE_URL, TAGLINE, TITLE_TEMPLATE } from '@/lib/site';
+import type { Metadata, Viewport } from 'next';
 import localFont from 'next/font/local';
 import './globals.css';
 
@@ -88,9 +91,28 @@ const martian = localFont({
   weight: '500',
 });
 
+/**
+ * What every route inherits.
+ *
+ * `metadataBase` is what turns a relative `canonical` or an `opengraph-image`
+ * into the absolute URL a crawler and a link preview need; without it Next
+ * resolves them against `http://localhost:3000`. It is the production origin
+ * whatever host answered, so a preview's canonical names the page that should
+ * rank. A route that sets `openGraph` or `twitter` replaces the whole object
+ * rather than merging, so each spreads `OPEN_GRAPH` (see `pageMetadata()`).
+ */
 export const metadata: Metadata = {
-  title: 'sigil',
-  description: 'A framework for building CLI apps in Node.js.',
+  metadataBase: new URL(SITE_URL),
+  applicationName: SITE_NAME,
+  title: { default: HOME_TITLE, template: TITLE_TEMPLATE },
+  description: TAGLINE,
+  openGraph: { ...OPEN_GRAPH, title: HOME_TITLE, description: TAGLINE },
+  twitter: { card: 'summary_large_image', title: HOME_TITLE, description: TAGLINE },
+};
+
+/** The page's own ground, so a mobile browser's chrome does not flash another colour. */
+export const viewport: Viewport = {
+  themeColor: BG,
 };
 
 export default function RootLayout({ children }: LayoutProps<'/'>) {

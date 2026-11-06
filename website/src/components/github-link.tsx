@@ -1,7 +1,7 @@
 'use client';
 
 import { captureBeforeLeaving } from '@/lib/analytics';
-import { GITHUB_URL } from '@/lib/nav';
+import { REPO_URL } from '@/lib/site';
 import type { ReactNode } from 'react';
 
 /** The GitHub mark, as titaniumsdk.com draws it in its own header. */
@@ -38,7 +38,7 @@ export function GithubLink({
 }: GithubLinkProps) {
   return (
     <a
-      href={GITHUB_URL}
+      href={REPO_URL}
       target="_blank"
       rel="noreferrer"
       aria-label="sigil on GitHub"
