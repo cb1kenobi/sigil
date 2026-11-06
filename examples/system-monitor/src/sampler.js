@@ -22,8 +22,12 @@ import { execFile } from 'node:child_process';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 
-/** Linux reports rss in pages, and 4 KiB is what every architecture node supports uses. */
-const PAGE_SIZE = 4096;
+/**
+ * What Linux's rss is counted in when `getconf` cannot say. The real size is a
+ * kernel setting -- 4 KiB on x86-64, 16 or 64 KiB on many arm64 and ppc64
+ * kernels -- so it is asked for rather than assumed.
+ */
+const FALLBACK_PAGE_SIZE = 4096;
 
 /**
  * @typedef {object} Snapshot
@@ -40,7 +44,8 @@ const PAGE_SIZE = 4096;
  * @property {() => number} totalmem
  * @property {() => number} now - Milliseconds.
  * @property {string} platform
- * @property {(file: string, args: string[]) => Promise<string>} exec
+ * @property {(file: string, args: string[], signal: AbortSignal) => Promise<string>} exec - Runs
+ *   a command and resolves with what it printed. Aborting `signal` kills it.
  * @property {(path: string) => Promise<string>} readFile
  * @property {(path: string) => Promise<string[]>} readdir
  * @property {(path: string) => Promise<number>} uidOf
@@ -49,9 +54,9 @@ const PAGE_SIZE = 4096;
 /** The real system. */
 export const systemDeps = /** @type {SamplerDeps} */ ({
   cpus: () => os.cpus(),
-  exec: (file, args) =>
+  exec: (file, args, signal) =>
     new Promise((resolve, reject) => {
-      execFile(file, args, { maxBuffer: 16 * 1024 * 1024 }, (err, stdout) =>
+      execFile(file, args, { maxBuffer: 16 * 1024 * 1024, signal }, (err, stdout) =>
         err ? reject(err) : resolve(stdout)
       );
     }),
@@ -65,36 +70,69 @@ export const systemDeps = /** @type {SamplerDeps} */ ({
 });
 
 /**
- * Builds a sampler. The first `sample()` has nothing to take a difference
- * against, so its loads and rates are zero; every one after is the interval
- * since the last.
+ * Builds a sampler. Building one reads nothing: the first `sample()` is the
+ * first reading, and with nothing to take a difference against its core loads,
+ * process CPU and network rates are zero. Every one after is the interval since
+ * the last.
+ *
+ * One sample at a time: each one moves the baseline the next is measured from,
+ * so the app does not ask for another while one is still being read.
+ *
+ * `stop()` kills whatever `ps`, `netstat` or `vm_stat` is still running. A child
+ * process keeps node alive until it exits, so without it quitting the app would
+ * hand back the screen and then keep the shell waiting on a `ps`.
  *
  * @param {Partial<SamplerDeps>} [overrides] - What to read instead of the system.
- * @returns {{ sample(): Promise<Snapshot> }} The sampler.
+ * @returns {{ sample(): Promise<Snapshot>, stop(): void }} The sampler.
  */
 export function createSampler(overrides = {}) {
   const deps = { ...systemDeps, ...overrides };
-  let prevCpus = deps.cpus();
+  const running = new AbortController();
+  const exec = (file, args) => deps.exec(file, args, running.signal);
+  /** @type {readonly { times: Record<string, number> }[]} */
+  let prevCpus = [];
+  /** @type {{ rx: number, tx: number } | undefined} */
   let prevNet;
-  let prevAt = deps.now();
+  let prevAt = 0;
   /** Linux only: each pid's ticks, and the machine's, at the last reading. */
   let prevTicks = new Map();
   let prevTotal = 0;
   /** @type {Map<number, string> | undefined} */
   let users;
+  /** @type {number | undefined} */
+  let pageSize;
 
   async function network() {
     try {
       return deps.platform === 'linux'
         ? parseProcNetDev(await deps.readFile('/proc/net/dev'))
-        : parseNetstat(await deps.exec('netstat', ['-ibn']));
+        : parseNetstat(await exec('netstat', ['-ibn']));
     } catch {
       return { rx: 0, tx: 0 };
     }
   }
 
+  /** Uid to name. A file that could not be read is tried again next tick; an empty one is kept. */
+  async function userNames() {
+    if (!users) {
+      try {
+        users = parsePasswd(await deps.readFile('/etc/passwd'));
+      } catch {
+        return new Map();
+      }
+    }
+    return users;
+  }
+
+  /** The size of the pages Linux counts rss in. Asked once: it cannot change while we run. */
+  async function readPageSize() {
+    const size = Number(await exec('getconf', ['PAGESIZE']).catch(() => ''));
+    return size > 0 ? size : FALLBACK_PAGE_SIZE;
+  }
+
   async function linuxProcesses(cores, totalmem) {
-    users ??= parsePasswd(await deps.readFile('/etc/passwd').catch(() => ''));
+    const names = await userNames();
+    pageSize ??= await readPageSize();
     const total = parseProcStatTotal(await deps.readFile('/proc/stat'));
     const span = total - prevTotal;
     const ticks = new Map();
@@ -111,15 +149,20 @@ export function createSampler(overrides = {}) {
         }
         const uid = await deps.uidOf(`/proc/${entry}`);
         ticks.set(it.pid, it.ticks);
+        // fewer ticks than last time is a pid that was reused by a new process
+        // since: it is new, with nothing of its own to take a difference against
         const before = prevTicks.get(it.pid);
-        const rss = it.rssPages * PAGE_SIZE;
+        const fresh = before === undefined || it.ticks < before;
+        const rss = it.rssPages * pageSize;
         out.push({
-          cpu: before === undefined || span <= 0 ? 0 : ((it.ticks - before) / span) * cores * 100,
+          // the span is every core's jiffies together, so the share of it times
+          // the cores is the percent of one core, which is what `ps` reports too
+          cpu: fresh || span <= 0 ? 0 : ((it.ticks - before) / span) * cores * 100,
           mem: totalmem > 0 ? (rss / totalmem) * 100 : 0,
           name: it.name,
           pid: it.pid,
           rss,
-          user: users.get(uid) ?? String(uid),
+          user: names.get(uid) ?? String(uid),
         });
       } catch {
         continue;
@@ -133,8 +176,7 @@ export function createSampler(overrides = {}) {
   /** Bytes in use: `vm_stat` on macOS, where `os.freemem()` counts cache as used. */
   async function memoryUsed(total) {
     if (deps.platform === 'darwin') {
-      const used = await deps
-        .exec('vm_stat', [])
+      const used = await exec('vm_stat', [])
         .then(parseVmStat)
         .catch(() => undefined);
       if (used !== undefined) {
@@ -148,7 +190,7 @@ export function createSampler(overrides = {}) {
     try {
       return deps.platform === 'linux'
         ? await linuxProcesses(cores, totalmem)
-        : parsePs(await deps.exec('ps', ['-axo', 'pid=,user=,pcpu=,pmem=,rss=,comm=']));
+        : parsePs(await exec('ps', ['-axo', 'pid=,user=,pcpu=,pmem=,rss=,comm=']));
     } catch {
       return [];
     }
@@ -178,6 +220,9 @@ export function createSampler(overrides = {}) {
       prevNet = net;
       prevAt = at;
       return snapshot;
+    },
+    stop() {
+      running.abort();
     },
   };
 }

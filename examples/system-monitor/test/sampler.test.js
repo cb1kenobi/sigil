@@ -1,22 +1,25 @@
-import { createSampler } from '../src/sampler.js';
+import { createSampler, systemDeps } from '../src/sampler.js';
 import { describe, expect, it } from 'vitest';
 
 /** A machine that does exactly what the test says, one reading at a time. */
-function machine(platform, files = {}, commands = {}) {
+function machine(platform, files = {}, commands = {}, cores = 1) {
   let at = 0;
   let busy = 0;
+  /** Every signal a command was handed, so a test can ask whether it was aborted. */
+  const signals = [];
   return {
     advance(ms, work) {
       at += ms;
       busy += work;
     },
     deps: {
-      cpus: () => [{ times: { idle: at - busy, user: busy } }],
-      exec: async (file) => {
+      cpus: () => Array.from({ length: cores }, () => ({ times: { idle: at - busy, user: busy } })),
+      exec: async (file, _args, signal) => {
+        signals.push(signal);
         if (!(file in commands)) {
           throw new Error(`no ${file}`);
         }
-        return typeof commands[file] === 'function' ? commands[file]() : commands[file];
+        return typeof commands[file] === 'function' ? commands[file](signal) : commands[file];
       },
       freemem: () => 4,
       now: () => at,
@@ -33,11 +36,39 @@ function machine(platform, files = {}, commands = {}) {
       totalmem: () => 16,
       uidOf: async () => 1000,
     },
+    signals,
   };
 }
 
+/**
+ * A Linux machine with one process, pid 9, whose cpu ticks and the machine's
+ * total jiffies the test sets between samples.
+ */
+function linux({
+  cores = 1,
+  commands = {},
+  passwd = 'chris:x:1000:1000::/home/chris:/bin/sh\n',
+} = {}) {
+  const state = { passwd, ticks: 0, total: 0 };
+  // after the state, utime is the 11th field and rss the 21st: see parseProcPidStat
+  const stat = () =>
+    `9 (worker) S ${Array.from({ length: 25 }, (_, i) => (i === 10 ? state.ticks : i === 20 ? 2 : 0)).join(' ')}`;
+  const m = machine(
+    'linux',
+    {
+      '/etc/passwd': () => (typeof state.passwd === 'function' ? state.passwd() : state.passwd),
+      '/proc/9/stat': stat,
+      '/proc/net/dev': 'eth0: 0 0 0 0 0 0 0 0 0 0\n',
+      '/proc/stat': () => `cpu  ${state.total} 0 0 0\n`,
+    },
+    commands,
+    cores
+  );
+  return { ...m, state };
+}
+
 describe('createSampler', () => {
-  it('should report zero loads and rates on the first sample and differences after', async () => {
+  it('should report zero loads and rates on the first sample, however long after it was built', async () => {
     let rx = 1000;
     const m = machine(
       'darwin',
@@ -49,7 +80,11 @@ describe('createSampler', () => {
     );
     const sampler = createSampler(m.deps);
 
+    // busy between building the sampler and the first reading: building one
+    // reads nothing, so none of this is a difference the first sample can take
+    m.advance(1000, 500);
     const first = await sampler.sample();
+    expect(first.cores).toEqual([0]);
     expect(first.net).toEqual({ rx: 0, tx: 0 });
     expect(first.processes.map((p) => p.name)).toEqual(['zsh']);
 
@@ -65,30 +100,71 @@ describe('createSampler', () => {
     expect((await sampler.sample()).memory).toEqual({ total: 16, used: 12 });
   });
 
-  it('should read processes from /proc on linux, with cpu as the share of the interval', async () => {
-    let ticks = 0;
-    let total = 0;
-    // after the state, utime is the 11th field and rss the 21st: see parseProcPidStat
-    const stat = () =>
-      `9 (worker) S ${Array.from({ length: 25 }, (_, i) => (i === 10 ? ticks : i === 20 ? 2 : 0)).join(' ')}`;
-    const m = machine('linux', {
-      '/etc/passwd': 'chris:x:1000:1000::/home/chris:/bin/sh\n',
-      '/proc/9/stat': stat,
-      '/proc/net/dev': 'eth0: 0 0 0 0 0 0 0 0 0 0\n',
-      '/proc/stat': () => `cpu  ${total} 0 0 0\n`,
-    });
+  it('should read processes from /proc on linux, with cpu as the percent of one core', async () => {
+    const m = linux({ commands: { getconf: '16384\n' }, cores: 2 });
     const sampler = createSampler(m.deps);
 
     const first = await sampler.sample();
+    // two pages of the size getconf reported, not of an assumed 4 KiB
     expect(first.processes).toEqual([
-      { cpu: 0, mem: (2 * 4096 * 100) / 16, name: 'worker', pid: 9, rss: 8192, user: 'chris' },
+      { cpu: 0, mem: (2 * 16384 * 100) / 16, name: 'worker', pid: 9, rss: 32768, user: 'chris' },
     ]);
 
-    // one core's worth of machine, a quarter of it spent in the process
-    ticks = 25;
-    total = 100;
+    // two cores' worth of machine, 200 jiffies, with 50 of them spent in the
+    // process: a quarter of the machine, which is half of one core
+    m.state.ticks = 50;
+    m.state.total = 200;
     m.advance(1000, 0);
-    expect((await sampler.sample()).processes[0]?.cpu).toBe(25);
+    expect((await sampler.sample()).processes[0]?.cpu).toBe(50);
+  });
+
+  it('should count rss in 4 KiB pages when getconf cannot say', async () => {
+    const sampler = createSampler(linux().deps);
+    expect((await sampler.sample()).processes[0]?.rss).toBe(2 * 4096);
+  });
+
+  it('should read a pid reused since the last sample as a new process, not a negative cpu', async () => {
+    const m = linux();
+    const sampler = createSampler(m.deps);
+    m.state.ticks = 80;
+    m.state.total = 100;
+    await sampler.sample();
+
+    // pid 9 exited and a new process was given its number: far fewer ticks
+    m.state.ticks = 5;
+    m.state.total = 200;
+    m.advance(1000, 0);
+    expect((await sampler.sample()).processes[0]?.cpu).toBe(0);
+  });
+
+  it('should try /etc/passwd again on a later sample when it could not be read', async () => {
+    let reads = 0;
+    const m = linux({
+      passwd: () => {
+        reads++;
+        if (reads === 1) {
+          throw new Error('EIO');
+        }
+        return 'chris:x:1000:1000::/home/chris:/bin/sh\n';
+      },
+    });
+    const sampler = createSampler(m.deps);
+    expect((await sampler.sample()).processes[0]?.user).toBe('1000');
+    expect((await sampler.sample()).processes[0]?.user).toBe('chris');
+  });
+
+  it('should keep an empty /etc/passwd rather than reading it every sample', async () => {
+    let reads = 0;
+    const m = linux({
+      passwd: () => {
+        reads++;
+        return '';
+      },
+    });
+    const sampler = createSampler(m.deps);
+    await sampler.sample();
+    await sampler.sample();
+    expect(reads).toBe(1);
   });
 
   it('should carry on with no processes and no network when the commands fail', async () => {
@@ -96,5 +172,35 @@ describe('createSampler', () => {
     const snap = await sampler.sample();
     expect(snap.processes).toEqual([]);
     expect(snap.net).toEqual({ rx: 0, tx: 0 });
+  });
+
+  it('should kill the commands still running when it is stopped', async () => {
+    // a `ps` that never finishes on its own, the way a stuck one does
+    const hang = (signal) =>
+      new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason));
+      });
+    const m = machine('darwin', {}, { netstat: hang, ps: hang, vm_stat: hang });
+    const sampler = createSampler(m.deps);
+
+    const pending = sampler.sample();
+    sampler.stop();
+    const snap = await pending;
+    expect(m.signals).toHaveLength(3);
+    expect(m.signals.every((s) => s.aborted)).toBe(true);
+    expect(snap.processes).toEqual([]);
+  });
+});
+
+describe('systemDeps.exec', () => {
+  it('should kill the child when its signal is aborted, rather than waiting for it', async () => {
+    const running = new AbortController();
+    const child = systemDeps.exec(
+      process.execPath,
+      ['-e', 'setTimeout(() => {}, 3000)'],
+      running.signal
+    );
+    running.abort();
+    await expect(child).rejects.toMatchObject({ name: 'AbortError' });
   });
 });

@@ -11,6 +11,7 @@ import {
   filterProcesses,
   formatBytes,
   pushHistory,
+  refuseKill,
   reselect,
   SORT_ORDER,
   sortProcesses,
@@ -152,8 +153,22 @@ export function App() {
   // -- sampling ---------------------------------------------------------------
   const sampler = system.sampler();
   let disposed = false;
+  // a reading slower than the interval -- a few thousand processes, a slow
+  // `/proc` -- would otherwise overlap the next one: two points for one second,
+  // and whichever finished last setting the baseline. So a tick that comes while
+  // one is still reading is skipped
+  let reading = false;
   const tick = async () => {
-    const snap = await sampler.sample();
+    if (reading) {
+      return;
+    }
+    reading = true;
+    let snap;
+    try {
+      snap = await sampler.sample();
+    } finally {
+      reading = false;
+    }
     if (disposed) {
       return;
     }
@@ -176,6 +191,7 @@ export function App() {
   onCleanup(() => {
     disposed = true;
     stopClock();
+    sampler.stop();
   });
 
   // -- the cpu panel ----------------------------------------------------------
@@ -224,7 +240,7 @@ export function App() {
       class: 'grow',
       data: () => memory.get().history,
       draw: (values, size) =>
-        lineChartView(values.length > 1 ? values : [0, 0], {
+        lineChartView(values, {
           format: (v) => `${v.toFixed(0)}%`,
           height: Math.max(1, size.height - 1),
           max: 100,
@@ -330,6 +346,11 @@ export function App() {
     if (!p) {
       return;
     }
+    const refused = refuseKill(p.pid, system.pid);
+    if (refused) {
+      status.set(refused);
+      return;
+    }
     const yes = await confirmModal(app.view, {
       initial: 'no',
       input,
@@ -338,6 +359,14 @@ export function App() {
     });
     input.focus.focus(table.element);
     if (!yes) {
+      return;
+    }
+    // sampling went on while the dialog was open, and the process may have
+    // exited and its pid gone to something else. The signal goes to a pid, so it
+    // is sent only if the latest sample still has the same process under it
+    const now = processes.get().find((it) => it.pid === p.pid);
+    if (!now || now.name !== p.name || now.user !== p.user) {
+      status.set(`${p.name} (pid ${p.pid}) has exited: nothing sent`);
       return;
     }
     try {

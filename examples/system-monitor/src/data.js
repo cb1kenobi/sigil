@@ -63,8 +63,13 @@ export function parsePs(text) {
 /**
  * The total jiffies on the first line of `/proc/stat`, across every core.
  *
+ * Only the first eight fields -- user, nice, system, idle, iowait, irq, softirq
+ * and steal. The two after them, guest and guest_nice, are already counted
+ * inside user and nice (`proc(5)`), so adding them again would inflate the
+ * machine's time and make every process look less busy than it is.
+ *
  * @param {string} text - `/proc/stat`.
- * @returns {number} The sum of every field on the `cpu` line.
+ * @returns {number} The sum of the `cpu` line's first eight fields.
  */
 export function parseProcStatTotal(text) {
   const line = text.split('\n').find((it) => it.startsWith('cpu '));
@@ -74,7 +79,7 @@ export function parseProcStatTotal(text) {
   return line
     .trim()
     .split(/\s+/)
-    .slice(1)
+    .slice(1, 9)
     .reduce((acc, it) => acc + Number(it), 0);
 }
 
@@ -252,7 +257,9 @@ export function sortProcesses(list, key) {
 }
 
 /**
- * Keeps the processes whose name, user or pid contains the query, ignoring case.
+ * Keeps the processes whose name or user contains the query, ignoring case, or
+ * whose pid is exactly the query. Exact for the pid because a number is not a
+ * name: `/3` should find pid 3, not 13, 23 and 30 beside it.
  *
  * @param {readonly Process[]} list - The processes.
  * @param {string} query - What was typed.
@@ -267,6 +274,27 @@ export function filterProcesses(list, query) {
     (p) =>
       p.name.toLowerCase().includes(q) || p.user.toLowerCase().includes(q) || String(p.pid) === q
   );
+}
+
+/**
+ * Why the monitor will not signal a pid, or nothing if it will.
+ *
+ * Pid 1 is init -- `launchd`, `systemd` -- and the monitor's own pid is the
+ * monitor: SIGTERM to it tears the app down from under the dialog that sent it.
+ * Neither is a process anybody means to kill from here.
+ *
+ * @param {number} pid - The pid to signal.
+ * @param {number} self - The monitor's own pid.
+ * @returns {string | undefined} What to tell the user, or nothing.
+ */
+export function refuseKill(pid, self) {
+  if (pid === 1) {
+    return 'pid 1 is init: not sending it SIGTERM';
+  }
+  if (pid === self) {
+    return 'that is this monitor: quit with q';
+  }
+  return undefined;
 }
 
 /**

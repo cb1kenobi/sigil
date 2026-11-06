@@ -33,6 +33,22 @@ supported.
 The selection follows its process, not its row: when a refresh re-sorts the
 table, the process you were about to kill stays selected.
 
+`x` refuses pid 1, which is init (`launchd`, `systemd`), and the monitor's own
+pid, without asking. The table keeps refreshing while the confirm is open, so
+when you answer yes the signal is sent only if the latest sample still lists
+that pid with the same name and user; a process that exited, or whose pid was
+handed to something else, gets `has exited: nothing sent` in the footer. That
+check is as good as the latest sample, which is up to a second old.
+
+Process memory on Linux is `/proc/<pid>/stat`'s rss, which is counted in pages.
+The page size is a kernel setting (4 KiB on x86-64, 16 or 64 KiB on many arm64
+and ppc64 kernels), so it comes from `getconf PAGESIZE`, asked once, with 4 KiB
+only if `getconf` cannot answer.
+
+A reading that takes longer than the one-second interval is not overlapped:
+the tick that arrives while one is in flight is skipped. Quitting kills any
+`ps`, `netstat` or `vm_stat` still running, so the shell comes back at once.
+
 ## Layout
 
 | File               | What it is                                                                 |
@@ -74,6 +90,17 @@ and is the least that works.
   on screen, and learns its size through `onResize`.
 - **`ProcessTable`** stands in for SIG-281. Its columns are padded strings and
   its rows are a pool of text elements that it rewrites in place.
+
+The stand-ins are built with `box()` and `text()` rather than the `ui` tag for
+a reason that is a gap of its own: a template has no way to put a handler on a
+node inside it. The props a template knows besides style are `class`,
+`focusable`, `id`, `key`, `selectable` and `tabindex` (`ReservedProps` in
+`packages/sigil/src/template/props.ts`), and there is no `ref`. Measured,
+`` ui`<box onKey=${fn} onResize=${fn}></box>` `` builds without complaint and
+attaches neither. A handler goes on an element you already hold: the root a
+template returns, which is how `App` takes its keys (`root.onKey = ...`), or a
+node built with `box()`. `ProcessTable` needs `onResize` and `onMouse` on its
+body, which is inside it, so it is built by hand.
 
 The app's own keys are on `App`'s root `onKey` rather than router bindings: a
 binding sees every key before a focused field does, so `q` typed into the

@@ -3,9 +3,10 @@
  *
  * Each one is the least that makes the monitor work, kept here rather than in
  * the package so that it can be deleted the day the real component lands. They
- * are written imperatively, with `box()` and `text()`, because a template cannot
- * attach `onResize`, `onKey` or `onMouse` to a node it builds -- which is a gap of
- * its own, recorded in the README.
+ * are written imperatively, with `box()` and `text()`, because they put handlers
+ * on nodes inside themselves -- the table body's `onResize` and `onMouse` -- and a
+ * template has no way to reach one: handlers are not template props, and there is
+ * no `ref`. The README has the details, under "What is a stand-in".
  */
 
 import { SORTS, scrollTop } from './data.js';

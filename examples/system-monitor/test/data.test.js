@@ -11,6 +11,7 @@ import {
   parseVmStat,
   pushHistory,
   rate,
+  refuseKill,
   reselect,
   scrollTop,
   sortProcesses,
@@ -67,8 +68,12 @@ describe('parsePs', () => {
 });
 
 describe('the /proc readers', () => {
-  it('should sum every field of the cpu line', () => {
+  it('should sum the fields of the cpu line', () => {
     expect(parseProcStatTotal('cpu  10 20 30 40\ncpu0 1 2 3 4\n')).toBe(100);
+  });
+
+  it('should leave guest and guest_nice out of the total, since user and nice already count them', () => {
+    expect(parseProcStatTotal('cpu  10 20 30 40 0 0 0 0 7 3\n')).toBe(100);
   });
 
   it('should count stat fields from the last parenthesis, since a command may hold one', () => {
@@ -161,8 +166,13 @@ describe('sorting, filtering and the selection', () => {
   it('should filter by name, user and exact pid, ignoring case', () => {
     expect(filterProcesses(list, 'NO').map((p) => p.pid)).toEqual([1]);
     expect(filterProcesses(list, 'root').map((p) => p.pid)).toEqual([2]);
-    expect(filterProcesses(list, '3').map((p) => p.pid)).toEqual([3]);
     expect(filterProcesses(list, '  ')).toBe(list);
+  });
+
+  it('should match a pid exactly rather than as a substring', () => {
+    // named without digits, so that only the pid can match
+    const pids = [proc(3, 0, 0, 'zsh'), proc(13, 0, 0, 'node'), proc(30, 0, 0, 'bash')];
+    expect(filterProcesses(pids, '3').map((p) => p.pid)).toEqual([3]);
   });
 
   it('should keep the selected pid when it moved', () => {
@@ -182,6 +192,14 @@ describe('sorting, filtering and the selection', () => {
     expect(scrollTop(10, 3, 5, 20)).toBe(3);
     expect(scrollTop(18, 19, 5, 20)).toBe(15);
     expect(scrollTop(3, 0, 0, 20)).toBe(0);
+  });
+});
+
+describe('refuseKill', () => {
+  it('should refuse pid 1 and the monitor itself, and nothing else', () => {
+    expect(refuseKill(1, 500)).toMatch(/init/);
+    expect(refuseKill(500, 500)).toMatch(/this monitor/);
+    expect(refuseKill(42, 500)).toBeUndefined();
   });
 });
 

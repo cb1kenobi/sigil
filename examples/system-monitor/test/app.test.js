@@ -28,14 +28,18 @@ function mount({
   colorLevel = 0,
   columns = 100,
   cores = [0.25, 0.75],
+  memory = { total: 16 * 1024 ** 3, used: 8 * 1024 ** 3 },
+  pid = 99999,
   rows = 30,
   processes = [],
+  sample,
 } = {}) {
   const term = createTestTerminal({ colorLevel, columns, rows });
   const data = { processes };
   let n = 0;
   let tick;
   let stopped = false;
+  let samplerStopped = false;
   const killed = [];
   const system = {
     clock: {
@@ -47,16 +51,22 @@ function mount({
       },
     },
     interval: 1000,
-    kill: (pid) => killed.push(pid),
+    kill: (it) => killed.push(it),
+    pid,
     sampler: () => ({
-      async sample() {
-        n++;
-        return {
-          cores,
-          memory: { total: 16 * 1024 ** 3, used: 8 * 1024 ** 3 },
-          net: { rx: 1024 * n, tx: 512 * n },
-          processes: data.processes,
-        };
+      sample:
+        sample ??
+        (async () => {
+          n++;
+          return {
+            cores,
+            memory,
+            net: { rx: 1024 * n, tx: 512 * n },
+            processes: data.processes,
+          };
+        }),
+      stop() {
+        samplerStopped = true;
       },
     }),
   };
@@ -98,11 +108,15 @@ function mount({
     escape,
     killed,
     press,
+    tick: () => tick(),
     screen,
     settle,
     step,
     get stopped() {
       return stopped;
+    },
+    get samplerStopped() {
+      return samplerStopped;
     },
     term,
   };
@@ -164,6 +178,34 @@ describe('the system monitor', () => {
     await killRow(app, 0);
     expect(app.killed).toEqual([3]);
     expect(app.screen()).toContain('sent SIGTERM to 3');
+  });
+
+  it('should send nothing when the pid went to another process while the dialog was open', async () => {
+    const app = mount({ processes: [proc(1, 5, 1), proc(2, 90, 2), proc(3, 40, 3)] });
+    await app.step();
+    await app.press('j', 'x');
+    expect(app.screen()).toContain('Send SIGTERM to proc-3 (pid 3)?');
+
+    // proc-3 exits and its pid is handed to something else before the answer
+    app.data.processes = [proc(1, 5, 1), proc(2, 90, 2), { ...proc(3, 40, 3), name: 'other' }];
+    await app.step();
+    await app.press(KEYS.tab, KEYS.enter);
+    expect(app.killed).toEqual([]);
+    expect(app.screen()).toContain('proc-3 (pid 3) has exited: nothing sent');
+  });
+
+  it('should refuse to kill pid 1 or the monitor itself, without asking', async () => {
+    const app = mount({ pid: 2, processes: [proc(1, 90, 1), proc(2, 50, 2)] });
+    await app.step();
+
+    await app.press('x');
+    expect(app.screen()).not.toContain('Send SIGTERM');
+    expect(app.screen()).toContain('pid 1 is init: not sending it SIGTERM');
+
+    await app.press('j', 'x');
+    expect(app.screen()).not.toContain('Send SIGTERM');
+    expect(app.screen()).toContain('that is this monitor: quit with q');
+    expect(app.killed).toEqual([]);
   });
 
   it('should keep the selection on the same process when a refresh reorders the table', async () => {
@@ -254,7 +296,8 @@ describe('the system monitor', () => {
 
   it('should restyle the roles when the theme moves, a dialog included', async () => {
     const ESC = String.fromCharCode(0x1b);
-    const app = mount({ colorLevel: 1, processes: [proc(1, 5, 1)] });
+    // not pid 1, which the monitor refuses to kill without opening the dialog
+    const app = mount({ colorLevel: 1, processes: [proc(4, 5, 1)] });
     await app.step();
     // the framework's accent is cyan, and violet's is magenta
     expect(app.term.output).toContain(`${ESC}[36m`);
@@ -294,12 +337,52 @@ describe('the system monitor', () => {
     expect(app.screen()).toContain('─ processes ·');
   });
 
-  it('should stop sampling when it exits', async () => {
+  it('should stop sampling when it exits, and stop the reading still in flight', async () => {
     const app = mount();
     await app.step();
     expect(app.stopped).toBe(false);
+    expect(app.samplerStopped).toBe(false);
     app.app.exit();
     await app.app.exited;
     expect(app.stopped).toBe(true);
+    // what kills a `ps` still running, which would otherwise hold the process open
+    expect(app.samplerStopped).toBe(true);
+  });
+
+  it('should not start a sample while the last one is still being read', async () => {
+    let calls = 0;
+    /** @type {(snap: object) => void} */
+    let finish = () => {};
+    const sample = () => {
+      calls++;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    };
+    const app = mount({ sample });
+    await app.settle();
+    expect(calls).toBe(1);
+
+    // the clock ticks twice while the first reading is still out
+    app.tick();
+    app.tick();
+    await app.settle();
+    expect(calls).toBe(1);
+
+    finish({ cores: [0.5], memory: { total: 2, used: 1 }, net: { rx: 0, tx: 0 }, processes: [] });
+    await app.settle();
+    app.tick();
+    await app.settle();
+    expect(calls).toBe(2);
+  });
+
+  it('should draw the first memory sample on the history chart rather than a line at 0%', async () => {
+    const app = mount();
+    await app.step();
+    const screen = app.screen();
+    // the one reading, 50%, is a dot mid-plot: the braille is the line chart's,
+    // and the row at 0% has none of it
+    expect(screen).toMatch(/[\u2801-\u28ff]/);
+    expect(screen).toMatch(/ 0% ┤ +│$/m);
   });
 });
