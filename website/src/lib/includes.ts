@@ -1,3 +1,4 @@
+import { fence } from './markdown-doc.ts';
 import { SITE_URL } from './site.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -105,12 +106,9 @@ export function expandIncludes(markdown: string, dir: string): string {
       /\n+$/,
       ''
     );
-    // a fence longer than any run of backticks inside it, so none of them closes it
-    const longest = Math.max(0, ...[...body.matchAll(/`+/g)].map((run) => run[0].length));
-    const fence = '`'.repeat(Math.max(3, longest + 1));
     const lang = /\.(\w+)$/.exec(name)?.[1] ?? '';
 
-    return `${fence}${lang}${fill(meta).trimEnd()}\n${body}\n${fence}`;
+    return fence(body, `${lang}${fill(meta).trimEnd()}`);
   });
 
   const left = includesOf(expanded);

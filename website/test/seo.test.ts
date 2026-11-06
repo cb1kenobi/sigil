@@ -29,6 +29,11 @@ describe('pageMetadata', () => {
     assert.equal((meta.openGraph as { type?: string }).type, 'website');
   });
 
+  it('should name a docs page’s Markdown copy, and no copy for a page that has none', () => {
+    assert.deepEqual(meta.alternates?.types, { 'text/markdown': '/reference/build.md' });
+    assert.equal(pageMetadata({ path: '/', description: 'x' }).alternates?.types, undefined);
+  });
+
   it('should leave the home page’s title to the layout’s default', () => {
     const home = pageMetadata({ path: '/', description: 'x' });
     assert.equal('title' in home, false);

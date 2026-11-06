@@ -1,3 +1,4 @@
+import { hasMarkdownCopy, markdownHref } from './markdown-copy.ts';
 import { REPO_URL, SITE_NAME, SITE_URL, TAGLINE, absoluteUrl, fullTitle } from './site.ts';
 import type { Metadata, MetadataRoute } from 'next';
 
@@ -31,6 +32,12 @@ export const OPEN_GRAPH = {
  * say different things. The images are not here: they come from the nearest
  * `opengraph-image` file convention, and `/reference/*` inherits the section's.
  *
+ * A docs page also names its Markdown copy, as `<link rel="alternate"
+ * type="text/markdown">` (SIG-267), so an agent that fetched the HTML is told
+ * where the text is. Here rather than on each route because every page under
+ * `/docs` and `/reference` has one, and because `alternates` is replaced rather
+ * than merged: a route that added its own would have to repeat the canonical.
+ *
  * @param page - The page.
  * @param page.path - Where it is, starting with `/`. Resolved against `metadataBase`.
  * @param page.title - Its own title, which the layout's template adds the site's name to. Omit it
@@ -52,7 +59,10 @@ export function pageMetadata({
   return {
     ...(title === undefined ? {} : { title }),
     description,
-    alternates: { canonical: path },
+    alternates: {
+      canonical: path,
+      ...(hasMarkdownCopy(path) ? { types: { 'text/markdown': markdownHref(path) } } : {}),
+    },
     openGraph: { ...OPEN_GRAPH, title: card, description, url: path },
     twitter: { card: 'summary_large_image', title: card, description },
   };

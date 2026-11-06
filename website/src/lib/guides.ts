@@ -69,6 +69,20 @@ export function readGuide(slug: string): Guide {
 }
 
 /**
+ * Every page under `/docs/` that is a markdown file in the repository.
+ *
+ * The guides, today. SIG-266 adds About after them -- `docs/about.md`, read the
+ * way a guide is but not in `guides()`, which is the Docs section's reading
+ * order -- and anything that wants every such page by its slug asks this, so
+ * About reaches it by changing this function and nothing else.
+ *
+ * @returns The pages.
+ */
+export function markdownPages(): Guide[] {
+  return guides();
+}
+
+/**
  * Every guide, in reading order.
  *
  * @returns The guides.
