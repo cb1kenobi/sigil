@@ -1,10 +1,12 @@
 import { guideLink } from '../src/lib/guide-links.ts';
 import { GUIDES_DIR, guide, guides } from '../src/lib/guides.ts';
+import { includesOf } from '../src/lib/includes.ts';
 import { headingsOf, parseMarkdown } from '../src/lib/markdown-doc.ts';
 import { GUIDE_SLUGS, guideHref } from '../src/lib/nav.ts';
 import { REPO_URL } from '../src/lib/site.ts';
 import assert from 'node:assert/strict';
-import { readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 /**
@@ -31,11 +33,17 @@ function linksOf(source: string): string[] {
 
 describe('the guides', () => {
   it('should be every markdown file in packages/sigil/docs, so a new one is placed on purpose', () => {
+    // or a file a guide includes, which is a block on that guide's page and no
+    // page of its own: the agent instructions
+    const included = GUIDE_SLUGS.flatMap((slug) =>
+      includesOf(readFileSync(join(GUIDES_DIR, `${slug}.md`), 'utf-8'))
+    );
     const files = readdirSync(GUIDES_DIR)
-      .filter((name) => name.endsWith('.md'))
+      .filter((name) => name.endsWith('.md') && !included.includes(name))
       .map((name) => name.slice(0, -'.md'.length))
       .toSorted();
 
+    assert.deepEqual(included, ['agents.md']);
     assert.deepEqual(files, [...GUIDE_SLUGS].toSorted());
   });
 
@@ -61,6 +69,27 @@ describe('the guides', () => {
     for (const it of guides()) {
       assert.match(it.description, /[.!?]$/, it.slug);
     }
+  });
+
+  it('should end Getting started with the agent instructions, at the address the home page links to', () => {
+    const it = guide('getting-started')!;
+    const at = it.sections.findIndex((section) => section.id === 'agents');
+
+    assert.equal(it.sections[at]?.text, 'Use sigil with an agent');
+    assert.equal(it.sections[at + 1]?.id, 'where-next');
+    // the block itself, filled in, and nothing of the directive left over
+    assert.match(
+      it.source,
+      /^```md title="AGENTS\.md · sigil v\d+\.\d+\.\d+[^"]*" event=agent_instructions_copied$/m
+    );
+    assert.doesNotMatch(it.source, /<!--\s*\/?include|\{\{/);
+  });
+
+  it('should open Getting started with the install box, for the command the guide shows', () => {
+    assert.match(
+      guide('getting-started')!.source,
+      /^```sh install=cli location=getting-started\nnpx @ttylabs\/cli new my-cli\n```$/m
+    );
   });
 
   it('should say nothing for a slug that is not a guide', () => {

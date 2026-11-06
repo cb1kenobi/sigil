@@ -11,12 +11,35 @@
  *   becomes a `TerminalBlock` with a prompt on each command;
  * - anything else is a **file**, and becomes a `CodeBlock`: highlighted when the
  *   language is one `highlight.ts` knows, plain when it is not or there is none.
+ *
+ * Two things more are said on the fence line, so that a guide asks for them
+ * itself rather than the site special-casing a page:
+ *
+ * - ```` ```sh install=cli location=getting-started ```` is the **install box**
+ *   (`InstallCommand`), with its vlt, pnpm and npm tabs. The body has to be the
+ *   command the box shows before a reader picks a manager, so the guide on
+ *   GitHub and the page with no script say the same thing, and a box that has
+ *   drifted from its guide fails the build rather than shipping two commands;
+ * - ```` ```md event=agent_instructions_copied ```` sends that event, instead
+ *   of `command_copied`, when the block is copied.
  */
+
+import type { AnalyticsEvent } from './analytics.ts';
+import { COMMANDS, DEFAULT_PACKAGE_MANAGER, type InstallPackage } from './install-command.ts';
+
+/** The events a fence's Copy button may send in place of `command_copied`. */
+export const COPY_EVENTS = [
+  'agent_instructions_copied',
+] as const satisfies readonly AnalyticsEvent[];
+
+export type CopyEventName = (typeof COPY_EVENTS)[number];
 
 /** A fence, read. */
 export type Fence =
   | {
       readonly code: string;
+      /** What copying it sends, when it is not `command_copied`. */
+      readonly event?: CopyEventName;
       readonly kind: 'code';
       readonly lang?: string;
       /** What the title bar names: a file, usually. */
@@ -27,6 +50,12 @@ export type Fence =
       readonly cwd?: string;
       readonly kind: 'console' | 'shell';
       readonly text: string;
+    }
+  | {
+      readonly kind: 'install';
+      /** Where it is on the page, for the analytics events. */
+      readonly location: string;
+      readonly package: InstallPackage;
     };
 
 /** The languages that are a transcript. */
@@ -77,6 +106,10 @@ export function readFence(lang: string | undefined, meta: string | undefined, bo
   const pairs = readMeta(meta);
   const name = lang?.toLowerCase();
 
+  if (name !== undefined && SHELL.has(name) && pairs.install !== undefined) {
+    return installFence(pairs, body);
+  }
+
   if (name !== undefined && (CONSOLE.has(name) || SHELL.has(name))) {
     return {
       ...(pairs.cwd ? { cwd: pairs.cwd } : {}),
@@ -88,10 +121,43 @@ export function readFence(lang: string | undefined, meta: string | undefined, bo
   const path = PATH.exec(body);
   const title = pairs.title ?? path?.[1];
 
+  const event = pairs.event;
+  if (event !== undefined && !(COPY_EVENTS as readonly string[]).includes(event)) {
+    throw new Error(`event=${event} is not one a copy can send: ${COPY_EVENTS.join(', ')}`);
+  }
+
   return {
     code: path && pairs.title === undefined ? body.slice(path[0].length) : body,
+    ...(event ? { event: event as CopyEventName } : {}),
     kind: 'code',
     ...(lang ? { lang } : {}),
     ...(title ? { title } : {}),
   };
+}
+
+/**
+ * An `install=` fence, checked against the box it becomes.
+ *
+ * @param pairs - The fence's meta.
+ * @param body - The command the guide shows.
+ * @returns The fence.
+ * @throws When the package is not one the box installs, the location is
+ *   missing, or the body is not the box's own command.
+ */
+function installFence(pairs: Record<string, string>, body: string): Fence {
+  const pkg = pairs.install!;
+
+  if (!Object.hasOwn(COMMANDS, pkg)) {
+    throw new Error(`install=${pkg} is not one of: ${Object.keys(COMMANDS).join(', ')}`);
+  }
+  if (!pairs.location) {
+    throw new Error(`install=${pkg} needs a location= for its analytics events`);
+  }
+
+  const expected = COMMANDS[pkg as InstallPackage][DEFAULT_PACKAGE_MANAGER];
+  if (body.trim() !== expected) {
+    throw new Error(`An install=${pkg} fence has to show "${expected}", not "${body.trim()}"`);
+  }
+
+  return { kind: 'install', location: pairs.location, package: pkg as InstallPackage };
 }

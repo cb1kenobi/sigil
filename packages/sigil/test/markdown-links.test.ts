@@ -30,9 +30,13 @@ import { describe, expect, it } from 'vitest';
  *
  * A fragment is matched against the slug GitHub gives a heading, which was
  * checked against GitHub's own rendering of every markdown file here rather
- * than written from memory -- see `slug()`. Setext headings, `<a id>` anchors
- * and `<a href>` links are not read, since nothing here uses them: a fragment
- * aimed at one of the first two fails loudly, and the third is not checked.
+ * than written from memory -- see `slug()`. An `<a id>` or `<a name>` anchor is
+ * read as well, because a heading whose text slugs to something long can give
+ * itself a short address with one -- `## <a id="agents"></a>Use sigil with an
+ * agent` in `getting-started.md`, which the website honours as the heading's id
+ * -- and GitHub answers a fragment for either. Setext headings and `<a href>`
+ * links are not read, since nothing here uses them: a fragment aimed at the
+ * first fails loudly, and the second is not checked.
  */
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -201,6 +205,10 @@ function anchors(markdown: string): Set<string> {
       id = `${base}-${count}`;
     }
     taken.set(id, 0);
+  }
+  // outside fences, code spans and comments, as a link is
+  for (const match of prose(markdown).matchAll(/<a\s+(?:id|name)="([^"]+)"/g)) {
+    taken.set(match[1]!, 0);
   }
   return new Set(taken.keys());
 }
@@ -385,6 +393,15 @@ describe('what links in markdown are read as', () => {
     expect(ids('## Dup\n\n## Dup\n\n## Dup-1')).toEqual(['dup', 'dup-1', 'dup-1-1']);
     expect(ids('## Dup\n\n## Dup-1\n\n## Dup')).toEqual(['dup', 'dup-1', 'dup-2']);
     expect(ids('## Dup\n\n## Dup\n\n## Dup')).toEqual(['dup', 'dup-1', 'dup-2']);
+  });
+
+  it('should read an explicit anchor beside the slug GitHub gives its heading', () => {
+    expect([...anchors('## <a id="agents"></a>Use sigil with an agent')]).toEqual([
+      'use-sigil-with-an-agent',
+      'agents',
+    ]);
+    expect([...anchors('<a name="top"></a>\n\n# Title')]).toEqual(['title', 'top']);
+    expect([...anchors('`<a id="code"></a>` and <!-- <a id="comment"></a> -->')]).toEqual([]);
   });
 
   it('should not read a heading or a link out of code', () => {

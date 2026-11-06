@@ -1,8 +1,11 @@
 import { Callout } from '@/components/callout';
 import { CodeBlock } from '@/components/code-block';
+import type { CopyEvent } from '@/components/copy-button';
+import { InstallCommand } from '@/components/install-command';
 import { Seal } from '@/components/seal';
 import { TerminalBlock } from '@/components/terminal-block';
-import { readFence } from '@/lib/fence';
+import { readFence, type CopyEventName } from '@/lib/fence';
+import { sigilVersion } from '@/lib/includes';
 import { consoleRows, shellRows, type Lookup } from '@/lib/terminal-rows';
 import { lookup } from '@/lib/transcripts';
 import type { Element, ElementContent } from 'hast';
@@ -73,7 +76,23 @@ function Fenced({ children, node }: Renderer<'pre'>) {
   const fence = readFence(lang, meta, body);
 
   if (fence.kind === 'code') {
-    return <CodeBlock code={fence.code} lang={fence.lang} title={fence.title} />;
+    return (
+      <CodeBlock
+        code={fence.code}
+        event={fence.event ? copyEvent(fence.event) : undefined}
+        lang={fence.lang}
+        title={fence.title}
+      />
+    );
+  }
+
+  if (fence.kind === 'install') {
+    // the margin a terminal block has, so the box sits in the text as one does
+    return (
+      <div className="mt-4">
+        <InstallCommand location={fence.location} package={fence.package} variant="title-bar" />
+      </div>
+    );
   }
 
   if (fence.kind === 'shell') {
@@ -89,6 +108,17 @@ function Fenced({ children, node }: Renderer<'pre'>) {
 
   captured ??= lookup();
   return <TerminalBlock cwd={fence.cwd} language={lang} rows={consoleRows(fence.text, captured)} />;
+}
+
+/**
+ * A copy event with its properties, which are the server's to know: the
+ * instructions' version is the one this build read from `packages/sigil`.
+ */
+function copyEvent(name: CopyEventName): CopyEvent {
+  switch (name) {
+    case 'agent_instructions_copied':
+      return { name, properties: { version: sigilVersion() } };
+  }
 }
 
 /** A blockquote, or a callout when `remarkCallouts` marked it as one. */

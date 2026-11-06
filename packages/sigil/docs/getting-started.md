@@ -17,7 +17,7 @@ nothing is compiled while you develop.
 
 `@ttylabs/cli` is the toolchain, and it provides the `sigil` command:
 
-```sh
+```sh install=cli location=getting-started
 npx @ttylabs/cli new my-cli
 ```
 
@@ -430,6 +430,19 @@ Two related commands:
 - `sigil package` builds the app and compiles it, with a runtime embedded, into a
   single binary for users who do not have Node installed. See the
   [`@ttylabs/cli` README](../../cli/README.md).
+
+## <a id="agents"></a>Use sigil with an agent
+
+Paste this into your project's `AGENTS.md` or `CLAUDE.md`, so that a coding agent
+uses this version of sigil the way it is meant to be used. Every page of these
+docs is also available as Markdown, by adding `.md` to its address.
+
+<!-- include agents.md title="AGENTS.md · sigil v{{version}}" event=agent_instructions_copied -->
+
+The block is [`agents.md`](agents.md), beside this guide. The website shows it
+here with this version's number filled in.
+
+<!-- /include -->
 
 ## Where next
 

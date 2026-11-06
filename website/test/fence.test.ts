@@ -54,6 +54,35 @@ describe('readFence()', () => {
   });
 });
 
+describe('a fence that asks for more on its line', () => {
+  it('should make an install= script the install box, for the command it shows', () => {
+    assert.deepEqual(
+      readFence('sh', 'install=cli location=getting-started', 'npx @ttylabs/cli new my-cli'),
+      { kind: 'install', location: 'getting-started', package: 'cli' }
+    );
+  });
+
+  it('should refuse an install box whose guide shows a different command', () => {
+    // the drift the box exists to make loud: GitHub would say one thing, the page another
+    assert.throws(
+      () => readFence('sh', 'install=cli location=x', 'npx @ttylabs/cli new other'),
+      /has to show "npx @ttylabs\/cli new my-cli"/
+    );
+    assert.throws(() => readFence('sh', 'install=nope location=x', 'x'), /install=nope is not/);
+    assert.throws(
+      () => readFence('sh', 'install=cli', 'npx @ttylabs/cli new my-cli'),
+      /needs a location=/
+    );
+  });
+
+  it('should carry the event a copy sends, and refuse one that is not declared', () => {
+    const fence = readFence('md', 'title="AGENTS.md" event=agent_instructions_copied', '## sigil');
+    assert.equal(fence.kind === 'code' && fence.event, 'agent_instructions_copied');
+    assert.equal(fence.kind === 'code' && fence.title, 'AGENTS.md');
+    assert.throws(() => readFence('md', 'event=page_not_found', ''), /not one a copy can send/);
+  });
+});
+
 describe('readMeta()', () => {
   it('should read quoted and bare values, and nothing else', () => {
     assert.deepEqual(readMeta('title="a b.ts" cwd=~/x stray'), { cwd: '~/x', title: 'a b.ts' });
