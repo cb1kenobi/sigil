@@ -39,7 +39,7 @@ type Renderer<T extends keyof React.JSX.IntrinsicElements> = React.ComponentProp
  * @param node - The node.
  * @returns Its text.
  */
-function textOf(node: ElementContent): string {
+export function textOf(node: ElementContent): string {
   if (node.type === 'text') {
     return node.value;
   }

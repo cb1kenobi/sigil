@@ -1,5 +1,5 @@
-import { table } from '../src/components/index.js';
-import { box, renderToString, text } from '../src/element/index.js';
+import { Collapsible, Tabs, table, TextField } from '../src/components/index.js';
+import { box, type Element, renderToString, text } from '../src/element/index.js';
 import { Cascade, parseStylesheet, type Stylesheet } from '../src/style/index.js';
 import { frameworkSheet, FRAMEWORK_CSS, parseTheme, themedCascade } from '../src/theme/index.js';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -55,11 +55,19 @@ describe('the framework sheet', () => {
    * `.sigil-prompt-hint { dim: true }` added back here is a declaration the
    * light half does not cover, and it looks like every other rule in the file.
    *
-   * The fourteen exceptions are declared rather than discovered. `.sigil-caret` is
-   * `inverse` and no role is inversion, and `.sigil-badge` is `inverse` for the
-   * same reason: it is how a role's colour becomes a background.
-   * `.sigil-pager-match` is `inverse` a third time, because a search highlight
-   * is the terminal's two colours swapped -- standout -- rather than a colour.
+   * The eighth role is `.sigil-focus`, which is `inverse`: it was three `:focus`
+   * rules saying the same thing -- the collapsible title, the focused tab row's
+   * active label, the focused field's caret -- and one declaration three
+   * built-ins share is a role by this test's own definition. A component puts it
+   * on the part that shows its focus from `onFocusChange`.
+   *
+   * The eleven exceptions are declared rather than discovered. Three are
+   * `inverse`, the focus role's declaration, and none is the focus:
+   * `.sigil-caret` is a prompt's cursor, there whether or not anything has the
+   * focus; `.sigil-badge` is how a role's colour becomes a background; and
+   * `.sigil-pager-match` is a search highlight, the terminal's two colours
+   * swapped -- standout -- rather than a colour. A theme restyling the focus must
+   * move none of them.
    * `.sigil-scroll-track` is the one grey
    * here that is not de-emphasised *text*, so it must not be `.sigil-muted` --
    * that role is `dim` on a dark terminal, and a dim track is not a track.
@@ -70,14 +78,7 @@ describe('the framework sheet', () => {
    * because a scanner expects dark modules on a light one and a terminal is
    * usually the other way round, so the code paints both of its colours rather
    * than borrowing either: neither of them is de-emphasis, a state or an accent,
-   * so no role could carry them. `.sigil-collapsible-title:focus` is `inverse`
-   * like the caret, and is the one rule here keyed on a state rather than a
-   * class: nothing else says which title the keys go to. `.sigil-tabs-row:focus
-   * .sigil-tabs-active` is `inverse` a fourth time and keyed on the row's state
-   * for the same reason: only the active label is inverted. `.sigil-text-field:focus
-   * .sigil-text-field-caret` is `inverse` a fifth time, keyed on the field's state
-   * because a form holds several fields and only the focused one may show a caret.
-   * `.sigil-text-field` is a background a second time, for the overlay's
+   * so no role could carry them. `.sigil-text-field` is a background a second time, for the overlay's
    * reason -- no role is one -- and because without it a field at rest is the same
    * bytes as a label: it is what says the field is there before anything focuses it.
    * And `.sigil-markdown-em`, `.sigil-markdown-strong`, `.sigil-markdown-link` and
@@ -86,7 +87,7 @@ describe('the framework sheet', () => {
    * rather than a colour -- and the bold one is not the heading role, or a theme
    * that coloured headings would colour every strong word.
    */
-  it('should declare on a role, bar fourteen exceptions that say why', () => {
+  it('should declare on a role, bar eleven exceptions that say why', () => {
     const ROLES = [
       '.sigil-accent',
       '.sigil-muted',
@@ -95,11 +96,11 @@ describe('the framework sheet', () => {
       '.sigil-error',
       '.sigil-warn',
       '.sigil-info',
+      '.sigil-focus',
     ];
     const EXCEPTIONS = [
       '.sigil-badge',
       '.sigil-caret',
-      '.sigil-collapsible-title:focus',
       '.sigil-debug',
       '.sigil-markdown-em',
       '.sigil-markdown-link',
@@ -108,9 +109,7 @@ describe('the framework sheet', () => {
       '.sigil-pager-match',
       '.sigil-qrcode-paint',
       '.sigil-scroll-track',
-      '.sigil-tabs-row:focus .sigil-tabs-active',
       '.sigil-text-field',
-      '.sigil-text-field:focus .sigil-text-field-caret',
     ];
 
     // the selectors that carry a declaration, read off the parsed sheet rather
@@ -256,5 +255,32 @@ describe('a built-in drawn through a theme', () => {
     });
 
     expect(out.split('\n')[0]).to.equal(`${ESC}[1;31mname${ESC}[0m`);
+  });
+
+  // which is the point of the focus being a role: it was three `:focus` rules,
+  // and a theme that wanted an underline instead of a reversal had to find all
+  // three compound selectors and beat each one
+  it('should restyle the focus of every control with one rule', () => {
+    const theme = '.sigil-focus { inverse: false; text-decoration: underline }';
+    const sgr = (out: string, code: number): boolean =>
+      new RegExp(`${ESC}\\[(?:\\d+;)*${code}(?:;\\d+)*m`).test(out);
+    /** The first element the ring would stop on, depth first. */
+    const focusable = (element: Element): Element | undefined =>
+      element.focusable ? element : element.children.map(focusable).find(Boolean);
+
+    for (const host of [
+      Collapsible({ title: 'Details' }),
+      Tabs({ ascii: true, tabs: [{ label: 'One' }, { label: 'Two' }] }),
+      TextField({ value: 'abc' }),
+    ]) {
+      focusable(host)?.setState('focus');
+      const out = renderToString(host, {
+        cascade: themedCascade({ theme }),
+        colorLevel: 1,
+        width: 20,
+      });
+      expect(sgr(out, 4), out).toBe(true);
+      expect(sgr(out, 7), out).toBe(false);
+    }
   });
 });

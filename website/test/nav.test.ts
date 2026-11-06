@@ -1,4 +1,11 @@
-import { NAV_ITEMS, activeSection, isDocsPath } from '../src/lib/nav.ts';
+import {
+  NAV_ITEMS,
+  activeSection,
+  isCurrentLink,
+  isDocsPath,
+  pagerAround,
+  sidebarSections,
+} from '../src/lib/nav.ts';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
@@ -55,8 +62,90 @@ describe('the header width', () => {
     assert.equal(isDocsPath('/docs/getting-started'), true);
     assert.equal(isDocsPath('/docs/components/spinner'), true);
     assert.equal(isDocsPath('/'), false);
-    assert.equal(isDocsPath('/reference'), false);
+    // the command reference has the sidebar and the rail, so it is as wide
+    assert.equal(isDocsPath('/reference'), true);
+    assert.equal(isDocsPath('/reference/add'), true);
+    assert.equal(isDocsPath('/references'), false);
     assert.equal(isDocsPath('/examples'), false);
     assert.equal(isDocsPath('/docs-archive'), false);
+  });
+});
+
+describe('the sidebar', () => {
+  const sections = sidebarSections({
+    commands: [{ label: 'sigil add', href: '/reference/add' }],
+    guides: [{ label: 'Getting started', href: '/docs/getting-started' }],
+    parser: [{ label: 'Commands', href: '/docs/parser#commands' }],
+  });
+
+  it('should be Docs, Parser, CLI, Components and About, in that order', () => {
+    assert.deepEqual(
+      sections.map((section) => section.id),
+      ['docs', 'parser', 'cli', 'components', 'about']
+    );
+    assert.deepEqual(
+      sections.map((section) => section.label),
+      ['Docs', 'Parser', 'CLI', 'Components', 'About']
+    );
+  });
+
+  it('should set the commands in mono and nothing else', () => {
+    for (const section of sections) {
+      for (const link of section.links) {
+        assert.equal(link.mono === true, section.id === 'cli', link.href);
+      }
+    }
+  });
+
+  it('should link Components and About to the pages other tickets build', () => {
+    const hrefs = sections.flatMap((section) => section.links.map((link) => link.href));
+
+    for (const href of [
+      '/docs/components#prompts',
+      '/docs/components#output',
+      '/docs/components#fullscreen',
+      '/docs/components',
+      '/docs/about',
+    ]) {
+      assert.ok(hrefs.includes(href), href);
+    }
+  });
+
+  it('should mark a page as the current one and a place on a page as never', () => {
+    const [guide] = sections[0]!.links;
+    const [part] = sections[1]!.links;
+
+    assert.equal(isCurrentLink(guide!, '/docs/getting-started'), true);
+    assert.equal(isCurrentLink(guide!, '/docs/getting-started/'), true);
+    assert.equal(isCurrentLink(guide!, '/docs/parser'), false);
+    assert.equal(isCurrentLink(part!, '/docs/parser'), false);
+  });
+
+  it('should have every link in it go somewhere that is a page or a place on one', () => {
+    for (const section of sections) {
+      for (const link of section.links) {
+        assert.match(link.href, /^\/[a-z/-]*(#[a-z-]+)?$/, link.href);
+      }
+    }
+  });
+});
+
+describe('the previous and next pages', () => {
+  const links = ['a', 'b', 'c'].map((label) => ({ label, href: `/${label}` }));
+
+  it('should be the neighbours within the section', () => {
+    assert.deepEqual(pagerAround(links, '/b'), {
+      previous: { title: 'a', href: '/a' },
+      next: { title: 'c', href: '/c' },
+    });
+  });
+
+  it('should have no previous on the first page and no next on the last', () => {
+    assert.equal(pagerAround(links, '/a').previous, undefined);
+    assert.equal(pagerAround(links, '/c').next, undefined);
+  });
+
+  it('should have neither for a page that is not in the section', () => {
+    assert.deepEqual(pagerAround(links, '/nope'), {});
   });
 });

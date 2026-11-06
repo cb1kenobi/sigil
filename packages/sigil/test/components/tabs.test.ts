@@ -218,6 +218,31 @@ describe('Tabs', () => {
     ).not.toContain(';7;');
   });
 
+  it('should move the focus to the new active label while the row has the focus', () => {
+    // the role is put on the active label by the component rather than matched by
+    // a selector, so a change of tab under a focused row has to carry it across --
+    // and take it off the label it left, which is asked of the classes because the
+    // frame cannot say it: that label is muted, so `7;36m Settings` is absent
+    // whether or not it is still inverted, and an SGR is written as a difference
+    // from the cell before it, so an inverse carried over from a stale neighbour
+    // is not written again on the run after it
+    const active = new State(1);
+    const host = tabs(active);
+    rowOf(host).setState('focus');
+    active.set(2);
+    flush();
+    expect(labelOf(host, 1).classes).not.toContain('sigil-focus');
+    expect(labelOf(host, 2).classes).toContain('sigil-focus');
+    const out = renderToString(host, { cascade: themedCascade(), colorLevel: 1, width: 30 });
+    expect(out).toContain(`;1;7;36m Summary `);
+
+    // and back, where the label left is drawn after the one that gained it
+    active.set(1);
+    flush();
+    expect(labelOf(host, 2).classes).not.toContain('sigil-focus');
+    expect(labelOf(host, 1).classes).toContain('sigil-focus');
+  });
+
   it('should keep the host class and add its own', () => {
     const host = tabs(0, { props: { class: 'mine' } });
     expect(host.classes).toEqual(['mine', 'sigil-tabs']);
