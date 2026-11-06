@@ -5,7 +5,7 @@ import { searchShortcutStore } from '@/lib/search-shortcut';
 import { useSyncExternalStore } from 'react';
 
 export interface SearchTriggerProps {
-  /** Width and anything else about where it sits. The box itself is 40px tall. */
+  /** Width and anything else about where it sits. The box itself is 40px tall, 44px on a touch screen. */
   className?: string;
   /** Called before the search opens: the phone menu closes itself with it. */
   onActivate?: () => void;
@@ -42,7 +42,7 @@ export function SearchTrigger({
         onActivate?.();
         openSearch();
       }}
-      className={`flex h-10 min-w-0 shrink items-center gap-2 rounded-control border border-line-input bg-surface pr-2.5 pl-3 text-small text-muted transition-colors hover:border-line-strong hover:text-fg ${className}`}
+      className={`flex h-10 min-w-0 shrink pointer-coarse:h-11 items-center gap-2 rounded-control border border-line-input bg-surface pr-2.5 pl-3 text-small text-muted transition-colors hover:border-line-strong hover:text-fg ${className}`}
     >
       <svg
         width="16"

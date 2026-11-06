@@ -94,8 +94,12 @@ export function InstallCommand({ package: pkg, variant = 'box', location }: Inst
             tabIndex={selected ? 0 : -1}
             onClick={() => select(name)}
             onKeyDown={(event) => onKeyDown(event, index)}
-            className={`cursor-pointer px-3 font-mono text-[12px] focus-visible:outline-offset-[-2px] ${
-              titleBar ? 'h-10' : 'h-[34px]'
+            className={`relative cursor-pointer px-3 font-mono text-[12px] focus-visible:outline-offset-[-2px] ${
+              titleBar
+                ? // the bar is the top of a box that clips, so it grows instead
+                  'h-10 pointer-coarse:h-11'
+                : // 34px drawn and 44px to a finger, over the space around the box
+                  'h-[34px] after:absolute after:inset-x-0 after:-inset-y-[5px]'
             } ${
               selected
                 ? 'text-fg-strong shadow-[inset_0_-2px_0_var(--color-link)]'
@@ -115,7 +119,11 @@ export function InstallCommand({ package: pkg, variant = 'box', location }: Inst
       manager={manager}
       package={pkg}
       location={location}
-      className={titleBar ? 'h-[30px] rounded-btn-sm px-2.5' : 'h-[38px] rounded-segment px-3'}
+      className={
+        titleBar
+          ? 'h-[30px] rounded-btn-sm px-2.5 after:-inset-y-[8px]'
+          : 'h-[38px] rounded-segment px-3 after:-inset-y-[4px]'
+      }
     />
   );
 
@@ -221,7 +229,7 @@ function CopyButton({
         type="button"
         onClick={onClick}
         aria-label="Copy the install command"
-        className={`min-w-[4.5rem] shrink-0 cursor-pointer border border-line-input bg-surface font-mono text-[12px] text-fg-body hover:text-fg-strong ${className}`}
+        className={`relative min-w-[4.5rem] shrink-0 cursor-pointer border border-line-input bg-surface font-mono text-[12px] text-fg-body after:absolute after:inset-x-0 hover:text-fg-strong ${className}`}
       >
         {copied ? 'Copied' : 'Copy'}
       </button>

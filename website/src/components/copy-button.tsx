@@ -91,7 +91,9 @@ export function CopyButton({ event, label, language, location, text }: CopyButto
     <>
       <button
         aria-label={said === 'idle' ? label : LABEL[said]}
-        className="h-[30px] shrink-0 cursor-pointer rounded-btn-sm border border-line-input bg-surface-2 px-2.5 font-mono text-xs text-fg-body hover:border-line-strong hover:text-fg-strong"
+        // 30px drawn and 44px to a finger: the title bar is 46px, so the
+        // target grows into its padding without moving anything.
+        className="relative h-[30px] shrink-0 cursor-pointer rounded-btn-sm border border-line-input bg-surface-2 px-2.5 font-mono text-xs text-fg-body after:absolute after:inset-x-0 after:-inset-y-[8px] hover:border-line-strong hover:text-fg-strong"
         onClick={onClick}
         ref={button}
         type="button"
