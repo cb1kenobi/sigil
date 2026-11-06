@@ -20,9 +20,10 @@ Every example quits on `q`, and on Ctrl-C. Without a terminal on both sides,
 piped into `cat` for example, an example refuses: it draws nothing, writes one
 line to stderr, and exits `1`.
 
-| Example          | What it shows                                                                                                                                                                           |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [hello](./hello) | The smallest full-screen app, written twice: in JSX, compiled by `sigil build`, and in the `ui` tag, run by plain `node`. The two draw the same screen, and a test checks that they do. |
+| Example                            | What it shows                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [hello](./hello)                   | The smallest full-screen app, written twice: in JSX, compiled by `sigil build`, and in the `ui` tag, run by plain `node`. The two draw the same screen, and a test checks that they do.                                                                                                                                                                                  |
+| [system-monitor](./system-monitor) | A btop-shaped monitor in the `ui` tag, run by plain `node` (`pnpm start`): per-core sparklines, memory and network charts, and a process table that refreshes every second under a selection that keeps its row, with sort, filter, kill behind a confirm dialog, and theme switching. The panel, chart and table are stand-ins until SIG-277, SIG-284 and SIG-281 land. |
 
 ## Two syntaxes, one app
 
