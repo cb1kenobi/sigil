@@ -8,12 +8,20 @@ export interface TerminalBlockProps {
   readonly copy?: string;
   /** The working directory, on the left of the title bar. */
   readonly cwd?: string;
+  /** What a screen reader calls it. Defaults to `Terminal, <cwd>`. */
+  readonly label?: string;
   /** The fence's language, for `command_copied`. */
   readonly language?: string;
   /** The shell and the size, on the right of the title bar. */
   readonly shell?: string;
   /** `hero` is 14px, for a terminal that is the subject of a section. */
   readonly size?: 'default' | 'hero';
+  /**
+   * Wrap a row that is wider than the block, as a terminal narrower than the
+   * output would, instead of scrolling it. For a screen whose last words are
+   * the point. The text is the same either way, so selecting and Copy are too.
+   */
+  readonly wrap?: boolean;
 }
 
 /**
@@ -41,17 +49,19 @@ const SHELL = 'zsh · 80×24';
 export function TerminalBlock({
   copy,
   cwd = '~',
+  label,
   language,
   rows,
   shell = SHELL,
   size = 'default',
+  wrap = false,
 }: TerminalBlockProps) {
   const text = copy ?? copiedText(rows);
   const commands = copy !== undefined || rows.some((row) => row.command !== undefined);
 
   return (
     <figure
-      aria-label={`Terminal, ${cwd}`}
+      aria-label={label ?? `Terminal, ${cwd}`}
       className="mt-4 overflow-hidden rounded-panel border border-line-panel bg-terminal"
       data-copy-block=""
     >
@@ -73,32 +83,55 @@ export function TerminalBlock({
         // scrolls sideways, so it has to be reachable by keyboard
         tabIndex={0}
       >
-        {rows.map((row, at) => (
-          <div
-            className={`min-h-[1lh] whitespace-pre ${row.tight ? 'leading-[1.1]' : ''}`}
-            // keyed by position, which is stable: the rows never reorder
-            key={at}
-          >
-            {row.spans.map((span, index) =>
-              span.className || span.color || span.background ? (
-                <span
-                  className={span.className}
-                  key={index}
-                  style={
-                    span.color || span.background
-                      ? { background: span.background, color: span.color }
-                      : undefined
-                  }
-                >
-                  {span.text}
-                </span>
-              ) : (
-                span.text
-              )
-            )}
-          </div>
-        ))}
+        <TerminalRows rows={rows} wrap={wrap} />
       </div>
     </figure>
+  );
+}
+
+/**
+ * The rows of a screen, one block element each.
+ *
+ * Shared by the block above and by anything that draws a screen without a title
+ * bar -- the component cards on the home page -- so that the one rule about
+ * rows, written in `TerminalBlock`'s comment, has one place to be kept.
+ */
+export function TerminalRows({
+  rows,
+  wrap = false,
+}: {
+  readonly rows: readonly Row[];
+  readonly wrap?: boolean;
+}) {
+  return (
+    <>
+      {rows.map((row, at) => (
+        <div
+          className={`min-h-[1lh] ${wrap ? 'break-words whitespace-pre-wrap' : 'whitespace-pre'} ${
+            row.tight ? 'leading-[1.1]' : ''
+          }`}
+          // keyed by position, which is stable: the rows never reorder
+          key={at}
+        >
+          {row.spans.map((span, index) =>
+            span.className || span.color || span.background ? (
+              <span
+                className={span.className}
+                key={index}
+                style={
+                  span.color || span.background
+                    ? { background: span.background, color: span.color }
+                    : undefined
+                }
+              >
+                {span.text}
+              </span>
+            ) : (
+              span.text
+            )
+          )}
+        </div>
+      ))}
+    </>
   );
 }

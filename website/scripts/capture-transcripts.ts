@@ -7,6 +7,7 @@ import {
   steps,
   write,
 } from '../../packages/cli/test/guides.ts';
+import { captureHome } from './lib/home-capture.ts';
 import { strip } from '@ttylabs/sigil/ansi';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -37,7 +38,14 @@ import { join, relative } from 'node:path';
  *
  *   node scripts/capture-transcripts.ts
  *
- * It needs `@ttylabs/sigil` built, as the guide test does.
+ * The home page's terminals are captured the same way, from `lib/home-capture.ts`
+ * -- prompts and components driven for real, the `todo` app the page shows the
+ * source of, shell completion, and `sigil --help` -- into
+ * `src/transcripts/home/screens.json`. A subdirectory, because `captures()` reads
+ * every `.json` beside the guides' and those have a `guide` and a list of runs.
+ *
+ * It needs `@ttylabs/sigil` built, as the guide test does, and `@ttylabs/cli`
+ * for the help screen.
  */
 
 const OUT = join(import.meta.dirname, '../src/transcripts');
@@ -87,3 +95,11 @@ for (const guide of GUIDES) {
   writeFileSync(file, `${JSON.stringify(capture, null, 2)}\n`);
   console.log(`  wrote ${relative(process.cwd(), file)}  ${runs.length} runs`);
 }
+
+mkdirSync(join(OUT, 'home'), { recursive: true });
+const homeFile = join(OUT, 'home', 'screens.json');
+const home = await captureHome();
+writeFileSync(homeFile, `${JSON.stringify(home, null, 2)}\n`);
+console.log(
+  `  wrote ${relative(process.cwd(), homeFile)}  ${Object.keys(home.screens).length} screens`
+);
