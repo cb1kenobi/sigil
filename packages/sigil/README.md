@@ -66,7 +66,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `KEYS`
 - [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths, `save()`
-- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `updates`, `testing`, `reference`
+- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `updates`, `testing`, `reference`
 
 ---
 
@@ -5731,6 +5731,110 @@ Four things about it that are decisions rather than gaps:
   highlight is reverse video, and at level 0 every attribute is dropped — so a
   piped or `NO_COLOR` run shows no highlight while `copy()` returns the same
   text. The gesture is not the drawing.
+
+### `sigil/app`
+
+One call from a component to a running full-screen program: the terminal check,
+the router, the framework sheet, the alternate screen, a quit key, and all of it
+put back on the way out. It resolves an **exit code**.
+
+```js
+import { runApp, useApp } from '@ttylabs/sigil/app';
+import { box, text } from '@ttylabs/sigil/element';
+
+function App() {
+  const app = useApp(); // read in the body; `app.input` is already the router
+  app.input?.bind((event) => {
+    if (event.key.name === 'enter') {
+      event.stop();
+      app.exit(); // 0
+    }
+  });
+  return box({ 'flex-grow': 1 }, text('Enter saves, Ctrl-C quits'));
+}
+
+process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] }).exited;
+```
+
+| Option                         | Default       | What it does                                                                                       |
+| ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------- |
+| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                    |
+| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                      |
+| `theme`                        | none          | A theme sheet                                                                                      |
+| `cascade`                      | themed        | The whole cascade, in place of the themed one                                                      |
+| `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing |
+| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                         |
+| `detect`                       | `true`        | Asks the terminal for its background and colour depth once the app is up                           |
+| `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                      |
+| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                      |
+
+`runApp()` returns an `App`: `exit(code = 0)`, `exited`, `input`, `view` (the
+`Renderer`), `terminal`, `interactive` and `running`.
+
+**`exited` is the exit code, and setting the process's is yours.**
+
+| How the app ended                              | `exited`                                       |
+| ---------------------------------------------- | ---------------------------------------------- |
+| `exit(code)`, or `exit()`                      | `code`, or `0`                                 |
+| The quit key (Ctrl-C, Ctrl-D)                  | `130`, what a shell reports for Ctrl-C         |
+| A failed frame, after `onError` has written it | `1`                                            |
+| A throw from the component's body              | `1`, and the throw propagates from `runApp()`  |
+| No terminal on both ends -- a refusal          | `1`                                            |
+| stdin ended under it, or ended in an error     | `129`, a terminal hanging up; `1` for an error |
+| `view.dispose()` from the app's own code       | `0`                                            |
+
+Of two intentional codes the first wins, and a failure beats both: an `exit(0)`
+followed by a frame that throws, or by stdin failing, settles `1`. A cleanup that
+throws while the app is ending by `exit()` or `view.dispose()` is written and does
+not change the code.
+
+`runApp()` touches neither `process.exitCode` nor `process.exit()`, and does not
+hand a value back up through the layers that called it: the exit code is global
+state, and setting it is one line in the app rather than a side effect of a
+library call. **The cost is that an author who ignores the code exits `0`** --
+including after Ctrl-C or a failure. An app that wants a stateful object with an
+`exitCode` property builds one on top. Inside a command, set it and return
+nothing, so the code is not mistaken for the command's result -- which `main()`
+hands back, and serializes when `--format` was asked for:
+
+```js
+command({
+  run: async () => {
+    process.exitCode = await runApp(Dashboard).exited;
+  },
+});
+```
+
+- **The router exists while the component is being built.** The component goes
+  inside a host box the router was built over, so `useApp().input` is there in
+  the body. `useApp()` throws outside an app; a component that works with or
+  without one reads `useContext(AppContext)` instead. `view` is the one thing that
+  is not there yet, because the body is how the renderer gets its tree -- read it
+  in `onMount()`. The host is a column the size of the screen, so give your root
+  `flex-grow: 1` to fill it.
+- **Every way out puts the terminal back.** `exit()`, the quit key, stdin ending,
+  `view.dispose()` and a frame that throws all end the app the same way; a throw
+  from the component's body propagates from `runApp()` with the terminal already
+  restored, as it does from `render()`. A signal is the terminal's own business,
+  as it always was.
+- **No terminal means a refusal.** Where stdin or the output is not a terminal,
+  inline or full screen, `runApp()` builds and draws nothing, writes one line to
+  stderr and settles `exited` with `1`. A frame of a full-screen app in a pipe is
+  not useful output; a refusal a script can detect is. `myapp | cat` exits `1`.
+- **Testing** is the same call over `createTestTerminal()`, whose streams claim to
+  be a terminal:
+
+  ```js
+  const term = createTestTerminal({ columns: 40, rows: 10 });
+  const app = runApp(App, { detect: false, terminal: term.terminal });
+  app.view.frame();
+  expect(term.viewport[0]).toContain('Enter saves');
+  await term.press(KEYS.enter);
+  expect(await app.exited).toBe(0);
+  ```
+
+The debug overlay is one line on top, rather than an option, so that an app that
+never opens it does not load it: `enableDebugOverlay(app.view, { input: app.input })`.
 
 ### `sigil/style`
 

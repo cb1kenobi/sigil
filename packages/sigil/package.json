@@ -30,6 +30,10 @@
       "types": "./dist/ansi.d.mts",
       "default": "./dist/ansi.mjs"
     },
+    "./app": {
+      "types": "./dist/app.d.mts",
+      "default": "./dist/app.mjs"
+    },
     "./canvas": {
       "types": "./dist/canvas.d.mts",
       "default": "./dist/canvas.mjs"

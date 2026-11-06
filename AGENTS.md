@@ -59,7 +59,7 @@ Paths below are inside `packages/sigil/` unless noted.
 | `src/terminal/`                | Terminal wrapper, live region, sequences, OSC 52                |
 | `src/components/`              | Spinner, progress, table, prompts, scroll box, typewriter, keys |
 | `src/signals/`                 | The reactive graph: state, computed, watcher, effect            |
-| `src/renderer/`                | Components, the owner tree, control flow, the frame             |
+| `src/renderer/`                | Components, the owner tree, control flow, the frame, `runApp()` |
 | `src/template/`                | The template IR, the `ui` tag, the JSX runtimes                 |
 | `src/canvas/`                  | Cell buffer, style interning, paint diff, selection             |
 | `src/style/`                   | Properties, values, selectors, cascade, animation, degradation  |
@@ -1332,7 +1332,7 @@ decision being re-litigated or "fixed".
 | [`packages/sigil/src/input`](packages/sigil/src/input/AGENTS.md)           | Input and focus · Key sequences · The mouse · Selection and the clipboard                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | [`packages/sigil/src/layout`](packages/sigil/src/layout/AGENTS.md)         | Layout · Out of flow, paint order, and clipping                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | [`packages/sigil/src/parser`](packages/sigil/src/parser/AGENTS.md)         | Output formats: `run()` returns data, a serializer presents it · A schema's relative paths · An `afterRun` hook: `finally`, `postrun`, and the telemetry seam in one · "Did you mean": the nearest thing the reader could have typed · `:` as a topic separator, a tokenizer alias and nothing more · Siblings register in declaration order · Sharing options between commands · `@ttylabs/sigil/coerce`: the parser's coercion, published on its own · `@ttylabs/sigil/suggest`: "did you mean", published so a browser can run it · Type inference |
-| [`packages/sigil/src/renderer`](packages/sigil/src/renderer/AGENTS.md)     | Rendering a tree to a string · The renderer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| [`packages/sigil/src/renderer`](packages/sigil/src/renderer/AGENTS.md)     | Rendering a tree to a string · The renderer · Running an app: `runApp()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | [`packages/sigil/src/signals`](packages/sigil/src/signals/AGENTS.md)       | Signals                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | [`packages/sigil/src/style`](packages/sigil/src/style/AGENTS.md)           | Light and dark · A quiet axis: one place that decides whether anything may draw · Style · Stylesheets and the cascade · Colour degradation · The utility layer · Style invalidation · Transitions and keyframe animations                                                                                                                                                                                                                                                                                                                             |
 | [`packages/sigil/src/template`](packages/sigil/src/template/AGENTS.md)     | Templates                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -1494,11 +1494,15 @@ why rather than what: it is the record of what each round found.
   produce a keystroke -- so running them this way checks the documented
   behaviour, and it needs no pty, which is what lets it run on all nine of CI's
   node-and-os combinations. A demo that does not exit `0` with nothing on stderr
-  is an explicit list of two rather than an inferred rule, for the reason the
-  raw-control-character exceptions already are: `04-prompts.js` is the non-TTY
-  rule and exits `1` with the line the README prints, and `09-errors.js` is the
-  demo about errors, whose narrative is stdout while what reaches stderr is what
-  `errorHandler()` rendered. A stack frame in either stream fails every one of
+  is an explicit list rather than an inferred rule, for the reason the
+  raw-control-character exceptions already are, and it names its entries rather
+  than counting them -- this sentence said "two" while the list held three.
+  `04-prompts.js` is the non-TTY rule and exits `1` with the line the README
+  prints; `renderer/01-app.js` and `element/06-panes.js` are the same rule for
+  `runApp()`, which refuses without a terminal with one line and `1`;
+  `09-errors.js` is the demo about errors, whose narrative is stdout while what
+  reaches stderr is what `errorHandler()` rendered; and `12-formats.js` tours the
+  output formats, whose stderr is part of what it shows. A stack frame in either stream fails every one of
   them whatever the exit code said, since that is a throw nobody caught -- and
   that is the one check that also catches an unhandled rejection which still
   exits `0`. The watchdog is the other thing worth having: a demo that hangs is

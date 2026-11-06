@@ -330,6 +330,35 @@ The sharpest question in the design, and the ticket did not name it.
   the serializer ended with -- `errorHandler()`'s own rule, which is what keeps a
   CSV serializer that already ends with one from producing a blank line.
 
+#### An exit code is not a return value, and `run()` sets it rather than returning it
+
+- **A command hands `main()` an exit code by setting `process.exitCode` and
+  returning nothing.** `run()` returns data, and what it returns is the command's
+  answer: `main()` hands it back to its caller and, on a command that declared
+  `format`, serializes it to stdout -- so a `run()` that returned `130` would print
+  `130` as the result of `--format json`. The exit code is a different fact with a
+  home already: `process.exitCode` is what `errorHandler()` writes for a failure,
+  and what `main()` reads before showing an update notice, which it skips after a
+  non-zero one. A command that ran a full-screen app is the case that made this
+  worth writing down (SIG-276), and its spelling is one line:
+
+  ```js
+  run: async () => {
+    process.exitCode = await runApp(Dashboard).exited;
+  },
+  ```
+
+- **No new mechanism, deliberately.** Not an `exitCode` field on a returned
+  object, which would make the return value two things and every serializer
+  responsible for leaving one of them out; not a thrown error carrying `exitCode`,
+  which `errorExitCode()` honours but which renders a message -- and a Ctrl-C needs
+  nobody told about it. And `runApp()` itself sets nothing: passing values up
+  through layers of commands and contexts is the coupling the Vercel CLI's design
+  pays for, and `process.exitCode` is global state, so the library resolves the
+  code and the app writes the one line that makes it the process's. What that
+  costs is stated where `runApp()` is documented: an author who ignores the code
+  exits `0`.
+
 #### Two refusals at the declaration, and what each closes
 
 - **A declared name the schema does not provide fails on every run**, rather than

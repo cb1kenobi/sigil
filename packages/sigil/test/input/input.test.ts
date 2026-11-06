@@ -8,6 +8,7 @@ import {
 } from '../../src/element/index.js';
 import { canReadKeys, createInput, InputError, type KeyEvent } from '../../src/input/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
+import { createTestTerminal, tick } from '../../src/testing/index.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -200,6 +201,218 @@ describe('the router', () => {
     emit('error', boom);
 
     expect(seen).to.deep.equal([boom]);
+    input.stop();
+  });
+
+  // `destroy(err)` sets `errored` at once and emits a tick later, so a router
+  // stopped in between took its listener off an error already on its way: the
+  // emit found nobody, which is an uncaught exception
+  it('should hand onEnd an error the stream was destroyed with and had yet to emit when it stopped', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
+    const seen: unknown[] = [];
+    const boom = new Error('destroyed');
+    input.onEnd((error) => seen.push(error));
+
+    term.stdin.destroy(boom);
+    input.stop();
+    // told before `stop()` returns, with raw mode already put back
+    expect(seen).toEqual([boom]);
+    expect(term.stdin.rawMode).toBe(false);
+    expect(term.stdin.listenerCount('error')).toBe(1);
+
+    await tick();
+    // the emit landed on the guard, which went with it -- and was not told twice
+    expect(term.stdin.listenerCount('error')).toBe(0);
+    expect(seen).toEqual([boom]);
+  });
+
+  it('should not tell onEnd twice about a destroyed stream whose error it already heard', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
+    const seen: unknown[] = [];
+    input.onEnd((error) => seen.push(error));
+
+    term.stdin.destroy(new Error('heard'));
+    await tick();
+    input.stop();
+    expect(seen.map(String)).toEqual(['Error: heard']);
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should not claim an error the stream already carried when it attached', async () => {
+    const term = createTestTerminal();
+    const first = createInput({ terminal: term.terminal });
+    term.stdin.destroy(new Error('old'));
+    await tick();
+    first.stop();
+
+    // `errored` stays set after the event, and this router was not listening
+    // when it fired: that is history, not an error in flight
+    const later = createInput({ terminal: term.terminal });
+    const seen: unknown[] = [];
+    later.onEnd((error) => seen.push(error));
+    later.stop();
+    expect(seen).toEqual([]);
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should not claim an in-flight error for a router that attached after the stream failed', async () => {
+    const term = createTestTerminal();
+    const first = createInput({ terminal: term.terminal });
+    const told: unknown[] = [];
+    first.onEnd((error) => told.push(error));
+    term.stdin.destroy(new Error('in flight'));
+    first.stop();
+
+    const later = createInput({ terminal: term.terminal });
+    const seen: unknown[] = [];
+    later.onEnd((error) => seen.push(error));
+    later.stop();
+    expect(told.map(String)).toEqual(['Error: in flight']);
+    expect(seen).toEqual([]);
+    // the first router's guard, and no second one
+    expect(term.stdin.listenerCount('error')).toBe(1);
+    await tick();
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it.each([
+    ['before the emit', false],
+    ['after it', true],
+  ])(
+    'should guard, and not tell, the only router attached between a destroy and its emit, stopped %s',
+    async (_, afterTick) => {
+      const term = createTestTerminal();
+      term.stdin.destroy(new Error('gap'));
+      // no earlier router, so nothing else is listening for the emit to come
+      const input = createInput({ terminal: term.terminal });
+      const seen: unknown[] = [];
+      input.onEnd((error) => seen.push(error));
+      if (afterTick) {
+        await tick();
+      }
+      input.stop();
+      // a failure from before it attached, so never this router's to report --
+      // and the same answer whichever side of the tick it stopped on
+      expect(seen).toEqual([]);
+      expect(term.stdin.listenerCount('error')).toBe(afterTick ? 0 : 1);
+      await tick();
+      expect(term.stdin.listenerCount('error')).toBe(0);
+    }
+  );
+
+  it('should leave no guard for an emit no router heard, once its own tick has passed', async () => {
+    const term = createTestTerminal();
+    // heard by somebody else's listener, so nothing here recorded it
+    const listener = (): void => {};
+    term.stdin.on('error', listener);
+    term.stdin.destroy(new Error('elsewhere'));
+    await tick();
+    term.stdin.off('error', listener);
+
+    const input = createInput({ terminal: term.terminal });
+    // the tick it queued at attach runs after the emit was due, which is how it
+    // knows the emit is behind it without asking the stream's internals
+    await tick();
+    input.stop();
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should not let a different error spend the guard kept for the destroy error', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
+    term.stdin.destroy(new Error('own'));
+    input.stop();
+    expect(term.stdin.listenerCount('error')).toBe(1);
+
+    // the guard alone is transparent to an error it is not for: thrown from the
+    // emit, as it would have been with nobody listening -- and still there after
+    expect(() => term.stdin.emit('error', new Error('other'))).toThrow('other');
+    expect(term.stdin.listenerCount('error')).toBe(1);
+    await tick();
+    // and its own error, a tick later, took it off
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should leave a different error to the other listeners when the guard is not alone', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
+    term.stdin.destroy(new Error('own'));
+    input.stop();
+    const others: unknown[] = [];
+    const listener = (error: unknown): number => others.push(error);
+    term.stdin.on('error', listener);
+
+    expect(() => term.stdin.emit('error', new Error('other'))).not.toThrow();
+    expect(others.map(String)).toEqual(['Error: other']);
+    await tick();
+    term.stdin.off('error', listener);
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should tell every router that was listening, and leave one guard for the one emit', async () => {
+    const term = createTestTerminal();
+    const a = createInput({ terminal: term.terminal });
+    const b = createInput({ terminal: term.terminal });
+    const seen: string[] = [];
+    a.onEnd(() => seen.push('a'));
+    b.onEnd(() => seen.push('b'));
+    term.stdin.destroy(new Error('both'));
+    a.stop();
+    b.stop();
+    // each would have heard it a tick sooner, so each is told
+    expect(seen).toEqual(['a', 'b']);
+    expect(term.stdin.listenerCount('error')).toBe(1);
+    await tick();
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should run every onEnd handler when one throws, and rethrow that error as itself', () => {
+    const { emit, terminal } = harness();
+    const input = createInput({ terminal });
+    const seen: string[] = [];
+    const boom = new Error('only');
+    input.onEnd(() => {
+      throw boom;
+    });
+    input.onEnd(() => seen.push('second'));
+
+    let thrown: unknown;
+    try {
+      emit('end');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBe(boom);
+    expect(seen).toEqual(['second']);
+    input.stop();
+  });
+
+  it('should run every onEnd handler when several throw, and rethrow them all as an AggregateError', () => {
+    const { emit, terminal } = harness();
+    const input = createInput({ terminal });
+    const seen: string[] = [];
+    const first = new Error('first');
+    const third = new Error('third');
+    input.onEnd(() => {
+      throw first;
+    });
+    input.onEnd(() => seen.push('second'));
+    input.onEnd(() => {
+      throw third;
+    });
+
+    let thrown: unknown;
+    try {
+      emit('end');
+    } catch (error) {
+      thrown = error;
+    }
+    // every one, in the order the handlers ran -- the first alone dropped the rest
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toEqual([first, third]);
+    expect(seen).toEqual(['second']);
     input.stop();
   });
 

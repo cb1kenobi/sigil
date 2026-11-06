@@ -153,6 +153,82 @@ the entry it belongs to.
   router exists to replace, kept alive for a single case. `onEnd()` fires for the
   stream ending and for it erroring, since what a caller does about either is the
   same thing.
+- **A router stopped over a failed stream reports the failure and guards the event
+  still on its way.** SIG-276, review round 2. `destroy(err)` sets `destroyed` and
+  `errored` at once and emits `'error'` on `nextTick`, so a router stopped in
+  between -- `runApp()`'s teardown runs on a microtask, which is exactly that gap --
+  took its listener off an error already in flight. The emit found nobody, and an
+  `'error'` with no listener is an uncaught exception: a CLI crashed after its
+  screen was back, on the way out of a quit it handled. So `stop()` asks whether the
+  stream was destroyed with an error its own listener never heard **and did not
+  already carry when this router attached**, and if so does two things. It tells `onEnd()`, **last**, with everything else put back -- raw mode
+  included, so a handler writing the error writes it to a cooked terminal -- because
+  the stream failed while this router was listening and only the event was due
+  later, so the failure is the router's to report as it would have been a tick
+  sooner. And it leaves a guard on `'error'` that takes itself off when the emit
+  arrives, which is the terminal's `EPIPE` rule in `src/terminal`: put back what you
+  attached, and not while what it was there for is still in flight. Not a listener
+  left on for good, which is the leak that rule was written about.
+
+  **Whether the error is in flight is a fact about the stream, and the first
+  version kept it per router.** `errored` stays set after the event, so a router
+  attached to a stream that had already failed -- the next app over the same stdin,
+  the next prompt -- read the same `errored`, had heard nothing, and claimed it: it
+  re-reported an error that had ended somebody else, beat that app's own `exit(0)`
+  with a 1, and left a guard for an emit that was never coming again. That guard
+  then swallowed a genuine later `'error'`, and on `process.stdin`, which lives as
+  long as the process, one accumulated per router until the max-listeners warning.
+  So a router records at attach whether the stream already carried an error, and
+  never reports one it did. And the guard is one per stream, kept in a
+  module-level `WeakSet`, because there is one emit and every listener sees it:
+  two routers that were both listening are each told -- each would have heard it a
+  tick sooner -- and leave one guard between them.
+
+  **"Carried at attach" is not "already emitted", and the fourth review round
+  found the router that confused them.** One attached in the turn between a
+  `destroy(err)` and its emit -- with no earlier router, so nothing had put a guard
+  up -- was the emit's only listener, and its `stop()` took that listener off and
+  left no guard: the crash, back, for an app started on a stdin that had just
+  died. So the two questions are answered separately. **Told** is about when the
+  stream failed: never for an error carried at attach, and the router's own
+  listener ignores that error's emit too, so a router attached after a failure
+  gets the same answer -- not told, its own code -- whichever side of the emit it
+  stops on. **Guarded** is about whether the emit is still to come: known at once
+  where a router saw it go by (a second `WeakSet`), and otherwise by a
+  `process.nextTick` queued at attach, which runs after `destroy()`'s own because
+  that was queued first -- no stream internals asked. Its limit is one-sided: a
+  router that attaches after an emit no router saw and stops in the same turn,
+  before its tick, leaves a guard nothing will take off -- at most one per stream,
+  because of the first set, and transparent, below.
+
+  **The guard comes off with its own error and no other.** It used to come off with
+  the first `'error'` of any kind, so a different one in that tick -- including one
+  an `onEnd()` handler raised from inside `stop()` -- spent it, and the destroy
+  error then crashed. A different error is passed through as though the guard were
+  not there: rethrown from the emit where the guard is the only listener, which is
+  what the emit does with nobody listening, and left to the other listeners where
+  there are any. Swallowing it was the alternative, and it hides a real failure
+  behind a mechanism that exists to stop one crash.
+
+  **`onEnd()` runs every handler, and what they threw goes on once they have** --
+  one error as itself, several as an `AggregateError`, which is the signal graph's
+  `raise()` and the owner tree's rule. It is called from inside `stop()`, and
+  `stop()` from inside somebody's teardown, so a handler that threw used to cut the
+  loop and that teardown short together: `runApp()` lost its `restore()` and never
+  settled `exited`. Rethrown rather than swallowed, because the router has nowhere
+  to report it and the caller of `stop()` does; and every error rather than the
+  first, because the first alone dropped the others without a word. `runApp()`
+  opens the aggregate up and reports each error once, as itself.
+
+  What is **not** guarded is a stream destroyed after `stop()`: that error belongs
+  to whoever reads the stream next, and the router has let go of it as it found it.
+  Nor is a stream nobody destroyed -- a paused stream reads nothing, so it raises
+  no read error of its own. `destroyed` and `errored` are optional on
+  `InputStream`, and a stream without them is never guarded, which is the old
+  behaviour. Pinned in `test/input/input.test.ts`, and through the runner in
+  `test/renderer/app.test.ts`, which also starts a second app over the failed
+  stdin both after the emit and in the turn before it.
+
 - **Resize is the router's to carry and the renderer's to mean.** The event
   belongs with the other one a terminal produces, so an app subscribes in one
   place for the two halves of one frame. What it _means_ -- re-evaluate the width
