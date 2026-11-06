@@ -51,15 +51,15 @@ the tick that arrives while one is in flight is skipped. Quitting kills any
 
 ## Layout
 
-| File               | What it is                                                                 |
-| ------------------ | -------------------------------------------------------------------------- |
-| `src/ui.js`        | The entry: `process.exitCode = await runApp(App, ...).exited`              |
-| `src/root.js`      | `App`, the whole screen, and `stylesheet`                                  |
-| `src/system.js`    | `SystemContext`: the sampler, the clock and the kill, replaceable in tests |
-| `src/stand-ins.js` | Components sigil does not have yet (below)                                 |
-| `src/sampler.js`   | Reads the system once a tick and turns two readings into rates             |
-| `src/data.js`      | Pure parsers and helpers, tested against fixtures                          |
-| `test/`            | The parsers, the sampler over a fake machine, the app over a fake terminal |
+| File               | What it is                                                                    |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `src/ui.js`        | The entry: `main()` for `--help` and `--version`, and `runApp()` as its `run` |
+| `src/root.js`      | `App`, the whole screen, and `stylesheet`                                     |
+| `src/system.js`    | `SystemContext`: the sampler, the clock and the kill, replaceable in tests    |
+| `src/stand-ins.js` | Components sigil does not have yet (below)                                    |
+| `src/sampler.js`   | Reads the system once a tick and turns two readings into rates                |
+| `src/data.js`      | Pure parsers and helpers, tested against fixtures                             |
+| `test/`            | The parsers, the sampler over a fake machine, the app over a fake terminal    |
 
 `App` takes no props. It reaches the router and `exit()` through `useApp()`,
 and the machine through `SystemContext`, so `test/app.test.js` runs it with
