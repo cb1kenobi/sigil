@@ -200,6 +200,8 @@ export function tabRowView(props: TabRowProps): Element {
   let first = 0;
   /** What was drawn last, to say whether this call changed the tree. */
   let drawn = '';
+  /** Whether the row has the focus, which only the active label shows. */
+  let focused = false;
   /** What each text was last given, because a write marks layout even when it is the same. */
   const given = new Map<Element, string>();
 
@@ -268,6 +270,7 @@ export function tabRowView(props: TabRowProps): Element {
       tab.toggleClass('sigil-accent', on);
       tab.toggleClass('sigil-heading', on);
       tab.toggleClass('sigil-muted', !on);
+      tab.toggleClass('sigil-focus', on && focused);
       if (i >= start && i <= end) {
         const cut =
           (shown[i] ?? 0) < (full[i] ?? 0)
@@ -325,6 +328,14 @@ export function tabRowView(props: TabRowProps): Element {
     active.get();
     sync();
   });
+
+  // the focus role on the active label alone, because the row is what the keys go
+  // to and the active label is the one thing they change; moved by `sync()` when
+  // the active tab changes under a focused row
+  host.onFocusChange = (_, now): void => {
+    focused = now;
+    tabs[current()]?.toggleClass('sigil-focus', now);
+  };
 
   host.onKey = (event): void => {
     const k = event.key;

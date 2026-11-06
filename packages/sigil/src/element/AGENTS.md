@@ -229,3 +229,84 @@ the entry it belongs to.
   Whether the terminal draws OSC 8 at all is the caller's question --
   `supportsHyperlinks()` answers it -- and the live renderer writes whatever it is
   given, as it always has. See `test/element/href.test.ts`.
+- **A focus handler is told after the move has committed, and is never re-entered
+  (SIG-278).** `onFocusChange` used to run inside `setState()`, between the
+  router's two state writes and before `current.set()`, so a handler that moved
+  the focus saw a half-done move and finished it twice: a blur handler sending the
+  focus on to a third element left two with `:focus` and `.sigil-focus`, and one
+  putting the focus back -- a trap -- was a no-op, because `current` still named
+  the element it was restoring. Now `setState()` hands the element to `focus.ts`,
+  the router's `focus()` commits both states, `current` and the scroll into view
+  through `moveFocus()`, and the queue drains when the outermost move lets go. The
+  rules, each pinned in `test/input/input.test.ts` or `test/element/element.test.ts`:
+  - **Told in the order the states changed, and each told the state it has when
+    its turn comes**, nothing if that is what it was last told. So a move a
+    handler makes joins the end of the queue rather than nesting, an element a
+    later move has already taken the focus back from is not told it had it, and
+    in a drain that settles the last word every handler hears is the state its
+    element ends in.
+  - **A throw stops nothing.** The move stands, every other handler is still
+    told, and what was thrown is raised once the queue is empty -- one error as
+    itself, more as an `AggregateError` -- which is the graph walk's rule in
+    `src/signals/graph.ts`. A throw from the commit itself, an `onScroll` the
+    scroll into view woke, is held the same way, since leaving the hold up would
+    silence every handler for the life of the process.
+  - **A handler that threw is not asked again** until its state flips again, so
+    whatever it had not drawn stays undrawn. That is the one disagreement left
+    and it is the handler's own: for focus the router moves, the state, `:focus`
+    and `current` always agree,
+    and a control's class agrees with them for as long as its handler returns.
+    Telling it again on the next move was the alternative and is refused, because
+    the framework cannot know whether the handler drew before or after it threw,
+    and a guess is wrong for one of the two. Chris's decision.
+  - **The router is the one writer of the focus while it is moving (review round
+    2).** `setState('focus')` while a move is committing or being announced
+    throws, naming `focus()`. Taken, the write the queue deferred landed after
+    `current` already named the real target: a blur handler restoring itself with
+    `setState`, or an `onScroll` the scroll into view woke, left two elements with
+    `:focus` and the role while the keys went to one. `moveFocus()` writes the two
+    states itself, and the permission is the **one element** it is writing at
+    that instant, spent by the write it allows (round 3): `setState()` runs the
+    tree's mark callback between its check and its return, and a flag held across
+    both writes let that callback write any element's focus -- two focused again
+    -- or call `focus()`, whose own `finally` cleared the flag under the router's
+    second write. A `focus()` from inside the router's own writes is therefore
+    allowed and **wins**: the router counts its moves, the inner one takes the
+    element the open move was writing towards as the one losing the focus, and
+    the open move stops at its next step rather than putting a second element in
+    `:focus`. Each step of a move runs whatever the one before threw, and
+    `setState()` announces in a `finally` around the mark, so a throwing mark
+    callback cannot leave a state written with `current` naming somebody else.
+    A handler that wants the focus moves it with the router's `focus()`,
+    which the trap test already spells. Outside a move a direct `setState('focus')`
+    is unchanged -- nothing is holding, the queue drains at once and the handler
+    runs before `setState()` returns -- but the router knows nothing of it, so
+    `:focus` matches and `current` does not name the element. That is what an
+    element with no router has, and it is the app's own disagreement.
+  - **A drain gives up when it tells one element a hundred times** with `Focus did
+    not settle`, for handlers that keep moving the focus round a cycle -- inline,
+    that overflowed the stack; a queue would spin for ever. `MAX_PASSES` in
+    `src/signals/effect.ts` is the same bound for the same reason. Per element,
+    since round 2: a chain that only moves on tells each element at most twice
+    however long it is -- gaining the focus and passing it on, and the one that
+    keeps it once -- and a total of a hundred gave up on a sixty-control chain at the
+    fiftieth. Giving up forgets what the element it stopped on and every one still
+    queued were last told, so each is told at its next change whichever way it
+    goes -- leaving the old value in place made the element left focused sit
+    without the role and skip its next blur as a change it had heard. An element
+    whose state cannot be read is forgotten the same way, and the drain releases
+    its latch in a `finally`; a throw outside the handler's `try` used to leave it
+    set and every later change in the process untold. The `finally` is insurance
+    no test reaches -- with the read caught, nothing else in the loop throws.
+  - **One queue per process, not per router.** An element does not know which
+    router owns it, so the queue cannot be partitioned, and the signals layer's
+    batch is global for the same reason. So a `focus()` on one router made from
+    another's handler commits at once and returns before its own handlers run;
+    they are told when the outermost move in the process lets go, and what they
+    throw is raised from that outer call. Draining a nested move's own
+    announcements before it returns was the alternative and is refused: the
+    nested move a trap makes is on the same router and names the element whose
+    handler is running, so draining it re-enters that handler, and a handler that
+    writes its class after calling `focus()` overwrites the newer answer.
+
+  History: [docs/history/a-focus-handler-is-told-after-the-move-has-committed.md](../../../../docs/history/a-focus-handler-is-told-after-the-move-has-committed.md).

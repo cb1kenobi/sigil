@@ -50,6 +50,7 @@ import type { PropValues, Style, StyleState } from '../style/index.js';
 import { declare } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
+import { announceFocus, checkFocusWrite } from './focus.js';
 
 /** The host types. Everything above resolves to these three. */
 export type ElementType = 'box' | 'raw' | 'text';
@@ -65,6 +66,15 @@ export type RawPaint = (painter: RawPainter, box: Box, element: Element) => void
  * viewports without a closure per viewport.
  */
 export type ScrollHandler = (viewport: Element) => void;
+
+/**
+ * What an element does when it gains or loses the focus.
+ *
+ * One function rather than a list, for the reason `onKey` is one, and handed the
+ * element for the reason `ScrollHandler` is. `focused` says which way it went,
+ * so one handler answers for both rather than a pair that must be kept in step.
+ */
+export type FocusChangeHandler = (element: Element, focused: boolean) => void;
 
 /**
  * What an element does when the layout gave it a size it had not been told about.
@@ -650,13 +660,45 @@ export class Element implements LayoutNode {
     if (on === this.#states.has(state)) {
       return this;
     }
+    if (state === 'focus') {
+      // the router's alone while a move is committing or being announced
+      checkFocusWrite(this);
+    }
 
     if (on) {
       this.#states.add(state);
     } else {
       this.#states.delete(state);
     }
-    this.#mark('classes');
+    if (state !== 'focus') {
+      this.#mark('classes');
+      return this;
+    }
+    // told now, or once the router's move has committed both ends of it --
+    // `focus.ts` has why a handler is never told in between. Told even when the
+    // mark throws, because the mark runs the tree's callback and the state is
+    // committed whether or not that does; and both errors kept when both throw,
+    // which a `finally` would not do -- a throw from one replaces the other's
+    const errors: unknown[] = [];
+    try {
+      this.#mark('classes');
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      announceFocus(this);
+    } catch (error) {
+      if (errors.length === 0) {
+        throw error;
+      }
+      errors.push(...(error instanceof AggregateError ? error.errors : [error]));
+    }
+    if (errors.length === 1) {
+      throw errors[0];
+    }
+    if (errors.length > 1) {
+      throw new AggregateError(errors, 'Errors in onFocusChange');
+    }
     return this;
   }
 
@@ -795,6 +837,49 @@ export class Element implements LayoutNode {
    * as keys, as it always was.
    */
   onPaste: PasteHandler | undefined;
+
+  /**
+   * What this element does when it gains or loses the focus.
+   *
+   * One function rather than a list, for the reason `onKey` is one, and called by
+   * `setState()` whenever the `focus` state flips -- which is the moment `:focus`
+   * starts or stops matching, so a control that draws its focus from here and a
+   * selector that matches it are keyed on one state. A Tab, a click and an app
+   * calling `focus()` all arrive through the router's one `focus()`, which is
+   * what sets the state, so all three reach this.
+   *
+   * It exists so that a control can show its focus with no router in hand. Every
+   * element component is built before anything knows which router will own it,
+   * and a `:focus` selector can only restyle: it cannot put a class on the one
+   * part that shows the focus without also matching the same part of every
+   * control nested inside, and it cannot write the content that is all colour
+   * level 0 has left. `AGENTS.md` in `src/components` has the reasons under
+   * "Focus on a control".
+   *
+   * It runs **synchronously**, once the change has been committed in full: a
+   * move through the router writes both ends and `current` before either handler
+   * runs, so a handler reads a router that agrees with `:focus`. A handler that
+   * moves the focus again, with the router's `focus()`, is not re-entered -- its
+   * move commits at once and the handlers it concerns are told after this one
+   * returns -- and each element is told the state it has when its turn comes,
+   * never one a later move has already taken back. While a move is committing or
+   * being announced only the router may write the `focus` state, so
+   * `setState('focus')` from a handler, or from an `onScroll` the move woke,
+   * throws. A throw does not stop the other handlers being told: the move stands,
+   * and what was thrown is raised, one error as itself and more as an
+   * `AggregateError`, from the outermost focus change in the process once every
+   * handler has been told -- the queue is one per process, so a `focus()` on one
+   * router made from another's handler returns before its own handlers run, and
+   * their errors come out of the outer call. What a throwing handler had not yet
+   * drawn stays undrawn, since it is not asked again until the state flips again.
+   *
+   * So for focus the router moves, the state, `:focus` and `current` always
+   * agree, and a control's own drawing agrees with them for as long as its
+   * handler returns. A direct `setState('focus')` outside a move is still taken
+   * and still tells this at once, but the router knows nothing of it: `:focus`
+   * matches and `current` does not name the element.
+   */
+  onFocusChange: FocusChangeHandler | undefined;
 
   /**
    * What this element does when its scroll offset moved.
