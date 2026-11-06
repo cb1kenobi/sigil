@@ -39,7 +39,8 @@ go to another, so Yes waits for any reading in flight, takes a fresh one, and
 sends the signal only if that reading has the same process under the pid: the
 same pid and start time, which is `starttime` from `/proc/<pid>/stat` on Linux
 and `ps`'s `lstart` on macOS. Otherwise the footer says `has exited: nothing
-sent`. Two gaps are left. `lstart` is to the second, so on macOS a pid reused
+sent`, and if the fresh reading fails it says `not checked, nothing sent`. `x`
+does nothing while the footer says `checking pid ...`. Two gaps are left. `lstart` is to the second, so on macOS a pid reused
 within the second its last owner started is not caught. And a reuse in the
 milliseconds between that fresh reading and the signal cannot be caught without
 a pidfd, which Node does not offer.
@@ -50,10 +51,14 @@ and ppc64 kernels), so it comes from `getconf PAGESIZE`, asked once, with 4 KiB
 only if `getconf` cannot answer.
 
 A reading that takes longer than the one-second interval is not overlapped:
-the tick that arrives while one is in flight is skipped, and a reading that
-fails is reported in the footer. Quitting ends a reading in flight: on macOS it
-kills the `ps`, `netstat` or `vm_stat` still running, and on Linux the `/proc`
-walk stops at the next file, so the shell comes back at once.
+the tick that arrives while one is in flight is skipped. A reading whose process
+list cannot be read (`ps` or the `/proc` walk failed) is reported in the footer
+until the next one lands, and the table keeps what it had rather than showing
+no processes. A failed `netstat`, `/proc/net/dev` or `vm_stat` is not an
+error: the rates read zero and memory falls back to `os.freemem()`. Quitting
+ends a reading in flight, and a kill waiting on one: on macOS it kills the
+`ps`, `netstat` or `vm_stat` still running, and on Linux the `/proc` walk stops
+at the next file, so the shell comes back at once.
 
 ## Layout
 

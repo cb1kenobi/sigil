@@ -153,10 +153,14 @@ export function App() {
   // -- sampling ---------------------------------------------------------------
   const sampler = system.sampler();
   let disposed = false;
+  // the footer line a failed reading put up, so that the next reading to land
+  // takes down that line and nothing else the footer has said since
+  let failure = '';
+  /** Takes a reading and shows it. Resolves to whether it was shown. */
   const read = async () => {
     const snap = await sampler.sample();
     if (disposed) {
-      return;
+      return false;
     }
     const before = cores.get();
     cores.set(snap.cores.map((load, i) => pushHistory(before[i] ?? [], load * 100, HISTORY)));
@@ -171,19 +175,30 @@ export function App() {
       tx: pushHistory(net.get().tx, snap.net.tx, HISTORY),
     });
     processes.set(snap.processes);
+    if (failure && status.get() === failure) {
+      status.set('');
+    }
+    failure = '';
+    return true;
   };
   // the reading in flight, if there is one. A reading slower than the interval
   // -- a few thousand processes, a slow `/proc` -- would otherwise overlap the
   // next: two points for one second, and whichever finished last setting the
   // baseline. So a tick that comes while one is out joins it instead, and a kill
-  // can wait for it. A reading that fails is reported and the next tick tries again
-  /** @type {Promise<void> | undefined} */
+  // can wait for it. A reading that fails is reported, the table keeps what it
+  // had, and the next tick tries again
+  /** @type {Promise<boolean> | undefined} */
   let reading;
+  /** Takes a reading, or joins the one in flight. Resolves to whether it was shown. */
   const tick = () => {
     reading ??= read()
-      .catch((err) =>
-        status.set(`could not read the system: ${/** @type {Error} */ (err).message}`)
-      )
+      .catch((err) => {
+        if (!disposed) {
+          failure = `could not read the system: ${/** @type {Error} */ (err).message}`;
+          status.set(failure);
+        }
+        return false;
+      })
       .finally(() => {
         reading = undefined;
       });
@@ -343,7 +358,22 @@ export function App() {
     status.set(`theme: ${name}`);
   };
 
+  // whether a kill is between its dialog and its signal. While it is, `x` does
+  // nothing: a second dialog would be answered while the first answer is still
+  // waiting to be acted on
+  let killing = false;
   const askKill = async () => {
+    if (killing) {
+      return;
+    }
+    killing = true;
+    try {
+      await kill();
+    } finally {
+      killing = false;
+    }
+  };
+  const kill = async () => {
     const pid = selected.get();
     const p = rows.get().find((it) => it.pid === pid);
     if (!p) {
@@ -367,12 +397,22 @@ export function App() {
     // the process may have exited while the dialog was open, and its pid gone to
     // something else. The signal goes to a pid, so first take a reading begun
     // after the answer -- waiting out one already in flight, which began before
-    // it -- and send only if that reading still has the same process under the
-    // pid. The same process is the same pid and start time: a name or a user can
-    // match by chance, and a user column can change from a uid to a name
+    // it -- and send only if that reading landed and still has the same process
+    // under the pid. The same process is the same pid and start time: a name or
+    // a user can match by chance, and a user column can change from a uid to a
+    // name. Quitting at either wait ends it there
+    status.set(`checking pid ${p.pid}...`);
     await reading;
-    await tick();
     if (disposed) {
+      return;
+    }
+    const landed = await tick();
+    if (disposed) {
+      return;
+    }
+    if (!landed) {
+      // what matters first, since the footer cuts a long line off
+      status.set(`pid ${p.pid} not checked, nothing sent: ${failure}`);
       return;
     }
     const now = processes.get().find((it) => it.pid === p.pid && it.started === p.started);

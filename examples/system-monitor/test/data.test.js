@@ -56,6 +56,7 @@ describe('parsePs', () => {
       [
         '    1 root               0.3  0.1  26576 Wed Nov  4 03:04:40 2026     /sbin/launchd',
         '16847 chris              3.3  1.6 802000 Thu Nov  5 15:05:50 2026     /Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '  512 _www               0.0  0.0   1184 Sun Nov 15 09:00:00 2026     /usr/sbin/httpd',
         'garbage',
         '',
       ].join('\n')
@@ -78,6 +79,15 @@ describe('parsePs', () => {
         rss: 802000 * 1024,
         started: 'Thu Nov 5 15:05:50 2026',
         user: 'chris',
+      },
+      {
+        cpu: 0,
+        mem: 0,
+        name: 'httpd',
+        pid: 512,
+        rss: 1184 * 1024,
+        started: 'Sun Nov 15 09:00:00 2026',
+        user: '_www',
       },
     ]);
   });
@@ -108,6 +118,10 @@ describe('the /proc readers', () => {
   it('should refuse a stat line that is not one', () => {
     expect(parseProcPidStat('nonsense')).toBeUndefined();
     expect(parseProcPidStat('1 (x) S 1 2')).toBeUndefined();
+    // one field short of rss, which is the last one read
+    expect(
+      parseProcPidStat(`1 (x) ${Array.from({ length: 21 }, () => 0).join(' ')}`)
+    ).toBeUndefined();
   });
 
   it('should map uids to names', () => {

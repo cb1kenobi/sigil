@@ -61,6 +61,12 @@ function mount({
         sample ??
         (async () => {
           n++;
+          // a `ps` that failed, once
+          if (data.fail) {
+            const message = data.fail;
+            data.fail = undefined;
+            throw new Error(message);
+          }
           const snap = {
             cores,
             memory,
@@ -120,6 +126,9 @@ function mount({
     killed,
     press,
     release: () => release(),
+    get samples() {
+      return n;
+    },
     tick: () => tick(),
     screen,
     settle,
@@ -234,6 +243,64 @@ describe('the system monitor', () => {
     await app.press('x');
     app.data.processes = [proc(3, 40, 3)];
     await app.press(KEYS.tab, KEYS.enter);
+    expect(app.killed).toEqual([3]);
+  });
+
+  it('should send nothing when the reading after Yes fails, rather than trust the one before it', async () => {
+    const app = mount({ processes: [proc(3, 40, 3)] });
+    await app.step();
+    await app.press('x');
+
+    // the process list cannot be read after the answer, so whether pid 3 is
+    // still proc-3 is not known -- and the last reading shown says it is
+    app.data.fail = 'ps went away';
+    await app.press(KEYS.tab, KEYS.enter);
+    expect(app.killed).toEqual([]);
+    expect(app.screen()).toContain('pid 3 not checked, nothing sent');
+  });
+
+  it('should keep the table when a reading fails, rather than blank it', async () => {
+    const app = mount({ processes: [proc(3, 40, 3)] });
+    await app.step();
+    app.data.fail = 'ps went away';
+    await app.step();
+    expect(app.screen()).toContain('proc-3');
+    expect(app.screen()).toContain('processes · 1 of 1');
+  });
+
+  it('should take no reading after quitting while Yes waits for one in flight', async () => {
+    const app = mount({ processes: [proc(3, 40, 3)] });
+    await app.step();
+    await app.press('x');
+    app.data.hold = true;
+    app.tick();
+    await app.press(KEYS.tab, KEYS.enter);
+    const before = app.samples;
+
+    // quit while the answer waits on the reading that began before it
+    app.app.exit();
+    await app.app.exited;
+    app.release();
+    await app.settle();
+    expect(app.samples).toBe(before);
+    expect(app.killed).toEqual([]);
+  });
+
+  it('should ignore x while a kill is still being checked', async () => {
+    const app = mount({ processes: [proc(3, 40, 3)] });
+    await app.step();
+    await app.press('x');
+    app.data.hold = true;
+    app.tick();
+    await app.press(KEYS.tab, KEYS.enter);
+    expect(app.screen()).toContain('checking pid 3...');
+
+    // a second dialog now would be answered while the first answer is pending
+    await app.press('x');
+    expect(app.screen()).not.toContain('Send SIGTERM');
+
+    app.release();
+    await app.settle();
     expect(app.killed).toEqual([3]);
   });
 
@@ -432,10 +499,25 @@ describe('the system monitor', () => {
     await app.settle();
     expect(app.screen()).toContain('could not read the system: ps went away');
 
-    // a failed reading is over, so the next tick is not skipped as overlapping it
+    // a failed reading is over, so the next tick is not skipped as overlapping it,
+    // and the one that lands takes the failure down
     app.tick();
     await app.settle();
     expect(calls).toBe(2);
+    expect(app.screen()).not.toContain('could not read the system');
+  });
+
+  it('should take down only the failure it put up when a reading lands', async () => {
+    const app = mount({ processes: [proc(3, 40, 3)] });
+    await app.step();
+    app.data.fail = 'ps went away';
+    await app.step();
+    expect(app.screen()).toContain('could not read the system: ps went away');
+
+    // something else said something since, and that stays
+    await app.press('s');
+    await app.step();
+    expect(app.screen()).toContain('sorted by mem');
   });
 
   it('should draw the first memory sample on the history chart rather than a line at 0%', async () => {

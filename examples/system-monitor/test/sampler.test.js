@@ -97,7 +97,7 @@ describe('createSampler', () => {
   });
 
   it('should fall back to freemem when vm_stat is not there', async () => {
-    const sampler = createSampler(machine('darwin').deps);
+    const sampler = createSampler(machine('darwin', {}, { ps: '' }).deps);
     expect((await sampler.sample()).memory).toEqual({ total: 16, used: 12 });
   });
 
@@ -166,9 +166,8 @@ describe('createSampler', () => {
     sampler = createSampler(
       machine('linux', { ...files, '/etc/passwd': '', '/proc/stat': 'cpu  0 0 0 0\n' }).deps
     );
-    const snap = await sampler.sample();
+    await expect(sampler.sample()).rejects.toMatchObject({ name: 'AbortError' });
     expect(reads).toBe(2);
-    expect(snap.processes).toEqual([]);
   });
 
   it('should read a pid reused since the last sample as a new process, not a negative cpu', async () => {
@@ -215,11 +214,40 @@ describe('createSampler', () => {
     expect(reads).toBe(1);
   });
 
-  it('should carry on with no processes and no network when the commands fail', async () => {
+  it('should carry on with no network when netstat fails', async () => {
+    const sampler = createSampler(machine('darwin', {}, { ps: '' }).deps);
+    expect((await sampler.sample()).net).toEqual({ rx: 0, tx: 0 });
+  });
+
+  it('should fail the sample when ps fails, rather than report no processes', async () => {
     const sampler = createSampler(machine('darwin').deps);
-    const snap = await sampler.sample();
-    expect(snap.processes).toEqual([]);
-    expect(snap.net).toEqual({ rx: 0, tx: 0 });
+    await expect(sampler.sample()).rejects.toThrow('no ps');
+  });
+
+  it('should fail the sample when /proc cannot be walked, rather than report no processes', async () => {
+    const m = linux();
+    const sampler = createSampler({
+      ...m.deps,
+      readdir: async () => {
+        throw new Error('EACCES /proc');
+      },
+    });
+    await expect(sampler.sample()).rejects.toThrow('EACCES /proc');
+  });
+
+  it('should read nothing once it is stopped', async () => {
+    const m = linux();
+    let reads = 0;
+    const sampler = createSampler({
+      ...m.deps,
+      readFile: (path) => {
+        reads++;
+        return m.deps.readFile(path);
+      },
+    });
+    sampler.stop();
+    await expect(sampler.sample()).rejects.toMatchObject({ name: 'AbortError' });
+    expect(reads).toBe(0);
   });
 
   it('should kill the commands still running when it is stopped', async () => {
@@ -233,10 +261,9 @@ describe('createSampler', () => {
 
     const pending = sampler.sample();
     sampler.stop();
-    const snap = await pending;
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     expect(m.signals).toHaveLength(3);
     expect(m.signals.every((s) => s.aborted)).toBe(true);
-    expect(snap.processes).toEqual([]);
   });
 });
 
@@ -255,9 +282,11 @@ describe('systemDeps.exec', () => {
   it('should run commands in the C locale, whose words the parsers read', async () => {
     const out = await systemDeps.exec(
       process.execPath,
-      ['-e', 'process.stdout.write(process.env.LC_ALL)'],
+      ['-e', 'process.stdout.write(JSON.stringify([process.env.LC_ALL, process.env.PATH]))'],
       new AbortController().signal
     );
-    expect(out).toBe('C');
+    // and in the rest of this process's environment: without its PATH a child
+    // finds `ps` in the default /usr/bin and not `netstat`, which is in /usr/sbin
+    expect(JSON.parse(out)).toEqual(['C', process.env.PATH]);
   });
 });

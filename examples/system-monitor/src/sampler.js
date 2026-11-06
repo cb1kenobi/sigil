@@ -80,13 +80,18 @@ export const systemDeps = /** @type {SamplerDeps} */ ({
  * process CPU and network rates are zero. Every one after is the interval since
  * the last.
  *
+ * A sample rejects when the process list cannot be read, and the baseline stays
+ * where it was, so the next one covers both intervals. The network and the
+ * memory have stand-ins instead: zero rates, and `os.freemem()`.
+ *
  * One sample at a time: each one moves the baseline the next is measured from,
  * so the app does not ask for another while one is still being read.
  *
- * `stop()` ends a reading still in flight: on macOS it kills whatever `ps`,
- * `netstat` or `vm_stat` is running, and on Linux the `/proc` walk stops at the
- * next file. Either keeps node alive until it finishes, so without it quitting
- * the app would hand back the screen and then keep the shell waiting.
+ * `stop()` ends a reading still in flight, which rejects: on macOS it kills
+ * whatever `ps`, `netstat` or `vm_stat` is running, and on Linux the `/proc` walk
+ * stops at the next file. Every `sample()` after it rejects at once. A command
+ * or a walk keeps node alive until it finishes, so without `stop()` quitting
+ * would hand back the screen and then keep the shell waiting.
  *
  * @param {Partial<SamplerDeps>} [overrides] - What to read instead of the system.
  * @returns {{ sample(): Promise<Snapshot>, stop(): void }} The sampler.
@@ -196,18 +201,20 @@ export function createSampler(overrides = {}) {
     return total - deps.freemem();
   }
 
+  // unlike the network and the memory, a process list that cannot be read is
+  // not given a stand-in: an empty one would say every process had exited, which
+  // blanks the table and tells a kill its process is gone. So it fails the sample
   async function processes(cores, totalmem) {
-    try {
-      return deps.platform === 'linux'
-        ? await linuxProcesses(cores, totalmem)
-        : parsePs(await exec('ps', ['-axo', 'pid=,user=,pcpu=,pmem=,rss=,lstart=,comm=']));
-    } catch {
-      return [];
-    }
+    return deps.platform === 'linux'
+      ? linuxProcesses(cores, totalmem)
+      : parsePs(await exec('ps', ['-axo', 'pid=,user=,pcpu=,pmem=,rss=,lstart=,comm=']));
   }
 
   return {
     async sample() {
+      // a stopped sampler reads nothing, rather than reading up to the first
+      // place that thinks to ask
+      running.signal.throwIfAborted();
       const at = deps.now();
       const seconds = (at - prevAt) / 1000;
       const cpus = deps.cpus();
