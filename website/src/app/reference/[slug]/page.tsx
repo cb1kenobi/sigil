@@ -5,6 +5,15 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
 /**
+ * A slug that is not in `generateStaticParams()` is a 404 at the router, which
+ * renders the site's own `not-found.tsx` into the response. Left on (the
+ * default) it is rendered at request time and `notFound()` below throws after
+ * the shell has gone out, and the 404 is drawn by the browser: the HTML of
+ * `/reference/biuld` held no page at all.
+ */
+export const dynamicParams = false;
+
+/**
  * Every command that has a page, which is what makes this statically rendered.
  *
  * `index` is left out: the root command is rendered at `/reference` itself, so
