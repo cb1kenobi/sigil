@@ -30,8 +30,10 @@ supported.
 | `q`          | Quit, with 0                                                 |
 | Ctrl-C       | Quit, with 130                                               |
 
-The selection follows its process, not its row: when a refresh re-sorts the
-table, the process you were about to kill stays selected.
+The selection keeps its row, not its process: when a refresh re-sorts the
+table, the highlight stays where you left it and the processes move under it.
+`x` names the process on that row when you press it, and that is the process a
+Yes is checked against, wherever it has moved by then.
 
 `x` refuses pid 1, which is init (`launchd`, `systemd`), and the monitor's own
 pid, without asking. While the confirm is open the process may exit and its pid

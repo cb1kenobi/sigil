@@ -318,17 +318,17 @@ describe('the system monitor', () => {
     expect(app.killed).toEqual([]);
   });
 
-  it('should keep the selection on the same process when a refresh reorders the table', async () => {
+  it('should keep the selection on the same row when a refresh reorders the table', async () => {
     const app = mount({ processes: [proc(1, 5, 1), proc(2, 90, 2), proc(3, 40, 3)] });
     await app.step();
     await app.press('j'); // proc-3, the second row
 
-    // proc-3 moves from the second row to the third, so keeping the row would
-    // pick proc-2 -- the pid is what has to be followed
+    // proc-3 moves from the second row to the third and proc-2 takes its place:
+    // the highlight stays where the eye left it, on the second row
     app.data.processes = [proc(1, 99, 1), proc(2, 60, 2), proc(3, 50, 3)];
     await app.step();
     await killRow(app, 0);
-    expect(app.killed).toEqual([3]);
+    expect(app.killed).toEqual([2]);
   });
 
   it('should draw the selected row in reverse video, and move it with j and k', async () => {
@@ -363,6 +363,17 @@ describe('the system monitor', () => {
     await app.press('/', '22', KEYS.enter);
     expect(app.screen()).toContain('processes · 1 of 3');
     expect(app.screen()).not.toContain('proc-3');
+  });
+
+  it('should show the whole filter as it is typed, not only its last letter', async () => {
+    // a text field with no width is as wide as what it draws, and cuts what it
+    // draws to the width it was laid out at -- so with a frame between keys, as
+    // a person types, it shrank to the caret and showed only the last letter.
+    // One key per frame here: typed in one go, the field never saw a layout
+    const app = mount({ processes: [proc(1, 5, 1), proc(2, 9, 2)] });
+    await app.step();
+    await app.press('/', 'p', 'r', 'o', 'c');
+    expect(app.screen()).toMatch(/filter proc/);
   });
 
   it('should take q as text in the filter, and drop the filter on Escape', async () => {

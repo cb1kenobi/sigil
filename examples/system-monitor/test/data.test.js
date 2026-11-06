@@ -206,8 +206,11 @@ describe('sorting, filtering and the selection', () => {
     expect(filterProcesses(pids, '3').map((p) => p.pid)).toEqual([3]);
   });
 
-  it('should keep the selected pid when it moved', () => {
-    expect(reselect(list, [...list].reverse(), 1)).toBe(1);
+  it('should keep the selected row when its process moved, rather than follow the process', () => {
+    const prev = [proc(1, 0, 0), proc(2, 0, 0), proc(3, 0, 0)];
+    // pid 1 was on the first row; a re-sort puts pid 3 there, and the row stays
+    expect(reselect(prev, [proc(3, 0, 0), proc(2, 0, 0), proc(1, 0, 0)], 1)).toBe(3);
+    expect(reselect(prev, [proc(2, 0, 0), proc(1, 0, 0), proc(3, 0, 0)], 2)).toBe(1);
   });
 
   it('should keep the row when the selected pid went away', () => {

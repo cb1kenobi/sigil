@@ -136,7 +136,8 @@ export function App() {
     sortProcesses(filterProcesses(processes.get(), filter.get()), sort.get())
   );
 
-  // the selection follows its pid through a re-sort, a refresh and a filter.
+  // the selection keeps its row through a re-sort, a refresh and a filter, so
+  // the highlight stays where the eye left it while the processes move under it.
   // The selection is read untracked: this runs when the rows change, and a move
   // of the selection is not a reason to look again
   let shown = /** @type {readonly import('./data.js').Process[]} */ ([]);
@@ -308,9 +309,14 @@ export function App() {
   });
   table.element.addClass('grow');
 
+  // `flex-grow` is what gives the field its width: one with neither a `width`
+  // nor this is as wide as what it draws, and cuts what it draws to the width it
+  // was laid out at, so typed a key per frame it shrank to the caret and showed
+  // only the last letter
   const field = TextField({
     onSubmit: () => input.focus.focus(table.element),
     placeholder: 'press / to filter',
+    props: { 'flex-grow': 1 },
     value: filter,
   });
 

@@ -309,10 +309,14 @@ export function refuseKill(pid, self) {
 /**
  * Which process is selected after the list changed under the selection.
  *
- * The same pid if it is still listed, which is the whole point -- a process that
- * moved from row 3 to row 9 when its CPU fell is still the one somebody was
- * about to kill. If it has gone, the row it was on, clamped to the new length, so
- * the selection does not jump back to the top.
+ * Whatever is now on the row the selection was on, clamped to the new length:
+ * the highlight stays where the eye left it while a refresh re-sorts the
+ * processes under it, rather than chasing one process up and down the table.
+ * What was on that row is a pid, and it is the selection's row in `prev` that is
+ * kept -- `next` is what fills it.
+ *
+ * A kill never trusts this to still name the process the dialog asked about: it
+ * checks the pid and the start time against a fresh reading first.
  *
  * @param {readonly Process[]} prev - What was shown.
  * @param {readonly Process[]} next - What is shown now.
@@ -322,9 +326,6 @@ export function refuseKill(pid, self) {
 export function reselect(prev, next, pid) {
   if (next.length === 0) {
     return undefined;
-  }
-  if (pid !== undefined && next.some((p) => p.pid === pid)) {
-    return pid;
   }
   const at = prev.findIndex((p) => p.pid === pid);
   return next[clamp(at < 0 ? 0 : at, 0, next.length - 1)]?.pid;
