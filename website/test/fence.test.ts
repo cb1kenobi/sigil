@@ -52,6 +52,16 @@ describe('readFence()', () => {
       text: '$ my-cli',
     });
   });
+
+  it('should keep an empty working directory, which is a title bar with none', () => {
+    // a command reference's usage line, which ran in no directory in particular
+    assert.deepEqual(readFence('sh', 'cwd=""', 'sigil add'), {
+      cwd: '',
+      kind: 'shell',
+      text: 'sigil add',
+    });
+    assert.equal('cwd' in readFence('sh', undefined, 'sigil add'), false);
+  });
 });
 
 describe('a fence that asks for more on its line', () => {
