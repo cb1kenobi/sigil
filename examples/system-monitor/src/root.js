@@ -71,10 +71,8 @@ function scopeTheme(name, css) {
  * (`sigil-accent`, `sigil-muted`, ...), so a theme restyles the whole screen.
  */
 export const stylesheet = `
-  /* min-height: 0, or the root keeps the automatic minimum of a flex item, which
-     is its content's height: flex-grow would grow it to the screen and never
-     shrink it there, and the cores would never wrap */
-  .app { flex-direction: column; flex-grow: 1; min-height: 0 }
+  /* runApp() lets the root shrink to the screen, so the cores wrap */
+  .app { flex-direction: column; flex-grow: 1 }
   .top { flex-direction: row; flex-grow: 1; flex-basis: 0; min-height: 0 }
   .side { flex-direction: column; flex-grow: 1; flex-basis: 0; min-width: 0 }
   .panel {

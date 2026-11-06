@@ -283,8 +283,9 @@ describe('the system monitor', () => {
 
   it('should fit the screen however many cores there are, wrapping them into columns', async () => {
     // the root is a flex item of the runner's host, and a flex item keeps its
-    // content's height as a minimum unless told otherwise: eighteen cores then
-    // pushed the screen past its bottom edge and never wrapped
+    // content's height as a minimum unless told otherwise: eighteen cores pushed
+    // the screen past its bottom edge and never wrapped until runApp() gave the
+    // root `min-height: 0`, which the stylesheet no longer has to say
     const app = mount({ cores: Array.from({ length: 18 }, () => 0.5), rows: 24 });
     await app.step();
     const lines = app.term.viewport;
