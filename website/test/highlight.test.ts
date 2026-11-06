@@ -46,6 +46,20 @@ describe('the sigil theme', () => {
     assert.equal(drawn.typeof, 'var(--color-syn-keyword)');
   });
 
+  it('should colour a whole line however slow the machine building it is', (t) => {
+    // Shiki gives up on a line once it has spent its time limit on it, read off
+    // `Date.now()`, and draws the rest plain. A clock that jumps a second at
+    // every reading is a build machine slower than any limit, so this fails on
+    // every run when a limit is set, rather than only when CI happens to be busy.
+    let now = Date.now();
+    t.mock.method(Date, 'now', () => (now += 1000));
+
+    const drawn = colours("export default command({ retries: 3, name: 'x' });");
+
+    assert.equal(drawn.export, 'var(--color-syn-keyword)');
+    assert.equal(drawn["'x'"], 'var(--color-syn-string)');
+  });
+
   it('should leave a language it does not know uncoloured rather than guess', () => {
     assert.equal(highlight('my-cli/\n  src/', undefined), undefined);
     assert.equal(highlight('x', 'cobol'), undefined);
