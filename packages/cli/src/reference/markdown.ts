@@ -87,15 +87,27 @@ const INLINE = /[\\`*_~[<>&]/gu;
  * `ftp://` or `www.` and whatever follows up to a space or an angle bracket.
  *
  * An approximation, on purpose -- see `literal()`, which is why being wrong about
- * what GFM would really link costs nothing.
+ * what GFM would really link costs nothing. In one direction only: a run this
+ * finds and GFM would not link is written as typed or bracketed, both of which
+ * read right, while a run GFM links and this misses is escaped as prose and the
+ * backslashes land in the link. So it errs wide. It is preceded by anything but
+ * a letter or a digit, which takes in the `_`, `*`, `~` and `(` GFM lets a
+ * literal follow -- `\w` held the underscore, so `_https://x.com/a_` was left to
+ * prose and linked to `https://x.com/a\`.
  */
-const LITERAL = /(?<!\w)(?:(?:https?|ftp):\/\/|www\.)[^\s<>]+/giu;
+const LITERAL = /(?<![\p{L}\p{N}])(?:(?:https?|ftp):\/\/|www\.)[^\s<>]+/giu;
 
 /**
  * Characters GFM does not count as the end of an autolink literal: it takes them
  * off the back and they are prose.
  */
 const TRAILING = /[?!.,:;*_~'"]/u;
+
+/**
+ * Whether one character is one `text()` escapes: `INLINE` itself, without the
+ * `g` flag that would make `test()` remember where it stopped.
+ */
+const ESCAPED = new RegExp(INLINE.source, 'u');
 
 /**
  * A URL-shaped run, written so that it renders as it was typed.
@@ -108,8 +120,11 @@ const TRAILING = /[?!.,:;*_~'"]/u;
  * second parser to keep in step with the first. So the run is written so that
  * its being right does not matter:
  *
- * - **Nothing in it to escape**, which is nearly every URL: as typed, and GFM
- *   links it exactly as it did before anything was escaped.
+ * - **Nothing in it to escape, and no escape straight after it**, which is
+ *   nearly every URL: as typed, and GFM links it exactly as it did before
+ *   anything was escaped. The second half matters because GFM takes a
+ *   backslash right after a literal into the link: a trimmed `*` written `\*`,
+ *   or the `\>` closing `<https://…>`, would leave the link ending in `\`.
  * - **A scheme with something to escape**: a CommonMark autolink,
  *   `<https://e.com/a*b*>`. Its content is taken verbatim -- no escape, no
  *   emphasis -- and is both the destination and the label, in every renderer.
@@ -129,9 +144,10 @@ const TRAILING = /[?!.,:;*_~'"]/u;
  *
  * @param run - What `LITERAL` found.
  * @param escape - The prose escape.
+ * @param next - The character after the run in the line, if there is one.
  * @returns The markdown.
  */
-function literal(run: string, escape: (prose: string) => string): string {
+function literal(run: string, escape: (prose: string) => string, next: string | undefined): string {
   const www = run.toLowerCase().startsWith('www.');
   const prefix = www ? 4 : run.indexOf('://') + 3;
   let end = run.length;
@@ -163,7 +179,13 @@ function literal(run: string, escape: (prose: string) => string): string {
   // something to escape, and takes the form that reads right in both
   const bar = url.includes('|');
 
-  if (escaped === url && !bar) {
+  // as typed only when no escape comes straight after it either: GFM ends the
+  // literal at a backslash's character rather than before the backslash, so a
+  // trimmed `*` written `\*`, or the `\<` of `<https://…>`, puts a `\` at the
+  // end of the link. The bracketed form ends where it says it does
+  const clean = tail === run.slice(end) && (next === undefined || !ESCAPED.test(next));
+
+  if (escaped === url && !bar && clean) {
     return url + tail;
   }
   if (www) {
@@ -207,8 +229,9 @@ function text(flat: string): string {
   let from = 0;
 
   for (const match of flat.matchAll(LITERAL)) {
-    out += escape(flat.slice(from, match.index)) + literal(match[0], escape);
-    from = match.index + match[0].length;
+    const after = match.index + match[0].length;
+    out += escape(flat.slice(from, match.index)) + literal(match[0], escape, flat[after]);
+    from = after;
   }
 
   return out + escape(flat.slice(from));

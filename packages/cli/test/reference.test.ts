@@ -572,6 +572,17 @@ describe('the markdown reference', () => {
       // a final `_` is trailing punctuation too, so it is prose after the link
       ['http://_x_ y', [['http://_x', 'http://_x']]],
       ['a https://e.com/p|q b', [['https://e.com/p|q', 'https://e.com/p|q']]],
+      // nothing in it to escape, but an escape straight after it: GFM takes the
+      // backslash of a trimmed `\*`, or of the `\>` closing the brackets, into
+      // the link, so it ended in `\` until these took the bracketed form too
+      ['Matches https://example.com/*', [['https://example.com/', 'https://example.com/']]],
+      [
+        'See <https://example.com/docs>',
+        [['https://example.com/docs', 'https://example.com/docs']],
+      ],
+      // GFM lets a literal follow an underscore, which `\w` refused to find
+      ['_https://x.com/a_', [['https://x.com/a', 'https://x.com/a']]],
+      ['*https://x.com*', [['https://x.com', 'https://x.com']]],
       // and `www.`, which has no such form: the text is the thing
       ['see www._x_ now', []],
       ['see www.foo_bar.com, *not* emphasis', []],

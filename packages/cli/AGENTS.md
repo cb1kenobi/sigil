@@ -3948,6 +3948,18 @@ carve-out: its `_` is escaped and both read it back as the same link. `:emoji:`
 is the same shape and is left. The first version of this entry said a bare URL
 "leaves the words intact", which was the claim that shipped the defect.
 
+"Left as typed" needs **nothing escaped straight after it** as well, which a
+review of the PR found. GFM takes a backslash that follows a literal into the
+link, so a trimmed trailing `*` written `\*` (`https://example.com/*`) and the
+`\>` closing `<https://example.com/docs>` each left a link ending in `\`. Either
+one now takes the bracketed form, which ends where it says it does. And
+`LITERAL` errs **wide**, which is the direction that costs nothing: a run it
+finds that GFM would not link is written as typed or bracketed and reads right
+either way, while a run GFM links that it misses is escaped as prose and the
+backslash lands in the link. Its lookbehind was `\w`, which holds the
+underscore GFM lets a literal follow, so `_https://x.com/a_` linked to
+`https://x.com/a\`; it is "not a letter or a digit" now.
+
 Every character of the set has a test that fails without it, by removing each in
 turn: the round trip catches `\`, a backtick, `*`, `_`, `~`, `[` and `&`, and
 `<` and `>` are each caught by the block-opener and default tests -- they are
