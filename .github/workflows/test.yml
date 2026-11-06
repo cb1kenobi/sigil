@@ -12,6 +12,40 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
+  # Whether this run needs the nine-job package matrix below. A pull request
+  # that changes only website files does not: no package imports the site, and
+  # `scripts/ci-scope.mjs` lists the few website files the package suite does
+  # read. A push to `main` always runs everything.
+  #
+  # The PR is checked out as GitHub's merge commit, whose first parent is the
+  # base branch, so `HEAD^1..HEAD` is exactly what the PR changes and a depth of
+  # 2 is all the history it needs. `--no-renames` lists both sides of a move, so
+  # a file moved from `packages/` into `website/` still counts as a package
+  # change. `shell: bash` turns on `pipefail`, so a failed diff fails this job
+  # rather than reading as an empty one.
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    outputs:
+      packages: ${{ steps.scope.outputs.packages }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Decide what to test
+        id: scope
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git diff --name-only --no-renames HEAD^1 HEAD | node scripts/ci-scope.mjs >> "$GITHUB_OUTPUT"
+          else
+            echo "packages=true" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
   # `pnpm check` is type-check, lint and *format*, and the format half ran
   # nowhere until an oxfmt bump reformatted markdown and `pnpm check` started
   # failing on clean `main` -- the matrix below had `pnpm lint` and
@@ -56,11 +90,21 @@ jobs:
       # `@ttylabs/sigil` through its `exports`, which point at `dist/`, so the
       # build is named here rather than left to whatever `pnpm check` happened
       # to build on its way. An exact name, so a wrong one fails loudly.
+      # Every tracked file, the website's included, checked for raw control
+      # characters and NUL bytes. It is the one package test a website-only PR
+      # can fail, which SIG-255 did on all nine jobs by adding fonts, and the
+      # matrix below does not run for such a PR. It reads committed bytes, so
+      # one run answers for every platform.
+      - name: Source bytes
+        run: pnpm exec vitest run packages/sigil/test/sources.test.ts
+
       - name: Website tests
         run: pnpm exec turbo run build --filter=@ttylabs/sigil && pnpm --filter website test
 
   test:
     name: Test on node ${{ matrix.node }} and ${{ matrix.os }}
+    needs: changes
+    if: needs.changes.outputs.packages == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
