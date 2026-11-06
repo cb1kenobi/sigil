@@ -83,14 +83,14 @@ export function DocsSidebar({
   return (
     <div
       ref={column}
-      className="w-full shrink-0 md:sticky md:top-[65px] md:max-h-[calc(100dvh-65px)] md:w-[232px] pt-6 md:overflow-y-auto md:pt-10 md:pb-16"
+      className="w-full shrink-0 md:sticky md:top-[65px] md:-mx-1 md:max-h-[calc(100dvh-65px)] md:w-[240px] pt-6 md:scroll-py-2 md:overflow-y-auto md:px-1 md:pt-10 md:pb-16"
     >
       <button
         type="button"
         aria-controls="docs-nav"
         aria-expanded={open}
         onClick={() => setOpenOn(open ? null : pathname)}
-        className="flex w-full items-center gap-2 rounded-control border border-line-input bg-surface px-3 py-2.5 text-small font-medium text-fg-body hover:text-white md:hidden"
+        className="flex min-h-11 w-full items-center gap-2 rounded-control border border-line-input bg-surface px-3 py-2.5 text-small font-medium text-fg-body hover:text-white md:hidden"
       >
         <svg
           viewBox="0 0 24 24"

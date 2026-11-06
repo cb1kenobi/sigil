@@ -49,7 +49,7 @@ export function CodeBlock({ code, event, lang, title }: CodeBlockProps) {
       <pre
         // a region that scrolls is reachable by keyboard only if it can be
         // focused; the figure's label is what names it
-        className="overflow-x-auto px-5 pt-[18px] pb-[22px] font-mono text-code text-fg-code"
+        className="overflow-x-auto px-5 pt-[18px] pb-[22px] font-mono text-code text-fg-code focus-visible:-outline-offset-2"
         data-copy-body=""
         tabIndex={0}
       >

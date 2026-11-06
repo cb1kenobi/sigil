@@ -290,7 +290,7 @@ export function SiteSearch() {
       }}
       className="m-0 h-full max-h-none w-full max-w-none bg-transparent p-0 backdrop:bg-black/60 open:flex open:items-start open:justify-center"
     >
-      <div className="mx-4 mt-[10vh] flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-panel border border-line-panel bg-surface text-fg shadow-2xl sm:mt-[12vh]">
+      <div className="mx-4 mt-[10vh] flex max-h-[70vh] w-full max-w-xl flex-col overflow-hidden rounded-panel border border-line-panel bg-surface text-fg shadow-2xl has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-link sm:mt-[12vh]">
         {/* The divider only exists to separate the field from results. With
             nothing below it, it is a line under a lone input. */}
         <div
@@ -329,6 +329,8 @@ export function SiteSearch() {
             aria-activedescendant={ordered.length ? `${listId}-${active}` : undefined}
             autoComplete="off"
             spellCheck={false}
+            // no ring of its own: it is flush with the panel, so the panel
+            // draws it, through `has-[input:focus-visible]`
             className="w-full min-w-0 bg-transparent py-4 text-base text-fg outline-none placeholder:text-dim"
           />
           <kbd className="hidden shrink-0 rounded-kbd border border-line-input px-1.5 py-px font-mono text-xs text-muted sm:block">
@@ -357,7 +359,7 @@ export function SiteSearch() {
                         href={hit.url}
                         onMouseEnter={() => setActive(i)}
                         onClick={() => choose(hit)}
-                        className={`block border-l-2 px-4 py-2.5 ${
+                        className={`block border-l-2 px-4 py-2.5 focus-visible:-outline-offset-2 ${
                           i === active
                             ? 'border-brand bg-surface-2'
                             : 'border-transparent hover:bg-surface-2/60'

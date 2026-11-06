@@ -182,10 +182,38 @@
     line-height: var(--text-card--line-height);
   }
 
-  /* A 2px `link` outline, offset by 2px, on every interactive element. */
-  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  /*
+   * A 2px `link` outline, offset by 2px, on everything that takes focus -- not
+   * a list of elements, because Chrome makes a box that scrolls focusable on
+   * its own (a table's scroll wrapper has no `tabindex`) and a list would hand
+   * it the browser's 1px ring instead. `:where()` keeps it at no specificity,
+   * so an `outline-*` utility still wins. Something that sits flush against
+   * the edge of a box that clips it -- a code block's body, a tab panel, a
+   * segment of the family filter -- draws it inside itself instead, with
+   * `-outline-offset-2`, or the clip would cut it off; `scripts/check-pages.ts`
+   * finds any that do not.
+   */
+  :where(:focus-visible) {
     outline: 2px solid var(--color-link);
     outline-offset: 2px;
+  }
+}
+
+/*
+ * Nothing moves for a reader who asked for that. Every transition on the site
+ * is a hover or open state that is just as clear arriving at once, and there is
+ * no animation that carries meaning, so this stops all of it rather than
+ * picking through which is motion: `scripts/check-pages.ts` emulates the
+ * setting and fails on anything still transitioning or animating.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    scroll-behavior: auto !important;
   }
 }
 

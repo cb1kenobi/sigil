@@ -33,9 +33,12 @@ export function DocsRail({
   const active = useSectionInView(headings.map((heading) => heading.id));
 
   return (
-    <aside
+    // A `nav`, not an `aside`: it is the page's own table of contents, and the
+    // third of the navigation landmarks a docs page has (Main, Documentation,
+    // On this page).
+    <nav
       aria-label="On this page"
-      className="sticky top-[65px] hidden max-h-[calc(100dvh-65px)] w-[200px] shrink-0 flex-col gap-2.5 self-start overflow-y-auto pt-14 pb-16 text-[13px] min-[1100px]:flex"
+      className="sticky top-[65px] -mx-1 hidden max-h-[calc(100dvh-65px)] w-[208px] shrink-0 flex-col gap-2.5 scroll-py-2 self-start overflow-y-auto px-1 pt-14 pb-16 text-[13px] min-[1100px]:flex"
     >
       <p className="sidebar-label pb-1">On this page</p>
 
@@ -57,6 +60,6 @@ export function DocsRail({
       <div className="my-3 h-px bg-line" />
 
       <DocsPageLinks editHref={editHref} reportHref={reportHref} source={source} />
-    </aside>
+    </nav>
   );
 }
