@@ -47,7 +47,7 @@
         "type": "string | State<string>"
       },
       {
-        "description": "How many columns the field takes. Defaults to what the layout gives it -- the whole width in a column, and its own content in a row, where an empty field is one column wide. A field in a row wants this or a `flex-grow`.",
+        "description": "How many columns the field takes. Defaults to what the layout gives it -- the whole width in a column, and in a row its whole value and the caret, or the placeholder while it is empty, shrinking to its share where the row is short. A `flex-grow` gives it the rest of a row instead.",
         "default": "what the layout gives it -- the whole width in a column",
         "name": "width",
         "optional": true,
