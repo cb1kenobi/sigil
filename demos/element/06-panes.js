@@ -171,9 +171,10 @@ const App = () => {
 };
 
 // full screen and the mouse with motion, which is the whole of what the old
-// hand-wiring asked for: `runApp()` hands the router the renderer's backend as
-// the surface a report is translated against, and puts the screen back on the
-// way out -- before the summary is printed, which is what leaving the alternate
+// hand-wiring asked for: `runApp()` builds the router before the renderer, over
+// a surface that reads the renderer's backend once there is one -- a report
+// that arrives first finds no canvas and the next one asks again -- and puts the
+// screen back on the way out -- before the summary is printed, which is what leaving the alternate
 // buffer is for. `q` is the app choosing to go and exits 0, Ctrl-C is 130, and
 // piped it refuses with 1, because there is no mouse and no screen to own
 const app = runApp(App, { mouse: { motion: true }, sheets: [sheet] });

@@ -773,11 +773,14 @@ it.
   itself, and the argument is the graph.** The runner is the one module that needs
   the renderer, the router and the framework sheet at once, and the renderer keeps
   the other two off its graph on purpose -- `renderer/index.ts` imports
-  `capabilities.js` rather than the router for exactly this reason. Measured at this
-  change: `renderer.mjs` is 160,695 B over 24 modules and `app.mjs` is 200,888 B
-  over 26, the difference being the router chunk (14,423 B), `theme.mjs`
-  (23,669 B) and the runner itself (2,357 B). Folded into `renderer` that is about
-  24% more on every spinner and prompt; folded into `input` it is the whole renderer
+  `capabilities.js` rather than the router for exactly this reason. Measured when
+  the first review round's fixes landed: `renderer.mjs` was 160,695 B over 24
+  modules and `app.mjs` 201,365 B over 26. The app graph added the router chunk
+  (14,423 B), `theme.mjs` (23,669 B) and the runner itself (2,834 B), and it left
+  out the 256 B `renderer.mjs` entry shim, because `app.mjs` imports the renderer
+  chunk directly -- so 14,423 + 23,669 + 2,834 - 256 = 40,670, which is the
+  difference. Folded into `renderer` that was about 25% more on every spinner and
+  prompt; folded into `input` it is the whole renderer
   on a router; folded into `components` it is a 455 KB graph to start an app built
   from `box` and `text`. The source sits in `src/renderer/` and the entry points at
   it, which is the `coerce` and `routes` shape: a subpath named for what an app
@@ -828,9 +831,11 @@ it.
 - **`exited` is an exit code -- Chris's decision, and the reason is the design
   rather than the type.** `exit(code = 0)` settles it with `code`; the quit key with
   130; a failure that ended the app with 1, after `onError` has written it; the
-  refusal below with 1; stdin ending with 129, 128 plus `SIGHUP`, since a terminal
-  that went away is a hang-up, or 1 if it ended in an error; and `view.dispose()`
-  from the app's own code with 0. There is no generic value. Passing return values up
+  refusal below with 1; a throw from the component's body with 1, though it also
+  propagates; stdin ending with 129, 128 plus `SIGHUP`, since a terminal that went
+  away is a hang-up, or 1 if it ended in an error, which is reported through
+  `onError` like every other failure; and `view.dispose()` from the app's own code
+  with 0. There is no generic value. Passing return values up
   through layers of commands and contexts is the Vercel CLI's mistake -- every layer
   coupled to the shape of the one below -- and `process.exitCode` is global state, so
   `runApp()` does neither: it touches neither `process.exitCode` nor `process.exit()`
@@ -863,8 +868,18 @@ it.
   `Renderer.onDispose()`, which fires on both. A throw from the component's body
   propagates from `runApp()` with the router stopped and the terminal back, which is
   `render()`'s rule: there is a caller on the stack, and inside a command's `run()`
-  that caller is `main()`, which renders it and sets the code itself. A signal is
-  the terminal's own restore handlers, as it always was; the runner adds none.
+  that caller is `main()`, which renders it and sets the code itself. It **also**
+  settles `exited` with 1, because `useApp()` hands the body the handle, and a
+  caller that catches the throw and awaits it waited forever -- `finish()` returns
+  early once `running` is false, so no later `exit()` could settle it either. A
+  sheet or a theme that fails to parse throws the same way, and it is parsed
+  **before** the full-screen canvas is built: that canvas subscribes to resizes the
+  moment it exists and only its `stop()` lets go, so building it first left a
+  listener on stdout holding the canvas for the life of the process, one per
+  caught retry. Stdin ending in an error is reported through `onError`, held by
+  the backend and written once the screen is back, rather than leaving a 1 with no
+  line beside it. A signal is the terminal's own restore handlers, as it always
+  was; the runner adds none.
 - **The teardown is the renderer, the router, then `restore()`.** The router is the
   half `restore()` cannot do -- raw mode comes back through either, but a `data`
   listener left on stdin holds the process open after the last frame -- and
@@ -876,7 +891,15 @@ it.
   finished, so the app reported itself gone while `render()` went on to mount, enter
   the alternate screen and paint. A microtask lands after `runApp()` has returned
   whichever context it is called from. A second call does nothing, so a quit key and
-  a button arriving together settle `exited` once, with the first.
+  a button arriving together settle `exited` once, with the first. **A failure
+  beats an intentional code, though**, and the deferral is why that has to be said:
+  an `exit(0)` from the body leaves the first frame to run, and that frame can
+  fail, which `fail()` reports and `onDispose()` answers with an `exit()` the first
+  call's guard swallowed -- so a crash settled 0, after printing the crash. The
+  code is therefore read in `finish()`, as the failure's if one ended the app and
+  the latched one otherwise. A cleanup that throws while `finish()` is unmounting is
+  reported and does not count, since the app was already going by an `exit()` that
+  chose its code.
 - **No terminal on both ends is a refusal -- Chris's decision.** Where stdin or the
   output is not a terminal, inline as well as full screen, `runApp()` builds no
   router and no renderer, never calls the component, draws nothing, writes one line
@@ -913,7 +936,18 @@ it.
   thirty-four: fifteen new and nineteen of the first re-run against the new code.
   Thirty-two were caught. One survivor was dead code and is gone -- a `!exiting`
   clause on the failure flag, which `exit()`'s own guard already made irrelevant --
-  and the other is the teardown order, declared above.
+  and the other is the teardown order, declared above. The third, for the first
+  review round's four defects, was seven, every one caught: settling the latched
+  code over a failure, dropping the unmount guard on the failure flag, the body
+  throw left unsettled or settled with the latched code, the canvas built before
+  the cascade, and the stdin error dropped or written straight to the terminal.
+  Two lines that survived were unreachable and are gone: flagging a stdin error as
+  the failure, which only mattered with an `exit()` latched and its teardown not
+  yet run -- a microtask an event cannot get in front of -- and resetting the
+  unmount guard after the one teardown there is. Stopping a runner-built backend
+  in the body-throw path, on top of the reordering, was considered and left out
+  for the same reason: reading `render()` from its first line to its `try` around
+  the component found nothing that throws once the canvas is built.
 - **Not done:** capturing `console.log()` while the app owns the screen, which
   writes straight into the alternate buffer today -- `backend.write()` holds a line
   and the debug overlay's `captureConsole()` shows one, and neither is automatic;
