@@ -43,6 +43,26 @@ an `.alt.txt` only beside a static image, and a route that read one by a
 computed path would make Turbopack trace the whole project. `next/og` cannot read woff2, so `src/lib/woff2.ts` decodes
 the vendored fonts for it.
 
+## Metadata, sitemap and robots.txt
+
+`src/lib/site.ts` is where the site's name, its production URL (`SITE_URL`),
+the repository and the tagline live, and `isIndexableHost()`. Nothing else
+spells the domain, so settling it (SIG-271) is a one-line change there.
+`SITE_URL` is a placeholder until then. A request is indexable only when its
+`Host` is the production host: previews, `*.vercel.app` URLs and `localhost`
+get `Disallow: /` from `robots.txt` and a 404 for `/sitemap.xml` (`src/proxy.ts`).
+That is a per-request question, unlike `isProductionDeploy()`, which asks at
+build time whether this build is the production deployment.
+
+`src/lib/seo.ts` has what every route shares: `pageMetadata()` gives a page its
+canonical, Open Graph and Twitter fields from one title and description, and a
+route that sets `openGraph` must go through it, because metadata replaces a
+parent's object rather than merging into it (a route that does so also needs an
+`opengraph-image` of its own, as `reference/[slug]` has). `src/lib/sitemap.ts`
+lists the pages as sections; a new part of the site adds a function and a line
+to `SECTIONS`. `lastModified` comes from git and is left out in a shallow clone,
+where every file would claim the deploy's own date.
+
 ## Analytics
 
 PostHog, started from `instrumentation-client.ts` and called through

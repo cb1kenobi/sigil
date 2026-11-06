@@ -1,14 +1,22 @@
 import { ReferencePage } from '@/components/reference-page';
-import { referenceDoc } from '@/lib/reference';
+import { REFERENCE_SUMMARY, referenceDoc, referenceHref } from '@/lib/reference';
+import { pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
 /** The index page is the root command's, which is `index.md`. */
 const SLUG = 'index';
 
+/**
+ * Titled for the section rather than for the root command, whose own title is
+ * `sigil`: a tab reading "sigil · sigil" says nothing.
+ */
 export function generateMetadata(): Metadata {
-  const doc = referenceDoc(SLUG);
-  return { description: doc?.description, title: doc?.title ?? 'Command reference' };
+  return pageMetadata({
+    path: referenceHref(SLUG),
+    title: 'CLI reference',
+    description: referenceDoc(SLUG)?.description ?? REFERENCE_SUMMARY,
+  });
 }
 
 export default function Reference() {

@@ -1,5 +1,6 @@
 import { ReferencePage } from '@/components/reference-page';
-import { referenceDoc, referenceDocs } from '@/lib/reference';
+import { REFERENCE_SUMMARY, referenceDoc, referenceDocs, referenceHref } from '@/lib/reference';
+import { pageMetadata } from '@/lib/seo';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
@@ -18,8 +19,14 @@ export function generateStaticParams() {
 export async function generateMetadata({
   params,
 }: PageProps<'/reference/[slug]'>): Promise<Metadata> {
-  const doc = referenceDoc((await params).slug);
-  return { description: doc?.description, title: doc?.title ?? 'Command reference' };
+  const { slug } = await params;
+  const doc = referenceDoc(slug);
+
+  return pageMetadata({
+    path: referenceHref(slug),
+    title: doc?.title ?? 'Command reference',
+    description: doc?.description ?? REFERENCE_SUMMARY,
+  });
 }
 
 export default async function Command({ params }: PageProps<'/reference/[slug]'>) {
