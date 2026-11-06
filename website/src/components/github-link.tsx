@@ -23,7 +23,7 @@ export interface GithubLinkProps {
 }
 
 /**
- * The link to the repository: a bordered square holding the mark, 40px in the
+ * The link to the repository: a square holding the mark, with no border, 40px in the
  * header and 44px in the footer.
  *
  * It opens a new tab, so the page is not going anywhere, but the event is sent
@@ -44,7 +44,7 @@ export function GithubLink({
       aria-label="sigil on GitHub"
       title="GitHub"
       onClick={() => captureBeforeLeaving('github_link_clicked', { location })}
-      className={`flex shrink-0 items-center gap-3 rounded-control border border-line-input text-fg-body transition-colors hover:text-white ${className}`}
+      className={`flex shrink-0 items-center gap-3 rounded-control text-fg-body transition-colors hover:text-white ${className}`}
     >
       <GithubMark />
       {children}
