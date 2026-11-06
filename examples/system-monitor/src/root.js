@@ -309,10 +309,9 @@ export function App() {
   });
   table.element.addClass('grow');
 
-  // `flex-grow` is what gives the field its width: one with neither a `width`
-  // nor this is as wide as what it draws, and cuts what it draws to the width it
-  // was laid out at, so typed a key per frame it shrank to the caret and showed
-  // only the last letter
+  // `flex-grow` gives the field the rest of the row, so its background runs to
+  // the panel's edge and a long filter scrolls inside it. Without it the field
+  // is as wide as what it holds, which also works (SIG-318)
   const field = TextField({
     onSubmit: () => input.focus.focus(table.element),
     placeholder: 'press / to filter',

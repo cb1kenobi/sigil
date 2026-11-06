@@ -105,6 +105,14 @@ the entry it belongs to.
   `x`**, not a count of the cells painted: `x + returned` is where a next run goes
   whichever edge clipped this one, it is the same number for a run that fits, and
   a caller that needs to know what landed has `inside()`.
+- **And the left edge is the clip's where there is one.** Column zero was the only
+  left edge `write()` knew, so a run starting left of a clip one column in hit a
+  cell `put()` refused, read it as the end of the row, and painted nothing --
+  which is every scrolled `overflow: hidden` box not at the left margin, and is
+  how SIG-318's text field, the first box to scroll sideways, drew blank inside a
+  row while the same field in a column, whose clip started at zero, was fine. The
+  walk now skips to whichever edge is further right, by the same rule: a wide
+  cluster straddling it is refused and only that cluster.
 - **The cell class is `CellBuffer`, not `Buffer`.** The shorter name is Node's
   global, and a file that forgets the import gets a byte buffer and a
   deprecation warning rather than a type error.

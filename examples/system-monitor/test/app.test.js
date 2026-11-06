@@ -366,10 +366,10 @@ describe('the system monitor', () => {
   });
 
   it('should show the whole filter as it is typed, not only its last letter', async () => {
-    // a text field with no width is as wide as what it draws, and cuts what it
-    // draws to the width it was laid out at -- so with a frame between keys, as
-    // a person types, it shrank to the caret and showed only the last letter.
-    // One key per frame here: typed in one go, the field never saw a layout
+    // SIG-318: a text field drew only the window it was last laid out at, so in
+    // a row with no width it shrank to the caret and showed only the last letter.
+    // One key per frame here, as a person types: typed in one go, the field never
+    // saw a layout between keys
     const app = mount({ processes: [proc(1, 5, 1), proc(2, 9, 2)] });
     await app.step();
     await app.press('/', 'p', 'r', 'o', 'c');
