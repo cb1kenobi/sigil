@@ -1,8 +1,6 @@
-import { guides, type Guide } from './guides.ts';
+import { docsPages, type DocsPage } from './docs-pages.ts';
 import { headingsOf, parseMarkdown, textOf } from './markdown-doc.ts';
-import { guideHref } from './nav.ts';
 import { optionRows } from './reference-options.ts';
-import { referenceDocs, referenceHref, type ReferenceDoc } from './reference.ts';
 import type { Root, RootContent } from 'mdast';
 
 /**
@@ -19,13 +17,14 @@ import type { Root, RootContent } from 'mdast';
  * ## Sources
  *
  * One function per part of the site, listed in `SOURCES`, the way
- * `sitemap.ts` lists its `SECTIONS`. Each reads what its route reads -- the
- * guides through `guides()`, the reference through `referenceDocs()` -- and
- * links through the function the site's own links go through, so a record
- * cannot point at a page or an anchor the site does not have. A new part of the
- * site (the component pages) is one more function here and one more line in
- * `SOURCES`; both generators and the dialog pick it up from there, and a new
- * `kind` gets a group label in `site-search.tsx`.
+ * `sitemap.ts` lists its `SECTIONS`. Each reads its pages from `docsPages()`,
+ * the one loader of the docs as Markdown, which the `.md` copies and
+ * `llms-full.txt` read too (SIG-267): a page there is a page its route builds,
+ * at the route the site links to, so a record cannot point at a page the site
+ * does not have. A new part of the site (the component pages, which
+ * `docsPages()` already writes out as Markdown) is one more function here and
+ * one more line in `SOURCES`; both generators and the dialog pick it up from
+ * there, and a new `kind` gets a group label in `site-search.tsx`.
  *
  * The committed markdown is what is read, never the toolchain: the site does
  * not import `@ttylabs/cli` or its schema at build time (see `reference.ts`).
@@ -104,10 +103,10 @@ function headingCount(node: Root | RootContent): number {
  * so a repeated heading gets the `-1` the page gives it rather than a second
  * record at the first one's address.
  */
-function guideRecords(guide: Guide): SearchRecord[] {
-  const tree = parseMarkdown(guide.source);
+function guideRecords(guide: DocsPage): SearchRecord[] {
+  const tree = parseMarkdown(guide.markdown);
   const ids = headingsOf(tree);
-  const href = guideHref(guide.slug);
+  const { href } = guide;
   const records: SearchRecord[] = [];
   let section: { url: string; title: string; text: string[] } = {
     url: href,
@@ -144,7 +143,9 @@ function guideRecords(guide: Guide): SearchRecord[] {
 
 /** The guides, one record per section. */
 function guideSource(): SearchRecord[] {
-  return guides().flatMap(guideRecords);
+  return docsPages()
+    .filter((page) => page.kind === 'guide')
+    .flatMap(guideRecords);
 }
 
 /**
@@ -157,12 +158,12 @@ function guideSource(): SearchRecord[] {
  * reader types, and saying it twice is what ranks the record named for it above
  * one that mentions it in passing. `resultDetail()` trims both off the excerpt.
  */
-function referenceRecords(doc: ReferenceDoc): SearchRecord[] {
-  const tree = parseMarkdown(doc.body);
+function referenceRecords(doc: DocsPage): SearchRecord[] {
+  const tree = parseMarkdown(doc.markdown);
   const options = optionRows(tree);
-  const href = referenceHref(doc.slug);
+  const { href } = doc;
   const optionTables = new Set(options.map((row) => row.node));
-  const bare = doc.path.at(-1) ?? '';
+  const bare = doc.argv?.at(-1) ?? '';
   const text = tree.children
     .filter((node) => !(node.type === 'heading' && node.depth === 1))
     .filter(
@@ -195,7 +196,9 @@ function referenceRecords(doc: ReferenceDoc): SearchRecord[] {
 
 /** The command reference: the commands and their options. */
 function referenceSource(): SearchRecord[] {
-  return referenceDocs().flatMap(referenceRecords);
+  return docsPages()
+    .filter((page) => page.kind === 'command')
+    .flatMap(referenceRecords);
 }
 
 /** Every source. The order the results list groups them in is `GROUPS` in `site-search.tsx`. */

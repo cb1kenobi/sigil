@@ -2,6 +2,30 @@ import { assertAnalyticsConfigured } from './src/lib/analytics-env.ts';
 import type { NextConfig } from 'next';
 import { PHASE_PRODUCTION_BUILD } from 'next/constants';
 
+/**
+ * `<path>.md` beside `<path>`, for the machine-readable corpus (SIG-267).
+ *
+ * Ported from titaniumsdk.com (TI-57). A `route.ts` may not share a segment
+ * with a `page.tsx`, and `/docs/[slug]` is a page, so nothing can be filed at
+ * `/docs/parser.md`. These map the suffix onto `app/md/[...path]`, and
+ * `src/proxy.ts` refuses anything that arrived at the destination directly, so
+ * each document keeps one address.
+ *
+ * `beforeFiles` rather than `afterFiles`: the docs routes declare
+ * `dynamicParams = false`, and an `afterFiles` rewrite is consulted after
+ * static files but before dynamic routes, which is fine in principle. The
+ * earlier hook is used because it does not depend on that ordering staying
+ * true.
+ *
+ * Two rules rather than one pattern with an optional tail: `/reference.md` has
+ * no separator to make optional, and a regex that tried to cover both would be
+ * the kind of thing nobody can safely edit later.
+ */
+const markdownSuffix = [
+  { source: '/:root(docs|reference).md', destination: '/md/:root' },
+  { source: '/:root(docs|reference)/:path*.md', destination: '/md/:root/:path*' },
+];
+
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
@@ -14,6 +38,10 @@ const nextConfig: NextConfig = {
    */
   async redirects() {
     return [{ source: '/docs', destination: '/docs/getting-started', permanent: false }];
+  },
+
+  async rewrites() {
+    return { beforeFiles: markdownSuffix, afterFiles: [], fallback: [] };
   },
 };
 

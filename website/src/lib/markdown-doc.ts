@@ -286,3 +286,78 @@ export function remarkDocPage() {
     tree.children.splice(at, 1);
   };
 }
+
+/**
+ * A page's markdown with every link's destination replaced, and nothing else
+ * touched.
+ *
+ * What a link means depends on where the markdown is read: a guide links to a
+ * sibling as `parser.md`, which the site draws as `/docs/parser` through
+ * `guideLink()`, and the Markdown copy of the page has to give as an address an
+ * agent can fetch. The text is edited at each link's own position in the parsed
+ * tree rather than by a pattern over the source, so a fence that happens to
+ * hold `](` is code and stays code.
+ *
+ * A link's destination is handed over as the tree has it -- which is what
+ * `react-markdown` hands the page's own `urlTransform` -- so one function can
+ * answer for both.
+ *
+ * @param source - The markdown.
+ * @param to - Where a destination goes; `undefined` or the same string leaves it.
+ * @returns The markdown, line endings normalized.
+ */
+export function rewriteLinks(source: string, to: (href: string) => string | undefined): string {
+  const text = source.replaceAll('\r\n', '\n');
+  const edits: { start: number; end: number; value: string }[] = [];
+
+  const visit = (node: Root | RootContent) => {
+    if (node.type === 'link' || node.type === 'image' || node.type === 'definition') {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      const next = to(node.url);
+
+      if (start !== undefined && end !== undefined && next !== undefined && next !== node.url) {
+        const raw = text.slice(start, end);
+        // an inline link's destination follows its last `](`, a definition's its `]:`
+        const opener = node.type === 'definition' ? raw.indexOf(']:') : raw.lastIndexOf('](');
+        // a reference (`[text][id]`) or an autolink has none, and nothing to edit here
+        if (opener !== -1) {
+          const from = opener + 2 + (/^\s*/u.exec(raw.slice(opener + 2))?.[0].length ?? 0);
+          const rest = raw.slice(from);
+          const length = rest.startsWith('<')
+            ? rest.indexOf('>') + 1
+            : /^[^\s)]*/u.exec(rest)![0].length;
+          const value = /[\s()<>]/u.test(next) ? `<${next}>` : next;
+          edits.push({ start: start + from, end: start + from + length, value });
+        }
+      }
+    }
+    if ('children' in node) {
+      for (const child of node.children) {
+        visit(child);
+      }
+    }
+  };
+  visit(parseMarkdown(text));
+
+  return edits
+    .toSorted((a, b) => b.start - a.start)
+    .reduce((out, edit) => out.slice(0, edit.start) + edit.value + out.slice(edit.end), text);
+}
+
+/**
+ * A block of text as a fenced code block.
+ *
+ * The fence is longer than any run of backticks inside it, so none of them
+ * closes it: an included file or an example may well hold a fence of its own.
+ *
+ * @param body - What goes inside, with no trailing newline.
+ * @param info - The info string: the language and any meta after it.
+ * @returns The block.
+ */
+export function fence(body: string, info = ''): string {
+  const longest = Math.max(0, ...[...body.matchAll(/`+/g)].map((run) => run[0].length));
+  const marks = '`'.repeat(Math.max(3, longest + 1));
+
+  return `${marks}${info}\n${body}\n${marks}`;
+}

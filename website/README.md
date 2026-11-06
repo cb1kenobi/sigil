@@ -145,6 +145,45 @@ build would otherwise move its own hash, and lists them in `outputs`, so a cache
 hit restores them with `.next/`. `next dev` does not run the generators; run
 them once for search to work there.
 
+## Markdown copies, `llms.txt` and `llms-full.txt`
+
+Ported from titaniumsdk.com (TI-57). Every docs page has a Markdown copy at its
+own address plus `.md` -- `/docs/parser.md`, `/docs/components/select.md`,
+`/reference.md`, `/reference/add.md` -- and the page's own address answers with
+it when the request's `Accept` prefers `text/markdown`. Each page's head names
+its copy with `<link rel="alternate" type="text/markdown">` (`pageMetadata()`).
+`/llms.txt` is the index, to the llmstxt.org convention, and `/llms-full.txt` is
+every page concatenated, both in the docs sidebar's order.
+
+- `src/lib/docs-pages.ts` is the one loader of the docs as Markdown, and search
+  (`search-records.ts`) reads the guides and the reference through it too. A
+  guide and a command page are their own source; a component page is written
+  out from its capture with the words its page uses (`component-text.ts`): the
+  output as ` ```console ` blocks without colour, the options and keys as GFM
+  tables. `/docs/<slug>` comes from `markdownPages()` in `guides.ts`, so a
+  markdown page added there -- About, with SIG-266 -- has a copy and an entry in
+  `llms.txt` with nothing else to change.
+- `src/lib/llms.ts` turns a page into its file: a first line naming the version
+  (`<!-- sigil v0.0.1 · https://.../docs/parser -->`, from
+  `packages/sigil/package.json`) and every link absolute, a docs page's to its
+  `.md`.
+- A `route.ts` cannot share a segment with a `page.tsx`, so `next.config.ts`
+  rewrites the `.md` suffix onto `app/md/[...path]`, and `src/proxy.ts` refuses
+  `/md/...` asked for by name and negotiates on `Accept`. That keeps every one
+  of those routes prerendered.
+- The corpus is served on every host, previews and `localhost` included, unlike
+  titaniumsdk.com's. It is the same documents every host serves as HTML, so a
+  host guard hid nothing and only made it untestable off production. Only the
+  sitemap is production-only, because it claims the canonical addresses.
+- A Markdown answer says `Vary: Accept`. The HTML page cannot: Next sets a
+  page's `Vary` outright, over anything the proxy or `next.config.ts` adds, so a
+  cache can at worst give an agent the HTML, never a browser the Markdown.
+
+`test/llms.test.ts` holds it to the real docs: every page the sitemap lists
+under `/docs` and `/reference` has a copy, every `llms.txt` link lands on a page
+and an anchor that page has, every link into the repository is a file that is
+there, and nothing from the site's chrome is in any file.
+
 ## Analytics
 
 PostHog, started from `instrumentation-client.ts` and called through

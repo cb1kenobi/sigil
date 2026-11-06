@@ -17,10 +17,18 @@ import {
   type View,
 } from '@/lib/component-data';
 import {
+  OPTIONS_INTRO,
+  SHARED_OPTIONS,
+  cap,
+  keyLines,
+  keysNote,
+  relatedOf,
+  viewLabels,
+} from '@/lib/component-text';
+import {
   COMPONENTS_HREF,
   componentEntry,
   componentHref,
-  componentsOf,
   family,
   familyHref,
   type ComponentEntry,
@@ -78,45 +86,23 @@ function Badge({ children }: { children: ReactNode }) {
 // ---------------------------------------------------------------------------
 // the example
 
-/** What each view's tab is called, the size it says it is, and its caption. */
+/** Each view of the output as a tab, with the words `viewLabels()` gives it. */
 function outputViews(entry: ComponentEntry, views: Partial<Record<ViewId, View>>): OutputView[] {
-  const what = entry.family === 'prompts' ? 'The prompt' : 'The example';
-  const after = entry.example?.caption ? `, ${entry.example.caption}` : '';
-  const panel = (view: View, narrow = false) => {
+  return viewLabels(entry, views).map(({ view, ...label }) => {
     const rows = <TerminalRows rows={viewRows(view)} />;
-    return narrow ? (
-      // the 40th column, drawn: what is past it is not part of this screen
-      <div className="w-[40ch] max-w-full border-r border-dashed border-line-strong">{rows}</div>
-    ) : (
-      rows
-    );
-  };
-
-  return [
-    views.rendered && {
-      id: 'rendered' as const,
-      label: 'Rendered',
-      size: `zsh · ${views.rendered.columns}×24`,
-      caption: `${what} as it draws in a terminal ${views.rendered.columns} columns wide${after}.`,
-      panel: panel(views.rendered),
-    },
-    views.accessible && {
-      id: 'accessible' as const,
-      label: 'Accessible',
-      size: `zsh · ${views.accessible.columns}×24 · accessible`,
-      caption: `With accessible mode on (SIGIL_ACCESSIBLE=1), the same ${
-        entry.family === 'prompts' ? 'prompt' : 'example'
-      } asks on plain lines that a screen reader reads in order, and nothing on them is redrawn.`,
-      panel: panel(views.accessible),
-    },
-    views.narrow && {
-      id: 'narrow' as const,
-      label: '40 columns',
-      size: `zsh · ${views.narrow.columns}×24`,
-      caption: `The same steps on a terminal ${views.narrow.columns} columns wide: what is drawn is laid out again for the width, not cut off.`,
-      panel: panel(views.narrow, true),
-    },
-  ].filter((view) => view !== undefined);
+    return {
+      ...label,
+      panel:
+        label.id === 'narrow' ? (
+          // the 40th column, drawn: what is past it is not part of this screen
+          <div className="w-[40ch] max-w-full border-r border-dashed border-line-strong">
+            {rows}
+          </div>
+        ) : (
+          rows
+        ),
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -180,77 +166,7 @@ function OptionsTable({ options }: { options: readonly OptionDoc[] }) {
 // ---------------------------------------------------------------------------
 // keys
 
-/** How a key is printed on a keycap. */
-const CAPS: Readonly<Record<string, string>> = {
-  backspace: 'Backspace',
-  ctrlC: 'Ctrl C',
-  delete: 'Delete',
-  down: '↓',
-  end: 'End',
-  enter: 'Enter',
-  escape: 'Esc',
-  home: 'Home',
-  left: '←',
-  pageDown: 'PgDn',
-  pageUp: 'PgUp',
-  right: '→',
-  shiftTab: 'Shift Tab',
-  space: 'Space',
-  tab: 'Tab',
-  up: '↑',
-};
-
-/** A key a footer named that is not in `CAPS`: `ctrl-d` is Ctrl D, `a` is A. */
-function cap(key: string): string {
-  return (
-    CAPS[key] ??
-    key
-      .split('-')
-      .map((part) =>
-        part.length === 1 ? part.toUpperCase() : part[0]!.toUpperCase() + part.slice(1)
-      )
-      .join(' ')
-  );
-}
-
-/** The keys that move rather than act. */
-const MOVES = new Set(['up', 'down', 'left', 'right', 'home', 'end', 'pageUp', 'pageDown']);
-
-/** The Keys list's rows, in words, with what changed split into moving and acting. */
-function keyLines(entry: ComponentEntry, rows: readonly KeyRow[]) {
-  const prompt = entry.family === 'prompts';
-  const lines: { keys: readonly string[]; does: string }[] = [];
-
-  for (const row of rows) {
-    if (row.footer) {
-      lines.push({ keys: row.keys, does: row.footer[0]!.toUpperCase() + row.footer.slice(1) });
-    } else if (row.effect === 'change') {
-      const moves = row.keys.filter((key) => MOVES.has(key));
-      const acts = row.keys.filter((key) => !MOVES.has(key));
-      if (moves.length > 0) {
-        lines.push({ keys: moves, does: prompt ? 'Move the cursor' : 'Move, or scroll' });
-      }
-      if (acts.length > 0) {
-        lines.push({
-          keys: acts,
-          does: prompt ? 'Change the answer' : 'Move the focus, or act on what has it',
-        });
-      }
-    } else if (row.effect === 'answer') {
-      lines.push({ keys: row.keys, does: prompt ? 'Answer' : 'Quit the app' });
-    } else if (row.effect === 'cancel') {
-      lines.push({
-        keys: row.keys,
-        does: prompt ? 'Cancel. The prompt rejects with a `PromptError`.' : 'Cancel',
-      });
-    }
-  }
-  return lines;
-}
-
 function KeysList({ entry, rows }: { entry: ComponentEntry; rows: readonly KeyRow[] }) {
-  const footer = rows.some((row) => row.footer !== undefined);
-
   return (
     <>
       <dl className="mt-4 flex flex-col gap-2.5">
@@ -275,29 +191,13 @@ function KeysList({ entry, rows }: { entry: ComponentEntry; rows: readonly KeyRo
           </div>
         ))}
       </dl>
-      <p className="mt-4 text-[14px] leading-[1.55] text-muted">
-        {footer
-          ? 'The hint line under the prompt is generated from these bindings, so it always lists what they do; the words above are its own. The rest were found by pressing each key on the running example.'
-          : `${entry.name} draws no hint line, so these were found by pressing each key on the running example and seeing what it did.`}
-      </p>
+      <p className="mt-4 text-[14px] leading-[1.55] text-muted">{keysNote(entry, rows)}</p>
     </>
   );
 }
 
 // ---------------------------------------------------------------------------
 // the page
-
-/** The components linked under Related: the ones the entry names, or its family's next three. */
-function relatedOf(entry: ComponentEntry): ComponentEntry[] {
-  if (entry.related) {
-    return entry.related.map((slug) => componentEntry(slug)!);
-  }
-  const siblings = componentsOf(entry.family);
-  const at = siblings.findIndex((it) => it.slug === entry.slug);
-  return [1, 2, 3]
-    .map((step) => siblings[(at + step) % siblings.length]!)
-    .filter((it) => it.slug !== entry.slug);
-}
 
 /**
  * A component's reference page: what it is for, its example with what it drew
@@ -373,16 +273,14 @@ export function ComponentPage({ slug }: { slug: string }) {
 
         {api.options.length > 0 ? (
           <Section id="options" title="Options">
-            <p className="mt-3 text-[15px] leading-[1.6] text-fg-body">
-              Read from the declaration an editor completes:
-            </p>
+            <p className="mt-3 text-[15px] leading-[1.6] text-fg-body">{OPTIONS_INTRO}</p>
             <div className="[&>figure]:mt-3">
               <CodeBlock code={api.signature} lang="typescript" title="components.d.mts" />
             </div>
             <OptionsTable options={api.options} />
             {api.shared.length > 0 ? (
               <p className="mt-3 text-[14px] leading-[1.55] text-muted">
-                It also takes the options every mounted component does:{' '}
+                {SHARED_OPTIONS}{' '}
                 {api.shared.map((name, at) => (
                   <span key={name}>
                     {at > 0 ? ', ' : null}
