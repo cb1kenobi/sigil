@@ -89,8 +89,8 @@ export default {
 Starting the app is `dev.ts`'s job:
 
 ```ts
-import schema from './src/index.ts';
 // dev.ts
+import schema from './src/index.ts';
 import { main } from '@ttylabs/sigil';
 
 await main({ schema });
@@ -337,8 +337,8 @@ Two things to notice:
 The scaffold already has `test/app.test.ts`. Tests for `deploy` look the same:
 
 ```ts
-import schema from '../src/index.ts';
 // test/deploy.test.ts
+import schema from '../src/index.ts';
 import { runCommand } from '@ttylabs/sigil/testing';
 import { describe, expect, it } from 'vitest';
 
