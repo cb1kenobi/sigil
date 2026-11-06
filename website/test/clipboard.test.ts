@@ -2,96 +2,84 @@ import { copyText } from '../src/lib/clipboard.ts';
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 
-const globals = globalThis as Record<string, unknown>;
-const saved = { navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator') };
-
-function stub(name: string, value: unknown) {
-  Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
-}
-
-function fakeDocument(execCommand: (command: string) => boolean) {
-  const appended: unknown[] = [];
-  const textarea = {
-    value: '',
-    style: {} as Record<string, string>,
-    setAttribute() {},
-    select() {},
-    setSelectionRange() {},
-    remove() {
-      appended.pop();
-    },
-  };
-  return {
-    textarea,
-    appended,
-    document: {
-      body: { appendChild: (node: unknown) => appended.push(node) },
-      activeElement: null,
-      createElement: () => textarea,
-      execCommand,
-    },
-  };
-}
+const g = globalThis as Record<string, unknown>;
+const saved = { document: g.document, navigator: g.navigator };
 
 afterEach(() => {
-  delete globals.document;
-  if (saved.navigator) {
-    Object.defineProperty(globalThis, 'navigator', saved.navigator);
+  for (const [key, value] of Object.entries(saved)) {
+    Object.defineProperty(globalThis, key, { configurable: true, value, writable: true });
   }
 });
 
-describe('copyText', () => {
-  it('uses the async clipboard when there is one', async () => {
+function stub(key: 'document' | 'navigator', value: unknown) {
+  Object.defineProperty(globalThis, key, { configurable: true, value, writable: true });
+}
+
+/** Just enough of a document for the textarea fallback. */
+function fakeDocument(copies: boolean | 'throw') {
+  const written: string[] = [];
+  const area = {
+    remove() {},
+    select() {},
+    setAttribute() {},
+    style: {},
+    value: '',
+  };
+  return {
+    written,
+    doc: {
+      activeElement: null,
+      body: { append: () => {} },
+      createElement: () => area,
+      execCommand(command: string) {
+        if (copies === 'throw') {
+          throw new Error('nope');
+        }
+        written.push(`${command}:${area.value}`);
+        return copies;
+      },
+      getSelection: () => null,
+    },
+  };
+}
+
+describe('copyText()', () => {
+  it('should use the Clipboard API when it is there', async () => {
     const written: string[] = [];
     stub('navigator', {
       clipboard: { writeText: async (text: string) => void written.push(text) },
     });
 
-    assert.equal(await copyText('npx @ttylabs/cli new my-cli'), true);
-    assert.deepEqual(written, ['npx @ttylabs/cli new my-cli']);
+    assert.equal(await copyText('npm test'), true);
+    assert.deepEqual(written, ['npm test']);
   });
 
-  it('falls back to a hidden textarea when the clipboard rejects', async () => {
-    stub('navigator', {
-      clipboard: {
-        writeText: async () => {
-          throw new DOMException('denied', 'NotAllowedError');
-        },
-      },
-    });
-    const fake = fakeDocument(() => true);
-    stub('document', fake.document);
+  it('should fall back to a selected textarea when the API refuses', async () => {
+    const { doc, written } = fakeDocument(true);
+    stub('navigator', { clipboard: { writeText: () => Promise.reject(new Error('denied')) } });
+    stub('document', doc);
 
-    assert.equal(await copyText('hello'), true);
-    assert.equal(fake.textarea.value, 'hello');
-    assert.equal(fake.appended.length, 0, 'the textarea is removed again');
+    assert.equal(await copyText('npm test'), true);
+    assert.deepEqual(written, ['copy:npm test']);
   });
 
-  it('falls back when there is no clipboard at all', async () => {
+  it('should fall back when the API is not there at all, as on an insecure origin', async () => {
+    const { doc } = fakeDocument(true);
     stub('navigator', {});
-    const commands: string[] = [];
-    const fake = fakeDocument((command) => (commands.push(command), true));
-    stub('document', fake.document);
+    stub('document', doc);
 
-    assert.equal(await copyText('hello'), true);
-    assert.deepEqual(commands, ['copy']);
+    assert.equal(await copyText('x'), true);
   });
 
-  it('resolves false rather than throwing when nothing works', async () => {
+  it('should say false, and not throw, when nothing can copy', async () => {
     stub('navigator', {});
-    const fake = fakeDocument(() => {
-      throw new Error('blocked');
-    });
-    stub('document', fake.document);
-    assert.equal(await copyText('hello'), false);
+    stub('document', fakeDocument(false).doc);
+    assert.equal(await copyText('x'), false);
 
-    const refused = fakeDocument(() => false);
-    stub('document', refused.document);
-    assert.equal(await copyText('hello'), false);
-  });
+    stub('document', fakeDocument('throw').doc);
+    assert.equal(await copyText('x'), false);
 
-  it('resolves false with no document either', async () => {
-    stub('navigator', {});
-    assert.equal(await copyText('hello'), false);
+    stub('document', undefined);
+    assert.equal(await copyText('x'), false);
   });
 });

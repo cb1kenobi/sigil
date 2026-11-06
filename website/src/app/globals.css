@@ -127,13 +127,18 @@
  * The four families. `inline` because the value is another variable:
  * `next/font/local` declares `--font-barlow` and the rest on `<html>`, and a
  * theme variable of the same name as the one it reads would be a cycle.
- * The fallbacks are what shows while a face loads and for the glyphs the latin
- * subset does not carry (✔ ✖ ▲ ℹ › and the box-drawing set).
+ * The fallbacks are what shows while a face loads and for the glyphs no face
+ * here carries (✔ ✖ ℹ and the spinner's Braille, which JetBrains Mono has none
+ * of). `--font-jetbrains-terminal` is the box drawing, block elements and shapes,
+ * and comes first because its `unicode-range` is all it draws -- see
+ * `src/fonts/terminal-glyphs.ts`.
  */
 @theme inline {
   --font-heading: var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
   --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-jetbrains), ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-mono:
+    var(--font-jetbrains-terminal), var(--font-jetbrains), ui-monospace, 'SF Mono', Menlo, Consolas,
+    monospace;
   --font-wordmark: var(--font-martian), ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 
@@ -276,13 +281,6 @@
   color: var(--color-fg-strong);
 }
 
-/* The title is the command's own name, in code, at the heading's size. */
-.prose-sigil h1 code {
-  background: none;
-  font-size: 1em;
-  padding: 0;
-}
-
 .prose-sigil h2 {
   border-top: 1px solid var(--color-line);
   color: var(--color-fg-strong);
@@ -306,29 +304,40 @@
   text-underline-offset: 3px;
 }
 
-.prose-sigil code {
+.prose-sigil strong {
+  color: var(--color-fg-strong);
+}
+
+/*
+ * Inline code. `:not(pre) >` because a fence is not drawn as a `<pre>` in prose
+ * any more -- `markdown-blocks.tsx` makes it a `CodeBlock` or a `TerminalBlock`,
+ * which style their own body -- and a rule for every `code` would reach into
+ * the code block's.
+ */
+.prose-sigil :not(pre) > code {
   background: var(--color-surface-2);
+  border: 1px solid var(--color-line-panel);
   border-radius: var(--radius-kbd);
   color: var(--color-fg-code);
   font-family: var(--font-mono);
-  font-size: 0.875em;
-  padding: 0.1em 0.35em;
+  font-size: 0.88em;
+  padding: 1px 5px;
 }
 
-.prose-sigil pre {
-  background: var(--color-surface);
-  border: 1px solid var(--color-line-panel);
-  border-radius: var(--radius-panel);
-  margin-top: 1rem;
-  overflow-x: auto;
-  padding: 0.85rem 1rem;
-}
-
-.prose-sigil pre code {
+/*
+ * The title is the command's own name, in code, at the heading's size. After the
+ * inline rule, which it undoes, because the two are equally specific.
+ */
+.prose-sigil h1 code {
   background: none;
-  font-size: var(--text-code);
-  line-height: var(--text-code--line-height);
+  border: 0;
+  font-size: 1em;
   padding: 0;
+}
+
+/* A callout's text sits on the callout's own padding, not on a paragraph's. */
+.prose-sigil .callout p:first-child {
+  margin-top: 0;
 }
 
 /*
