@@ -30,7 +30,7 @@ import { componentFamilies, docsSidebar } from './docs-sidebar.ts';
 import { guideLink } from './guide-links.ts';
 import { markdownPages, type Guide } from './guides.ts';
 import { fence } from './markdown-doc.ts';
-import type { SidebarSection } from './nav.ts';
+import { GUIDE_SLUGS, type SidebarSection } from './nav.ts';
 import { referenceDoc, referenceHref, referenceLink, type ReferenceDoc } from './reference.ts';
 import { repoFileUrl } from './site.ts';
 import { commandRow, plainText } from './terminal-rows.ts';
@@ -69,8 +69,13 @@ import { commandRow, plainText } from './terminal-rows.ts';
  * page that is not there has no Markdown to give.
  */
 
-/** What part of the site a page is. */
-export type DocsPageKind = 'guide' | 'command' | 'components' | 'component';
+/**
+ * What part of the site a page is. A `guide` is in the Docs section's reading
+ * order (`GUIDE_SLUGS`); a `page` is any other markdown file under `/docs/`,
+ * which is About once SIG-266 is in, so a reader that wants the guides alone --
+ * search -- does not take on a page by its arriving.
+ */
+export type DocsPageKind = 'guide' | 'page' | 'command' | 'components' | 'component';
 
 /** One docs page, as Markdown. */
 export interface DocsPage {
@@ -96,7 +101,7 @@ const sameLink = (href: string) => href;
 
 function guidePage(it: Guide, href: string): DocsPage {
   return {
-    kind: 'guide',
+    kind: (GUIDE_SLUGS as readonly string[]).includes(it.slug) ? 'guide' : 'page',
     href,
     title: it.title,
     description: it.description,
