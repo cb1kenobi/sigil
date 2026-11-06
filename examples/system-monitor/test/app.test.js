@@ -5,7 +5,7 @@ import { ESCAPE_TIMEOUT } from '@ttylabs/sigil/input';
 import { provideContext } from '@ttylabs/sigil/renderer';
 import { flush } from '@ttylabs/sigil/signals';
 import { createTestTerminal, ctrl, KEYS } from '@ttylabs/sigil/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The monitor run by `runApp()` over a fake terminal, with a fake machine behind
@@ -520,13 +520,44 @@ describe('the system monitor', () => {
     expect(app.screen()).toContain('sorted by mem');
   });
 
-  it('should draw the first memory sample on the history chart rather than a line at 0%', async () => {
-    const app = mount();
-    await app.step();
-    const screen = app.screen();
-    // the one reading, 50%, is a dot mid-plot: the braille is the line chart's,
-    // and the row at 0% has none of it
-    expect(screen).toMatch(/[\u2801-\u28ff]/);
-    expect(screen).toMatch(/ 0% ┤ +│$/m);
-  });
+  // A chart draws in braille where the terminal can show it and in ASCII where
+  // it cannot, and it asks `unicodeSupported()`, which reads the environment --
+  // so the glyph set is pinned rather than left to the machine running the
+  // suite. Windows without Windows Terminal is ASCII, which is how this test
+  // failed on every Windows job while it assumed braille. `TERM` answers on
+  // every platform; the rest are what Windows also asks, blanked so the ASCII
+  // case is ASCII inside Windows Terminal too
+  const GLYPHS = {
+    ascii: {
+      ConEmuTask: '',
+      TERM: 'dumb',
+      TERMINAL_EMULATOR: '',
+      TERMINUS_SUBLIME: '',
+      TERM_PROGRAM: '',
+      WT_SESSION: '',
+    },
+    unicode: { TERM: 'xterm-256color' },
+  };
+
+  it.each([
+    ['braille', 'unicode', /│ +│ +[⠁-⣿] +│$/m, / 0% ┤ +│$/m],
+    ['ASCII', 'ascii', /│ +\| +\* +│$/m, / 0% \+ +│$/m],
+  ])(
+    'should draw the first memory sample on the history chart rather than a line along its floor, in %s',
+    async (_name, glyphs, point, floor) => {
+      for (const [key, value] of Object.entries(GLYPHS[glyphs])) {
+        vi.stubEnv(key, value);
+      }
+      try {
+        const app = mount();
+        await app.step();
+        const screen = app.screen();
+        // the one reading, 50%, is a point mid-plot, and the row at 0% is empty
+        expect(screen).toMatch(point);
+        expect(screen).toMatch(floor);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }
+  );
 });
