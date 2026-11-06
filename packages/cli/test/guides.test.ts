@@ -1,7 +1,20 @@
-import { blocks, environment, GUIDES, prepare, readGuide, run, steps, write } from './guides.ts';
+import {
+  blocks,
+  environment,
+  GUIDES,
+  prepare,
+  readGuide,
+  root,
+  run,
+  steps,
+  write,
+} from './guides.ts';
 import { tempDir } from './temp.ts';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 /**
@@ -124,6 +137,104 @@ describe('the imports in the guides', () => {
         }
       }
       expect(checked).toBeGreaterThan(2);
+    });
+  }
+});
+
+/**
+ * A guide that is written over an example rather than over a scaffold.
+ *
+ * `full-screen-apps.md` cannot be replayed the way `getting-started.md` is:
+ * its app is JSX, which Node will not run from source, and its transcripts open
+ * a full screen that waits for keys. What it can be is an excerpt of an example
+ * that `examples.test.ts` already builds, mounts, drives and quits -- so every
+ * block of code in it is headed `// <path>` and has to appear in that example's
+ * file of the same path. A block that drifts from the code fails here; code
+ * that stops working fails there. A block with no heading fails too, because
+ * the guide says every file it shows is an excerpt, and an unheaded one is a
+ * file nothing checks. Only a `console` block is exempt, since a transcript of a
+ * full screen is illustration rather than a file.
+ *
+ * `ts` and `tsx` are compared line for line rather than byte for byte, because
+ * the formatter re-indents a fragment inside a code fence -- a `return (` lifted
+ * out of a function body comes back at column zero -- and how far a quoted line
+ * is indented is the formatter's to say rather than a difference in what the
+ * code is. `json` is compared by value, with the heading taken off first, and
+ * the rule is that a block may leave out a top-level key but never part of one:
+ * it has to be a non-empty object, and every key it shows holds exactly what
+ * the file's does, nested objects and all. So `compilerOptions` is quoted
+ * whole and `extends` and `include`, which are about where the example sits in
+ * this repository, can be left out. A plain subset was the first rule and it
+ * let `{}`, or a block that dropped `jsxImportSource`, pass while the prose
+ * above it said otherwise. The heading is a comment, so only a file that
+ * allows one -- a `tsconfig.json` -- can be shown this way; a `jsonc` fence is
+ * not used because the formatter adds trailing commas to one, which
+ * `JSON.parse()` refuses and `@ttylabs/sigil` does not export its JSONC reader.
+ */
+const EXCERPTED: readonly { example: string; file: string }[] = [
+  { example: 'hello', file: 'full-screen-apps.md' },
+];
+
+/** Text with each line's indentation taken off, which is what an excerpt is compared as. */
+function unindented(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .join('\n');
+}
+
+/**
+ * Whether `excerpt` quotes `source` whole but for top-level keys left out: a
+ * non-empty object every key of which holds exactly the file's value.
+ */
+function quotes(excerpt: unknown, source: unknown): boolean {
+  const isObject = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === 'object' && !Array.isArray(value);
+  return (
+    isObject(excerpt) &&
+    isObject(source) &&
+    Object.keys(excerpt).length > 0 &&
+    Object.entries(excerpt).every(
+      ([key, value]) => Object.hasOwn(source, key) && isDeepStrictEqual(value, source[key])
+    )
+  );
+}
+
+describe('the guides that excerpt an example', () => {
+  for (const { example, file } of EXCERPTED) {
+    it(`should quote examples/${example} as it is, in ${file}`, () => {
+      let checked = 0;
+      for (const { body, info } of blocks(readGuide(file))) {
+        if (info === 'console') {
+          continue;
+        }
+        const path = /^\/\/ ([\w./-]+)\n/.exec(body)?.[1];
+        expect(
+          path,
+          `${file} shows a ${info || 'plain'} block with no // <path> heading`
+        ).toBeDefined();
+        const source = readFileSync(join(root, 'examples', example, path!), 'utf-8');
+        const excerpt = body.slice(body.indexOf('\n') + 1);
+        if (info === 'ts' || info === 'tsx') {
+          expect(
+            unindented(source).includes(unindented(excerpt)),
+            `${file} quotes ${path} as it no longer is`
+          ).toBe(true);
+        } else if (info === 'json') {
+          expect(
+            quotes(JSON.parse(excerpt), JSON.parse(source)),
+            `${file} quotes ${path} other than whole, or as it no longer is`
+          ).toBe(true);
+        } else {
+          throw new Error(
+            `${file} quotes ${path} in a ${info || 'plain'} block, which nothing here compares`
+          );
+        }
+        checked++;
+      }
+      // a fence or a heading that stopped matching would check nothing
+      expect(checked).toBeGreaterThan(6);
     });
   }
 });

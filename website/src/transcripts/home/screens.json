@@ -1,0 +1,120 @@
+{
+  "screens": {
+    "hero": {
+      "columns": 64,
+      "runs": [
+        {
+          "output": "\u001b[32m?\u001b[0m \u001b[1mLayout\u001b[0m \u001b[2mMulti\u001b[0m\n\u001b[36m?\u001b[0m \u001b[1mFeatures\u001b[0m\n  \u001b[36m◐\u001b[0m \u001b[1mFrontend\u001b[0m\n    \u001b[32m◉\u001b[0m React\n    \u001b[32m◉\u001b[0m Vue\n    ◯ Svelte\n  \u001b[36m◐\u001b[0m \u001b[1mBackend\u001b[0m\n    ◯ Express\n\u001b[36m❯\u001b[0m   \u001b[32m◉\u001b[0m \u001b[36mFastify\u001b[0m\n    \u001b[2m◯\u001b[0m \u001b[2mSpring\u001b[0m \u001b[2mneeds a licence\u001b[0m\n  ◯ \u001b[1mTooling\u001b[0m\n    ◯ CI\n    ◯ Linting \u001b[2moxlint\u001b[0m\n  \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36ma\u001b[0m \u001b[2mall\u001b[0m \u001b[2m·\u001b[0m \u001b[36mi\u001b[0m \u001b[2minvert\u001b[0m \u001b[2m·\u001b[0m \u001b[36menter\u001b[0m \u001b[2mconfirm\u001b[0m"
+        }
+      ]
+    },
+    "rendered": {
+      "columns": 72,
+      "runs": [
+        {
+          "output": "\u001b[36m?\u001b[0m \u001b[1mComponents\u001b[0m\n  \u001b[32m◉\u001b[0m Prompts\n  ◯ Tables\n\u001b[36m❯\u001b[0m \u001b[32m◉\u001b[0m \u001b[36mSpinners\u001b[0m\n  ◯ Markdown\n  ◯ Charts\n  \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36ma\u001b[0m \u001b[2mall\u001b[0m \u001b[2m·\u001b[0m \u001b[36mi\u001b[0m \u001b[2minvert\u001b[0m \u001b[2m·\u001b[0m \u001b[36menter\u001b[0m \u001b[2mconfirm\u001b[0m"
+        }
+      ]
+    },
+    "accessible": {
+      "columns": 72,
+      "runs": [
+        {
+          "output": "Components\n  1. Prompts\n  2. Tables\n  3. Spinners\n  4. Markdown\n  5. Charts\nChoose numbers from 1 to 5, separated by commas (default: none) 1, 3\nChosen: Prompts, Spinners"
+        }
+      ]
+    },
+    "select": {
+      "columns": 56,
+      "runs": [
+        {
+          "output": "\u001b[36m?\u001b[0m \u001b[1mTemplate\u001b[0m\n  cli\n\u001b[36m❯\u001b[0m \u001b[36mfull-screen\u001b[0m\n  prompts only"
+        }
+      ]
+    },
+    "table": {
+      "columns": 56,
+      "runs": [
+        {
+          "output": "\u001b[1msuite     status   time\u001b[0m\nparser    \u001b[7;32m PASS \u001b[27;39m  412ms\nprompts   \u001b[7;32m PASS \u001b[27;39m  388ms\nrenderer  \u001b[7;31m FAIL \u001b[27;39m  1.20s"
+        }
+      ]
+    },
+    "log": {
+      "columns": 56,
+      "runs": [
+        {
+          "output": "\u001b[34mℹ \u001b[0mdeployed \u001b[2mhost=a ms=412\u001b[0m\n\u001b[32m✔ \u001b[0mmigrations applied\n\u001b[33m⚠ \u001b[0mcache is 3 days old\n\u001b[31m✖ \u001b[0meu-west-1 timed out"
+        }
+      ]
+    },
+    "tasks": {
+      "columns": 56,
+      "runs": [
+        {
+          "output": "\u001b[32m✔ \u001b[0mResolved 12 packages\n\u001b[32m✔ \u001b[0mBuilt 10 modules\n\u001b[36m⠋\u001b[0m Upload assets"
+        }
+      ]
+    },
+    "markdown": {
+      "columns": 56,
+      "runs": [
+        {
+          "output": "\u001b[1mUnreleased\u001b[0m\n\n\u001b[2m• \u001b[22mTooltips follow a scrolled anchor\n\u001b[2m• \u001b[22;36mselect() \u001b[39mtakes an AbortSignal"
+        }
+      ]
+    },
+    "diff": {
+      "columns": 56,
+      "runs": [
+        {
+          "output": "\u001b[34m@@ -1,2 +1,2 @@\u001b[0m\n\u001b[2m1   \u001b[22;31m-const retries = \u001b[1m3\u001b[22m;\u001b[0m\n  \u001b[2m1 \u001b[22;32m+const retries = \u001b[1m5\u001b[22m;\u001b[0m\n\u001b[2m2 2  run(env);\u001b[0m"
+        }
+      ]
+    },
+    "parser": {
+      "columns": 80,
+      "runs": [
+        {
+          "command": "todo --help",
+          "output": "\u001b[1mUsage: \u001b[22mtodo [options] <command>\n\nKeep a list of things to do\n\n\u001b[1mCommands:\u001b[0m\n  add         Add a task\n  completion  Print a shell completion script\n  help        Show help for a command\n  list, ls    List the tasks\n  remove      Remove a task\n\n\u001b[1mOptions:\u001b[0m\n  -h, --help   Show help for a command\n  -q, --quiet  Suppress progress, not results"
+        }
+      ]
+    },
+    "agent": {
+      "columns": 80,
+      "runs": [
+        {
+          "command": "todo add < /dev/null",
+          "output": "Error: Cannot prompt for \"Title\" because the input is not a terminal"
+        },
+        {
+          "command": "todo add \"Renew passport\"",
+          "output": "Added \"Renew passport\""
+        }
+      ]
+    },
+    "completion": {
+      "columns": 80,
+      "runs": [
+        {
+          "command": "todo ⇥⇥",
+          "output": "add         completion  help        list        ls          remove"
+        },
+        {
+          "command": "todo l⇥⇥",
+          "output": "list  ls"
+        }
+      ]
+    },
+    "cli": {
+      "columns": 68,
+      "runs": [
+        {
+          "command": "sigil --help",
+          "output": "\u001b[1mUsage: \u001b[22msigil [options] <command>\n\n\u001b[1mCommands:\u001b[0m\n  add         Copy a component into your app, so you own it\n  build       Build an app into a bundle that depends on nothing\n  check       Check an app without building it\n  completion  Print a shell completion script\n  help        Show help for a command\n  new         Create a new app\n  package     Build an app and compile it into a single executable\n  reference   Write a markdown command reference, or a snapshot of\n              the command surface\n\n\u001b[1mOptions:\u001b[0m\n  -h, --help     Show help for a command\n  -v, --version  Print the version\n  -q, --quiet    Suppress progress, not results"
+        }
+      ]
+    }
+  }
+}

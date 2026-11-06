@@ -98,8 +98,10 @@ jobs:
       - name: Source bytes
         run: pnpm exec vitest run packages/sigil/test/sources.test.ts
 
+      # `@ttylabs/cli` as well, since the home page's capture test runs the built
+      # `sigil --help` (`website/test/home-captures.test.ts`) and needs its `dist/`.
       - name: Website tests
-        run: pnpm exec turbo run build --filter=@ttylabs/sigil && pnpm --filter website test
+        run: pnpm exec turbo run build --filter=@ttylabs/sigil --filter=@ttylabs/cli && pnpm --filter website test
 
   test:
     name: Test on node ${{ matrix.node }} and ${{ matrix.os }}

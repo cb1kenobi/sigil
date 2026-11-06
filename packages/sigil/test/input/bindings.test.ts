@@ -1,6 +1,7 @@
 import { box, type Element, text } from '../../src/element/index.js';
 import { createInput, KeySpecError } from '../../src/input/index.js';
 import { createEffect } from '../../src/renderer/index.js';
+import { flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, tick } from '../../src/testing/index.js';
 import { describe, expect, it } from 'vitest';
 
@@ -152,5 +153,27 @@ describe('described bindings', () => {
     expect(() => {
       (first as { description: string }).description = 'x';
     }).toThrow(TypeError);
+  });
+
+  // KNOWN BUG, pinned with `it.fails` so it flips the day it is fixed. `describe()`
+  // bumps its revision with `describedRev.set(describedRev.get() + 1)`, and the
+  // `get()` subscribes whatever effect is running -- so an effect that describes
+  // keys depends on the list it just wrote and re-runs itself forever. Found by
+  // the SIG-291 system monitor, which describes its keys once the router exists.
+  // The fix is reading the revision untracked
+  it.fails('should let an effect describe keys without depending on what it described', () => {
+    const { input } = setup();
+    const ready = new State(false);
+    const stop = createEffect(() => {
+      if (ready.get()) {
+        input.describe('a', { description: 'first' });
+        input.describe('b', { description: 'second' });
+      }
+    });
+
+    ready.set(true);
+    expect(() => flush()).not.toThrow();
+    expect(input.bindings().map((b) => b.keys)).toEqual(['a', 'b']);
+    stop();
   });
 });
