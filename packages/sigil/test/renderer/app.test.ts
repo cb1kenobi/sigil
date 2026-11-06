@@ -1,7 +1,7 @@
 import { createSinkCanvas } from '../../src/canvas/index.js';
 import { box, type Element, text } from '../../src/element/index.js';
 import { type App, AppContext, runApp, useApp } from '../../src/renderer/app.js';
-import { createEffect, onMount, useContext } from '../../src/renderer/index.js';
+import { createEffect, onCleanup, onMount, useContext } from '../../src/renderer/index.js';
 import { State } from '../../src/signals/index.js';
 import { createTestTerminal, ctrl, KEYS, tick } from '../../src/testing/index.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -166,6 +166,26 @@ describe('runApp()', () => {
     expect(await app.exited).toBe(1);
   });
 
+  it('should report the error stdin ended in, once the screen is back, rather than dropping it', async () => {
+    const { app, term } = start(() => text('x'));
+    app.view.frame();
+    term.stdin.destroy(new Error('stdin broke'));
+    expect(await app.exited).toBe(1);
+    expect(term.screen.alternate).toBe(false);
+    // written once, on the main screen: the backend held it while the app owned
+    // the screen, the way it holds every other failure's line
+    expect(term.lines.join('\n')).toContain('stdin broke');
+    expect(term.output.split('stdin broke')).toHaveLength(2);
+  });
+
+  it('should hand the error stdin ended in to onError', async () => {
+    const reports: unknown[] = [];
+    const { app, term } = start(() => text('x'), { onError: (error) => reports.push(error) });
+    term.stdin.destroy(new Error('stdin broke'));
+    expect(await app.exited).toBe(1);
+    expect(reports.map(String)).toEqual(['Error: stdin broke']);
+  });
+
   it('should end when a frame fails, with the terminal back before the error is reported', async () => {
     const boom = new State(false);
     const reports: Array<{ alternate: boolean; error: unknown; raw: boolean }> = [];
@@ -210,6 +230,58 @@ describe('runApp()', () => {
         { detect: false, terminal: term.terminal }
       )
     ).toThrow('body broke');
+    expect(term.stdin.rawMode).toBe(false);
+    expect(term.stdin.listenerCount('data')).toBe(0);
+    expect(term.screen.alternate).toBe(false);
+  });
+
+  it.each([
+    ['', false],
+    [' after exit() was called', true],
+  ])(
+    'should settle exited with 1 when the component body throws%s, rather than leaving it pending',
+    async (_, exitFirst) => {
+      const term = createTestTerminal({ columns: 30, rows: 6 });
+      let held: App | undefined;
+      expect(() =>
+        runApp(
+          () => {
+            held = useApp();
+            if (exitFirst) {
+              held.exit(4);
+            }
+            throw new Error('body broke');
+          },
+          { detect: false, terminal: term.terminal }
+        )
+      ).toThrow('body broke');
+      // the handle `useApp()` gave the body is one a caller can keep, and the app
+      // failed -- so 1, whatever code the body asked for before it threw
+      const settled = await Promise.race([held?.exited, tick(20).then(() => 'pending')]);
+      expect(settled).toBe(1);
+      expect(held?.running).toBe(false);
+    }
+  );
+
+  it('should drop every resize subscription when a stylesheet fails to parse', () => {
+    const term = createTestTerminal({ columns: 30, rows: 6 });
+    // counted at the terminal, which is what both the router and a full-screen
+    // canvas subscribe through -- and the canvas does it the moment it is built
+    const live = new Set<object>();
+    const onResize = term.terminal.onResize.bind(term.terminal);
+    term.terminal.onResize = (handler) => {
+      const token = {};
+      live.add(token);
+      const off = onResize(handler);
+      return () => {
+        live.delete(token);
+        off();
+      };
+    };
+    expect(() =>
+      runApp(() => text('x'), { detect: false, sheets: ['/*'], terminal: term.terminal })
+    ).toThrow(/unterminated comment/);
+    expect(live.size).toBe(0);
     expect(term.stdin.rawMode).toBe(false);
     expect(term.stdin.listenerCount('data')).toBe(0);
     expect(term.screen.alternate).toBe(false);
@@ -381,6 +453,70 @@ describe('runApp()', () => {
     expect(await app.exited).toBe(1);
     expect(reports).toHaveLength(1);
     expect(term.screen.alternate).toBe(false);
+  });
+
+  it('should settle exited with 1 when the first frame fails after exit(0) was latched in the body', async () => {
+    // `exit()` from the body defers its teardown so that the first frame still
+    // runs -- and that frame can fail, which is a crash rather than the success
+    // the body asked for
+    const reports: unknown[] = [];
+    const { app, term } = start(
+      () => {
+        useApp().exit(0);
+        const label = text('x');
+        label.onResize = () => {
+          throw new Error('first frame broke');
+        };
+        return label;
+      },
+      { onError: (error) => reports.push(error) }
+    );
+    expect(await app.exited).toBe(1);
+    expect(reports.map(String)).toEqual(['Error: first frame broke']);
+    expect(term.screen.alternate).toBe(false);
+  });
+
+  it('should settle exited with 1 when a later frame fails after exit() was latched in it', async () => {
+    const go = new State(false);
+    const { app } = start(
+      () => {
+        const held = useApp();
+        createEffect(() => {
+          if (go.get()) {
+            held.exit(0);
+          }
+        });
+        createEffect(() => {
+          if (go.get()) {
+            throw new Error('frame broke after exit');
+          }
+        });
+        return text('x');
+      },
+      { onError: () => {} }
+    );
+    app.view.frame();
+    go.set(true);
+    app.view.frame();
+    expect(await app.exited).toBe(1);
+  });
+
+  it('should keep the code exit() chose when a cleanup throws on the way out', async () => {
+    const reports: unknown[] = [];
+    const { app } = start(
+      () => {
+        onCleanup(() => {
+          throw new Error('cleanup broke');
+        });
+        return text('x');
+      },
+      { onError: (error) => reports.push(error) }
+    );
+    app.exit(3);
+    // the app was already going by an exit that chose its code; a cleanup that
+    // throws on the way is reported, and is not the failure that ended it
+    expect(await app.exited).toBe(3);
+    expect(reports.map(String)).toEqual(['Error: cleanup broke']);
   });
 
   it('should draw inline under the log, following its content, with fullscreen false', async () => {

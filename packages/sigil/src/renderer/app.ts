@@ -156,7 +156,8 @@ export interface App {
    * Safe from anywhere -- a key handler, an effect, a frame -- because the
    * teardown runs on the next microtask rather than underneath whatever called
    * it. The second call does nothing, so a quit key and a button that arrive
-   * together settle it once, with the first code.
+   * together settle it once, with the first code -- unless the app fails before
+   * the teardown has run, which settles it with `1` instead: see `exited`.
    *
    * @param code - The exit code. Defaults to `0`.
    */
@@ -166,10 +167,18 @@ export interface App {
    *
    * What `exit()` was given; `130` for the quit key, which is what a shell
    * reports for Ctrl-C; `1` for a failure that ended the app, after `onError`
-   * has written it; `1` for a refusal to start without a terminal; `129` when
-   * stdin ended under the app, which is the shell's code for a terminal that
-   * hung up, and `1` if it ended in an error; and `0` for an app the code ended
-   * itself with `view.dispose()`.
+   * has written it; `1` for a throw from the component's body, which also
+   * propagates from `runApp()`; `1` for a refusal to start without a terminal;
+   * `129` when stdin ended under the app, which is the shell's code for a
+   * terminal that hung up, and `1` if it ended in an error, which goes to
+   * `onError` like any other failure; and `0` for an app the code ended itself
+   * with `view.dispose()`.
+   *
+   * Of two intentional codes the first wins. A failure beats both: an `exit(0)`
+   * called from the body, or from an effect, leaves the frame it was called in to
+   * finish -- and a frame that then fails is a crash, so it settles `1`, never the
+   * success that was asked for. A cleanup that throws while the app is already
+   * going is reported and does not count, since it did not end the app.
    *
    * A code rather than a value, and handed back rather than set. Passing return
    * values up through layers of commands and contexts couples every layer to the
@@ -290,7 +299,8 @@ export function useApp(): App {
  * @param component - Builds the app's root element. Runs once, under the app.
  * @param opts - The terminal, the sheets, and how it ends.
  * @returns The app. A throw from the component's body propagates from here, with
- *   the terminal already given back, as it does from `render()`.
+ *   the terminal already given back, as it does from `render()` -- and `exited`
+ *   on the handle `useApp()` gave the body settles `1`.
  */
 export function runApp(component: () => Element, opts: AppOptions = {}): App {
   const terminal = opts.terminal ?? defaultTerminal;
@@ -304,7 +314,13 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   let exiting = false;
   /** Whether `render()` is on the stack, which is when a report has nowhere to go yet. */
   let rendering = false;
-  /** Whether an error ended the app, which decides the code the renderer going ends it with. */
+  /** Whether `finish()` is unmounting the tree, so that what its cleanups throw is not the failure. */
+  let disposing = false;
+  /**
+   * Whether an error ended the app, which beats whatever code `exit()` latched:
+   * an `exit(0)` from the body defers its teardown so the first frame can run, and
+   * that frame can still fail -- which is a crash, not the success it asked for.
+   */
   let failed = false;
   let code = 0;
   let settle: (code: number) => void = () => {};
@@ -348,14 +364,14 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
    *
    * A renderer that is no longer mounted when an error reaches it is one that
    * failed -- `fail()` tears down first and reports second -- while a report from
-   * a mounted renderer is an `onMount` or a frame handler, which it survives. An
-   * error during a teardown `exit()` already asked for flags it too, harmlessly:
-   * the code was fixed by that `exit()`, and the second one this would feed does
-   * nothing.
+   * a mounted renderer is an `onMount` or a frame handler, which it survives. A
+   * cleanup that throws while `finish()` is unmounting is reported and does not
+   * count: the app was already going, by an `exit()` that chose its code, and a
+   * failure beating that code is about a failure that *ended* the app.
    */
   function reported(error: unknown): void {
     report(error);
-    if (view !== undefined && !view.mounted) {
+    if (!disposing && view !== undefined && !view.mounted) {
       failed = true;
     }
   }
@@ -374,6 +390,10 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
    * rather than a dependency: stopping the router first was tried and nothing
    * observable moved, because a stopped router keeps its focus ring and a
    * dialog closing on the way out can still put the focus back.
+   *
+   * The code is the failure's where one ended the app, whatever `exit()` latched
+   * first: two intentional codes are settled by the first, and a failure is not an
+   * intention.
    */
   function finish(): void {
     if (!running) {
@@ -382,12 +402,13 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     running = false;
     try {
       if (view?.mounted) {
+        disposing = true;
         view.dispose();
       }
     } finally {
       input?.stop();
       terminal.restore();
-      settle(code);
+      settle(failed ? EXIT_FAILED : code);
     }
   }
 
@@ -462,11 +483,36 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       }
     });
   }
-  // stdin ending is the terminal hanging up, and an app nobody can type to is over
-  router.onEnd((error) => app.exit(error === undefined ? EXIT_HUNG_UP : EXIT_FAILED));
+  // stdin ending is the terminal hanging up, and an app nobody can type to is
+  // over. Ending in an error is a failure like any other, so it is reported the
+  // same way -- held by the backend and written once the screen is back -- rather
+  // than leaving a 1 on stderr with no reason beside it
+  router.onEnd((error) => {
+    if (error === undefined) {
+      app.exit(EXIT_HUNG_UP);
+      return;
+    }
+    report(error);
+    app.exit(EXIT_FAILED);
+  });
 
   rendering = true;
   try {
+    // the cascade before the backend: parsing a sheet or a theme can throw, and
+    // a full-screen canvas subscribes to resizes the moment it is built, which
+    // only its `stop()` undoes -- so a bad sheet has to throw while there is
+    // still no canvas to leak, leaving nothing behind but the router
+    const cascade =
+      opts.cascade ??
+      themedCascade({
+        colorScheme: opts.colorScheme,
+        reducedMotion: opts.reducedMotion,
+        sheets: [
+          (hostSheet ??= parseStylesheet('.sigil-app > * { min-height: 0 }')),
+          ...(opts.sheets ?? []),
+        ],
+        theme: opts.theme,
+      });
     view = render(
       () =>
         provideContext(AppContext, app, () => {
@@ -477,17 +523,7 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
         backend:
           opts.backend ??
           (opts.fullscreen === false ? undefined : createFullscreenCanvas({ terminal })),
-        cascade:
-          opts.cascade ??
-          themedCascade({
-            colorScheme: opts.colorScheme,
-            reducedMotion: opts.reducedMotion,
-            sheets: [
-              (hostSheet ??= parseStylesheet('.sigil-app > * { min-height: 0 }')),
-              ...(opts.sheets ?? []),
-            ],
-            theme: opts.theme,
-          }),
+        cascade,
         colorLevel: opts.colorLevel,
         colorScheme: opts.colorScheme,
         effects: opts.effects,
@@ -500,13 +536,21 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       }
     );
   } catch (error) {
-    // `render()` has already given the terminal back; the router is the one
-    // thing it did not know about
+    // a throw from the component's body, which `render()` has answered by
+    // stopping the backend and giving the terminal back -- or a sheet or a theme
+    // that failed to parse, before there was a backend or a screen to give back.
+    // Either way the router is the one thing left, since `render()` never knew
+    // about it
     running = false;
     router.stop();
     for (const line of early.splice(0)) {
       terminal.writeErr(line);
     }
+    // the app failed, so `exited` says so -- whatever `exit()` the body may have
+    // called before it threw -- rather than staying pending for whoever kept the
+    // handle `useApp()` gave it. The throw still goes to the caller, which is
+    // `render()`'s rule
+    settle(EXIT_FAILED);
     throw error;
   } finally {
     rendering = false;
@@ -524,9 +568,11 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
 
   // the renderer going by any route ends the app: `view.dispose()` from a
   // handler, which is the app ending itself, or a frame that failed -- which
-  // tears down first and reports second, so the code is read a microtask later,
-  // once the report has said which it was
-  view.onDispose(() => queueMicrotask(() => app.exit(failed ? EXIT_FAILED : 0)));
+  // tears down first and reports second, so this handler runs before anybody
+  // knows which it was. It need not know: `exit()` defers the teardown to a
+  // microtask, `finish()` reads `failed` then, once the report has said, and a
+  // failure beats the 0 this asks for
+  view.onDispose(() => app.exit());
 
   if (opts.detect !== false) {
     // a probe rejects only where the query could not be written, which is a fault
