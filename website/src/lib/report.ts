@@ -1,4 +1,4 @@
-import { REPO_URL } from './site.ts';
+import { REPO_NEW_ISSUE_URL } from './site.ts';
 
 /**
  * The longest path put in an issue's title. An address can be as long as the
@@ -15,7 +15,7 @@ function shorten(path: string): string {
 /**
  * GitHub's "new issue" form with a title and a body filled in.
  *
- * Built from `REPO_URL` so the repository is spelt in one place. The reader still
+ * Built from `REPO_NEW_ISSUE_URL` so the repository is spelt in one place. The reader still
  * has to press the button, which is the point: nothing is sent from here.
  *
  * @param issue - What to prefill.
@@ -27,7 +27,7 @@ export function newIssueUrl({ title, body }: { title: string; body: string }): s
   const params = new URLSearchParams({ title, body });
   // `+` for a space is what a form submission writes and GitHub reads, but
   // `%20` is what every URL parser agrees on
-  return `${REPO_URL}/issues/new?${params.toString().replaceAll('+', '%20')}`;
+  return `${REPO_NEW_ISSUE_URL}?${params.toString().replaceAll('+', '%20')}`;
 }
 
 /**

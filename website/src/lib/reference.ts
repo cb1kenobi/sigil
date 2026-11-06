@@ -199,3 +199,36 @@ export function referenceHref(slug: string): string {
 
 /** What the command reference is, for a page that has no description of its own. */
 export const REFERENCE_SUMMARY = 'Every sigil command, with its arguments and options.';
+
+/**
+ * Where a generated link points on this site.
+ *
+ * The generator links a page to a **file** -- `add.md`, `index.md` -- because
+ * that is what a directory of pages is, and a route here is `/reference/add`.
+ * Left alone, every link in a subcommand table resolved to `/reference/add.md`,
+ * whose slug is `add.md`, which `referenceDoc()` does not find: `notFound()`.
+ * So every link off the index 404'd. Measured. Found by review.
+ *
+ * Only a relative `.md` is rewritten, so an absolute or external href a page
+ * might hold one day is left as it was.
+ *
+ * @param href - What the markdown said.
+ * @returns Where it goes.
+ */
+export function referenceLink(href: string | undefined): string | undefined {
+  if (href === undefined || !href.endsWith('.md') || /^[a-z]+:|^\//iu.test(href)) {
+    return href;
+  }
+
+  return referenceHref(decodeURIComponent(href.slice(0, -'.md'.length)));
+}
+
+/**
+ * Where a page's file is in the repository, for a link to it on GitHub.
+ *
+ * @param slug - The route segment.
+ * @returns The path from the repository's root.
+ */
+export function referenceRepoPath(slug: string): string {
+  return `website/src/reference/${slug}.md`;
+}

@@ -5,6 +5,16 @@ import { PHASE_PRODUCTION_BUILD } from 'next/constants';
 const nextConfig: NextConfig = {
   /* config options here */
   reactCompiler: true,
+
+  /**
+   * `/docs` is not a page, it is the docs: the first guide is where it goes.
+   * Temporary rather than permanent, because what is first is a decision that
+   * moves (the components and About pages are on their way) and a browser
+   * keeps a 308 for good.
+   */
+  async redirects() {
+    return [{ source: '/docs', destination: '/docs/getting-started', permanent: false }];
+  },
 };
 
 /**

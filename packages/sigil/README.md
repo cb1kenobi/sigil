@@ -5139,7 +5139,9 @@ field's only when it was given `onSubmit`**; without one it goes on to whatever 
 around it. Up, Down and Ctrl-C are left alone too. Validation and an error line
 are the form's or the caller's, not the field's. `.sigil-text-field`, `-before`,
 `-caret`, `-after` and `-placeholder` are the theme hooks: the host carries the
-background, and the caret is `inverse` under the field's `:focus`.
+background, and the caret of a focused field carries `.sigil-focus`, the role a
+control puts on the part that shows its focus -- `sigil/themes` below says which
+controls do.
 
 #### A toast
 
@@ -6157,6 +6159,33 @@ Each is a value for every one of the seven roles — `.sigil-accent`,
 `.sigil-muted`, `.sigil-heading`, `.sigil-success`, `.sigil-error`, `.sigil-warn`,
 `.sigil-info` — which is the whole of what the role layer is for: seven
 declarations restyle a surface wearing a dozen component classes.
+
+**`.sigil-focus` is the eighth role, and no shipped theme restates it.** It is on
+the part of a control that shows its focus — a collapsible's title, the active
+tab of a focused row, a focused text field's caret — and it is `inverse`, the
+terminal's own two colours swapped, which is the same under any palette. A theme
+or an app restyles every control's focus with one rule:
+
+```css
+.sigil-focus {
+  inverse: false;
+  text-decoration: underline;
+}
+```
+
+A component sets it from the element's `onFocusChange`, which is called whenever
+the `focus` state flips, so a control knows its own focus without being handed
+the router. A move through the router is committed whole -- both ends and
+`input.focus.current` -- before either handler runs, so a handler may move the
+focus again with `input.focus.focus()`, to trap it or pass it on, and once the
+handlers settle the last call each element gets is the state it ends in. A
+`setState('focus')` from a
+handler, or from anything else while the focus is moving, throws: the router is
+the one writer of the focus. A handler that throws does not stop the others
+being told, and the error is rethrown from the outermost focus change once they
+all have been -- the handlers run in one queue per process, so a `focus()` on a
+second router made from inside a handler returns before that router's handlers
+run, and what they throw comes out of the outer call.
 
 **Each colour theme carries two palettes.** The basic sixteen first, then a richer
 set inside `@media (min-color-level: 2)`, written per scheme. So a 16-colour

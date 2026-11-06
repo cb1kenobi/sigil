@@ -7,6 +7,7 @@
       "env": ["VERCEL_ENV", "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", "NEXT_PUBLIC_POSTHOG_HOST"],
       "inputs": [
         "src/**",
+        "../packages/sigil/docs/**",
         "scripts/**",
         "public/**",
         ".env*",
