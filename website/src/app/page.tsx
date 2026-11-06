@@ -1,4 +1,3 @@
-import { CellGrid } from '@/components/cell-grid';
 import { CodeBlock } from '@/components/code-block';
 import { Glow } from '@/components/glow';
 import { HomeScreen, ScreenPreview } from '@/components/home-screen';
@@ -91,7 +90,6 @@ export default function Home() {
 
       {/* 1. The framework */}
       <section aria-labelledby="hero-title" className="relative overflow-hidden">
-        <CellGrid at="68% 45%" size="75% 90%" variant="radial" />
         <Glow at="76% 50%" size="42% 55%" variant="radial" />
         <Seal
           className="pointer-events-none absolute -top-[70px] -right-[150px] text-brand/14 max-sm:opacity-60"
@@ -144,7 +142,6 @@ export default function Home() {
         aria-labelledby="cli-title"
         className="relative overflow-hidden border-t border-line bg-band"
       >
-        <CellGrid alpha={0.1} at="25% 50%" size="60% 85%" stops={[15, 75]} variant="radial" />
         <Glow at="24% 50%" size="38% 55%" variant="radial" />
         <div className="layout-page relative flex flex-wrap-reverse items-center gap-16 py-16 sm:py-[104px]">
           <div className="min-w-0 flex-[1_1_520px]">

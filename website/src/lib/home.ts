@@ -1,5 +1,5 @@
 import { sgrRows } from './sgr.ts';
-import { REPO_URL } from './site.ts';
+import { repoFileUrl } from './site.ts';
 import { commandRow, tighten, type Row } from './terminal-rows.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -175,4 +175,4 @@ export const WRITING_CARD = {
 } as const;
 
 /** The accessible-mode write-up: the README section, since there is no docs page for it yet. */
-export const ACCESSIBLE_MODE_HREF = `${REPO_URL}/blob/main/packages/sigil/README.md#accessible-mode-prompts-as-plain-lines`;
+export const ACCESSIBLE_MODE_HREF = `${repoFileUrl('packages/sigil/README.md')}#accessible-mode-prompts-as-plain-lines`;
