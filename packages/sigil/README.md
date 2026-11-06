@@ -41,6 +41,10 @@ because the caller is a bin script.
 **[docs/getting-started.md](docs/getting-started.md)** builds a small app from
 `sigil new`'s scaffold.
 
+**[docs/full-screen-apps.md](docs/full-screen-apps.md)** builds a full-screen
+app that takes the whole terminal, written in JSX and again in the `ui` tag.
+[examples/](../../examples/) has complete ones.
+
 **[docs/parser.md](docs/parser.md)** is the full parser reference: syntax,
 semantics, precedence, and every place this parser deliberately differs from
 Commander and yargs. This README is the API tour.
@@ -53,6 +57,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 ## Contents
 
 - [Getting started](docs/getting-started.md) — a new app, from `sigil new` to a build
+- [Building a full-screen app](docs/full-screen-apps.md) — the whole terminal, in JSX and in the `ui` tag
 - [The root entry](#the-root-entry) — `main()`, `command()`, `options()`, errors
 - [Declaring options](#declaring-options)
 - [Declaring arguments](#declaring-arguments)

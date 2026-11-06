@@ -26,7 +26,11 @@ const config: ViteUserConfig = defineConfig({
       include: ['packages/*/src/**/*.ts'],
       reporter: ['html', 'lcov', 'text'],
     },
-    projects: ['packages/*'],
+    // each example is a project of its own, so its tests run under its own
+    // name with nothing to configure. The markdown beside them has to be
+    // excluded by name: a glob that matches a file is read as a config file,
+    // and vitest refuses `examples/AGENTS.md` as one rather than skipping it
+    projects: ['packages/*', 'examples/*', '!examples/*.md'],
     silent: false,
     watch: false,
   },
