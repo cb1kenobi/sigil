@@ -1,5 +1,6 @@
 import { Callout } from '@/components/callout';
 import { CodeBlock } from '@/components/code-block';
+import { Seal } from '@/components/seal';
 import { TerminalBlock } from '@/components/terminal-block';
 import { readFence } from '@/lib/fence';
 import { consoleRows, shellRows, type Lookup } from '@/lib/terminal-rows';
@@ -23,15 +24,8 @@ import type { Components, ExtraProps } from 'react-markdown';
  * `fence.ts` decides what each fence is; this only draws it.
  */
 
-/**
- * What a callout is drawn with on its left.
- *
- * **The seam for SIG-256.** The seal is that ticket's component, at
- * `src/components/seal.tsx`, and is being built at the same time as this one,
- * so it is not here yet. Once it is, this becomes
- * `<Seal size={18} className="text-brand" />` and every callout carries it.
- */
-const CALLOUT_ICON: ReactNode = null;
+/** What a callout is drawn with on its left: the seal, in the brand colour. */
+const CALLOUT_ICON: ReactNode = <Seal size={18} className="text-brand" />;
 
 /** The captured transcripts, read once per build rather than once per block. */
 let captured: Lookup | undefined;

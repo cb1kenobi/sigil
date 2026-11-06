@@ -21,6 +21,28 @@ tree is one a reviewer can read in the diff, and a drift test is what keeps it
 honest -- where generating at build time would make this build depend on
 importing the toolchain's own app.
 
+## Brand assets
+
+The seal's geometry is `src/lib/seal.ts` and the `Seal` component draws it
+(`src/components/seal.tsx`). Everything else is generated from it by
+`pnpm --filter website brand`: `src/app/icon.svg`, `src/app/favicon.ico`
+(16, 32 and 48 px), `src/app/apple-icon.png`, `public/icon-192.png`,
+`public/icon-512.png`, and the lockups in `public/brand/`, which have the
+wordmark outlined into paths so they need no font:
+
+- `public/brand/sigil-lockup-dark.svg`: for a dark ground
+- `public/brand/sigil-lockup-light.svg`: for a light one
+
+The PNG and ICO files are stamped cell by cell rather than rendered from the
+SVG, so a 16 px favicon keeps its channel open instead of blurring it shut.
+`test/brand-assets.test.ts` regenerates all of them in memory and fails if a
+committed file differs, so editing the seal without running the script is a
+test failure. The social cards are `src/lib/og.tsx`; each route's
+`opengraph-image.tsx` is a call into it and exports its own `alt`: Next reads
+an `.alt.txt` only beside a static image, and a route that read one by a
+computed path would make Turbopack trace the whole project. `next/og` cannot read woff2, so `src/lib/woff2.ts` decodes
+the vendored fonts for it.
+
 ## Code and terminal blocks
 
 A fenced block in any markdown the site renders goes through

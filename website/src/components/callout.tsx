@@ -3,13 +3,9 @@ import type { ReactNode } from 'react';
 export interface CalloutProps {
   readonly children: ReactNode;
   /**
-   * What sits on the left: the seal, at 18px in `brand`.
-   *
-   * A slot rather than a fixed glyph because the seal is SIG-256's component
-   * (`src/components/seal.tsx`) and is being built at the same time. Until it
-   * lands this is empty and the callout is its text alone; after, the markdown
-   * hook passes `<Seal size={18} className="text-brand" />` here -- see
-   * `CALLOUT_ICON` in `markdown-blocks.tsx`, which is the one place that changes.
+   * What sits on the left: the seal, at 18px in `brand`, which the markdown
+   * hook passes as `CALLOUT_ICON` in `markdown-blocks.tsx`. Left out, the
+   * callout is its text alone.
    */
   readonly icon?: ReactNode;
 }
