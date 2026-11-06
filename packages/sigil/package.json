@@ -106,6 +106,10 @@
       "types": "./dist/style.d.mts",
       "default": "./dist/style.mjs"
     },
+    "./suggest": {
+      "types": "./dist/suggest.d.mts",
+      "default": "./dist/suggest.mjs"
+    },
     "./template": {
       "types": "./dist/template.d.mts",
       "default": "./dist/template.mjs"

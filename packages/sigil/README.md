@@ -6418,6 +6418,33 @@ copy them into an app: an ejected prompt asks the same function the parser does,
 rather than carrying a second opinion of what a date is. It is a subpath and not
 a name on the root so that a command which only answers `--version` never loads it.
 
+### `sigil/suggest`
+
+The parser's "did you mean" rule: the nearest candidate to what was typed, or
+nothing.
+
+```js
+import { distance, nearMiss } from '@ttylabs/sigil/suggest';
+
+const asTyped = (s) => s;
+
+nearMiss('buidl', ['build', 'check', 'new'], asTyped); // 'build'
+nearMiss('chek', ['check', 'cheek'], asTyped); // undefined: a tie is no answer
+nearMiss('xyz', ['build', 'check', 'new'], asTyped); // undefined: nothing is close
+distance('build', 'buidl'); // 1, since a swap of two neighbours is one slip
+```
+
+It is what `Unknown command "buidl"` uses to suggest `build`. A candidate counts
+as near if it is at most one slip per three characters of the shorter string
+away, measured by Damerau-Levenshtein distance, and shares at least something
+with what was typed. When two candidates are equally near there is no
+suggestion, because a wrong suggestion sends the reader somewhere. The third
+argument says what each side is compared as; the parser strips an option's
+leading dashes with it. Case is folded on both sides.
+
+It imports nothing from Node, so it also runs in a browser: the sigil website
+suggests the nearest page on its 404 with it.
+
 ### `sigil/updates`
 
 Checks for a newer version in a spawned worker, so the check never blocks the
