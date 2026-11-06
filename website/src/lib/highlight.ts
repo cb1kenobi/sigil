@@ -174,8 +174,13 @@ export function highlight(code: string, lang: string | undefined): Token[][] | u
   }
 
   try {
+    // No time limit. Shiki gives up on a line after 500ms by default and draws
+    // the rest of it plain, or tokenizes it wrongly, without a word; the first
+    // line also pays the regex engine's warm-up, so a busy build machine crosses
+    // it. This runs at build time, where a page that is right matters more than
+    // a build that is fast.
     return core()
-      .codeToTokens(code, { lang: resolved, theme: 'sigil' })
+      .codeToTokens(code, { lang: resolved, theme: 'sigil', tokenizeTimeLimit: 0 })
       .tokens.map((line) =>
         line.map((token) => ({
           ...(token.color && token.color !== PLAIN ? { color: token.color } : {}),
