@@ -491,6 +491,121 @@ describe('focus', () => {
     input.stop();
   });
 
+  it('should leave one element focused when a handler moves the focus during a move', () => {
+    // a handler used to run between the router's writes, while `current` still
+    // named the element losing the focus -- so a blur handler that moved it on
+    // finished the move it was inside of as well, and two elements were left
+    // with `:focus` and the role, only one of which the keys went to
+    const { terminal } = harness();
+    const { first, root, second, third } = tree();
+    const input = createInput({ root, terminal });
+    const seen: string[] = [];
+    for (const element of [first, second, third]) {
+      element.onFocusChange = (target, focused) => {
+        // and a handler reads a router that agrees with the state it was told
+        seen.push(`${input.focus.current.get() === target} ${focused}`);
+        target.toggleClass('sigil-focus', focused);
+      };
+    }
+    first.onFocusChange = (target, focused) => {
+      seen.push(`${input.focus.current.get() === target} ${focused}`);
+      if (!focused) {
+        input.focus.focus(third);
+      }
+      target.toggleClass('sigil-focus', focused);
+    };
+
+    input.focus.focus(first);
+    input.focus.focus(second);
+    expect(input.focus.current.get()).toBe(third);
+    expect([first, second, third].map((el) => el.states.includes('focus'))).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect([first, second, third].map((el) => el.classes.includes('sigil-focus'))).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect(seen.every((line) => line === 'true true' || line === 'false false')).toBe(true);
+    input.stop();
+  });
+
+  it('should let a blur handler take the focus back, which is a focus trap', () => {
+    // the nested `focus(first)` used to return at once, because `current` still
+    // named `first` though its state had been cleared -- and the outer move then
+    // focused `second` anyway, so a trap written in the hook could not hold
+    const { terminal } = harness();
+    const { first, root, second } = tree();
+    const input = createInput({ root, terminal });
+    const heard: string[] = [];
+    first.onFocusChange = (_, focused) => {
+      heard.push(`first ${focused}`);
+      if (!focused) {
+        input.focus.focus(first);
+      }
+    };
+    second.onFocusChange = (_, focused) => {
+      heard.push(`second ${focused}`);
+    };
+
+    input.focus.focus(first);
+    input.focus.focus(second);
+    expect(input.focus.current.get()).toBe(first);
+    expect(first.states).toContain('focus');
+    expect(second.states).not.toContain('focus');
+    // `second` had the focus for no longer than the move, so it is told nothing
+    expect(heard).toEqual(['first true', 'first false', 'first true']);
+    input.stop();
+  });
+
+  it('should finish a move and tell the other end when a handler throws', () => {
+    // a throw used to abort the move after the state was cleared and before
+    // `current` was set, so `:focus` and the router disagreed and the element
+    // gaining the focus was never told it had it
+    const { terminal } = harness();
+    const { first, root, second } = tree();
+    const input = createInput({ root, terminal });
+    const boom = new Error('boom');
+    first.onFocusChange = (_, focused) => {
+      if (!focused) {
+        throw boom;
+      }
+    };
+    second.onFocusChange = (target, focused) => {
+      target.toggleClass('sigil-focus', focused);
+    };
+
+    input.focus.focus(first);
+    expect(() => input.focus.focus(second)).toThrow(boom);
+    expect(input.focus.current.get()).toBe(second);
+    expect(first.states).not.toContain('focus');
+    expect(second.states).toContain('focus');
+    expect(second.classes).toContain('sigil-focus');
+
+    // and both ends throwing is both errors, the way a graph walk reports them
+    second.onFocusChange = () => {
+      throw new Error('bang');
+    };
+    first.onFocusChange = () => {
+      throw boom;
+    };
+    let caught: unknown;
+    try {
+      input.focus.focus(first);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(AggregateError);
+    expect((caught as AggregateError).errors.map((err: Error) => err.message)).toEqual([
+      'bang',
+      'boom',
+    ]);
+    expect(input.focus.current.get()).toBe(first);
+    input.stop();
+  });
+
   it('should follow the tree rather than a list it kept', () => {
     const { terminal } = harness();
     const { first, root, second } = tree();
@@ -826,6 +941,28 @@ describe('the focus ring and the clip rect', () => {
 
     input.focus.focus(rows[7]);
     expect(view.scroll?.y).toBe(4);
+    input.stop();
+  });
+
+  it('should still tell the focus handlers when the scroll a move caused throws', () => {
+    // the scroll into view is part of the move's commit, and a throw out of it
+    // must neither skip the handlers nor leave every later move's held for ever
+    const { terminal } = harness();
+    const { root, rows, view } = scroller(12);
+    const input = createInput({ root, terminal });
+    const heard: string[] = [];
+    for (const [i, row] of rows.entries()) {
+      row.onFocusChange = (_, focused) => heard.push(`r${i} ${focused}`);
+    }
+    view.onScroll = () => {
+      throw new Error('scroll');
+    };
+
+    expect(() => input.focus.focus(rows[7])).toThrow('scroll');
+    expect(input.focus.current.get()).toBe(rows[7]);
+    view.onScroll = undefined;
+    input.focus.focus(rows[6]);
+    expect(heard).toEqual(['r7 true', 'r7 false', 'r6 true']);
     input.stop();
   });
 

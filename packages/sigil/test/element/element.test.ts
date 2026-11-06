@@ -187,6 +187,51 @@ describe('mutation marks', () => {
     expect(heard).toEqual([true, false]);
   });
 
+  it('should go on telling elements their focus after a handler threw', () => {
+    // the queue latches while it drains, so a throw that left the latch set would
+    // leave every later focus change untold for the life of the process
+    const field = box();
+    const heard: boolean[] = [];
+    field.onFocusChange = (_, focused) => {
+      heard.push(focused);
+      if (focused) {
+        throw new Error('boom');
+      }
+    };
+
+    expect(() => field.setState('focus')).toThrow('boom');
+    expect(field.states).toContain('focus');
+    field.setState('focus', false);
+    expect(heard).toEqual([true, false]);
+  });
+
+  it('should give up rather than hang when two handlers keep moving the focus', () => {
+    // telling them inline overflowed the stack; a queue would spin for ever, so
+    // it is bounded the way an effect flush is
+    const a = box();
+    const b = box();
+    a.onFocusChange = (_, focused) => {
+      if (focused) {
+        a.setState('focus', false);
+        b.setState('focus', true);
+      }
+    };
+    b.onFocusChange = (_, focused) => {
+      if (focused) {
+        b.setState('focus', false);
+        a.setState('focus', true);
+      }
+    };
+
+    expect(() => a.setState('focus')).toThrow(/did not settle/);
+    // and the queue is usable again afterwards
+    const c = box();
+    const heard: boolean[] = [];
+    c.onFocusChange = (_, focused) => heard.push(focused);
+    c.setState('focus');
+    expect(heard).toEqual([true]);
+  });
+
   it('should record nothing at all for a subtree not in a tree yet', () => {
     // a page being built before it is attached has nothing on screen to
     // invalidate, and marking every `append()` would hand the first frame a set

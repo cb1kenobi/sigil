@@ -61,11 +61,13 @@ describe('the framework sheet', () => {
    * built-ins share is a role by this test's own definition. A component puts it
    * on the part that shows its focus from `onFocusChange`.
    *
-   * The eleven exceptions are declared rather than discovered. `.sigil-caret` is
-   * `inverse` and no role is inversion, and `.sigil-badge` is `inverse` for the
-   * same reason: it is how a role's colour becomes a background.
-   * `.sigil-pager-match` is `inverse` a third time, because a search highlight
-   * is the terminal's two colours swapped -- standout -- rather than a colour.
+   * The eleven exceptions are declared rather than discovered. Three are
+   * `inverse`, the focus role's declaration, and none is the focus:
+   * `.sigil-caret` is a prompt's cursor, there whether or not anything has the
+   * focus; `.sigil-badge` is how a role's colour becomes a background; and
+   * `.sigil-pager-match` is a search highlight, the terminal's two colours
+   * swapped -- standout -- rather than a colour. A theme restyling the focus must
+   * move none of them.
    * `.sigil-scroll-track` is the one grey
    * here that is not de-emphasised *text*, so it must not be `.sigil-muted` --
    * that role is `dim` on a dark terminal, and a dim track is not a track.

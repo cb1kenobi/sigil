@@ -51,6 +51,7 @@ import {
 // `element/hit.js` rather than the element barrel, which is the same precision
 // the renderer takes over this module: `Element` is a type and erases, while these
 // two are real code and this is the one file that needs them
+import { holdFocusChanges } from '../element/focus.js';
 import { ancestry, hitTest } from '../element/hit.js';
 import type { Element } from '../element/index.js';
 // `scroll.js` imports nothing but types, for the same reason `hit.js` does: the
@@ -1100,21 +1101,27 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       clearSequence();
 
       // the state is what `:focus` matches, so moving focus restyles both ends
-      // of the move and nothing else
-      previous?.setState('focus', false);
-      element?.setState('focus', true);
-      current.set(element);
-      if (element) {
-        lastIndex = Math.max(0, focusables(root).indexOf(element));
-        // and it is brought on screen, unconditionally. The ring already
-        // skips a `display: none` subtree because there is nothing on screen
-        // there to move the focus to; a row below the fold is that case with
-        // the opposite answer -- it is on screen, somewhere the user cannot
-        // see -- so the fix is to scroll rather than to skip. Left out, Tab
-        // into a long list moves a highlight nobody can find, which reads as
-        // an app that stopped responding
-        scrollIntoView(element);
-      }
+      // of the move and nothing else. Committed whole before any
+      // `onFocusChange` runs: a handler told between these writes saw `current`
+      // still naming the element it had just been told it lost, so a handler
+      // that moved the focus itself finished this move twice and left two
+      // elements focused -- `focus.ts` in `src/element` holds the queue
+      holdFocusChanges(() => {
+        previous?.setState('focus', false);
+        element?.setState('focus', true);
+        current.set(element);
+        if (element) {
+          lastIndex = Math.max(0, focusables(root).indexOf(element));
+          // and it is brought on screen, unconditionally. The ring already
+          // skips a `display: none` subtree because there is nothing on screen
+          // there to move the focus to; a row below the fold is that case with
+          // the opposite answer -- it is on screen, somewhere the user cannot
+          // see -- so the fix is to scroll rather than to skip. Left out, Tab
+          // into a long list moves a highlight nobody can find, which reads as
+          // an app that stopped responding
+          scrollIntoView(element);
+        }
+      });
     },
 
     next(): void {

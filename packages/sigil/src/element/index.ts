@@ -50,6 +50,7 @@ import type { PropValues, Style, StyleState } from '../style/index.js';
 import { declare } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
+import { announceFocus } from './focus.js';
 
 /** The host types. Everything above resolves to these three. */
 export type ElementType = 'box' | 'raw' | 'text';
@@ -667,7 +668,9 @@ export class Element implements LayoutNode {
     }
     this.#mark('classes');
     if (state === 'focus') {
-      this.onFocusChange?.(this, on);
+      // told now, or once the router's move has committed both ends of it --
+      // `focus.ts` has why a handler is never told in between
+      announceFocus(this);
     }
     return this;
   }
@@ -814,7 +817,7 @@ export class Element implements LayoutNode {
    * One function rather than a list, for the reason `onKey` is one, and called by
    * `setState()` whenever the `focus` state flips -- which is the moment `:focus`
    * starts or stops matching, so a control that draws its focus from here and a
-   * selector that matches it can never disagree. A Tab, a click and an app
+   * selector that matches it are keyed on one state. A Tab, a click and an app
    * calling `focus()` all arrive through the router's one `focus()`, which is
    * what sets the state, so all three reach this.
    *
@@ -826,8 +829,18 @@ export class Element implements LayoutNode {
    * level 0 has left. `AGENTS.md` in `src/components` has the reasons under
    * "Focus on a control".
    *
-   * It runs **synchronously**, after the state has changed, and a throw
-   * propagates to whatever moved the focus, as `onScroll`'s does.
+   * It runs **synchronously**, once the change has been committed in full: a
+   * move through the router writes both ends and `current` before either handler
+   * runs, so a handler reads a router that agrees with `:focus`. A handler that
+   * moves the focus again is not re-entered -- its move commits at once and the
+   * handlers it concerns are told after this one returns -- and each element is
+   * told the state it has when its turn comes, never one a later move has already
+   * taken back. A throw does not stop the other end being told: the move stands,
+   * and what was thrown propagates to whatever moved the focus once both have
+   * been, one error as itself and more as an `AggregateError`. What a throwing
+   * handler had not yet drawn stays undrawn, since it is not asked again until the
+   * state flips again -- so the state, `:focus` and the router always agree, and
+   * a control's own drawing agrees with them for as long as its handler returns.
    */
   onFocusChange: FocusChangeHandler | undefined;
 

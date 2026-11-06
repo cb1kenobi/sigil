@@ -7020,15 +7020,17 @@ not answer anything: it sits in a tree beside other things and stays there.
   role is `inverse`; what follows is why the title shows its focus at all, and was
   written when the sheet said it with `.sigil-collapsible-title:focus { inverse:
   true }` -- "Focus on a control", at the end of this file, retired it. The
-  sentences about specificity and the sixth exception are that rule's history. The
-  framework sheet had its first `:focus` rule here. Without it a Tab onto a title looks like a Tab that did
-  nothing -- a scroll box shows its focus by scrolling, a title has nothing else to
-  show it by. It is `(0,2,0)` where every other rule there is `(0,1,0)`, which
-  costs a theme nothing, because the cascade decides origin before specificity. At
-  colour level 0 attributes are dropped and the focus is not shown, which is true
-  of any `:focus` rule; the demo says the focus in words when piped for that
-  reason. It is the sixth declared exception in `test/theme.test.ts`'s role
-  invariant, beside the caret and for the caret's reason: no role is inversion. The marker's one-cell margin is not inverted, since a margin is cells
+  framework sheet had its first `:focus` rule here. Without it a Tab onto a title
+  looks like a Tab that did nothing -- a scroll box shows its focus by scrolling, a
+  title has nothing else to show it by. The rule was `(0,2,0)` where every other
+  rule there was `(0,1,0)`, which cost a theme nothing, because the cascade decides
+  origin before specificity; the role that replaced it is `(0,1,0)` like the rest.
+  At colour level 0 attributes are dropped and the focus is not shown, which was
+  true of the `:focus` rule and is true of the role; the demo says the focus in
+  words when piped for that reason. The rule was the sixth declared exception in
+  `test/theme.test.ts`'s role invariant, beside the caret and for the reason then
+  written as "no role is inversion" -- which `.sigil-focus` made false, and which
+  is why the rule could become the role. The marker's one-cell margin is not inverted, since a margin is cells
   nothing paints -- a trailing space in the marker's text was tried instead and is
   measured away. Re-measured in SIG-207 and that is true only of `normal`: the
   marker is `nowrap`, and a `nowrap` (or now `pre`) `'▸ '` keeps its space, so the
@@ -7160,11 +7162,13 @@ does.
   footer lists them while the pager holds the focus -- the SIG-166 mechanism as it
   was built. The descriptions go through `__` because the component writes them;
   `q` is listed only with an `onQuit`, and Left/Right only with `wrap: false`.
-- **A match is reversed, and the current one is the accent reversed.** The sixth
+- **A match is reversed, and the current one is the accent reversed.** The seventh
   declared exception to the role rule in `theme/index.ts`, and the same
   declaration as the caret and the badge: standout is what a search highlight has
-  been since more(1), it reads on any background, and no role is a reversal. The
-  current match adds `.sigil-accent`, so a theme moves it by restyling the accent.
+  been since more(1), and it reads on any background. When it was written no role
+  was a reversal; since SIG-278 `.sigil-focus` is one, and a match is still not on
+  it, because a match is not the focus and a theme restyling the focus must not
+  move every highlight in a pager. The current match adds `.sigil-accent`, so a theme moves it by restyling the accent.
   A highlight that would split a grapheme cluster is widened to whole clusters,
   for the reason `highlightRuns()` gives: a lone combining mark is not drawn.
 - **Escape sequences in the input are stripped, not drawn.** Carrying an input's
@@ -8096,17 +8100,18 @@ nothing and stays in the tree.
 - **Only the active label shows the row's focus, and since SIG-278 it is the focus
   role that does it.** The row's `onFocusChange` puts `.sigil-focus` on the active
   label, and `sync()` moves it when the active tab changes under a focused row.
-  The sentence below that there is "no `onFocus` to toggle a role class from" was
-  true when it was written and is the gap "Focus on a control", at the end of this
-  file, closed; the rule it describes is retired, and the reasoning about which
-  part inverts still holds. It was the eighth declared exception to the role rule:
+  What follows is the retired rule's history, and the reasoning about which part
+  inverts still holds. It was the eighth declared exception to the role rule:
   `.sigil-tabs-row:focus .sigil-tabs-active { inverse: true }`. The row is the
-  focusable element and nothing else shows that a Tab landed on it; there is no
-  `onFocus` to toggle a role class from, and no role is inversion, so the sheet is
-  the only place. It is a descendant selector keyed on the row's state so that only
-  the active label inverts -- inverting the row would shout over every label and the
-  rule. The count moves everywhere it is written: the test name and list in
-  `test/theme.test.ts`, `src/theme/AGENTS.md`, and the sheet's comment.
+  focusable element and nothing else shows that a Tab landed on it; when the rule
+  was written there was no `onFocus` to toggle a role class from and no role was
+  inversion, so the sheet was the only place -- `onFocusChange` and `.sigil-focus`
+  are the gap "Focus on a control", at the end of this file, closed. It was a
+  descendant selector keyed on the row's state so that only the active label
+  inverted -- inverting the row would shout over every label and the rule, which
+  is why the role goes on the label and not the row. The count moved everywhere it
+  was written: the test name and list in `test/theme.test.ts`,
+  `src/theme/AGENTS.md`, and the sheet's comment.
 - **Labels are one line and measured by display width.** `oneLine()` takes escape
   sequences and line breaks out, `stringWidth()` measures, and each label is a
   fixed-width `white-space: pre` text with `flex-shrink: 0`, the shape `ruleView()`
@@ -8301,9 +8306,13 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   untouched; `.sigil-modal-fill` is the hook for a theme that wants a colour behind
   a dialog, and `cellStyle()` is read off it so that one rule reaches the fill.
 - **A focused button is bracketed, not inverted.** `[ Yes ]` against `  No  `, in
-  the accent, written by one effect on the focus signal. The collapsible's inverse
-  focus would need a `:focus` rule in the sheet, which is another exception, and it
-  is invisible at level 0 where the bracket is not. The effect reads the signal
+  the accent, written by one effect on the focus signal. When this was written the
+  collapsible's inverse focus would have needed a `:focus` rule in the sheet, which
+  was another exception; since SIG-278 a button could put `.sigil-focus` on its
+  label from `onFocusChange` with no exception at all, and that move is SIG-199's,
+  when `Button` replaces these. The reason that stands is level 0, where an
+  inverse is invisible and the bracket is not -- which is why `Button` keeps the
+  brackets and adds the role, under "Focus on a control". The effect reads the signal
   rather than the Tab handler setting it, because a Tab, a click and an app calling
   `focus()` are three routes to one change.
 - **The quiet axis is not consulted, which is the prompt rule and the debug
@@ -9590,7 +9599,14 @@ exception per widget. This is the one answer, and every widget below follows it.
 - **`Element.onFocusChange` tells the focused element, so a control needs no router
   to know.** `setState()` calls it whenever the `focus` state flips, which is the
   moment `:focus` starts or stops matching, so a control drawing its focus from it
-  and a selector matching it cannot disagree. A Tab, a click and an app's
+  and a selector matching it are keyed on one state. They cannot disagree while
+  the handler returns; one that throws before it has drawn leaves its drawing
+  stale until the state flips again, which is the handler's own, and the state,
+  `:focus` and the router still agree -- review round 1 found the first wording of
+  this promised more, and that a throw used to break the router too. A handler is
+  told only once the router's move has committed, and may move the focus itself:
+  "A focus handler is told after the move has committed" in `src/element` has the
+  rules. A Tab, a click and an app's
   `focus()` all reach it, because all three go through the router's one `focus()`,
   which is what sets the state -- the same three routes the modal's effect was
   written to cover. The tabs entry above recorded the gap in so many words: "there
@@ -9686,12 +9702,30 @@ exception per widget. This is the one answer, and every widget below follows it.
   the look did not move. New: `should tell an element its focus changed when the
   state flips, and only then`, `should tell both ends of a move, in the order the
   states change`, `should move the focus to the new active label while the row
-  has the focus`, and the one-rule theme test.
+  has the focus`, and the one-rule theme test; and from review round 1, `should
+  leave one element focused when a handler moves the focus during a move`,
+  `should let a blur handler take the focus back, which is a focus trap`, `should
+  finish a move and tell the other end when a handler throws`, `should still tell
+  the focus handlers when the scroll a move caused throws`, `should go on telling
+  elements their focus after a handler threw` and `should give up rather than
+  hang when two handlers keep moving the focus`.
 - **Sabotage: nine, nine caught.** The role rule deleted (six failures); the
   dispatch removed from `setState()` (eight); dispatched for every state, and
   dispatched before the state changed (one each, the element test); each of the
   three components' handlers removed (two, one and three); the tab row's toggle
   in `sync()` removed, and its focus flag never set (one and three).
+- **Review round 1: the hook ran inside the move, and a tabs test could not see a
+  class left behind.** A handler that moved the focus left two elements focused,
+  a trap could not hold, and a throw left `:focus` and `current` apart; the fix is
+  the queue in `src/element/focus.ts`, recorded in `src/element`. Its sabotages:
+  the original inline call and unheld commit restored (four failures); the hold
+  alone removed (three); the queue alone removed (four); a handler's throw left
+  uncaught (four); the turn-time check removed (one, the trap); the commit's throw
+  left uncaught (one); the bound removed (the bounded test hangs). The tabs test
+  asserted on the frame, where the label it left is muted and an SGR is written as
+  a difference from the cell before, so `sync()` adding the role and never taking
+  it off passed it on a move to an earlier tab; it now asks the labels' classes in
+  both directions, and that sabotage fails it.
 - **Not done:** the modal onto the role, which is SIG-199's when `Button`
   replaces its inline buttons; level-0 markers for the three existing controls,
   which have no blank to put one in; and `:focus-within`, which would not solve

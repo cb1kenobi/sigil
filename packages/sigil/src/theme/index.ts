@@ -230,7 +230,11 @@ export const FRAMEWORK_CSS = `
  * every site of a role.
  */
 
-/* prompts: the one declaration with a single site and no role to belong to */
+/*
+ * prompts: a cursor, drawn on the one prompt there is whether or not anything has
+ * the focus -- so not .sigil-focus, though it is the same declaration, because a
+ * theme restyling the focus must not move the cursor
+ */
 .sigil-caret { inverse: true }
 
 /*
@@ -249,9 +253,10 @@ export const FRAMEWORK_CSS = `
  * a pager
  *
  * A match is inverse, which is the seventh declared exception to the role rule and
- * the same declaration as the caret and the badge: no role is a reversal, and a
- * reversal is what a search highlight has been in every pager since more(1) --
- * standout, in termcap's word. It reads on any background and at any colour
+ * the same declaration as the caret and the badge. The one role that is a
+ * reversal is .sigil-focus, and a match is not the focus -- a theme restyling the
+ * focus must not move every highlight -- while a reversal is what a search
+ * highlight has been in every pager since more(1): standout, in termcap's word. It reads on any background and at any colour
  * level above zero, because it is the terminal's own two colours swapped rather
  * than a colour somebody picked. The current match carries .sigil-accent beside
  * it, so it is the accent reversed: a cyan block among the plain ones, and a
@@ -344,7 +349,7 @@ export const FRAMEWORK_CSS = `
  *
  * The fifth declared exception to the role rule -- the QR code's, below, is the
  * fourth, in the order they were added -- and the same declaration as the first:
- * inverse, which no role is. A badge is a few characters on a coloured
+ * inverse, which is .sigil-focus's too and means something else there. A badge is a few characters on a coloured
  * background, and the colour is the variant's role -- success, error, warn or
  * info -- so inverting a text that already has the role's colour puts that colour
  * behind it and the terminal's own background in front. That is the whole of how

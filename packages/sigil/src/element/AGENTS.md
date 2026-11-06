@@ -229,3 +229,38 @@ the entry it belongs to.
   Whether the terminal draws OSC 8 at all is the caller's question --
   `supportsHyperlinks()` answers it -- and the live renderer writes whatever it is
   given, as it always has. See `test/element/href.test.ts`.
+- **A focus handler is told after the move has committed, and is never re-entered
+  (SIG-278).** `onFocusChange` used to run inside `setState()`, between the
+  router's two state writes and before `current.set()`, so a handler that moved
+  the focus saw a half-done move and finished it twice: a blur handler sending the
+  focus on to a third element left two with `:focus` and `.sigil-focus`, and one
+  putting the focus back -- a trap -- was a no-op, because `current` still named
+  the element it was restoring. Now `setState()` hands the element to `focus.ts`,
+  the router's `focus()` commits both states, `current` and the scroll into view
+  under `holdFocusChanges()`, and the queue drains when the hold lets go. Four
+  rules, each pinned in `test/input/input.test.ts` or `test/element/element.test.ts`:
+  - **Told in the order the states changed, and each told the state it has when
+    its turn comes**, nothing if that is what it was last told. So a move a
+    handler makes joins the end of the queue rather than nesting, an element a
+    later move has already taken the focus back from is not told it had it, and
+    the last word every handler hears is the state its element ends in.
+  - **A throw stops nothing.** The move stands, every other handler is still
+    told, and what was thrown is raised once the queue is empty -- one error as
+    itself, more as an `AggregateError` -- which is the graph walk's rule in
+    `src/signals/graph.ts`. A throw from the commit itself, an `onScroll` the
+    scroll into view woke, is held the same way, since leaving the hold up would
+    silence every handler for the life of the process.
+  - **A handler that threw is not asked again** until its state flips again, so
+    whatever it had not drawn stays undrawn. That is the one disagreement left
+    and it is the handler's own: the state, `:focus` and `current` always agree,
+    and a control's class agrees with them for as long as its handler returns.
+    Telling it again on the next move was the alternative and is refused, because
+    the framework cannot know whether the handler drew before or after it threw,
+    and a guess is wrong for one of the two.
+  - **A drain gives up after a hundred calls** with `Focus did not settle`, for
+    two handlers that each move the focus to the other -- inline, that overflowed
+    the stack; a queue would spin for ever. `MAX_PASSES` in `src/signals/effect.ts`
+    is the same bound for the same reason.
+
+  A direct `setState('focus')` with no router is unchanged: nothing is holding, so
+  the queue drains at once and the handler runs before `setState()` returns.

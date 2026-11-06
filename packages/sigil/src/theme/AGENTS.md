@@ -63,25 +63,32 @@ the entry it belongs to.
   `sigil-${outcome}` lands on a role for all four values of `SpinnerOutcome`,
   which is the one emission that computes its class.
 
-  `.sigil-caret`, `.sigil-scroll-track`, `.sigil-debug`, `.sigil-qrcode-paint`,
-  `.sigil-badge`, `.sigil-collapsible-title:focus`, `.sigil-pager-match` and
-  `.sigil-tabs-row:focus .sigil-tabs-active` are the eight declared exceptions: no role is inversion; the track is the one
+  The exceptions are numbered in the order they were added, and three of them --
+  the sixth, eighth and ninth -- are retired, the entry below; what follows says
+  of those three what they were. The first five were `.sigil-caret`,
+  `.sigil-scroll-track`, `.sigil-debug`, `.sigil-qrcode-paint` and `.sigil-badge`.
+  The caret's reason was written as "no role is inversion", which was true until
+  SIG-278 made `.sigil-focus` one; what keeps the prompt's caret off that role is
+  that it is a cursor, drawn on the one prompt there is whether or not anything has
+  the focus, so a theme restyling the focus must not move it. The track is the one
   grey here that is not de-emphasised _text_, so it must not be `.sigil-muted` --
   that role is `dim` on a dark terminal, and a dim track is not a track;
   `.sigil-debug` is a **background** rather than a foreground, which no role is
   either; and the QR code's is a foreground and a background _together_, because a
   scanner wants dark modules on a light one and a terminal is usually the other
   way round, so neither of the two is de-emphasis, a state or an accent. The sixth
-  (SIG-192) is the one rule keyed on a state rather than a class, and is the
-  caret's reason again: a focused collapsible title is drawn inverse, because
-  nothing else says which title the keys go to. The seventh (SIG-195) is
+  (SIG-192) was the one rule keyed on a state rather than a class,
+  `.sigil-collapsible-title:focus`: a focused collapsible title was drawn inverse,
+  because nothing else says which title the keys go to. The seventh (SIG-195) is
   `.sigil-pager-match`, `inverse` a third time: a search highlight is standout,
-  the terminal's own two colours swapped, rather than a colour anybody picked. The eighth (SIG-189) is the
-  active tab's, `inverse` a fourth time and a descendant of the row's `:focus`: the
-  row is the focusable element and the active label is the one thing its keys
-  change, so only that label shows the focus. The ninth (SIG-215) is the text
-  field's caret, `inverse` a fifth time under the field's `:focus`: a form holds
-  several fields and only the one the keys go to may show a caret. The tenth
+  the terminal's own two colours swapped, rather than a colour anybody picked, and
+  it is a match rather than a focus. The eighth (SIG-189) was the active tab's,
+  `.sigil-tabs-row:focus .sigil-tabs-active`, `inverse` a fourth time and a
+  descendant of the row's `:focus`: the row is the focusable element and the
+  active label is the one thing its keys change, so only that label shows the
+  focus. The ninth (SIG-215) was the text field's caret, `inverse` a fifth time
+  under the field's `:focus`: a form holds several fields and only the one the
+  keys go to may show a caret. The tenth
   (SIG-218) is the text field's **background**, `.sigil-text-field`, the overlay's
   reason a second time -- no role is a background -- with a different pair for a
   different job: the overlay has to be opaque over the app, a field has to be

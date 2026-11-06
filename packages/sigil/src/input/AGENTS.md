@@ -60,6 +60,10 @@ the entry it belongs to.
   what a frame reacts to; the state is what the cascade matches, which is what
   makes an input that highlights when focused zero lines of component code. One
   source with the other derived, rather than two things to keep in agreement.
+  Since SIG-278 both are written, with the scroll into view, before any
+  `onFocusChange` runs: a handler told between the writes saw the two disagree
+  and could finish the move twice. The rules are under "A focus handler is told
+  after the move has committed" in `src/element`.
 - **Nothing focused is a legitimate state.** An earlier version repaired the
   focus on every key, which also _grabbed_ it when there was none -- so the first
   Tab landed on the second element, because the first key had quietly focused

@@ -5134,8 +5134,9 @@ field's only when it was given `onSubmit`**; without one it goes on to whatever 
 around it. Up, Down and Ctrl-C are left alone too. Validation and an error line
 are the form's or the caller's, not the field's. `.sigil-text-field`, `-before`,
 `-caret`, `-after` and `-placeholder` are the theme hooks: the host carries the
-background, and the caret of a focused field carries `.sigil-focus`, the role
-every control puts on the part that shows its focus.
+background, and the caret of a focused field carries `.sigil-focus`, the role a
+control puts on the part that shows its focus -- `sigil/themes` below says which
+controls do.
 
 #### A toast
 
@@ -6065,7 +6066,11 @@ or an app restyles every control's focus with one rule:
 
 A component sets it from the element's `onFocusChange`, which is called whenever
 the `focus` state flips, so a control knows its own focus without being handed
-the router.
+the router. A move through the router is committed whole -- both ends and
+`input.focus.current` -- before either handler runs, so a handler may move the
+focus again, to trap it or pass it on, and the last call each element gets is
+the state it ends in. A handler that throws does not stop the other end being
+told; the error is rethrown once both have been.
 
 **Each colour theme carries two palettes.** The basic sixteen first, then a richer
 set inside `@media (min-color-level: 2)`, written per scheme. So a 16-colour
