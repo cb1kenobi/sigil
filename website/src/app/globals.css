@@ -379,3 +379,35 @@
 .prose-sigil tr:last-child td {
   border-bottom: 0;
 }
+
+/*
+ * A command reference table's names and types (`remarkReferenceTables()`):
+ * the argument, option or command in the mono face and its type in
+ * `syn-keyword`, without the inline-code chip, which on every row is a column
+ * of boxes. A name is never broken across lines: the wrapper scrolls instead.
+ */
+.prose-sigil td.ref-name,
+.prose-sigil td.ref-type {
+  white-space: nowrap;
+}
+
+.prose-sigil td.ref-name code,
+.prose-sigil td.ref-type code {
+  background: none;
+  border: 0;
+  font-size: 13px;
+  padding: 0;
+}
+
+.prose-sigil td.ref-name code {
+  color: var(--color-fg-strong);
+}
+
+/* a command's name is a link to its page, and reads as one */
+.prose-sigil td.ref-name a code {
+  color: inherit;
+}
+
+.prose-sigil td.ref-type code {
+  color: var(--color-syn-keyword);
+}

@@ -6,9 +6,12 @@ export interface TerminalBlockProps {
   readonly rows: readonly Row[];
   /** What Copy puts on the clipboard. Defaults to the commands in `rows`. */
   readonly copy?: string;
-  /** The working directory, on the left of the title bar. */
+  /**
+   * The working directory, on the left of the title bar. `''` leaves the left
+   * of the bar empty, for a block that ran nowhere in particular.
+   */
   readonly cwd?: string;
-  /** What a screen reader calls it. Defaults to `Terminal, <cwd>`. */
+  /** What a screen reader calls it. Defaults to `Terminal, <cwd>`, or `Terminal` with none. */
   readonly label?: string;
   /** The fence's language, for `command_copied`. */
   readonly language?: string;
@@ -61,7 +64,7 @@ export function TerminalBlock({
 
   return (
     <figure
-      aria-label={label ?? `Terminal, ${cwd}`}
+      aria-label={label ?? (cwd ? `Terminal, ${cwd}` : 'Terminal')}
       className="mt-4 overflow-hidden rounded-panel border border-line-panel bg-terminal"
       data-copy-block=""
     >

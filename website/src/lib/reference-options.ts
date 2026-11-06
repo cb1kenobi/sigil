@@ -61,7 +61,7 @@ function isOptionTable(table: Table): boolean {
 }
 
 /** The tables of a tree, wherever they sit. */
-function tables(node: Root | RootContent, found: Table[] = []): Table[] {
+export function tables(node: Root | RootContent, found: Table[] = []): Table[] {
   if (node.type === 'table') {
     found.push(node);
   } else if ('children' in node) {

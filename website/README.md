@@ -21,6 +21,15 @@ tree is one a reviewer can read in the diff, and a drift test is what keeps it
 honest -- where generating at build time would make this build depend on
 importing the toolchain's own app.
 
+How a page is drawn is the site's business rather than the generator's, so the
+committed markdown stays what GitHub shows. `src/lib/reference-blocks.ts` makes
+the untagged fence under `## Usage` a terminal block with no working directory
+in its title bar (an `sh` fence with `cwd=""`, which a guide can write too), and
+marks the name and `Type` columns of the argument, option and command tables,
+which `globals.css` sets in the mono face and in `syn-keyword`. The index's
+introduction and its install box are in `src/components/reference-page.tsx`,
+since the generator documents commands and has no place for them.
+
 ## The docs layout
 
 `/docs/[slug]` renders the guides in `packages/sigil/docs/` in place (they are

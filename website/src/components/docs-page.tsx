@@ -6,7 +6,7 @@ import type { Heading } from '@/lib/markdown-doc';
 import type { PagerLink } from '@/lib/nav';
 import { REPO_NEW_ISSUE_URL, repoFileUrl } from '@/lib/site';
 import Link from 'next/link';
-import type { ComponentProps } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 
 /**
  * A card at the foot of a page: the page before or after it, in its section.
@@ -63,6 +63,8 @@ function PagerCard({
  * @param props.title - The page's `h1`. Not read from the markdown: a reference
  *   page's title is its front matter's, and a guide's is the same text.
  * @param props.mono - Set the title in the mono face, for a command.
+ * @param props.intro - What goes between the title and the markdown, for a page
+ *   that says more than its source does: the command reference's index.
  * @param props.source - The markdown. Its own `h1` is not drawn twice.
  * @param props.link - Where a relative link in the markdown goes on this site.
  * @param props.plugins - What `DocsMarkdown` adds for this kind of page.
@@ -71,6 +73,7 @@ function PagerCard({
 export function DocsPage({
   crumbs,
   headings,
+  intro,
   link,
   mono = false,
   pager,
@@ -81,6 +84,7 @@ export function DocsPage({
 }: {
   crumbs: readonly Crumb[];
   headings: readonly Heading[];
+  intro?: ReactNode;
   link: (href: string | undefined) => string | undefined;
   mono?: boolean;
   pager: { previous?: PagerLink; next?: PagerLink };
@@ -101,6 +105,8 @@ export function DocsPage({
         >
           {title}
         </h1>
+
+        {intro}
 
         <DocsMarkdown link={link} plugins={plugins} source={source} />
 

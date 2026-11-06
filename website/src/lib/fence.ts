@@ -46,7 +46,7 @@ export type Fence =
       readonly title?: string;
     }
   | {
-      /** The working directory the title bar shows. */
+      /** The working directory the title bar shows; `''` for none. */
       readonly cwd?: string;
       readonly kind: 'console' | 'shell';
       readonly text: string;
@@ -80,6 +80,8 @@ const PATH = /^\/\/ ([\w./-]+\.[\w]+)\n/u;
  *
  * ```` ```ts title="cli.ts" ```` names a file the body does not, and
  * ```` ```console cwd=~/my-cli ```` the directory a transcript ran in.
+ * ```` ```sh cwd="" ```` is a terminal with no directory in its title bar, for
+ * a block that ran nowhere in particular: a command reference's usage line.
  *
  * @param meta - What follows the language on the fence line.
  * @returns The pairs.
@@ -112,7 +114,7 @@ export function readFence(lang: string | undefined, meta: string | undefined, bo
 
   if (name !== undefined && (CONSOLE.has(name) || SHELL.has(name))) {
     return {
-      ...(pairs.cwd ? { cwd: pairs.cwd } : {}),
+      ...(pairs.cwd !== undefined ? { cwd: pairs.cwd } : {}),
       kind: CONSOLE.has(name) ? 'console' : 'shell',
       text: body,
     };
