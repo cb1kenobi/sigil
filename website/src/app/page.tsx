@@ -8,7 +8,7 @@ export const metadata = pageMetadata({ path: '/', description: TAGLINE });
 /** A placeholder: the home page is SIG-261. */
 export default function Home() {
   return (
-    <main className="layout-page flex flex-1 flex-col items-start justify-center gap-6 py-24">
+    <div className="layout-page flex flex-1 flex-col items-start justify-center gap-6 py-24">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: jsonLd(softwareSourceCode()) }}
@@ -24,6 +24,6 @@ export default function Home() {
       <div className="w-full max-w-2xl">
         <InstallCommand package="cli" variant="title-bar" location="review" />
       </div>
-    </main>
+    </div>
   );
 }
