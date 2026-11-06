@@ -256,7 +256,7 @@ the entry it belongs to.
     and a control's class agrees with them for as long as its handler returns.
     Telling it again on the next move was the alternative and is refused, because
     the framework cannot know whether the handler drew before or after it threw,
-    and a guess is wrong for one of the two.
+    and a guess is wrong for one of the two. Chris's decision.
   - **A drain gives up after a hundred calls** with `Focus did not settle`, for
     two handlers that each move the focus to the other -- inline, that overflowed
     the stack; a queue would spin for ever. `MAX_PASSES` in `src/signals/effect.ts`
