@@ -78,9 +78,20 @@ mark-callback refusals); the permission not spent (one, the write to the element
 being written); the supersede check removed (two, the mark callback moving the
 focus during either write); the inner move taking `current` rather than the open
 move's target (one, during the gaining write); the announcement after the mark
-rather than in a `finally` (two); a move that stops at its first throw (one). The
+rather than in a `finally` (two); a move that stops at its first throw (two, both
+refusals -- the first count said one, and review round 4 corrected it). The
 bounce test now runs forty-nine round trips, which settle at 99 and 98 tells, and
 fifty, which give up: a bound of 2, 21, 98 or 101 fails it and 99 passes, so it
 pins the bound at a hundred to within one. The sixty-control chain pins that the
 bound is counted per element -- a total bound fails it -- and cannot pin the size,
 since a one-way chain never tells anything a third time.
+
+## Round 4
+
+Nothing serious. One error was lost: outside a move, the handler was told from a
+`finally` around the mark, so when the tree's mark callback and the handler both
+threw, the handler's error replaced the mark's. `setState()` now catches the
+mark's error, announces, and throws both as one `AggregateError` -- flattened the
+way a move already reports a mark error beside its handlers' -- or either alone.
+`should keep both errors when the mark callback and the focus handler throw outside
+a move` fails with the `finally` put back.

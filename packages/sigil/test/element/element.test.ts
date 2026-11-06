@@ -255,6 +255,33 @@ describe('mutation marks', () => {
     expect(heard).toEqual(['b true', 'a false']);
   });
 
+  it('should keep both errors when the mark callback and the focus handler throw outside a move', () => {
+    // the handler is told from a `finally` around the mark, and a `finally` that
+    // throws replaces what the `try` was carrying -- so the mark's error was lost
+    const root = box();
+    const a = box();
+    root.append(a);
+    createTree(root, () => {
+      throw new Error('mark');
+    });
+    a.onFocusChange = () => {
+      throw new Error('handler');
+    };
+
+    let caught: unknown;
+    try {
+      a.setState('focus');
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(AggregateError);
+    expect((caught as AggregateError).errors.map((error: Error) => error.message)).toEqual([
+      'mark',
+      'handler',
+    ]);
+    expect(a.states).toContain('focus');
+  });
+
   it('should record nothing at all for a subtree not in a tree yet', () => {
     // a page being built before it is attached has nothing on screen to
     // invalidate, and marking every `append()` would hand the first frame a set

@@ -670,16 +670,34 @@ export class Element implements LayoutNode {
     } else {
       this.#states.delete(state);
     }
+    if (state !== 'focus') {
+      this.#mark('classes');
+      return this;
+    }
+    // told now, or once the router's move has committed both ends of it --
+    // `focus.ts` has why a handler is never told in between. Told even when the
+    // mark throws, because the mark runs the tree's callback and the state is
+    // committed whether or not that does; and both errors kept when both throw,
+    // which a `finally` would not do -- a throw from one replaces the other's
+    const errors: unknown[] = [];
     try {
       this.#mark('classes');
-    } finally {
-      if (state === 'focus') {
-        // told now, or once the router's move has committed both ends of it --
-        // `focus.ts` has why a handler is never told in between. In a `finally`,
-        // because the mark runs the tree's callback and the state is committed
-        // whether or not that throws
-        announceFocus(this);
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      announceFocus(this);
+    } catch (error) {
+      if (errors.length === 0) {
+        throw error;
       }
+      errors.push(...(error instanceof AggregateError ? error.errors : [error]));
+    }
+    if (errors.length === 1) {
+      throw errors[0];
+    }
+    if (errors.length > 1) {
+      throw new AggregateError(errors, 'Errors in onFocusChange');
     }
     return this;
   }
