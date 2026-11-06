@@ -1,3 +1,5 @@
+import { SiteFooter } from '@/components/site-footer';
+import { SiteHeader } from '@/components/site-header';
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import './globals.css';
@@ -97,7 +99,20 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
       lang="en"
       className={`${barlow.variable} ${instrument.variable} ${jetbrains.variable} ${jetbrainsTerminal.variable} ${martian.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col">{children}</body>
+      <body className="flex min-h-full flex-col">
+        {/* First in the tab order. Hidden until focused, then drawn over the header. */}
+        <a
+          href="#main"
+          className="sr-only rounded-control bg-surface-2 px-4 py-2 text-small font-medium text-fg focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50"
+        >
+          Skip to content
+        </a>
+        <SiteHeader />
+        <main id="main" className="flex flex-1 flex-col">
+          {children}
+        </main>
+        <SiteFooter />
+      </body>
     </html>
   );
 }
