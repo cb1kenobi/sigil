@@ -25,6 +25,10 @@
  * characters -- which is this repository's own rule about what ships: a raw
  * escape sequence in a committed file is a sequence waiting for something to
  * print it.
+ *
+ * Prose is the one that needs more: a description is **text**, because help
+ * prints it as it stands, and `text()` is what keeps it text once a markdown
+ * renderer has it -- a `<platform>` is not an HTML tag.
  */
 
 import { formatValue, listedSpellings } from '@ttylabs/sigil/help';
@@ -57,6 +61,141 @@ const JOIN = '-';
  */
 const CONTROL = /\p{Cc}/gu;
 
+/**
+ * What can open inline markup, or be read as an escape, in a line of prose.
+ *
+ * `<` opens an HTML tag or an autolink and `&` an entity, which are the two the
+ * ticket was filed for: `A <platform>-<arch> to build for` lost both words on
+ * the website, because a renderer drops a tag it does not allow. `\` is in the
+ * set because it is what the others are escaped with -- a description holding
+ * `C:\*.js` would otherwise have its backslash consume the next character. `*`,
+ * `_`, `~` and a backtick open emphasis, strikethrough and a code span, and `[`
+ * a link or a reference. `>` opens nothing in the middle of a line and is
+ * escaped anyway, so that an escaped `<x>` is escaped at both ends rather than
+ * reading as half of a decision.
+ *
+ * Deliberately **not** in it: `|`, which is `table()`'s because only it knows a
+ * cell sits between columns, and the characters that open a *block* -- `#`,
+ * `-`, `+`, `=`, a digit and a dot -- which mean something only at the start of
+ * a line and are `paragraph()`'s. And a bare URL, which `literal()` writes: an
+ * escape inside one is kept in the link and its label.
+ */
+const INLINE = /[\\`*_~[<>&]/gu;
+
+/**
+ * A run that looks like one of GFM's autolink literals: `http://`, `https://`,
+ * `ftp://` or `www.` and whatever follows up to a space or an angle bracket.
+ *
+ * An approximation, on purpose -- see `literal()`, which is why being wrong about
+ * what GFM would really link costs nothing. In one direction only: a run this
+ * finds and GFM would not link is written as typed or bracketed, both of which
+ * read right, while a run GFM links and this misses is escaped as prose and the
+ * backslashes land in the link. So it errs wide. It is preceded by anything but
+ * a letter or a digit, which takes in the `_`, `*`, `~` and `(` GFM lets a
+ * literal follow -- `\w` held the underscore, so `_https://x.com/a_` was left to
+ * prose and linked to `https://x.com/a\`.
+ */
+const LITERAL = /(?<![\p{L}\p{N}])(?:(?:https?|ftp):\/\/|www\.)[^\s<>]+/giu;
+
+/**
+ * Characters GFM does not count as the end of an autolink literal: it takes them
+ * off the back and they are prose.
+ */
+const TRAILING = /[?!.,:;*_~'"]/u;
+
+/**
+ * Whether one character is one `text()` escapes: `INLINE` itself, without the
+ * `g` flag that would make `test()` remember where it stopped.
+ */
+const ESCAPED = new RegExp(INLINE.source, 'u');
+
+/**
+ * A URL-shaped run, written so that it renders as it was typed.
+ *
+ * GFM recognises an autolink literal in the *text*, so an escape inside one is
+ * kept in the link and in its label: `https://example.com/a_b?x=1&y=2` written
+ * `a\_b?x=1\&y=2` is a link to a URL with the backslashes in it. Leaving the run
+ * alone fixes that until it holds something markup can start with -- a
+ * `http://_x_` is emphasis -- and `LITERAL` guessing what GFM links is then a
+ * second parser to keep in step with the first. So the run is written so that
+ * its being right does not matter:
+ *
+ * - **Nothing in it to escape, and no escape straight after it**, which is
+ *   nearly every URL: as typed, and GFM links it exactly as it did before
+ *   anything was escaped. The second half matters because GFM takes a
+ *   backslash right after a literal into the link: a trimmed `*` written `\*`,
+ *   or the `\>` closing `<https://…>`, would leave the link ending in `\`.
+ * - **A scheme with something to escape**: a CommonMark autolink,
+ *   `<https://e.com/a*b*>`. Its content is taken verbatim -- no escape, no
+ *   emphasis -- and is both the destination and the label, in every renderer.
+ *   It links a run GFM would not have (`http://_x_`), which is harmless.
+ * - **`www.` with something to escape**: `www\.` and the rest escaped. An
+ *   autolink cannot be written, because `<www.x>` is not one and
+ *   `<http://www.x>` labels the link with the scheme; and the escaped dot is
+ *   what stops the parser's own literal matching, so the text is as typed
+ *   whether or not the renderer then links it (`remark-gfm` does, with a clean
+ *   label; GitHub does not).
+ *
+ * A bar counts as something to escape, for the reason in the body; a scheme run
+ * holding one takes the `www.` form, with the colon escaped in place of the dot.
+ *
+ * The end is trimmed the way GFM trims it -- trailing punctuation, and a `)`
+ * with no `(` to close -- and what is trimmed is prose, escaped like the rest.
+ *
+ * @param run - What `LITERAL` found.
+ * @param escape - The prose escape.
+ * @param next - The character after the run in the line, if there is one.
+ * @returns The markdown.
+ */
+function literal(run: string, escape: (prose: string) => string, next: string | undefined): string {
+  const www = run.toLowerCase().startsWith('www.');
+  const prefix = www ? 4 : run.indexOf('://') + 3;
+  let end = run.length;
+
+  for (;;) {
+    const last = run[end - 1] as string;
+    const kept = run.slice(0, end);
+
+    if (TRAILING.test(last)) {
+      end -= 1;
+    } else if (last === ')' && kept.split(')').length > kept.split('(').length) {
+      end -= 1;
+    } else {
+      break;
+    }
+  }
+
+  if (end <= prefix) {
+    return escape(run);
+  }
+
+  const url = run.slice(0, end);
+  const tail = escape(run.slice(end));
+  const escaped = escape(url);
+
+  // a bar is not markup, but it is a column separator in a table cell, where
+  // `table()` writes it `\|` -- and `remark-gfm` keeps that backslash inside an
+  // autolink, bare or bracketed, where GitHub drops it. So it counts as
+  // something to escape, and takes the form that reads right in both
+  const bar = url.includes('|');
+
+  // as typed only when no escape comes straight after it either: GFM ends the
+  // literal at a backslash's character rather than before the backslash, so a
+  // trimmed `*` written `\*`, or the `\<` of `<https://…>`, puts a `\` at the
+  // end of the link. The bracketed form ends where it says it does
+  const clean = tail === run.slice(end) && (next === undefined || !ESCAPED.test(next));
+
+  if (escaped === url && !bar && clean) {
+    return url + tail;
+  }
+  if (www) {
+    return `${url.slice(0, 3)}\\.${escaped.slice(4)}${tail}`;
+  }
+  // the colon escaped, which stops the parser's own matching exactly as the dot
+  // does for `www.`; the text is as typed and it is not a link on GitHub
+  return (bar ? escaped.replace(':', '\\:') : `<${url}>`) + tail;
+}
+
 /** One page a reference comes to. */
 export interface ReferencePage {
   /** Its content, front matter included, ending in exactly one newline. */
@@ -65,6 +204,37 @@ export interface ReferencePage {
   readonly file: string;
   /** The argv path it documents, which is what the front matter carries. */
   readonly path: readonly string[];
+}
+
+/**
+ * A string a declaration owns, as markdown that renders it as that string.
+ *
+ * A backslash before ASCII punctuation is CommonMark's own escape and every
+ * renderer this reference is read by honours it -- GitHub, the website's
+ * `react-markdown` and the markdown a pipe gets -- where an entity (`&lt;`)
+ * would be a second mechanism, one that has to be unescaped again by anything
+ * reading the page as text, and one that `paragraph()` has already chosen not
+ * to use for the block openers. Descriptions are plain text: help prints them
+ * as they stand and nothing in the docs says they are markdown, so a `*.js` in
+ * one is a glob and not the start of emphasis. A code span is not text and does
+ * not come through here -- an escape inside one is shown, so `code()` has its
+ * own rule.
+ *
+ * @param flat - One line, already through `descriptionLine()`.
+ * @returns It, with nothing in it a renderer can read as markup.
+ */
+function text(flat: string): string {
+  const escape = (prose: string): string => prose.replaceAll(INLINE, '\\$&');
+  let out = '';
+  let from = 0;
+
+  for (const match of flat.matchAll(LITERAL)) {
+    const after = match.index + match[0].length;
+    out += escape(flat.slice(from, match.index)) + literal(match[0], escape, flat[after]);
+    from = after;
+  }
+
+  return out + escape(flat.slice(from));
 }
 
 /**
@@ -82,25 +252,25 @@ export interface ReferencePage {
  * backslash -- so for `1. ` and `1) ` it is the **punctuation** that is escaped
  * rather than the digit, which is what makes the list marker not one.
  *
- * @param text - What the declaration said, or nothing.
+ * @param raw - What the declaration said, or nothing.
  * @returns The one-line form, safe at the start of a line.
  */
-function paragraph(text: string | undefined): string {
-  const flat = descriptionLine(text ?? '');
+function paragraph(raw: string | undefined): string {
+  const flat = text(descriptionLine(raw ?? ''));
 
-  // a thematic break, a setext underline, a heading, a quote, a bullet, a code
-  // fence, an HTML block and the two ordered-list markers.
-  //
-  // `<` is in the set and was not, which is the worst of the openers rather than
-  // one more of them: CommonMark's type 1 and type 2 HTML blocks -- `<pre`,
-  // `<script`, `<style`, `<textarea` and `<!--` -- do **not** end at a blank
-  // line, so a description beginning with one swallowed every later line of the
-  // page. Measured: `desc: '<pre>keep this'` made `## Usage` literal text and
-  // put the usage fence and the examples inside one raw HTML run. A
-  // backslash-escaped `<` opens nothing. Found by review, and the comment this
-  // replaces called the set "the whole of what opens a block", which is the
-  // claim that let it ship
-  return flat.replace(/^(?:([-=_#>+*~`|[<])|(\d{1,9})([.)]))/u, (all, mark, digits, dot) =>
+  // what `text()` has not already escaped, which is the openers made of
+  // characters that are plain text anywhere but the start of a line: a
+  // thematic break or a bullet (`-`, `+`), a setext underline (`=`), a heading
+  // (`#`), a table row (`|`) and the two ordered-list markers. The rest of the
+  // set a block can open with -- a quote, a code fence, an HTML block, a
+  // thematic break made of `_` or `*` -- is inline markup as well, so it is
+  // `text()`'s, and keeping them here would be a second copy of that decision
+  // that no input could reach. The HTML block is the one worth knowing about:
+  // CommonMark's type 1 and type 2 blocks -- `<pre`, `<script`, `<style`,
+  // `<textarea` and `<!--` -- do **not** end at a blank line, so a description
+  // beginning with one swallowed every later line of the page, and it is a `<`
+  // escaped by `text()` that stops it
+  return flat.replace(/^(?:([-=#+|])|(\d{1,9})([.)]))/u, (all, mark, digits, dot) =>
     mark === undefined ? `${digits as string}\\${dot as string}` : `\\${all as string}`
   );
 }
@@ -108,18 +278,18 @@ function paragraph(text: string | undefined): string {
 /**
  * One table cell's text.
  *
- * `descriptionLine()` and nothing else: the bar escaping belongs to `table()`, which is
+ * `descriptionLine()` and `text()`: the bar escaping belongs to `table()`, which is
  * the one function that knows a cell sits between columns. It was here, and that
  * put it in the wrong place twice over -- a code span built for a *heading* went
  * through `code()`, which escaped a bar that is an ordinary character there, so
  * a program name holding one rendered a visible backslash. One reader of "a bar
  * is a column separator", in the function about columns.
  *
- * @param text - What the declaration said.
+ * @param raw - What the declaration said.
  * @returns The cell.
  */
-function cell(text: string | undefined): string {
-  return descriptionLine(text ?? '');
+function cell(raw: string | undefined): string {
+  return text(descriptionLine(raw ?? ''));
 }
 
 /**

@@ -3862,6 +3862,116 @@ Which is also why there is no `Values` column. The placeholder already carries
 the choices, so a column for them would be the same fact twice -- and in every
 table that has none it would be an empty column.
 
+#### A description is text, and `text()` is what keeps it text
+
+`sigil package --target` is described as "A <platform>-<arch> to build for", and
+the committed page carried that raw. A markdown renderer reads `<platform>` as an
+HTML tag it does not know and drops it, so the website said "A -<arch> to build
+for" and Pagefind indexed the same sentence with the word gone. The page was
+accurate to the bytes and wrong to every reader, which is why the test for it
+parses the page and compares **text**, not bytes: a string comparison passes any
+escape at all, including one that shows a backslash.
+
+The parser is `unified` with `remark-parse` and `remark-gfm`, the pair the
+website's `react-markdown` runs, and `mdast-util-to-string` reads the text back;
+all five, with `@types/mdast`, are **exact-pinned devDependencies of this
+package**, at the website's versions and the one version of `mdast-util-to-string`
+remark already locks, so the lockfile only links.
+Importing `parseMarkdown()` and `textOf()` from `website/src/lib/markdown-doc.ts`
+was tried first and does not work: `sigil build` type-checks with this package's
+`tsconfig.json`, whose `include` has `./test`, so a test importing a file in
+`website/` fails the **build** on `rootDir` (TS6059) and then on that file's own
+compiler options. `textOf()` in the test is one line over `toString()` with
+`includeHtml: false`, which is what a renderer does with a tag it does not allow
+and so the thing a `<word>` lost.
+
+The audit was every place the printer interpolates a string a declaration owns,
+and it came to two kinds. A **code span** (`code()`: headings, option and
+argument spellings, types, aliases, link text, the default-command sentence) and
+a **fence** (`fenced()`: the usage line and example text) are already safe, and
+**must not** be escaped: an escape inside one is shown, so `&lt;` there would be
+the literal characters. A bar in a code span in a cell is `table()`'s, above.
+**Prose** is the other kind and there are four sites: a table cell
+(`cell()`: an argument's, an option's with its default and "may be repeated"
+notes, a subcommand's description) and a paragraph (`paragraph()`: a command's
+description and an example's label). Both now run `text()`. The front matter is
+JSON data and takes nothing.
+
+**Escaped with a backslash, not an entity.** `paragraph()` already escaped block
+openers with one, a backslash before ASCII punctuation is CommonMark's own and
+GitHub, `react-markdown` and a pipe all honour it, and an entity is a second
+mechanism that anything reading the page as text has to undo. The set is
+``\ ` * _ ~ [ < > &``: `<` and `&` are the tag and the entity, `\` is what the
+rest are escaped with (a description holding `C:\*.js` would otherwise have its
+backslash eat the `*`), and `*`, `_`, `~`, a backtick and `[` are emphasis,
+strikethrough, a code span and a link. `>` opens nothing mid-line and is in it
+for symmetry, so `<x>` is escaped at both ends; the price is a computed default's
+source reading `() =\> {`, which renders right and is the one place it shows.
+
+**Descriptions are plain text, which is why this does not stop at the HTML.**
+Help prints a `desc` as it stands and nothing in the docs says it is markdown, so
+a `*.js` in one is a glob, and escaping the emphasis it would otherwise open is
+not over-escaping prose that meant to be markup. Had a description ever been
+documented as markdown this entry would be the wrong one, and the thing to change
+is `text()` alone: it is the only place the decision is made.
+
+**Deliberately not escaped.** `|` is `table()`'s, because only it knows a cell
+sits between columns. The characters that open a _block_ (`#`, `-`, `+`, `=`, a
+digit and a dot, `|`) mean something only at the start of a line and stay
+`paragraph()`'s; the openers made of inline-markup characters (`>`, a fence, `<`,
+`_` and `*` rules) used to be in its set and are `text()`'s now, so the regex
+there lists only what `text()` leaves.
+
+**A bare URL is written so that its being recognised does not matter.** GFM's
+autolink-literal extension keeps an escape inside a URL in the link and its
+label: `https://example.com/a_b?x=1&y=2` came out as a link to `a\_b?x=1\&y=2`
+(measured in `remark-gfm` and on GitHub), where it was a correct link before
+anything was escaped. The first fix left URL-shaped runs unescaped, and that
+was a second parser approximating GFM's: `http://_x_` and `www._x_` have no
+valid domain, so were not linked and were emphasis, and `https://e.com/a*b*`
+stopped at the `*` and escaped the rest inside a link. `literal()` is the
+replacement, and `LITERAL` only has to find roughly the right run. The run is
+trimmed as GFM trims it (trailing `?!.,:;*_~'"` and an unbalanced `)`, which are
+prose and escaped), then: nothing in it to escape is left as typed; a scheme
+run with something to escape is a CommonMark autolink, `<https://e.com/a*b>`,
+whose content is verbatim and is the destination and the label in every
+renderer; a `www.` run with something to escape is escaped with the dot
+escaped too, since `<www.x>` is not an autolink and `<http://www.x>` labels the
+link with the scheme -- the escaped dot stops the parser's own literal matching,
+so the text is as typed whether or not the renderer then links it (`remark-gfm`
+does, with a clean label; GitHub does not). A **bar** counts as something to
+escape: `table()` writes it `\|` and `remark-gfm` keeps that backslash inside an
+autolink, bare or bracketed (GitHub drops it), so a scheme run holding one takes
+the `www.` form with the colon escaped (`https\://e.com/p\|q`), which reads clean in
+both, and is not a link on GitHub. An email address needs no
+carve-out: its `_` is escaped and both read it back as the same link. `:emoji:`
+is the same shape and is left. The first version of this entry said a bare URL
+"leaves the words intact", which was the claim that shipped the defect.
+
+"Left as typed" needs **nothing escaped straight after it** as well, which a
+review of the PR found. GFM takes a backslash that follows a literal into the
+link, so a trimmed trailing `*` written `\*` (`https://example.com/*`) and the
+`\>` closing `<https://example.com/docs>` each left a link ending in `\`. Either
+one now takes the bracketed form, which ends where it says it does. And
+`LITERAL` errs **wide**, which is the direction that costs nothing: a run it
+finds that GFM would not link is written as typed or bracketed and reads right
+either way, while a run GFM links that it misses is escaped as prose and the
+backslash lands in the link. Its lookbehind was `\w`, which holds the
+underscore GFM lets a literal follow, so `_https://x.com/a_` linked to
+`https://x.com/a\`; it is "not a letter or a digit" now.
+
+Every character of the set has a test that fails without it, by removing each in
+turn: the round trip catches `\`, a backtick, `*`, `_`, `~`, `[` and `&`, and
+`<` and `>` are each caught by the block-opener and default tests -- they are
+redundant _as a pair_ in the round trip, since a `<b>` with either end escaped
+is not a tag.
+
+**One known limit, in a code span.** A code span cannot hold a backslash
+directly followed by a bar inside a table cell: `\|` is GFM's only way to write a
+bar there, and `\\|` splits the cell in remark (measured), so the span reads
+`a\\|b` for `a\|b`. Nothing here names such a thing, nothing in GFM can write it,
+and it is recorded rather than worked around.
+
 #### Nothing is ever deleted, which is the one place this parts from `--out`
 
 A build owns its output directory: it created it, and `clean()` empties it. A

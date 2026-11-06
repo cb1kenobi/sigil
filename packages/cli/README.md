@@ -144,7 +144,9 @@ arguments, options, aliases, examples and the subcommand list, with YAML front
 matter a docs site can route on. It says everything `--help` says about a
 declaration and in the same words -- a default, that an option may be repeated,
 which command a bare invocation runs -- because the one artifact that is for
-reading should not say less than the screen. The **JSON** is for diffing. A CLI's command
+reading should not say less than the screen. A description is printed as the text
+it is, so a `<platform>` or a `*.js` in one reaches the page as those words rather
+than as a tag or as emphasis. The **JSON** is for diffing. A CLI's command
 surface is its public API, and nothing in a build notices when it moves — so a
 pull request that renames a flag breaks everybody's scripts and reads as a
 one-line change. Commit the snapshot, put `sigil reference --json --check` in
