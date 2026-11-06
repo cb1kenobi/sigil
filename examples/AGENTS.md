@@ -58,7 +58,8 @@ the `ui` tag run by plain `node`.
   load -- the first version imported `ITEMS` from `root.tsx` and failed exactly
   that way. `src/common.ts` holds the data and the stylesheet. `src/ui.ts`
   spells the schema out a second time for the same reason: `src/index.ts`
-  imports `root.tsx`.
+  imports `root.tsx`. The twins are the same elements, signals and handlers in
+  the same order, not the same lines, and neither file says otherwise.
 
 - **The JSX build is `sigil build`, per example.** It dogfoods the toolchain on
   the shape of app the toolchain is for, and it type-checks: an example that
@@ -83,7 +84,20 @@ the `ui` tag run by plain `node`.
   that file -- `packages/cli/turbo.json`'s case exactly. Such an example needs a
   `turbo.json` of its own repeating the root inputs plus `test/**`, and
   `should hash everything an example's type check reads into its build` fails
-  until it has one. `hello` includes `src` alone and has no `test/`.
+  until it has one, and `should let no package override drop a root build
+  input` asks every example build as well as the published ones. `hello` is
+  that case: it includes `src` and `test`, as an app `sigil new` scaffolds
+  does, so `examples/hello/turbo.json` exists and a test edit rebuilds it.
+
+- **`--version` answers the same from both entries, and only the unbuilt one
+  says it.** `sigil build` bakes the manifest's version into the bin and
+  replaces whatever the schema said (`generateBin()`), so `src/index.ts`
+  declares none; `src/ui.ts` has no build to do that, so it reads
+  `../package.json` itself, as a function the way the toolchain's own
+  `version()` does. Without it, `node src/ui.ts --version` was an undeclared
+  option and opened the app while the bin printed `0.0.0`. `should print the
+  package version for --version` spawns every entry and compares with the
+  manifest.
 
 - **Every example with a build joins `pnpm test`'s build filter by name.** The
   smoke test spawns the built `bin`, so a build the filter skipped is a bundle of
@@ -101,7 +115,12 @@ the `ui` tag run by plain `node`.
   right for, and the check would fail after every `git checkout` and back. A
   stale bundle is prevented where it is made instead: `pnpm test` builds first,
   the filter test keeps every example in that build, and `src/**` is in the
-  hash.
+  hash. `pnpm --filter @ttylabs/cli test` builds nothing, so a missing bundle
+  fails naming the two commands that make it, root `pnpm build` or
+  `pnpm --filter @ttylabs/example-<name> build` -- `pnpm build` from
+  `packages/cli` is the toolchain's build and leaves the bundle missing. That
+  package's script was not given a build of its own: it runs inside root
+  `pnpm test` too, after the build the root filter already did.
 
 - **The smoke test runs in-process for behaviour and spawned for the entries.**
   `runOnTerminal()` fakes `isTTY` on a child's output but never writes to its
@@ -147,21 +166,34 @@ the `ui` tag run by plain `node`.
 - **The harness and the guide wait on timers for frames, which is SIG-309.** A
   frame is drawn on the renderer's clock rather than once per key, and nothing
   yet says when the next has landed, so the harness polls the screen until it
-  stops changing and the guide's testing snippet waits 50ms. Both comments name
-  SIG-309, which is the call that would replace them.
+  stops changing and the example's own test waits 50ms. Both comments name
+  SIG-309, which is the call that would replace them. "Stops changing" is two
+  frame periods by the clock (`QUIET_MS`), never a count of polls: the first
+  version counted three equal reads 10ms apart, which returned in about 30ms,
+  inside one 33ms frame, under a comment saying it had waited one out.
+  `settled()` has a test of its own that lands a change just after a frame
+  period and fails on the count.
 
 - **The guide quotes the example rather than being replayed.**
   `packages/sigil/docs/full-screen-apps.md` sits beside `getting-started.md`,
   where an app author finds guides and where the package README links them. It
   cannot be replayed the way that one is -- its app is JSX, which Node will not
   run from source, and its transcripts open a screen that waits for keys -- so
-  every `ts` or `tsx` block headed `// src/<path>` has to appear in
-  `examples/hello/<path>` line for line, which `guides.test.ts` asserts. Line for
-  line rather than byte for byte because oxfmt re-indents a fragment inside a
-  fence. The example's own tests are what make the quoted code code that runs.
-  Its testing snippet waits a frame before the first key, measured: the first
-  row takes the focus in `onMount`, after the first frame, so keys pressed before
-  it reach no row, and the screen lags a key by one frame tick.
+  every code block is headed `// <path>` and has to appear in
+  `examples/hello/<path>`, which `guides.test.ts` asserts: `ts` and `tsx` line
+  for line, because oxfmt re-indents a fragment inside a fence, and `json` by
+  value, every key the block sets being set the same in the file. An unheaded
+  block fails, because the guide says every file it shows is an excerpt; only
+  `console` is exempt. `json` rather than `jsonc` because oxfmt gives a `jsonc`
+  fence trailing commas `JSON.parse()` refuses. The testing snippet used to be
+  a loose fragment nothing ran, so it is `examples/hello/test/hello.test.ts`
+  now, quoted whole, and the suite runs it as the example's own project. The
+  example's tests are what make the quoted code code that runs. That test waits
+  a frame before the first key, measured: the first row takes the focus in
+  `onMount`, after the first frame, so keys pressed before it reach no row, and
+  the screen lags a key by one frame tick. Thirty copies run ten at a time did
+  not flake: a frame a key scheduled falls due before the 50ms timer set after
+  it, and node fires timers in that order however late.
 
 - **`'!examples/*.md'` in the root vitest `projects`.** A projects glob that
   matches a file reads it as a config file, and vitest refuses
@@ -187,6 +219,14 @@ the `ui` tag run by plain `node`.
   prints a stack; an entry that writes to stdout before refusing; an entry that
   exits `1` with some other error line; the twins disagreeing by one letter; and
   a `src/start.ts` left behind. Each fails the suite.
+
+- **Sabotage, after review round 1: ten, none survived.** `settled()` put back
+  to counting polls, and its window cut to half a frame; `src/ui.ts` without its
+  version, and with one that disagrees with the manifest; the guide's test
+  pressing a different key, its `tsconfig` naming `react`, and either block
+  losing its heading; the example's `turbo.json` deleted, which the type-check
+  hash guard catches, and missing `sigil.json`, which the override guard now
+  catches for examples. A missing bundle fails with the message above.
 
 - **Not done:** the focus highlight is a background colour, so at colour level 0
   (a pipe, `NO_COLOR`) nothing on screen says which row has the focus -- what a

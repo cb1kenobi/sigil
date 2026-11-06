@@ -1,7 +1,8 @@
 /**
  * hello's root component, in the `ui` tag.
  *
- * The same component as `root.tsx`, line for line, and the smoke test asserts
+ * The same component as `root.tsx` -- the same elements, signals and handlers
+ * in the same order, though not the same lines -- and the smoke test asserts
  * that the two draw the same screen -- which is the claim behind having two
  * syntaxes at all: one IR, so neither is a second-class spelling of the other.
  * This one runs as it is, because Node strips the types and there is no JSX to

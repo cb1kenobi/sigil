@@ -806,14 +806,20 @@ describe('@ttylabs/cli', () => {
       // about -- so `packages/cli/turbo.json` has to repeat the root's list to
       // add `test/**` to it, and a root entry added later would be silently
       // missing from the package that overrode it. That is the one drift this
-      // arrangement can produce, so it is the one thing asserted about it
+      // arrangement can produce, so it is the one thing asserted about it. An
+      // example whose tests its build type-checks overrides it the same way,
+      // so every example build is asked too
       const rootConfig = JSON.parse(readFileSync(resolve(root, '../../turbo.json'), 'utf-8')) as {
         tasks: { build: { inputs: string[] } };
       };
+      const examples = dryRun()
+        .tasks.map((entry) => entry.taskId)
+        .filter((taskId) => taskId.startsWith('@ttylabs/example-') && taskId.endsWith('#build'));
 
       expect(rootConfig.tasks.build.inputs.length).toBeGreaterThan(3);
+      expect(examples.length, 'no example build to check').toBeGreaterThan(0);
 
-      for (const taskId of published) {
+      for (const taskId of [...published, ...examples]) {
         const resolved = task(taskId).resolvedTaskDefinition.inputs;
         for (const pattern of rootConfig.tasks.build.inputs) {
           expect(resolved, `${taskId} drops the root input ${pattern}`).toContain(pattern);

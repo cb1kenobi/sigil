@@ -6,5 +6,5 @@
     "jsxImportSource": "@ttylabs/sigil",
     "noEmit": true
   },
-  "include": ["src"]
+  "include": ["src", "test"]
 }

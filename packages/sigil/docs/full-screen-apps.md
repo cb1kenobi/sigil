@@ -12,10 +12,11 @@ equals:
 - **The `ui` tag**, run by plain `node`, with nothing compiled.
 
 Nothing here is invented for the page. Every file shown is an excerpt of
-[`examples/hello`](../../../examples/hello), and
-`packages/cli/test/guides.test.ts` fails if an excerpt stops matching it. The
-example itself is mounted, driven and quit by
-`packages/cli/test/examples.test.ts`, so the code below is code that runs.
+[`examples/hello`](../../../examples/hello), headed by the path it is from, and
+`packages/cli/test/guides.test.ts` fails if an excerpt stops matching it or a
+block of code appears without one. The example itself is mounted, driven and
+quit by `packages/cli/test/examples.test.ts`, and the test file shown at the
+end is the example's own, so the code below is code that runs.
 
 You need Node.js 22.19.0 or newer, and the app depends on `@ttylabs/sigil`.
 The JSX half also needs `@ttylabs/cli`, which provides `sigil build`, and
@@ -140,6 +141,7 @@ return (
 For the compiler to read that, `tsconfig.json` names sigil as the JSX source:
 
 ```json
+// tsconfig.json
 {
   "compilerOptions": {
     "jsx": "react-jsx",
@@ -211,7 +213,9 @@ you give up is the checking. A misspelt prop is refused when the template runs,
 not underlined in your editor.
 
 The unbuilt entry, `src/ui.ts`, is the same schema over this component, run by
-`main()`:
+`main()`. It also names a `version`, read from `package.json`, which the JSX
+entry has no need to: `sigil build` writes the package's version into the
+bundle, and nothing builds `src/ui.ts`.
 
 ```console
 $ node src/ui.ts
@@ -225,27 +229,38 @@ an app with a build, the tag for a script or a prototype that must run as it is.
 ## Testing it
 
 `@ttylabs/sigil/testing` has a terminal that is a screen in memory, so an app
-can be mounted, typed at, and read back with no terminal and no child process:
+can be mounted, typed at, and read back with no terminal and no child process.
+Here it is in a [vitest](https://vitest.dev) test, which needs `vitest` as a
+devDependency:
 
 ```ts
+// test/hello.test.ts
+import { App, stylesheet } from '../src/root.tsx';
 import { runApp } from '@ttylabs/sigil/app';
 import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
+import { expect, it } from 'vitest';
 
 // frames are drawn on a clock, about 30 a second, rather than once per key.
 // SIG-309 is a helper that waits for the next one; until then, a timer
 const frame = () => new Promise((resolve) => setTimeout(resolve, 50));
 
-const term = createTestTerminal({ columns: 60, rows: 16 });
-const done = runApp(App, { detect: false, sheets: [stylesheet], terminal: term.terminal }).exited;
-await frame();
+it('should count what Enter presses and quit on q', async () => {
+  const term = createTestTerminal({ columns: 60, rows: 16 });
+  const done = runApp(App, { detect: false, sheets: [stylesheet], terminal: term.terminal }).exited;
+  await frame();
 
-await term.press(KEYS.enter, KEYS.down, KEYS.enter);
-await frame();
-term.viewport.at(-2); // '│ 2 presses ...', the screen row by row
-await term.press('q');
-await done; // 0, and the terminal is back on its main screen
+  await term.press(KEYS.enter, KEYS.down, KEYS.enter);
+  await frame();
+  // the screen row by row; the last is the bottom border
+  expect(term.viewport.at(-2)).toMatch(/^│ 2 presses +│$/);
+
+  await term.press('q');
+  expect(await done).toBe(0);
+  expect(term.screen.alternate).toBe(false);
+});
 ```
 
+That is the example's whole test file, and the repository's suite runs it.
 The first `frame()` matters: the first row takes the focus once the first frame
 has drawn, so a key pressed before then has no row to go to. `detect: false`
 skips asking the terminal what it is, which a test terminal cannot answer.

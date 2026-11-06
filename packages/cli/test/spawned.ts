@@ -36,11 +36,12 @@ export interface Ran {
  *
  * @param file - The script.
  * @param cwd - Where to run it, and what a failure names it relative to.
+ * @param args - Its argv, after the script.
  * @returns Its exit code and both streams.
  */
-export function run(file: string, cwd: string): Promise<Ran> {
+export function run(file: string, cwd: string, args: readonly string[] = []): Promise<Ran> {
   return new Promise((settle, fail) => {
-    const child = spawn(process.execPath, [file], {
+    const child = spawn(process.execPath, [file, ...args], {
       cwd,
       env: { ...process.env, COLUMNS: '80' },
       stdio: ['ignore', 'pipe', 'pipe'],

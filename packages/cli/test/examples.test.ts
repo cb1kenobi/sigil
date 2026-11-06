@@ -51,6 +51,7 @@ interface Example {
     private?: boolean;
     scripts?: Record<string, string>;
     type?: string;
+    version?: string;
   };
   readonly name: string;
   /** The root modules, one per syntax. */
@@ -141,20 +142,41 @@ function within<T>(promise: Promise<T>, what: string, ms = 2000): Promise<T> {
 }
 
 /**
+ * The renderer's frame period: thirty a second, `FRAME_MS` in
+ * `packages/sigil/src/renderer/index.ts`, which does not export it.
+ */
+const FRAME_MS = 1000 / 30;
+
+/**
+ * How long the screen has to stay as it is before it counts as settled: two
+ * frame periods. A change schedules its frame at most one period out, so a
+ * screen that has gone two without moving has no frame pending, and the second
+ * period is the margin for a timer that fired late.
+ */
+const QUIET_MS = 2 * FRAME_MS;
+
+/**
  * The screen once the frame loop has gone quiet, so that two runs compare like
  * for like. A wait SIG-309 would make a call.
+ *
+ * Measured by the clock rather than by counting polls, because a count says
+ * nothing about time: three matching reads 10ms apart return inside one frame
+ * period, which is a snapshot on whichever side of the next frame it fell.
+ * Late timers cannot shorten the window either, since node fires them in the
+ * order they fall due and a frame scheduled by the last change falls due first.
  */
-async function settled(term: TestTerminal): Promise<string[]> {
-  let last = '';
-  let steady = 0;
-  // three reads 40ms apart with nothing changing: the frame loop runs at 30fps,
-  // so that is a frame period passed with no frame
+async function settled(term: Pick<TestTerminal, 'viewport'>): Promise<string[]> {
+  let last = term.viewport.join('\n');
+  let since = Date.now();
   await until(
     () => {
       const now = term.viewport.join('\n');
-      steady = now === last ? steady + 1 : 0;
-      last = now;
-      return steady >= 3;
+      if (now !== last) {
+        last = now;
+        since = Date.now();
+        return false;
+      }
+      return Date.now() - since >= QUIET_MS;
     },
     'the screen to stop changing',
     3000
@@ -192,6 +214,15 @@ async function mount(
   return { done, screen, term };
 }
 
+/**
+ * What a missing bundle says, which is the command that makes it and where to
+ * run it from. `pnpm build` alone is wrong from `packages/cli`, where it builds
+ * the toolchain and not the example.
+ */
+function missing(example: Example, bin: string): string {
+  return `${bin} is missing: run \`pnpm build\` from the repository root, or \`pnpm --filter ${example.manifest.name} build\``;
+}
+
 /** What `runApp()` refusing looks like from outside: `1`, one line on stderr, nothing else. */
 function refused({ code, stderr, stdout }: Ran): void {
   expect(`${stdout}${stderr}`, 'a stack reached the output').not.toMatch(STACK);
@@ -201,6 +232,24 @@ function refused({ code, stderr, stdout }: Ran): void {
 }
 
 const found = examples();
+
+describe('settled()', () => {
+  it('should wait out more than a frame period with nothing changing', async () => {
+    // a frame that lands a little over one period after the first read is one
+    // the wait has to see: the screen it draws is the one handed back
+    let screen = ['first'];
+    const term = {
+      get viewport() {
+        return screen;
+      },
+    };
+    setTimeout(() => (screen = ['second']), FRAME_MS + 10);
+
+    const started = Date.now();
+    expect(await settled(term)).toStrictEqual(['second']);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(FRAME_MS + 10 + QUIET_MS - 1);
+  });
+});
 
 describe('the examples', () => {
   it('should have been found', () => {
@@ -296,19 +345,30 @@ describe('the examples', () => {
       }
 
       const bin = Object.values(example.manifest.bin ?? {})[0];
-      if (bin !== undefined) {
-        const built = join(example.dir, bin);
+      const built = bin === undefined ? undefined : join(example.dir, bin);
+      // the entries a person runs, built and unbuilt
+      const entries: { file: string; label: string }[] = [];
+      if (bin !== undefined && built !== undefined) {
+        entries.push({ file: built, label: bin });
+      }
+      if (example.unbuilt !== undefined) {
+        entries.push({ file: example.unbuilt, label: basename(example.unbuilt) });
+      }
 
+      if (bin !== undefined && built !== undefined) {
         it.concurrent(`should refuse to run ${bin} piped`, async () => {
           // `pnpm test` builds every example that has a build before vitest
           // starts, and `the root build filter` fails if one is left out -- so
-          // a missing bundle here means vitest was run on its own. Whether a
+          // a missing bundle here means vitest was run on its own, which is
+          // what `pnpm --filter @ttylabs/cli test` does. Its message names
+          // the build to run and where, because `pnpm build` from this
+          // package builds the toolchain and not the example. Whether a
           // bundle that *is* there is current is not asked by modification
           // time, because that answer is wrong: a cache hit leaves `dist/`
           // untouched, so a source file touched and put back is newer than a
           // bundle that is exactly right. `examples/AGENTS.md` has the
           // measurement
-          expect(existsSync(built), `${bin} is missing; run pnpm build`).toBe(true);
+          expect(existsSync(built), missing(example, bin)).toBe(true);
           refused(await run(built, example.dir));
         }, 45_000);
       }
@@ -318,6 +378,23 @@ describe('the examples', () => {
 
         it.concurrent(`should refuse to run ${basename(unbuilt)} piped, with nothing built`, async () => {
           refused(await run(unbuilt, example.dir));
+        }, 45_000);
+      }
+
+      for (const { file, label } of entries) {
+        it.concurrent(`should print the package version for --version: ${label}`, async () => {
+          // `sigil build` bakes the manifest's version into the bin, and the
+          // unbuilt entry has no build to do that for it, so it reads the
+          // manifest itself -- otherwise `--version` is an option nobody
+          // declared, and the app runs instead of answering
+          if (file === built) {
+            expect(existsSync(file), missing(example, label)).toBe(true);
+          }
+          const ran = await run(file, example.dir, ['--version']);
+          expect(`${ran.stdout}${ran.stderr}`, 'a stack reached the output').not.toMatch(STACK);
+          expect(ran.stderr).toBe('');
+          expect(ran.stdout).toBe(`${example.manifest.version}\n`);
+          expect(ran.code).toBe(0);
         }, 45_000);
       }
     });

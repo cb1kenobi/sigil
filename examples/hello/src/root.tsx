@@ -1,8 +1,10 @@
 /**
  * hello's root component, in JSX.
  *
- * `root.ui.ts` beside it is the same component in the `ui` tag, line for line,
- * and the smoke test asserts that the two draw the same screen. JSX is what an
+ * `root.ui.ts` beside it is the same component in the `ui` tag -- the same
+ * elements, signals and handlers in the same order, though not the same lines,
+ * since each syntax wraps and comments as it reads best -- and the smoke test
+ * asserts that the two draw the same screen. JSX is what an
  * editor can check -- every prop is typed, so `<box padddding={1}>` is an error
  * before anything runs -- and what it costs is a build: Node strips types and
  * does not compile JSX, so this file only ever runs as `sigil build` wrote it.
