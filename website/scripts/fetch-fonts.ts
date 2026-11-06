@@ -1,3 +1,4 @@
+import { terminalText } from '../src/fonts/terminal-glyphs.ts';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -50,6 +51,18 @@ const FAMILIES = [
     url: css('JetBrains+Mono', String(w)),
   })),
   { file: 'martian-mono-latin-500.woff2', url: css('Martian+Mono', '500') },
+  /**
+   * The box drawing, block elements and shapes a terminal block draws, which no
+   * named subset carries. `text=` makes Google Fonts build a file of exactly
+   * those characters, as one `@font-face` with no subset comment. One weight: a
+   * bold rule or block is drawn by the browser's synthesis, which is what a
+   * terminal does too. See `src/fonts/terminal-glyphs.ts`.
+   */
+  {
+    file: 'jetbrains-mono-terminal-400.woff2',
+    url: `${css('JetBrains+Mono', '400')}&text=${encodeURIComponent(terminalText())}`,
+    subset: null,
+  },
 ];
 
 const LICENCES = [
@@ -69,7 +82,13 @@ const LICENCES = [
  * naming its subset. Matching on that comment is what separates latin from
  * the cyrillic and greek slices we do not ship.
  */
-function subsetUrl(stylesheet: string, subset: string): string {
+function subsetUrl(stylesheet: string, subset: string | null): string {
+  // a `text=` stylesheet is a single block with no comment at all
+  if (subset === null) {
+    const url = stylesheet.match(/src:\s*url\(([^)]+)\)/)?.[1];
+    if (url) return url;
+    throw new Error('no @font-face in stylesheet');
+  }
   const blocks = stylesheet.split('/*').slice(1);
   for (const block of blocks) {
     const name = block.slice(0, block.indexOf('*/')).trim();
@@ -113,9 +132,10 @@ function vendor(file: string, bytes: Buffer): void {
   );
 }
 
-for (const { file, url } of FAMILIES) {
+for (const family of FAMILIES) {
+  const { file, url } = family;
   const stylesheet = await get(url, { headers: { 'User-Agent': UA } }).then((r) => r.text());
-  const res = await get(subsetUrl(stylesheet, SUBSET));
+  const res = await get(subsetUrl(stylesheet, 'subset' in family ? family.subset : SUBSET));
   vendor(file, Buffer.from(await res.arrayBuffer()));
 }
 

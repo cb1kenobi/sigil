@@ -107,6 +107,18 @@ const PAIRS: [string, string, number][] = [
   ['term-red', 'terminal', TEXT],
   ['term-blue', 'terminal', TEXT],
   ['term-select-fg', 'term-select', TEXT],
+  // A terminal colour used as a fill, with the terminal's own background as the
+  // text: what \`src/lib/sgr.ts\` draws for an inverted blue and for a background
+  // colour a program set with no foreground of its own.
+  ...[
+    'term-blue',
+    'term-red',
+    'term-green',
+    'term-yellow',
+    'term-accent',
+    'fg-term',
+    'fg-strong',
+  ].map((fill): [string, string, number] => ['terminal', fill, TEXT]),
   // Syntax, on the source-code panel.
   ['syn-keyword', 'surface', TEXT],
   ['syn-string', 'surface', TEXT],

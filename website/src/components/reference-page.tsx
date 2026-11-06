@@ -1,3 +1,4 @@
+import { blockComponents, remarkCallouts } from '@/components/markdown-blocks';
 import { referenceDocs, type ReferenceDoc } from '@/lib/reference';
 import Link from 'next/link';
 import type { ComponentProps } from 'react';
@@ -90,6 +91,8 @@ export function ReferencePage({ doc }: { doc: ReferenceDoc }) {
       <article className="prose-sigil min-w-0 flex-1">
         <Markdown
           components={{
+            // fences become code and terminal blocks, and `> [!NOTE]` a callout
+            ...blockComponents,
             // `node` is dropped rather than spread: `react-markdown` passes the
             // mdast node into every component, and spreading it put
             // `node="[object Object]"` on the element -- measured in the
@@ -105,7 +108,7 @@ export function ReferencePage({ doc }: { doc: ReferenceDoc }) {
               </div>
             ),
           }}
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkCallouts]}
         >
           {doc.body}
         </Markdown>

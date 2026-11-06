@@ -44,6 +44,40 @@ const jetbrains = localFont({
   display: 'swap',
 });
 
+/**
+ * The box drawing, block elements and shapes a terminal block draws, which the
+ * latin subset above does not carry -- see `src/fonts/terminal-glyphs.ts`.
+ *
+ * Its own family rather than a fourth file of `jetbrains`, because that is the
+ * only way to give it a `unicode-range`, and the range is what stops it drawing
+ * an ordinary space or letter: the file holds both. It goes first in
+ * `--font-mono` so that a box-drawing character never reaches `jetbrains`'s own
+ * fallback, which is Arial scaled to 131% and is what broke the banner rows. No
+ * fallback of its own for the same reason: what is not in the range is not this
+ * family's to draw.
+ *
+ * Preloaded like the others, which costs every page 4 KB. Left to the range
+ * alone it would be fetched only once a page drew one of these, which is after
+ * the first paint -- so a banner would be drawn in Arial and then redrawn, the
+ * exact misalignment this file exists to prevent, on the page it matters most.
+ *
+ * The range is written out because a font option has to be a literal;
+ * `test/fonts.test.ts` holds it to `unicodeRange()`.
+ */
+const jetbrainsTerminal = localFont({
+  src: '../fonts/jetbrains-mono-terminal-400.woff2',
+  variable: '--font-jetbrains-terminal',
+  display: 'swap',
+  weight: '400',
+  adjustFontFallback: false,
+  declarations: [
+    {
+      prop: 'unicode-range',
+      value: 'U+2190-21FF, U+2500-257F, U+2580-259F, U+25A0-25FF, U+26A0, U+276F',
+    },
+  ],
+});
+
 /** The wordmark only. */
 const martian = localFont({
   src: '../fonts/martian-mono-latin-500.woff2',
@@ -61,7 +95,7 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
   return (
     <html
       lang="en"
-      className={`${barlow.variable} ${instrument.variable} ${jetbrains.variable} ${martian.variable} h-full antialiased`}
+      className={`${barlow.variable} ${instrument.variable} ${jetbrains.variable} ${jetbrainsTerminal.variable} ${martian.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">{children}</body>
     </html>
