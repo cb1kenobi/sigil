@@ -20,7 +20,8 @@
  *
  * While a move is committing or being announced, the router is the only writer of
  * the `focus` state: a `setState('focus')` from anywhere else -- a handler, an
- * `onScroll` the scroll into view woke -- throws, naming `focus()`. Taken, that
+ * `onScroll` the scroll into view woke, the tree's mark callback inside one of the
+ * router's own writes -- throws, naming `focus()`. Taken, that
  * write turned `:focus` on for an element the router's `current` did not name, and
  * its handler painted the role on a second control. Outside a move a direct write
  * is still allowed and still tells its element at once, which is all an element
@@ -44,10 +45,12 @@ import type { Element } from './index.js';
  *
  * A handler may move the focus, so a drain can announce more than the move that
  * started it. Counted per element rather than in total, because a chain that only
- * moves on -- each control passing the focus to the next -- tells each element
- * twice however long it is, while handlers that keep moving the focus round a
- * cycle tell the same element again and again, which is the case this exists for:
- * where telling them inline overflowed the stack, a queue would spin for ever.
+ * moves on -- each control passing the focus to the next -- tells each element at
+ * most twice however long it is, once as it gains the focus and once as it passes
+ * it on (the one that keeps it, once), while handlers that keep moving the focus
+ * round a cycle tell the same element again and again, which is the case this
+ * exists for: where telling them inline overflowed the stack, a queue would spin
+ * for ever.
  * `MAX_PASSES` in `src/signals/effect.ts` is the same bound for the same reason.
  */
 const MAX_TELLS = 100;
@@ -68,19 +71,35 @@ let holds = 0;
 /** Whether a drain is walking the queue, so a nested one joins it instead. */
 let draining = false;
 
-/** Whether `moveFocus()` itself is writing the two states, the one allowed writer. */
-let moving = false;
+/**
+ * The one element `moveFocus()` is writing the state of right now, which is the
+ * only write allowed while a move is open.
+ *
+ * An element rather than a flag, and spent by the write it allows, because
+ * `setState()` runs code of its own between the check and the return -- the tree's
+ * mark callback -- and a flag held across the call let that callback write any
+ * element's focus, or move the focus and clear the flag under the router's second
+ * write.
+ */
+let writing: Element | undefined;
 
 /**
  * Refuses a write of the `focus` state from anywhere but the router while a move is
  * committing or being announced. Called by `setState()` before it commits.
+ *
+ * @param element - The element whose state is about to change.
  */
-export function checkFocusWrite(): void {
-  if ((holds > 0 || draining) && !moving) {
-    throw new Error(
-      "Cannot setState('focus') while the focus is moving or being announced; move it with the input router's focus.focus() instead"
-    );
+export function checkFocusWrite(element: Element): void {
+  if (holds === 0 && !draining) {
+    return;
   }
+  if (element === writing) {
+    writing = undefined;
+    return;
+  }
+  throw new Error(
+    "Cannot setState('focus') while the focus is moving or being announced; move it with the input router's focus.focus() instead"
+  );
 }
 
 /**
@@ -103,34 +122,48 @@ export function announceFocus(element: Element): void {
  * The router's `focus()` comes through here: the two states are written by this
  * function, which is what lets `checkFocusWrite()` tell the router's writes from
  * anybody else's, and `then` commits the rest -- `current`, and the scroll into
- * view. No handler can see one written without the others. A throw from `then`
- * does not stop the handlers being told about what did commit.
+ * view. No handler can see one written without the others.
+ *
+ * Each of the three steps runs whatever the one before it threw, so a throw --
+ * from `then`, or from a mark callback inside a write -- does not leave a state
+ * written with `current` naming somebody else, and does not stop the handlers
+ * being told. What stops a step is `live` coming back `false`: a move the router
+ * started from inside this one, from the mark callback, has superseded it and
+ * finished the job, and carrying on would put a second element in `:focus`.
  *
  * @param from - The element losing the focus.
  * @param to - The element gaining it.
  * @param then - The rest of the commit.
+ * @param live - Whether this is still the router's latest move.
  */
 export function moveFocus(
   from: Element | undefined,
   to: Element | undefined,
-  then: () => void
+  then: () => void,
+  live: () => boolean
 ): void {
   const errors: unknown[] = [];
-  holds++;
-  // caught rather than left to unwind, or a throwing commit -- an `onScroll` the
-  // scroll into view woke -- would leave `holds` up and every later handler
-  // untold, and would skip telling these
-  try {
-    moving = true;
+  const write = (element: Element | undefined, on: boolean) => (): void => {
+    const outer = writing;
+    writing = element;
     try {
-      from?.setState('focus', false);
-      to?.setState('focus', true);
+      element?.setState('focus', on);
     } finally {
-      moving = false;
+      writing = outer;
     }
-    then();
-  } catch (err) {
-    errors.push(err);
+  };
+  holds++;
+  // each caught rather than left to unwind, or a throwing step would leave `holds`
+  // up and every later handler untold, and would skip what the move still owes
+  for (const step of [write(from, false), write(to, true), then]) {
+    if (!live()) {
+      break;
+    }
+    try {
+      step();
+    } catch (err) {
+      errors.push(err);
+    }
   }
   holds--;
   if (holds === 0 && !draining) {

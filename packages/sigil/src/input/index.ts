@@ -758,6 +758,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   const bindings = new Set<KeyHandler>();
   const pasters = new Set<PasteHandler>();
   const current = new State<Element | undefined>(undefined);
+  // the move `focus()` is writing the states of, until it sets `current`, and a
+  // count that lets a move tell it has been superseded by one started inside it
+  let writingTo: { element: Element | undefined } | undefined;
+  let moves = 0;
 
   // -- described bindings ---------------------------------------------------
 
@@ -1086,7 +1090,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     current,
 
     focus(element: Element | undefined): void {
-      const previous = current.get();
+      // mid-write -- a `focus()` from the tree's mark callback, inside one of this
+      // router's own state writes -- the element losing the focus is the one the
+      // open move is writing towards, since `current` does not name it yet
+      const previous = writingTo ? writingTo.element : current.get();
       if (previous === element) {
         return;
       }
@@ -1106,20 +1113,30 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       // still naming the element it had just been told it lost, so a handler
       // that moved the focus itself finished this move twice and left two
       // elements focused -- `focus.ts` in `src/element` holds the queue
-      moveFocus(previous, element, () => {
-        current.set(element);
-        if (element) {
-          lastIndex = Math.max(0, focusables(root).indexOf(element));
-          // and it is brought on screen, unconditionally. The ring already
-          // skips a `display: none` subtree because there is nothing on screen
-          // there to move the focus to; a row below the fold is that case with
-          // the opposite answer -- it is on screen, somewhere the user cannot
-          // see -- so the fix is to scroll rather than to skip. Left out, Tab
-          // into a long list moves a highlight nobody can find, which reads as
-          // an app that stopped responding
-          scrollIntoView(element);
-        }
-      });
+      const move = ++moves;
+      writingTo = { element };
+      moveFocus(
+        previous,
+        element,
+        () => {
+          writingTo = undefined;
+          current.set(element);
+          if (element) {
+            lastIndex = Math.max(0, focusables(root).indexOf(element));
+            // and it is brought on screen, unconditionally. The ring already
+            // skips a `display: none` subtree because there is nothing on screen
+            // there to move the focus to; a row below the fold is that case with
+            // the opposite answer -- it is on screen, somewhere the user cannot
+            // see -- so the fix is to scroll rather than to skip. Left out, Tab
+            // into a long list moves a highlight nobody can find, which reads as
+            // an app that stopped responding
+            scrollIntoView(element);
+          }
+        },
+        // superseded by a move started inside this one's writes, which finished
+        // the job -- and cleared `writingTo` in its own commit
+        () => moves === move
+      );
     },
 
     next(): void {

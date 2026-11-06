@@ -57,3 +57,30 @@ both removed (one, the same); a nested move draining its own announcements (two,
 the cross-router test and the cycle test). The `finally` alone removed is caught by
 nothing, because with the read caught nothing else in the loop can throw; it is
 kept as insurance and the entry says so.
+
+#### Review round 3: the code `setState()` runs inside the router's own writes
+
+The permission was a flag held across both of `moveFocus()`'s writes, and
+`setState()` calls the tree's mark callback between its check and its return. So
+a mark callback writing another element's focus was let through -- two focused
+elements again -- and one calling `focus()` cleared the flag in its own `finally`,
+so the open move's second write threw. Both probed and confirmed. The permission
+is now the one element being written, spent by that write; the router counts its
+moves so a `focus()` from inside its own writes wins and the open move stops; each
+step of a move runs whatever the one before threw; and `setState()` announces in
+a `finally` around the mark. The round also found prose that over-claimed: the
+README's unqualified "last call", "tells each element twice" (the one that keeps
+the focus is told once), a bounce test whose comment said ten tells where the run
+made twenty-one, and a deleted test still named in `src/components`.
+
+Sabotages, each passing `tsc`: the permission as a flag again (two failures, both
+mark-callback refusals); the permission not spent (one, the write to the element
+being written); the supersede check removed (two, the mark callback moving the
+focus during either write); the inner move taking `current` rather than the open
+move's target (one, during the gaining write); the announcement after the mark
+rather than in a `finally` (two); a move that stops at its first throw (one). The
+bounce test now runs forty-nine round trips, which settle at 99 and 98 tells, and
+fifty, which give up: a bound of 2, 21, 98 or 101 fails it and 99 passes, so it
+pins the bound at a hundred to within one. The sixty-control chain pins that the
+bound is counted per element -- a total bound fails it -- and cannot pin the size,
+since a one-way chain never tells anything a third time.

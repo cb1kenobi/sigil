@@ -1,4 +1,11 @@
-import { arrange, box, type Element, resolveStyles, text } from '../../src/element/index.js';
+import {
+  arrange,
+  box,
+  createTree,
+  type Element,
+  resolveStyles,
+  text,
+} from '../../src/element/index.js';
 import { canReadKeys, createInput, InputError, type KeyEvent } from '../../src/input/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { describe, expect, it } from 'vitest';
@@ -631,10 +638,80 @@ describe('focus', () => {
     input.stop();
   });
 
+  for (const which of ['another element', 'the element being written'] as const) {
+    it(`should refuse a setState of the focus on ${which} from the tree's mark callback`, () => {
+      // `setState()` runs the tree's mark callback between its check and its
+      // return, and the router's permission used to be a flag held across both of
+      // its writes -- so a callback writing another element's focus was let
+      // through, and two elements wore `:focus` and the role while the keys went
+      // to one. The permission is spent by the write it allows, so the element
+      // being written cannot be written a second time from inside that write
+      const { terminal } = harness();
+      const { first, root, second, third } = tree();
+      const input = createInput({ root, terminal });
+      for (const element of [first, second, third]) {
+        element.onFocusChange = (target, focused) => target.toggleClass('sigil-focus', focused);
+      }
+      let armed = false;
+      createTree(root, () => {
+        if (armed) {
+          armed = false;
+          (which === 'another element' ? third : first).setState('focus', true);
+        }
+      });
+
+      input.focus.focus(first);
+      armed = true;
+      expect(() => input.focus.focus(second)).toThrow(/focus\.focus\(\)/);
+      expect(input.focus.current.get()).toBe(second);
+      expect([first, second, third].filter((el) => el.states.includes('focus'))).toEqual([second]);
+      expect([first, second, third].filter((el) => el.classes.includes('sigil-focus'))).toEqual([
+        second,
+      ]);
+      input.stop();
+    });
+  }
+
+  for (const [at, name] of [
+    [1, 'losing'],
+    [2, 'gaining'],
+  ] as const) {
+    it(`should leave one element focused when the mark callback moves the focus while the ${name} end is written`, () => {
+      // a `focus()` from the mark callback used to clear the router's permission in
+      // its own `finally`, so the open move's second write threw; and whichever
+      // write it came from, finishing the open move afterwards would focus a
+      // second element. The move started inside is the router's latest, so it wins
+      const { terminal } = harness();
+      const { first, root, second, third } = tree();
+      const input = createInput({ root, terminal });
+      for (const element of [first, second, third]) {
+        element.onFocusChange = (target, focused) => target.toggleClass('sigil-focus', focused);
+      }
+      let marks = -1;
+      createTree(root, () => {
+        if (marks >= 0 && ++marks === at) {
+          input.focus.focus(third);
+        }
+      });
+
+      input.focus.focus(first);
+      marks = 0;
+      input.focus.focus(second);
+      expect(input.focus.current.get()).toBe(third);
+      expect([first, second, third].filter((el) => el.states.includes('focus'))).toEqual([third]);
+      expect([first, second, third].filter((el) => el.classes.includes('sigil-focus'))).toEqual([
+        third,
+      ]);
+      input.stop();
+    });
+  }
+
   it('should settle a chain that passes the focus on through sixty controls', () => {
-    // a one-way chain tells each control twice however long it is; the bound used
+    // a one-way chain tells each control at most twice however long it is --
+    // gaining the focus and passing it on, the last one once -- and the bound used
     // to count every call in a drain, so sixty hops gave up at the fiftieth with
-    // the focus on a control that had never been told it had it
+    // the focus on a control that had never been told it had it. What this pins
+    // is that the bound is counted per element; how large it is, the bounce test
     const { terminal } = harness();
     const rows = Array.from({ length: 60 }, (_, i) => box({ focusable: true }, text(`${i}`)));
     const root = box({}, ...rows);
@@ -656,30 +733,51 @@ describe('focus', () => {
     input.stop();
   });
 
-  it('should settle handlers that bounce the focus back and forth a few times', () => {
-    // which tells the same two elements ten times each: a bound of a couple of
-    // calls per element would call this a cycle, and it is not one
-    const { terminal } = harness();
-    const { first, root, second } = tree();
-    const input = createInput({ root, terminal });
-    let bounces = 0;
-    first.onFocusChange = (target, focused) => {
-      target.toggleClass('sigil-focus', focused);
-      if (focused && bounces++ < 10) {
-        input.focus.focus(second);
-      }
-    };
-    second.onFocusChange = (target, focused) => {
-      target.toggleClass('sigil-focus', focused);
-      if (focused) {
+  it('should settle handlers that bounce the focus back and forth until they stop', () => {
+    // `bounces` round trips tell the element that starts 2 * bounces + 1 times and
+    // the other 2 * bounces, which is not a cycle however large it is -- until it
+    // passes the bound. So 49 settles at 99 tells and 50 gives up at the 101st,
+    // which pins the bound at a hundred to within one: a bound of a couple of calls
+    // per element, or of twenty, would call the first a cycle
+    function bounce(bounces: number): { counts: number[]; error: unknown } {
+      const { terminal } = harness();
+      const { first, root, second } = tree();
+      const input = createInput({ root, terminal });
+      const counts = [0, 0];
+      let left = bounces;
+      first.onFocusChange = (target, focused) => {
+        counts[0]++;
+        target.toggleClass('sigil-focus', focused);
+        if (focused && left-- > 0) {
+          input.focus.focus(second);
+        }
+      };
+      second.onFocusChange = (target, focused) => {
+        counts[1]++;
+        target.toggleClass('sigil-focus', focused);
+        if (focused) {
+          input.focus.focus(first);
+        }
+      };
+      let error: unknown;
+      try {
         input.focus.focus(first);
+      } catch (err) {
+        error = err;
       }
-    };
+      if (error === undefined) {
+        expect(input.focus.current.get()).toBe(first);
+        expect([first, second].map((el) => el.classes.includes('sigil-focus'))).toEqual([
+          true,
+          false,
+        ]);
+      }
+      input.stop();
+      return { counts, error };
+    }
 
-    input.focus.focus(first);
-    expect(input.focus.current.get()).toBe(first);
-    expect([first, second].map((el) => el.classes.includes('sigil-focus'))).toEqual([true, false]);
-    input.stop();
+    expect(bounce(49)).toEqual({ counts: [99, 98], error: undefined });
+    expect(String(bounce(50).error)).toMatch(/did not settle/);
   });
 
   it('should give up on a cycle and still tell the elements it left behind', () => {

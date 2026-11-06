@@ -265,8 +265,19 @@ the entry it belongs to.
     `current` already named the real target: a blur handler restoring itself with
     `setState`, or an `onScroll` the scroll into view woke, left two elements with
     `:focus` and the role while the keys went to one. `moveFocus()` writes the two
-    states itself, which is how the check tells the router's writes from anybody
-    else's. A handler that wants the focus moves it with the router's `focus()`,
+    states itself, and the permission is the **one element** it is writing at
+    that instant, spent by the write it allows (round 3): `setState()` runs the
+    tree's mark callback between its check and its return, and a flag held across
+    both writes let that callback write any element's focus -- two focused again
+    -- or call `focus()`, whose own `finally` cleared the flag under the router's
+    second write. A `focus()` from inside the router's own writes is therefore
+    allowed and **wins**: the router counts its moves, the inner one takes the
+    element the open move was writing towards as the one losing the focus, and
+    the open move stops at its next step rather than putting a second element in
+    `:focus`. Each step of a move runs whatever the one before threw, and
+    `setState()` announces in a `finally` around the mark, so a throwing mark
+    callback cannot leave a state written with `current` naming somebody else.
+    A handler that wants the focus moves it with the router's `focus()`,
     which the trap test already spells. Outside a move a direct `setState('focus')`
     is unchanged -- nothing is holding, the queue drains at once and the handler
     runs before `setState()` returns -- but the router knows nothing of it, so
@@ -276,8 +287,9 @@ the entry it belongs to.
     not settle`, for handlers that keep moving the focus round a cycle -- inline,
     that overflowed the stack; a queue would spin for ever. `MAX_PASSES` in
     `src/signals/effect.ts` is the same bound for the same reason. Per element,
-    since round 2: a chain that only moves on tells each element twice however
-    long it is, and a total of a hundred gave up on a sixty-control chain at the
+    since round 2: a chain that only moves on tells each element at most twice
+    however long it is -- gaining the focus and passing it on, and the one that
+    keeps it once -- and a total of a hundred gave up on a sixty-control chain at the
     fiftieth. Giving up forgets what the element it stopped on and every one still
     queued were last told, so each is told at its next change whichever way it
     goes -- leaving the old value in place made the element left focused sit

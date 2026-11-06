@@ -9708,8 +9708,11 @@ exception per widget. This is the one answer, and every widget below follows it.
   `should let a blur handler take the focus back, which is a focus trap`, `should
   finish a move and tell the other end when a handler throws`, `should still tell
   the focus handlers when the scroll a move caused throws`, `should go on telling
-  elements their focus after a handler threw` and `should give up rather than
-  hang when two handlers keep moving the focus`.
+  elements their focus after a handler threw`; from round 2, `should give up on a
+  cycle and still tell the elements it left behind` in its place, beside the
+  refusal, chain, bounce, latch and cross-router tests in `test/input/input.test.ts`
+  and `test/element/element.test.ts`; and from round 3, the two tests of the tree's
+  mark callback, refused and moving the focus.
 - **Sabotage: nine, nine caught.** The role rule deleted (six failures); the
   dispatch removed from `setState()` (eight); dispatched for every state, and
   dispatched before the state changed (one each, the element test); each of the

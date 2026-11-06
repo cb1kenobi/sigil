@@ -662,7 +662,7 @@ export class Element implements LayoutNode {
     }
     if (state === 'focus') {
       // the router's alone while a move is committing or being announced
-      checkFocusWrite();
+      checkFocusWrite(this);
     }
 
     if (on) {
@@ -670,11 +670,16 @@ export class Element implements LayoutNode {
     } else {
       this.#states.delete(state);
     }
-    this.#mark('classes');
-    if (state === 'focus') {
-      // told now, or once the router's move has committed both ends of it --
-      // `focus.ts` has why a handler is never told in between
-      announceFocus(this);
+    try {
+      this.#mark('classes');
+    } finally {
+      if (state === 'focus') {
+        // told now, or once the router's move has committed both ends of it --
+        // `focus.ts` has why a handler is never told in between. In a `finally`,
+        // because the mark runs the tree's callback and the state is committed
+        // whether or not that throws
+        announceFocus(this);
+      }
     }
     return this;
   }
