@@ -175,11 +175,36 @@ the entry it belongs to.
   then swallowed a genuine later `'error'`, and on `process.stdin`, which lives as
   long as the process, one accumulated per router until the max-listeners warning.
   So a router records at attach whether the stream already carried an error, and
-  never claims one it did; that also covers a router attached in the one turn
-  between a `destroy(err)` and its emit. And the guard is one per stream, kept in a
+  never reports one it did. And the guard is one per stream, kept in a
   module-level `WeakSet`, because there is one emit and every listener sees it:
   two routers that were both listening are each told -- each would have heard it a
   tick sooner -- and leave one guard between them.
+
+  **"Carried at attach" is not "already emitted", and the fourth review round
+  found the router that confused them.** One attached in the turn between a
+  `destroy(err)` and its emit -- with no earlier router, so nothing had put a guard
+  up -- was the emit's only listener, and its `stop()` took that listener off and
+  left no guard: the crash, back, for an app started on a stdin that had just
+  died. So the two questions are answered separately. **Told** is about when the
+  stream failed: never for an error carried at attach, and the router's own
+  listener ignores that error's emit too, so a router attached after a failure
+  gets the same answer -- not told, its own code -- whichever side of the emit it
+  stops on. **Guarded** is about whether the emit is still to come: known at once
+  where a router saw it go by (a second `WeakSet`), and otherwise by a
+  `process.nextTick` queued at attach, which runs after `destroy()`'s own because
+  that was queued first -- no stream internals asked. Its limit is one-sided: a
+  router that attaches after an emit no router saw and stops in the same turn,
+  before its tick, leaves a guard nothing will take off -- at most one per stream,
+  because of the first set, and transparent, below.
+
+  **The guard comes off with its own error and no other.** It used to come off with
+  the first `'error'` of any kind, so a different one in that tick -- including one
+  an `onEnd()` handler raised from inside `stop()` -- spent it, and the destroy
+  error then crashed. A different error is passed through as though the guard were
+  not there: rethrown from the emit where the guard is the only listener, which is
+  what the emit does with nobody listening, and left to the other listeners where
+  there are any. Swallowing it was the alternative, and it hides a real failure
+  behind a mechanism that exists to stop one crash.
 
   **`onEnd()` runs every handler, and what they threw goes on once they have** --
   one error as itself, several as an `AggregateError`, which is the signal graph's

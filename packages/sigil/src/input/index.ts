@@ -660,6 +660,7 @@ export interface InputStream {
   /** What it was destroyed with, set at once although `'error'` is emitted a tick later. */
   readonly errored?: unknown;
   isTTY?: boolean;
+  listenerCount?: (event: string) => number;
   off?: (event: string, fn: (...args: unknown[]) => void) => unknown;
   on?: (event: string, fn: (...args: unknown[]) => void) => unknown;
   pause?: () => unknown;
@@ -743,6 +744,14 @@ export function canReadKeys(opts: Pick<InputOptions, 'stdin' | 'terminal'> = {})
  * holds is not kept for having failed.
  */
 const guarded = new WeakSet<object>();
+
+/**
+ * The streams whose destroy error a router has seen emitted.
+ *
+ * What lets a router attached afterwards know the emit is behind it at once,
+ * rather than a tick later. Per stream for `guarded`'s reason.
+ */
+const heard = new WeakSet<object>();
 
 /**
  * Builds the input router.
@@ -2097,15 +2106,39 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 
   const onStreamEnd = (): void => ended();
   /**
-   * Whether the stream had already failed when this router attached, so that an
-   * error left on it is history rather than something in flight: `errored` stays
-   * set after the event, and a router that was not listening then never could
-   * have heard it.
+   * The error the stream already carried when this router attached, if any.
+   *
+   * A failure from before this router existed, so it is never this router's to
+   * report -- whether or not its event has been emitted yet. `errored` is set the
+   * moment `destroy(err)` runs, and the emit follows on `nextTick`, so a router
+   * attached in that gap is subscribed when the emit arrives: it is ignored rather
+   * than told, so that a router attached after a failure gets one answer whichever
+   * side of that tick it stops on. What the gap does change is whether there is an
+   * emit still to come, which is `carriedPast`.
    */
-  const erroredBefore = stdin.errored != null;
+  const carried = stdin.errored ?? undefined;
+  /**
+   * Whether the carried error's emit has happened. Known at once where a router
+   * saw it go by; otherwise a tick queued now runs after `destroy()`'s own, which
+   * was queued first -- so until it fires, the emit may still be on its way and
+   * `stop()` owes it a guard. No stream internals asked.
+   */
+  let carriedPast = carried === undefined || heard.has(stdin);
+  if (!carriedPast) {
+    process.nextTick(() => {
+      carriedPast = true;
+    });
+  }
   /** Whether the stream's error reached `onStreamError`, which `stop()` asks. */
   let errorDelivered = false;
   const onStreamError = (...args: unknown[]): void => {
+    if (args[0] != null && args[0] === stdin.errored) {
+      heard.add(stdin);
+    }
+    if (carried !== undefined && args[0] === carried) {
+      carriedPast = true;
+      return;
+    }
     errorDelivered = true;
     ended(args[0]);
   };
@@ -2389,20 +2422,37 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       // it, which is the terminal's `EPIPE` rule: put back what you attached,
       // and not while what it was there for is still in flight
       //
-      // Only an error this router could have heard: one the stream did not
-      // already carry when it attached. A later router over a stream that failed
-      // before it -- the next app, the next prompt -- reads the same `errored`,
-      // and claiming it re-reported an error that had ended somebody else and
-      // left a guard for an emit that was never coming again
-      const failedWith =
-        !erroredBefore && !errorDelivered && stdin.destroyed === true && stdin.errored != null
-          ? stdin.errored
-          : undefined;
-      if (failedWith !== undefined && !guarded.has(stdin)) {
+      // Told only for an error this router could have heard: one the stream did
+      // not already carry when it attached. A later router over a stream that
+      // failed before it -- the next app, the next prompt -- reads the same
+      // `errored`, and claiming it re-reported an error that had ended somebody
+      // else. Guarded whenever the emit is still to come, carried or not: a router
+      // attached between a `destroy(err)` and its emit was that emit's only
+      // listener, and taking it off without a guard was the crash this is for
+      const inFlight =
+        !errorDelivered &&
+        stdin.destroyed === true &&
+        stdin.errored != null &&
+        (carried === undefined || !carriedPast);
+      const failedWith = inFlight && carried === undefined ? stdin.errored : undefined;
+      if (inFlight && !guarded.has(stdin)) {
         // one guard per stream, for the one emit: a stream emits the error it was
-        // destroyed with exactly once, and every listener sees it
+        // destroyed with exactly once, and every listener sees it. It comes off
+        // with that error and no other, so a different `'error'` in the same tick
+        // cannot spend it -- and it is transparent to one: rethrown where the
+        // guard is the only listener, which is what the emit would have done with
+        // nobody there, and left to the others where there are any
         guarded.add(stdin);
-        const guard = (): void => void off?.call(stdin, 'error', guard);
+        const own = stdin.errored;
+        const guard = (...args: unknown[]): void => {
+          if (args[0] === own) {
+            off?.call(stdin, 'error', guard);
+            return;
+          }
+          if ((stdin.listenerCount?.('error') ?? 1) <= 1) {
+            throw args[0];
+          }
+        };
         stdin.on?.('error', guard);
       }
       offResize();

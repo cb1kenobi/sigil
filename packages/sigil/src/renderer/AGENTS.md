@@ -1016,7 +1016,11 @@ it.
   without a `try`, dispatch that swallowed instead of rethrowing, `finish()` steps
   not isolated, and `finish()` dropping what a step threw. One line was deleted
   before the pass rather than by it: taking a stream back out of the guarded set,
-  which a stream destroyed once can never need.
+  which a stream destroyed once can never need. The sixth, for the fourth round's
+  two -- an app started between a stdin `destroy(err)` and its emit crashed on the
+  way out, and a different `'error'` spent the guard -- was eight, every one caught,
+  under "A router stopped over a failed stream" in `src/input`; the attach tick
+  survived the first run of it and is pinned by a test of its own.
 - **Not done:** capturing `console.log()` while the app owns the screen, which
   writes straight into the alternate buffer today -- `backend.write()` holds a line
   and the debug overlay's `captureConsole()` shows one, and neither is automatic;

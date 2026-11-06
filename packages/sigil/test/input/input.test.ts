@@ -270,6 +270,80 @@ describe('the router', () => {
     expect(term.stdin.listenerCount('error')).toBe(0);
   });
 
+  it.each([
+    ['before the emit', false],
+    ['after it', true],
+  ])(
+    'should guard, and not tell, the only router attached between a destroy and its emit, stopped %s',
+    async (_, afterTick) => {
+      const term = createTestTerminal();
+      term.stdin.destroy(new Error('gap'));
+      // no earlier router, so nothing else is listening for the emit to come
+      const input = createInput({ terminal: term.terminal });
+      const seen: unknown[] = [];
+      input.onEnd((error) => seen.push(error));
+      if (afterTick) {
+        await tick();
+      }
+      input.stop();
+      // a failure from before it attached, so never this router's to report --
+      // and the same answer whichever side of the tick it stopped on
+      expect(seen).toEqual([]);
+      expect(term.stdin.listenerCount('error')).toBe(afterTick ? 0 : 1);
+      await tick();
+      expect(term.stdin.listenerCount('error')).toBe(0);
+    }
+  );
+
+  it('should leave no guard for an emit no router heard, once its own tick has passed', async () => {
+    const term = createTestTerminal();
+    // heard by somebody else's listener, so nothing here recorded it
+    const listener = (): void => {};
+    term.stdin.on('error', listener);
+    term.stdin.destroy(new Error('elsewhere'));
+    await tick();
+    term.stdin.off('error', listener);
+
+    const input = createInput({ terminal: term.terminal });
+    // the tick it queued at attach runs after the emit was due, which is how it
+    // knows the emit is behind it without asking the stream's internals
+    await tick();
+    input.stop();
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should not let a different error spend the guard kept for the destroy error', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
+    term.stdin.destroy(new Error('own'));
+    input.stop();
+    expect(term.stdin.listenerCount('error')).toBe(1);
+
+    // the guard alone is transparent to an error it is not for: thrown from the
+    // emit, as it would have been with nobody listening -- and still there after
+    expect(() => term.stdin.emit('error', new Error('other'))).toThrow('other');
+    expect(term.stdin.listenerCount('error')).toBe(1);
+    await tick();
+    // and its own error, a tick later, took it off
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should leave a different error to the other listeners when the guard is not alone', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
+    term.stdin.destroy(new Error('own'));
+    input.stop();
+    const others: unknown[] = [];
+    const listener = (error: unknown): number => others.push(error);
+    term.stdin.on('error', listener);
+
+    expect(() => term.stdin.emit('error', new Error('other'))).not.toThrow();
+    expect(others.map(String)).toEqual(['Error: other']);
+    await tick();
+    term.stdin.off('error', listener);
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
   it('should tell every router that was listening, and leave one guard for the one emit', async () => {
     const term = createTestTerminal();
     const a = createInput({ terminal: term.terminal });

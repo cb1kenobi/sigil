@@ -637,6 +637,27 @@ describe('runApp()', () => {
     ]);
   });
 
+  it('should not crash when an app starts between a stdin destroy and its emit, and exits', async () => {
+    const term = createTestTerminal({ columns: 30, rows: 6 });
+    term.stdin.destroy(new Error('gap'));
+    // the only router there will be, attached after `errored` was set and before
+    // the emit: its teardown takes the emit's only listener off
+    const reports: unknown[] = [];
+    const app = runApp(() => text('x'), {
+      detect: false,
+      onError: (error) => reports.push(error),
+      terminal: term.terminal,
+    });
+    apps.push(app);
+    app.exit(0);
+    // a failure from before it started, so it chooses its own code
+    expect(await app.exited).toBe(0);
+    expect(reports).toEqual([]);
+    expect(term.stdin.listenerCount('error')).toBe(1);
+    await tick();
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
   it("should settle exited when an onEnd handler of the app's own throws during the teardown", async () => {
     const reports: unknown[] = [];
     const { app, term } = start(() => text('x'), { onError: (error) => reports.push(error) });
