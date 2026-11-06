@@ -233,6 +233,77 @@ describe('the router', () => {
     expect(term.stdin.listenerCount('error')).toBe(0);
   });
 
+  it('should not claim an error the stream already carried when it attached', async () => {
+    const term = createTestTerminal();
+    const first = createInput({ terminal: term.terminal });
+    term.stdin.destroy(new Error('old'));
+    await tick();
+    first.stop();
+
+    // `errored` stays set after the event, and this router was not listening
+    // when it fired: that is history, not an error in flight
+    const later = createInput({ terminal: term.terminal });
+    const seen: unknown[] = [];
+    later.onEnd((error) => seen.push(error));
+    later.stop();
+    expect(seen).toEqual([]);
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should not claim an in-flight error for a router that attached after the stream failed', async () => {
+    const term = createTestTerminal();
+    const first = createInput({ terminal: term.terminal });
+    const told: unknown[] = [];
+    first.onEnd((error) => told.push(error));
+    term.stdin.destroy(new Error('in flight'));
+    first.stop();
+
+    const later = createInput({ terminal: term.terminal });
+    const seen: unknown[] = [];
+    later.onEnd((error) => seen.push(error));
+    later.stop();
+    expect(told.map(String)).toEqual(['Error: in flight']);
+    expect(seen).toEqual([]);
+    // the first router's guard, and no second one
+    expect(term.stdin.listenerCount('error')).toBe(1);
+    await tick();
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should tell every router that was listening, and leave one guard for the one emit', async () => {
+    const term = createTestTerminal();
+    const a = createInput({ terminal: term.terminal });
+    const b = createInput({ terminal: term.terminal });
+    const seen: string[] = [];
+    a.onEnd(() => seen.push('a'));
+    b.onEnd(() => seen.push('b'));
+    term.stdin.destroy(new Error('both'));
+    a.stop();
+    b.stop();
+    // each would have heard it a tick sooner, so each is told
+    expect(seen).toEqual(['a', 'b']);
+    expect(term.stdin.listenerCount('error')).toBe(1);
+    await tick();
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should run every onEnd handler when one throws, and rethrow the first once they have', () => {
+    const { emit, terminal } = harness();
+    const input = createInput({ terminal });
+    const seen: string[] = [];
+    input.onEnd(() => {
+      throw new Error('first');
+    });
+    input.onEnd(() => seen.push('second'));
+    input.onEnd(() => {
+      throw new Error('third');
+    });
+
+    expect(() => emit('end')).toThrow('first');
+    expect(seen).toEqual(['second']);
+    input.stop();
+  });
+
   it('should stop reporting it once the handler is removed', () => {
     const { emit, terminal } = harness();
     const input = createInput({ terminal });

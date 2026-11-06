@@ -537,7 +537,11 @@ describe('runApp()', () => {
       return text('x');
     });
     app.view.frame();
+    // read inside the unmount, which is when the runner's own handler runs
+    const seen: boolean[] = [];
+    app.view.onDispose(() => seen.push(app.view.failed));
     app.view.dispose();
+    expect(seen).toEqual([false]);
     // an unmount the app's own code asked for is as intentional as `exit()`, so
     // its cleanup throwing is reported -- once, on the main screen -- and does not
     // turn the app ending itself into a failure
@@ -574,6 +578,60 @@ describe('runApp()', () => {
     expect(term.stdin.listenerCount('error')).toBe(0);
     expect(term.lines.join('\n')).toContain('late stdin');
     expect(term.output.split('late stdin')).toHaveLength(2);
+  });
+
+  it.each([
+    ['after the emit', true],
+    ['before the emit, in the same turn', false],
+  ])(
+    'should let the next app over a stdin that failed under the last one choose its own code, started %s',
+    async (_, afterTick) => {
+      const term = createTestTerminal({ columns: 30, rows: 6 });
+      const first = runApp(() => text('first'), { detect: false, terminal: term.terminal });
+      first.exit(0);
+      term.stdin.destroy(new Error('old stdin'));
+      expect(await first.exited).toBe(1);
+      if (afterTick) {
+        await tick();
+      }
+
+      // the stream still carries `errored`, which is history to a router that was
+      // not listening when it failed: claiming it re-reported an error that ended
+      // somebody else, beat this app's own 0, and left a guard for an emit that
+      // was not coming again
+      const reports: unknown[] = [];
+      const next = runApp(() => text('next'), {
+        detect: false,
+        onError: (error) => reports.push(error),
+        terminal: term.terminal,
+      });
+      apps.push(next);
+      next.exit(0);
+      expect(await next.exited).toBe(0);
+      expect(reports).toEqual([]);
+      // one guard at most -- the first app's, while its emit is still to come
+      expect(term.stdin.listenerCount('error')).toBe(afterTick ? 0 : 1);
+      await tick();
+      expect(term.stdin.listenerCount('error')).toBe(0);
+    }
+  );
+
+  it("should settle exited when an onEnd handler of the app's own throws during the teardown", async () => {
+    const reports: unknown[] = [];
+    const { app, term } = start(() => text('x'), { onError: (error) => reports.push(error) });
+    app.input?.onEnd(() => {
+      throw new Error('handler broke');
+    });
+    app.exit(0);
+    // told from inside `stop()`, which is inside the teardown: a throw there cut
+    // the teardown short before `restore()` and before `exited` settled
+    term.stdin.destroy(new Error('late stdin'));
+    const settled = await Promise.race([app.exited, tick(20).then(() => 'pending')]);
+    expect(settled).toBe(1);
+    expect(reports.map(String)).toEqual(['Error: late stdin', 'Error: handler broke']);
+    expect(term.screen.alternate).toBe(false);
+    expect(term.stdin.rawMode).toBe(false);
+    expect(app.running).toBe(false);
   });
 
   it.each([

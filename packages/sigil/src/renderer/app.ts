@@ -382,20 +382,38 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
    * cleanup that throws during an intentional unmount -- this `dispose()`, or one
    * the app's own code called -- is reported exactly as a failed frame is, and only
    * the renderer knows which of the two tore it down.
+   *
+   * Each step runs whatever the one before it threw, and `exited` settles
+   * whatever any of them threw: `running` is already false, so nothing could
+   * settle it later, and a router's `stop()` calls `onEnd()` handlers somebody
+   * else registered. What a step threw is reported once every step has run --
+   * so it is written to a screen that is back -- and does not change the code: a
+   * teardown that throws is the cleanup rule's case, not a failure that ended
+   * the app. Settled before those reports rather than after, which nobody
+   * awaiting it can tell apart -- a continuation runs on a later microtask, after
+   * this has finished writing -- and which leaves an `onError` that throws
+   * nothing to stop the settle with.
    */
   function finish(): void {
     if (!running) {
       return;
     }
     running = false;
-    try {
-      if (view?.mounted) {
-        view.dispose();
+    const thrown: unknown[] = [];
+    for (const step of [
+      () => view?.mounted && view.dispose(),
+      () => input?.stop(),
+      () => terminal.restore(),
+    ]) {
+      try {
+        step();
+      } catch (error) {
+        thrown.push(error);
       }
-    } finally {
-      input?.stop();
-      terminal.restore();
-      settle(stdinFailed || view?.failed === true ? EXIT_FAILED : code);
+    }
+    settle(stdinFailed || view?.failed === true ? EXIT_FAILED : code);
+    for (const error of thrown) {
+      report(error);
     }
   }
 

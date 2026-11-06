@@ -734,6 +734,17 @@ export function canReadKeys(opts: Pick<InputOptions, 'stdin' | 'terminal'> = {})
 }
 
 /**
+ * The streams with a guard on them for an error still on its way.
+ *
+ * Per stream rather than per router, because the emit is a fact about the stream:
+ * it arrives once, every listener sees it, and one guard is enough however many
+ * routers stopped while it was in flight. Never taken back out, because a stream
+ * is destroyed once and so has at most one such error; weak, so a stream nobody
+ * holds is not kept for having failed.
+ */
+const guarded = new WeakSet<object>();
+
+/**
  * Builds the input router.
  *
  * Throws where stdin is not a terminal rather than carrying a router that can
@@ -2058,16 +2069,36 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     }
     satisfied.clear();
 
+    // every handler runs whatever an earlier one threw, and the first throw goes
+    // on once they have: one owner's broken handler must not leave another owner
+    // waiting forever for a key -- and `stop()` calls this as its last step, from
+    // inside somebody's teardown, where a throw that cut the loop short would cut
+    // that teardown short with it
+    let thrown: { error: unknown } | undefined;
     // eslint-disable-next-line unicorn/no-useless-spread
     for (const handler of [...enders]) {
       if (!enders.has(handler)) {
         continue;
       }
-      handler(error);
+      try {
+        handler(error);
+      } catch (caught) {
+        thrown ??= { error: caught };
+      }
+    }
+    if (thrown) {
+      throw thrown.error;
     }
   };
 
   const onStreamEnd = (): void => ended();
+  /**
+   * Whether the stream had already failed when this router attached, so that an
+   * error left on it is history rather than something in flight: `errored` stays
+   * set after the event, and a router that was not listening then never could
+   * have heard it.
+   */
+  const erroredBefore = stdin.errored != null;
   /** Whether the stream's error reached `onStreamError`, which `stop()` asks. */
   let errorDelivered = false;
   const onStreamError = (...args: unknown[]): void => {
@@ -2353,13 +2384,20 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       // below, and the emit itself lands on a guard that takes itself off with
       // it, which is the terminal's `EPIPE` rule: put back what you attached,
       // and not while what it was there for is still in flight
+      //
+      // Only an error this router could have heard: one the stream did not
+      // already carry when it attached. A later router over a stream that failed
+      // before it -- the next app, the next prompt -- reads the same `errored`,
+      // and claiming it re-reported an error that had ended somebody else and
+      // left a guard for an emit that was never coming again
       const failedWith =
-        !errorDelivered && stdin.destroyed === true && stdin.errored != null
+        !erroredBefore && !errorDelivered && stdin.destroyed === true && stdin.errored != null
           ? stdin.errored
           : undefined;
-      if (failedWith !== undefined) {
-        // only on an error not yet heard, so one is coming: a stream emits the
-        // error it was destroyed with exactly once
+      if (failedWith !== undefined && !guarded.has(stdin)) {
+        // one guard per stream, for the one emit: a stream emits the error it was
+        // destroyed with exactly once, and every listener sees it
+        guarded.add(stdin);
         const guard = (): void => void off?.call(stdin, 'error', guard);
         stdin.on?.('error', guard);
       }

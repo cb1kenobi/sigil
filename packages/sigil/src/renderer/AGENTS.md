@@ -894,7 +894,9 @@ it.
   was back, on the way out of a quit it handled. The router owns that guard, under
   "A router stopped over a failed stream" in `src/input`: it tells `onEnd()` from
   inside `stop()`, which `finish()` calls before it reads the code, so the error is
-  reported once and the code is 1 whichever of the two orderings it arrived in. A
+  reported once and the code is 1 whichever of the two orderings it arrived in --
+  and only to the app whose router was listening when stdin failed: the next app
+  over the same dead stdin chooses its own code. A
   signal is the terminal's own restore handlers, as it always
   was; the runner adds none.
 - **The teardown is the renderer, the router, then `restore()`.** The router is the
@@ -903,6 +905,16 @@ it.
   `restore()` is the guarantee: a cursor the app hid itself is one no backend owes
   back. The first two are in the reverse of the order they went up, and that is
   tidiness rather than a dependency; the opposite order changed nothing observable.
+  **Each step runs whatever the one before threw, and `exited` settles whatever any
+  of them threw.** `running` is already false by then, so nothing else could settle
+  it, and the router's `stop()` calls `onEnd()` handlers the app registered: one
+  that threw used to skip `restore()` and leave `exited` pending forever. What a
+  step threw is reported after every step has run, so it reaches a screen that is
+  back, and it does not change the code -- a teardown that throws is the cleanup
+  rule's case, not a failure that ended the app. The settle comes before those
+  reports rather than after, which nobody awaiting it can tell apart, since a
+  continuation runs on a later microtask; and it leaves an `onError` that throws
+  with nothing to stop the settle.
 - **`exit()` runs the teardown on a microtask, and the first code wins.** Called
   from the component's body, a synchronous teardown ran before `render()` had
   finished, so the app reported itself gone while `render()` went on to mount, enter
@@ -992,7 +1004,16 @@ it.
   gone. Caught: the stdin error not flagged, the router not delivering the pending
   error, no guard (an uncaught exception, as well as two failures), the router
   delivering an error it already heard, `failed` reading true after any dispose,
-  `finish()` ignoring `view.failed`, and a probe for an app already going.
+  `finish()` ignoring `view.failed`, and a probe for an app already going. **That
+  pass missed the routers that come after**, and the third review round found it:
+  every test of the guard used the one router that had been listening, so nothing
+  asked what a later router over the same stream did with the `errored` left on
+  it. The fifth, for the third round's three, was six, every one caught: claiming
+  an error the stream carried at attach, a guard per router, `onEnd()` dispatch
+  without a `try`, dispatch that swallowed instead of rethrowing, `finish()` steps
+  not isolated, and `finish()` dropping what a step threw. One line was deleted
+  before the pass rather than by it: taking a stream back out of the guarded set,
+  which a stream destroyed once can never need.
 - **Not done:** capturing `console.log()` while the app owns the screen, which
   writes straight into the alternate buffer today -- `backend.write()` holds a line
   and the debug overlay's `captureConsole()` shows one, and neither is automatic;

@@ -1226,7 +1226,10 @@ describe('Renderer.onDispose()', () => {
       },
       { backend: h.backend, effects, onError: (error) => reports.push(error), terminal: h.terminal }
     );
+    const seen: boolean[] = [];
+    view.onDispose(() => seen.push(view.failed));
     view.dispose();
+    expect(seen).toEqual([false]);
     expect(view.mounted).toBe(false);
     expect(reports).toHaveLength(1);
     // the report looks exactly like a failed frame's from `onError`; this is the
