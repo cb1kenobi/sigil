@@ -1,4 +1,4 @@
-import { TerminalBlock, TerminalRows } from '@/components/terminal-block';
+import { TerminalBlock } from '@/components/terminal-block';
 import { homeRows, type HomeScreenId } from '@/lib/home';
 
 export interface HomeScreenProps {
@@ -52,28 +52,6 @@ export function HomeScreen({
         size={size}
         wrap={wrap}
       />
-    </div>
-  );
-}
-
-/**
- * A screen without a title bar, cut off at the height it is given: the preview
- * on a component card.
- *
- * `aria-hidden`, because the card is a link that already says what it is, and a
- * reader of the screen gets nothing from four lines of a table read out one
- * cell at a time. It is real output, not decoration, so it stays in the page for
- * everyone who can see it.
- */
-export function ScreenPreview({ id }: { id: HomeScreenId }) {
-  const { rows } = homeRows(id);
-
-  return (
-    <div
-      aria-hidden="true"
-      className="h-[124px] overflow-hidden border-b border-line-term bg-terminal px-5 py-4 font-mono text-term-card text-fg-term"
-    >
-      <TerminalRows rows={rows} />
     </div>
   );
 }

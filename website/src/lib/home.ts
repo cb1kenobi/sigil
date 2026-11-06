@@ -13,7 +13,8 @@ import { join } from 'node:path';
  * framework that makes the page untrue fails there. And the samples are read
  * from files -- `src/content/home/` and `src/transcripts/home/` -- which is
  * where a reader looking for the code behind a block expects to find it, and
- * not a string inside JSX.
+ * not a string inside JSX. The component cards are the components index's own
+ * (`component-card.tsx`), so all that is here of them is which six.
  */
 
 /** The hero's lede, which is also the page's description. */
@@ -51,15 +52,9 @@ export const HOME_SCREENS = [
   'agent',
   'cli',
   'completion',
-  'diff',
   'hero',
-  'log',
-  'markdown',
   'parser',
   'rendered',
-  'select',
-  'table',
-  'tasks',
 ] as const;
 
 export type HomeScreenId = (typeof HOME_SCREENS)[number];
@@ -100,65 +95,14 @@ export function homeRows(id: HomeScreenId): { columns: number; rows: Row[] } {
   };
 }
 
-/** One card in the Components section. */
-export interface ComponentCard {
-  readonly description: string;
-  /** What the name is drawn as: the function, called as it is. */
-  readonly name: string;
-  readonly screen: HomeScreenId;
-  /** The component page's address under `/docs/components/`. */
-  readonly slug: string;
-}
-
 /**
- * The six cards. Every name is an export of `@ttylabs/sigil/components` and
- * every preview is that component's real output; `table() · badge()` is one
- * card because the table is what the badge is drawn in.
+ * The components the Components section shows, by slug, in order.
+ *
+ * Only the choice is here: each card's name, description and preview are the
+ * component's own, from `src/lib/components.ts` and its capture, so the home
+ * page and the components index cannot describe one component two ways.
  */
-export const COMPONENT_CARDS: readonly ComponentCard[] = [
-  {
-    description: 'One choice from a list, answered with the arrow keys and Enter.',
-    name: 'select()',
-    screen: 'select',
-    slug: 'select',
-  },
-  {
-    description:
-      'Columns that line up whatever is in them, and badges for a cell that is a status.',
-    name: 'table() · badge()',
-    screen: 'table',
-    slug: 'table',
-  },
-  {
-    description: 'Status lines with a level and key=value fields, written to stderr.',
-    name: 'log',
-    screen: 'log',
-    slug: 'log',
-  },
-  {
-    description: 'A list of work with a spinner on the running step and a window onto its output.',
-    name: 'tasks()',
-    screen: 'tasks',
-    slug: 'tasks',
-  },
-  {
-    description: 'A README or a changelog entry as styled text, with no extra dependency.',
-    name: 'markdown()',
-    screen: 'markdown',
-    slug: 'markdown',
-  },
-  {
-    description: 'A unified or side-by-side diff, with the words that changed in bold.',
-    name: 'diff()',
-    screen: 'diff',
-    slug: 'diff',
-  },
-];
-
-/** The address of a component's page. */
-export function componentHref(slug: string): string {
-  return `/docs/components/${slug}`;
-}
+export const HOME_COMPONENTS = ['select', 'table', 'log', 'tasks', 'markdown', 'diff'] as const;
 
 /**
  * The first Agents card, as the ticket wrote it.

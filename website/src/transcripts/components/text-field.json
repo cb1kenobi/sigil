@@ -1,0 +1,67 @@
+{
+  "api": {
+    "interface": "TextFieldProps",
+    "options": [
+      {
+        "description": "Whether the field refuses input.",
+        "default": "`false`",
+        "name": "disabled",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
+        "description": "What is drawn in place of each column of the value, for a password.",
+        "name": "mask",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Called with the value after every edit that changed it. Not called for a write the app made.",
+        "name": "onChange",
+        "optional": true,
+        "type": "(value: string) => void"
+      },
+      {
+        "description": "Called with the value when Enter is pressed.",
+        "name": "onSubmit",
+        "optional": true,
+        "type": "(value: string) => void"
+      },
+      {
+        "description": "Shown, muted, while the value is empty.",
+        "name": "placeholder",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The host box's own props: a class, a margin, a `flex-grow`. Geometry only, never a colour.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementProps"
+      },
+      {
+        "description": "The value.",
+        "default": "empty",
+        "name": "value",
+        "optional": true,
+        "type": "string | State<string>"
+      },
+      {
+        "description": "How many columns the field takes. Defaults to what the layout gives it -- the whole width in a column, and its own content in a row, where an empty field is one column wide. A field in a row wants this or a `flex-grow`.",
+        "default": "what the layout gives it -- the whole width in a column",
+        "name": "width",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function TextField(props?: TextFieldProps): Element"
+  },
+  "registryDescription": "A text field: one editable line as an element, for a form or a dialog",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "Name \u001b[100mledger\u001b[0m\u001b[100;7m \u001b[0m\u001b[100m                 \u001b[0m"
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "api": {
+    "interface": "ClockOptions",
+    "options": [
+      {
+        "description": "How the time is written. Defaults to `words`.",
+        "default": "`words`",
+        "name": "format",
+        "optional": true,
+        "type": "ClockFormat"
+      },
+      {
+        "description": "Reads the clock, in milliseconds. Defaults to `performance.now()`; a test passes its own.",
+        "default": "`performance.now()`",
+        "name": "now",
+        "optional": true,
+        "type": "() => number"
+      },
+      {
+        "description": "How often a readout is redrawn, in milliseconds. Defaults to 1000.",
+        "default": "1000",
+        "name": "tick",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function timer(duration: number, opts?: ClockOptions): Timer"
+  },
+  "registryDescription": "A stopwatch and a timer: a count as signals, with a readout that ticks only where it can draw",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "Deploying in 00:02"
+    }
+  }
+}

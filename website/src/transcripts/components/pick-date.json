@@ -1,0 +1,104 @@
+{
+  "api": {
+    "interface": "PickDateOptions",
+    "options": [
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Days to mark, as `Date`s. Only the day is read, in local time. A marked day carries a `*` after its number, so it survives a terminal with no colour, and the `sigil-calendar-highlight` role besides.",
+        "name": "highlight",
+        "optional": true,
+        "type": "readonly Date[]"
+      },
+      {
+        "description": "The day the cursor starts on. Defaults to today. One outside `min` and `max` is moved to the nearest bound.",
+        "default": "today",
+        "name": "initial",
+        "optional": true,
+        "type": "Date"
+      },
+      {
+        "description": "The language month and weekday names are written in, as a BCP 47 tag. Defaults to the locale the app's catalog resolved, else the system's.",
+        "default": "the locale the app's catalog resolved",
+        "name": "locale",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The latest day that can be picked, inclusive.",
+        "name": "max",
+        "optional": true,
+        "type": "Date"
+      },
+      {
+        "description": "The earliest day that can be picked, inclusive.",
+        "name": "min",
+        "optional": true,
+        "type": "Date"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "An answer to start from: the day the cursor starts on, beating `initial` and pulled into `min` and `max` the same way. One that is not a valid date is dropped rather than refused.",
+        "name": "value",
+        "optional": true,
+        "type": "Date"
+      },
+      {
+        "description": "The weekday a row starts on: 0 is Sunday, 1 is Monday, up to 6. Defaults to what the locale says, and to Sunday where the runtime cannot say.",
+        "default": "what the locale says",
+        "name": "weekStart",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function pickDate(opts: PickDateOptions): Promise<Date>"
+  },
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mWhich day?\u001b[0m 2026-11-12\n         \u001b[1mNovember 2026\u001b[0m\n  \u001b[2m Su\u001b[0m \u001b[2m Mo\u001b[0m \u001b[2m Tu\u001b[0m \u001b[2m We\u001b[0m \u001b[2m Th\u001b[0m \u001b[2m Fr\u001b[0m \u001b[2m Sa\u001b[0m\n    1   2   3   4   5   6   7\n    8   9  10  11 \u001b[7m[12]\u001b[0m 13  14\n   15  16  17  18  19  20  21\n   22  23  24  25  26  27  28\n   29  30"
+    }
+  }
+}

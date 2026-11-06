@@ -1,0 +1,23 @@
+{
+  "api": {
+    "interface": "BadgeOptions",
+    "options": [
+      {
+        "description": "Which role colours the badge. Defaults to `neutral`, which is no role at all -- the terminal's own foreground, inverted.",
+        "default": "`neutral`",
+        "name": "variant",
+        "optional": true,
+        "type": "BadgeVariant"
+      }
+    ],
+    "shared": [],
+    "signature": "function badge(label: string, opts?: BadgeOptions): string"
+  },
+  "registryDescription": "A short status label: PASS, FAIL or beta, in a state role colour, usable as a table cell",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[7;32m PASS \u001b[0m \u001b[7;31m FAIL \u001b[0m \u001b[7;33m beta \u001b[0m \u001b[7m v2.0.0 \u001b[0m"
+    }
+  }
+}

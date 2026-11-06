@@ -1,0 +1,42 @@
+{
+  "api": {
+    "interface": "TaskLogOptions",
+    "options": [
+      {
+        "description": "What the work is, shown above the output.",
+        "name": "title",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "How many lines of output are shown at once. Defaults to 6.",
+        "default": "6",
+        "name": "limit",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "How many lines are kept for a failure to show. Defaults to 1000.",
+        "default": "1000",
+        "name": "retain",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function taskLog(opts: TaskLogOptions): TaskLog"
+  },
+  "registryDescription": "tasks() and taskLog(): a list of work under spinners, and a subprocess's output in a window",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "npm test\n  \u001b[2mparser: 212 passed\u001b[0m\n  \u001b[2mrenderer: 96 passed\u001b[0m\n  \u001b[2mprompts: running\u001b[0m"
+    }
+  }
+}

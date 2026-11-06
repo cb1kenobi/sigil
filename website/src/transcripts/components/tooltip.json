@@ -1,0 +1,69 @@
+{
+  "api": {
+    "interface": "TooltipOptions",
+    "options": [
+      {
+        "description": "The router hover and focus come from.",
+        "name": "input",
+        "optional": false,
+        "type": "InputRouter"
+      },
+      {
+        "description": "What it says. Wraps at `maxWidth`.",
+        "name": "text",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Draw the border with ASCII only. Defaults to what `unicodeSupported()` says, which is the rule `note()` and the modal keep.",
+        "default": "what `unicodeSupported()` says",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "How long the anchor has to be hovered or focused before the bubble shows, in milliseconds. Defaults to 500.",
+        "default": "500",
+        "name": "delay",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The widest the bubble may be, border included, in cells. Defaults to 40.",
+        "default": "40",
+        "name": "maxWidth",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The bubble's own props: a class. Geometry is the tooltip's, and is overwritten.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementProps"
+      },
+      {
+        "description": "Whether `--quiet` hides it. Defaults to following the process-wide request.",
+        "default": "following the process-wide request",
+        "name": "quiet",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The side it goes on when there is room. Defaults to `bottom`.",
+        "default": "`bottom`",
+        "name": "side",
+        "optional": true,
+        "type": "TooltipSide"
+      }
+    ],
+    "shared": [],
+    "signature": "function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHandle"
+  },
+  "registryDescription": "A tooltip: text anchored to an element, shown on hover or focus, flipped to stay on screen",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[7m Deploy\u001b[0m\n╭──────────────────────────────────╮\n│ Ships the main branch to staging │\n╰──────────────────────────────────╯"
+    }
+  }
+}

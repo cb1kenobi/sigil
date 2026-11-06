@@ -1,0 +1,43 @@
+{
+  "api": {
+    "interface": "TableOptions",
+    "options": [
+      {
+        "description": "The columns. Inferred from the first row's keys when not given.",
+        "name": "columns",
+        "optional": true,
+        "type": "(Column | string)[]"
+      },
+      {
+        "description": "The columns between one column and the next. Defaults to 2.",
+        "default": "2",
+        "name": "gap",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Whether to print the header row. Defaults to true when any column has one.",
+        "default": "true when any column has one",
+        "name": "head",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "How far the whole table is indented. Defaults to 0.",
+        "default": "0",
+        "name": "indent",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function table(rows: readonly TableRow[], opts?: TableOptions): string"
+  },
+  "registryDescription": "A table with measured column widths, alignment and truncation",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[1msuite     status   time\u001b[0m\nparser    \u001b[7;32m PASS \u001b[0m  412ms\nprompts   \u001b[7;32m PASS \u001b[0m  388ms\nrenderer  \u001b[7;31m FAIL \u001b[0m  1.20s"
+    }
+  }
+}

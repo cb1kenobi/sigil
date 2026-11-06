@@ -1,0 +1,71 @@
+{
+  "api": {
+    "interface": "PageIndicatorOptions",
+    "options": [
+      {
+        "description": "The dot for the current page. Defaults to `●`, or `*` where `ascii` is on.",
+        "default": "`●`",
+        "name": "active",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Draw with ASCII only. Defaults to what `unicodeSupported()` says of `env` and `platform`, since the default dots are not safe where box drawing is not.",
+        "default": "what `unicodeSupported()` says of `env` and `platform`",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The environment to read the terminal from. Defaults to `process.env`.",
+        "default": "`process.env`",
+        "name": "env",
+        "optional": true,
+        "type": "Record<string, string | undefined>"
+      },
+      {
+        "description": "How the numeric form is written, given the page **counting from one** and how many there are. Defaults to `2/5`, which is not prose and so is not in the catalog; this is where `Page 2 of 5` in another language goes.",
+        "default": "`2/5`",
+        "name": "format",
+        "optional": true,
+        "type": "(page: number, pages: number) => string"
+      },
+      {
+        "description": "The dot for every other page. Defaults to `○`, or `.` where `ascii` is on.",
+        "default": "`○`",
+        "name": "inactive",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The most pages that are drawn as dots. Defaults to 10.",
+        "default": "10",
+        "name": "maxDots",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The platform to detect for. Defaults to `process.platform`.",
+        "default": "`process.platform`",
+        "name": "platform",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Defaults to `dots`.",
+        "default": "`dots`",
+        "name": "style",
+        "optional": true,
+        "type": "PageIndicatorStyle"
+      }
+    ],
+    "shared": [],
+    "signature": "function pageIndicator(page: number, pages: number, opts?: PageIndicatorOptions): string"
+  },
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "result-6.log  result-7.log  result-8.log  result-9.log  result-10.log\n\u001b[2m○ \u001b[0m\u001b[36m● \u001b[0m\u001b[2m○ ○ ○ \u001b[0m2/5"
+    }
+  }
+}

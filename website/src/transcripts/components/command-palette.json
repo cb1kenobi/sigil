@@ -1,0 +1,75 @@
+{
+  "api": {
+    "interface": "PaletteOptions",
+    "options": [
+      {
+        "description": "The environment, when the target does not carry one.",
+        "name": "env",
+        "optional": true,
+        "type": "Record<string, string | undefined>"
+      },
+      {
+        "description": "What is being asked. Defaults to `Run a command`.",
+        "default": "`Run a command`",
+        "name": "message",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Whether to list a command that holds other commands and has no `run` of its own. Defaults to `false`.",
+        "default": "`false`",
+        "name": "namespaces",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether to ask for the values the chosen command needs. Defaults to `true`.",
+        "default": "`true`",
+        "name": "prompt",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "How many rows the list may take. Defaults to what the terminal has left under the question.",
+        "default": "what the terminal has left under the question",
+        "name": "rows",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function commandPalette(target: CatalogTarget, opts?: PaletteOptions): Promise<PaletteResult | undefined>"
+  },
+  "registryDescription": "A command palette generated from the command registry, answering with an argv",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mRun a command\u001b[0m dep\u001b[7m \u001b[0m\n  \u001b[36m❯\u001b[0m \u001b[1;36mdep\u001b[0m\u001b[36mloy\u001b[0m  \u001b[2;36mShip it to an environment\u001b[0m"
+    }
+  }
+}

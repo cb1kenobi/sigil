@@ -1,0 +1,60 @@
+{
+  "api": {
+    "interface": "ScrollBoxProps",
+    "options": [
+      {
+        "description": "Which axes scroll. Defaults to `vertical`.",
+        "default": "`vertical`",
+        "name": "axis",
+        "optional": true,
+        "type": "ScrollAxis"
+      },
+      {
+        "description": "The content. Built once, like any component's children.",
+        "name": "children",
+        "optional": true,
+        "type": "() => Element"
+      },
+      {
+        "description": "Called when a layout gave the viewport a size it had not been told about, **after** a windowed list has re-windowed for it.",
+        "name": "onResize",
+        "optional": true,
+        "type": "(control: ScrollControl) => boolean"
+      },
+      {
+        "description": "Called when the offset moved, **after** a windowed list has re-windowed for it.",
+        "name": "onScroll",
+        "optional": true,
+        "type": "(control: ScrollControl) => void"
+      },
+      {
+        "description": "The host box's own props: the height it is given, a border, a class.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementProps"
+      },
+      {
+        "description": "A windowed list in place of `children`: only the visible rows are built.",
+        "name": "rows",
+        "optional": true,
+        "type": "ScrollRows"
+      },
+      {
+        "description": "Whether to draw a scrollbar at all. Defaults to `true`.",
+        "default": "`true`",
+        "name": "scrollbar",
+        "optional": true,
+        "type": "boolean"
+      }
+    ],
+    "shared": [],
+    "signature": "function ScrollBox(props: ScrollBoxProps): Element"
+  },
+  "registryDescription": "A scrolling viewport with a scrollbar, keyboard, wheel and a draggable thumb",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "line 8: compiled src/module-8.ts                                               \u001b[90m│\u001b[0m\nline 9: compiled src/module-9.ts                                               \u001b[36m█\u001b[0m\nline 10: compiled src/module-10.ts                                             \u001b[90m│\u001b[0m\nline 11: compiled src/module-11.ts                                             \u001b[90m│\u001b[0m\nline 12: compiled src/module-12.ts                                             \u001b[90m│\u001b[0m\nline 13: compiled src/module-13.ts                                             \u001b[90m│\u001b[0m\nline 14: compiled src/module-14.ts                                             \u001b[90m│\u001b[0m\nline 15: compiled src/module-15.ts                                             \u001b[90m│\u001b[0m"
+    }
+  }
+}

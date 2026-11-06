@@ -87,6 +87,16 @@ node scripts/capture-transcripts.ts
 That needs `@ttylabs/sigil` built, and so does this site's build, which now
 depends on it -- turbo builds it first.
 
+The same command captures the components pages. Each component has an example
+in `src/content/components/<slug>.mjs`, ordinary app code that the page shows as
+its source; `scripts/lib/run-example.mjs` runs it on a faked terminal with a fake
+clock, so the frame it keeps is the same on every machine, and the result goes
+to `src/transcripts/components/` with the options read off the built
+declarations. `test/component-captures.test.ts` fails when one has gone stale.
+The list of components is `src/lib/components.ts`, and
+`test/components.test.ts` fails on an export of `@ttylabs/sigil/components`
+that is neither a component there nor a helper with a reason.
+
 ## Metadata, sitemap and robots.txt
 
 `src/lib/site.ts` is where the site's name, its production URL (`SITE_URL`),

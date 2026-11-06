@@ -24,54 +24,6 @@
         }
       ]
     },
-    "select": {
-      "columns": 56,
-      "runs": [
-        {
-          "output": "\u001b[36m?\u001b[0m \u001b[1mTemplate\u001b[0m\n  cli\n\u001b[36m❯\u001b[0m \u001b[36mfull-screen\u001b[0m\n  prompts only"
-        }
-      ]
-    },
-    "table": {
-      "columns": 56,
-      "runs": [
-        {
-          "output": "\u001b[1msuite     status   time\u001b[0m\nparser    \u001b[7;32m PASS \u001b[27;39m  412ms\nprompts   \u001b[7;32m PASS \u001b[27;39m  388ms\nrenderer  \u001b[7;31m FAIL \u001b[27;39m  1.20s"
-        }
-      ]
-    },
-    "log": {
-      "columns": 56,
-      "runs": [
-        {
-          "output": "\u001b[34mℹ \u001b[0mdeployed \u001b[2mhost=a ms=412\u001b[0m\n\u001b[32m✔ \u001b[0mmigrations applied\n\u001b[33m⚠ \u001b[0mcache is 3 days old\n\u001b[31m✖ \u001b[0meu-west-1 timed out"
-        }
-      ]
-    },
-    "tasks": {
-      "columns": 56,
-      "runs": [
-        {
-          "output": "\u001b[32m✔ \u001b[0mResolved 12 packages\n\u001b[32m✔ \u001b[0mBuilt 10 modules\n\u001b[36m⠋\u001b[0m Upload assets"
-        }
-      ]
-    },
-    "markdown": {
-      "columns": 56,
-      "runs": [
-        {
-          "output": "\u001b[1mUnreleased\u001b[0m\n\n\u001b[2m• \u001b[22mTooltips follow a scrolled anchor\n\u001b[2m• \u001b[22;36mselect() \u001b[39mtakes an AbortSignal"
-        }
-      ]
-    },
-    "diff": {
-      "columns": 56,
-      "runs": [
-        {
-          "output": "\u001b[34m@@ -1,2 +1,2 @@\u001b[0m\n\u001b[2m1   \u001b[22;31m-const retries = \u001b[1m3\u001b[22m;\u001b[0m\n  \u001b[2m1 \u001b[22;32m+const retries = \u001b[1m5\u001b[22m;\u001b[0m\n\u001b[2m2 2  run(env);\u001b[0m"
-        }
-      ]
-    },
     "parser": {
       "columns": 80,
       "runs": [

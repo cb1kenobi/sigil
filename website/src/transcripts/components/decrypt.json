@@ -1,0 +1,88 @@
+{
+  "api": {
+    "interface": "DecryptOptions",
+    "options": [
+      {
+        "description": "The glyphs to hide a cell with. `CP437` by default.",
+        "name": "alphabet",
+        "optional": true,
+        "type": "MaskAlphabet"
+      },
+      {
+        "description": "Whether the driving timer keeps the process alive. False by default.",
+        "name": "hold",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "How often a hidden cell redraws while jumbling. Defaults to 35ms.",
+        "default": "35ms",
+        "name": "interval",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "How long the jumble lasts before anything resolves. Defaults to 2000ms.",
+        "default": "2000ms",
+        "name": "jumble",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "What time it is. Defaults to `Date.now`.",
+        "default": "`Date.now`",
+        "name": "now",
+        "optional": true,
+        "type": "() => number"
+      },
+      {
+        "description": "Randomness in `[0, 1)`. Defaults to `Math.random`.",
+        "default": "`Math.random`",
+        "name": "random",
+        "optional": true,
+        "type": "Random"
+      },
+      {
+        "description": "How long the resolutions are spread over. Defaults to 5000ms.",
+        "default": "5000ms",
+        "name": "reveal",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "How often a hidden cell redraws once cells are resolving. Defaults to 50ms.",
+        "default": "50ms",
+        "name": "revealInterval",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Aborts the animation, which erases and resolves.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "What to decrypt.",
+        "name": "text",
+        "optional": true,
+        "type": "string"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function decrypt(text: string, opts?: DecryptOptions): Promise<void>"
+  },
+  "registryDescription": "A decrypt effect: text that jumbles and then resolves into itself",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "Se\u001b[2m╜Φ^\u001b[0m \u001b[2mΣ╪σ√\u001b[0mo\u001b[2m┤°\u001b[0mm\u001b[2m╫╗\u001b[0m \u001b[2m@≤╚\u001b[0m \u001b[2m▌?ⁿ▀\u001b[0m \u001b[2mε÷Ω≈\u001b[0me\u001b[2m*\u001b[0ms"
+    }
+  }
+}

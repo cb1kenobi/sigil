@@ -21,7 +21,8 @@
     "**/dist/**",
     "**/test/parser/fixtures/**",
     "packages/cli/command-surface.json",
-    "website/src/reference/**"
+    "website/src/reference/**",
+    "website/src/transcripts/components/**"
   ],
   "insertFinalNewline": true,
   "objectWrap": "preserve",

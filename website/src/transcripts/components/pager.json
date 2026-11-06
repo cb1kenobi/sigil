@@ -1,0 +1,78 @@
+{
+  "api": {
+    "interface": "PageOptions",
+    "options": [
+      {
+        "description": "Milliseconds between frames. Defaults to the renderer's thirty a second.",
+        "default": "the renderer's thirty a second",
+        "name": "frameMs",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Number each line in a gutter on the left. Defaults to `false`.",
+        "default": "`false`",
+        "name": "lineNumbers",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Track the mouse, so the wheel scrolls and the thumb drags. Defaults to `false`.",
+        "default": "`false`",
+        "name": "mouse",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The host's own props: the height it is given, a border, a class.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementProps"
+      },
+      {
+        "description": "Whether to draw a scrollbar. Defaults to `true`.",
+        "default": "`true`",
+        "name": "scrollbar",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "How a query is read. Defaults to `'literal'`.",
+        "default": "`'literal'`",
+        "name": "search",
+        "optional": true,
+        "type": "PagerSearchMode"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "The terminal to take over. Defaults to the process's.",
+        "default": "the process's",
+        "name": "terminal",
+        "optional": true,
+        "type": "Terminal"
+      },
+      {
+        "description": "Fold a line wider than the window onto the rows below it. Defaults to `true`.",
+        "default": "`true`",
+        "name": "wrap",
+        "optional": true,
+        "type": "boolean"
+      }
+    ],
+    "shared": [],
+    "signature": "function page(content: string | readonly string[], opts?: PageOptions): Promise<void>"
+  },
+  "registryDescription": "A pager over a scroll box: less keys, line numbers, and / search with highlighted matches",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[2m 23 \u001b[0m- Changed entry 100                                                        \u001b[90m│\u001b[0m\n\u001b[2m 24 \u001b[0m- Fixed entry 99                                                           \u001b[90m│\u001b[0m\n\u001b[2m 25 \u001b[0m- Added entry 98                                                           \u001b[90m│\u001b[0m\n\u001b[2m 26 \u001b[0m- Changed entry 97                                                         \u001b[90m│\u001b[0m\n\u001b[2m 27 \u001b[0m- Fixed entry 96                                                           \u001b[90m│\u001b[0m\n\u001b[2m 28 \u001b[0m- Added entry 95                                                           \u001b[36m█\u001b[0m\n\u001b[2m 29 \u001b[0m- Changed entry 94                                                         \u001b[36m█\u001b[0m\n\u001b[2m 30 \u001b[0m- Fixed entry 93                                                           \u001b[36m█\u001b[0m\n\u001b[2m 31 \u001b[0m- Added entry 92                                                           \u001b[36m█\u001b[0m\n\u001b[2m 32 \u001b[0m- Changed entry 91                                                         \u001b[90m│\u001b[0m\n\u001b[2m 33 \u001b[0m- Fixed entry 90                                                           \u001b[90m│\u001b[0m\n\u001b[2m 34 \u001b[0m- Added entry 89                                                           \u001b[90m│\u001b[0m\n\u001b[2m 35 \u001b[0m- Changed entry 88                                                         \u001b[90m│\u001b[0m\n\u001b[2m 36 \u001b[0m- Fixed entry 87                                                           \u001b[90m│\u001b[0m\n\u001b[2m 37 \u001b[0m- Added entry 86                                                           \u001b[90m│\u001b[0m\n\u001b[2m 38 \u001b[0m- Changed entry 85                                                         \u001b[90m│\u001b[0m\n\u001b[2m 39 \u001b[0m- Fixed entry 84                                                           \u001b[90m│\u001b[0m\n\u001b[2m 40 \u001b[0m- Added entry 83                                                           \u001b[90m│\u001b[0m\n\u001b[2m 41 \u001b[0m- Changed entry 82                                                         \u001b[90m│\u001b[0m\n\u001b[2m 42 \u001b[0m- Fixed entry 81                                                           \u001b[90m│\u001b[0m\n\u001b[2m 43 \u001b[0m- Added entry 80                                                           \u001b[90m│\u001b[0m\n\u001b[2m 44 \u001b[0m- Changed entry 79                                                         \u001b[90m│\u001b[0m\n\u001b[2m 45 \u001b[0m- Fixed entry 78                                                           \u001b[90m│\u001b[0m\n                                                                             \u001b[2m37%\u001b[0m"
+    }
+  }
+}

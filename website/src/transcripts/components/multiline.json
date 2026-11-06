@@ -1,0 +1,120 @@
+{
+  "api": {
+    "interface": "MultilineOptions",
+    "options": [
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The most characters the answer may hold, counted as what the caret steps over -- grapheme clusters, with a line break as one. Typing at the limit inserts nothing, a paste is cut to what fits, and a count under the field says how many are left. A whole number of at least one.",
+        "name": "charLimit",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "A mark drawn at the start of every row of the field, after the line number when there is one -- `'│ '` or `'> '`. Drawn muted, and never part of the value.",
+        "name": "gutter",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Says which stretches of the value are which tokens, for syntax highlighting. Called with the whole value whenever it changes and never when only the caret moved. Spans are clipped to the value; where two cover one character the later one wins.",
+        "name": "highlight",
+        "optional": true,
+        "type": "(value: string) => readonly HighlightSpan[]"
+      },
+      {
+        "description": "What the field starts with, which the person can then edit.",
+        "name": "initial",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Numbers each line of the value down the left of the field. A line soft wrapped over several rows is numbered on its first, and the caret's line is drawn in the ordinary foreground while the rest are muted.",
+        "name": "lineNumbers",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Shown dimmed when nothing has been typed.",
+        "name": "placeholder",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "The most rows the field takes before it scrolls. Ten by default, and capped by what the terminal has left under the question.",
+        "name": "rows",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "What submits the answer. Ctrl-D by default.",
+        "name": "submit",
+        "optional": true,
+        "type": "SubmitKey"
+      },
+      {
+        "description": "Checks the answer. Return a string to reject it with that message, or anything falsy to accept.",
+        "name": "validate",
+        "optional": true,
+        "type": "(value: string) => string | undefined | false | Promise<string | undefined | false>"
+      },
+      {
+        "description": "An answer to start from: the field opens holding it, editable, as it does `initial`. Beats `initial`, and is dropped for it when it holds more than `charLimit` allows.",
+        "name": "value",
+        "optional": true,
+        "type": "string"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function multiline(opts: MultilineOptions): Promise<string>"
+  },
+  "registryDescription": "The six prompts: text, multiline, password, confirm, select and multiselect",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mCommit message\u001b[0m\n  Sort help by code unit\n  so it is stable\u001b[7m \u001b[0m\n  \u001b[36mctrl-d\u001b[0m \u001b[2msubmit\u001b[0m"
+    }
+  }
+}

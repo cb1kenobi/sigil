@@ -1,0 +1,124 @@
+{
+  "api": {
+    "interface": "AutocompleteMultiselectOptions",
+    "options": [
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "What to offer, filtered by what is typed. Give this or `source`, not both. A choice marked `disabled` is left out, and a list of nothing else is refused the way an empty one is.",
+        "name": "choices",
+        "optional": true,
+        "type": "readonly (Choice<T> | string)[]"
+      },
+      {
+        "description": "The text the field starts with. Defaults to nothing.",
+        "default": "nothing",
+        "name": "initial",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Refuse more than this many. Unlimited if omitted.",
+        "name": "max",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Refuse fewer than this many. Defaults to 0, or 1 when `required`.",
+        "default": "0",
+        "name": "min",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Shown dimmed when nothing has been typed.",
+        "name": "placeholder",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Refuse an empty selection. Defaults to `false`. Same as `min: 1`.",
+        "default": "`false`",
+        "name": "required",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "How many rows the list may take. Defaults to what the terminal has left under the question.",
+        "default": "what the terminal has left under the question",
+        "name": "rows",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Looks the choices up instead of filtering a list. The result is shown as it is: the source is the filter, so nothing is re-ranked here.",
+        "name": "source",
+        "optional": true,
+        "type": "AutocompleteSource<T>"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "Checks the chosen values, in the order they will be returned. Return a string to refuse them with that message, or anything falsy to accept.",
+        "name": "validate",
+        "optional": true,
+        "type": "(values: T[]) => string | undefined | false | Promise<string | undefined | false>"
+      },
+      {
+        "description": "An answer to start from: these values start ticked, and every `selected` is ignored. From `choices`, a value no choice holds is dropped. From a source, which has no list to check against until it is asked, each is ticked as it is -- shown by its own `String()` until the source hands back the choice that holds it, which then takes its place.",
+        "name": "value",
+        "optional": true,
+        "type": "readonly T[]"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function autocompleteMultiselect<T = string>(opts: AutocompleteMultiselectOptions<T>): Promise<T[]>"
+  },
+  "registryDescription": "autocomplete() and autocompleteMultiselect(): type to filter a list, or search an async source",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mPackages\u001b[0m re\u001b[7m \u001b[0m\n    \u001b[32m◉\u001b[0m \u001b[1mre\u001b[0mact\n  \u001b[36m❯\u001b[0m \u001b[32m◉\u001b[0m \u001b[1;36mre\u001b[0m\u001b[36mdux\u001b[0m\n    ◯ \u001b[1mre\u001b[0mact-dom\n    ◯ exp\u001b[1mre\u001b[0mss\n  \u001b[2mSelected: 2\u001b[0m\n  \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36menter\u001b[0m \u001b[2mconfirm\u001b[0m"
+    }
+  }
+}

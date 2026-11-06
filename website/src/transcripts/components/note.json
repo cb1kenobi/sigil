@@ -1,0 +1,71 @@
+{
+  "api": {
+    "interface": "NoteOptions",
+    "options": [
+      {
+        "description": "The border's character set. Defaults to `round`, or `ascii` where `unicodeSupported()` says the terminal cannot be trusted with box drawing.",
+        "default": "`round`",
+        "name": "border",
+        "optional": true,
+        "type": "NoteBorder"
+      },
+      {
+        "description": "The environment to read the terminal from. Defaults to `process.env`.",
+        "default": "`process.env`",
+        "name": "env",
+        "optional": true,
+        "type": "Record<string, string | undefined>"
+      },
+      {
+        "description": "How far the whole block is indented. Defaults to 0.",
+        "default": "0",
+        "name": "indent",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The platform to detect for. Defaults to `process.platform`.",
+        "default": "`process.platform`",
+        "name": "platform",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "A heading set into the top border.",
+        "name": "title",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Where the title sits. Defaults to `left`.",
+        "default": "`left`",
+        "name": "titleAlign",
+        "optional": true,
+        "type": "NoteTitleAlign"
+      },
+      {
+        "description": "Which role colours the border, the title and the message. Defaults to `note`, which is no role at all -- the terminal's own foreground.",
+        "default": "`note`",
+        "name": "variant",
+        "optional": true,
+        "type": "NoteVariant"
+      },
+      {
+        "description": "The widest the block may be, and never under 5. Defaults to `terminalWidth()`.",
+        "default": "`terminalWidth()`",
+        "name": "width",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function note(message: string, opts?: NoteOptions): string"
+  },
+  "registryDescription": "A titled, bordered block that shrinks to its message, in a state role colour",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[34m╭─ \u001b[0m\u001b[34;1mBefore you start \u001b[0m\u001b[34m──────────────────────────────────╮\u001b[0m\n\u001b[34m│ Run `pnpm build` before the tests: they read dist/. │\u001b[0m\n\u001b[34m╰─────────────────────────────────────────────────────╯\u001b[0m"
+    }
+  }
+}

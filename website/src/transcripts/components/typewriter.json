@@ -1,0 +1,53 @@
+{
+  "api": {
+    "interface": "TypewriterOptions",
+    "options": [
+      {
+        "description": "How to cut the text. Graphemes by default.",
+        "name": "chunk",
+        "optional": true,
+        "type": "Chunker"
+      },
+      {
+        "description": "What to draw at the write head. Nothing by default.",
+        "name": "cursor",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The flat delay, in milliseconds. Defaults to 40.",
+        "default": "40",
+        "name": "interval",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "How long each chunk is held before the next. A flat `interval` by default.",
+        "name": "pace",
+        "optional": true,
+        "type": "Pace"
+      },
+      {
+        "description": "What to type.",
+        "name": "text",
+        "optional": true,
+        "type": "string"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function createTypewriter(opts?: TypewriterOptions): Typewriter"
+  },
+  "registryDescription": "A typewriter that reveals text a grapheme, word or line at a time",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "Resolving depend█"
+    }
+  }
+}

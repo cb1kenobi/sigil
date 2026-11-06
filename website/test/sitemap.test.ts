@@ -25,8 +25,9 @@ describe('the sitemap', () => {
     assert.equal(new Set(urls).size, urls.length);
   });
 
-  it('should list the home page and the reference index', () => {
+  it('should list the home page, the components index and the reference index', () => {
     assert.equal(urls.includes(SITE_URL), true);
+    assert.equal(urls.includes(`${SITE_URL}/docs/components`), true);
     assert.equal(urls.includes(`${SITE_URL}/reference`), true);
   });
 
@@ -41,7 +42,10 @@ describe('the sitemap', () => {
   });
 
   it('should list exactly the guides the site renders, each at its own address', () => {
-    const listed = urls.filter((url) => url.startsWith(`${SITE_URL}/docs`)).toSorted();
+    const listed = urls
+      .filter((url) => url.startsWith(`${SITE_URL}/docs/`))
+      .filter((url) => !url.startsWith(`${SITE_URL}/docs/components`))
+      .toSorted();
     const wanted = guides()
       .map((guide) => `${SITE_URL}/docs/${guide.slug}`)
       .toSorted();

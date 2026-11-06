@@ -1,0 +1,95 @@
+{
+  "api": {
+    "interface": "ToastOptions",
+    "options": [
+      {
+        "description": "What is said. Wraps to the toast's width; escape sequences are dropped.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Draw the border with ASCII only. Defaults to what `unicodeSupported()` says, which is the rule `note()` and the modal keep.",
+        "default": "what `unicodeSupported()` says",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "How many toasts the corner holds at once, counting this one. Defaults to 3.",
+        "default": "3",
+        "name": "max",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Called once, when it goes, with why.",
+        "name": "onClose",
+        "optional": true,
+        "type": "(reason: ToastCloseReason) => void"
+      },
+      {
+        "description": "Which corner. Defaults to `bottom-right`.",
+        "default": "`bottom-right`",
+        "name": "position",
+        "optional": true,
+        "type": "ToastPosition"
+      },
+      {
+        "description": "The toast's own props: a margin, a class. Geometry only, never a colour.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementProps"
+      },
+      {
+        "description": "Whether this toast is progress rather than the answer -- `MountOptions.quiet`.",
+        "name": "quiet",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The terminal `--quiet` and the screen are read against. Defaults to the process's.",
+        "default": "the process's",
+        "name": "terminal",
+        "optional": true,
+        "type": "Terminal"
+      },
+      {
+        "description": "How long it stays, in milliseconds. Defaults to 4000.",
+        "default": "4000",
+        "name": "timeout",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "A heading above the message.",
+        "name": "title",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Which role colours it -- the border, the title and the message. Defaults to `note`, which is no role at all: the terminal's own foreground.",
+        "default": "`note`",
+        "name": "variant",
+        "optional": true,
+        "type": "NoteVariant"
+      },
+      {
+        "description": "How wide it is, in cells. It never exceeds the screen. Defaults to 32.",
+        "default": "32",
+        "name": "width",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function showToast(host: ToastHost, opts: ToastOptions): ToastHandle"
+  },
+  "registryDescription": "A toast: a timed message in a corner of the screen that stacks, never takes the focus, and stays out of --quiet",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "Editing config.json                             \u001b[32m╭──────────────────────────────╮\u001b[0m\n                                                \u001b[32m│ \u001b[0m\u001b[32;1mSaved\u001b[0m\u001b[32m                        │\u001b[0m\n                                                \u001b[32m│ config.json is written       │\u001b[0m\n                                                \u001b[32m╰──────────────────────────────╯\u001b[0m"
+    }
+  }
+}

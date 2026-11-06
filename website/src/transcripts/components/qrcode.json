@@ -1,0 +1,65 @@
+{
+  "api": {
+    "interface": "QrcodeOptions",
+    "options": [
+      {
+        "description": "How much error correction, L through H. Defaults to `M`.",
+        "default": "`M`",
+        "name": "ecc",
+        "optional": true,
+        "type": "QrEcc"
+      },
+      {
+        "description": "How many cells a module gets. Defaults to `compact`.",
+        "default": "`compact`",
+        "name": "form",
+        "optional": true,
+        "type": "QrForm"
+      },
+      {
+        "description": "Whether the light modules are the drawn ones rather than the dark.",
+        "default": "false",
+        "name": "invert",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Which of the eight data masks to use. Defaults to the lowest-penalty one.",
+        "default": "the lowest-penalty one",
+        "name": "mask",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Whether to paint the code's own two colours rather than borrow the terminal's. Defaults to false.",
+        "default": "false",
+        "name": "paint",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "How many light modules on every side. Defaults to one.",
+        "default": "one",
+        "name": "quietZone",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The smallest version to use, 1 to 40. Defaults to 1.",
+        "default": "1",
+        "name": "version",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function qrcode(value: string, opts?: QrcodeOptions): string"
+  },
+  "registryDescription": "A QR code, encoded here and drawn in half blocks or in full cells",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄\n█ ▄▄▄▄▄ █▀▀█  ▄▀▀ ▄▄ ▀█ ▄▄▄▄▄ █\n█ █   █ ███ ▄▄  ▀▄█▀▀ █ █   █ █\n█ █▄▄▄█ █▄█▀█▀▀▄██▀  ▄█ █▄▄▄█ █\n█▄▄▄▄▄▄▄█▄█▄▀ ▀ █ ▀ █▄█▄▄▄▄▄▄▄█\n█▄▀▄█▄▀▄▀█ █▀ █  ▄▄██ █▀█▄▀█▄▀█\n█▀  ▄██▄▀▀▀ ▀█▄█▀  ███▄▄▀ █▄ ▄█\n█   █▄▄▄█▄ ▄█▀▀█▄ ▄██   ██ █▄ █\n█ ▀█▀ █▄█ ▄▀▄█▀ ▀█ ▀█▀▀ █▄ █ ▄█\n██▀ █▀█▄██ ▀▄▄█ ▄  █▄▄▀ ▄█ ▀▄ █\n█▄▀▀██▀▄▀███ ▀▄██▀ ▄▀▀ ▀  ▀█ ▄█\n█▄██▄█▄▄█ ▀█  ▀██ ▄█  ▄▄▄ █▀▀▀█\n█ ▄▄▄▄▄ ██▀▄█▄▀ ▀█▀ ▄ █▄█  █  █\n█ █   █ █▄▄  ▀█ ▄ ▄▄█ ▄▄  █▀▀ █\n█ █▄▄▄█ █▄ ▄▄▀ ███ ▀ ▀▀█▄ ▄█▀▄█\n█▄▄▄▄▄▄▄█▄▄█▄█▄███▄█▄▄▄█▄▄██▄▄█"
+    }
+  }
+}

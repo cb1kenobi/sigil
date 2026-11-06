@@ -1,0 +1,64 @@
+{
+  "api": {
+    "interface": "OutlineOptions",
+    "options": [
+      {
+        "description": "Draw the bullets with ASCII only. Defaults to what `unicodeSupported()` says of `env` and `platform`.",
+        "default": "what `unicodeSupported()` says of `env` and `platform`",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The marker for each item. One value is used at every depth; an array is read by depth and cycles, so `['arabic', 'alpha', 'roman']` is the outline of a legal document and `['bullet', 'dash']` is the default.",
+        "name": "enumerator",
+        "optional": true,
+        "type": "OutlineEnumerator | readonly OutlineEnumerator[]"
+      },
+      {
+        "description": "The environment to read the terminal from. Defaults to `process.env`.",
+        "default": "`process.env`",
+        "name": "env",
+        "optional": true,
+        "type": "Record<string, string | undefined>"
+      },
+      {
+        "description": "How far the whole block is indented. Defaults to 0.",
+        "default": "0",
+        "name": "indent",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The platform to detect for. Defaults to `process.platform`.",
+        "default": "`process.platform`",
+        "name": "platform",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The number the first item of a counting list has. Defaults to 1. Only the counting styles read it, and a function is told `index` from 0 regardless.",
+        "default": "1",
+        "name": "start",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The widest the block may be. Defaults to `terminalWidth()`.",
+        "default": "`terminalWidth()`",
+        "name": "width",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function outline(items: readonly OutlineItem[], opts?: OutlineOptions): string"
+  },
+  "registryDescription": "Bulleted, numbered and nested lists, with a function for an enumerator and a hanging indent",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[2m1. \u001b[0mInstall the package\n\u001b[2m2. \u001b[0mConfigure it\n   \u001b[2ma. \u001b[0mPick a theme\n   \u001b[2mb. \u001b[0mPick a shell for completions\n\u001b[2m3. \u001b[0mShip it"
+    }
+  }
+}

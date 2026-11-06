@@ -1,0 +1,114 @@
+{
+  "api": {
+    "interface": "BarChartOptions",
+    "options": [
+      {
+        "description": "Draw with ASCII only. Defaults to what `unicodeSupported()` says of `env` and `platform`, since block elements and braille are not safe where box drawing is not.",
+        "default": "what `unicodeSupported()` says of `env` and `platform`",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The width of a vertical bar, and so of its column. Defaults to the widest label or value, so that neither is cut.",
+        "default": "the widest label or value",
+        "name": "barWidth",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "`horizontal` bars grow rightwards, `vertical` upwards. Defaults to `horizontal`.",
+        "default": "`horizontal`",
+        "name": "direction",
+        "optional": true,
+        "type": "\"horizontal\" | \"vertical\""
+      },
+      {
+        "description": "The environment to read the terminal from. Defaults to `process.env`.",
+        "default": "`process.env`",
+        "name": "env",
+        "optional": true,
+        "type": "Record<string, string | undefined>"
+      },
+      {
+        "description": "How a number is written. Defaults to at most two decimals.",
+        "default": "at most two decimals",
+        "name": "format",
+        "optional": true,
+        "type": "(value: number) => string"
+      },
+      {
+        "description": "The columns between one vertical bar and the next. Defaults to 1.",
+        "default": "1",
+        "name": "gap",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "How tall a vertical chart is, in rows. Defaults to 8.",
+        "default": "8",
+        "name": "height",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The widest a label may be before it is cut. Defaults to its own width.",
+        "default": "its own width",
+        "name": "labelWidth",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The value drawn as the top. Defaults to the largest value.",
+        "default": "the largest value",
+        "name": "max",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The value drawn as the bottom. Defaults to the smallest value.",
+        "default": "the smallest value",
+        "name": "min",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The platform to detect for. Defaults to `process.platform`.",
+        "default": "`process.platform`",
+        "name": "platform",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Which role colours the data. Defaults to `accent`.",
+        "default": "`accent`",
+        "name": "role",
+        "optional": true,
+        "type": "ChartRole"
+      },
+      {
+        "description": "Whether to write each value. Defaults to true.",
+        "default": "true",
+        "name": "showValues",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The widest a horizontal chart may be. Defaults to `terminalWidth()`.",
+        "default": "`terminalWidth()`",
+        "name": "width",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function barChart(data: BarData, opts?: BarChartOptions): string"
+  },
+  "registryDescription": "Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "parser   \u001b[36m███████████▋                        \u001b[0m412\nprompts  \u001b[36m███████████                         \u001b[0m388\nrenderer \u001b[36m██████████████████████████████████ \u001b[0m1200\nlayout   \u001b[36m██████████████████▏                 \u001b[0m640"
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "api": {
+    "interface": "TasksOptions",
+    "options": [
+      {
+        "description": "Draw the ASCII frames, `LINE`, when no `frames` are given. Defaults to what `unicodeSupported()` says of `env` and `platform`, since a terminal that cannot draw box drawing cannot draw braille either. Explicit `frames` win.",
+        "default": "what `unicodeSupported()` says of `env` and `platform`",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "How many tasks run at once. Defaults to 1, which is one after another. `Infinity` runs them all. Each running task has a row of its own.",
+        "default": "1",
+        "name": "concurrency",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The environment to read the terminal from. Defaults to `process.env`.",
+        "default": "`process.env`",
+        "name": "env",
+        "optional": true,
+        "type": "Record<string, string | undefined>"
+      },
+      {
+        "description": "Whether the first failure stops the list. Defaults to true.",
+        "default": "true",
+        "name": "failFast",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The frames to cycle: a set such as `ARC`, or an array of your own. Defaults to `DOTS`, or to `LINE` where the terminal cannot be trusted with braille.",
+        "default": "`DOTS`",
+        "name": "frames",
+        "optional": true,
+        "type": "readonly string[] | SpinnerFrames"
+      },
+      {
+        "description": "How long each frame lasts, in milliseconds. Defaults to the set's own interval, or 80 for a bare array.",
+        "default": "the set's own interval",
+        "name": "interval",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The platform to detect for. Defaults to `process.platform`.",
+        "default": "`process.platform`",
+        "name": "platform",
+        "optional": true,
+        "type": "string"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function tasks(list: readonly Task[], opts?: TasksOptions): Promise<TaskOutcome[]>"
+  },
+  "registryDescription": "tasks() and taskLog(): a list of work under spinners, and a subprocess's output in a window",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[32m✔ \u001b[0mResolved 12 packages\n\u001b[32m✔ \u001b[0mBuilt 10 modules\n\u001b[36m⠇\u001b[0m Upload assets"
+    }
+  }
+}

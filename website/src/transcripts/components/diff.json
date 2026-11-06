@@ -1,0 +1,71 @@
+{
+  "api": {
+    "interface": "DiffOptions",
+    "options": [
+      {
+        "description": "Lines of context kept around a change when the input is two texts. A patch brings the context it was written with. Defaults to 3.",
+        "default": "3",
+        "name": "context",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The environment to read the terminal from. Defaults to `process.env`.",
+        "default": "`process.env`",
+        "name": "env",
+        "optional": true,
+        "type": "Record<string, string | undefined>"
+      },
+      {
+        "description": "Says which stretches of a text are which tokens, for syntax highlighting -- the same hook, with the same spans, as `multiline()`'s.",
+        "name": "highlight",
+        "optional": true,
+        "type": "(text: string) => readonly HighlightSpan[]"
+      },
+      {
+        "description": "Whether the changed stretch of a line that was edited is set apart from the rest of it. Defaults to true.",
+        "default": "true",
+        "name": "intraline",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Which arrangement to draw. Defaults to `unified`.",
+        "default": "`unified`",
+        "name": "layout",
+        "optional": true,
+        "type": "DiffLayout"
+      },
+      {
+        "description": "Whether each line is numbered. Defaults to true.",
+        "default": "true",
+        "name": "lineNumbers",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The platform to detect for. Defaults to `process.platform`.",
+        "default": "`process.platform`",
+        "name": "platform",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "How many columns the diff spans. Defaults to `terminalWidth()`.",
+        "default": "`terminalWidth()`",
+        "name": "width",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function diff(input: DiffInput, opts?: DiffOptions): string"
+  },
+  "registryDescription": "A diff view: unified or side by side, over two texts or a unified patch, with the edited words set apart",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[34m@@ -1,2 +1,2 @@\u001b[0m\n\u001b[2m1   \u001b[0m\u001b[31m-const retries = \u001b[0m\u001b[31;1m3\u001b[0m\u001b[31m;\u001b[0m\n  \u001b[2m1 \u001b[0m\u001b[32m+const retries = \u001b[0m\u001b[32;1m5\u001b[0m\u001b[32m;\u001b[0m\n\u001b[2m2 2  run(env);\u001b[0m"
+    }
+  }
+}

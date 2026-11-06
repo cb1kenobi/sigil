@@ -1,0 +1,64 @@
+{
+  "api": {
+    "interface": "RuleOptions",
+    "options": [
+      {
+        "description": "Where the label sits. Defaults to `center`.",
+        "default": "`center`",
+        "name": "align",
+        "optional": true,
+        "type": "RuleAlign"
+      },
+      {
+        "description": "The environment to read the terminal from. Defaults to `process.env`.",
+        "default": "`process.env`",
+        "name": "env",
+        "optional": true,
+        "type": "Record<string, string | undefined>"
+      },
+      {
+        "description": "Words set into the line. Left out where there is no room for them.",
+        "name": "label",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The character the line is drawn with. Defaults to `single`, or `ascii` where `unicodeSupported()` says the terminal cannot be trusted with box drawing.",
+        "default": "`single`",
+        "name": "line",
+        "optional": true,
+        "type": "RuleLine"
+      },
+      {
+        "description": "The platform to detect for. Defaults to `process.platform`.",
+        "default": "`process.platform`",
+        "name": "platform",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Which role colours the line. Defaults to `muted`, because a divider is there to separate things and not to be read.",
+        "default": "`muted`",
+        "name": "role",
+        "optional": true,
+        "type": "RuleRole"
+      },
+      {
+        "description": "How many columns the rule spans. Defaults to `terminalWidth()`.",
+        "default": "`terminalWidth()`",
+        "name": "width",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function rule(opts?: RuleOptions): string"
+  },
+  "registryDescription": "A horizontal divider across the terminal, with an optional label set into it",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "Unit tests passed\n\u001b[2m───────────────────────────────── \u001b[0m\u001b[1mIntegration \u001b[0m\u001b[2m──────────────────────────────────\u001b[0m\nStarting the browser"
+    }
+  }
+}

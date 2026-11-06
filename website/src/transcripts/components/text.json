@@ -1,0 +1,90 @@
+{
+  "api": {
+    "interface": "TextOptions",
+    "options": [
+      {
+        "description": "What is being asked.",
+        "name": "message",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Asks with plain lines in and lines out rather than a region that redraws, for a screen reader: the question is written once, what is typed is echoed where it is typed, and nothing already written is ever moved or erased.",
+        "name": "accessible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether Escape leaves the prompt to go back a step. Defaults to `false`, where Escape does nothing, as it always has.",
+        "default": "`false`",
+        "name": "back",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Used when the answer is empty.",
+        "name": "default",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Shown in place of what is typed, for a password.",
+        "name": "mask",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Shown dimmed when nothing has been typed.",
+        "name": "placeholder",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The input router to read keys through. One is built if not given.",
+        "name": "router",
+        "optional": true,
+        "type": "InputRouter"
+      },
+      {
+        "description": "Gives the prompt up when this aborts, the way Ctrl-C does.",
+        "name": "signal",
+        "optional": true,
+        "type": "AbortSignal"
+      },
+      {
+        "description": "Where keys come from. Defaults to the terminal's input.",
+        "default": "the terminal's input",
+        "name": "stdin",
+        "optional": true,
+        "type": "InputStream"
+      },
+      {
+        "description": "Checks the answer. Return a string to reject it with that message, or anything falsy to accept.",
+        "name": "validate",
+        "optional": true,
+        "type": "(value: string) => string | undefined | false | Promise<string | undefined | false>"
+      },
+      {
+        "description": "An answer to start from: the field opens holding it, editable, with the caret at its end. Unlike `default`, it is not a fallback -- emptying the field and pressing Enter answers with `default`, not with this.",
+        "name": "value",
+        "optional": true,
+        "type": "string"
+      }
+    ],
+    "shared": [
+      "backend",
+      "frameMs",
+      "onError",
+      "quiet",
+      "terminal"
+    ],
+    "signature": "function text(opts: TextOptions): Promise<string>"
+  },
+  "registryDescription": "The six prompts: text, multiline, password, confirm, select and multiselect",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[36m?\u001b[0m \u001b[1mProject name\u001b[0m ledger\u001b[7m \u001b[0m"
+    }
+  }
+}

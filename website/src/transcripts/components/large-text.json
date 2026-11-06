@@ -1,0 +1,29 @@
+{
+  "api": {
+    "interface": "LargeTextOptions",
+    "options": [
+      {
+        "description": "The font.",
+        "name": "font",
+        "optional": false,
+        "type": "FigFont"
+      },
+      {
+        "description": "How close adjacent characters sit. Defaults to what the font says.",
+        "default": "what the font says",
+        "name": "layout",
+        "optional": true,
+        "type": "FigLayoutMode"
+      }
+    ],
+    "shared": [],
+    "signature": "function largeText(value: string, opts: LargeTextOptions): string"
+  },
+  "registryDescription": "Banner text: a FIGlet renderer and the .flf format",
+  "views": {
+    "rendered": {
+      "columns": 80,
+      "output": " ████ ███  ████ ███ █\n█      █  █      █  █\n ███   █  █  ██  █  █\n    █  █  █   █  █  █\n████  ███  ███  ███ █████"
+    }
+  }
+}
