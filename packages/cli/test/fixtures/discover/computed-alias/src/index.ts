@@ -11,6 +11,9 @@ await main({
       list: { alias: ['ls', spellings[0]], load: () => import('./commands/remove.js') },
       ship: { default: Math.random() > 2, load: () => import('./commands/remove.js') },
       push: { name: spellings[0], load: () => import('./commands/remove.js') },
+      // a boolean whose value is not in the source, and a string whose value is not
+      armed: { default: !spellings.length, load: () => import('./commands/remove.js') },
+      tagged: { name: `${spellings[1]}`, load: () => import('./commands/remove.js') },
     },
   },
 });

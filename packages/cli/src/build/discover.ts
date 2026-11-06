@@ -41,7 +41,7 @@
 import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { factsOf } from './extract.ts';
 import {
-  isLiteralValue,
+  isWrongType,
   literalBoolean,
   literalString,
   loaderSpecifier,
@@ -725,7 +725,7 @@ function placeholderRouting(
     const flag = literalBoolean(isDefault.value);
     if (flag !== undefined) {
       routing.default = flag;
-    } else if (isLiteralValue(isDefault.value)) {
+    } else if (isWrongType(isDefault.value, 'boolean')) {
       diagnostics.push({
         ...locate(parsed, isDefault.value.start),
         message: `Expected default in "${name}" command to be a boolean`,
@@ -783,7 +783,7 @@ function placeholderName(
     return text;
   }
 
-  if (text === '' || isLiteralValue(declared.value)) {
+  if (text === '' || isWrongType(declared.value, 'string')) {
     diagnostics.push({
       ...locate(parsed, declared.value.start),
       message: `Expected command name to be a non-empty string in the "${key}" command`,
@@ -800,10 +800,16 @@ function placeholderName(
   return key;
 }
 
-/** Whether a node is the identifier `undefined`. */
+/**
+ * Whether a node is `undefined`, which the runtime reads as not declared:
+ * the identifier, or `void` over anything, which is how a minifier spells it.
+ */
 function isUndefined(node: Expression): boolean {
   const value = unwrapShallow(node);
-  return value.type === 'Identifier' && value.name === 'undefined';
+  return (
+    (value.type === 'Identifier' && value.name === 'undefined') ||
+    (value.type === 'UnaryExpression' && value.operator === 'void')
+  );
 }
 
 /**

@@ -249,6 +249,7 @@ describe("reading where an app's commands are", () => {
         'Expected default in "text" command to be a boolean',
         'Expected command name to be a non-empty string in the "empty" command',
         'Expected command name to be a non-empty string in the "named" command',
+        'Expected alias in "flag" command to be a string or list of strings',
       ]);
       // ...and says nothing of being "computed", which none of them is
       expect(diagnostics.some((d) => d.message.includes('computed'))).toBe(false);
@@ -264,6 +265,21 @@ describe("reading where an app's commands are", () => {
       expect(at(list, 'absent').alias).toBeUndefined();
       expect(at(list, 'absent').default).toBeUndefined();
       expect(diagnostics.filter((d) => d.message.includes('"absent"'))).toStrictEqual([]);
+    });
+
+    it('should read `void 0` as `undefined` and `!0` as `true`, as the runtime does', () => {
+      // both were refused as the wrong type, because an operator over a literal
+      // was taken to have a known type without asking which one -- so a schema
+      // the app runs from source failed to build
+      const app = discoverApp(join(apps, 'wrong-types'));
+      const { commands, diagnostics } = readAppCommands(app);
+      const list = commands?.kind === 'inline' ? commands.commands : [];
+
+      expect(at(list, 'voided').alias).toBeUndefined();
+      expect(at(list, 'voided').default).toBeUndefined();
+      expect(diagnostics.filter((d) => d.message.includes('"voided"'))).toStrictEqual([]);
+      expect(at(list, 'negated').default).toBe(true);
+      expect(diagnostics.filter((d) => d.message.includes('"negated"'))).toStrictEqual([]);
     });
 
     it('should warn about every property of a placeholder it does not bake', () => {
@@ -313,7 +329,7 @@ describe("reading where an app's commands are", () => {
       expect(at(list, 'ship').default).toBeUndefined();
 
       const warnings = diagnostics.filter((d) => d.severity === 'warning').map((d) => d.message);
-      expect(warnings).toHaveLength(4);
+      expect(warnings).toHaveLength(6);
       expect(warnings.every((message) => message.includes('is computed'))).toBe(true);
       expect(warnings[0]).toContain('"remove" command\'s "alias"');
       expect(warnings[1]).toContain('"list" command\'s "alias"');
@@ -321,6 +337,11 @@ describe("reading where an app's commands are", () => {
       // a computed name leaves the key as the name, and says so
       expect(warnings[3]).toContain('"push" command\'s "name"');
       expect(warnings[3]).toContain('will name it "push"');
+      // the right type with a value the source does not hold is computed rather
+      // than wrong: `!x` is a boolean, and a template is a string
+      expect(warnings[4]).toContain('"armed" command\'s "default"');
+      expect(warnings[5]).toContain('"tagged" command\'s "name"');
+      expect(diagnostics.some((d) => d.severity === 'error')).toBe(false);
     });
 
     it('should report a module that does not resolve as an error', () => {

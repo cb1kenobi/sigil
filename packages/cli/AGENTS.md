@@ -269,6 +269,19 @@ makes it testable with a fixture directory and no bundler at all.
   the runtime reads it, as not declared. Only a value the source does not hold --
   an identifier, a call -- is "computed", and only that says so.
 
+  "Wrong" means the source settles a type **and it is not the one the property
+  takes**, which is why `literalType()` answers with a type rather than a yes or
+  no. The first version asked only whether the type was known, and took any
+  operator over a literal for a literal: so `default: !0`, which is `true` and is
+  registered as the default from source, failed the build as not a boolean, and
+  `void 0` anywhere, which the runtime reads as not declared, failed it as the
+  wrong type -- the reverse of what the rule is for. Found by review. An operator
+  decides its result's type whatever it is applied to: `!` is a boolean, `void`
+  is `undefined` (and so absent, as the identifier is), `typeof` is a string, and
+  `-`, `+` and `~` are numbers. So `default: !flag` is a boolean whose value is
+  not in the source, and is "computed", not wrong; `!0` and `!1` are read as the
+  booleans they are.
+
   **A known divergence, not a rule: a built app carries none of the rest of what
   a placeholder declares.** The runtime reads every property off a placeholder
   (`initCommand()` copies the declaration and `loadCommand()` merges it over a
