@@ -910,7 +910,10 @@ it.
   it, and the router's `stop()` calls `onEnd()` handlers the app registered: one
   that threw used to skip `restore()` and leave `exited` pending forever. What a
   step threw is reported after every step has run, so it reaches a screen that is
-  back, and it does not change the code -- a teardown that throws is the cleanup
+  back -- each error once, as itself, with an `AggregateError` from several
+  `onEnd()` handlers opened up, because the default writer's line for an aggregate
+  is its own message and says that handlers threw rather than what -- and it does
+  not change the code -- a teardown that throws is the cleanup
   rule's case, not a failure that ended the app. The settle comes before those
   reports rather than after, which nobody awaiting it can tell apart, since a
   continuation runs on a later microtask; and it leaves an `onError` that throws

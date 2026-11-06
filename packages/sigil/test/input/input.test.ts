@@ -287,19 +287,50 @@ describe('the router', () => {
     expect(term.stdin.listenerCount('error')).toBe(0);
   });
 
-  it('should run every onEnd handler when one throws, and rethrow the first once they have', () => {
+  it('should run every onEnd handler when one throws, and rethrow that error as itself', () => {
     const { emit, terminal } = harness();
     const input = createInput({ terminal });
     const seen: string[] = [];
+    const boom = new Error('only');
     input.onEnd(() => {
-      throw new Error('first');
+      throw boom;
+    });
+    input.onEnd(() => seen.push('second'));
+
+    let thrown: unknown;
+    try {
+      emit('end');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBe(boom);
+    expect(seen).toEqual(['second']);
+    input.stop();
+  });
+
+  it('should run every onEnd handler when several throw, and rethrow them all as an AggregateError', () => {
+    const { emit, terminal } = harness();
+    const input = createInput({ terminal });
+    const seen: string[] = [];
+    const first = new Error('first');
+    const third = new Error('third');
+    input.onEnd(() => {
+      throw first;
     });
     input.onEnd(() => seen.push('second'));
     input.onEnd(() => {
-      throw new Error('third');
+      throw third;
     });
 
-    expect(() => emit('end')).toThrow('first');
+    let thrown: unknown;
+    try {
+      emit('end');
+    } catch (error) {
+      thrown = error;
+    }
+    // every one, in the order the handlers ran -- the first alone dropped the rest
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toEqual([first, third]);
     expect(seen).toEqual(['second']);
     input.stop();
   });

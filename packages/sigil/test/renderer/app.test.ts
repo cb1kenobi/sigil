@@ -616,6 +616,27 @@ describe('runApp()', () => {
     }
   );
 
+  it('should report each error several throwing onEnd handlers threw during the teardown, once', async () => {
+    const reports: unknown[] = [];
+    const { app, term } = start(() => text('x'), { onError: (error) => reports.push(error) });
+    app.input?.onEnd(() => {
+      throw new Error('handler one');
+    });
+    app.input?.onEnd(() => {
+      throw new Error('handler two');
+    });
+    app.exit(0);
+    term.stdin.destroy(new Error('late stdin'));
+    expect(await app.exited).toBe(1);
+    // the router's aggregate opened up: each as itself, rather than one line
+    // saying that handlers threw
+    expect(reports.map(String)).toEqual([
+      'Error: late stdin',
+      'Error: handler one',
+      'Error: handler two',
+    ]);
+  });
+
   it("should settle exited when an onEnd handler of the app's own throws during the teardown", async () => {
     const reports: unknown[] = [];
     const { app, term } = start(() => text('x'), { onError: (error) => reports.push(error) });

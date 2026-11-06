@@ -2069,12 +2069,14 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     }
     satisfied.clear();
 
-    // every handler runs whatever an earlier one threw, and the first throw goes
-    // on once they have: one owner's broken handler must not leave another owner
-    // waiting forever for a key -- and `stop()` calls this as its last step, from
-    // inside somebody's teardown, where a throw that cut the loop short would cut
-    // that teardown short with it
-    let thrown: { error: unknown } | undefined;
+    // every handler runs whatever an earlier one threw, and what they threw goes
+    // on once they have -- one error as itself, several as an `AggregateError`,
+    // which is `raise()`'s rule in the signal graph and the owner tree's: one
+    // owner's broken handler must not leave another owner waiting forever for a
+    // key, and `stop()` calls this as its last step, from inside somebody's
+    // teardown, where a throw that cut the loop short would cut that teardown
+    // short with it
+    const thrown: unknown[] = [];
     // eslint-disable-next-line unicorn/no-useless-spread
     for (const handler of [...enders]) {
       if (!enders.has(handler)) {
@@ -2083,11 +2085,13 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       try {
         handler(error);
       } catch (caught) {
-        thrown ??= { error: caught };
+        thrown.push(caught);
       }
     }
-    if (thrown) {
-      throw thrown.error;
+    if (thrown.length > 0) {
+      throw thrown.length === 1
+        ? thrown[0]
+        : new AggregateError(thrown, 'Errors in onEnd() handlers');
     }
   };
 

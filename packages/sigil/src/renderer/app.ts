@@ -408,7 +408,11 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       try {
         step();
       } catch (error) {
-        thrown.push(error);
+        // an aggregate is opened up -- several `onEnd()` handlers that threw, from
+        // the router's `stop()` -- so each is reported once, as itself: the
+        // default writer renders one line per error and an aggregate's line is
+        // its own message, which says that handlers threw and not what
+        thrown.push(...(error instanceof AggregateError ? error.errors : [error]));
       }
     }
     settle(stdinFailed || view?.failed === true ? EXIT_FAILED : code);

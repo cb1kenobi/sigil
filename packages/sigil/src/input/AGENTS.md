@@ -181,13 +181,15 @@ the entry it belongs to.
   two routers that were both listening are each told -- each would have heard it a
   tick sooner -- and leave one guard between them.
 
-  **`onEnd()` runs every handler, and the first throw goes on once they have.** It
-  is called from inside `stop()`, and `stop()` from inside somebody's teardown, so
-  a handler that threw used to cut the loop and that teardown short together:
-  `runApp()` lost its `restore()` and never settled `exited`. Rethrown rather than
-  swallowed, because the router has nowhere to report it and the caller of
-  `stop()` does; the rest of the handlers ran first, so one owner's broken handler
-  does not leave another waiting for a key.
+  **`onEnd()` runs every handler, and what they threw goes on once they have** --
+  one error as itself, several as an `AggregateError`, which is the signal graph's
+  `raise()` and the owner tree's rule. It is called from inside `stop()`, and
+  `stop()` from inside somebody's teardown, so a handler that threw used to cut the
+  loop and that teardown short together: `runApp()` lost its `restore()` and never
+  settled `exited`. Rethrown rather than swallowed, because the router has nowhere
+  to report it and the caller of `stop()` does; and every error rather than the
+  first, because the first alone dropped the others without a word. `runApp()`
+  opens the aggregate up and reports each error once, as itself.
 
   What is **not** guarded is a stream destroyed after `stop()`: that error belongs
   to whoever reads the stream next, and the router has let go of it as it found it.
