@@ -1,5 +1,5 @@
 import { COMPONENTS, COMPONENTS_HREF, componentHref } from './components.ts';
-import { guideFile, guides } from './guides.ts';
+import { markdownPages } from './guides.ts';
 import { lastModified } from './last-modified.ts';
 import { guideHref } from './nav.ts';
 import { referenceDocs, referenceFile, referenceHref } from './reference.ts';
@@ -55,19 +55,20 @@ function reference(): Entry[] {
 }
 
 /**
- * The guides: one page each, dated by its own markdown file.
+ * The guides and About: one page each, dated by its own markdown file.
  *
- * The file is `packages/sigil/docs/<slug>.md`, outside `website/`, so the date
- * is of the guide itself and moves when the guide does -- which is also why
- * `turbo.json` lists it as an input. `guides()` is what `generateStaticParams`
- * builds the routes from.
+ * A guide's file is `packages/sigil/docs/<slug>.md` and About's is
+ * `docs/about.md`, both outside `website/`, so the date is of the page itself
+ * and moves when the page does -- which is also why `turbo.json` lists them as
+ * inputs. `guides()` is what `generateStaticParams` builds the guides' routes
+ * from, and About is a route of its own.
  */
 function docs(): Entry[] {
-  return guides().map((guide) => {
-    const modified = lastModified(guideFile(guide.slug));
+  return markdownPages().map((page) => {
+    const modified = lastModified(page.file);
 
     return {
-      url: absoluteUrl(guideHref(guide.slug)),
+      url: absoluteUrl(guideHref(page.slug)),
       ...(modified ? { lastModified: modified } : {}),
     };
   });

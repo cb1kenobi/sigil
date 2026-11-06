@@ -1,4 +1,6 @@
+import { GithubLink } from '@/components/github-link';
 import { blockComponents, remarkCallouts, textOf } from '@/components/markdown-blocks';
+import { remarkBlockStyles } from '@/lib/block-styles';
 import { remarkDocPage } from '@/lib/markdown-doc';
 import Link from 'next/link';
 import type { ComponentProps } from 'react';
@@ -41,9 +43,23 @@ function heading(Tag: 'h2' | 'h3') {
   };
 }
 
-/** An internal link goes through `Link`, so following it does not reload the page. */
+/**
+ * An internal link goes through `Link`, so following it does not reload the page.
+ *
+ * A link marked `<!-- as github -->` is the GitHub button, which is
+ * `GithubLink` with its visible text: `remarkBlockStyles()` has already checked
+ * that it goes to the repository, which is the one place `GithubLink` goes.
+ */
 function anchor(resolve: (href: string | undefined) => string | undefined) {
-  return function Anchor({ href, node: _node, ...rest }: Renderer<'a'>) {
+  return function Anchor({ href, node, ...rest }: Renderer<'a'>) {
+    if (node?.properties.dataButton === 'github') {
+      return (
+        <GithubLink location="about" name={textOf(node)} className="github-button h-11 w-fit px-4">
+          <span>{rest.children}</span>
+        </GithubLink>
+      );
+    }
+
     const to = resolve(href);
 
     return to?.startsWith('/') && !to.startsWith('//') ? (
@@ -58,7 +74,8 @@ function anchor(resolve: (href: string | undefined) => string | undefined) {
  * A page of markdown, drawn as a docs page's content.
  *
  * Fences are code and terminal blocks and `> [!NOTE]` is a callout
- * (`markdown-blocks.tsx`); the title is not drawn, because the layout draws it,
+ * (`markdown-blocks.tsx`), a block after `<!-- as … -->` is drawn in that style
+ * (`block-styles.ts`); the title is not drawn, because the layout draws it,
  * and the paragraph after it is the lede (`remarkDocPage()`).
  *
  * `remark-gfm` is not optional. A guide's options and a reference's arguments
@@ -68,18 +85,21 @@ function anchor(resolve: (href: string | undefined) => string | undefined) {
  * @param props.link - Where a relative link in it goes on this site.
  * @param props.plugins - Remark plugins a kind of page adds after these: the command reference's
  *   option anchors.
+ * @param props.wide - The About page's type: its `h2`s at `about-h2` rather than `docs-h2`.
  */
 export function DocsMarkdown({
   link,
   plugins,
   source,
+  wide = false,
 }: {
   link: (href: string | undefined) => string | undefined;
   plugins?: Options['remarkPlugins'];
   source: string;
+  wide?: boolean;
 }) {
   return (
-    <article className="prose-sigil min-w-0">
+    <article className={wide ? 'prose-sigil prose-wide min-w-0' : 'prose-sigil min-w-0'}>
       <Markdown
         components={{
           ...blockComponents,
@@ -94,7 +114,13 @@ export function DocsMarkdown({
             </div>
           ),
         }}
-        remarkPlugins={[remarkGfm, remarkCallouts, remarkDocPage, ...(plugins ?? [])]}
+        remarkPlugins={[
+          remarkGfm,
+          remarkCallouts,
+          remarkDocPage,
+          remarkBlockStyles,
+          ...(plugins ?? []),
+        ]}
       >
         {source}
       </Markdown>

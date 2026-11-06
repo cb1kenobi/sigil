@@ -51,6 +51,17 @@ goes outside the group.
 - The parser reference is one page. Its 17 sections cross-link by fragment, the
   link test checks them against one file's headings, and the rail is the
   navigation a split would have needed.
+- `/docs/about` (SIG-266) is `docs/about.md` at the repository's root, beside
+  the `docs/history/` it links to, and not in `packages/sigil/docs/`, which is
+  the Docs section's reading order. It is read by the guides' reader
+  (`about()` in `src/lib/guides.ts`, and `markdownPages()` for every markdown
+  page under `/docs/`) but has a route of its own, because it has no place in
+  that order and no Previous or Next. Its relative links resolve from `docs/`.
+- A block the plain renderer cannot draw is named by a comment on the line
+  before it, `<!-- as timeline -->`, `<!-- as points -->` or
+  `<!-- as github -->` (`src/lib/block-styles.ts`), so the page is still plain
+  markdown on GitHub and in a `.md` copy. A name it does not know, or a block of
+  the wrong shape, fails the build.
 
 ## Brand assets
 

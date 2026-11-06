@@ -1,5 +1,6 @@
 import { COMPONENTS, componentHref } from '../src/lib/components.ts';
-import { guides } from '../src/lib/guides.ts';
+import { markdownPages } from '../src/lib/guides.ts';
+import { ABOUT_HREF } from '../src/lib/nav.ts';
 import { referenceDocs, referenceHref } from '../src/lib/reference.ts';
 import { robotsRules } from '../src/lib/seo.ts';
 import { SITE_URL } from '../src/lib/site.ts';
@@ -50,16 +51,17 @@ describe('the sitemap', () => {
     assert.deepEqual(listed, wanted);
   });
 
-  it('should list exactly the guides the site renders, each at its own address', () => {
+  it('should list exactly the guides and About the site renders, each at its own address', () => {
     const listed = urls
       .filter((url) => url.startsWith(`${SITE_URL}/docs/`))
       .filter((url) => !url.startsWith(`${SITE_URL}/docs/components`))
       .toSorted();
-    const wanted = guides()
-      .map((guide) => `${SITE_URL}/docs/${guide.slug}`)
+    const wanted = markdownPages()
+      .map((page) => `${SITE_URL}/docs/${page.slug}`)
       .toSorted();
 
     assert.notEqual(wanted.length, 0);
+    assert.ok(wanted.includes(`${SITE_URL}${ABOUT_HREF}`));
     assert.deepEqual(listed, wanted);
   });
 

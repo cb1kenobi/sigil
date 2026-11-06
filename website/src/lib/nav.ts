@@ -90,10 +90,19 @@ export function isDocsPath(pathname: string): boolean {
  */
 export const GUIDE_SLUGS = ['getting-started', 'full-screen-apps', 'parser'] as const;
 
-/** The route of a guide. */
+/** The route of a guide, or of About. */
 export function guideHref(slug: string): string {
   return `/docs/${slug}`;
 }
+
+/**
+ * The About page's route segment. Its markdown is `docs/about.md` at the
+ * repository's root (`ABOUT_REPO_PATH` in `guides.ts`), not a guide.
+ */
+export const ABOUT_SLUG = 'about';
+
+/** The About page: the sidebar's last link, and the footer's "TTY Labs". */
+export const ABOUT_HREF = guideHref(ABOUT_SLUG);
 
 /** One link in the sidebar. */
 export interface SidebarLink {
@@ -128,10 +137,8 @@ export interface SidebarSource {
  *
  * What is read off disk is handed in, so that this file stays something the
  * client can import -- the header and the phone menu already do -- and what is
- * written here is what is not on disk: the Components and About links go to
- * pages other tickets build (SIG-263, SIG-264, SIG-266), and are in the sidebar
- * now because a sidebar that gains a section the day each page lands is one
- * whose layout moves under a reader.
+ * written here is what is not on disk: the Components links and the About link,
+ * whose label is the sidebar's to choose rather than the page's title.
  *
  * @param source - The guides, the parser's sections and the commands.
  * @returns The sections, in order.
@@ -150,7 +157,7 @@ export function sidebarSections(source: SidebarSource): SidebarSection[] {
         { label: 'All components', href: COMPONENTS_HREF },
       ],
     },
-    { id: 'about', label: 'About', links: [{ label: 'The story of sigil', href: '/docs/about' }] },
+    { id: 'about', label: 'About', links: [{ label: 'The story of sigil', href: ABOUT_HREF }] },
   ];
 }
 

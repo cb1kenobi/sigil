@@ -1,8 +1,8 @@
 import { expandIncludes } from './includes.ts';
 import { describe, outline, type Heading } from './markdown-doc.ts';
-import { GUIDE_SLUGS } from './nav.ts';
+import { ABOUT_SLUG, GUIDE_SLUGS } from './nav.ts';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 /**
  * The guides, read off disk from `packages/sigil/docs/`.
@@ -21,12 +21,35 @@ export const GUIDES_REPO_DIR = 'packages/sigil/docs';
 /** Where the guides are. The website's working directory is `website/`. */
 export const GUIDES_DIR = join(process.cwd(), '..', GUIDES_REPO_DIR);
 
+/**
+ * The About page's file, from the repository's root.
+ *
+ * In the top-level `docs/` and not with the guides: it is about the project
+ * rather than about using the package, it sits beside `docs/history/`, which it
+ * links to by relative path so the links hold on GitHub too, and
+ * `packages/sigil/docs/` is the Docs section's reading order, every file of
+ * which `test/guides.test.ts` holds to `GUIDE_SLUGS`. A build that reads it has
+ * to say so in `turbo.json`'s `inputs`, as for the guides.
+ */
+export const ABOUT_REPO_PATH = 'docs/about.md';
+
+/**
+ * Where About is. Spelled out rather than joined from `ABOUT_REPO_PATH`, as
+ * `GUIDES_DIR` is: a read whose path Turbopack cannot see the directory of
+ * makes it trace the whole repository into the server bundle.
+ */
+const ABOUT_FILE = join(process.cwd(), '..', 'docs', 'about.md');
+
 /** One guide. */
 export interface Guide {
   /** What to say about the page in a search result. */
   readonly description: string;
   /** The sections, for the rail and the sidebar. `h2` only. */
   readonly sections: readonly Heading[];
+  /** The file, absolute, for anything that asks git about it. */
+  readonly file: string;
+  /** The file, from the repository's root, for "Edit on GitHub". */
+  readonly repoPath: string;
   /** The route segment, which is the file's name without its extension. */
   readonly slug: string;
   /**
@@ -53,14 +76,28 @@ export const GUIDE_SUMMARY = 'A guide to building command-line apps with sigil.'
  * @returns The guide.
  */
 export function readGuide(slug: string): Guide {
+  return readPage(slug, join(GUIDES_DIR, `${slug}.md`), guideRepoPath(slug));
+}
+
+/**
+ * A page of markdown under `/docs/`, from its file: a guide, or About.
+ *
+ * @param slug - The route segment.
+ * @param file - The file, absolute, and joined from a directory spelled out where the caller is.
+ * @param repoPath - The same file from the repository's root.
+ * @returns The page.
+ */
+function readPage(slug: string, file: string, repoPath: string): Guide {
   const source = expandIncludes(
-    readFileSync(join(GUIDES_DIR, `${slug}.md`), 'utf-8').replaceAll('\r\n', '\n'),
-    GUIDES_DIR
+    readFileSync(file, 'utf-8').replaceAll('\r\n', '\n'),
+    dirname(file)
   );
   const { headings, lede, title } = outline(source);
 
   return {
     description: lede ? describe(lede) : GUIDE_SUMMARY,
+    file,
+    repoPath,
     sections: headings.filter((heading) => heading.depth === 2),
     slug,
     source,
@@ -69,17 +106,28 @@ export function readGuide(slug: string): Guide {
 }
 
 /**
- * Every page under `/docs/` that is a markdown file in the repository.
+ * The About page, `/docs/about`: the sidebar's last section, and where the
+ * footer's "TTY Labs" goes.
  *
- * The guides, today. SIG-266 adds About after them -- `docs/about.md`, read the
- * way a guide is but not in `guides()`, which is the Docs section's reading
- * order -- and anything that wants every such page by its slug asks this, so
- * About reaches it by changing this function and nothing else.
+ * Read by the function that reads a guide, so it is the same shape as one --
+ * a title, a lede that is its description, sections for the rail -- and
+ * anything that wants a docs page's markdown gets it the same way. It is not
+ * in `guides()`, which is the Docs section's reading order.
+ *
+ * @returns The page.
+ */
+export function about(): Guide {
+  return readPage(ABOUT_SLUG, ABOUT_FILE, ABOUT_REPO_PATH);
+}
+
+/**
+ * Every page under `/docs/` that is a markdown file in the repository: the
+ * guides in reading order, then About.
  *
  * @returns The pages.
  */
 export function markdownPages(): Guide[] {
-  return guides();
+  return [...guides(), about()];
 }
 
 /**
@@ -99,16 +147,6 @@ export function guides(): Guide[] {
  */
 export function guide(slug: string): Guide | undefined {
   return (GUIDE_SLUGS as readonly string[]).includes(slug) ? readGuide(slug) : undefined;
-}
-
-/**
- * Where a guide's file is, for anything that asks git about it.
- *
- * @param slug - The route segment.
- * @returns The absolute path.
- */
-export function guideFile(slug: string): string {
-  return join(GUIDES_DIR, `${slug}.md`);
 }
 
 /**
