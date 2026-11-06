@@ -571,6 +571,33 @@ describe('what importing the package costs', () => {
     expect(bytes, `${[...coerce].join(', ')}`).toBeLessThan(24 * 1024);
   });
 
+  it('should keep the suggest subpath free of anything a browser cannot load', () => {
+    // `@ttylabs/sigil/suggest` exists so that the website's 404 page can ask the
+    // parser's own "did you mean" rule in the browser. The parser's module
+    // reaches i18n and the debug logger, which import `node:` modules, and a
+    // bundler building a browser page refuses those -- Turbopack panics on
+    // `node:console` from `/components`. So the whole static graph has to be free
+    // of them, and of the parser, which is what would bring them back.
+    const graph = staticGraph('suggest.mjs');
+
+    for (const name of graph) {
+      const source = readFileSync(join(dist, name), 'utf8');
+      expect(source, `${name} imports a node: module`).not.toMatch(/\bfrom\s*["']node:/);
+      expect(source, `${name} imports a node: module`).not.toMatch(/\bimport\s*\(?\s*["']node:/);
+    }
+
+    // the presence half: the edit distance really is in it, and the parser's
+    // sentences really are not
+    expect([...graph].join(', ')).not.toMatch(/\bparse-|\bi18n|\bdebug-/);
+    expect(carriers(graph, 'Unknown command')).toEqual([]);
+
+    // measured at 685 B over the shared `fuzzy` chunk as of SIG-268; a ceiling
+    // well over that, so ordinary growth never touches it and the parser
+    // arriving does
+    const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(8 * 1024);
+  });
+
   it('should not put the prompts on the path that only prints a script', () => {
     // the whole packaging argument for SIG-151. `app completion bash > file` is
     // the scriptable form and loads the printer: the prompt chunk's own graph is
@@ -672,6 +699,27 @@ describe('what importing the package costs', () => {
     'should load %s to import the router',
     (symbol) => {
       expect(carriers(staticGraph('input.mjs'), symbol)).not.toEqual([]);
+    }
+  );
+
+  // The measurement `@ttylabs/sigil/app` is a subpath of its own for: the runner is
+  // the one module that needs the router, the framework sheet and the renderer at
+  // once, and the renderer keeps the first two off its graph on purpose -- a spinner
+  // pays for neither. Folded into `renderer` it would have grown that graph by the
+  // 38 KB of the router chunk and the theme. A router string, a framework-sheet
+  // selector and the runner's own message, each absent from one graph and present
+  // in the other, so that neither half can pass by a rename
+  it.each(['mouseenter', '.sigil-text-field', 'outside runApp()'])(
+    'should not load %s to import the renderer',
+    (symbol) => {
+      expect(carriers(staticGraph('renderer.mjs'), symbol)).toEqual([]);
+    }
+  );
+
+  it.each(['mouseenter', '.sigil-text-field', 'outside runApp()'])(
+    'should load %s to import the app runner',
+    (symbol) => {
+      expect(carriers(staticGraph('app.mjs'), symbol)).not.toEqual([]);
     }
   );
 });

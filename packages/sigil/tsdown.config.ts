@@ -105,6 +105,7 @@ const config: UserConfig = defineConfig({
   // map, and vice versa; `test/exports.test.ts` asserts they stay in sync.
   entry: {
     ansi: './src/ansi/index.ts',
+    app: './src/renderer/app.ts',
     canvas: './src/canvas/index.ts',
     coerce: './src/util/coerce.ts',
     components: './src/components/index.ts',
@@ -125,6 +126,7 @@ const config: UserConfig = defineConfig({
     routes: './src/parser/command/routes.ts',
     signals: './src/signals/index.ts',
     style: './src/style/index.ts',
+    suggest: './src/util/near-miss.ts',
     template: './src/template/index.ts',
     testing: './src/testing/index.ts',
     terminal: './src/terminal/index.ts',

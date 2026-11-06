@@ -23,6 +23,26 @@ export const SITE_URL = 'https://ttylabs.dev';
 /** The repository, for the structured data and anything else that links to the source. */
 export const REPO_URL = 'https://github.com/cb1kenobi/sigil';
 
+/** The branch every link into the repository points at. */
+export const REPO_BRANCH = 'main';
+
+/**
+ * A file in the repository, on `main`.
+ *
+ * What "Edit on GitHub" and a link out of a guide to the README it was written
+ * beside are built from, so the repository's address and its branch are spelled
+ * in this file and nowhere else.
+ *
+ * @param path - The file or directory, relative to the repository root, `/`-separated.
+ * @returns Its address on GitHub.
+ */
+export function repoFileUrl(path: string): string {
+  return `${REPO_URL}/blob/${REPO_BRANCH}/${path}`;
+}
+
+/** Where a reader reports a problem with a page. */
+export const REPO_NEW_ISSUE_URL = `${REPO_URL}/issues/new`;
+
 /** What sigil is in one line: the social cards' tagline and the site's description. */
 export const TAGLINE = 'Command-line apps in TypeScript, with nothing else to install.';
 

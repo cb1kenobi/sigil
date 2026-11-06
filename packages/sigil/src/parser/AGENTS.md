@@ -330,6 +330,35 @@ The sharpest question in the design, and the ticket did not name it.
   the serializer ended with -- `errorHandler()`'s own rule, which is what keeps a
   CSV serializer that already ends with one from producing a blank line.
 
+#### An exit code is not a return value, and `run()` sets it rather than returning it
+
+- **A command hands `main()` an exit code by setting `process.exitCode` and
+  returning nothing.** `run()` returns data, and what it returns is the command's
+  answer: `main()` hands it back to its caller and, on a command that declared
+  `format`, serializes it to stdout -- so a `run()` that returned `130` would print
+  `130` as the result of `--format json`. The exit code is a different fact with a
+  home already: `process.exitCode` is what `errorHandler()` writes for a failure,
+  and what `main()` reads before showing an update notice, which it skips after a
+  non-zero one. A command that ran a full-screen app is the case that made this
+  worth writing down (SIG-276), and its spelling is one line:
+
+  ```js
+  run: async () => {
+    process.exitCode = await runApp(Dashboard).exited;
+  },
+  ```
+
+- **No new mechanism, deliberately.** Not an `exitCode` field on a returned
+  object, which would make the return value two things and every serializer
+  responsible for leaving one of them out; not a thrown error carrying `exitCode`,
+  which `errorExitCode()` honours but which renders a message -- and a Ctrl-C needs
+  nobody told about it. And `runApp()` itself sets nothing: passing values up
+  through layers of commands and contexts is the coupling the Vercel CLI's design
+  pays for, and `process.exitCode` is global state, so the library resolves the
+  code and the app writes the one line that makes it the process's. What that
+  costs is stated where `runApp()` is documented: an author who ignores the code
+  exits `0`.
+
 #### Two refusals at the declaration, and what each closes
 
 - **A declared name the schema does not provide fails on every run**, rather than
@@ -1469,6 +1498,34 @@ purpose.
   in the components barrel (see "A number prompt" in `src/components/AGENTS.md`).
   `test/registry.test.ts` now asks the built bundle for every value name each
   entry imports, which is the check that would have caught the second one.
+
+### `@ttylabs/sigil/suggest`: "did you mean", published so a browser can run it
+
+SIG-268. The website's 404 page suggests the nearest page to an address that
+missed, and the rule for that is `nearMiss()`, the one `Unknown command "buidl"`
+already uses. The first version of that page carried a 60-line copy of it, which
+is the two-definitions-of-one-rule shape the root `AGENTS.md` refuses across
+packages as well as inside one.
+
+- **A new subpath, because no existing one can run in a browser.** Measured, not
+  assumed: re-exporting `nearMiss()` from `/components`, beside `fuzzyMatch()`,
+  made Turbopack panic building the page (`does not support external modules
+  (request: node:console)`), and `parser/suggest.ts` itself imports i18n, which
+  imports the debug logger, which is Node's. Browser-safety is the argument a new
+  subpath for two functions has to make, and `test/dist.test.ts` pins it: the
+  entry's whole static graph imports no `node:` module and carries no parser.
+  Measured as of this entry, `suggest.mjs` is 685 B over the existing shared
+  `fuzzy` chunk.
+- **The code moved; nothing was copied.** `limit()`, `distance()`, `SuggestKey`
+  and `nearMiss()` are in `src/util/near-miss.ts`, which imports only `fold()`.
+  `parser/suggest.ts` imports them and re-exports the three public names, so the
+  parser, `nearest()` and `test/parser/suggest.test.ts` are unchanged. The
+  measurements behind the floors stay in the comments that moved with them.
+- **The abbreviation half stays in the parser.** `nearest()` adds `fuzzyMatch()`
+  for an abbreviated command, which an address is not, and publishing it would
+  promise the combination as well as its parts. What is promised is
+  `nearMiss(typed, candidates, key)` and `distance(a, b)`: their floors, the tie
+  rule and case folding.
 
 ### Type inference
 

@@ -66,7 +66,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `KEYS`
 - [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths, `save()`
-- [Subpath modules](#subpath-modules) — `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `updates`, `testing`, `reference`
+- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `updates`, `testing`, `reference`
 
 ---
 
@@ -5134,7 +5134,9 @@ field's only when it was given `onSubmit`**; without one it goes on to whatever 
 around it. Up, Down and Ctrl-C are left alone too. Validation and an error line
 are the form's or the caller's, not the field's. `.sigil-text-field`, `-before`,
 `-caret`, `-after` and `-placeholder` are the theme hooks: the host carries the
-background, and the caret is `inverse` under the field's `:focus`.
+background, and the caret of a focused field carries `.sigil-focus`, the role a
+control puts on the part that shows its focus -- `sigil/themes` below says which
+controls do.
 
 #### A toast
 
@@ -5730,6 +5732,110 @@ Four things about it that are decisions rather than gaps:
   piped or `NO_COLOR` run shows no highlight while `copy()` returns the same
   text. The gesture is not the drawing.
 
+### `sigil/app`
+
+One call from a component to a running full-screen program: the terminal check,
+the router, the framework sheet, the alternate screen, a quit key, and all of it
+put back on the way out. It resolves an **exit code**.
+
+```js
+import { runApp, useApp } from '@ttylabs/sigil/app';
+import { box, text } from '@ttylabs/sigil/element';
+
+function App() {
+  const app = useApp(); // read in the body; `app.input` is already the router
+  app.input?.bind((event) => {
+    if (event.key.name === 'enter') {
+      event.stop();
+      app.exit(); // 0
+    }
+  });
+  return box({ 'flex-grow': 1 }, text('Enter saves, Ctrl-C quits'));
+}
+
+process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] }).exited;
+```
+
+| Option                         | Default       | What it does                                                                                       |
+| ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------- |
+| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                    |
+| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                      |
+| `theme`                        | none          | A theme sheet                                                                                      |
+| `cascade`                      | themed        | The whole cascade, in place of the themed one                                                      |
+| `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing |
+| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                         |
+| `detect`                       | `true`        | Asks the terminal for its background and colour depth once the app is up                           |
+| `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                      |
+| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                      |
+
+`runApp()` returns an `App`: `exit(code = 0)`, `exited`, `input`, `view` (the
+`Renderer`), `terminal`, `interactive` and `running`.
+
+**`exited` is the exit code, and setting the process's is yours.**
+
+| How the app ended                              | `exited`                                       |
+| ---------------------------------------------- | ---------------------------------------------- |
+| `exit(code)`, or `exit()`                      | `code`, or `0`                                 |
+| The quit key (Ctrl-C, Ctrl-D)                  | `130`, what a shell reports for Ctrl-C         |
+| A failed frame, after `onError` has written it | `1`                                            |
+| A throw from the component's body              | `1`, and the throw propagates from `runApp()`  |
+| No terminal on both ends -- a refusal          | `1`                                            |
+| stdin ended under it, or ended in an error     | `129`, a terminal hanging up; `1` for an error |
+| `view.dispose()` from the app's own code       | `0`                                            |
+
+Of two intentional codes the first wins, and a failure beats both: an `exit(0)`
+followed by a frame that throws, or by stdin failing, settles `1`. A cleanup that
+throws while the app is ending by `exit()` or `view.dispose()` is written and does
+not change the code.
+
+`runApp()` touches neither `process.exitCode` nor `process.exit()`, and does not
+hand a value back up through the layers that called it: the exit code is global
+state, and setting it is one line in the app rather than a side effect of a
+library call. **The cost is that an author who ignores the code exits `0`** --
+including after Ctrl-C or a failure. An app that wants a stateful object with an
+`exitCode` property builds one on top. Inside a command, set it and return
+nothing, so the code is not mistaken for the command's result -- which `main()`
+hands back, and serializes when `--format` was asked for:
+
+```js
+command({
+  run: async () => {
+    process.exitCode = await runApp(Dashboard).exited;
+  },
+});
+```
+
+- **The router exists while the component is being built.** The component goes
+  inside a host box the router was built over, so `useApp().input` is there in
+  the body. `useApp()` throws outside an app; a component that works with or
+  without one reads `useContext(AppContext)` instead. `view` is the one thing that
+  is not there yet, because the body is how the renderer gets its tree -- read it
+  in `onMount()`. The host is a column the size of the screen, so give your root
+  `flex-grow: 1` to fill it.
+- **Every way out puts the terminal back.** `exit()`, the quit key, stdin ending,
+  `view.dispose()` and a frame that throws all end the app the same way; a throw
+  from the component's body propagates from `runApp()` with the terminal already
+  restored, as it does from `render()`. A signal is the terminal's own business,
+  as it always was.
+- **No terminal means a refusal.** Where stdin or the output is not a terminal,
+  inline or full screen, `runApp()` builds and draws nothing, writes one line to
+  stderr and settles `exited` with `1`. A frame of a full-screen app in a pipe is
+  not useful output; a refusal a script can detect is. `myapp | cat` exits `1`.
+- **Testing** is the same call over `createTestTerminal()`, whose streams claim to
+  be a terminal:
+
+  ```js
+  const term = createTestTerminal({ columns: 40, rows: 10 });
+  const app = runApp(App, { detect: false, terminal: term.terminal });
+  app.view.frame();
+  expect(term.viewport[0]).toContain('Enter saves');
+  await term.press(KEYS.enter);
+  expect(await app.exited).toBe(0);
+  ```
+
+The debug overlay is one line on top, rather than an option, so that an app that
+never opens it does not load it: `enableDebugOverlay(app.view, { input: app.input })`.
+
 ### `sigil/style`
 
 The property set: every property a terminal can express, what it starts as, and
@@ -6048,6 +6154,33 @@ Each is a value for every one of the seven roles — `.sigil-accent`,
 `.sigil-muted`, `.sigil-heading`, `.sigil-success`, `.sigil-error`, `.sigil-warn`,
 `.sigil-info` — which is the whole of what the role layer is for: seven
 declarations restyle a surface wearing a dozen component classes.
+
+**`.sigil-focus` is the eighth role, and no shipped theme restates it.** It is on
+the part of a control that shows its focus — a collapsible's title, the active
+tab of a focused row, a focused text field's caret — and it is `inverse`, the
+terminal's own two colours swapped, which is the same under any palette. A theme
+or an app restyles every control's focus with one rule:
+
+```css
+.sigil-focus {
+  inverse: false;
+  text-decoration: underline;
+}
+```
+
+A component sets it from the element's `onFocusChange`, which is called whenever
+the `focus` state flips, so a control knows its own focus without being handed
+the router. A move through the router is committed whole -- both ends and
+`input.focus.current` -- before either handler runs, so a handler may move the
+focus again with `input.focus.focus()`, to trap it or pass it on, and once the
+handlers settle the last call each element gets is the state it ends in. A
+`setState('focus')` from a
+handler, or from anything else while the focus is moving, throws: the router is
+the one writer of the focus. A handler that throws does not stop the others
+being told, and the error is rethrown from the outermost focus change once they
+all have been -- the handlers run in one queue per process, so a `focus()` on a
+second router made from inside a handler returns before that router's handlers
+run, and what they throw comes out of the outer call.
 
 **Each colour theme carries two palettes.** The basic sixteen first, then a richer
 set inside `@media (min-color-level: 2)`, written per scheme. So a 16-colour
@@ -6417,6 +6550,33 @@ command line accepts, and the sentence it throws is the parser's. That is what
 copy them into an app: an ejected prompt asks the same function the parser does,
 rather than carrying a second opinion of what a date is. It is a subpath and not
 a name on the root so that a command which only answers `--version` never loads it.
+
+### `sigil/suggest`
+
+The parser's "did you mean" rule: the nearest candidate to what was typed, or
+nothing.
+
+```js
+import { distance, nearMiss } from '@ttylabs/sigil/suggest';
+
+const asTyped = (s) => s;
+
+nearMiss('buidl', ['build', 'check', 'new'], asTyped); // 'build'
+nearMiss('chek', ['check', 'cheek'], asTyped); // undefined: a tie is no answer
+nearMiss('xyz', ['build', 'check', 'new'], asTyped); // undefined: nothing is close
+distance('build', 'buidl'); // 1, since a swap of two neighbours is one slip
+```
+
+It is what `Unknown command "buidl"` uses to suggest `build`. A candidate counts
+as near if it is at most one slip per three characters of the shorter string
+away, measured by Damerau-Levenshtein distance, and shares at least something
+with what was typed. When two candidates are equally near there is no
+suggestion, because a wrong suggestion sends the reader somewhere. The third
+argument says what each side is compared as; the parser strips an option's
+leading dashes with it. Case is folded on both sides.
+
+It imports nothing from Node, so it also runs in a browser: the sigil website
+suggests the nearest page on its 404 with it.
 
 ### `sigil/updates`
 

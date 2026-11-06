@@ -1,6 +1,14 @@
-import { arrange, box, type Element, resolveStyles, text } from '../../src/element/index.js';
+import {
+  arrange,
+  box,
+  createTree,
+  type Element,
+  resolveStyles,
+  text,
+} from '../../src/element/index.js';
 import { canReadKeys, createInput, InputError, type KeyEvent } from '../../src/input/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
+import { createTestTerminal, tick } from '../../src/testing/index.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -193,6 +201,218 @@ describe('the router', () => {
     emit('error', boom);
 
     expect(seen).to.deep.equal([boom]);
+    input.stop();
+  });
+
+  // `destroy(err)` sets `errored` at once and emits a tick later, so a router
+  // stopped in between took its listener off an error already on its way: the
+  // emit found nobody, which is an uncaught exception
+  it('should hand onEnd an error the stream was destroyed with and had yet to emit when it stopped', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
+    const seen: unknown[] = [];
+    const boom = new Error('destroyed');
+    input.onEnd((error) => seen.push(error));
+
+    term.stdin.destroy(boom);
+    input.stop();
+    // told before `stop()` returns, with raw mode already put back
+    expect(seen).toEqual([boom]);
+    expect(term.stdin.rawMode).toBe(false);
+    expect(term.stdin.listenerCount('error')).toBe(1);
+
+    await tick();
+    // the emit landed on the guard, which went with it -- and was not told twice
+    expect(term.stdin.listenerCount('error')).toBe(0);
+    expect(seen).toEqual([boom]);
+  });
+
+  it('should not tell onEnd twice about a destroyed stream whose error it already heard', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
+    const seen: unknown[] = [];
+    input.onEnd((error) => seen.push(error));
+
+    term.stdin.destroy(new Error('heard'));
+    await tick();
+    input.stop();
+    expect(seen.map(String)).toEqual(['Error: heard']);
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should not claim an error the stream already carried when it attached', async () => {
+    const term = createTestTerminal();
+    const first = createInput({ terminal: term.terminal });
+    term.stdin.destroy(new Error('old'));
+    await tick();
+    first.stop();
+
+    // `errored` stays set after the event, and this router was not listening
+    // when it fired: that is history, not an error in flight
+    const later = createInput({ terminal: term.terminal });
+    const seen: unknown[] = [];
+    later.onEnd((error) => seen.push(error));
+    later.stop();
+    expect(seen).toEqual([]);
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should not claim an in-flight error for a router that attached after the stream failed', async () => {
+    const term = createTestTerminal();
+    const first = createInput({ terminal: term.terminal });
+    const told: unknown[] = [];
+    first.onEnd((error) => told.push(error));
+    term.stdin.destroy(new Error('in flight'));
+    first.stop();
+
+    const later = createInput({ terminal: term.terminal });
+    const seen: unknown[] = [];
+    later.onEnd((error) => seen.push(error));
+    later.stop();
+    expect(told.map(String)).toEqual(['Error: in flight']);
+    expect(seen).toEqual([]);
+    // the first router's guard, and no second one
+    expect(term.stdin.listenerCount('error')).toBe(1);
+    await tick();
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it.each([
+    ['before the emit', false],
+    ['after it', true],
+  ])(
+    'should guard, and not tell, the only router attached between a destroy and its emit, stopped %s',
+    async (_, afterTick) => {
+      const term = createTestTerminal();
+      term.stdin.destroy(new Error('gap'));
+      // no earlier router, so nothing else is listening for the emit to come
+      const input = createInput({ terminal: term.terminal });
+      const seen: unknown[] = [];
+      input.onEnd((error) => seen.push(error));
+      if (afterTick) {
+        await tick();
+      }
+      input.stop();
+      // a failure from before it attached, so never this router's to report --
+      // and the same answer whichever side of the tick it stopped on
+      expect(seen).toEqual([]);
+      expect(term.stdin.listenerCount('error')).toBe(afterTick ? 0 : 1);
+      await tick();
+      expect(term.stdin.listenerCount('error')).toBe(0);
+    }
+  );
+
+  it('should leave no guard for an emit no router heard, once its own tick has passed', async () => {
+    const term = createTestTerminal();
+    // heard by somebody else's listener, so nothing here recorded it
+    const listener = (): void => {};
+    term.stdin.on('error', listener);
+    term.stdin.destroy(new Error('elsewhere'));
+    await tick();
+    term.stdin.off('error', listener);
+
+    const input = createInput({ terminal: term.terminal });
+    // the tick it queued at attach runs after the emit was due, which is how it
+    // knows the emit is behind it without asking the stream's internals
+    await tick();
+    input.stop();
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should not let a different error spend the guard kept for the destroy error', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
+    term.stdin.destroy(new Error('own'));
+    input.stop();
+    expect(term.stdin.listenerCount('error')).toBe(1);
+
+    // the guard alone is transparent to an error it is not for: thrown from the
+    // emit, as it would have been with nobody listening -- and still there after
+    expect(() => term.stdin.emit('error', new Error('other'))).toThrow('other');
+    expect(term.stdin.listenerCount('error')).toBe(1);
+    await tick();
+    // and its own error, a tick later, took it off
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should leave a different error to the other listeners when the guard is not alone', async () => {
+    const term = createTestTerminal();
+    const input = createInput({ terminal: term.terminal });
+    term.stdin.destroy(new Error('own'));
+    input.stop();
+    const others: unknown[] = [];
+    const listener = (error: unknown): number => others.push(error);
+    term.stdin.on('error', listener);
+
+    expect(() => term.stdin.emit('error', new Error('other'))).not.toThrow();
+    expect(others.map(String)).toEqual(['Error: other']);
+    await tick();
+    term.stdin.off('error', listener);
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should tell every router that was listening, and leave one guard for the one emit', async () => {
+    const term = createTestTerminal();
+    const a = createInput({ terminal: term.terminal });
+    const b = createInput({ terminal: term.terminal });
+    const seen: string[] = [];
+    a.onEnd(() => seen.push('a'));
+    b.onEnd(() => seen.push('b'));
+    term.stdin.destroy(new Error('both'));
+    a.stop();
+    b.stop();
+    // each would have heard it a tick sooner, so each is told
+    expect(seen).toEqual(['a', 'b']);
+    expect(term.stdin.listenerCount('error')).toBe(1);
+    await tick();
+    expect(term.stdin.listenerCount('error')).toBe(0);
+  });
+
+  it('should run every onEnd handler when one throws, and rethrow that error as itself', () => {
+    const { emit, terminal } = harness();
+    const input = createInput({ terminal });
+    const seen: string[] = [];
+    const boom = new Error('only');
+    input.onEnd(() => {
+      throw boom;
+    });
+    input.onEnd(() => seen.push('second'));
+
+    let thrown: unknown;
+    try {
+      emit('end');
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBe(boom);
+    expect(seen).toEqual(['second']);
+    input.stop();
+  });
+
+  it('should run every onEnd handler when several throw, and rethrow them all as an AggregateError', () => {
+    const { emit, terminal } = harness();
+    const input = createInput({ terminal });
+    const seen: string[] = [];
+    const first = new Error('first');
+    const third = new Error('third');
+    input.onEnd(() => {
+      throw first;
+    });
+    input.onEnd(() => seen.push('second'));
+    input.onEnd(() => {
+      throw third;
+    });
+
+    let thrown: unknown;
+    try {
+      emit('end');
+    } catch (error) {
+      thrown = error;
+    }
+    // every one, in the order the handlers ran -- the first alone dropped the rest
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toEqual([first, third]);
+    expect(seen).toEqual(['second']);
     input.stop();
   });
 
@@ -462,6 +682,392 @@ describe('focus', () => {
     expect(first.states).not.toContain('focus');
     expect(second.states).toContain('focus');
     input.stop();
+  });
+
+  it('should tell both ends of a move, in the order the states change', () => {
+    // a control shows its focus from `onFocusChange` rather than by asking a
+    // router it was never handed, so the hook has to see every route to a move:
+    // the key here, and the router's own `focus()` an app or a click calls
+    const { feed, terminal } = harness();
+    const { first, root, second } = tree();
+    const input = createInput({ root, terminal });
+    const heard: string[] = [];
+    first.onFocusChange = (element, focused) => {
+      heard.push(`first ${focused} ${element === first}`);
+    };
+    second.onFocusChange = (element, focused) => {
+      heard.push(`second ${focused} ${element === second}`);
+    };
+
+    feed('\t');
+    feed('\t');
+    input.focus.focus(undefined);
+    expect(heard).toEqual([
+      'first true true',
+      'first false true',
+      'second true true',
+      'second false true',
+    ]);
+    input.stop();
+  });
+
+  it('should leave one element focused when a handler moves the focus during a move', () => {
+    // a handler used to run between the router's writes, while `current` still
+    // named the element losing the focus -- so a blur handler that moved it on
+    // finished the move it was inside of as well, and two elements were left
+    // with `:focus` and the role, only one of which the keys went to
+    const { terminal } = harness();
+    const { first, root, second, third } = tree();
+    const input = createInput({ root, terminal });
+    const seen: string[] = [];
+    for (const element of [first, second, third]) {
+      element.onFocusChange = (target, focused) => {
+        // and a handler reads a router that agrees with the state it was told
+        seen.push(`${input.focus.current.get() === target} ${focused}`);
+        target.toggleClass('sigil-focus', focused);
+      };
+    }
+    first.onFocusChange = (target, focused) => {
+      seen.push(`${input.focus.current.get() === target} ${focused}`);
+      if (!focused) {
+        input.focus.focus(third);
+      }
+      target.toggleClass('sigil-focus', focused);
+    };
+
+    input.focus.focus(first);
+    input.focus.focus(second);
+    expect(input.focus.current.get()).toBe(third);
+    expect([first, second, third].map((el) => el.states.includes('focus'))).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect([first, second, third].map((el) => el.classes.includes('sigil-focus'))).toEqual([
+      false,
+      false,
+      true,
+    ]);
+    expect(seen.every((line) => line === 'true true' || line === 'false false')).toBe(true);
+    input.stop();
+  });
+
+  it('should let a blur handler take the focus back, which is a focus trap', () => {
+    // the nested `focus(first)` used to return at once, because `current` still
+    // named `first` though its state had been cleared -- and the outer move then
+    // focused `second` anyway, so a trap written in the hook could not hold
+    const { terminal } = harness();
+    const { first, root, second } = tree();
+    const input = createInput({ root, terminal });
+    const heard: string[] = [];
+    first.onFocusChange = (_, focused) => {
+      heard.push(`first ${focused}`);
+      if (!focused) {
+        input.focus.focus(first);
+      }
+    };
+    second.onFocusChange = (_, focused) => {
+      heard.push(`second ${focused}`);
+    };
+
+    input.focus.focus(first);
+    input.focus.focus(second);
+    expect(input.focus.current.get()).toBe(first);
+    expect(first.states).toContain('focus');
+    expect(second.states).not.toContain('focus');
+    // `second` had the focus for no longer than the move, so it is told nothing
+    expect(heard).toEqual(['first true', 'first false', 'first true']);
+    input.stop();
+  });
+
+  it('should finish a move and tell the other end when a handler throws', () => {
+    // a throw used to abort the move after the state was cleared and before
+    // `current` was set, so `:focus` and the router disagreed and the element
+    // gaining the focus was never told it had it
+    const { terminal } = harness();
+    const { first, root, second } = tree();
+    const input = createInput({ root, terminal });
+    const boom = new Error('boom');
+    first.onFocusChange = (_, focused) => {
+      if (!focused) {
+        throw boom;
+      }
+    };
+    second.onFocusChange = (target, focused) => {
+      target.toggleClass('sigil-focus', focused);
+    };
+
+    input.focus.focus(first);
+    expect(() => input.focus.focus(second)).toThrow(boom);
+    expect(input.focus.current.get()).toBe(second);
+    expect(first.states).not.toContain('focus');
+    expect(second.states).toContain('focus');
+    expect(second.classes).toContain('sigil-focus');
+
+    // and both ends throwing is both errors, the way a graph walk reports them
+    second.onFocusChange = () => {
+      throw new Error('bang');
+    };
+    first.onFocusChange = () => {
+      throw boom;
+    };
+    let caught: unknown;
+    try {
+      input.focus.focus(first);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(AggregateError);
+    expect((caught as AggregateError).errors.map((err: Error) => err.message)).toEqual([
+      'bang',
+      'boom',
+    ]);
+    expect(input.focus.current.get()).toBe(first);
+    input.stop();
+  });
+
+  it('should refuse a blur handler that puts the focus back with setState', () => {
+    // taken, the write left `first` and `second` both with `:focus` and the role
+    // while `current` named `second` -- the round-one failure, by the write that
+    // does not go through the router. `focus()` is the spelling that works
+    const { terminal } = harness();
+    const { first, root, second } = tree();
+    const input = createInput({ root, terminal });
+    for (const element of [first, second]) {
+      element.onFocusChange = (target, focused) => target.toggleClass('sigil-focus', focused);
+    }
+    first.onFocusChange = (target, focused) => {
+      target.toggleClass('sigil-focus', focused);
+      if (!focused) {
+        target.setState('focus', true);
+      }
+    };
+
+    input.focus.focus(first);
+    expect(() => input.focus.focus(second)).toThrow(/focus\.focus\(\)/);
+    expect(input.focus.current.get()).toBe(second);
+    expect([first, second].map((el) => el.states.includes('focus'))).toEqual([false, true]);
+    expect([first, second].map((el) => el.classes.includes('sigil-focus'))).toEqual([false, true]);
+    input.stop();
+  });
+
+  for (const which of ['another element', 'the element being written'] as const) {
+    it(`should refuse a setState of the focus on ${which} from the tree's mark callback`, () => {
+      // `setState()` runs the tree's mark callback between its check and its
+      // return, and the router's permission used to be a flag held across both of
+      // its writes -- so a callback writing another element's focus was let
+      // through, and two elements wore `:focus` and the role while the keys went
+      // to one. The permission is spent by the write it allows, so the element
+      // being written cannot be written a second time from inside that write
+      const { terminal } = harness();
+      const { first, root, second, third } = tree();
+      const input = createInput({ root, terminal });
+      for (const element of [first, second, third]) {
+        element.onFocusChange = (target, focused) => target.toggleClass('sigil-focus', focused);
+      }
+      let armed = false;
+      createTree(root, () => {
+        if (armed) {
+          armed = false;
+          (which === 'another element' ? third : first).setState('focus', true);
+        }
+      });
+
+      input.focus.focus(first);
+      armed = true;
+      expect(() => input.focus.focus(second)).toThrow(/focus\.focus\(\)/);
+      expect(input.focus.current.get()).toBe(second);
+      expect([first, second, third].filter((el) => el.states.includes('focus'))).toEqual([second]);
+      expect([first, second, third].filter((el) => el.classes.includes('sigil-focus'))).toEqual([
+        second,
+      ]);
+      input.stop();
+    });
+  }
+
+  for (const [at, name] of [
+    [1, 'losing'],
+    [2, 'gaining'],
+  ] as const) {
+    it(`should leave one element focused when the mark callback moves the focus while the ${name} end is written`, () => {
+      // a `focus()` from the mark callback used to clear the router's permission in
+      // its own `finally`, so the open move's second write threw; and whichever
+      // write it came from, finishing the open move afterwards would focus a
+      // second element. The move started inside is the router's latest, so it wins
+      const { terminal } = harness();
+      const { first, root, second, third } = tree();
+      const input = createInput({ root, terminal });
+      for (const element of [first, second, third]) {
+        element.onFocusChange = (target, focused) => target.toggleClass('sigil-focus', focused);
+      }
+      let marks = -1;
+      createTree(root, () => {
+        if (marks >= 0 && ++marks === at) {
+          input.focus.focus(third);
+        }
+      });
+
+      input.focus.focus(first);
+      marks = 0;
+      input.focus.focus(second);
+      expect(input.focus.current.get()).toBe(third);
+      expect([first, second, third].filter((el) => el.states.includes('focus'))).toEqual([third]);
+      expect([first, second, third].filter((el) => el.classes.includes('sigil-focus'))).toEqual([
+        third,
+      ]);
+      input.stop();
+    });
+  }
+
+  it('should settle a chain that passes the focus on through sixty controls', () => {
+    // a one-way chain tells each control at most twice however long it is --
+    // gaining the focus and passing it on, the last one once -- and the bound used
+    // to count every call in a drain, so sixty hops gave up at the fiftieth with
+    // the focus on a control that had never been told it had it. What this pins
+    // is that the bound is counted per element; how large it is, the bounce test
+    const { terminal } = harness();
+    const rows = Array.from({ length: 60 }, (_, i) => box({ focusable: true }, text(`${i}`)));
+    const root = box({}, ...rows);
+    const input = createInput({ root, terminal });
+    for (const [i, row] of rows.entries()) {
+      row.onFocusChange = (target, focused) => {
+        target.toggleClass('sigil-focus', focused);
+        const next = rows[i + 1];
+        if (focused && next) {
+          input.focus.focus(next);
+        }
+      };
+    }
+
+    input.focus.focus(rows[0]);
+    expect(input.focus.current.get()).toBe(rows[59]);
+    expect(rows.filter((row) => row.states.includes('focus'))).toEqual([rows[59]]);
+    expect(rows.filter((row) => row.classes.includes('sigil-focus'))).toEqual([rows[59]]);
+    input.stop();
+  });
+
+  it('should settle handlers that bounce the focus back and forth until they stop', () => {
+    // `bounces` round trips tell the element that starts 2 * bounces + 1 times and
+    // the other 2 * bounces, which is not a cycle however large it is -- until it
+    // passes the bound. So 49 settles at 99 tells and 50 gives up at the 101st,
+    // which pins the bound at a hundred to within one: a bound of a couple of calls
+    // per element, or of twenty, would call the first a cycle
+    function bounce(bounces: number): { counts: number[]; error: unknown } {
+      const { terminal } = harness();
+      const { first, root, second } = tree();
+      const input = createInput({ root, terminal });
+      const counts = [0, 0];
+      let left = bounces;
+      first.onFocusChange = (target, focused) => {
+        counts[0]++;
+        target.toggleClass('sigil-focus', focused);
+        if (focused && left-- > 0) {
+          input.focus.focus(second);
+        }
+      };
+      second.onFocusChange = (target, focused) => {
+        counts[1]++;
+        target.toggleClass('sigil-focus', focused);
+        if (focused) {
+          input.focus.focus(first);
+        }
+      };
+      let error: unknown;
+      try {
+        input.focus.focus(first);
+      } catch (err) {
+        error = err;
+      }
+      if (error === undefined) {
+        expect(input.focus.current.get()).toBe(first);
+        expect([first, second].map((el) => el.classes.includes('sigil-focus'))).toEqual([
+          true,
+          false,
+        ]);
+      }
+      input.stop();
+      return { counts, error };
+    }
+
+    expect(bounce(49)).toEqual({ counts: [99, 98], error: undefined });
+    expect(String(bounce(50).error)).toMatch(/did not settle/);
+  });
+
+  it('should give up on a cycle and still tell the elements it left behind', () => {
+    // handlers that keep moving the focus to each other spin for ever, so a drain
+    // gives up -- and used to leave what the element it stopped on had last been
+    // told as though it were true, so that element sat focused without the role
+    // and its next blur was skipped as a change it had already heard
+    const { terminal } = harness();
+    const { first, root, second, third } = tree();
+    const input = createInput({ root, terminal });
+    first.onFocusChange = (_, focused) => {
+      if (focused) {
+        input.focus.focus(second);
+      }
+    };
+    second.onFocusChange = (_, focused) => {
+      if (focused) {
+        input.focus.focus(first);
+      }
+    };
+
+    expect(() => input.focus.focus(first)).toThrow(/did not settle/);
+    const left = input.focus.current.get();
+    expect([first, second]).toContain(left);
+    expect([first, second, third].filter((el) => el.states.includes('focus'))).toEqual([left]);
+
+    // honest handlers from here on: the element left focused is told it lost the
+    // focus, and nothing is left wearing the role but the one that has it
+    const heard: string[] = [];
+    for (const [name, element] of [
+      ['first', first],
+      ['second', second],
+      ['third', third],
+    ] as const) {
+      element.onFocusChange = (target, focused) => {
+        heard.push(`${name} ${focused}`);
+        target.toggleClass('sigil-focus', focused);
+      };
+    }
+    input.focus.focus(third);
+    expect(heard).toContain(`${left === first ? 'first' : 'second'} false`);
+    expect(heard).toContain('third true');
+    expect([first, second, third].filter((el) => el.classes.includes('sigil-focus'))).toEqual([
+      third,
+    ]);
+    input.stop();
+  });
+
+  it("should tell another router's handlers when the outermost move lets go", () => {
+    // the queue is one per process, because an element does not know which router
+    // owns it: a `focus()` on a second router from inside the first one's handler
+    // commits at once, returns before its own handlers run, and what they throw is
+    // raised from the outermost move -- a decision, pinned so that it stays one
+    const one = tree();
+    const two = tree();
+    const inputOne = createInput({ root: one.root, terminal: harness().terminal });
+    const inputTwo = createInput({ root: two.root, terminal: harness().terminal });
+    const log: string[] = [];
+    one.first.onFocusChange = (_, focused) => {
+      if (!focused) {
+        inputTwo.focus.focus(two.first);
+        log.push(`returned, told ${two.first.classes.includes('sigil-focus')}`);
+      }
+    };
+    two.first.onFocusChange = (target, focused) => {
+      target.toggleClass('sigil-focus', focused);
+      log.push(`two.first ${focused}`);
+      throw new Error('from two');
+    };
+
+    inputOne.focus.focus(one.first);
+    expect(() => inputOne.focus.focus(one.second)).toThrow('from two');
+    expect(log).toEqual(['returned, told false', 'two.first true']);
+    expect(inputTwo.focus.current.get()).toBe(two.first);
+    expect(two.first.classes).toContain('sigil-focus');
+    inputOne.stop();
+    inputTwo.stop();
   });
 
   it('should follow the tree rather than a list it kept', () => {
@@ -799,6 +1405,49 @@ describe('the focus ring and the clip rect', () => {
 
     input.focus.focus(rows[7]);
     expect(view.scroll?.y).toBe(4);
+    input.stop();
+  });
+
+  it('should still tell the focus handlers when the scroll a move caused throws', () => {
+    // the scroll into view is part of the move's commit, and a throw out of it
+    // must neither skip the handlers nor leave every later move's held for ever
+    const { terminal } = harness();
+    const { root, rows, view } = scroller(12);
+    const input = createInput({ root, terminal });
+    const heard: string[] = [];
+    for (const [i, row] of rows.entries()) {
+      row.onFocusChange = (_, focused) => heard.push(`r${i} ${focused}`);
+    }
+    view.onScroll = () => {
+      throw new Error('scroll');
+    };
+
+    expect(() => input.focus.focus(rows[7])).toThrow('scroll');
+    expect(input.focus.current.get()).toBe(rows[7]);
+    view.onScroll = undefined;
+    input.focus.focus(rows[6]);
+    expect(heard).toEqual(['r7 true', 'r7 false', 'r6 true']);
+    input.stop();
+  });
+
+  it('should refuse a setState of the focus from the scroll a move caused', () => {
+    // the scroll into view runs inside the move, so a write there landed before
+    // the announcement it should have been part of: a second row with `:focus`,
+    // told it had it while `current` named the first, wearing the role as well
+    const { terminal } = harness();
+    const { root, rows, view } = scroller(12);
+    const input = createInput({ root, terminal });
+    for (const row of rows) {
+      row.onFocusChange = (target, focused) => target.toggleClass('sigil-focus', focused);
+    }
+    view.onScroll = () => {
+      rows[0]?.setState('focus', true);
+    };
+
+    expect(() => input.focus.focus(rows[7])).toThrow(/focus\.focus\(\)/);
+    expect(input.focus.current.get()).toBe(rows[7]);
+    expect(rows.filter((row) => row.states.includes('focus'))).toEqual([rows[7]]);
+    expect(rows.filter((row) => row.classes.includes('sigil-focus'))).toEqual([rows[7]]);
     input.stop();
   });
 

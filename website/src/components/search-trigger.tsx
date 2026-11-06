@@ -9,10 +9,12 @@ export interface SearchTriggerProps {
   className?: string;
   /** Called before the search opens: the phone menu closes itself with it. */
   onActivate?: () => void;
+  /** What the button says. The 404 page asks for the longer "Search the docs". */
+  label?: string;
 }
 
 /**
- * The search box in the header: a magnifier, "Search" and the key that opens it.
+ * The search box in the header: a magnifier, its label ("Search") and the key that opens it.
  *
  * A button, not an input. Search is a dialog (SIG-254), so this takes no text
  * of its own and a field here would only be one more place to type that did
@@ -21,7 +23,11 @@ export interface SearchTriggerProps {
  * The badge says `⌘K` or `Ctrl K` by platform. See `searchShortcutStore` for
  * why that cannot mismatch on hydration.
  */
-export function SearchTrigger({ className = 'w-60', onActivate }: SearchTriggerProps) {
+export function SearchTrigger({
+  className = 'w-60',
+  onActivate,
+  label = 'Search',
+}: SearchTriggerProps) {
   const shortcut = useSyncExternalStore(
     searchShortcutStore.subscribe,
     searchShortcutStore.getSnapshot,
@@ -52,8 +58,8 @@ export function SearchTrigger({ className = 'w-60', onActivate }: SearchTriggerP
         <circle cx="11" cy="11" r="7" />
         <path d="M20 20l-3.5-3.5" />
       </svg>
-      <span className="grow text-left">Search</span>
-      {/* Hidden from the accessible name, which is `Search`: the shortcut is
+      <span className="grow text-left">{label}</span>
+      {/* Hidden from the accessible name, which is the label: the shortcut is
           what `aria-keyshortcuts` is for, and "Command K" read after the name
           is noise on a phone, where there is no key. */}
       <kbd

@@ -51,6 +51,7 @@ import {
 // `element/hit.js` rather than the element barrel, which is the same precision
 // the renderer takes over this module: `Element` is a type and erases, while these
 // two are real code and this is the one file that needs them
+import { moveFocus } from '../element/focus.js';
 import { ancestry, hitTest } from '../element/hit.js';
 import type { Element } from '../element/index.js';
 // `scroll.js` imports nothing but types, for the same reason `hit.js` does: the
@@ -655,7 +656,12 @@ export interface InputOptions {
 
 /** A readable stream, as narrow as this module needs it. */
 export interface InputStream {
+  /** Whether `destroy()` has been called, which a `Readable` sets at once. */
+  readonly destroyed?: boolean;
+  /** What it was destroyed with, set at once although `'error'` is emitted a tick later. */
+  readonly errored?: unknown;
   isTTY?: boolean;
+  listenerCount?: (event: string) => number;
   off?: (event: string, fn: (...args: unknown[]) => void) => unknown;
   on?: (event: string, fn: (...args: unknown[]) => void) => unknown;
   pause?: () => unknown;
@@ -730,6 +736,25 @@ export function canReadKeys(opts: Pick<InputOptions, 'stdin' | 'terminal'> = {})
 }
 
 /**
+ * The streams with a guard on them for an error still on its way.
+ *
+ * Per stream rather than per router, because the emit is a fact about the stream:
+ * it arrives once, every listener sees it, and one guard is enough however many
+ * routers stopped while it was in flight. Never taken back out, because a stream
+ * is destroyed once and so has at most one such error; weak, so a stream nobody
+ * holds is not kept for having failed.
+ */
+const guarded = new WeakSet<object>();
+
+/**
+ * The streams whose destroy error a router has seen emitted.
+ *
+ * What lets a router attached afterwards know the emit is behind it at once,
+ * rather than a tick later. Per stream for `guarded`'s reason.
+ */
+const heard = new WeakSet<object>();
+
+/**
  * Builds the input router.
  *
  * Throws where stdin is not a terminal rather than carrying a router that can
@@ -757,6 +782,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   const bindings = new Set<KeyHandler>();
   const pasters = new Set<PasteHandler>();
   const current = new State<Element | undefined>(undefined);
+  // the move `focus()` is writing the states of, until it sets `current`, and a
+  // count that lets a move tell it has been superseded by one started inside it
+  let writingTo: { element: Element | undefined } | undefined;
+  let moves = 0;
 
   // -- described bindings ---------------------------------------------------
 
@@ -1085,7 +1114,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     current,
 
     focus(element: Element | undefined): void {
-      const previous = current.get();
+      // mid-write -- a `focus()` from the tree's mark callback, inside one of this
+      // router's own state writes -- the element losing the focus is the one the
+      // open move is writing towards, since `current` does not name it yet
+      const previous = writingTo ? writingTo.element : current.get();
       if (previous === element) {
         return;
       }
@@ -1100,21 +1132,35 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       clearSequence();
 
       // the state is what `:focus` matches, so moving focus restyles both ends
-      // of the move and nothing else
-      previous?.setState('focus', false);
-      element?.setState('focus', true);
-      current.set(element);
-      if (element) {
-        lastIndex = Math.max(0, focusables(root).indexOf(element));
-        // and it is brought on screen, unconditionally. The ring already
-        // skips a `display: none` subtree because there is nothing on screen
-        // there to move the focus to; a row below the fold is that case with
-        // the opposite answer -- it is on screen, somewhere the user cannot
-        // see -- so the fix is to scroll rather than to skip. Left out, Tab
-        // into a long list moves a highlight nobody can find, which reads as
-        // an app that stopped responding
-        scrollIntoView(element);
-      }
+      // of the move and nothing else. Committed whole before any
+      // `onFocusChange` runs: a handler told between these writes saw `current`
+      // still naming the element it had just been told it lost, so a handler
+      // that moved the focus itself finished this move twice and left two
+      // elements focused -- `focus.ts` in `src/element` holds the queue
+      const move = ++moves;
+      writingTo = { element };
+      moveFocus(
+        previous,
+        element,
+        () => {
+          writingTo = undefined;
+          current.set(element);
+          if (element) {
+            lastIndex = Math.max(0, focusables(root).indexOf(element));
+            // and it is brought on screen, unconditionally. The ring already
+            // skips a `display: none` subtree because there is nothing on screen
+            // there to move the focus to; a row below the fold is that case with
+            // the opposite answer -- it is on screen, somewhere the user cannot
+            // see -- so the fix is to scroll rather than to skip. Left out, Tab
+            // into a long list moves a highlight nobody can find, which reads as
+            // an app that stopped responding
+            scrollIntoView(element);
+          }
+        },
+        // superseded by a move started inside this one's writes, which finished
+        // the job -- and cleared `writingTo` in its own commit
+        () => moves === move
+      );
     },
 
     next(): void {
@@ -2054,17 +2100,70 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     }
     satisfied.clear();
 
+    // every handler runs whatever an earlier one threw, and what they threw goes
+    // on once they have -- one error as itself, several as an `AggregateError`,
+    // which is `raise()`'s rule in the signal graph and the owner tree's: one
+    // owner's broken handler must not leave another owner waiting forever for a
+    // key, and `stop()` calls this as its last step, from inside somebody's
+    // teardown, where a throw that cut the loop short would cut that teardown
+    // short with it
+    const thrown: unknown[] = [];
     // eslint-disable-next-line unicorn/no-useless-spread
     for (const handler of [...enders]) {
       if (!enders.has(handler)) {
         continue;
       }
-      handler(error);
+      try {
+        handler(error);
+      } catch (caught) {
+        thrown.push(caught);
+      }
+    }
+    if (thrown.length > 0) {
+      throw thrown.length === 1
+        ? thrown[0]
+        : new AggregateError(thrown, 'Errors in onEnd() handlers');
     }
   };
 
   const onStreamEnd = (): void => ended();
-  const onStreamError = (...args: unknown[]): void => ended(args[0]);
+  /**
+   * The error the stream already carried when this router attached, if any.
+   *
+   * A failure from before this router existed, so it is never this router's to
+   * report -- whether or not its event has been emitted yet. `errored` is set the
+   * moment `destroy(err)` runs, and the emit follows on `nextTick`, so a router
+   * attached in that gap is subscribed when the emit arrives: it is ignored rather
+   * than told, so that a router attached after a failure gets one answer whichever
+   * side of that tick it stops on. What the gap does change is whether there is an
+   * emit still to come, which is `carriedPast`.
+   */
+  const carried = stdin.errored ?? undefined;
+  /**
+   * Whether the carried error's emit has happened. Known at once where a router
+   * saw it go by; otherwise a tick queued now runs after `destroy()`'s own, which
+   * was queued first -- so until it fires, the emit may still be on its way and
+   * `stop()` owes it a guard. No stream internals asked.
+   */
+  let carriedPast = carried === undefined || heard.has(stdin);
+  if (!carriedPast) {
+    process.nextTick(() => {
+      carriedPast = true;
+    });
+  }
+  /** Whether the stream's error reached `onStreamError`, which `stop()` asks. */
+  let errorDelivered = false;
+  const onStreamError = (...args: unknown[]): void => {
+    if (args[0] != null && args[0] === stdin.errored) {
+      heard.add(stdin);
+    }
+    if (carried !== undefined && args[0] === carried) {
+      carriedPast = true;
+      return;
+    }
+    errorDelivered = true;
+    ended(args[0]);
+  };
 
   const resizers = new Set<(size: { height: number; width: number }) => void>();
   const offResize = terminal.onResize((size) => {
@@ -2336,6 +2435,48 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       off?.call(stdin, 'data', onData);
       off?.call(stdin, 'end', onStreamEnd);
       off?.call(stdin, 'error', onStreamError);
+      // a stream destroyed with an error while this was listening has that error
+      // on its way to the listener just removed: `destroy(err)` sets `errored` at
+      // once and emits a tick later. Taking the listener off left it bare for that
+      // emit, and an `'error'` with no listener is an uncaught exception -- a CLI
+      // crashing on the way out of a quit it handled. So it is told to `onEnd()`
+      // below, and the emit itself lands on a guard that takes itself off with
+      // it, which is the terminal's `EPIPE` rule: put back what you attached,
+      // and not while what it was there for is still in flight
+      //
+      // Told only for an error this router could have heard: one the stream did
+      // not already carry when it attached. A later router over a stream that
+      // failed before it -- the next app, the next prompt -- reads the same
+      // `errored`, and claiming it re-reported an error that had ended somebody
+      // else. Guarded whenever the emit is still to come, carried or not: a router
+      // attached between a `destroy(err)` and its emit was that emit's only
+      // listener, and taking it off without a guard was the crash this is for
+      const inFlight =
+        !errorDelivered &&
+        stdin.destroyed === true &&
+        stdin.errored != null &&
+        (carried === undefined || !carriedPast);
+      const failedWith = inFlight && carried === undefined ? stdin.errored : undefined;
+      if (inFlight && !guarded.has(stdin)) {
+        // one guard per stream, for the one emit: a stream emits the error it was
+        // destroyed with exactly once, and every listener sees it. It comes off
+        // with that error and no other, so a different `'error'` in the same tick
+        // cannot spend it -- and it is transparent to one: rethrown where the
+        // guard is the only listener, which is what the emit would have done with
+        // nobody there, and left to the others where there are any
+        guarded.add(stdin);
+        const own = stdin.errored;
+        const guard = (...args: unknown[]): void => {
+          if (args[0] === own) {
+            off?.call(stdin, 'error', guard);
+            return;
+          }
+          if ((stdin.listenerCount?.('error') ?? 1) <= 1) {
+            throw args[0];
+          }
+        };
+        stdin.on?.('error', guard);
+      }
       offResize();
       clearTimeout(timer);
       timer = undefined;
@@ -2379,6 +2520,14 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       }
       hovering = [];
       pressed.clear();
+
+      // last, with everything put back -- raw mode included, so a handler that
+      // writes the error writes it to a cooked terminal. The stream failed while
+      // this was listening and only the event was due later, so the failure is
+      // this router's to report, as it would have been a tick sooner
+      if (failedWith !== undefined) {
+        ended(failedWith);
+      }
     },
   };
 

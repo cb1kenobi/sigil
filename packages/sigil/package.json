@@ -30,6 +30,10 @@
       "types": "./dist/ansi.d.mts",
       "default": "./dist/ansi.mjs"
     },
+    "./app": {
+      "types": "./dist/app.d.mts",
+      "default": "./dist/app.mjs"
+    },
     "./canvas": {
       "types": "./dist/canvas.d.mts",
       "default": "./dist/canvas.mjs"
@@ -105,6 +109,10 @@
     "./style": {
       "types": "./dist/style.d.mts",
       "default": "./dist/style.mjs"
+    },
+    "./suggest": {
+      "types": "./dist/suggest.d.mts",
+      "default": "./dist/suggest.mjs"
     },
     "./template": {
       "types": "./dist/template.d.mts",
