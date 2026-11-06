@@ -571,6 +571,33 @@ describe('what importing the package costs', () => {
     expect(bytes, `${[...coerce].join(', ')}`).toBeLessThan(24 * 1024);
   });
 
+  it('should keep the suggest subpath free of anything a browser cannot load', () => {
+    // `@ttylabs/sigil/suggest` exists so that the website's 404 page can ask the
+    // parser's own "did you mean" rule in the browser. The parser's module
+    // reaches i18n and the debug logger, which import `node:` modules, and a
+    // bundler building a browser page refuses those -- Turbopack panics on
+    // `node:console` from `/components`. So the whole static graph has to be free
+    // of them, and of the parser, which is what would bring them back.
+    const graph = staticGraph('suggest.mjs');
+
+    for (const name of graph) {
+      const source = readFileSync(join(dist, name), 'utf8');
+      expect(source, `${name} imports a node: module`).not.toMatch(/\bfrom\s*["']node:/);
+      expect(source, `${name} imports a node: module`).not.toMatch(/\bimport\s*\(?\s*["']node:/);
+    }
+
+    // the presence half: the edit distance really is in it, and the parser's
+    // sentences really are not
+    expect([...graph].join(', ')).not.toMatch(/\bparse-|\bi18n|\bdebug-/);
+    expect(carriers(graph, 'Unknown command')).toEqual([]);
+
+    // measured at 685 B over the shared `fuzzy` chunk as of SIG-268; a ceiling
+    // well over that, so ordinary growth never touches it and the parser
+    // arriving does
+    const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(8 * 1024);
+  });
+
   it('should not put the prompts on the path that only prints a script', () => {
     // the whole packaging argument for SIG-151. `app completion bash > file` is
     // the scriptable form and loads the printer: the prompt chunk's own graph is

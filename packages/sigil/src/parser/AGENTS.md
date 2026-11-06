@@ -1470,6 +1470,34 @@ purpose.
   `test/registry.test.ts` now asks the built bundle for every value name each
   entry imports, which is the check that would have caught the second one.
 
+### `@ttylabs/sigil/suggest`: "did you mean", published so a browser can run it
+
+SIG-268. The website's 404 page suggests the nearest page to an address that
+missed, and the rule for that is `nearMiss()`, the one `Unknown command "buidl"`
+already uses. The first version of that page carried a 60-line copy of it, which
+is the two-definitions-of-one-rule shape the root `AGENTS.md` refuses across
+packages as well as inside one.
+
+- **A new subpath, because no existing one can run in a browser.** Measured, not
+  assumed: re-exporting `nearMiss()` from `/components`, beside `fuzzyMatch()`,
+  made Turbopack panic building the page (`does not support external modules
+  (request: node:console)`), and `parser/suggest.ts` itself imports i18n, which
+  imports the debug logger, which is Node's. Browser-safety is the argument a new
+  subpath for two functions has to make, and `test/dist.test.ts` pins it: the
+  entry's whole static graph imports no `node:` module and carries no parser.
+  Measured as of this entry, `suggest.mjs` is 685 B over the existing shared
+  `fuzzy` chunk.
+- **The code moved; nothing was copied.** `limit()`, `distance()`, `SuggestKey`
+  and `nearMiss()` are in `src/util/near-miss.ts`, which imports only `fold()`.
+  `parser/suggest.ts` imports them and re-exports the three public names, so the
+  parser, `nearest()` and `test/parser/suggest.test.ts` are unchanged. The
+  measurements behind the floors stay in the comments that moved with them.
+- **The abbreviation half stays in the parser.** `nearest()` adds `fuzzyMatch()`
+  for an abbreviated command, which an address is not, and publishing it would
+  promise the combination as well as its parts. What is promised is
+  `nearMiss(typed, candidates, key)` and `distance(a, b)`: their floors, the tie
+  rule and case folding.
+
 ### Type inference
 
 - **`src/infer.ts` is `initOption()` and `initArg()` written again in the type

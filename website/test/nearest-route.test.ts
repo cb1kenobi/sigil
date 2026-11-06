@@ -1,5 +1,5 @@
 import { knownPaths } from '../src/lib/known-paths.ts';
-import { distance, nearestRoute } from '../src/lib/nearest-route.ts';
+import { nearestRoute } from '../src/lib/nearest-route.ts';
 import { SITE_URL } from '../src/lib/site.ts';
 import { sitemapEntries } from '../src/lib/sitemap.ts';
 import assert from 'node:assert/strict';
@@ -18,16 +18,6 @@ const ROUTES = [
   '/reference/check',
   '/reference/package',
 ];
-
-describe('the edit distance', () => {
-  it('should count a swap of two neighbours as one slip', () => {
-    assert.equal(distance('build', 'buidl'), 1);
-    assert.equal(distance('build', 'bild'), 1);
-    assert.equal(distance('build', 'builds'), 1);
-    assert.equal(distance('build', 'bxild'), 1);
-    assert.equal(distance('build', 'build'), 0);
-  });
-});
 
 describe('the nearest route', () => {
   it('should suggest the page for the typo the ticket shows', () => {
