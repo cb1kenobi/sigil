@@ -899,7 +899,8 @@ it.
   code is therefore read in `finish()`, as the failure's if one ended the app and
   the latched one otherwise. A cleanup that throws while `finish()` is unmounting is
   reported and does not count, since the app was already going by an `exit()` that
-  chose its code.
+  chose its code -- Chris's decision, taken over letting a teardown failure beat
+  the code too.
 - **No terminal on both ends is a refusal -- Chris's decision.** Where stdin or the
   output is not a terminal, inline as well as full screen, `runApp()` builds no
   router and no renderer, never calls the component, draws nothing, writes one line
