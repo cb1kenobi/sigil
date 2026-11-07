@@ -84,7 +84,8 @@ function Lockup({ seal }: { seal: number }) {
  * out towards the right, and the purple glow behind the mark. The dots are 12
  * by 24 pixels, one terminal cell, at 0.12; the glow is the brand colour at
  * 0.30, 40% by 55% of the card, gone at 72% of the way out. It is the same
- * layering as `<CellGrid>` and `<Glow>`, which draw it in CSS.
+ * glow as `<Glow>` draws in CSS. The site itself has no dots since SIG-322;
+ * the cards keep them.
  *
  * It is an SVG drawn as an image, and not those two CSS gradients, because
  * satori draws a tiled `radial-gradient` background for some card heights and

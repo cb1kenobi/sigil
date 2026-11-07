@@ -12,7 +12,7 @@
  *
  * `static` because a theme variable Tailwind finds no utility for is otherwise
  * left out of the stylesheet, and the tokens are read by name from places a
- * class scan does not see: an inline `style`, the SVG logo, the cell grid.
+ * class scan does not see: an inline `style`, the SVG logo, the social cards.
  * `scripts/check-contrast.ts` reads this file, so a colour is declared once and
  * checked where it is written.
  */

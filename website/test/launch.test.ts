@@ -72,7 +72,7 @@ describe('accessibility', () => {
   });
 
   it('should hide the decorative layers from assistive technology, and give them no text to copy', () => {
-    for (const file of ['src/components/cell-grid.tsx', 'src/components/glow.tsx']) {
+    for (const file of ['src/components/glow.tsx']) {
       const text = read(file);
       assert.match(text, /aria-hidden="true"/u, file);
       // one self-closing element: nothing inside it to read or to select

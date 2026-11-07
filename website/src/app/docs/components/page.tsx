@@ -23,7 +23,7 @@ export const metadata = pageMetadata({
  * `src/lib/components.ts`, which `test/components.test.ts` holds to the barrel,
  * and every preview is that component's example as it was run.
  *
- * The glow is the top 460px, from the top left, and there is no cell grid.
+ * The glow is the top 460px, from the top left.
  */
 export default function ComponentsIndex() {
   const segments = FAMILIES.map((family) => ({

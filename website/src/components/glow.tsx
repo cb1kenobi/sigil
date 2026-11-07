@@ -1,5 +1,7 @@
-import { DOCS_FADE_HEIGHT } from './cell-grid';
 import type { CSSProperties } from 'react';
+
+/** How far down a docs page the glow reaches. */
+const DOCS_FADE_HEIGHT = 520;
 
 type GlowProps = {
   /**
@@ -26,8 +28,9 @@ type GlowProps = {
  * nothing at 72% of the way out. The colour is `--color-brand` with an alpha
  * rather than a second copy of its channels.
  *
- * Decoration, so `aria-hidden` and `pointer-events-none`, with the same
- * requirement of `<CellGrid>` that its parent is `relative`.
+ * Decoration, so `aria-hidden` and `pointer-events-none`. It never sits between
+ * a reader and the text it is behind. Its parent has to be `relative`, and
+ * whatever should sit above it `relative` too.
  */
 export function Glow({
   variant,
