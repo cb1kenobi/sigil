@@ -201,6 +201,29 @@ describe('Dots', () => {
 });
 
 describe('Pixels', () => {
+  // `text()` interns the style it is handed whether or not anything lands, so a
+  // picture taller than its grid made a style per cell nobody could see -- a new
+  // set every frame once a sweep had dropped the last, and a sweep every frame
+  it('should intern no style for a cell off the grid or outside the clip', () => {
+    const pixels = new Pixels(4, 4);
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 4; x++) {
+        pixels.set(x, y, palette(16 + y * 4 + x));
+      }
+    }
+
+    const below = surface(4, 2);
+    pixels.blit(below.painter, 0, 0);
+    // two rows of four cells, each its own pair of colours, and the default
+    expect(below.styles.size).toBe(1 + 8);
+
+    const clipped = surface(4, 4);
+    clipped.painter.clip({ height: 1, width: 2, x: 0, y: 0 }, (painter) => {
+      pixels.blit(painter, 0, 0);
+    });
+    expect(clipped.styles.size).toBe(1 + 2);
+  });
+
   it('should size itself in cells and report pixel rows', () => {
     const pixels = new Pixels(8, 3);
     expect([pixels.width, pixels.height, pixels.pixelHeight]).toEqual([8, 3, 6]);

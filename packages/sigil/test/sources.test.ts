@@ -42,6 +42,7 @@ const ALLOWED = new Set([
   'demos/canvas/01-sparkline.js',
   'demos/canvas/02-image.js',
   'demos/canvas/03-links.js',
+  'demos/components/images/macaw.png',
   'packages/sigil/test/ansi/strip.test.ts',
   'packages/sigil/test/components/helpers.ts',
   'packages/sigil/test/components/keys.test.ts',

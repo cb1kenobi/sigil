@@ -37,6 +37,23 @@ the entry it belongs to.
   children, sheets -- plus the layout and paint ones, and nothing else. Keeping
   the two apart is what lets either be tested without the other, and it is why a
   mutation is a set membership rather than a call into the cascade.
+- **An element carries the colour depth its style was resolved at, for a `raw`
+  that paints colours of its own (SIG-326).** Degradation is at resolve time, so
+  every colour a sheet or a prop names is one the destination can emit before
+  paint reads it -- and a `raw` is the one thing that paints colours nobody
+  declared, worked out from the box layout gave it, which an image is thousands
+  of. `settleStyles()` writes `Element.colorLevel` beside `style` from the
+  `CascadeResult` the restyler kept, which is where the cascade already put the
+  depth, so the two are one answer and cannot describe different frames. The
+  alternative was the `opts.colorLevel ?? ansi.level` every string facade takes,
+  and inside a running app that is a second answer: the renderer refines its
+  level from what the terminal replied, and a picture drawn at the environment's
+  guess beside a frame drawn at the terminal's is truecolor on a 256-colour
+  screen. A field rather than a fourth `RawPaint` argument because the walk that
+  calls `rawPaint` does not have the depth -- `renderToString()` has put its
+  borrowed media context back by the time it paints -- while the element does,
+  from the walk that resolved it. Truecolor until something resolves it, which is
+  what an unresolved tree's initial style already means.
 - **A subtree not in a tree records nothing.** A page built up before it is
   attached has nothing on screen to invalidate, and marking every `append()`
   would hand the first frame a set naming every element in it. Joining a tree

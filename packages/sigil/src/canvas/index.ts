@@ -82,6 +82,7 @@ export {
   selectionRuns,
   selectionText,
 } from './selection.js';
+export { assertImage, type ImageRect, resampleImage, type RgbaImage } from './image.js';
 export { Dots, Pixels } from './subcell.js';
 export {
   ATTR,
@@ -108,10 +109,12 @@ export {
  * 0.013ms against a frame that costs 0.10ms to paint and present -- an eighth of
  * the frame, every frame, to free nothing at all. A canvas that legitimately
  * paints two thousand styles a frame would be paying to free nothing either,
- * which is what the growth factor answers: it bounds the table at twice what a
- * frame actually uses, and costs one integer comparison in the case that never
- * needs it. The same measurement on a truecolour frame -- 1,920 live styles --
- * is 0.22ms of a 3.5ms frame, and the growth factor spends it every other frame.
+ * which is what the growth factor answers: it bounds the table at about three
+ * times what a frame actually uses -- twice what survived the last sweep, plus
+ * the frame that crossed it, since this is asked after a frame has interned --
+ * and costs one integer comparison in the case that never needs it. The same
+ * measurement on a truecolour frame -- 1,920 live styles -- is 0.22ms of a
+ * 3.5ms frame, and the growth factor spends it every other frame.
  */
 const SWEEP_MIN = 256;
 const SWEEP_GROWTH = 2;

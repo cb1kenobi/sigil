@@ -246,6 +246,10 @@ const ENTRIES = [
     desc: 'A diff view: unified or side by side, over two texts or a unified patch, with the edited words set apart',
     name: 'diff',
   },
+  {
+    desc: 'An image: a picture resampled to the box layout gave it and drawn in half blocks, alpha mixed over what is under it',
+    name: 'image',
+  },
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */

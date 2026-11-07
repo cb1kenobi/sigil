@@ -34,6 +34,7 @@
  * what an invalidation set would do.
  */
 
+import type { ColorLevel } from '../ansi/color-support.js';
 import { applyProps, type Cascade, type CascadeResult, type PropValues } from './cascade.js';
 import { LAYOUT_PROPERTIES, type PropertyName, PROPERTY_NAMES, type Style } from './properties.js';
 import type { StyleNode } from './selector.js';
@@ -100,6 +101,17 @@ export class Restyler {
   /** The style an element last resolved to, if it has been through an update. */
   styleOf(node: StyleTarget): Style | undefined {
     return this.#styles.get(node);
+  }
+
+  /**
+   * The colour depth an element's style was resolved at, if it has been.
+   *
+   * Read off the kept `CascadeResult`, which is where the cascade put it: the
+   * prop fast path reuses that result, so it is the depth of the style
+   * `styleOf()` answers whichever path produced it.
+   */
+  levelOf(node: StyleTarget): ColorLevel | undefined {
+    return this.#results.get(node)?.colorLevel;
   }
 
   /**

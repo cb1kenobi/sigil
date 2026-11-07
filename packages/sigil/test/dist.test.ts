@@ -226,6 +226,7 @@ describe('what importing the package costs', () => {
     'filePicker',
     'selectRow',
     'treeView',
+    'imageView',
   ];
 
   /** The bundles in a graph that define any of them. */
@@ -695,12 +696,19 @@ describe('what importing the package costs', () => {
     // growth, which a ceiling exists not to catch, so the ceiling moved -- to
     // 1.4x of the new figure, which is the ratio it was set at
     //
+    // 462,153 B over 36 when SIG-326 added the image component, which crossed
+    // the 448 KiB the ceiling had been moved to: `main` was at 457,132 over the
+    // same 36, already 1.003x under it rather than the 1.4x it was set at, and
+    // the image added 5,021 B of its own -- the component, the box filter in
+    // `canvas/image.ts`, and `quantizeColor()` -- and no module. Ordinary growth
+    // again, so the ceiling moved to 640 KiB, which is 1.4x of the new figure
+    //
     // A ceiling rather than a measurement, at about 1.4x, so ordinary growth
     // never touches it and a second runtime stack does
     const graph = staticGraph('components.mjs');
     const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(448 * 1024);
+    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(640 * 1024);
   });
 
   // SIG-183 put seven spinner sets in the components entry and the rest in the

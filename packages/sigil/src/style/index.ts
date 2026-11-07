@@ -85,12 +85,14 @@ export {
 } from './cascade.js';
 export { type AnimationFrame, Animator } from './animate.js';
 export {
+  colorRgb,
   degradeColor,
   degradeInto,
   degradeStyle,
   mixColors,
   oklab,
   paletteRgb,
+  quantizeColor,
   rgbFromOklab,
 } from './degrade.js';
 export { ease, type Easing, LINEAR, parseEasing, type StepPosition } from './easing.js';

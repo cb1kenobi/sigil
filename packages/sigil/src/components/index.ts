@@ -361,6 +361,13 @@ export {
   qrLines,
 } from './qrcode.js';
 export {
+  image,
+  type ImageFit,
+  type ImageOptions,
+  imageView,
+  type ImageViewOptions,
+} from './image.js';
+export {
   captureConsole,
   type CaptureOptions,
   type ConsoleCapture,

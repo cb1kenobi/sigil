@@ -1,6 +1,6 @@
 import { strip } from '../ansi/strip.js';
 import { graphemes, graphemeWidth } from '../width/index.js';
-import { DEFAULT_COLOR, DEFAULT_STYLE, type Style, StyleTable } from './style.js';
+import { type Color, DEFAULT_COLOR, DEFAULT_STYLE, type Style, StyleTable } from './style.js';
 
 /**
  * A rectangle of cells, which is all a clip is.
@@ -727,6 +727,45 @@ export class Painter {
       }
       return onto;
     });
+  }
+
+  /**
+   * The background already in a cell, which is what something blending over it
+   * has to know.
+   *
+   * The question `text()` asks of the grid for a glyph, asked out loud: an image
+   * whose pixels are partly transparent has to mix each one with what is under
+   * it, and the grid is the one place that knows -- a box filled first, a sibling
+   * painted earlier, an absolutely placed panel, all without the element walk
+   * having to agree with it. Read through the clip, so a cell nothing may paint
+   * answers the terminal's own, which is also what a cell off the grid answers.
+   *
+   * @param x - The column.
+   * @param y - The row.
+   * @returns The background, or `DEFAULT_COLOR` where there is none to read.
+   */
+  backgroundAt(x: number, y: number): Color {
+    return this.#styles.get(this.#buffer.styleAt(x, y)).bg;
+  }
+
+  /**
+   * Whether a cell can be painted: on the grid, and inside the clip.
+   *
+   * What a caller painting one cell at a time asks *before* it builds a style,
+   * because `text()` interns the style it is handed whether or not anything
+   * lands. For a run of text that is one entry, and harmless. For `Pixels` it is
+   * one per cell, and a picture taller than the screen or scrolled half out of a
+   * pane interned a style for every cell nobody could see -- a new set each frame
+   * after a sweep had dropped the last one, so the table grew past its trigger
+   * and was swept on **every** frame, which is the cost the trigger exists to
+   * keep off a frame that has nothing to reclaim.
+   *
+   * @param x - The column.
+   * @param y - The row.
+   * @returns Whether a write there would land.
+   */
+  inside(x: number, y: number): boolean {
+    return this.#buffer.inside(x, y);
   }
 
   /**

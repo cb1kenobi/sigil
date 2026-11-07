@@ -390,6 +390,14 @@ export class Pixels {
   blit(painter: Painter, x: number, y: number): void {
     for (let row = 0; row < this.#height; row++) {
       for (let column = 0; column < this.#width; column++) {
+        // asked before a style is built rather than left to the write to refuse,
+        // because `text()` interns first: a cell off the grid or outside the clip
+        // is an entry in the style table that nothing will ever name, and a
+        // picture overflowing its pane made a fresh set of them every frame
+        if (!painter.inside(x + column, y + row)) {
+          continue;
+        }
+
         const top = this.get(column, row * 2);
         const bottom = this.get(column, row * 2 + 1);
 
