@@ -86,8 +86,9 @@ screenshot writes. SIG-114.
   against IHDR before anything is inflated or allocated. A default rather than
   `Infinity`, because the caller most likely to need it is the one decoding a
   file somebody else supplied, and that caller is the least likely to know to
-  ask. Raise it per call, or pass `Infinity` to lift it on purpose. Anything
-  that is not a number, `NaN`, or a negative is a `TypeError` rather than
+  ask. Raise it per call, or pass `Infinity` to lift it on purpose. `null` and
+  `undefined` mean the default, as an omitted option does. Anything else that
+  is not a number, and `NaN` or a negative, is a `TypeError` rather than
   coerced, because the check is a comparison and `n > NaN` is false: a `NaN`
   cap read from an unset config value used to lift the cap rather than fail,
   which review round 1 found.

@@ -310,6 +310,12 @@ describe('decodePng()', () => {
       }
       expect(() => decodePng(grey([[1]]), { maxPixels: Infinity })).not.toThrow();
       expect(decodePng(grey([[1]]), null as never).width).toBe(1);
+      // null and undefined are the default rather than a TypeError or a cap of 0
+      for (const maxPixels of [null, undefined]) {
+        expect(() => decodePng(header, { maxPixels } as never)).toThrow(
+          'more than the 268435456 allowed'
+        );
+      }
     });
 
     it('should refuse a second PLTE in a truecolour image, though the first is ignored', () => {
