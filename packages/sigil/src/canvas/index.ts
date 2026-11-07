@@ -39,7 +39,7 @@
 import { CellBuffer, Painter } from './buffer.js';
 import { diff, type DiffResult } from './diff.js';
 import { compositeAll, type Layer } from './layer.js';
-import { StyleTable } from './style.js';
+import { type Style, StyleTable } from './style.js';
 
 export {
   type CanvasBackend,
@@ -92,6 +92,7 @@ export {
   palette,
   RESET,
   rgb,
+  rgbChannels,
   type Style,
   StyleTable,
   transition,
@@ -282,6 +283,13 @@ export interface Canvas {
    * terminal. That is the reduced-motion rule said one layer down: an animation
    * with no screen to play on is one that has already finished.
    *
+   * The copy is bound to the style table's `view()`, so `cellStyle()` on it says
+   * what each cell looks like without the table being handed out -- which is what
+   * `@ttylabs/screenshot` reads. A copy kept off `layers` keeps a view that goes
+   * on answering for the indices it holds, since a compaction builds a new list
+   * rather than rewriting the old one; a copy pushed onto `layers` is remapped by
+   * a sweep and rebound with it.
+   *
    * @returns A new grid holding what was last presented.
    */
   snapshot(): CellBuffer;
@@ -303,10 +311,16 @@ export interface Canvas {
  * @param buffer - The grid.
  * @param moved - Where each old index went.
  */
-function remap(buffer: CellBuffer, moved: Int32Array): void {
+function remap(buffer: CellBuffer, moved: Int32Array, view: readonly Style[]): void {
   const indices = buffer.rawStyles();
   for (let i = 0; i < indices.length; i++) {
     indices[i] = moved[indices[i]];
+  }
+  // a grid that says what its indices mean has to go on saying it: the old view
+  // still answers for the old numbers, and these are not those any more. A grid
+  // bound to nothing stays that way -- `front` and `back` never are
+  if (buffer.styleView) {
+    buffer.bindStyles(view);
   }
 }
 
@@ -386,8 +400,9 @@ export function createCanvas(opts: CanvasOptions): Canvas {
     // whether or not anything repainted it, and an index that moved under it
     // would make an unchanged frame differ; a layer is read by the next
     // composite and by every one after it
+    const view = styles.view();
     for (const grid of grids) {
-      remap(grid, moved);
+      remap(grid, moved, view);
     }
     sweptSize = styles.size;
     sweeps++;
@@ -475,6 +490,9 @@ export function createCanvas(opts: CanvasOptions): Canvas {
     snapshot(): CellBuffer {
       const copy = new CellBuffer(front.width, front.height);
       copy.copyFrom(front);
+      // so the copy can say what its indices mean without the table being
+      // handed out, which is what a screenshot needs to read colours off it
+      copy.bindStyles(styles.view());
       return copy;
     },
 

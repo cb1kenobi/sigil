@@ -561,6 +561,16 @@ style sweep had to grow.
   composite as a grid of transparent blanks wherever the frame had nothing on it,
   and the whole point of taking one is that it occludes exactly where the frame
   did.
+- **A snapshot is bound to the table's view, so it can say what it looks like
+  (SIG-325).** `copy.bindStyles(styles.view())` in `snapshot()`, read back with
+  `cellStyle(x, y)`, is what `@ttylabs/screenshot` draws from. A view is the
+  table's list rather than the table, so it cannot compact -- the reason the table
+  itself is not handed out still holds. It stays right after a `compact()` for a
+  snapshot kept off `layers`, because interning appends and a compaction builds a
+  new list instead of rewriting this one; a snapshot on `layers` is remapped, so
+  `remap()` rebinds whatever was bound. `front` and `back` are never bound, and
+  `copyFrom()` carries a binding with the indices it came with. The full entry is
+  in `packages/screenshot/AGENTS.md`.
 - **There is no `transition()` helper, and that is a refusal rather than an
   omission.** The ramp is a frame loop's and the canvas does not own one: it has no
   clock, no scheduler and no opinion about how many frames a dissolve takes. That

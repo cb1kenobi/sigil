@@ -8,11 +8,13 @@ import {
   isCapabilityResponse,
   type KeyEvent,
   parseCapabilityResponse,
+  PALETTE_COLORS,
   parseReportedColor,
   queryCursor,
   queryMode,
   readCapabilities,
   refineColorLevel,
+  requestPaletteColor,
 } from '../../src/input/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { describe, expect, it, vi } from 'vitest';
@@ -536,7 +538,16 @@ describe('nothing probes unless a renderer mounted', () => {
    * rather than as "no capability sequence", because a query is the only reason
    * any of these would write to the input side of a terminal at all.
    */
-  const QUERIES = [`${CSI}c`, `${CSI}>q`, `${CSI}6n`, `${CSI}14t`, `${CSI}16t`, `${ESC}]11;?`];
+  const QUERIES = [
+    `${CSI}c`,
+    `${CSI}>q`,
+    `${CSI}6n`,
+    `${CSI}14t`,
+    `${CSI}16t`,
+    `${ESC}]11;?`,
+    `${ESC}]10;?`,
+    `${ESC}]4;`,
+  ];
 
   const probed = (written: string): string[] => QUERIES.filter((q) => written.includes(q));
 
@@ -946,6 +957,93 @@ describe('the background the terminal reports', () => {
     expect(h.out.join('')).to.contain(`${ESC}]11;?`);
     h.feed(`${ESC}]11;rgb:ffff/ffff/ffff${BEL}${CSI}?1;2c`);
     expect((await withIt).colorScheme).to.equal('light');
+    router.stop();
+  });
+});
+
+/**
+ * The foreground and the sixteen palette entries, which a screenshot needs and a
+ * colour scheme does not: OSC 10 is the background's own question with a
+ * different number, and OSC 4 answers one palette entry per reply.
+ */
+describe('the foreground and palette the terminal reports', () => {
+  it('should read an OSC 10 reply as the foreground and nothing else', () => {
+    const caps = readCapabilities([reply(`${ESC}]10;rgb:eeee/dddd/cccc${BEL}`)]);
+    expect(caps.foreground).toEqual({ b: 204, g: 221, r: 238 });
+    expect(caps.background).toBeUndefined();
+    expect(caps.colorScheme).toBeUndefined();
+  });
+
+  it('should take the first readable foreground, as the background does', () => {
+    const caps = readCapabilities([
+      reply(`${ESC}]10;white${BEL}`),
+      reply(`${ESC}]10;rgb:0000/0000/0000${BEL}`),
+      reply(`${ESC}]10;rgb:ffff/ffff/ffff${BEL}`),
+    ]);
+    expect(caps.foreground).toEqual({ b: 0, g: 0, r: 0 });
+  });
+
+  it('should read OSC 4 replies into a palette of sixteen with holes', () => {
+    const caps = readCapabilities([
+      reply(`${ESC}]4;1;rgb:ffff/0000/0000${ST}`),
+      reply(`${ESC}]4;15;#00ff00${BEL}`),
+    ]);
+    expect(caps.palette).toHaveLength(16);
+    expect(caps.palette?.[1]).toEqual({ b: 0, g: 0, r: 255 });
+    expect(caps.palette?.[15]).toEqual({ b: 0, g: 255, r: 0 });
+    expect(caps.palette?.[0]).toBeUndefined();
+    expect(Object.isFrozen(caps.palette)).toBe(true);
+  });
+
+  // xterm writes the query as a list and some terminals answer it the same way
+  it('should read several entries out of one reply', () => {
+    const caps = readCapabilities([reply(`${ESC}]4;0;rgb:0/0/0;7;rgb:f/f/f${BEL}`)]);
+    expect(caps.palette?.[0]).toEqual({ b: 0, g: 0, r: 0 });
+    expect(caps.palette?.[7]).toEqual({ b: 255, g: 255, r: 255 });
+  });
+
+  it('should keep the first readable answer per entry', () => {
+    const caps = readCapabilities([
+      reply(`${ESC}]4;2;green${BEL}`),
+      reply(`${ESC}]4;2;rgb:0000/8080/0000${BEL}`),
+      reply(`${ESC}]4;2;rgb:ffff/ffff/ffff${BEL}`),
+    ]);
+    expect(caps.palette?.[2]).toEqual({ b: 0, g: 128, r: 0 });
+  });
+
+  it('should have no palette when nothing in it could be read', () => {
+    expect(readCapabilities([reply(`${CSI}?1;2c`)]).palette).toBeUndefined();
+    expect(readCapabilities([reply(`${ESC}]4;3;yellow${BEL}`)]).palette).toBeUndefined();
+    // past the sixteen, and not an index at all
+    expect(readCapabilities([reply(`${ESC}]4;200;rgb:0/0/0${BEL}`)]).palette).toBeUndefined();
+    expect(readCapabilities([reply(`${ESC}]4;x;rgb:0/0/0${BEL}`)]).palette).toBeUndefined();
+  });
+
+  it('should write one query per entry', () => {
+    expect(requestPaletteColor(5)).toBe(`${ESC}]4;5;?${ST}`);
+    expect(PALETTE_COLORS.split(`${ESC}]4;`)).toHaveLength(17);
+    expect(() => requestPaletteColor(256)).toThrow(TypeError);
+    expect(() => requestPaletteColor(1.5)).toThrow(TypeError);
+  });
+
+  it('should ask for the foreground and palette only when asked to', async () => {
+    const h = harness();
+    const router = createInput({ paste: false, terminal: h.terminal });
+
+    const without = detectCapabilities(router, { timeout: 50 });
+    expect(h.out.join('')).not.to.contain(`${ESC}]10;?`);
+    expect(h.out.join('')).not.to.contain(`${ESC}]4;`);
+    h.feed(`${CSI}?1;2c`);
+    await without;
+
+    h.out.length = 0;
+    const withIt = detectCapabilities(router, { foreground: true, palette: true, timeout: 50 });
+    expect(h.out.join('')).to.contain(`${ESC}]10;?`);
+    expect(h.out.join('')).to.contain(PALETTE_COLORS);
+    h.feed(`${ESC}]10;rgb:ffff/ffff/ffff${BEL}${ESC}]4;4;rgb:0/0/f${BEL}${CSI}?1;2c`);
+    const caps = await withIt;
+    expect(caps.foreground).toEqual({ b: 255, g: 255, r: 255 });
+    expect(caps.palette?.[4]).toEqual({ b: 255, g: 0, r: 0 });
     router.stop();
   });
 });
