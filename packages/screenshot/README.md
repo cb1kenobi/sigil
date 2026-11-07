@@ -150,7 +150,8 @@ pixels.
 ## Deterministic
 
 The same frame and options produce the same SVG string and the same pixels on
-every machine: the rasterizer uses only arithmetic IEEE 754 rounds exactly, and
+every machine: the rasterizer uses only arithmetic and `Math.sqrt()`, all of which
+IEEE 754 requires to be correctly rounded, and
 nothing reads the clock, the locale or the system's fonts. The one thing read from
 the environment is the colour scheme, so a golden-file test passes `env: {}` (or
 a `colorScheme`) and is then the same everywhere.

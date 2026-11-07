@@ -372,5 +372,9 @@ describe('what review round 1 found', () => {
   it('should refuse a grid too large to read before reading it', () => {
     const screen = { cellAt: () => ' ', height: 1e7, width: 1e7 };
     expect(() => rasterize(screen, OPTS)).toThrow(RangeError);
+    // review round 2: a width of 0 made the product 0, and the rows were walked
+    expect(() => rasterize({ cellAt: () => ' ', height: 1e12, width: 0 }, OPTS)).toThrow(
+      RangeError
+    );
   });
 });

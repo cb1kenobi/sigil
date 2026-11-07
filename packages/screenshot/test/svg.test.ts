@@ -47,6 +47,15 @@ describe('the document', () => {
     ).toContain('font-family:"Fira Code", mono-1.0;');
   });
 
+  it('should take a font name in any script', () => {
+    // review round 2: `\w` is ASCII, and the whitelist refused real names
+    for (const fontFamily of ['微软雅黑', '源ノ角ゴシック', 'Noto Sans CJK JP, monospace']) {
+      expect(renderSvg(new CellBuffer(1, 1), { ...OPTS, fontFamily })).toContain(
+        `font-family:${fontFamily};`
+      );
+    }
+  });
+
   it('should refuse a font stack that would reach past its declaration', () => {
     // review round 1: a `;` or a `}` ends the declaration, and what follows is
     // a rule -- an `@import` an SVG opened in a browser fetches

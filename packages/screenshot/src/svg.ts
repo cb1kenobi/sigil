@@ -46,8 +46,12 @@ export interface SvgOptions extends ColorOptions, SizeOptions {
 export const DEFAULT_FONT_FAMILY =
   "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace";
 
-/** What a font stack may hold: names, spaces, quotes, commas, dots, hyphens. */
-const FONT_FAMILY = /^[\w ,'".-]+$/;
+/**
+ * What a font stack may hold: names in any script, spaces, quotes, commas, dots,
+ * hyphens and underscores. Letters by Unicode property rather than `\w`, which
+ * is ASCII and refused `微软雅黑` -- review round 2.
+ */
+const FONT_FAMILY = /^[\p{L}\p{M}\p{N} ,'"._-]+$/u;
 
 /** The schemes a link may keep, because an SVG opened in a browser runs what it is handed. */
 const SAFE_LINK = /^(?:https?|mailto|ftp|file):/i;

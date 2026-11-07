@@ -182,3 +182,19 @@ reader and the coverage rasterizer.
   `x' = xx*x + xy*y`) both apply `x' = a*x + c*y`, `y' = b*x + d*y`, which is
   what the code does. A test now pins that convention with a 90-degree rotation,
   so a later "fix" in the other direction fails.
+
+#### What review round 2 found
+
+Round 2 re-read round 1's fixes and probed each; all held, and it found three
+small things. Its premise for each was checked before the fix.
+
+- **The `fontFamily` whitelist was ASCII.** `\w` without the `u` flag refused
+  `微软雅黑`. Letters, marks and numbers are matched by Unicode property now; `;`,
+  `{`, `}`, `(`, `)`, `\`, `@`, `<`, `>` and newlines are still refused, so the
+  injection round 1 found stays closed.
+- **The cell cap could be stepped round with a zero width.** `0 x 10^12` has a
+  product of zero and the rows were still walked. Each side is capped as well.
+- **The README's determinism sentence left out `Math.sqrt()`**, which round 1 had
+  already corrected here.
+
+There was no round 3, since nothing round 2 found was substantive.
