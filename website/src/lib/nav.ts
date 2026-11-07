@@ -157,7 +157,7 @@ export function sidebarSections(source: SidebarSource): SidebarSection[] {
         { label: 'All components', href: COMPONENTS_HREF },
       ],
     },
-    { id: 'about', label: 'About', links: [{ label: 'The story of sigil', href: ABOUT_HREF }] },
+    { id: 'about', label: 'About', links: [{ label: 'What is sigil?', href: ABOUT_HREF }] },
   ];
 }
 

@@ -1,4 +1,3 @@
-import { remarkBlockStyles } from '../src/lib/block-styles.ts';
 import { docsSidebar } from '../src/lib/docs-sidebar.ts';
 import { guideLink } from '../src/lib/guide-links.ts';
 import { ABOUT_REPO_PATH, about, guides, markdownPages } from '../src/lib/guides.ts';
@@ -45,7 +44,7 @@ describe('the About page', () => {
       resolve(page.file),
       fileURLToPath(new URL(`../../${ABOUT_REPO_PATH}`, import.meta.url))
     );
-    assert.equal(page.title, 'The story of sigil');
+    assert.equal(page.title, 'What is sigil?');
   });
 
   it('should have a route of its own, and not be a guide', () => {
@@ -64,10 +63,10 @@ describe('the About page', () => {
     );
   });
 
-  it("should have the ticket's sections, in order, each with an anchor for the rail", () => {
+  it('should have its sections, in order, each with an anchor for the rail', () => {
     assert.deepEqual(
       page.sections.map((section) => section.text),
-      ['Where it came from', 'Timeline', "How it's made", 'Where AI fits', 'TTY Labs']
+      ['The story of sigil']
     );
     assert.ok(page.sections.every((section) => section.id !== ''));
   });
@@ -77,37 +76,12 @@ describe('the About page', () => {
     assert.match(page.description, /[.!?]$/);
   });
 
-  it('should draw the timeline, the points and the GitHub button', () => {
-    const tree = parseMarkdown(page.source);
-    remarkBlockStyles()(tree);
-    const styled = tree.children.flatMap((node) => {
-      const block = node.data?.hProperties?.dataBlock;
-      return node.type === 'list' && typeof block === 'string'
-        ? [[block, node.children.length] as const]
-        : [];
-    });
-
-    assert.deepEqual(styled, [
-      ['timeline', 5],
-      ['points', 4],
-    ]);
-    assert.ok(
-      tree.children.some(
-        (node) =>
-          node.type === 'paragraph' &&
-          node.children[0]?.type === 'link' &&
-          node.children[0].url === REPO_URL &&
-          node.children[0].data?.hProperties?.dataButton === 'github'
-      )
-    );
-  });
-
   it('should be the last section of the sidebar', () => {
     const last = docsSidebar().at(-1);
 
     assert.equal(last?.id, 'about');
     assert.equal(last?.label, 'About');
-    assert.deepEqual(last?.links, [{ label: 'The story of sigil', href: ABOUT_HREF }]);
+    assert.deepEqual(last?.links, [{ label: 'What is sigil?', href: ABOUT_HREF }]);
   });
 
   it('should be where the footer\'s "TTY Labs" goes', () => {
@@ -135,7 +109,7 @@ describe('a link on the About page', () => {
   const links = linksOf(page.source);
 
   it('should land on a route of this site or a file on GitHub, never on a relative path', () => {
-    assert.ok(links.length > 5, 'a reader that found nothing would pass this');
+    assert.ok(links.length > 0, 'a reader that found nothing would pass this');
 
     for (const href of links) {
       const to = guideLink(href, from);

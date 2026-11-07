@@ -1,14 +1,14 @@
 import { REPO_URL } from './site.ts';
-import type { Link, List, Paragraph, PhrasingContent, Root, RootContent } from 'mdast';
+import type { Link, List, Paragraph, Root, RootContent } from 'mdast';
 
 /**
  * A block of markdown drawn as something other than what markdown calls it,
  * named by a comment on the line before it:
  *
  * ```md
- * <!-- as timeline -->
+ * <!-- as points -->
  *
- * - **2015** The first release
+ * - **Decisions are recorded.** …
  * ```
  *
  * A comment, because it is the one piece of markup that GitHub, a `.md` copy of
@@ -17,9 +17,6 @@ import type { Link, List, Paragraph, PhrasingContent, Root, RootContent } from '
  * as `<!-- include … -->` (`includes.ts`), which is the other thing a comment
  * says to this site.
  *
- * - `timeline`: a bulleted list, one row per item, each starting with its date
- *   in bold. Drawn as a bordered panel of rows, the date in mono beside the
- *   event.
  * - `points`: a bulleted list drawn with a square marker.
  * - `github`: a paragraph that is one link to the repository, drawn as the
  *   bordered GitHub button.
@@ -30,11 +27,11 @@ import type { Link, List, Paragraph, PhrasingContent, Root, RootContent } from '
  */
 
 /** The styles a block can be given. */
-export const BLOCK_STYLES = ['timeline', 'points', 'github'] as const;
+export const BLOCK_STYLES = ['points', 'github'] as const;
 
 export type BlockStyle = (typeof BLOCK_STYLES)[number];
 
-/** `<!-- as timeline -->`. */
+/** `<!-- as points -->`. */
 const DIRECTIVE = /^<!--\s*as\s+(\S+)\s*-->$/u;
 
 /**
@@ -42,8 +39,7 @@ const DIRECTIVE = /^<!--\s*as\s+(\S+)\s*-->$/u;
  * comment out.
  *
  * What a style becomes is on the tree, for the renderer and the stylesheet:
- * a list gets `data-block`, a timeline's date and event are each a `span`
- * with a class, and the GitHub link gets `data-button="github"`, which
+ * a list gets `data-block`, and the GitHub link gets `data-button="github"`, which
  * `docs-markdown.tsx` draws as `GithubLink`. A list keeps `role="list"`,
  * because a list with its bullets styled away is no longer announced as one
  * by Safari.
@@ -83,9 +79,6 @@ function style(name: string, node: RootContent | undefined): void {
   }
 
   switch (name) {
-    case 'timeline':
-      timeline(bulleted(name, node));
-      return;
     case 'points':
       mark(bulleted(name, node), name);
       return;
@@ -109,48 +102,6 @@ function mark(list: List, name: BlockStyle): void {
   list.data = {
     ...list.data,
     hProperties: { ...list.data?.hProperties, dataBlock: name, role: 'list' },
-  };
-}
-
-/**
- * A timeline: each row's date and event as two spans, so that a row can lay
- * them out side by side however much markup the event holds. The list is made
- * tight, which is what puts the spans straight inside the `li` rather than in
- * a paragraph.
- */
-function timeline(list: List): void {
-  mark(list, 'timeline');
-  list.spread = false;
-
-  for (const item of list.children) {
-    item.spread = false;
-    const first = item.children[0];
-    const date = first?.type === 'paragraph' ? first.children[0] : undefined;
-
-    if (first?.type !== 'paragraph' || date?.type !== 'strong') {
-      throw new Error('A row of <!-- as timeline --> starts with its date in bold: - **2015** …');
-    }
-
-    const event = first.children.slice(1);
-    const lead = event[0];
-    if (lead?.type === 'text') {
-      lead.value = lead.value.replace(/^\s+/u, '');
-    }
-
-    date.data = { ...date.data, hName: 'span', hProperties: { className: ['timeline-date'] } };
-    first.children = [date, span('timeline-event', event)];
-  }
-}
-
-/**
- * Phrasing content in a `span` with a class. An `emphasis` node renamed, which
- * is how mdast carries an element it has no node for: `hName` replaces the tag.
- */
-function span(className: string, children: PhrasingContent[]): PhrasingContent {
-  return {
-    type: 'emphasis',
-    children,
-    data: { hName: 'span', hProperties: { className: [className] } },
   };
 }
 

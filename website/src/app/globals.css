@@ -451,44 +451,7 @@
 
 /*
  * The blocks a page names with `<!-- as … -->` (`src/lib/block-styles.ts`).
- *
- * A timeline is a panel of rows, the date in mono `link` beside the event. The
- * two are spans in a wrapping row, so on a phone the event goes under its date
- * rather than squeezing beside it.
  */
-.prose-sigil ul[data-block='timeline'] {
-  background: var(--color-surface);
-  border: 1px solid var(--color-line-panel);
-  border-radius: var(--radius-panel);
-  list-style: none;
-  margin-top: 1.25rem;
-  padding: 0;
-}
-
-.prose-sigil ul[data-block='timeline'] > li {
-  align-items: baseline;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.15rem 1.5rem;
-  padding: 0.85rem 1.25rem;
-}
-
-.prose-sigil ul[data-block='timeline'] > li + li {
-  border-top: 1px solid var(--color-line);
-}
-
-.prose-sigil .timeline-date {
-  color: var(--color-link);
-  flex: 0 0 9rem;
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-
-.prose-sigil .timeline-event {
-  color: var(--color-fg);
-  flex: 1 1 16rem;
-  min-width: 0;
-}
 
 /* Points, each with a small square `link` marker where the bullet was. */
 .prose-sigil ul[data-block='points'] {
