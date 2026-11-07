@@ -86,7 +86,10 @@ describe('accessibility', () => {
   });
 
   it('should name the icon-only links and buttons', () => {
-    assert.match(read('src/components/github-link.tsx'), /aria-label="sigil on GitHub"/u);
+    // the icon-only link's name is the default; About's button passes its own text
+    const github = read('src/components/github-link.tsx');
+    assert.match(github, /name = 'sigil on GitHub'/u);
+    assert.match(github, /aria-label=\{name\}/u);
     const menu = read('src/components/mobile-nav.tsx');
     assert.match(menu, /aria-label="Open menu"/u);
     assert.match(menu, /aria-label="Close menu"/u);

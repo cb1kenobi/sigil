@@ -8,6 +8,7 @@
       "inputs": [
         "src/**",
         "../packages/sigil/docs/**",
+        "../docs/about.md",
         "../packages/sigil/package.json",
         "scripts/**",
         "public/**",

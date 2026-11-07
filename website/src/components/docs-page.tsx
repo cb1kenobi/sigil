@@ -69,6 +69,8 @@ function PagerCard({
  * @param props.link - Where a relative link in the markdown goes on this site.
  * @param props.plugins - What `DocsMarkdown` adds for this kind of page.
  * @param props.repoPath - The page's source file, from the repository's root.
+ * @param props.wide - The About page's type, which the design sets larger than a guide's: the
+ *   title at `page-wide` and the `h2`s at `about-h2`.
  */
 export function DocsPage({
   crumbs,
@@ -81,6 +83,7 @@ export function DocsPage({
   repoPath,
   source,
   title,
+  wide = false,
 }: {
   crumbs: readonly Crumb[];
   headings: readonly Heading[];
@@ -92,6 +95,7 @@ export function DocsPage({
   repoPath: string;
   source: string;
   title: string;
+  wide?: boolean;
 }) {
   const editHref = repoFileUrl(repoPath);
 
@@ -101,14 +105,20 @@ export function DocsPage({
         <Breadcrumb crumbs={crumbs} />
 
         <h1
-          className={`mt-5 text-fg-strong ${mono ? 'font-mono text-[30px] sm:text-[40px]' : 'text-[38px] sm:text-page'}`}
+          className={`mt-5 text-fg-strong ${
+            mono
+              ? 'font-mono text-[30px] sm:text-[40px]'
+              : wide
+                ? 'text-[40px] leading-[1.05] sm:text-page-wide'
+                : 'text-[38px] sm:text-page'
+          }`}
         >
           {title}
         </h1>
 
         {intro}
 
-        <DocsMarkdown link={link} plugins={plugins} source={source} />
+        <DocsMarkdown link={link} plugins={plugins} source={source} wide={wide} />
 
         {pager.previous || pager.next ? (
           <nav

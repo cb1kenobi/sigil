@@ -28,9 +28,11 @@ const FROM = 'packages/sigil/docs';
 
 /**
  * @param href - What the markdown said.
+ * @param from - The directory of the file it is in, from the repository's root: a guide's by
+ *   default, and `docs` for About, which is `docs/about.md`.
  * @returns Where it goes.
  */
-export function guideLink(href: string | undefined): string | undefined {
+export function guideLink(href: string | undefined, from: string = FROM): string | undefined {
   if (
     href === undefined ||
     href === '' ||
@@ -48,7 +50,7 @@ export function guideLink(href: string | undefined): string | undefined {
   const hash = href.indexOf('#');
   const path = decodeURI(hash === -1 ? href : href.slice(0, hash));
   const fragment = hash === -1 ? '' : href.slice(hash);
-  const resolved = posix.join(FROM, path);
+  const resolved = posix.join(from, path);
   const slug = posix.basename(resolved, '.md');
 
   if (posix.dirname(resolved) === FROM && resolved.endsWith('.md') && isGuide(slug)) {

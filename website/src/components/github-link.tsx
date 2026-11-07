@@ -15,11 +15,17 @@ export function GithubMark({ className = 'size-5' }: { className?: string }) {
 
 export interface GithubLinkProps {
   /** Where the link is, sent with the `github_link_clicked` event. */
-  location: 'header' | 'footer';
+  location: 'header' | 'footer' | 'about';
   /** Sizing, for the places that are not the 40px square: the footer's 44px, a menu row. */
   className?: string;
   /** A visible label, for the phone menu's row. The icon-only link has none. */
   children?: ReactNode;
+  /**
+   * What a screen reader calls the link. A visible label that does not say
+   * "GitHub" has to be in it, so a reader who says what they see can follow it:
+   * the About page's button passes its own text.
+   */
+  name?: string;
 }
 
 /**
@@ -35,13 +41,14 @@ export function GithubLink({
   location,
   className = 'size-10 justify-center',
   children,
+  name = 'sigil on GitHub',
 }: GithubLinkProps) {
   return (
     <a
       href={REPO_URL}
       target="_blank"
       rel="noreferrer"
-      aria-label="sigil on GitHub"
+      aria-label={name}
       title="GitHub"
       onClick={() => captureBeforeLeaving('github_link_clicked', { location })}
       className={`flex shrink-0 items-center gap-3 rounded-control text-fg-body transition-colors hover:text-white ${className}`}

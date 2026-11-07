@@ -34,6 +34,7 @@ import { GUIDE_SLUGS, type SidebarSection } from './nav.ts';
 import { referenceDoc, referenceHref, referenceLink, type ReferenceDoc } from './reference.ts';
 import { repoFileUrl } from './site.ts';
 import { commandRow, plainText } from './terminal-rows.ts';
+import { posix } from 'node:path';
 
 /**
  * Every docs page the site builds, as Markdown: the one loader of what the docs
@@ -106,10 +107,10 @@ function guidePage(it: Guide, href: string): DocsPage {
     title: it.title,
     description: it.description,
     markdown: it.source,
-    // relative to `packages/sigil/docs/`, where every guide is; About is in the
-    // root `docs/`, so with SIG-266 this resolves from the file's own directory,
-    // which `test/llms.test.ts` holds by following every link into the repository
-    link: guideLink,
+    // relative to the file's own directory: a guide is in `packages/sigil/docs/`
+    // and About in the root `docs/`, which `test/llms.test.ts` holds by
+    // following every link into the repository
+    link: (target) => guideLink(target, posix.dirname(it.repoPath)),
   };
 }
 

@@ -439,3 +439,60 @@
 .prose-sigil td.ref-type code {
   color: var(--color-syn-keyword);
 }
+
+/*
+ * The About page's type (`wide` on `DocsPage`): its `h2`s at the size the
+ * design gives that page, larger than a guide's.
+ */
+.prose-wide h2 {
+  font-size: var(--text-about-h2);
+  line-height: var(--text-about-h2--line-height);
+}
+
+/*
+ * The blocks a page names with `<!-- as … -->` (`src/lib/block-styles.ts`).
+ */
+
+/* Points, each with a small square `link` marker where the bullet was. */
+.prose-sigil ul[data-block='points'] {
+  display: grid;
+  gap: 1rem;
+  list-style: none;
+  margin-top: 1.25rem;
+  padding-left: 0;
+}
+
+.prose-sigil ul[data-block='points'] > li {
+  padding-left: 1.5rem;
+  position: relative;
+}
+
+.prose-sigil ul[data-block='points'] > li::before {
+  background: var(--color-link);
+  content: '';
+  height: 8px;
+  left: 2px;
+  position: absolute;
+  /* the middle of the first line, which is 1.7 lines of 16px */
+  top: calc(0.85em - 4px);
+  width: 8px;
+}
+
+/*
+ * The GitHub button: `GithubLink`, bordered, with the address beside the mark.
+ * Set here rather than in its classes because `.prose-sigil a` is unlayered
+ * and would win over a utility.
+ */
+.prose-sigil .github-button {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-input);
+  color: var(--color-fg);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.prose-sigil .github-button:hover {
+  border-color: var(--color-line-strong);
+  color: var(--color-fg-strong);
+}

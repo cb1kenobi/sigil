@@ -1,5 +1,6 @@
 import { GithubLink } from '@/components/github-link';
 import { SiteLockup } from '@/components/site-lockup';
+import { ABOUT_HREF } from '@/lib/nav';
 import Link from 'next/link';
 
 /**
@@ -14,7 +15,7 @@ export function SiteFooter() {
         <p className="text-small text-muted">
           Developed by{' '}
           <Link
-            href="/docs/about"
+            href={ABOUT_HREF}
             className="text-fg underline decoration-[#5a5766] underline-offset-[3px]"
           >
             TTY Labs
