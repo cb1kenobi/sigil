@@ -11,6 +11,11 @@ function over(text: string, schema?: ConfigSchema): { path: string; store: Writa
   return { path, store: xml(path, schema ? { schema } : {}) };
 }
 
+/** A file's inode, exactly: a bigint, since a 64-bit NTFS file ID does not fit a number. */
+function inode(path: string): bigint {
+  return statSync(path, { bigint: true }).ino;
+}
+
 /** What a file holds after the value it already holds is written back whole. */
 function after(text: string, value: unknown, schema?: ConfigSchema): string {
   const { path, store } = over(text, schema);
@@ -468,15 +473,21 @@ describe('writing', () => {
     // contents passes whether or not the file was written. `writeAtomic()`
     // renames a temp file over the target, so a write changes the inode and a
     // skipped write does not -- exact, and with no timing in it, where an
-    // mtime at millisecond resolution is a flaky test one busy machine later
+    // mtime at millisecond resolution is a flaky test one busy machine later.
+    //
+    // Read as a bigint, because an NTFS file ID is 64 bits and above 2^53 a
+    // number cannot tell two adjacent ones apart -- and the temp file is handed
+    // an ID right next to the original's. Read as a number, the written file
+    // and the original compared equal on two of CI's three Windows jobs
+    // (11821949023213364, whose spacing as a double is 2)
     it('should touch no file, which is what keeps the mtime a watcher reads', () => {
       const src = `<config>\n  <a>1</a>\n</config>\n`;
       const { path, store } = over(src);
-      const was = statSync(path).ino;
+      const was = inode(path);
       store.writeSync({ a: '1' });
-      expect(statSync(path).ino, 'skipped').toBe(was);
+      expect(inode(path), 'skipped').toBe(was);
       store.writeSync({ a: '2' });
-      expect(statSync(path).ino, 'written').not.toBe(was);
+      expect(inode(path), 'written').not.toBe(was);
     });
 
     it('should touch no file through the async path either', async () => {
@@ -484,11 +495,11 @@ describe('writing', () => {
       // `createConfigSync()` is -- so the guard is two guards, and the sync
       // test above cannot see the other one
       const { path, store } = over(`<config>\n  <a>1</a>\n</config>\n`);
-      const was = statSync(path).ino;
+      const was = inode(path);
       await store.write({ a: '1' });
-      expect(statSync(path).ino, 'skipped').toBe(was);
+      expect(inode(path), 'skipped').toBe(was);
       await store.write({ a: '2' });
-      expect(statSync(path).ino, 'written').not.toBe(was);
+      expect(inode(path), 'written').not.toBe(was);
     });
   });
 
