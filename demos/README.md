@@ -626,8 +626,8 @@ is no colour, so the highlighted block reads exactly as the plain one would.
 `55-image.js` draws a photograph -- a public-domain macaw by Adrian Pingstone,
 committed as `images/macaw.png` -- from the bytes of the file, 40 columns wide, with
 the height worked out from its proportions at two pixels a row. Then the same
-photograph three times in one 24 by 8 box: `contain`, which shows all of it and
-leaves the rest of the box empty; `cover`, which crops it to fill; and `fill`,
+photograph three times side by side, each in its own 24 by 8 box: `contain`,
+which shows all of it and leaves the rest of its box empty; `cover`, which crops it to fill; and `fill`,
 which stretches it. Last, a disc generated as raw RGBA with an edge that fades out,
 over a blue box, a red one, and nothing: its soft edge is mixed with each box's
 colour, and over the terminal's own background, whose colour nothing here knows, a

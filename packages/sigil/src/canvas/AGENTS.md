@@ -935,5 +935,5 @@ name.
   Recorded rather than retuned: a lower factor sweeps a panning picture every
   frame to save memory nobody is short of, and the factor is what keeps a
   settled table from ever being walked. `should sweep a still photograph once at
-  every size` pins the live counts at 80x24 and 200x60 exactly, so the table
+  every size` pins the live counts at all three sizes exactly, so the table
   cannot drift from the code without a failure.

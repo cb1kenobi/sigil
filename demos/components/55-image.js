@@ -30,8 +30,8 @@ import { join } from 'node:path';
 const photo = readFileSync(join(import.meta.dirname, 'images', 'macaw.png'));
 
 // the whole photograph at forty columns: the height follows from its proportions,
-// and every cell is the box-filtered average of the dozen or so source pixels under
-// each of its halves
+// and each half of every cell is the box-filtered average of the six by six or so
+// source pixels under it
 console.log('  the photograph, 40 columns wide');
 console.log(image(photo, { width: 40 }));
 
