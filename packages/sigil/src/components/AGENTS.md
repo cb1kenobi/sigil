@@ -6375,6 +6375,19 @@ there under "An image over `Pixels`".
   flex row or a `width: 50%` made of the request. Both minimums are zero, because
   a picture is drawn at a size rather than having one -- unlike a word, it has
   nothing to protect from a squeeze.
+- **A width asked for is a `max-width`, and `measure()` answers the width it is
+  handed rather than the one it asked for.** Both were the other way round in
+  the first version, and review round 1 found what that cost. The layout asks a
+  measuring node at the width it will have -- a `max-width`, padding and border
+  already taken off -- and answering the request regardless reserved the rows of
+  a 40-column picture for one drawn at 10, left as bands round a letterbox. And a
+  declared `width` is what the layout measures a node at however narrow a row
+  then flexes it, so a 40-column request squeezed to 17 kept the height of 40.
+  As a ceiling the request is still the size where there is room, and a column's
+  stretch stops at it rather than widening the picture. A `height` stays a
+  `height`, because "fit this many rows" is what it says; a height alone also
+  sets the `max-width` its proportions give. `should be as tall as the width it
+  got` fails for each half put back on its own.
 - **In a row it is as tall as its width makes it, and that is the layout's rule
   rather than this component's.** A row stretches a measuring item to the larger
   of the room and its own height, which `src/layout` records for a text whose
@@ -6427,12 +6440,13 @@ there under "An image over `Pixels`".
   picture in truecolor, on exactly the terminals degradation exists for. The
   facade takes one because it builds the tree and so is the one place that says.
 - **`quantizeColor()`, not `degradeColor()`.** The degrader's memo is never
-  evicted, on the argument that what reaches it is declared colour and an app has
-  a few dozen. A photograph is a few thousand colours nobody declared, a different
-  few thousand at each size it is drawn at -- so this asks the unmemoized half of
-  the same function and keeps its own map, dropped when the size or the depth
-  moves and bounded at four entries a pixel besides, for a background animating
-  under a part-transparent picture.
+  evicted, on the argument that what reaches it is declared colour and an app
+  has a few dozen. A photograph is a few thousand colours nobody declared, a
+  different few thousand at each size it is drawn at -- so this asks the
+  unmemoized half of the same function and keeps its own map, dropped when the
+  size or the depth moves and bounded at four entries a pixel besides -- asked
+  before a frame adds its own, so the limit it checks is three -- for a
+  background animating under a part-transparent picture.
 - **At level 0 it draws nothing, keeps its box, and the facade is `''`.** A
   picture with its colour taken away is not a picture, and `NO_COLOR` and a pipe
   both asked for no escape sequences. The box stays reserved inside a tree,

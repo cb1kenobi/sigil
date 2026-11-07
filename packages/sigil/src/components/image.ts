@@ -96,7 +96,9 @@ function rowsAt(image: RgbaImage, columns: number): number {
 }
 
 /**
- * The columns a picture comes to at a height. The inverse of `rowsAt()`.
+ * The columns a picture comes to at a height: `rowsAt()`'s ratio the other way
+ * round, and rounded the other way round too, so not its exact inverse -- a
+ * width taken to a height and back may land a column off where it started.
  *
  * @param image - The picture.
  * @param rows - The height it is drawn at.
@@ -251,7 +253,8 @@ export function imageView(
 
   // a height alone says how wide too, at the picture's proportions -- which a
   // width alone does for the height in `measure()`, where the width it is asked
-  // at is the one layout settled on
+  // at is the one layout settled on. A height is the one thing kept as asked
+  // whatever the width comes to, since "fit this many rows" is what it says
   const width = asked ?? (askedRows === undefined ? source.width : columnsAt(source, askedRows));
   const height = askedRows ?? rowsAt(source, width);
 
@@ -264,8 +267,14 @@ export function imageView(
 
   const element = raw(
     {
+      // the width it is asked about is the one it will have: a `max-width`, the
+      // padding and border, and a row that flexed it narrower have all been
+      // taken off by the time it arrives. So the request is a ceiling on that
+      // rather than an answer that ignores it -- answering the request regardless
+      // reserved the rows of a 40-column picture for one drawn at 10, and left
+      // them as bands around a letterbox
       measure: (available) => {
-        const columns = asked ?? Math.min(width, Math.max(0, Math.floor(available)));
+        const columns = Math.min(width, Math.max(0, Math.floor(available)));
         return {
           height: askedRows ?? rowsAt(source, columns),
           minHeight: 0,
@@ -290,8 +299,10 @@ export function imageView(
         }
         // and bounded besides: one picture at one size is at most a colour per
         // pixel per background it has been composed over, and a background that
-        // moves under a part-transparent picture is a new set every frame
-        if (quantizedAt !== level || quantized.size > across * down * 4) {
+        // moves under a part-transparent picture is a new set every frame. Asked
+        // before the frame adds its own -- at most one entry a pixel -- so the
+        // limit is three a pixel here and four is the most the map ever holds
+        if (quantizedAt !== level || quantized.size > across * down * 3) {
           quantized = new Map();
           quantizedAt = level;
         }
@@ -340,11 +351,17 @@ export function imageView(
     },
     {
       class: 'sigil-image',
-      ...(asked === undefined ? {} : { width: asked }),
+      // a width asked for is a `max-width` and not a `width`, and that is the
+      // whole of the difference between a picture that shrinks and one that does
+      // not: a declared width is what the layout measures a node at however
+      // narrow a row then flexed it, so a 40-column request squeezed to 17 kept
+      // the height of 40. As a ceiling it is still the size asked for where
+      // there is room -- `measure()` answers it -- and a column's stretch stops
+      // at it rather than widening the picture to the column. A height alone
+      // says how wide too, which `measure()` cannot say on its own: it is asked
+      // about widths and answers heights
+      ...(asked === undefined && askedRows === undefined ? {} : { 'max-width': width }),
       ...(askedRows === undefined ? {} : { height: askedRows }),
-      // a height alone fixes the width as well, which `measure()` cannot say on
-      // its own: it is asked about widths and answers heights
-      ...(asked === undefined && askedRows !== undefined ? { width } : {}),
     }
   );
 

@@ -44,8 +44,9 @@ describe('resampleImage()', () => {
 
   it('should weight a source pixel by how much of it lands in a destination pixel', () => {
     // three columns into two: each destination pixel is a column and a half, so
-    // the middle one is split between them -- counting it whole in both would
-    // make the two halves 85 and 170 rather than 64 and 191
+    // the middle one is split between them. Counted whole in both, the halves
+    // would be the plain means of two samples, 64 and 191; weighted, it is half
+    // a pixel in each, which is 43 and 213
     const ramp = picture(3, 1, (x) => {
       const v = [0, 128, 255][x];
       return [v, v, v, 255];

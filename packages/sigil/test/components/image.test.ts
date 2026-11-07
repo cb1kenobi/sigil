@@ -9,9 +9,9 @@ import {
   StyleTable,
 } from '../../src/canvas/index.js';
 import { image, imageView } from '../../src/components/image.js';
-import { arrange, box, type Element, paint, resolveStyles } from '../../src/element/index.js';
+import { arrange, box, type Element, paint, resolveStyles, text } from '../../src/element/index.js';
 import { decodePng, encodePng, type RgbaImage } from '../../src/png/index.js';
-import { Cascade, Restyler } from '../../src/style/index.js';
+import { Cascade, parseStylesheet, Restyler } from '../../src/style/index.js';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
@@ -38,8 +38,14 @@ const BLUE: Rgba = [0, 0, 255, 255];
  * an image degrades to is the one its style was resolved at -- skipping the
  * resolve is drawing at a depth nobody chose.
  */
-function grid(root: Element, width: number, height: number, colorLevel: 0 | 1 | 2 | 3 = 3) {
-  const cascade = new Cascade([]);
+function grid(
+  root: Element,
+  width: number,
+  height: number,
+  colorLevel: 0 | 1 | 2 | 3 = 3,
+  css = ''
+) {
+  const cascade = new Cascade(css ? [parseStylesheet(css)] : []);
   cascade.media = { ...cascade.media, colorLevel };
   const styles = new StyleTable();
   const buffer = new CellBuffer(width, height);
@@ -102,6 +108,37 @@ describe('imageView()', () => {
     );
     expect({ height, width }).toEqual({ height: 5, width: 20 });
     grid(box({ 'align-items': 'flex-start' }, element), 60, 20);
+    expect(element.box).toMatchObject({ height: 5, width: 20 });
+  });
+
+  // the width the layout asks about is the one the picture will have, so the
+  // rows it reserves are the rows of the picture it draws -- answering the
+  // request regardless reserved a 40-column picture's rows for one drawn at 10
+  it('should be as tall as the width it got, where that is less than it asked for', () => {
+    const pic = picture(80, 40, () => RED);
+
+    // a row that flexes it narrower, beside a sibling: 17 columns is 4 rows
+    const squeezed = imageView(pic, { width: 40 }).element;
+    grid(box({ 'align-items': 'flex-start', width: 20 }, squeezed, text('sib')), 20, 20);
+    expect(squeezed.box).toMatchObject({ height: 4, width: 17 });
+
+    // a parent narrower than the request: 10 columns is 3 rows
+    const narrow = imageView(pic, { width: 40 }).element;
+    grid(box({ 'flex-direction': 'column', width: 10 }, narrow), 10, 20);
+    expect(narrow.box).toMatchObject({ height: 3, width: 10 });
+
+    // padding comes off the width it is drawn at: 16 columns inside is 4 rows
+    const padded = imageView(pic, { width: 20 }).element;
+    grid(box({ 'align-items': 'flex-start' }, padded), 60, 20, 3, '.sigil-image { padding: 2 }');
+    expect(padded.content).toMatchObject({ height: 4, width: 16 });
+  });
+
+  it('should stop a column stretching it at the width it asked for', () => {
+    const { element } = imageView(
+      picture(80, 40, () => RED),
+      { width: 20 }
+    );
+    grid(box({ 'flex-direction': 'column', width: 60 }, element), 60, 20);
     expect(element.box).toMatchObject({ height: 5, width: 20 });
   });
 
@@ -428,16 +465,19 @@ describe('a photograph', () => {
   });
 
   it('should sweep a still photograph once at every size, however many styles it holds', () => {
-    for (const [width, height] of [
-      [80, 24],
-      [200, 60],
+    // the live counts are the table in `src/canvas/AGENTS.md`, pinned exactly so
+    // that the recorded measurement and the code cannot come apart quietly
+    for (const [width, height, expected] of [
+      [80, 24, 1913],
+      [120, 40, 4751],
+      [200, 60, 11_903],
     ]) {
       const still = imageView(photo, { fit: 'cover' }).element;
-      const { live, peak, sweeps } = frames(20, () => still, width, height);
+      const { live, peak, sweeps } = frames(5, () => still, width, height);
+      expect(still.box, `${width}x${height}`).toMatchObject({ height, width });
+      expect(live, `${width}x${height}`).toBe(expected);
       expect(sweeps, `${width}x${height}`).toBe(1);
-      expect(peak, `${width}x${height}`).toBeLessThanOrEqual(live + 1);
-      // and it is the worst case it is said to be: most cells their own style
-      expect(live, `${width}x${height}`).toBeGreaterThan(width * height * 0.9);
+      expect(peak, `${width}x${height}`).toBe(live + 1);
     }
   });
 

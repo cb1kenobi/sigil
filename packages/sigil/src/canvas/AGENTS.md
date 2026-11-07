@@ -907,27 +907,33 @@ name.
 - **The trigger holds, and the bound it gives is three times the live set rather
   than the two the sweep's own entry says.** Measured with
   `demos/components/images/macaw.png`, a public-domain photograph by Adrian
-  Pingstone, resampled with `fit: 'cover'` at three sizes, built and run through
-  `createCanvas()` for 200 frames each:
+  Pingstone, drawn with `fit: 'cover'` filling the whole canvas in a column at
+  three sizes, through `createCanvas()` for 200 frames each:
 
   | canvas | live styles | still: sweeps | still: peak table | panning: sweeps | panning: peak / live |
   | ------ | ----------- | ------------- | ----------------- | --------------- | -------------------- |
-  | 80x24  | 1,850       | 1             | 1,851             | 103 of 200      | 3.00                 |
-  | 120x40 | 4,580       | 1             | 4,581             | 109 of 200      | 3.08                 |
-  | 200x60 | 11,147      | 1             | 11,148            | 100 of 200      | 3.25                 |
+  | 80x24  | 1,913       | 1             | 1,914             | 107 of 200      | 3.01                 |
+  | 120x40 | 4,751       | 1             | 4,752             | 101 of 200      | 3.01                 |
+  | 200x60 | 11,903      | 1             | 11,904            | 100 of 200      | 3.05                 |
 
-  "Panning" is the worst case there is: the crop moves a source pixel each frame,
-  so every frame is a screen of colours the last one did not have. The table is
-  swept every other frame and is bounded, and the bound is
-  survivors + one frame that did not cross + the frame that did -- about **3x**,
-  since the trigger is checked after a frame has interned rather than before. A
-  `present()` that sweeps cost **0.61ms against 0.30ms** at 80x24 and **4.37ms
-  against 2.39ms** at 200x60, medians over 300 frames on a machine running other
-  suites, so the worst case amortizes to about 0.15ms and 1ms a frame. At level 2
-  the still photograph's live set is 468, since the cube folds neighbours
-  together. So the existing measurement does not cover a photograph -- it was
-  taken at 1,920 live styles on a frame that fit its grid -- but its conclusion
-  survives one: nothing about a photograph needed the trigger changed, only the
-  interning in front of it. Recorded rather than retuned: a lower factor sweeps a
-  panning picture every frame to save memory nobody is short of, and the factor
-  is what keeps a settled table from ever being walked.
+  The first version of this table had 1,850, 4,580 and 11,147 in it, which were
+  the picture overflowing a **row** -- the shape of the entry above -- written
+  under a heading that said it filled the canvas; review round 1 re-derived the
+  canvas-filling figures and they are what stands. Panning is the worst case
+  there is: the crop moves a source pixel each frame, so every frame is a screen
+  of colours the last one did not have. The table is swept every other frame and
+  is bounded, and the bound is survivors + one frame that did not cross + the
+  frame that did -- about **3x**, since the trigger is checked after a frame has
+  interned rather than before. A `present()` that sweeps cost **0.62ms against
+  0.34ms** at 80x24 and **4.96ms against 2.73ms** at 200x60, medians over 180
+  frames on a machine running other suites, so the worst case amortizes to about
+  0.15ms and 1.1ms a frame. At level 2 the still photograph's live set at 80x24
+  is 477, since the cube folds neighbours together. So the existing measurement
+  does not cover a photograph -- it was taken at 1,920 live styles on a frame
+  that fit its grid -- but its conclusion survives one: nothing about a
+  photograph needed the trigger changed, only the interning in front of it.
+  Recorded rather than retuned: a lower factor sweeps a panning picture every
+  frame to save memory nobody is short of, and the factor is what keeps a
+  settled table from ever being walked. `should sweep a still photograph once at
+  every size` pins the live counts at 80x24 and 200x60 exactly, so the table
+  cannot drift from the code without a failure.

@@ -4855,9 +4855,10 @@ console.log(image(readFileSync('logo.png'), { width: 40 }));
 const { element } = imageView(readFileSync('photo.png'), { fit: 'cover' });
 ```
 
-A picture drawn in half blocks: each cell is an upper half block whose
-foreground is one pixel and whose background is the pixel under it, so a row of
-cells is two rows of picture and, since a cell is about twice as tall as it is
+A picture drawn in half blocks: a cell holds two pixels, one above the other --
+`▀` with the top one as its foreground and the bottom one as its background, or
+`█` where the two are the same colour and `▄` where only the bottom one is drawn --
+so a row of cells is two rows of picture and, since a cell is about twice as tall as it is
 wide, each pixel is about square. It is `Pixels` from `@ttylabs/sigil/canvas`
 with a picture fitted into it.
 
@@ -4886,7 +4887,9 @@ with a picture fitted into it.
   blank, and `image()` returns `''`.
 
 `image(source, { width, height, fit, colorLevel })` is the string facade, as
-wide as the picture or the terminal, whichever is less. `.sigil-image` is the
+wide as the picture or the terminal, whichever is less, unless `width` or `height`
+says otherwise -- a height alone gives the width from the proportions, terminal
+or not. `.sigil-image` is the
 class on the element.
 
 #### A paginator
