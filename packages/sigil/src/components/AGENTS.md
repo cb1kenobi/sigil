@@ -6388,6 +6388,26 @@ there under "An image over `Pixels`".
   `height`, because "fit this many rows" is what it says; a height alone also
   sets the `max-width` its proportions give. `should be as tall as the width it
   got` fails for each half put back on its own.
+- **A size asked for in code beats a stylesheet's `max-width`, because it is a
+  prop.** Review round 2 found the cost of the move above: a sheet's
+  `.sigil-image { max-width: 10 }` used to clamp a requested `width: 40` (min
+  and max apply over a width) and stopped doing so the moment the request became
+  a `max-width` prop, since a prop replaces a sheet's value for its property.
+  Kept, because a prop is this element's inline style and that is the rule
+  everywhere here -- a colour a component writes as a prop is one a theme cannot
+  reach either -- and `!important` is the escape the cascade keeps for exactly
+  this (`applyPropsInto()` skips a locked property). The alternatives were
+  worse: a declared `width` is the shrink bug back, and `align-self:
+  flex-start` to stop a column's stretch overrides a parent's `center`. A
+  sheet's `width` is a different property and still applies, under the request.
+  `should keep a size asked for in code over a sheet, as any prop is` pins all
+  three.
+- **`image()` caps at the terminal only where no size was named.** Round 2
+  again: once a height alone became a `max-width` rather than a `width`, the
+  facade's render width -- the terminal's, where less than the picture's -- was
+  the room the root was laid out in, so a 40-row request on an 8-column terminal
+  came out 8 columns of letterbox. A height names a width as surely as a width
+  does, so it is laid out at its proportions, terminal or not.
 - **In a row it is as tall as its width makes it, and that is the layout's rule
   rather than this component's.** A row stretches a measuring item to the larger
   of the room and its own height, which `src/layout` records for a text whose

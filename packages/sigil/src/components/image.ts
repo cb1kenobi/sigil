@@ -267,9 +267,9 @@ export function imageView(
 
   const element = raw(
     {
-      // the width it is asked about is the one it will have: a `max-width`, the
-      // padding and border, and a row that flexed it narrower have all been
-      // taken off by the time it arrives. So the request is a ceiling on that
+      // the width it is asked about is the one it will have: the `max-width` the
+      // request became, the padding and border, and a row that flexed it narrower
+      // have all been taken off by the time it arrives. So the request is a ceiling on that
       // rather than an answer that ignores it -- answering the request regardless
       // reserved the rows of a 40-column picture for one drawn at 10, and left
       // them as bands around a letterbox
@@ -359,7 +359,14 @@ export function imageView(
       // there is room -- `measure()` answers it -- and a column's stretch stops
       // at it rather than widening the picture to the column. A height alone
       // says how wide too, which `measure()` cannot say on its own: it is asked
-      // about widths and answers heights
+      // about widths and answers heights.
+      //
+      // A prop, so it is this element's inline style: a stylesheet's
+      // `max-width` on `.sigil-image` does not tighten a size the caller asked
+      // for in code, exactly as a sheet's `color` does not reach a colour a
+      // component wrote as a prop -- and `!important` is how a theme does, which
+      // is the escape the cascade keeps for that. A sheet's `width` is a
+      // different property and still applies, under the request as a ceiling
       ...(asked === undefined && askedRows === undefined ? {} : { 'max-width': width }),
       ...(askedRows === undefined ? {} : { height: askedRows }),
     }
@@ -431,10 +438,17 @@ export function image(source: ImageSource, opts: ImageOptions = {}): string {
     return '';
   }
 
+  // the terminal is the ceiling only where nobody named a size: a width is laid
+  // out as asked, and a height is a width too, at the picture's proportions --
+  // capping that at the terminal handed the layout a narrower room than the
+  // picture's own `max-width`, so a 40-row picture came out letterboxed into
+  // however many columns the terminal had
+  const room = opts.width ?? (opts.height === undefined ? Math.min(width, terminalWidth()) : width);
+
   return renderToString(element, {
     cascade: themedCascade(opts),
     colorLevel,
     colorScheme: opts.colorScheme,
-    width: Math.max(1, opts.width ?? Math.min(width, terminalWidth())),
+    width: Math.max(1, room),
   });
 }

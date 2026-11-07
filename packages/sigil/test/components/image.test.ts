@@ -1,3 +1,4 @@
+import { strip } from '../../src/ansi/index.js';
 import {
   CellBuffer,
   createCanvas,
@@ -131,6 +132,24 @@ describe('imageView()', () => {
     const padded = imageView(pic, { width: 20 }).element;
     grid(box({ 'align-items': 'flex-start' }, padded), 60, 20, 3, '.sigil-image { padding: 2 }');
     expect(padded.content).toMatchObject({ height: 4, width: 16 });
+  });
+
+  // a size asked for in code is a prop, which is the element's inline style: a
+  // sheet's `max-width` does not tighten it, `!important` does, and a sheet's
+  // `width` still applies under the request
+  it('should keep a size asked for in code over a sheet, as any prop is', () => {
+    const pic = picture(80, 40, () => RED);
+    const sized = (css: string): unknown => {
+      const { element } = imageView(pic, { width: 40 });
+      grid(box({ 'align-items': 'flex-start' }, element), 80, 20, 3, css);
+      return element.box;
+    };
+    expect(sized('.sigil-image { max-width: 10 }')).toMatchObject({ height: 10, width: 40 });
+    expect(sized('.sigil-image { max-width: 10 !important }')).toMatchObject({
+      height: 3,
+      width: 10,
+    });
+    expect(sized('.sigil-image { width: 30 }')).toMatchObject({ height: 8, width: 30 });
   });
 
   it('should stop a column stretching it at the width it asked for', () => {
@@ -403,6 +422,16 @@ describe('image()', () => {
         { colorLevel: 0 }
       )
     ).toBe('');
+  });
+
+  it('should take its width from a height alone, whatever the terminal is', () => {
+    // 80x40 at 40 rows is 160 columns, past any terminal `terminalWidth()` reports
+    const lines = image(
+      picture(80, 40, () => RED),
+      { colorLevel: 3, height: 40 }
+    ).split('\n');
+    expect(lines).toHaveLength(40);
+    expect(lines.map((line) => strip(line).length)).toEqual(Array.from({ length: 40 }, () => 160));
   });
 
   it('should be as wide as it was asked to be', () => {
