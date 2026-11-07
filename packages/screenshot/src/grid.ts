@@ -78,6 +78,37 @@ function isScreenGrid(input: Shootable): input is ScreenGrid {
 }
 
 /**
+ * A frame's size in cells, checked against what a screenshot will read, from
+ * the dimensions alone.
+ *
+ * Separate from `readShot()` so a caller can refuse a frame before any cell is
+ * read: the PNG path compares the image it would draw against its own pixel cap
+ * first, and reading sixteen million cells to then say the image is too large was
+ * ten seconds on CI for a refusal.
+ *
+ * @param input - The frame.
+ * @returns Its width and height.
+ */
+export function gridSize(input: Shootable): { height: number; width: number } {
+  if (input === null || typeof input !== 'object') {
+    throw new TypeError('Expected a CellBuffer from canvas.snapshot() or a testing Screen');
+  }
+  const width = input.width;
+  const height = input.height;
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 0 || height < 0) {
+    throw new TypeError(`Invalid grid size ${String(width)}x${String(height)}`);
+  }
+  // a grid this big is not a terminal: 4096 by 4096 cells is a terminal some
+  // 32,000 pixels across at the default size. Each side is capped as well as the
+  // area, since a width of 0 makes any height's product 0 and the rows would
+  // still be walked -- review round 2
+  if (width * height > MAX_CELLS || width > MAX_SIDE || height > MAX_SIDE) {
+    throw new RangeError(`A grid of ${width}x${height} cells is too large to screenshot`);
+  }
+  return { height, width };
+}
+
+/**
  * Reads every cell of a frame.
  *
  * A wide cluster is whatever its next cell says it is: a lead followed by a
@@ -91,22 +122,7 @@ function isScreenGrid(input: Shootable): input is ScreenGrid {
  * @returns The cells, row by row.
  */
 export function readShot(input: Shootable, styles?: StyleLookup): Shot {
-  if (input === null || typeof input !== 'object') {
-    throw new TypeError('Expected a CellBuffer from canvas.snapshot() or a testing Screen');
-  }
-  const width = input.width;
-  const height = input.height;
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 0 || height < 0) {
-    throw new TypeError(`Invalid grid size ${String(width)}x${String(height)}`);
-  }
-  // a grid this big is not a terminal: 4096 by 4096 cells is a terminal some
-  // 32,000 pixels across at the default size, and every cell is read before
-  // either format can say the image is too large
-  // and each side on its own, since a width of 0 makes any height's product 0
-  // and the rows are still walked -- review round 2
-  if (width * height > MAX_CELLS || width > MAX_SIDE || height > MAX_SIDE) {
-    throw new RangeError(`A grid of ${width}x${height} cells is too large to screenshot`);
-  }
+  const { height, width } = gridSize(input);
 
   let charAt: (x: number, y: number) => string;
   let styleAt: (x: number, y: number) => Style;

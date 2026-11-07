@@ -198,3 +198,19 @@ small things. Its premise for each was checked before the fix.
   already corrected here.
 
 There was no round 3, since nothing round 2 found was substantive.
+
+#### Every refusal is decided from the dimensions, before a cell is read
+
+CI timed out on `should refuse an image too large to hold` on all nine jobs, at
+10-18 seconds against a 10 second limit. Measured locally before the fix: the
+4000 x 4000 `CellBuffer` the test built took 13ms, and `rasterize()` then took
+840ms to refuse it -- 316ms even for a structural grid that costs nothing to
+build -- because `readShot()` walked all sixteen million cells before the pixel
+cap was compared. So the work was before the check, not in the input.
+
+`gridSize()` is the size check on its own, and `rasterize()` asks it and the
+pixel cap before `readShot()`. The refusal is 0ms once the fonts are loaded. The
+test builds a grid whose dimensions are big and whose cells are free, counts
+every cell read and asserts there were none, and times only the refusal, with
+the fonts read beforehand. With the old order put back it fails on the count,
+31,996,000 reads. The test timeout was not raised.

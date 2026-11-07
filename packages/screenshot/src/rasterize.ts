@@ -3,7 +3,7 @@ import { type Coverage, rasterizeOutline } from './font/raster.js';
 import type { Font } from './font/truetype.js';
 import { type FontOption, type LoadedFaces, loadFaces } from './fonts.js';
 import { type CellBox, CoveragePen, drawGeometry, drawTofu, isGeometry } from './geometry.js';
-import { readShot, type Shootable, type ShotCell, type StyleLookup } from './grid.js';
+import { gridSize, readShot, type Shootable, type ShotCell, type StyleLookup } from './grid.js';
 import { type CellMetrics, cellMetrics, type SizeOptions } from './metrics.js';
 import { ATTR } from '@ttylabs/sigil/canvas';
 import type { RgbaImage } from '@ttylabs/sigil/png';
@@ -154,16 +154,19 @@ function stamp(
  * @returns The image.
  */
 export function rasterize(input: Shootable, options: RasterOptions = {}): RgbaImage {
-  const shot = readShot(input, options.styles);
+  // every refusal from the dimensions alone, before a cell is read or a byte
+  // allocated: the grid's own cap, then the image this would draw against the
+  // pixel cap. Reading the cells first made a refusal cost the whole frame
+  const size = gridSize(input);
   const colors = resolveColors(options);
   const faces = loadFaces(options.font);
   const metrics = cellMetrics(faces.regular, options);
-
-  const width = shot.width * metrics.width + metrics.padding * 2;
-  const height = shot.height * metrics.height + metrics.padding * 2;
+  const width = size.width * metrics.width + metrics.padding * 2;
+  const height = size.height * metrics.height + metrics.padding * 2;
   if (width * height > MAX_PIXELS) {
     throw new RangeError(`A screenshot of ${width}x${height} pixels is too large to draw`);
   }
+  const shot = readShot(input, options.styles);
   const image: RgbaImage = { data: new Uint8Array(width * height * 4), height, width };
   fillRect(image, 0, 0, width, height, colors.background);
 

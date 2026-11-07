@@ -73,8 +73,27 @@ describe('the size of the image', () => {
     expect(() => rasterize(new CellBuffer(1, 1), { ...OPTS, [name]: value })).toThrow(TypeError);
   });
 
-  it('should refuse an image too large to hold', () => {
-    expect(() => rasterize(new CellBuffer(4000, 4000), { ...OPTS, scale: 4 })).toThrow(RangeError);
+  it('should refuse an image too large to hold, from its size alone', () => {
+    // a grid whose dimensions are big and whose cells cost nothing to build,
+    // and that says so if anything reads one: the refusal is decided before
+    // the frame is read. Reading the cells first made this take ten seconds
+    // and more on CI to say no
+    let read = 0;
+    const big = {
+      cellAt: () => {
+        read++;
+        return ' ';
+      },
+      height: 4000,
+      width: 4000,
+    };
+    // the fonts are read once per process, so they are read first and only the
+    // refusal is timed
+    rasterize(new CellBuffer(1, 1), OPTS);
+    const started = performance.now();
+    expect(() => rasterize(big, { ...OPTS, scale: 4 })).toThrow(/too large to draw/);
+    expect(read).toBe(0);
+    expect(performance.now() - started).toBeLessThan(250);
   });
 });
 
