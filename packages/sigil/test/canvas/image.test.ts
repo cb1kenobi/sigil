@@ -4,10 +4,10 @@ import {
   Painter,
   palette,
   resampleImage,
-  type RgbaImage,
   rgb,
   StyleTable,
 } from '../../src/canvas/index.js';
+import type { RgbaImage } from '../../src/png/index.js';
 import { describe, expect, it } from 'vitest';
 
 /** A picture from a function of its pixel coordinates. */

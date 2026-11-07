@@ -156,6 +156,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-large-text  .sigil-large-text-body
  *   .sigil-decrypt  .sigil-decrypt-plain  .sigil-decrypt-cipher
  *   .sigil-qrcode  .sigil-qrcode-body
+ *   .sigil-image
  *   .sigil-help  .sigil-help-heading  .sigil-help-note
  *   .sigil-session
  *   .sigil-palette  .sigil-palette-list  .sigil-palette-row

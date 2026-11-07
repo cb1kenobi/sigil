@@ -4,14 +4,15 @@ import {
   DEFAULT_COLOR,
   Painter,
   palette,
-  type RgbaImage,
   rgb,
   type Style,
   StyleTable,
 } from '../../src/canvas/index.js';
 import { image, imageView } from '../../src/components/image.js';
 import { arrange, box, type Element, paint, resolveStyles } from '../../src/element/index.js';
+import { decodePng, encodePng, type RgbaImage } from '../../src/png/index.js';
 import { Cascade, Restyler } from '../../src/style/index.js';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 type Rgba = readonly [number, number, number, number];
@@ -55,6 +56,28 @@ function grid(root: Element, width: number, height: number, colorLevel: 0 | 1 | 
   };
 }
 
+/** Paints a tree into a canvas for some frames, and says what the table did. */
+function frames(
+  count: number,
+  tree: (frame: number) => Element,
+  width: number,
+  height: number,
+  direction: 'column' | 'row' = 'column'
+) {
+  const canvas = createCanvas({ height, width });
+  const restyler = new Restyler(new Cascade([]));
+  let peak = 0;
+  for (let f = 0; f < count; f++) {
+    const root = box({ 'flex-direction': direction, height, width }, tree(f));
+    resolveStyles(root, restyler);
+    arrange(root, { height, width });
+    canvas.paint((painter) => paint(root, painter));
+    peak = Math.max(peak, canvas.stats.styles);
+    canvas.present();
+  }
+  const live = new Set(canvas.cells.rawStyles()).size;
+  return { live, peak, sweeps: canvas.stats.sweeps };
+}
 describe('imageView()', () => {
   it('should ask for a column per pixel and a row per two', () => {
     // a cell is about twice as tall as it is wide, and a half block makes it
@@ -161,6 +184,36 @@ describe('imageView()', () => {
     const g = grid(box({ height: 2, width: 2 }, box({ flex: 1 }, imageView(none).element)), 2, 2);
     expect(g.lines()).toEqual(['', '']);
     expect(element.type).toBe('raw');
+  });
+});
+
+describe('an image from a PNG', () => {
+  it('should draw PNG bytes exactly as it draws the pixels in them', () => {
+    const pic = picture(6, 4, (x, y) => [x * 40, y * 60, 200, x === 5 ? 0 : 255]);
+    const fromPng = grid(box({}, imageView(encodePng(pic)).element), 6, 2);
+    const fromRgba = grid(box({}, imageView(pic).element), 6, 2);
+    for (let y = 0; y < 2; y++) {
+      for (let x = 0; x < 6; x++) {
+        expect(fromPng.char(x, y), `${x},${y}`).toBe(fromRgba.char(x, y));
+        expect(fromPng.at(x, y), `${x},${y}`).toEqual(fromRgba.at(x, y));
+      }
+    }
+  });
+
+  it('should take a Buffer, which is what readFileSync hands back', () => {
+    const png = Buffer.from(encodePng(picture(2, 2, () => RED)));
+    expect(imageView(png)).toMatchObject({ height: 1, width: 2 });
+  });
+
+  it('should refuse bytes that are not a PNG when the view is built, not in a frame', () => {
+    expect(() => imageView(new Uint8Array([1, 2, 3, 4]))).toThrow(/Not a PNG file/);
+    expect(() => image(new Uint8Array(0), { colorLevel: 0 })).toThrow(/Not a PNG file/);
+  });
+
+  it('should take the RGBA a canvas hands back, which is clamped', () => {
+    const data = new Uint8ClampedArray([255, 0, 0, 255, 255, 0, 0, 255]);
+    const view = imageView({ data: data as unknown as Uint8Array, height: 2, width: 1 });
+    expect(grid(box({}, view.element), 1, 1).at(0, 0).fg).toBe(rgb(255, 0, 0));
   });
 });
 
@@ -327,34 +380,11 @@ describe('image()', () => {
 describe('the style table under a picture', () => {
   // a photograph is the worst case the sweep has: every half-cell its own
   // colour, so a frame interns a style per cell. A noise field stands in for one
-  // here, where a real photograph is measured in `image-photo.test.ts`
+  // here, and a real photograph is measured under `a photograph` below
   const noise = picture(80, 96, (x, y) => {
     const h = Math.imul(x * 374761393 + y * 668265263, 1274126177) >>> 0;
     return [h & 255, (h >>> 8) & 255, (h >>> 16) & 255, 255];
   });
-
-  /** Paints a tree into a canvas for some frames, and says what the table did. */
-  function frames(
-    count: number,
-    tree: (frame: number) => Element,
-    width: number,
-    height: number,
-    direction: 'column' | 'row' = 'column'
-  ) {
-    const canvas = createCanvas({ height, width });
-    const restyler = new Restyler(new Cascade([]));
-    let peak = 0;
-    for (let f = 0; f < count; f++) {
-      const root = box({ 'flex-direction': direction, height, width }, tree(f));
-      resolveStyles(root, restyler);
-      arrange(root, { height, width });
-      canvas.paint((painter) => paint(root, painter));
-      peak = Math.max(peak, canvas.stats.styles);
-      canvas.present();
-    }
-    const live = new Set(canvas.cells.rawStyles()).size;
-    return { live, peak, sweeps: canvas.stats.sweeps };
-  }
 
   it('should sweep a still picture once and never again, overflowing its grid or not', () => {
     // 80 columns of a picture 80 wide is 48 rows, twice the grid: half of every
@@ -382,5 +412,49 @@ describe('the style table under a picture', () => {
     const { live, peak, sweeps } = frames(40, (f) => views[f % views.length], 80, 24);
     expect(sweeps).toBeGreaterThanOrEqual(10);
     expect(peak).toBeLessThanOrEqual(live * 3 + 3);
+  });
+});
+
+describe('a photograph', () => {
+  // a public-domain photograph by Adrian Pingstone, which the image demo draws:
+  // the measurement `src/canvas/AGENTS.md` records under "An image over
+  // `Pixels`", kept as a test so that the claim is one a change can fail
+  const photo = decodePng(
+    readFileSync(new URL('../../../../demos/components/images/macaw.png', import.meta.url))
+  );
+
+  it('should be the photograph the measurement was taken against', () => {
+    expect({ height: photo.height, width: photo.width }).toEqual({ height: 321, width: 240 });
+  });
+
+  it('should sweep a still photograph once at every size, however many styles it holds', () => {
+    for (const [width, height] of [
+      [80, 24],
+      [200, 60],
+    ]) {
+      const still = imageView(photo, { fit: 'cover' }).element;
+      const { live, peak, sweeps } = frames(20, () => still, width, height);
+      expect(sweeps, `${width}x${height}`).toBe(1);
+      expect(peak, `${width}x${height}`).toBeLessThanOrEqual(live + 1);
+      // and it is the worst case it is said to be: most cells their own style
+      expect(live, `${width}x${height}`).toBeGreaterThan(width * height * 0.9);
+    }
+  });
+
+  it('should hold a panning photograph to about three times what it draws', () => {
+    // a crop one source pixel further along each frame, so each frame is a
+    // screen of colours the last did not have: the worst case the trigger has
+    const crops = Array.from({ length: 12 }, (_, offset) => {
+      const data = new Uint8Array(180 * 241 * 4);
+      for (let y = 0; y < 241; y++) {
+        const from = ((y + offset) * photo.width + offset) * 4;
+        data.set(photo.data.subarray(from, from + 180 * 4), y * 180 * 4);
+      }
+      return imageView({ data, height: 241, width: 180 }, { fit: 'cover' }).element;
+    });
+    const { live, peak, sweeps } = frames(48, (f) => crops[f % crops.length], 80, 24);
+    expect(sweeps).toBeGreaterThanOrEqual(20);
+    expect(sweeps).toBeLessThanOrEqual(30);
+    expect(peak / live).toBeLessThan(3.5);
   });
 });

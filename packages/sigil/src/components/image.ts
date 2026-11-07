@@ -24,9 +24,9 @@ import {
   Pixels,
   resampleImage,
   rgb,
-  type RgbaImage,
 } from '../canvas/index.js';
 import { type Element, raw, renderToString } from '../element/index.js';
+import { decodePng, type RgbaImage } from '../png/index.js';
 import { colorRgb, quantizeColor } from '../style/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { terminalWidth } from '../wrap/index.js';
@@ -42,6 +42,16 @@ import { terminalWidth } from '../wrap/index.js';
  * shape that a rounding should not letterbox by a row.
  */
 export type ImageFit = 'contain' | 'cover' | 'fill';
+
+/**
+ * A picture: PNG bytes, decoded with `decodePng()`, or the RGBA a decoder of
+ * the caller's own produced.
+ *
+ * Told apart by shape rather than by a flag, because the two cannot be confused:
+ * a PNG is a byte array and RGBA is an object holding one. A `Buffer` from
+ * `readFileSync()` is a `Uint8Array`, so a file read is a picture as it stands.
+ */
+export type ImageSource = RgbaImage | Uint8Array;
 
 export interface ImageViewOptions {
   /** How the picture fills a box that is not its shape. Defaults to `contain`. */
@@ -222,17 +232,19 @@ function over(
  * and not a second guess at it. The box is still reserved at level 0: a layout
  * that moved because colour went away would be a layout that depends on it.
  *
- * @param source - The picture, as RGBA. A caller with a JPEG or anything else
- *   brings their own decoder and passes its pixels in.
+ * @param input - The picture: PNG bytes, or RGBA. A caller with a JPEG or
+ *   anything else brings their own decoder and passes its pixels in.
  * @param opts - The fit, and a size to ask for in place of the picture's own.
  * @returns The element, and the size it asks for given unlimited room.
- * @throws A `TypeError` for a picture whose data does not match its size.
+ * @throws Whatever `decodePng()` throws for bytes that are not a PNG it can
+ *   read, and a `TypeError` for RGBA whose data does not match its size --
+ *   here, when the view is built, rather than from inside a frame.
  */
 export function imageView(
-  source: RgbaImage,
+  input: ImageSource,
   opts: ImageViewOptions = {}
 ): { element: Element; height: number; width: number } {
-  assertImage(source);
+  const source = pictureOf(input);
   const fit = opts.fit ?? 'contain';
   const asked = cells(opts.width, 'width');
   const askedRows = cells(opts.height, 'height');
@@ -340,6 +352,21 @@ export function imageView(
 }
 
 /**
+ * The RGBA a source stands for, decoded where it is a PNG and checked where it
+ * is not.
+ *
+ * @param input - The picture.
+ * @returns Its pixels.
+ */
+function pictureOf(input: ImageSource): RgbaImage {
+  if (input instanceof Uint8Array) {
+    return decodePng(input);
+  }
+  assertImage(input);
+  return input;
+}
+
+/**
  * A size in cells, refused where it is not one.
  *
  * @param value - What was asked for.
@@ -374,12 +401,13 @@ export interface ImageOptions extends StyledOptions, ImageViewOptions {}
  * have written into a log instead. Inside a tree the box is reserved and left
  * blank; here there is no tree to keep the shape of.
  *
- * @param source - The picture, as RGBA.
+ * @param source - The picture: PNG bytes, or RGBA.
  * @param opts - The size, the fit, and the colour depth.
  * @returns The lines, with no trailing newline.
- * @throws A `TypeError` for a picture whose data does not match its size.
+ * @throws What `imageView()` throws, at every level -- a bad picture does not
+ *   hide behind a pipe.
  */
-export function image(source: RgbaImage, opts: ImageOptions = {}): string {
+export function image(source: ImageSource, opts: ImageOptions = {}): string {
   const colorLevel = opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level;
   const { element, width } = imageView(source, opts);
   if (colorLevel === 0) {

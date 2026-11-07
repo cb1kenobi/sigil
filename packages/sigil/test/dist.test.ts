@@ -696,12 +696,13 @@ describe('what importing the package costs', () => {
     // growth, which a ceiling exists not to catch, so the ceiling moved -- to
     // 1.4x of the new figure, which is the ratio it was set at
     //
-    // 462,153 B over 36 when SIG-326 added the image component, which crossed
-    // the 448 KiB the ceiling had been moved to: `main` was at 457,132 over the
-    // same 36, already 1.003x under it rather than the 1.4x it was set at, and
-    // the image added 5,021 B of its own -- the component, the box filter in
-    // `canvas/image.ts`, and `quantizeColor()` -- and no module. Ordinary growth
-    // again, so the ceiling moved to 640 KiB, which is 1.4x of the new figure
+    // 472,476 B over 37 when SIG-326 added the image component, which crossed
+    // the 448 KiB the ceiling had been moved to: `main` was at 457,132 over 36,
+    // already 1.003x under it rather than the 1.4x it was set at. Of the 15,344
+    // the image added, 5,021 are its own -- the component, the box filter in
+    // `canvas/image.ts` and `quantizeColor()` -- and 10,323 are the PNG codec,
+    // the one new module, which `imageView()` decodes bytes with. Ordinary
+    // growth, so the ceiling moved to 640 KiB, which is 1.39x of the new figure
     //
     // A ceiling rather than a measurement, at about 1.4x, so ordinary growth
     // never touches it and a second runtime stack does

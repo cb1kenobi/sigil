@@ -15,21 +15,13 @@
  * resampled to `columns` by `rows * 2` pixels is a picture drawn at its own
  * proportions. The arithmetic of fitting one into a box lives with the
  * component that has a box.
+ *
+ * The picture is `RgbaImage`, the shape `@ttylabs/sigil/png` decodes to and
+ * the one a caller bringing their own decoder hands in: one definition, in the
+ * codec, and imported here as a type so that resampling costs nothing of it.
  */
 
-/**
- * A picture as 8-bit RGBA, row-major, four bytes a pixel with alpha last and
- * not premultiplied -- the shape `decodePng()` returns and a caller bringing
- * their own decoder hands in.
- */
-export interface RgbaImage {
-  /** Rows, in pixels. */
-  height: number;
-  /** Columns, in pixels. */
-  width: number;
-  /** `width * height * 4` bytes. */
-  data: Uint8Array;
-}
+import type { RgbaImage } from '../png/index.js';
 
 /** A rectangle of a picture, in its pixels. It may be fractional. */
 export interface ImageRect {
@@ -109,16 +101,22 @@ function spans(start: number, length: number, size: number, count: number): Span
  * @param image - The picture.
  */
 export function assertImage(image: RgbaImage): void {
-  const { data, height, width } = image;
+  const { height, width } = image;
+  // read as `unknown`, because what is being checked is that it is what the type
+  // says, and a caller in JavaScript can hand over anything
+  const data: unknown = image.data;
   if (!Number.isSafeInteger(width) || width < 0 || !Number.isSafeInteger(height) || height < 0) {
     throw new TypeError(
       `Invalid image size ${String(width)}x${String(height)}: expected whole numbers of pixels`
     );
   }
-  if (!(data instanceof Uint8Array) || data.length !== width * height * 4) {
+  // a Uint8ClampedArray is what a canvas's `ImageData` holds, and is the same
+  // bytes read through the same indices -- `encodePng()` takes one too
+  const bytes = data instanceof Uint8Array || data instanceof Uint8ClampedArray;
+  if (!bytes || data.length !== width * height * 4) {
     throw new TypeError(
       `Invalid image data: expected ${width * height * 4} bytes of RGBA for ${width}x${height}, got ${
-        data instanceof Uint8Array ? data.length : typeof data
+        bytes ? (data as Uint8Array).length : typeof data
       }`
     );
   }

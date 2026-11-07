@@ -82,7 +82,7 @@ export {
   selectionRuns,
   selectionText,
 } from './selection.js';
-export { assertImage, type ImageRect, resampleImage, type RgbaImage } from './image.js';
+export { assertImage, type ImageRect, resampleImage } from './image.js';
 export { Dots, Pixels } from './subcell.js';
 export {
   ATTR,

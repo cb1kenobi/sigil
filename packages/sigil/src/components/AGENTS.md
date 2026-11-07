@@ -6383,6 +6383,18 @@ there under "An image over `Pixels`".
   fit. Not special-cased: a `raw` that measured differently in a row from a column
   would be a second layout rule living in a component. `height`, or a column, is
   how to say "fit this many rows".
+- **PNG bytes or RGBA, told apart by shape.** A PNG is a byte array and RGBA is
+  an object holding one, so `imageView(readFileSync('logo.png'))` and
+  `imageView(decodePng(bytes))` are the same picture and there is no flag to get
+  wrong. Raw RGBA is first-class because it is the way in for every other
+  format: a caller with a JPEG brings a decoder. Either is decoded or checked
+  when the view is **built**, so a bad file throws where the caller can catch it
+  rather than from inside a frame. Taking bytes puts `@ttylabs/sigil/png` on the
+  components entry, which measured 10,323 B of the 15,344 this change added to
+  it, and `node:zlib` with it, which an unbundled app importing any component
+  pays. Taken, because the alternative is every caller writing the `decodePng()`
+  the ticket asked this to do for them, and a component barrel that is 472 KB is
+  not where 10 KB is decided; the lever on that number is still SIG-81's.
 - **`fit` is `contain`, `cover` or `fill`.** The three `object-fit` values that
   mean something without a natural size to fall back on. `contain` is the default
   and may sit half a row down, since `Pixels` has a colour per half; `cover` crops

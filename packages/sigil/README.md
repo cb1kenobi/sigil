@@ -4843,6 +4843,52 @@ and the ASCII forms are `_.:-=+*#` for a sparkline, `#` bars, a `*` line and `#`
 and `-` in a gauge. `.sigil-chart-sparkline`, `-bar`, `-line` and `-gauge` are the
 theme hooks, each with `-row` and `-part` classes inside.
 
+#### An image
+
+```js
+import { image, imageView } from '@ttylabs/sigil/components';
+import { readFileSync } from 'node:fs';
+
+console.log(image(readFileSync('logo.png'), { width: 40 }));
+
+// or inside a tree, sized by the layout like anything else
+const { element } = imageView(readFileSync('photo.png'), { fit: 'cover' });
+```
+
+A picture drawn in half blocks: each cell is an upper half block whose
+foreground is one pixel and whose background is the pixel under it, so a row of
+cells is two rows of picture and, since a cell is about twice as tall as it is
+wide, each pixel is about square. It is `Pixels` from `@ttylabs/sigil/canvas`
+with a picture fitted into it.
+
+- **The source is PNG bytes or RGBA.** Bytes -- a `Buffer` from `readFileSync()`
+  is fine -- are decoded with `decodePng()` from `@ttylabs/sigil/png`. Anything
+  else, a JPEG included, is the caller's decoder's: hand over
+  `{ width, height, data }` with `data` as `width * height * 4` bytes of RGBA. A
+  bad file throws when the view is built, not in a frame.
+- **It is sized by layout and resampled to the box it got.** It asks for a column
+  per pixel across and a row per two pixels down, or for the room offered at the
+  picture's proportions where that is less. `width` and `height` ask for a size
+  instead, in cells; either alone works the other out. Whatever box it ends up
+  in, the picture is resampled to it with a box filter -- every source pixel under
+  a cell's half averaged in -- which is what a large downscale needs.
+  `resampleImage(image, width, height, from?)` in `@ttylabs/sigil/canvas` is that
+  filter on its own.
+- **`fit` is `contain` (the default), `cover` or `fill`**, as `object-fit` means
+  them.
+- **Alpha is mixed with what is under it.** Over a box with a background, a
+  part-transparent pixel is blended with that colour. Over the terminal's own
+  background, which nothing knows the colour of, a pixel more than half there is
+  drawn and one less is not.
+- **Colour depth is the frame's.** At 256 colours and at 16 each half cell is
+  matched in Oklab, the way every stylesheet colour is. At level 0 -- a pipe,
+  `NO_COLOR` -- a picture draws nothing: inside a tree its box is kept and left
+  blank, and `image()` returns `''`.
+
+`image(source, { width, height, fit, colorLevel })` is the string facade, as
+wide as the picture or the terminal, whichever is less. `.sigil-image` is the
+class on the element.
+
 #### A paginator
 
 ```js
