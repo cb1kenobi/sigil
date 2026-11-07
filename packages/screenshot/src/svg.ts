@@ -46,6 +46,9 @@ export interface SvgOptions extends ColorOptions, SizeOptions {
 export const DEFAULT_FONT_FAMILY =
   "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace";
 
+/** What a font stack may hold: names, spaces, quotes, commas, dots, hyphens. */
+const FONT_FAMILY = /^[\w ,'".-]+$/;
+
 /** The schemes a link may keep, because an SVG opened in a browser runs what it is handed. */
 const SAFE_LINK = /^(?:https?|mailto|ftp|file):/i;
 
@@ -171,8 +174,13 @@ export function renderSvg(input: Shootable, options: SvgOptions = {}): string {
   // whole-number one, and within a rounding of it otherwise
   const device = cellMetrics(faces.regular, options);
   const family = options.fontFamily ?? DEFAULT_FONT_FAMILY;
-  if (typeof family !== 'string' || family.trim() === '') {
-    throw new TypeError('Invalid fontFamily: expected a CSS font stack');
+  // a font stack is names, quotes and commas, and nothing else may reach a
+  // `<style>`: a `;` or a `}` ends the declaration and whatever follows is a
+  // rule -- an `@import` an SVG opened in a browser would fetch
+  if (typeof family !== 'string' || !FONT_FAMILY.test(family) || family.trim() === '') {
+    throw new TypeError(
+      `Invalid fontFamily ${JSON.stringify(family)}: expected font names, quotes and commas`
+    );
   }
 
   const width = shot.width * m.width + m.padding * 2;

@@ -740,6 +740,32 @@ export class Painter {
   }
 
   /**
+   * Brings a bound grid onto this painter's table before anything is written.
+   *
+   * A grid bound to a view -- a `canvas.snapshot()` -- holds indices that mean
+   * what that view says. Once a sweep has compacted the table, the view a snapshot
+   * kept off `layers` is the old list, still right for what the snapshot holds and
+   * wrong for anything interned since: painting into it would write the new
+   * table's numbers under the old table's meanings, and `cellStyle()` would then
+   * read a colour some earlier frame used. So the grid is re-interned through the
+   * table this painter writes to and bound to its view, once, the first time it
+   * is painted after the two parted. A grid bound to nothing is left alone, which
+   * is what keeps `front` and `back` off this path entirely.
+   */
+  #sync(): void {
+    const bound = this.#buffer.styleView;
+    const view = this.#styles.view();
+    if (bound === undefined || bound === view) {
+      return;
+    }
+    const indices = this.#buffer.rawStyles();
+    for (let i = 0; i < indices.length; i++) {
+      indices[i] = this.#styles.intern(bound[indices[i]] ?? DEFAULT_STYLE);
+    }
+    this.#buffer.bindStyles(this.#styles.view());
+  }
+
+  /**
    * Paints text.
    *
    * A glyph whose background is `DEFAULT_COLOR` keeps the background already in
@@ -760,6 +786,7 @@ export class Painter {
    * @returns How many columns were consumed.
    */
   text(x: number, y: number, text: string, style: Partial<Style> = DEFAULT_STYLE): number {
+    this.#sync();
     const index = this.#styles.intern(style);
     const own = this.#styles.get(index);
     if (own.bg !== DEFAULT_COLOR) {
@@ -799,6 +826,7 @@ export class Painter {
     style: Partial<Style> = DEFAULT_STYLE,
     cluster: string = BLANK
   ): void {
+    this.#sync();
     this.#buffer.fill(x, y, width, height, cluster, this.#styles.intern(style));
   }
 
@@ -839,6 +867,7 @@ export class Painter {
     length: number,
     transform: (style: Style, x: number, y: number) => Partial<Style> | undefined
   ): void {
+    this.#sync();
     for (let column = x; column < x + length; column++) {
       if (!this.#buffer.inside(column, y)) {
         continue;

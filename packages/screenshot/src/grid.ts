@@ -60,6 +60,9 @@ export interface Shot {
   readonly width: number;
 }
 
+/** The most cells a screenshot reads. */
+const MAX_CELLS = 4096 * 4096;
+
 function isCellGrid(input: Shootable): input is CellGrid {
   return (
     typeof (input as CellGrid).charAt === 'function' &&
@@ -92,6 +95,12 @@ export function readShot(input: Shootable, styles?: StyleLookup): Shot {
   const height = input.height;
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 0 || height < 0) {
     throw new TypeError(`Invalid grid size ${String(width)}x${String(height)}`);
+  }
+  // a grid this big is not a terminal: 4096 by 4096 cells is a terminal some
+  // 32,000 pixels across at the default size, and every cell is read before
+  // either format can say the image is too large
+  if (width * height > MAX_CELLS) {
+    throw new RangeError(`A grid of ${width}x${height} cells is too large to screenshot`);
   }
 
   let charAt: (x: number, y: number) => string;

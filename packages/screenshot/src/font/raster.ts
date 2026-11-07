@@ -46,6 +46,18 @@ export interface Placement {
   scale: number;
   /** Horizontal shear per unit of height, for a synthesized italic. `0` for none. */
   shear: number;
+  /**
+   * The most of the plane the bitmap may cover, relative to the origin, in
+   * pixels. The bitmap is the outline's bounds cut to this.
+   *
+   * A glyph's points are 16-bit, and a font may claim 16 units per em: at 14px
+   * that is a bitmap some 57,000 pixels on a side, which is 24 GB of accumulator
+   * for one character the image could only ever show a cell of. So a caller
+   * passes the neighbourhood the glyph can be seen in, and an outline that runs
+   * past it is clipped -- a row outside is never visited, and a column outside
+   * is clamped to the edge, which keeps the winding of what is inside right.
+   */
+  window?: { bottom: number; left: number; right: number; top: number };
   /** Where the glyph origin lands, relative to the bitmap origin, in pixels. */
   x: number;
 }
@@ -228,10 +240,22 @@ export function rasterizeOutline(outline: Outline, place: Placement): Coverage |
   if (!Number.isFinite(minX)) {
     return undefined;
   }
-  const left = Math.floor(minX) - 1;
-  const top = Math.floor(minY) - 1;
-  const width = Math.ceil(maxX + place.embolden) + 1 - left;
-  const height = Math.ceil(maxY) + 1 - top;
+  const win = place.window;
+  let left = Math.floor(minX) - 1;
+  let top = Math.floor(minY) - 1;
+  let right = Math.ceil(maxX + place.embolden) + 1;
+  let bottom = Math.ceil(maxY) + 1;
+  if (win) {
+    left = Math.max(left, Math.floor(win.left));
+    top = Math.max(top, Math.floor(win.top));
+    right = Math.min(right, Math.ceil(win.right));
+    bottom = Math.min(bottom, Math.ceil(win.bottom));
+  }
+  if (right <= left || bottom <= top) {
+    return undefined;
+  }
+  const width = right - left;
+  const height = bottom - top;
   const acc = new Accumulator(width, height);
 
   const copies = place.embolden > 0 ? [0, place.embolden] : [0];

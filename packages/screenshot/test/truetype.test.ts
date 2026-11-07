@@ -1,5 +1,6 @@
 import { FontError, parseFont } from '../src/font/truetype.js';
 import { DEFAULT_FONTS } from '../src/fonts.js';
+import { buildFont, compositeGlyph, simpleGlyph } from './font-builder.js';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
@@ -114,5 +115,59 @@ describe('refusing a font it cannot read', () => {
   it('should refuse a units-per-em nobody could draw with', () => {
     const head = tableOffset(regular, 'head');
     expect(() => parseFont(patched(head + 18, [0, 0]))).toThrow(/units per em/);
+  });
+});
+
+describe('what review round 1 found in the composite reader', () => {
+  const square = simpleGlyph([
+    [0, 0],
+    [100, 0],
+    [100, 100],
+    [0, 100],
+  ]);
+
+  it('should refuse a composite that multiplies past what a glyph can hold', () => {
+    // six copies of the one below, six deep: 6^6 squares from a few hundred
+    // bytes, and eight deep would have been 6^8 -- allocated before any drawing
+    const glyphs = [square];
+    for (let level = 1; level <= 6; level++) {
+      glyphs.push(compositeGlyph(Array.from({ length: 6 }, () => ({ glyph: level }))));
+    }
+    const font = parseFont(buildFont(glyphs, { 0x41: 7 }));
+    expect(() => font.outline(7)).toThrow(/more than 65535 points/);
+    // and a modest composite is still read
+    expect(font.outline(3).length).toBe(36);
+  });
+
+  it('should apply the 2x2 the way FreeType and Apple do, not as it reads', () => {
+    // a b c d as stored: x' = a*x + c*y, y' = b*x + d*y. With a=0, b=1, c=-1,
+    // d=0 that sends (100, 0) to (0, 100). Review round 1 read the matrix the
+    // other way round and called this swapped; FreeType's ttgload.c assigns the
+    // four words to xx, yx, xy, yy and transforms with x' = xx*x + xy*y
+    const font = parseFont(
+      buildFont([square, compositeGlyph([{ glyph: 1, matrix: [0, 1, -1, 0] }])], {})
+    );
+    const points = font.outline(2)[0].map((p) => [p.x, p.y]);
+    expect(points).toEqual([
+      [0, 0],
+      [0, 100],
+      [-100, 100],
+      [-100, 0],
+    ]);
+  });
+
+  it('should scale an offset when the composite says to, and not otherwise', () => {
+    const half = (flags: number): number[] => {
+      const font = parseFont(
+        buildFont([square, compositeGlyph([{ dx: 100, flags, glyph: 1, scale: 0.5 }])], {})
+      );
+      return [font.outline(2)[0][0].x, font.outline(2)[0][1].x];
+    };
+    // SCALED_COMPONENT_OFFSET: the offset goes through the scale too
+    expect(half(0x0800)).toEqual([50, 100]);
+    // neither flag is unscaled, which is the default every rasterizer takes
+    expect(half(0)).toEqual([100, 150]);
+    // and UNSCALED_COMPONENT_OFFSET wins where both are set
+    expect(half(0x0800 | 0x1000)).toEqual([100, 150]);
   });
 });

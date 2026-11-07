@@ -93,9 +93,10 @@ reader and the coverage rasterizer.
   points rather than a `Math.cos()` an engine might round differently.
 - **Deterministic by construction, and it is the rasterizer's design rather than
   luck.** Signed-area accumulation is exact arithmetic on IEEE doubles, the curve
-  is flattened into a count of segments that depends only on its own points, and
-  nothing uses a transcendental function or reads the clock, the locale or the
-  system's fonts. Blending is integer. So golden files are compared exactly: SVG
+  is flattened into a count of segments that depends only on its own points, the
+  one non-arithmetic call is `Math.sqrt()`, which IEEE 754 requires to be
+  correctly rounded, and nothing calls a transcendental function an engine may
+  round its own way or reads the clock, the locale or the system's fonts. Blending is integer. So golden files are compared exactly: SVG
   as text (line endings normalized, since a Windows checkout may convert them),
   PNG as decoded pixels rather than bytes, because the encoder is SIG-114's to
   change. `SIGIL_UPDATE_GOLDEN=1` rewrites them; a missing golden is written
@@ -140,3 +141,44 @@ reader and the coverage rasterizer.
   `fonts/` beside `dist/`, with `OFL.txt` as the licence requires. They are the
   v2.304 release's `fonts/ttf/` files, checked against the git blob hashes of the
   same paths at that tag.
+
+#### What review round 1 found, and what did not reproduce
+
+- **A composite had no output budget.** Depth was capped at eight and breadth
+  was not, so a composite naming the one below it six times, six deep, is
+  186,624 points from a few hundred bytes -- and eight deep is 6^8 squares,
+  allocated before anything is drawn. Reproduced with a built font before the
+  fix. A glyph may now expand to `0xFFFF` points, which is the most `maxp` can
+  record for an honest one, and past it the read throws a `FontError`.
+- **A glyph's bitmap was sized from the outline alone.** Points are 16-bit and a
+  font may claim 16 units per em, so one character could ask for an accumulator
+  tens of thousands of pixels on a side. `rasterizeOutline()` takes a `window`
+  and the PNG path passes the cell plus one cell either side; rows outside are
+  never visited and columns are clamped, which keeps the winding of what is
+  inside right. The test draws a glyph spanning 32,000 units at 16 per em.
+- **Painting into a snapshot after a sweep wrote the new table's numbers under
+  the old view.** A snapshot kept off `layers` keeps the pre-sweep view -- right
+  for what it holds -- and `canvas.painter(shot)` interns into the post-sweep
+  table, so the new cell read back as an old frame's colour. `Painter` now
+  re-interns a bound grid through its own table the first time it paints it after
+  the two parted, then rebinds; an unbound grid is untouched, so `front` and
+  `back` never take the path. Sabotaged (the check skipped): both new tests fail.
+- **`fontFamily` reached `<style>` as live CSS.** A `;` or `}` ended the
+  declaration and an `@import` followed. A font stack is now names, spaces,
+  quotes, commas, dots and hyphens, and anything else is refused.
+- **A fallback glyph's synthetic style was read off which slot its face was in.**
+  One file given as both `regular` and `bold` loads as one font, so a regular
+  character was emboldened. It is read off the cell's attributes now.
+- **`SCALED_COMPONENT_OFFSET` was ignored.** A component that sets it has its
+  offset put through the matrix; neither flag set stays unscaled, which is the
+  default every rasterizer takes, and `UNSCALED_COMPONENT_OFFSET` wins over it.
+- **A grid's size was unbounded before it was read.** A structural `Screen`
+  claiming 10^7 by 10^7 cells was walked before either format could say the image
+  was too big. More than 4096 x 4096 cells is a `RangeError` up front.
+- **An OSC 4 index was not trimmed while its colour was.** Both are now.
+- **Did not reproduce: "a 2x2 composite applies the off-diagonal terms swapped".**
+  The review read the four words as `x' = a*x + b*y`. Apple's TrueType reference
+  and FreeType (`ttgload.c` loads them as `xx, yx, xy, yy` and transforms with
+  `x' = xx*x + xy*y`) both apply `x' = a*x + c*y`, `y' = b*x + d*y`, which is
+  what the code does. A test now pins that convention with a 90-degree rotation,
+  so a later "fix" in the other direction fails.

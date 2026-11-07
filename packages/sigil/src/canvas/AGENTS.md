@@ -569,8 +569,11 @@ style sweep had to grow.
   snapshot kept off `layers`, because interning appends and a compaction builds a
   new list instead of rewriting this one; a snapshot on `layers` is remapped, so
   `remap()` rebinds whatever was bound. `front` and `back` are never bound, and
-  `copyFrom()` carries a binding with the indices it came with. The full entry is
-  in `packages/screenshot/AGENTS.md`.
+  `copyFrom()` carries a binding with the indices it came with. Painting into a
+  bound grid whose view is not the table's -- a snapshot kept off `layers` across
+  a sweep -- first re-interns the grid through the table and rebinds it, in
+  `Painter`, so new indices never land under an old view's meanings. The full
+  entry is in `packages/screenshot/AGENTS.md`.
 - **There is no `transition()` helper, and that is a refusal rather than an
   omission.** The ramp is a frame loop's and the canvas does not own one: it has no
   clock, no scheduler and no opinion about how many frames a dissolve takes. That

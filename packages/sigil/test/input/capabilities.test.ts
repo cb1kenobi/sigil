@@ -1002,6 +1002,13 @@ describe('the foreground and palette the terminal reports', () => {
     expect(caps.palette?.[7]).toEqual({ b: 255, g: 255, r: 255 });
   });
 
+  // review round 1: the colour was trimmed by `parseReportedColor()` and the
+  // index was not, so a space after the `;` threw a readable answer away
+  it('should trim the index the way the colour is trimmed', () => {
+    const caps = readCapabilities([reply(`${ESC}]4; 1 ;rgb:ffff/0000/0000${BEL}`)]);
+    expect(caps.palette?.[1]).toEqual({ b: 0, g: 0, r: 255 });
+  });
+
   it('should keep the first readable answer per entry', () => {
     const caps = readCapabilities([
       reply(`${ESC}]4;2;green${BEL}`),

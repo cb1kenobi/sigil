@@ -71,6 +71,17 @@ export interface Font {
 /** How deep a composite may nest. Real fonts use one or two levels. */
 const MAX_COMPOSITE_DEPTH = 8;
 
+/**
+ * The most points one glyph may come to, composites expanded.
+ *
+ * `maxp` stores the most a composite has as a 16-bit count, so no glyph a font
+ * can describe honestly has more. The depth cap alone does not bound this: a
+ * composite naming the one below it six times, eight levels deep, is six to the
+ * eighth copies of whatever is at the bottom from a font of a few hundred bytes,
+ * and every one of them would be allocated before anything was drawn.
+ */
+const MAX_GLYPH_POINTS = 0xff_ff;
+
 /** `true` and `0x00010000` are TrueType; `OTTO` is CFF, which this does not read. */
 const TRUETYPE = new Set([0x00_01_00_00, 0x74_72_75_65]);
 const OTTO = 0x4f_54_54_4f;
@@ -298,6 +309,7 @@ export function parseFont(bytes: Uint8Array): Font {
       throw new FontError(`Invalid font: glyph ${self} nests composites too deeply`);
     }
     const outline: Outline = [];
+    let points = 0;
     let at = start;
     let more = true;
     while (more) {
@@ -343,10 +355,26 @@ export function parseFont(bytes: Uint8Array): Font {
         dx = 0;
         dy = 0;
       }
+      // SCALED_COMPONENT_OFFSET without UNSCALED_COMPONENT_OFFSET: the offset is
+      // in the component's own space and goes through the matrix too. Neither
+      // set is unscaled, which is what every TrueType rasterizer defaults to
+      if (flags & 0x0800 && !(flags & 0x1000)) {
+        [dx, dy] = [a * dx + c * dy, b * dx + d * dy];
+      }
       if (component === self) {
         throw new FontError(`Invalid font: glyph ${self} contains itself`);
       }
-      for (const contour of outlineAt(component, depth + 1)) {
+      const parts = outlineAt(component, depth + 1);
+      points += parts.reduce((sum, contour) => sum + contour.length, 0);
+      if (points > MAX_GLYPH_POINTS) {
+        throw new FontError(
+          `Invalid font: glyph ${self} expands to more than ${MAX_GLYPH_POINTS} points`
+        );
+      }
+      // the 2x2 is applied as x' = a*x + c*y, y' = b*x + d*y, with a b c d in
+      // the order the file stores them -- Apple's TrueType reference and
+      // FreeType both, and the opposite of how the matrix reads at a glance
+      for (const contour of parts) {
         outline.push(
           contour.map((p) => ({
             onCurve: p.onCurve,

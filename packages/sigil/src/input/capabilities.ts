@@ -752,7 +752,10 @@ export function readCapabilities(
       // the reason the background's does
       const fields = it.text.split(';');
       for (let i = 0; i + 1 < fields.length; i += 2) {
-        const index = /^\d+$/.test(fields[i]) ? Number.parseInt(fields[i], 10) : -1;
+        // trimmed as the colour is, by `parseReportedColor()`: a space after
+        // the `;` is no reason to throw away an answer that is otherwise read
+        const field = fields[i].trim();
+        const index = /^\d+$/.test(field) ? Number.parseInt(field, 10) : -1;
         if (index >= 0 && index < PALETTE_SIZE && palette[index] === undefined) {
           palette[index] = parseReportedColor(fields[i + 1]);
         }

@@ -281,7 +281,7 @@ class GlyphCache {
       return [this.#shape(base, span)];
     }
     const face = faceFor(this.#faces, attrs);
-    const found = this.#find(base, face);
+    const found = this.#find(base, face, attrs);
     if (!found) {
       return [this.#tofu(span)];
     }
@@ -308,7 +308,7 @@ class GlyphCache {
   }
 
   /** The face that has a character: the styled one, then each fallback. */
-  #find(codePoint: number, face: Face): { face: Face; glyph: number } | undefined {
+  #find(codePoint: number, face: Face, attrs: number): { face: Face; glyph: number } | undefined {
     const glyph = face.font.glyphFor(codePoint);
     if (glyph !== 0) {
       return { face, glyph };
@@ -317,11 +317,19 @@ class GlyphCache {
       const fallback = font.glyphFor(codePoint);
       if (fallback !== 0) {
         // the fallback has no faces of its own, so the style is synthesized
-        const weight =
-          face.bold || face.font === this.#faces.bold || face.font === this.#faces.boldItalic;
-        const slant =
-          face.italic || face.font === this.#faces.italic || face.font === this.#faces.boldItalic;
-        return { face: { bold: weight, font, id: 10 + i, italic: slant }, glyph: fallback };
+        // from what the cell asked for. Read off the attributes rather than off
+        // which face was picked: one file given as both `regular` and `bold`
+        // loads as one font, and asking which slot it came from would then
+        // embolden a regular character
+        return {
+          face: {
+            bold: (attrs & ATTR.bold) !== 0,
+            font,
+            id: 10 + i,
+            italic: (attrs & ATTR.italic) !== 0,
+          },
+          glyph: fallback,
+        };
       }
     }
     return undefined;
@@ -338,6 +346,15 @@ class GlyphCache {
       embolden: face.bold ? m.fontPx * EMBOLDEN : 0,
       scale: m.unit,
       shear: face.italic ? ITALIC_SHEAR : 0,
+      // the cell and one cell's worth either side, which is as far as an
+      // overhang a terminal would show goes; anything past it is a font lying
+      // about its own bounds
+      window: {
+        bottom: 2 * m.height - m.baseline,
+        left: -m.width * span,
+        right: 2 * m.width * span,
+        top: -m.baseline - m.height,
+      },
       x: (m.width * span - advance) / 2,
     });
     // positioned against the cell's top rather than the baseline

@@ -1,6 +1,7 @@
 import { BUILTIN_PALETTES } from '../src/colors.js';
 import { DEFAULT_FONTS } from '../src/fonts.js';
 import { rasterize, type RasterOptions } from '../src/rasterize.js';
+import { buildFont, simpleGlyph } from './font-builder.js';
 import { frame, golden, pixel, showcase } from './helpers.js';
 import { ATTR, CellBuffer, DEFAULT_COLOR, palette, rgb, StyleTable } from '@ttylabs/sigil/canvas';
 import { Screen } from '@ttylabs/sigil/testing';
@@ -314,5 +315,62 @@ describe('determinism', () => {
       'showcase-light@2x.png',
       rasterize(showcase(), { ...OPTS, colorScheme: 'light', padding: 8, scale: 2 })
     );
+  });
+});
+
+describe('what review round 1 found', () => {
+  it('should cut a glyph that runs off the 16-bit plane to what the image can show', () => {
+    // 16 units per em at 14px is nearly a pixel a unit, so a glyph spanning the
+    // int16 range asked for an accumulator 28,000 pixels on a side -- 6 GB --
+    // for one cell
+    const huge = simpleGlyph([
+      [-16_000, -16_000],
+      [16_000, -16_000],
+      [16_000, 16_000],
+      [-16_000, 16_000],
+    ]);
+    const font = buildFont([huge], { 0x41: 1 }, 16);
+    const started = Date.now();
+    const image = rasterize(
+      frame(1, 1, (p) => p.text(0, 0, 'A', { fg: rgb(255, 0, 0) })),
+      { ...OPTS, font }
+    );
+    expect(Date.now() - started).toBeLessThan(2000);
+    // the glyph covers the whole cell, and nothing outside the image was asked for
+    expect(pixel(image, 0, 0)).toEqual([255, 0, 0, 255]);
+  });
+
+  it('should synthesize a fallback from what the cell asked for, not which slot a font is in', () => {
+    // one file as both the regular and the bold loads as one font, so asking
+    // whether the face picked *is* the bold called a regular character bold
+    const fallback = buildFont(
+      [
+        simpleGlyph([
+          [100, 0],
+          [500, 0],
+          [500, 600],
+          [100, 600],
+        ]),
+      ],
+      { 0x4e_00: 1 }
+    );
+    const regular = readFileSync(DEFAULT_FONTS.regular);
+    const shot = frame(2, 1, (p) => p.text(0, 0, '一'));
+    const shared = rasterize(shot, {
+      ...OPTS,
+      font: { bold: regular, fallback: [fallback], regular },
+    });
+    const apart = rasterize(shot, { ...OPTS, font: { fallback: [fallback], regular } });
+    expect(shared.data).toEqual(apart.data);
+    // and a bold cell still is
+    const bold = frame(2, 1, (p) => p.text(0, 0, '一', { attrs: ATTR.bold }));
+    expect(rasterize(bold, { ...OPTS, font: { fallback: [fallback], regular } }).data).not.toEqual(
+      apart.data
+    );
+  });
+
+  it('should refuse a grid too large to read before reading it', () => {
+    const screen = { cellAt: () => ' ', height: 1e7, width: 1e7 };
+    expect(() => rasterize(screen, OPTS)).toThrow(RangeError);
   });
 });
