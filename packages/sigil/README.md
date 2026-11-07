@@ -71,7 +71,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `KEYS`
 - [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths, `save()`
-- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `updates`, `testing`, `reference`
+- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `updates`, `testing`, `reference`, `png`
 
 ---
 
@@ -6582,6 +6582,56 @@ leading dashes with it. Case is folded on both sides.
 
 It imports nothing from Node, so it also runs in a browser: the sigil website
 suggests the nearest page on its 404 with it.
+
+### `sigil/png`
+
+Reads and writes PNG files, with nothing beyond `node:zlib`.
+
+```js
+import { decodePng, encodePng } from '@ttylabs/sigil/png';
+import { readFileSync, writeFileSync } from 'node:fs';
+
+const image = decodePng(readFileSync('logo.png'));
+image.width; // 32
+image.height; // 32
+image.data; // Uint8Array of width * height * 4: R, G, B, A for each pixel, row by row
+
+writeFileSync('copy.png', encodePng(image));
+```
+
+Both directions use one shape, `{ width, height, data }`, where `data` is 8-bit
+RGBA with straight alpha. Pixel `(x, y)` starts at byte `(y * width + x) * 4`.
+Raw RGBA is also how any other format gets in: if you have a JPEG, decode it
+with something else and pass the pixels to `encodePng()`.
+
+`decodePng()` reads every colour type at every bit depth (1, 2, 4, 8 and 16),
+palettes and `tRNS` transparency, all five scanline filters, and Adam7
+interlacing. The output is always 8-bit RGBA. A 16-bit sample is rounded to the
+nearest 8-bit value, a low-depth greyscale sample is scaled up to the full
+range, and alpha is 255 wherever the file has none. Gamma, colour profiles and
+text are ancillary chunks, so they are skipped: the samples come back as
+stored.
+
+A file it cannot read in full throws an `Error` that says why, such as
+`Corrupt PNG: the CRC of the IDAT chunk does not match its data`, and you never
+get part of an image. The size in IHDR caps how much the image data may
+inflate to, so a small file cannot claim an image that fills the machine's
+memory. An image larger than `maxPixels` is refused before any work is done.
+The default is 2^28 pixels, a 16384 by 16384 image:
+
+```js
+decodePng(bytes, { maxPixels: 4096 * 4096 });
+```
+
+`encodePng()` writes a palette when the image has 256 colours or fewer, using
+the smallest bit depth that fits, with a `tRNS` chunk when any of those colours
+has alpha. Otherwise it writes RGB, or RGBA when any pixel has alpha below 255.
+A terminal screenshot drawn without anti-aliasing nearly always fits a palette,
+and the file comes out much smaller. A truecolour row gets whichever filter
+gives the smallest sum of absolute values. A palette image is compressed both
+filtered and unfiltered, and the smaller result is kept. The encoder writes no
+timestamp and no ancillary chunks, so the same pixels always give the same
+bytes. That means a screenshot can be committed and diffed.
 
 ### `sigil/updates`
 

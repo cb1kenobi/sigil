@@ -60,6 +60,22 @@ const ALLOWED = new Set([
   'website/src/fonts/martian-mono-latin-500.woff2',
 ]);
 
+/**
+ * A vendored corpus of binary files, allowed as a directory rather than by name.
+ *
+ * PngSuite is 176 images whose bytes are the subject, and listing each would
+ * bury the fifteen entries above, each of which is a decision about one file,
+ * under one decision about one directory. What keeps the directory from being a
+ * hole is the test below it: only `.png` files are skipped, so the suite's own
+ * README and licence are still read as text, and anything else put there is
+ * read like every other file.
+ */
+const CORPORA = ['packages/sigil/test/png/fixtures/pngsuite/'];
+
+function allowed(name: string): boolean {
+  return ALLOWED.has(name) || CORPORA.some((dir) => name.startsWith(dir) && name.endsWith('.png'));
+}
+
 /** Everything git is tracking, which is what a reviewer sees. */
 function tracked(): string[] {
   return execFileSync('git', ['ls-files', '-z'], { cwd: root, maxBuffer: 1 << 24 })
@@ -69,10 +85,19 @@ function tracked(): string[] {
 }
 
 describe('committed sources', () => {
-  const files = tracked().filter((name) => !ALLOWED.has(name));
+  const files = tracked().filter((name) => !allowed(name));
 
   it('should be tracked, so that this is testing something', () => {
     expect(files.length).toBeGreaterThan(100);
+  });
+
+  it('should skip only the images of a corpus, and read the rest of it', () => {
+    const corpus = tracked().filter((name) => CORPORA.some((dir) => name.startsWith(dir)));
+    expect(corpus.filter((name) => name.endsWith('.png')).length).toBeGreaterThan(100);
+    expect(files.filter((name) => CORPORA.some((dir) => name.startsWith(dir))).sort()).toEqual(
+      corpus.filter((name) => !name.endsWith('.png')).sort()
+    );
+    expect(files).toContain('packages/sigil/test/png/fixtures/pngsuite/PngSuite.LICENSE');
   });
 
   it('should carry no raw control character', () => {
