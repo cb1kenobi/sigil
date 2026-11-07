@@ -154,9 +154,10 @@ screenshot writes. SIG-114.
   Chromium's zlib, and node 24.18 (zlib 1.3.1), 26.8 and 26.10 (1.3.2.1-motley)
   were measured giving identical deflate output on arm64 macOS. `should write
   the same bytes on every platform CI runs on` pins two images by SHA-256 and is
-  how the other eight CI combinations are asked; if one ever disagrees, the
-  determinism claim is per platform and has to be written down as such rather
-  than the hash updated.
+  how the other eight CI combinations are asked -- and all nine (node 22, 24
+  and 26 on macOS, Ubuntu and Windows) gave those bytes on the PR that added
+  it. If one ever disagrees, the determinism claim is per platform and has to
+  be written down as such rather than the hash updated.
 
 - **No greyscale output, by the ticket's own list.** A greyscale image with 256
   or fewer distinct values is a palette anyway, and an 8-bit grey image cannot
