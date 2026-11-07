@@ -71,7 +71,10 @@ screenshot writes. SIG-114.
   them, and refusing would fail files that only had something appended. A
   `PLTE` in a truecolour image is a suggested palette for a display that cannot
   show truecolour, and is ignored rather than refused, because the
-  specification allows it -- `pp0n2c16.png` and `pp0n6a08.png` carry one.
+  specification allows it -- `pp0n2c16.png` and `pp0n6a08.png` carry one. One
+  of them, though: whether a `PLTE` has been seen is tracked apart from the
+  palette the decoder keeps, which stays `undefined` for a truecolour image, so
+  a second one is refused there as it is for an indexed image.
 
 - **Inflation is bounded by IHDR, and `maxPixels` bounds IHDR.** The image data
   inflates to exactly `sum(rows * (stride + 1))` over the passes, and that
@@ -83,12 +86,20 @@ screenshot writes. SIG-114.
   against IHDR before anything is inflated or allocated. A default rather than
   `Infinity`, because the caller most likely to need it is the one decoding a
   file somebody else supplied, and that caller is the least likely to know to
-  ask. Raise it per call.
+  ask. Raise it per call, or pass `Infinity` to lift it on purpose. Anything
+  that is not a number, `NaN`, or a negative is a `TypeError` rather than
+  coerced, because the check is a comparison and `n > NaN` is false: a `NaN`
+  cap read from an unset config value used to lift the cap rather than fail,
+  which review round 1 found.
 
 - **A chunk type that is not four letters is named in hex.** The type is four
   bytes of the file, and the error is printed to a terminal: a type of
   `ESC [ 2 J` would clear the screen of whoever read the message. The check for
   letters is the specification's own, so it costs nothing to be strict about.
+  The encoder's `TypeError`s escape a control character in whatever they quote
+  of their argument for the same reason -- a string width, or a
+  `Symbol.toStringTag` -- even though the caller wrote it, because a CLI's error
+  handler still prints it.
 
 - **The decoder's errors are translated with `__`, and the encoder's are not.**
   A malformed PNG is very often a file the user supplied, so its error reaches
@@ -170,7 +181,7 @@ screenshot writes. SIG-114.
   valid file also round-trips through the encoder.
 
 - **The corpus is allowed as a directory in `test/sources.test.ts`, not file by
-  file.** 176 images would bury the fifteen names in `ALLOWED`, each of which is
+  file.** 176 images would bury the nineteen names in `ALLOWED`, each of which is
   a decision about one file. What keeps it from being a hole is that only
   `.png` files under it are skipped, and a test asserts the suite's README and
   licence are still read as text. The README keeps its tabs: it is somebody

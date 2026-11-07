@@ -299,6 +299,30 @@ describe('decodePng()', () => {
       );
     });
 
+    it('should refuse a maxPixels that is not a number rather than lifting the cap', () => {
+      // `NaN > n` is false, so a NaN cap used to let a 65536-square header
+      // through to the inflate; Infinity is still the way to lift it on purpose
+      const header = png(ihdr(65536, 65536), IEND);
+      for (const maxPixels of [Number.NaN, '1000', {}, -1]) {
+        expect(() => decodePng(header, { maxPixels } as never), String(maxPixels)).toThrow(
+          TypeError
+        );
+      }
+      expect(() => decodePng(grey([[1]]), { maxPixels: Infinity })).not.toThrow();
+      expect(decodePng(grey([[1]]), null as never).width).toBe(1);
+    });
+
+    it('should refuse a second PLTE in a truecolour image, though the first is ignored', () => {
+      const plte = chunk('PLTE', [1, 2, 3, 4, 5, 6]);
+      refuses(
+        png(ihdr(1, 1, 8, 2), plte, plte, idat([0, 9, 8, 7]), IEND),
+        'more than one PLTE chunk'
+      );
+      expect(pixels(decodePng(png(ihdr(1, 1, 8, 2), plte, idat([0, 9, 8, 7]), IEND)).data)).toEqual(
+        [[9, 8, 7, 255]]
+      );
+    });
+
     it('should refuse a bit depth its colour type does not allow', () => {
       refuses(png(ihdr(1, 1, 4, 2), IEND), 'bit depth 4 is not allowed for colour type 2');
       refuses(png(ihdr(1, 1, 16, 3), IEND), 'bit depth 16 is not allowed for colour type 3');

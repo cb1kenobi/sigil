@@ -51,7 +51,7 @@ export function encodePng(image: RgbaImage): Uint8Array {
   const input: unknown = image?.data;
   if (!isDimension(width) || !isDimension(height)) {
     throw new TypeError(
-      `encodePng() expects a width and height that are whole numbers from 1 to ${MAX_CHUNK_LENGTH}, got ${String(width)}x${String(height)}`
+      `encodePng() expects a width and height that are whole numbers from 1 to ${MAX_CHUNK_LENGTH}, got ${quote(width)}x${quote(height)}`
     );
   }
   // a Uint8ClampedArray is what a canvas hands back, and is the same bytes
@@ -109,10 +109,23 @@ export function encodePng(image: RgbaImage): Uint8Array {
   return assemble(chunks);
 }
 
+/**
+ * A value as an error message may quote it. The caller wrote it, but a CLI's
+ * error handler prints it, so a control character in it -- a string width, a
+ * `Symbol.toStringTag` -- is escaped the way the decoder names a chunk type in
+ * hex: `ESC [ 2 J` in a message clears the terminal of whoever reads it.
+ */
+function quote(value: unknown): string {
+  return String(value).replaceAll(
+    /\p{Cc}/gu,
+    (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`
+  );
+}
+
 function describe(value: unknown): string {
-  return typeof value === 'object'
-    ? Object.prototype.toString.call(value).slice(8, -1)
-    : typeof value;
+  return quote(
+    typeof value === 'object' ? Object.prototype.toString.call(value).slice(8, -1) : typeof value
+  );
 }
 
 function isDimension(n: unknown): n is number {

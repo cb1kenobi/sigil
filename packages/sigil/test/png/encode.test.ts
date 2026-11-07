@@ -158,9 +158,9 @@ describe('encodePng()', () => {
       expect([0, 1, 2, 3].map((y) => raw[y * stride])).toEqual([1, 2, 2, 2]);
     });
 
-    it('should keep whichever of filtered and unfiltered is smaller for a palette', () => {
+    it('should filter a palette whose indices are a ramp', () => {
       // a vertical greyscale ramp fits a palette and its indices are a ramp
-      // too, so filtering them wins; the module comment has the other half
+      // too, so the filtered encoding is the smaller one
       const width = 64;
       const height = 200;
       const data = new Uint8Array(width * height * 4);
@@ -172,7 +172,43 @@ describe('encodePng()', () => {
       const bytes = encodePng({ data, height, width });
       expect(format(bytes)).toEqual([8, 3]);
       const raw = inflateSync(body(bytes, 'IDAT')!);
-      expect(raw[(width + 1) * 5]).not.toBe(0);
+      const filters = Array.from({ length: height }, (_, y) => raw[y * (width + 1)]);
+      expect(filters.slice(1).every((f) => f !== 0)).toBe(true);
+    });
+
+    it('should leave a palette unfiltered when its indices are names', () => {
+      // glyph-like cells over a background: the case the specification's
+      // advice is right about, and the other half of the comparison
+      const width = 256;
+      const height = 64;
+      const colours = [
+        [30, 30, 46],
+        [205, 214, 244],
+        [243, 139, 168],
+        [166, 227, 161],
+        [137, 180, 250],
+      ];
+      const data = new Uint8Array(width * height * 4);
+      let s = 7;
+      for (let cell = 0; cell < (width / 8) * (height / 16); cell++) {
+        s = (Math.imul(s, 1103515245) + 12345) >>> 0;
+        const fg = colours[1 + (s >>> 30)];
+        const glyph = s & 0xffff;
+        const cx = (cell % (width / 8)) * 8;
+        const cy = Math.floor(cell / (width / 8)) * 16;
+        for (let y = 0; y < 16; y++) {
+          for (let x = 0; x < 8; x++) {
+            const on = y > 2 && y < 13 && (glyph >> ((x + y * 3) % 16)) & 1;
+            data.set([...(on ? fg : colours[0]), 255], ((cy + y) * width + cx + x) * 4);
+          }
+        }
+      }
+      const bytes = encodePng({ data, height, width });
+      expect(format(bytes)).toEqual([4, 3]);
+      const stride = width / 2 + 1;
+      const raw = inflateSync(body(bytes, 'IDAT')!);
+      const filters = Array.from({ length: height }, (_, y) => raw[y * stride]);
+      expect(filters.filter((f) => f !== 0)).toEqual([]);
     });
   });
 
@@ -240,6 +276,24 @@ describe('encodePng()', () => {
       ['a Float32Array', { data: new Float32Array(4), height: 1, width: 1 }],
     ])('should refuse %s with a TypeError', (_, input) => {
       expect(() => encodePng(input as unknown as RgbaImage)).toThrow(TypeError);
+    });
+
+    it('should not put a control character from its argument into the message', () => {
+      // the decoder names a chunk type in hex for the same reason: an error is
+      // printed to a terminal, and ESC [ 2 J clears it
+      const tagged = { [Symbol.toStringTag]: '\u001b[2J' };
+      for (const input of [
+        { data: new Uint8Array(4), height: 1, width: '\u001b[2J' },
+        { data: tagged, height: 1, width: 1 },
+      ]) {
+        expect(() => encodePng(input as unknown as RgbaImage)).toThrow(TypeError);
+        try {
+          encodePng(input as unknown as RgbaImage);
+        } catch (err) {
+          expect((err as Error).message).not.toMatch(/\p{Cc}/u);
+          expect((err as Error).message).toContain('\\x1b');
+        }
+      }
     });
   });
 });

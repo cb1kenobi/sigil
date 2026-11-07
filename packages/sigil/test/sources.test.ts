@@ -64,7 +64,7 @@ const ALLOWED = new Set([
  * A vendored corpus of binary files, allowed as a directory rather than by name.
  *
  * PngSuite is 176 images whose bytes are the subject, and listing each would
- * bury the fifteen entries above, each of which is a decision about one file,
+ * bury the nineteen entries above, each of which is a decision about one file,
  * under one decision about one directory. What keeps the directory from being a
  * hole is the test below it: only `.png` files are skipped, so the suite's own
  * README and licence are still read as text, and anything else put there is

@@ -78,11 +78,16 @@ function hex(bytes: Uint8Array): string {
  * chunk out of order or missing, image data that is short, long or corrupt,
  * or an image larger than `options.maxPixels`.
  */
-export function decodePng(bytes: Uint8Array, options: DecodePngOptions = {}): RgbaImage {
+export function decodePng(bytes: Uint8Array, options?: DecodePngOptions): RgbaImage {
   if (!(bytes instanceof Uint8Array)) {
     throw new TypeError('decodePng() expects a Uint8Array');
   }
-  const maxPixels = options.maxPixels ?? MAX_PIXELS;
+  // checked rather than coerced: the cap is a comparison, and `NaN > n` is
+  // false, so a cap that is not a number would lift it rather than fail
+  const maxPixels = options?.maxPixels ?? MAX_PIXELS;
+  if (typeof maxPixels !== 'number' || Number.isNaN(maxPixels) || maxPixels < 0) {
+    throw new TypeError('decodePng() expects maxPixels to be a number of pixels, or Infinity');
+  }
 
   if (bytes.length < SIGNATURE.length || SIGNATURE.some((b, i) => bytes[i] !== b)) {
     throw new Error(__`Not a PNG file: the signature does not match`);
@@ -93,6 +98,9 @@ export function decodePng(bytes: Uint8Array, options: DecodePngOptions = {}): Rg
 
   let header: Header | undefined;
   let palette: Uint8Array | undefined;
+  // seen separately from `palette`, which stays undefined for the PLTE a
+  // truecolour image may carry and ignore -- one of them, not two
+  let paletteSeen = false;
   let transparency: Uint8Array | undefined;
   const data: Uint8Array[] = [];
   let previous = '';
@@ -142,13 +150,14 @@ export function decodePng(bytes: Uint8Array, options: DecodePngOptions = {}): Rg
     } else if (type === 'IHDR') {
       throw new Error(__`Invalid PNG: more than one ${type} chunk`);
     } else if (type === 'PLTE') {
-      if (palette !== undefined) {
+      if (paletteSeen) {
         throw new Error(__`Invalid PNG: more than one ${type} chunk`);
       }
       if (data.length > 0 || transparency !== undefined) {
         throw new Error(__`Invalid PNG: the ${type} chunk is out of order`);
       }
       palette = readPalette(body, header);
+      paletteSeen = true;
     } else if (type === 'tRNS') {
       if (transparency !== undefined) {
         throw new Error(__`Invalid PNG: more than one ${type} chunk`);

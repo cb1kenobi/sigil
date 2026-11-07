@@ -592,8 +592,8 @@ describe('what importing the package costs', () => {
       expect(carriers(png, marker), marker).toEqual([]);
     }
 
-    // measured at 14,100 B over three modules as of SIG-114, of which the codec
-    // is 10,121; a ceiling at about 2x, so ordinary growth never touches it and
+    // measured at 14,344 B over three modules as of SIG-114, of which the codec
+    // is 10,365; a ceiling at about 2x, so ordinary growth never touches it and
     // anything that is not a codec arriving does
     const bytes = [...png].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
     expect(bytes, `${[...png].join(', ')}`).toBeLessThan(28 * 1024);
