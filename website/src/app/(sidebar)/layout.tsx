@@ -1,4 +1,3 @@
-import { CellGrid } from '@/components/cell-grid';
 import { DocsSidebar } from '@/components/docs-sidebar';
 import { Glow } from '@/components/glow';
 import { componentFamilies, docsSidebar } from '@/lib/docs-sidebar';
@@ -18,8 +17,8 @@ import { componentFamilies, docsSidebar } from '@/lib/docs-sidebar';
  * the rail is gone below 1100px and the sidebar is a menu above the content
  * below 768px.
  *
- * The cell grid and the glow are the top 520px of every docs page, behind
- * everything and fading downward.
+ * The glow is the top 520px of every docs page, behind everything and fading
+ * downward.
  *
  * A component's page (SIG-264) has the same sidebar scoped to its family, which
  * the sidebar works out from the path: `componentSidebar()` in `nav.ts`.
@@ -27,7 +26,6 @@ import { componentFamilies, docsSidebar } from '@/lib/docs-sidebar';
 export default function SidebarLayout({ children }: LayoutProps<'/'>) {
   return (
     <div className="relative flex flex-1 flex-col">
-      <CellGrid variant="fade" />
       <Glow variant="top" />
       <div className="layout-docs relative flex flex-1 flex-col md:flex-row md:items-start md:gap-14">
         <DocsSidebar families={componentFamilies()} sections={docsSidebar()} />

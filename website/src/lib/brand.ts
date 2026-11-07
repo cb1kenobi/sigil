@@ -19,7 +19,7 @@ export const BRAND = '#7656db';
 /** `--color-fg-strong`: the wordmark on a dark ground. */
 export const FG_STRONG = '#f4f2f8';
 
-/** `--color-fg`: the cell grid's dots, at an alpha. */
+/** `--color-fg`: the social cards' dots, at an alpha. */
 export const FG = '#edebf3';
 
 /** `--color-muted`: secondary text on the card. */

@@ -1,4 +1,3 @@
-import { CellGrid } from '@/components/cell-grid';
 import { Glow } from '@/components/glow';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
@@ -51,7 +50,7 @@ export function PlaceCard({
 }
 
 /**
- * What the 404 and the error page share: the cell grid and glow of a docs page
+ * What the 404 and the error page share: the glow of a docs page
  * behind a two-column grid, text on the left and the terminal on the right,
  * stacked on a phone.
  *
@@ -62,7 +61,6 @@ export function PlaceCard({
 export function FailureLayout({ children }: { children: ReactNode }) {
   return (
     <div className="relative flex-1 overflow-hidden">
-      <CellGrid variant="fade" />
       <Glow variant="top" />
       <div className="layout-page relative grid grid-cols-1 content-start gap-x-12 gap-y-8 py-16 sm:py-24 lg:grid-cols-2">
         {children}
