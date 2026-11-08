@@ -186,7 +186,12 @@ the `ui` tag run by plain `node`.
   build overrides the line on purpose (`packages/cli/AGENTS.md`, "JSX compiles
   against `@ttylabs/sigil`"), so what it checks is not the line but the type
   gate: set to `react`, `sigil build` fails with `TS2875`, and `pnpm test` builds
-  first. So three things guard it, each from a different side: that gate, a cold
+  first. That gate does not catch every wrong source, though: a package that
+  resolves but whose JSX runtime has no types passes `tsc` silently, because
+  `tsconfig.base.json` sets `noImplicitAny: false`, which turns off TS7016 and
+  TS7026, and the build overrides the import source so it builds too (reviewed
+  with a stub `untyped-jsx` package). Only the tsconfig read below catches that
+  case. So three things guard it, each from a different side: that gate, a cold
   vitest cache, and `should name sigil as its JSX import source` in
   `examples.test.ts`, which reads each JSX example's `tsconfig.json` (following a
   relative `extends`) and asks for `jsxImportSource` of `@ttylabs/sigil` and a
@@ -202,7 +207,7 @@ the `ui` tag run by plain `node`.
   harness's -- every tsconfig setting is invisible to the cache the same way, for
   every project in the workspace -- and a key that follows an `extends` chain
   halfway is worse than a documented gap. When a transform seems to ignore a
-  tsconfig, `rm -rf node_modules/.vitest-cache` first.
+  tsconfig, `rm -rf node_modules/.vitest-cache` first (or `vitest --clearCache`).
 
 - **`runApp()` runs every example, and `start()` is gone.** Until SIG-276
   landed, each example carried a hand-wired `start()` shaped like the runner,
@@ -276,7 +281,7 @@ the `ui` tag run by plain `node`.
   excerpt drifting by two words, a wrong package name, the projects glob without
   its `.md` exclusion, a missing bundle, and a non-TTY path that throws: each
   fails the suite. A wrong `jsxImportSource` is caught by `sigil build`'s
-  `TS2875` and by the tsconfig read, for the reason above. Removing the Ctrl-C binding would have
+  `TS2875`, for the reason above. Removing the Ctrl-C binding would have
   survived the first harness, which only quit on `q`; the Ctrl-C test was added
   for it before the pass, and the binding's removal fails it. `start()` is gone
   now, so the `dispose()` and `input.stop()` sabotages are the runner's to keep,

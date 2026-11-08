@@ -373,21 +373,23 @@ describe('the examples', () => {
         ).toBe(true);
       });
 
-      it('should name sigil as its JSX import source, because the build will not check', () => {
-        // `sigil build` overrides `jsxImportSource` on purpose, so a wrong line
-        // builds; what stops it is the build's own `tsc` (TS2875) and, here, this
-        // read. The in-process mount does honour the tsconfig, but vitest caches
-        // a transform by the module's content and not by the tsconfig, so a warm
-        // cache hides an edit to the line (SIG-312). Read from the file, so
-        // nothing cached can answer for it
-        if (!example.roots.some((file) => file.endsWith('.tsx'))) {
-          return;
+      it.skipIf(!example.roots.some((file) => file.endsWith('.tsx')))(
+        'should name sigil as its JSX import source, because the build will not check',
+        () => {
+          // `sigil build` overrides `jsxImportSource` on purpose, so a wrong line
+          // builds; the build's own `tsc` (TS2875) stops some wrong sources, but not
+          // one that resolves with an untyped JSX runtime, so this read is the check. The in-process mount does honour the tsconfig, but vitest caches
+          // a transform by the module's content and not by the tsconfig, so a warm
+          // cache hides an edit to the line (SIG-312). Read from the file, so
+          // nothing cached can answer for it
+          const options = tsconfigOptions(example.dir);
+          expect(options, 'a JSX example has a tsconfig.json').toBeDefined();
+          expect(options?.jsxImportSource, 'compilerOptions.jsxImportSource').toBe(
+            '@ttylabs/sigil'
+          );
+          expect(['react-jsx', 'react-jsxdev'], 'compilerOptions.jsx').toContain(options?.jsx);
         }
-        const options = tsconfigOptions(example.dir);
-        expect(options, 'a JSX example has a tsconfig.json').toBeDefined();
-        expect(options?.jsxImportSource, 'compilerOptions.jsxImportSource').toBe('@ttylabs/sigil');
-        expect(['react-jsx', 'react-jsxdev'], 'compilerOptions.jsx').toContain(options?.jsx);
-      });
+      );
 
       for (const file of example.roots) {
         it(`should export App, taking no props, and its stylesheet: ${basename(file)}`, async () => {

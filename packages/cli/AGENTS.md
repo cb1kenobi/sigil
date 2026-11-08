@@ -989,13 +989,13 @@ makes it testable with a fixture directory and no bundler at all.
 - **The same line is read by vite in an example's tests, and that is not a
   second rule.** `examples/*`'s in-process mount compiles its JSX with vite, which
   (unlike this build) **follows** the example's own `tsconfig.json`, so a wrong
-  `jsxImportSource` fails there with a missing package instead of building. The two
+  `jsxImportSource` fails there on a cold cache with a missing package instead of building. The two
   agree on the outcome and differ on the mechanism, which is what the override
   above allows. Measured in SIG-312, including why it once looked as though vite
   ignored the line (vitest's transform cache is keyed on content, not the
   tsconfig): see "Vite does follow an example's `tsconfig.json`" in
   `examples/AGENTS.md`. Do not pin the import source in a vitest config to make
-  them agree; that removes the only in-process check of the line.
+  them agree; that removes the mount's own check of the line.
 - **The conflict warning rolldown emits for that is dropped, and only that
   one.** Setting the option makes rolldown say `compilerOptions.jsxImportSource`
   was overridden -- **without comparing the two values**, measured, so an app
