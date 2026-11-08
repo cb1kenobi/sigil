@@ -1,10 +1,10 @@
 import { binaryName, canBuildSea, hostTarget, label } from '../src/build/compile.ts';
 import { CONFIG_FILE } from '../src/config.ts';
 import { run } from '../src/index.js';
+import { copyFixture } from './copy-fixture.ts';
 import { candidates, whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -166,10 +166,7 @@ describe('sigil package', () => {
       const app = mkdtempSync(join(tmpdir(), 'sigil-pkg-app-'));
 
       try {
-        cpSync(join(fixtures, 'buildable'), app, {
-          filter: (from) => !from.includes('node_modules'),
-          recursive: true,
-        });
+        copyFixture(join(fixtures, 'buildable'), app);
         writeFileSync(
           join(app, 'sigil.json'),
           `${JSON.stringify({ package: { runtime: 'bun' } }, undefined, 2)}\n`,
@@ -212,15 +209,7 @@ describe('sigil package', () => {
       const app = mkdtempSync(join(tmpdir(), 'sigil-pkg-app-'));
 
       try {
-        // `node_modules` is excluded, and that is not tidiness: `sigil package`
-        // writes its staging directory under the app's own
-        // `node_modules/.sigil/`, so copying the fixture while another test
-        // file packages it races a read against a delete. Measured as a test
-        // that passed alone and failed in the suite.
-        cpSync(join(fixtures, 'buildable'), app, {
-          filter: (from) => !from.includes('node_modules'),
-          recursive: true,
-        });
+        copyFixture(join(fixtures, 'buildable'), app);
         writeFileSync(
           join(app, 'sigil.json'),
           `${JSON.stringify({ package: { runtime: 'deno' } }, undefined, 2)}\n`,
@@ -243,15 +232,7 @@ describe('sigil package', () => {
       const app = mkdtempSync(join(tmpdir(), 'sigil-pkg-app-'));
 
       try {
-        // `node_modules` is excluded, and that is not tidiness: `sigil package`
-        // writes its staging directory under the app's own
-        // `node_modules/.sigil/`, so copying the fixture while another test
-        // file packages it races a read against a delete. Measured as a test
-        // that passed alone and failed in the suite.
-        cpSync(join(fixtures, 'buildable'), app, {
-          filter: (from) => !from.includes('node_modules'),
-          recursive: true,
-        });
+        copyFixture(join(fixtures, 'buildable'), app);
         writeFileSync(
           join(app, 'sigil.json'),
           `${JSON.stringify({ package: { runtime: 'node' } }, undefined, 2)}\n`,
@@ -495,15 +476,7 @@ describe('sigil package', () => {
       const app = mkdtempSync(join(tmpdir(), 'sigil-pkg-app-'));
 
       try {
-        // `node_modules` is excluded, and that is not tidiness: `sigil package`
-        // writes its staging directory under the app's own
-        // `node_modules/.sigil/`, so copying the fixture while another test
-        // file packages it races a read against a delete. Measured as a test
-        // that passed alone and failed in the suite.
-        cpSync(join(fixtures, 'buildable'), app, {
-          filter: (from) => !from.includes('node_modules'),
-          recursive: true,
-        });
+        copyFixture(join(fixtures, 'buildable'), app);
         writeFileSync(
           join(app, 'sigil.json'),
           `${JSON.stringify(

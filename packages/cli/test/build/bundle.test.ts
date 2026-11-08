@@ -3,10 +3,10 @@ import { discoverApp, readAppCommands } from '../../src/build/discover.js';
 import { parseModule } from '../../src/build/parse-module.js';
 import { resolveCommandTree } from '../../src/build/tree.js';
 import { readSigilConfig } from '../../src/config.js';
+import { copyFixture } from '../copy-fixture.ts';
 import { tempDir } from '../temp.js';
 import { spawnSync } from 'node:child_process';
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -794,7 +794,10 @@ describe('an import nothing can resolve', () => {
   beforeAll(() => {
     out_ = mkdtempSync(join(tmpdir(), 'sigil-unresolved-out-'));
     app_ = mkdtempSync(join(tmpdir(), 'sigil-unresolved-app-'));
-    cpSync(app, app_, { recursive: true });
+    // without the fixture's `node_modules`, which is this test's own premise as
+    // well as the race `copyFixture()` exists for: the copy is made so that
+    // nothing above it or inside it resolves the runtime
+    copyFixture(app, app_);
   });
 
   afterAll(() => {
