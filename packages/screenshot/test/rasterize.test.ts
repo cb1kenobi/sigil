@@ -279,6 +279,44 @@ describe('what is drawn in a cell', () => {
     );
     expect(marked.data).not.toEqual(plain.data);
   });
+
+  it.each([
+    ['e', 3],
+    ['ｅ', 4],
+    ['✔', 3],
+  ])('should put a combining mark over %s, not beside it', (base, width) => {
+    // review round 1: a mark was centred on its own zero advance, which puts a
+    // font's mark -- drawn to the left of its origin, over the glyph before it
+    // -- half a cell left of its base. Reachable for a fullwidth form and a
+    // symbol once those stopped being boxes. The mark's ink is what the second
+    // image has and the first does not, and it has to sit over the base's
+    const draw = (text: string): ReturnType<typeof rasterize> =>
+      rasterize(
+        frame(width, 1, (p) => p.text(1, 0, text)),
+        OPTS
+      );
+    const plain = draw(base);
+    const marked = draw(`${base}́`);
+    const bg = key(rgbOf(dark.background));
+    const columns = (image: ReturnType<typeof rasterize>, only?: typeof plain): number[] => {
+      const out: number[] = [];
+      for (let x = 0; x < image.width; x++) {
+        for (let y = 0; y < H; y++) {
+          const here = key(pixel(image, x, y));
+          if (here !== bg && (!only || here !== key(pixel(only, x, y)))) {
+            out.push(x);
+            break;
+          }
+        }
+      }
+      return out;
+    };
+    const ink = columns(plain);
+    const mark = columns(marked, plain);
+    expect(mark.length).toBeGreaterThan(0);
+    expect(Math.min(...mark)).toBeGreaterThanOrEqual(Math.min(...ink));
+    expect(Math.max(...mark)).toBeLessThanOrEqual(Math.max(...ink));
+  });
 });
 
 describe('the bundled symbol font', () => {

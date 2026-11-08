@@ -226,11 +226,13 @@ SIG-329. `fonts/DejaVuSans.ttf` is looked in after every face and every
 - **DejaVu Sans, because it is the one file that has every one of them.**
   Measured on 2026-11-08 with this package's own font loader against every
   non-ASCII character in `@ttylabs/sigil`'s source strings: JetBrains Mono lacked
-  33 symbols the components draw -- `✔ ✖ ℹ`, `☐ ☒`, the spinner frames
+  32 symbols the components draw -- `✔ ✖ ℹ`, `☐ ☒`, the spinner frames
   `◐ ◜◝◞◟ ◠◡ ◢◣◤◥ ◰◱◲◳ ◴◵◷ ✷✸✹✺ ⊶⊷`, and `ⁿ ⌠ ⌡` from decrypt's alphabet.
-  DejaVu Sans covers all 33 in 757 KB. DejaVu Sans Mono is 341 KB and misses `ℹ`,
+  DejaVu Sans covers all 32 in 757 KB. DejaVu Sans Mono is 341 KB and misses `ℹ`,
   which is the spinner's default `info` symbol, and `⊶ ⊷`; Noto Sans Symbols 2
-  (1.2 MB) covers 25 and Noto Sans Math (1.0 MB) 21. The licence is Bitstream
+  (1.2 MB) covers 26 and Noto Sans Math (1.0 MB) 23. The ticket said 33, 25 and
+  21, but the list it gave is 32 long -- review round 1 counted it -- and the two
+  Noto figures were recounted against those 32. The licence is Bitstream
   Vera's with the DejaVu and Arev notices, permissive on condition that it ships
   with the font, so `DejaVu-LICENSE.txt` is beside it and `files` ships both.
 - **Where the file came from, and how that was checked.** The 2.37 release, the
@@ -265,7 +267,7 @@ SIG-329. `fonts/DejaVuSans.ttf` is looked in after every face and every
   and at 2000 units and wants the same pixels, and fails with the old unit.
 - **A symbol is drawn at its own size, centred on its advance, and may overhang
   the cells beside it.** That is the rule every glyph already had, and measured
-  over the 33 it centres the ink: their side bearings are equal to within 0.13
+  over the 32 it centres the ink: their side bearings are equal to within 0.13
   px at 14 px, except `ℹ` (0.48 against 0.35) and `⌠ ⌡`, which are the two halves
   of an integral and are designed off-centre on purpose. What it does not do is
   fit: DejaVu's circles and squares are 10.7 px wide in an 8 px cell, so `◐`
@@ -287,8 +289,12 @@ SIG-329. `fonts/DejaVuSans.ttf` is looked in after every face and every
   two fonts shows exactly that.
 
 - **Fullwidth ASCII, `U+FF01` to `U+FF5E`, is drawn from the ASCII glyph, centred
-  across both cells.** None of the candidate fonts has the fullwidth forms, a CJK
-  font that does is some 16 MB, and decrypt's default alphabet uses 48 of them.
+  across both cells.** None of the bundled fonts has a fullwidth design, a CJK
+  font that does is some 16 MB, and decrypt's default alphabet uses 52 of them
+  (the ticket said 48). JetBrains Mono's `cmap` does map two, `U+FF5B` and
+  `U+FF5D`, to copies of its narrow braces at the narrow advance, so those two
+  are drawn from the face rather than rewritten -- centred across the two cells
+  all the same, which is the same picture.
   It is the last thing tried before the box, after every font, so a `fallback`
   with real fullwidth glyphs draws those; and the ASCII is looked up through the
   same chain with the cell's style, so a bold `Ａ` is a bold `A`. Centring is the
@@ -326,10 +332,36 @@ SIG-329. `fonts/DejaVuSans.ttf` is looked in after every face and every
   `group.ts`'s intro mark changed to `'⸺'`: the export half passes, since the
   constant is private, and the literal half fails naming the file -- which is
   the case it exists for. Taking the symbol font and the fullwidth rule out of
-  `findGlyph()` fails it with exactly the 33 above and the 48 fullwidth forms,
+  `findGlyph()` fails it with exactly the 32 above and the 52 fullwidth forms,
   and nothing else.
 
 - **What it cost.** `npm pack` of the package, before and after: 557,671 bytes
-  packed and 1,165,468 unpacked across nine files, then 946,883 packed and
-  1,932,338 unpacked across eleven. That is the whole of the price, and only an
+  packed and 1,165,468 unpacked across nine files, then 947,368 packed and
+  1,933,569 unpacked across eleven, as of the review round 1 fix -- the font is
+  757,076 of it and its licence 8,816, the rest is this documentation and the
+  code. That is the whole of the price, and only an
   app that installs this package pays it.
+
+#### What review round 1 found, and what did not reproduce
+
+- **A combining mark was drawn half a cell to the left of its base.** Every glyph
+  was centred on its own advance, and a mark's advance is zero, so its origin was
+  the middle of the cell -- while a font with no positioning tables draws a mark
+  to the _left_ of its origin, over the glyph before it. So an `é` written as `e`
+  and U+0301 had its accent on the cell's left edge. Older than this ticket, and
+  made reachable by it: a fullwidth form and a DejaVu symbol were boxes before,
+  and a box draws no marks. Reproduced in a 6x PNG before the fix. The base is
+  still centred on its advance; the pen then moves past it, and each mark is
+  drawn from there, so the origin is in the glyph cache's key -- a mark after
+  `✔` and after `ℹ` sits at two different places. `should put a combining mark
+  over ...` asks that the mark's ink lie inside the base's, for `e`, `ｅ` and `✔`;
+  the old placement fails the first two. The `✔` case passes either way, since
+  the tick is wide enough to cover a misplaced accent, and is kept as the symbol
+  case rather than as the proof.
+- **The counts were wrong.** 32 symbols rather than the ticket's 33, and decrypt
+  draws 52 fullwidth forms rather than 48. Corrected above, with the two Noto
+  figures recounted at the same time.
+- **JetBrains Mono maps `U+FF5B` and `U+FF5D`.** To copies of its narrow braces,
+  so "none of the fonts has fullwidth forms" was not true of its `cmap`. Those two
+  are drawn from the face, centred across both cells, which is what the rewrite
+  would have drawn; the wording says so now, and nothing in the code changed.

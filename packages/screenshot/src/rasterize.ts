@@ -307,9 +307,9 @@ function findFace(
  *
  * Every font first, so a `fallback` that has a real fullwidth `Ａ` is drawn with
  * it. Then a fullwidth ASCII form none of them has is drawn from its ASCII
- * glyph, which `#glyph()` centres across the two cells it spans: the bundled
- * fonts have no fullwidth forms, a CJK font that does is some 16 MB, and the
- * decrypt effect's default alphabet is made of them.
+ * glyph, centred across the two cells it spans: the bundled fonts have no
+ * fullwidth designs, a CJK font that does is some 16 MB, and the decrypt
+ * effect's default alphabet is made of them.
  *
  * Exported for the guard test, which asks it about every character
  * `@ttylabs/sigil`'s components can draw. Not part of the package's API.
@@ -362,37 +362,52 @@ class GlyphCache {
       return [this.#tofu(span)];
     }
     const out: Coverage[] = [];
-    const add = (font: Face, glyph: number): void => {
-      const cover = this.#glyph(font, glyph, span);
+    const { face } = found;
+    const unit = this.#metrics.fontPx / face.font.metrics.unitsPerEm;
+    // the base is centred on its advance across the cells it spans, and the pen
+    // then moves past it, as it would along a line: a combining mark is drawn
+    // from there, because a font with no positioning tables puts a mark's ink
+    // to the left of its own origin, over the glyph before it. Drawing a mark
+    // centred on its zero advance put it half a cell to the left of its base
+    // -- review round 1
+    let pen = (this.#metrics.width * span - face.font.advance(found.glyph) * unit) / 2;
+    const add = (glyph: number): void => {
+      const cover = this.#glyph(face, glyph, span, pen);
       if (cover) {
         out.push(cover);
       }
+      pen += face.font.advance(glyph) * unit;
     };
-    add(found.face, found.glyph);
+    add(found.glyph);
     for (const mark of points.slice(1)) {
       if (INVISIBLE.has(mark)) {
         continue;
       }
       // a mark is looked for in the face its base was found in, and dropped if
       // it is not there: a mark from another font sits at another font's height
-      const glyph = found.face.font.glyphFor(mark);
+      const glyph = face.font.glyphFor(mark);
       if (glyph !== 0) {
-        add(found.face, glyph);
+        add(glyph);
       }
     }
     return out;
   }
 
-  #glyph(face: Face, glyph: number, span: number): Coverage | undefined {
-    const key = `${face.id}:${glyph}:${face.bold ? 1 : 0}:${face.italic ? 1 : 0}:${span}`;
+  /**
+   * One glyph's coverage, with its origin `x` pixels into the cell.
+   *
+   * Scaled by the face's own em rather than the regular's: a fallback is another
+   * font, and DejaVu's 2048 units read at JetBrains Mono's 1000 drew it at twice
+   * its size. The origin is in the key, since a mark's depends on the advance of
+   * the base it follows and DejaVu's advances are not one width.
+   */
+  #glyph(face: Face, glyph: number, span: number, x: number): Coverage | undefined {
+    const key = `${face.id}:${glyph}:${face.bold ? 1 : 0}:${face.italic ? 1 : 0}:${span}:${x}`;
     if (this.#glyphs.has(key)) {
       return this.#glyphs.get(key);
     }
     const m = this.#metrics;
-    // the face's own em, not the regular's: a fallback is another font, and
-    // DejaVu's 2048 units read at JetBrains Mono's 1000 drew it twice the size
     const unit = m.fontPx / face.font.metrics.unitsPerEm;
-    const advance = face.font.advance(glyph) * unit;
     const cover = rasterizeOutline(face.font.outline(glyph), {
       embolden: face.bold ? m.fontPx * EMBOLDEN : 0,
       scale: unit,
@@ -406,7 +421,7 @@ class GlyphCache {
         right: 2 * m.width * span,
         top: -m.baseline - m.height,
       },
-      x: (m.width * span - advance) / 2,
+      x,
     });
     // positioned against the cell's top rather than the baseline
     const placed = cover ? { ...cover, top: cover.top + m.baseline } : undefined;
