@@ -40,7 +40,9 @@
  * Baking a module's own `name` would make a command reachable bundled under a
  * spelling that does not resolve unbundled, which is exactly the "routes
  * differently bundled and unbundled" failure the shared route rules exist to
- * prevent. So they stay where they are.
+ * prevent. So they stay where they are -- and a module that declares one, or a
+ * `default: true`, is warned about (`unroutable()`), because help used to print
+ * the spelling and nothing routed it (SIG-316).
  *
  * ## A computed value is reported, never guessed
  *
@@ -61,7 +63,14 @@
 
 import type { Diagnostic } from './diagnostic.ts';
 import { translatedKey } from './i18n.ts';
-import { literalBoolean, literalString, objectLiteral, propertyKey } from './literals.ts';
+import {
+  literalBoolean,
+  literalString,
+  objectLiteral,
+  plainProperty,
+  propertyKey,
+  stringList,
+} from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ObjectExpression } from 'oxc-parser';
 
@@ -94,6 +103,17 @@ export interface CommandFacts {
 export interface Extracted {
   readonly diagnostics: readonly Diagnostic[];
   readonly facts: CommandFacts;
+  /**
+   * What the module declares that cannot route it, when `factsOf()` was told
+   * what routes to it.
+   *
+   * Kept apart from `diagnostics` because the two have different silencers.
+   * Those are about what help shows *before* the module loads, so a placeholder
+   * that describes itself answers them; these are about a declaration that does
+   * nothing wherever the description came from, and nothing the placeholder
+   * says makes the module's `alias` start to route.
+   */
+  readonly routing: readonly Diagnostic[];
 }
 
 /** The keys this lifts, so the set is one list rather than several checks. */
@@ -104,12 +124,13 @@ const LIFTED = ['desc', 'hidden'] as const;
  *
  * @param file - Where the source came from; its extension decides TypeScript.
  * @param source - The module's source.
+ * @param route - What routes to it, as `factsOf()` takes it.
  * @returns Its facts and every diagnostic reading it produced.
  * @throws If the source does not parse. A file that is not a module is not a
  *   thing to warn about and carry on from.
  */
-export function extractCommand(file: string, source: string): Extracted {
-  return factsOf(parseModule(file, source));
+export function extractCommand(file: string, source: string, route?: string): Extracted {
+  return factsOf(parseModule(file, source), route);
 }
 
 /**
@@ -121,15 +142,21 @@ export function extractCommand(file: string, source: string): Extracted {
  * it.
  *
  * @param parsed - The module.
+ * @param route - What routes to it, as written: the file or directory name of
+ *   a walked route, or the key of a `commands` entry. Given by a caller that
+ *   knows the module is *routed*, which turns on the warning for what such a
+ *   module declares that cannot route -- see `unroutable()`. Omitted by a
+ *   caller reading a module for its facts alone, which has nothing to say about
+ *   how it was reached.
  * @returns Its facts and every diagnostic reading it produced.
  */
-export function factsOf(parsed: ParsedModule): Extracted {
+export function factsOf(parsed: ParsedModule, route?: string): Extracted {
   const diagnostics: Diagnostic[] = [];
   const at = (offset?: number) => locate(parsed, offset);
 
   const object = defaultObject(parsed, diagnostics);
   if (!object) {
-    return { diagnostics, facts: {} };
+    return { diagnostics, facts: {}, routing: [] };
   }
 
   const facts: { desc?: string; descTranslated?: boolean; hidden?: boolean } = {};
@@ -215,7 +242,110 @@ export function factsOf(parsed: ParsedModule): Extracted {
     });
   }
 
-  return { diagnostics, facts };
+  return {
+    diagnostics,
+    facts,
+    routing: route === undefined ? [] : unroutable(parsed, object, route),
+  };
+}
+
+/**
+ * Where a routed module is told to say what it cannot say itself.
+ *
+ * One sentence, used by every warning below, so that the day a routed
+ * directory can describe its commands without loading them (SIG-324's
+ * `commands.json`) it is changed here and nowhere else.
+ */
+const DECLARE_ON_THE_ROUTE = 'declare it on the schema key that routes this module instead';
+
+/**
+ * The labels of a name string a route is reached by, less the arguments.
+ *
+ * The split `parseName()` makes, and a `!` or `@` prefix is stripped because
+ * what is being asked is which *spellings* are named, not what each one does.
+ * An argument (`<file>`, `[dir]`) is not a spelling at all.
+ *
+ * @param name - A name string.
+ * @returns The spellings it names.
+ */
+function spellingsOf(name: string): string[] {
+  return name
+    .split(/[, ]+/)
+    .filter((label) => label !== '' && !'<['.includes(label[0]!))
+    .map((label) => (label[0] === '!' || label[0] === '@' ? label.slice(1) : label));
+}
+
+/**
+ * Warns about what a routed module declares that nothing can act on.
+ *
+ * A module is read only after argv has matched the name its route is known by,
+ * so a `name` string, an `alias` or `default: true` written *inside* it comes
+ * too late to route anything: `commands/list.ts` saying `name: 'list, ls'`
+ * leaves `ls` unmatched, and a `default: true` there is read by nothing at all,
+ * because by the time the module is loaded the command was already matched by
+ * name. Help used to print the second spelling anyway (SIG-316); it leaves such
+ * a spelling out now, and this is the half that tells the author *why*, in the
+ * file, rather than leaving them to wonder where the alias went.
+ *
+ * Only what differs from the route is reported. A module saying `name: 'list'`
+ * in `list.ts` repeats what routes it and says nothing wrong, and a warning
+ * that fires on correct code teaches people to ignore warnings. A value this
+ * cannot read is reported too, since nothing says it matches the route.
+ *
+ * @param parsed - The module.
+ * @param object - Its default-exported command.
+ * @param route - What routes to it, as written.
+ * @returns A warning per declaration that cannot take effect.
+ */
+function unroutable(parsed: ParsedModule, object: ObjectExpression, route: string): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const routed = new Set(spellingsOf(route));
+  const warn = (start: number, message: string) =>
+    diagnostics.push({ ...locate(parsed, start), message, severity: 'warning' });
+
+  const name = plainProperty(object, 'name');
+  if (name) {
+    const written = literalString(name.value);
+    const extra = written === undefined ? [] : spellingsOf(written).filter((s) => !routed.has(s));
+    if (written === undefined || extra.length > 0) {
+      const example = [...routed, ...extra].join(', ');
+      warn(
+        name.start,
+        written === undefined
+          ? `"name" is computed, so nothing says it matches "${route}", the name this module is routed by; a name in a routed module has no effect on routing, ` +
+              `so ${DECLARE_ON_THE_ROUTE}`
+          : `"name" declares ${extra.map((s) => `"${s}"`).join(', ')}, which does not route: this module is loaded only after argv has matched "${route}", ` +
+              `so a name in it has no effect and help leaves it out; ${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${example}': './path/to/this-file' }\``
+      );
+    }
+  }
+
+  const alias = plainProperty(object, 'alias');
+  if (alias) {
+    const written = stringList(alias.value);
+    const extra =
+      written.kind === 'strings' ? written.values.filter((value) => !routed.has(value)) : [];
+    if (written.kind !== 'strings' || extra.length > 0) {
+      warn(
+        alias.start,
+        `"alias" ${written.kind === 'strings' ? `declares ${extra.map((s) => `"${s}"`).join(', ')}` : 'is not a list of strings written down'}, ` +
+          `which does not route: this module is loaded only after argv has matched "${route}", so an alias in it has no effect; ` +
+          `${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${[...routed, ...extra].join(', ')}': './path/to/this-file' }\``
+      );
+    }
+  }
+
+  const fallback = plainProperty(object, 'default');
+  if (fallback && literalBoolean(fallback.value) !== false) {
+    warn(
+      fallback.start,
+      `"default" has no effect here: this module is read only after argv has matched "${route}", ` +
+        `so it cannot make the command the default; ${DECLARE_ON_THE_ROUTE}, such as ` +
+        `\`commands: { '${route}': { default: true, path: './path/to/this-file' } }\``
+    );
+  }
+
+  return diagnostics;
 }
 
 /**

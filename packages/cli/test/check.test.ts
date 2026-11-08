@@ -270,6 +270,57 @@ describe('sigil check', () => {
     });
   });
 
+  describe("a routed module's own name, alias and default", () => {
+    // a module is read only after argv has matched the name it is routed by,
+    // so `name: 'list, ls'` in `list.ts` never routed `ls`, and help printed
+    // `Alias: ls` anyway (SIG-316). Help leaves it out now; this is the half
+    // that tells the author why, in the file
+    const warnings = (err: string): string[] =>
+      err.split('\n').filter((line) => line.includes(': warning: "'));
+
+    it('should warn about a walked module that names a spelling it cannot route', async () => {
+      const { err } = await sigil('check', join(fixtures, 'discover', 'module-routing'));
+
+      const [list] = warnings(err).filter((line) => line.startsWith('src/commands/list.ts:'));
+      expect(list).toContain('"name" declares "ls", which does not route');
+      expect(list).toContain('"list"');
+      expect(list).toContain("commands: { 'list, ls': ");
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    it("should warn about a directory's index module, and its alias and its default", async () => {
+      const { err } = await sigil('check', join(fixtures, 'discover', 'module-routing'));
+      const index = warnings(err).filter((line) => line.startsWith('src/commands/db/index.ts:'));
+
+      expect(index).toHaveLength(2);
+      expect(index[0]).toContain('"alias" declares "database", which does not route');
+      expect(index[1]).toContain('"default" has no effect here');
+    });
+
+    it('should say nothing where a module repeats the name it is routed by', async () => {
+      // a warning that fires on correct code teaches people to ignore warnings:
+      // `plain.ts` says `name: 'plain'` and `migrate.ts` says `default: false`
+      const { err } = await sigil('check', join(fixtures, 'discover', 'module-routing'));
+
+      expect(err).not.toContain('src/commands/plain.ts');
+      expect(err).not.toContain('src/commands/db/migrate.ts');
+      expect(err).toContain('3 warnings');
+    });
+
+    it('should warn about a module a schema points at, unless the schema says it too', async () => {
+      const { err } = await sigil('check', join(fixtures, 'discover', 'module-routing-inline'));
+      const found = warnings(err);
+
+      // `open` is declared on the schema with nothing but a `desc`
+      expect(found.filter((line) => line.startsWith('src/commands/open.ts:'))).toHaveLength(3);
+      expect(found.join('\n')).toContain('"name" declares "o", which does not route');
+      expect(found.join('\n')).toContain("commands: { 'open, op': ");
+      // `list` repeats its key and `show` repeats the alias its placeholder holds
+      expect(err).not.toContain('src/commands/list.ts');
+      expect(err).not.toContain('src/commands/show.ts');
+    });
+  });
+
   describe('--tree', () => {
     it('should print every command, its module, and its description', async () => {
       const { out } = await sigil('check', join(fixtures, 'app'), '--tree');

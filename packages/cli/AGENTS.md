@@ -229,6 +229,44 @@ makes it testable with a fixture directory and no bundler at all.
   loaded. Baking a module's own `name` would make a command reachable bundled
   under a spelling that does not resolve unbundled, which is exactly what the
   shared route rules exist to prevent.
+- **...and a module that declares one is warned about, because help used to print
+  it and nothing routed it.** SIG-316. `commands/list.ts` saying `name: 'list, ls'`
+  answered to `list` alone -- `mycli ls` was `Unexpected argument "ls"`, from
+  source, under `dev.ts` and after a build -- while `mycli help list` printed
+  `Alias: ls`. Reproduced over every way a module is reached, and none routes: a
+  walked route, a route one level down, a directory's `index`, a declared `path`
+  and a `load`. A `default: true` in a module is the silent twin: it is read after
+  the module loads, by which time the command was matched by name, so it does
+  nothing and says nothing. Help leaves the spelling out (see "A routed module's
+  name string does not route" in `packages/sigil/src/help/AGENTS.md`); this is the
+  half that tells the author, in the file.
+
+  `factsOf(parsed, route)` takes what routes to the module and returns the
+  warnings in `Extracted.routing`, **apart from `diagnostics`**, and the reason is
+  who can silence them. `moduleFacts()` drops a module's `diagnostics` when the
+  placeholder already declares a `desc`, because those are about what help shows
+  before the module loads and the placeholder answered that. A module's `alias`
+  does not start to route because the placeholder has a `desc`, so these are never
+  dropped. `route` is the file or directory name of a walked route, and for a
+  schema entry the placeholder's name string with its `alias` property joined on:
+  everything argv matches before the module is read. Only what **differs** from it
+  is reported -- `name: 'list'` in `list.ts` repeats the route and says nothing
+  wrong, and a warning that fires on correct code teaches people to ignore
+  warnings -- compared as spellings, so a `!` or `@` prefix and an inline
+  `<argument>` do not count, and `default: false` is not `default: true`. A value
+  the source does not hold (`name: spelling()`, `alias: names`, `default: flag`)
+  is reported too, since nothing says it matches. A caller that does not say what
+  routes gets no warning, which is `extractCommand()` without a `route`, and a tree resolved with
+  `facts: false`.
+
+  The advice is one sentence, `DECLARE_ON_THE_ROUTE` in `extract.ts`, and it says
+  to declare the spelling on the schema key that routes the module
+  (`commands: { 'list, ls': './path/to/this-file' }`) because that is the only
+  place it routes today. SIG-324's `commands.json` describes a routed directory
+  without loading its modules, and when it lands this is the one string that
+  changes. Not built here. A warning and not an error, because the app runs: the
+  declaration is just ignored by routing.
+
 - **...but a _placeholder's_ `alias` and `default` are carried, because the same
   rule is what requires it.** The runtime reads both off the placeholder when the
   command is registered, which is before any module could be loaded, and a built

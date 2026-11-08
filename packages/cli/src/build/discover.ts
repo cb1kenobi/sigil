@@ -636,7 +636,8 @@ function readCommand(
     parsed,
     diagnostics,
     value,
-    described
+    described,
+    [named, ...(routing.alias ?? [])].join(', ')
   );
 
   return {
@@ -953,6 +954,9 @@ function moduleSpecifier(object: ObjectExpression): string | undefined {
  * @param diagnostics - Where to report.
  * @param at_ - The node to point at.
  * @param described - Whether the placeholder already said what help shows.
+ * @param route - Every spelling the placeholder is routed by, as a name string:
+ *   what a name, an alias or a default inside the module is compared with.
+ *   Defaults to `name`, which is what a command declared as a bare path has.
  * @returns Its facts and its module.
  */
 function moduleFacts(
@@ -962,7 +966,8 @@ function moduleFacts(
   parsed: ParsedModule,
   diagnostics: Diagnostic[],
   at_: { start: number },
-  described = false
+  described = false,
+  route = name
 ): { desc?: string; hidden?: boolean; module?: string } {
   if (!module) {
     if (specifier) {
@@ -978,7 +983,7 @@ function moduleFacts(
   // the module the schema points at is a command module like any other, so it
   // is read the same way -- which is what makes `check` check the commands
   // rather than only the tree above them
-  const read = factsOf(parseModule(module, readFileSync(module, 'utf-8')));
+  const read = factsOf(parseModule(module, readFileSync(module, 'utf-8')), route);
 
   // an `error` is the module being unusable rather than merely unreadable -- no
   // default export at all -- and that is worth saying however well the
@@ -988,6 +993,10 @@ function moduleFacts(
       diagnostics.push(diagnostic);
     }
   }
+
+  // never silenced by a description: those answer what help shows before the
+  // module loads, and these are about a declaration that routes nothing
+  diagnostics.push(...read.routing);
 
   return { ...read.facts, module };
 }

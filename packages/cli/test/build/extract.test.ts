@@ -410,4 +410,68 @@ describe('extracting a command module', () => {
       /Failed to parse broken\.js:1:/
     );
   });
+
+  describe("a routed module's name, alias and default", () => {
+    // SIG-316. A module is read after argv matched the name it is routed by,
+    // so none of these can route anything. Only said when the caller knows the
+    // module is routed, and only for what differs from the route
+    const routing = (body: string, route = 'list') =>
+      extractCommand('list.js', `export default { ${body} };`, route).routing;
+
+    it('should say nothing when it was not told what routes to the module', () => {
+      const { routing: none } = extractCommand('a.js', `export default { name: 'a, b' };`);
+      expect(none).to.deep.equal([]);
+    });
+
+    it('should warn about a spelling in the name string that the route does not have', () => {
+      const [warning, ...rest] = routing(`name: 'list, ls'`);
+      expect(rest).to.deep.equal([]);
+      expect(warning?.severity).to.equal('warning');
+      expect(warning?.message).toContain('"name" declares "ls", which does not route');
+      expect(warning?.message).toContain("commands: { 'list, ls': ");
+    });
+
+    it('should warn about a rename, which is a spelling the route does not have', () => {
+      expect(routing(`name: 'show'`)[0]?.message).toContain('"name" declares "show"');
+    });
+
+    it('should say nothing where the name repeats the route, in any prefix', () => {
+      expect(routing(`name: 'list'`)).to.deep.equal([]);
+      expect(routing(`name: 'list <dir>'`)).to.deep.equal([]);
+      expect(routing(`name: 'list, ls'`, 'list, ls')).to.deep.equal([]);
+      expect(routing(`name: '@ls, list'`, 'list, ls')).to.deep.equal([]);
+    });
+
+    it('should warn about a name it cannot read', () => {
+      expect(routing(`name: spelling()`)[0]?.message).toContain('"name" is computed');
+    });
+
+    it('should warn about an alias, written either way', () => {
+      expect(routing(`alias: 'ls'`)[0]?.message).toContain('"alias" declares "ls"');
+      expect(routing(`alias: ['ls', 'l']`)[0]?.message).toContain('"alias" declares "ls", "l"');
+      expect(routing(`alias: names`)[0]?.message).toContain('"alias" is not a list');
+      expect(routing(`alias: 'ls'`, 'list, ls')).to.deep.equal([]);
+    });
+
+    it('should warn about a default that is not false, and name where to say it', () => {
+      expect(routing(`default: true`)[0]?.message).toContain('"default" has no effect here');
+      expect(routing(`default: true`)[0]?.message).toContain(
+        "commands: { 'list': { default: true, path: "
+      );
+      expect(routing(`default: flag`)).to.have.lengthOf(1);
+      expect(routing(`default: false`)).to.deep.equal([]);
+    });
+
+    it('should point each warning at the property it is about', () => {
+      const [alias] = routing(`desc: 'x', alias: 'ls'`);
+      expect(alias).to.include({ line: 1 });
+      expect(alias?.column).to.equal(`export default { desc: 'x', `.length + 1);
+    });
+
+    it('should keep them out of the diagnostics a placeholder description silences', () => {
+      const result = extractCommand('a.js', `export default { alias: 'ls' };`, 'a');
+      expect(result.diagnostics).to.deep.equal([]);
+      expect(result.routing).to.have.lengthOf(1);
+    });
+  });
 });

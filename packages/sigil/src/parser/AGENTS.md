@@ -1263,7 +1263,9 @@ resolution.
   the answer moves: a module that loads may bring a name string of its own,
   and `replace()` settles what it shares with a sibling by declaration order.
   So before `ship`'s module is read `build, go` is true and is what help
-  prints, and after it has loaded in the same tree `build` is. That is also
+  prints, and after it has loaded in the same tree `build` is -- and `ship` is
+  not `ship, go`, since SIG-316: a module's own name string registers but is
+  never published, because nothing routes by it (`src/help/AGENTS.md`). That is also
   why the check is in the listing and not in `CommandRegistry` -- nothing
   there changed, and `assertReachable()` still refuses only a name. Both
   listings on a help screen ask: the `Commands:` rows and the described
