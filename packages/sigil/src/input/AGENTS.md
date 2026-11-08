@@ -80,6 +80,16 @@ the entry it belongs to.
   list is `class`, `focusable`, `id`, `key`, `selectable` and `tabindex`; what
   `selectable` is for, and why it is not a style property, is under "Selection and
   the clipboard".
+- **A negative `tabindex` is focusable and out of the ring (SIG-277).** The entry above
+  says giving something a place in the ring and then leaving it out is not a thing anybody
+  means, and a pane's edge is the case that does mean it: a pointer's handle that a click
+  focuses, so that the arrows land on it, and that a Tab must not stop on. It is the web's
+  rule and the one place this differs from a plain `tabindex`. `focusables()` leaves out an
+  element whose `tabindex` is below zero and still walks into its children; the element is
+  `focusable` all the same, so click-to-focus and `focus()` reach it. A Tab from it starts
+  the ring over, as it does from nothing, because `step()` already treated an element not in
+  the ring as no position. `should keep an element with a negative tabindex out of the ring
+  and still focus it` is the guard.
 - **A paste arrives whole, and bracketed paste joins the restore list.** Without
   the markers a pasted block arrives as though it had been typed, so a newline in
   the middle of an address is Enter and a text input submits half of it. With

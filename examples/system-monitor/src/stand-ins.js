@@ -15,37 +15,6 @@ import { createEffect } from '@ttylabs/sigil/renderer';
 import { State } from '@ttylabs/sigil/signals';
 
 /**
- * A bordered box with a title sitting in its top border.
- *
- * stand-in for SIG-277: the title is a `position: absolute` child at `top: -1`,
- * which lands on the border row because the containing block is the padding box.
- * It covers the border characters it sits on rather than being drawn into them,
- * so the title's own padding is what keeps a gap either side.
- *
- * @param {{ title: string | (() => string), class?: string }} props - The title, and
- *   any extra classes for the box.
- * @param {...import('@ttylabs/sigil/element').Element} children - What goes inside.
- * @returns {import('@ttylabs/sigil/element').Element} The panel.
- */
-export function Panel(props, ...children) {
-  const title = text('', { class: 'panel-title' });
-  if (typeof props.title === 'function') {
-    const read = props.title;
-    createEffect(() => title.setText(` ${read()} `));
-  } else {
-    title.setText(` ${props.title} `);
-  }
-  // the clip is on an inner box rather than on the panel: `overflow: hidden`
-  // clips to the padding box, which is exactly the row the title is not in, so a
-  // panel that clipped its own content would clip its own title away
-  return box(
-    { class: ['panel', props.class ?? ''].join(' ').trim() },
-    title,
-    box({ class: 'panel-body' }, ...children)
-  );
-}
-
-/**
  * A chart that redraws when its data changes and when the layout resizes it.
  *
  * stand-in for SIG-284: the charts in `@ttylabs/sigil/components` take an array

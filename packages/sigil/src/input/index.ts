@@ -686,7 +686,9 @@ function focusables(root: Element | undefined): Element[] {
       // nothing on screen to move the focus to
       return;
     }
-    if (element.focusable) {
+    // a negative `tabindex` is focusable and not in the ring, which is the web's
+    // rule: a click or an app's `focus()` can land on it and a Tab walks past
+    if (element.focusable && (element.tabIndex === undefined || element.tabIndex >= 0)) {
       found.push(element);
     }
     for (const child of element.children) {

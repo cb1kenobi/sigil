@@ -552,7 +552,8 @@ describe('the system monitor', () => {
 
   it.each([
     ['braille', 'unicode', /│ +│ +[⠁-⣿] +│$/m, / 0% ┤ +│$/m],
-    ['ASCII', 'ascii', /│ +\| +\* +│$/m, / 0% \+ +│$/m],
+    // the panel's border falls back with the glyphs, so its edge is ASCII here too
+    ['ASCII', 'ascii', /\| +\| +\* +\|$/m, / 0% \+ +\|$/m],
   ])(
     'should draw the first memory sample on the history chart rather than a line along its floor, in %s',
     async (_name, glyphs, point, floor) => {

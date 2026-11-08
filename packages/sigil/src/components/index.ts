@@ -542,6 +542,21 @@ export {
   type SelectRowOptions,
 } from './select-row.js';
 export {
+  BORDER_RUN_MIN,
+  type BorderAlign,
+  type BorderEdge,
+  type BorderFit,
+  borderLabel,
+  borderLabelProps,
+  type BorderPlace,
+  borderLabelText,
+  borderRun,
+  fitBorder,
+  type PlacedLabel,
+} from './border-label.js';
+export { Pane, type PaneControl, type PaneEdge, paneControl, type PaneProps } from './pane.js';
+export { Panel, type PanelLabel, type PanelProps } from './panel.js';
+export {
   labelLine,
   note,
   type NoteBorder,

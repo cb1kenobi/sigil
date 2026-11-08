@@ -141,6 +141,17 @@ describe('note()', () => {
       expect(widths(rows)).to.have.length(1);
     });
 
+    it('should keep a title of exactly the columns between the corners and cut one more', () => {
+      // twenty wide is a corner, a rule cell and a space either side, which leaves
+      // fourteen columns for the words
+      const fits = lines('x', { title: 'abcdefghijklmn', width: 20 });
+      const cut = lines('x', { title: 'abcdefghijklmno', width: 20 });
+
+      expect(fits[0]).to.equal('╭─ abcdefghijklmn ─╮');
+      expect(cut[0]).to.equal('╭─ abcdefghijklm… ─╮');
+      expect(widths(cut)).to.deep.equal([20]);
+    });
+
     it('should cut a title that cannot fit and say so', () => {
       const rows = lines('x', { title: 'A very long title that cannot possibly fit', width: 20 });
 

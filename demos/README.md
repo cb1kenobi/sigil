@@ -382,6 +382,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/53-settled-answers.js`](components/53-settled-answers.js)                   | Where an answer goes once it is chosen: beside the question, or under it  |
 | [`components/54-markdown.js`](components/54-markdown.js)                                 | A changelog entry from markdown at two widths, themed, and highlighted    |
 | [`components/55-image.js`](components/55-image.js)                                       | A photograph in half blocks: fitted three ways, and RGBA with a soft edge |
+| [`components/56-panels.js`](components/56-panels.js)                                     | Panels with words in the border, and panes with an edge to drag           |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -634,6 +635,15 @@ colour, and over the terminal's own background, whose colour nothing here knows,
 pixel is drawn where it is more than half there. `FORCE_COLOR=2` and `=1` draw the
 same pictures at 256 colours and at the basic sixteen. Piped there is no colour,
 and the pictures draw nothing at all -- only the captions are left.
+
+`56-panels.js` is the layout of a file manager: a sidebar, the main region and a log,
+each a `Panel` with a title in its top border, an annotation at its right end and a
+footer along the bottom, and the two at the sides each in a `Pane`. Drag the edge of
+either, click one and use the arrows (Shift for five), double-click the sidebar's to
+collapse it, or press `b`. Piped, it draws the tree at two widths -- the narrow one
+shows an annotation going first and a title being cut -- and then moves the edge with
+real keys and with `resize()`, which is what a drag calls, up to a maximum, through a
+collapse and back.
 
 ### Try them without a terminal
 

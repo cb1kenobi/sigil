@@ -183,6 +183,8 @@ describe('what importing the package costs', () => {
     'qrcodeView',
     'commandPalette',
     'noteView',
+    'Panel',
+    'paneControl',
     'logView',
     'barChartView',
     'taskLog',

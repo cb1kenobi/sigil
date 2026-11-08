@@ -1095,6 +1095,29 @@ describe('focus', () => {
     input.stop();
   });
 
+  it('should keep an element with a negative tabindex out of the ring and still focus it', () => {
+    // the web's rule, and what a control that wants a click or `focus()` but no
+    // Tab stop is built on: the `tabindex` implies `focusable`, so a press lands
+    // on it, and the ring a Tab walks leaves it out
+    const { terminal } = harness();
+    const first = box({ focusable: true });
+    const sash = box({ tabindex: -1 });
+    const last = box({ focusable: true });
+    const root = box({}, first, sash, last);
+    const input = createInput({ root, terminal });
+
+    expect(input.focus.ring()).toEqual([first, last]);
+
+    input.focus.focus(sash);
+    expect(input.focus.current.get()).toBe(sash);
+
+    // a Tab from an element outside the ring starts the ring over, as it does
+    // from nothing
+    input.focus.next();
+    expect(input.focus.current.get()).toBe(first);
+    input.stop();
+  });
+
   it('should skip a subtree that is not displayed', () => {
     // there is nothing on screen to move the focus to. Read off the *resolved*
     // style rather than the prop, because `display` can come from a sheet --

@@ -165,6 +165,9 @@ export const FRAMEWORK_CSS = `
  *   .sigil-note  .sigil-note-frame  .sigil-note-body  .sigil-note-title
  *   .sigil-note-note  .sigil-note-info  .sigil-note-success
  *   .sigil-note-warning  .sigil-note-error
+ *   .sigil-panel  .sigil-panel-title  .sigil-panel-annotation  .sigil-panel-body
+ *   .sigil-panel-footer  .sigil-panel-footer-annotation
+ *   .sigil-pane  .sigil-pane-body  .sigil-pane-edge
  *   .sigil-badge  .sigil-badge-neutral  .sigil-badge-success
  *   .sigil-badge-warning  .sigil-badge-error  .sigil-badge-info
  *   .sigil-key-help  .sigil-key-help-key  .sigil-key-help-desc
