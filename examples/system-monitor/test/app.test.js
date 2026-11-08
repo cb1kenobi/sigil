@@ -174,7 +174,7 @@ describe('the system monitor', () => {
     expect(screen).toContain('─ processes · 2 of 2 ─');
     expect(screen).toContain('8.0 GiB / 16 GiB');
     expect(screen).toMatch(/cpu1 .* 75%/);
-    expect(screen).toMatch(/↑\/↓ select · s sort · \/ filter · x kill · t theme · q quit/);
+    expect(screen).toMatch(/↑\/↓ select · s sort · \/ filter · x kill · t theme · q Quit/);
   });
 
   it('should sort by cpu first, highest at the top', async () => {
@@ -387,6 +387,29 @@ describe('the system monitor', () => {
     expect(app.screen()).toContain('processes · 1 of 1');
     await app.press('q');
     expect(await app.app.exited).toBe(0);
+  });
+
+  it('should take its keys with nothing focused, and leave them to the filter when it is focused', async () => {
+    // SIG-308: the app's keys are fallbacks, under the focused element. Nothing is
+    // focused at the start, which used to mean no key reached them
+    const app = mount({ processes: [proc(1, 5, 1), proc(2, 90, 2)] });
+    await app.step();
+    expect(app.app.input.focus.current.get()).toBeUndefined();
+
+    await app.press('s');
+    expect(app.screen()).toContain('sorted by mem');
+
+    // typed into the filter, an `s` is a letter and `t` is not the theme
+    await app.press('/', 's', 't');
+    expect(app.screen()).toMatch(/filter st/);
+    expect(app.screen()).toContain('sorted by mem');
+    expect(app.screen()).not.toContain('theme: mono');
+
+    // and the filter handing the focus back leaves nothing focused, with the keys working
+    await app.press(KEYS.enter);
+    expect(app.app.input.focus.current.get()).toBeUndefined();
+    await app.press('t');
+    expect(app.screen()).toContain('theme: mono');
   });
 
   it('should exit 0 on q and give the terminal back', async () => {

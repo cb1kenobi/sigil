@@ -39,8 +39,11 @@ the `ui` tag run by plain `node`.
   | `test/`                 | Tests of the example's own, which vitest picks up as a project named after the package                                                                                                 |
 
   `App` reaches the app it runs under through `useApp()`: `input` for the router
-  and `exit()` to end it. Every example quits with `0` on `q` through
-  `useApp().exit()`, and Ctrl-C is `runApp()`'s own quit key, with `130`. Piped,
+  and `exit()` to end it. Every example quits with `0` on `q` and with `130` on
+  Ctrl-C, and both are `runApp()`'s own: `quitKey` is a fallback, so a text field
+  that takes `q` keeps it (SIG-308). `hello` still binds `q` itself, which is
+  redundant now and runs first; an example that needs `q` for something else
+  passes `quitKey: false` where it calls `runApp()`. Piped,
   with no terminal on both ends, an entry is refused the way `runApp()` refuses:
   exit `1`, nothing on stdout, one line on stderr. There is no `src/start.*`,
   and the contract test fails if one comes back. `examples/system-monitor`
@@ -255,6 +258,29 @@ the `ui` tag run by plain `node`.
   the restart (the delayed-arming test); the guide's `tsconfig` as `{}`,
   without `jsxImportSource`, and naming `react`; and `src/ui.ts` reading
   `package.json` from the working directory.
+
+- **The system monitor's keys are fallbacks, and that is what SIG-308 was
+  built to prove (SIG-308).** The monitor put its keys on the root's `onKey` --
+  reached only by bubbling from a focused element, and under a text field, which
+  is the one place `q` has to be a letter -- and so it focused the process table
+  on mount, again after the filter, and again after the kill dialog, so that
+  _something_ was focused. Those three `focus()` calls are gone: the keys are
+  `input.fallback()`, which a focused field outranks and which runs with nothing
+  focused, and `q` is not the monitor's at all but `runApp()`'s `quitKey`. The
+  filter hands the focus to nothing on Enter and on Escape. `Escape` stays an
+  `onKey` on the root because it is the field's own key (abandon the filter), and
+  it is only meaningful while the field is focused. One behaviour moved, and it is
+  better: with the filter focused, Up, Down, PageUp and PageDown now reach
+  the table, because the field does not take them (it does take Home and End, as
+  cursor motion), where the old handler returned early for everything but Escape.
+
+  The footer's description of `q` is the runner's, so it reads `q Quit` where the
+  monitor wrote `q quit`, and it is last because the runner registers it after the
+  body. Removing the focus-first workaround also removed a side effect nobody had
+  named: the footer sized itself from the root's laid-out width, which does not
+  exist at the first draw, and was cut to a guess of 80 until the focus moved --
+  the mount-time `focus()` was what moved it. It reads `app.terminal.width` now,
+  which is there at the first draw. Still not re-asked on a resize.
 
 - **Not done:** the focus highlight is a background colour, so at colour level 0
   (a pipe, `NO_COLOR`) nothing on screen says which row has the focus -- what a

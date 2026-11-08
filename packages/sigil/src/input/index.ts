@@ -224,6 +224,15 @@ export interface KeyEvent {
 
 export type KeyHandler = (event: KeyEvent) => void;
 
+/**
+ * What a {@link InputRouter.fallback} runs.
+ *
+ * The key and nothing else: a fallback is reached only by a key that nothing
+ * else in the dispatch claimed, and one that matches claims it, so there is no
+ * event to stop. The same shape a sequence handler has, for the same reason.
+ */
+export type FallbackHandler = (key: Key) => void;
+
 /** Text that arrived as one paste rather than as a burst of keystrokes. */
 export interface PasteEvent {
   stop(): void;
@@ -474,10 +483,42 @@ export interface InputRouter {
    */
   bind(keys: string, handler: SequenceHandler, help?: BindingHelp): () => void;
   /**
+   * Adds an app-level key that a focused element outranks.
+   *
+   * The fifth layer of a key's dispatch, and the only one that is **under** the
+   * tree: function bindings, then sequences, then the focused element and its
+   * ancestors, then this, then the Tab default. So a text field that takes `q`
+   * stops the event and a fallback on `q` never sees it, while with focus
+   * anywhere else -- or **nowhere**, which is the one case where the walk above
+   * has nobody to ask and this still runs -- `q` falls through to it. That is
+   * what an app-wide `q` to quit, or `/` to filter, wants, and neither `bind()`
+   * (which would quit while somebody types) nor an `onKey` on the root (which a
+   * key reaches only from a focused element) can say it.
+   *
+   * One key, modifiers allowed: `'ctrl+r'` is one and `'g g'` throws. A sequence
+   * stays in the trie `bind()` owns, which is consulted before the tree. A
+   * **pasted** key never reaches it, the rule sequences already follow, and a key
+   * that matches is claimed -- the Tab default does not also see it -- and every
+   * fallback on that key runs, in the order they were added.
+   *
+   * Listed by `bindings()` after the scoped entries, which is where it sits in
+   * dispatch. The router cannot know in advance whether the focused field will
+   * take the key, so a footer still shows `q  Quit` with a text field focused;
+   * pressing `q` there types it. That is accepted rather than guessed at.
+   *
+   * @param keys - One key, as a spec.
+   * @param handler - What to run.
+   * @param help - What to list it as. Read by `bindings()` and by nothing in dispatch.
+   * @returns Removes the fallback, and its listing with it.
+   * @throws {KeySpecError} When the spec names more than one key.
+   */
+  fallback(keys: string, handler: FallbackHandler, help?: BindingHelp): () => void;
+  /**
    * The described bindings that apply to the focus as it is now.
    *
    * Dispatch order: app-wide ones first, then the scoped ones from the focused
-   * element outwards, each group in the order it was registered. A binding with no
+   * element outwards, each group in the order it was registered, then the
+   * `fallback()` ones, which are what a key reaches last. A binding with no
    * description is not here. Reading it inside an effect or a computed subscribes
    * to the focus and to bindings being added or removed, which is what lets a
    * footer follow both without a second mechanism.
@@ -783,6 +824,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 
   const root = opts.root;
   const bindings = new Set<KeyHandler>();
+  /** The fallbacks, by the canonical spelling of their key: a lookup, like the trie's. */
+  const fallbacks = new Map<string, Set<FallbackHandler>>();
   const pasters = new Set<PasteHandler>();
   const current = new State<Element | undefined>(undefined);
   // the move `focus()` is writing the states of, until it sets `current`, and a
@@ -793,7 +836,13 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   // -- described bindings ---------------------------------------------------
 
   const described = new Set<BindingInfo>();
-  /** Bumped whenever the set changes, so a reader inside an effect re-runs. */
+  /**
+   * The fallbacks' listings, in a set of their own: they apply wherever the focus
+   * is and are listed last, which is where they sit in dispatch -- and a separate
+   * set is what keeps them last without a sort key on a public record.
+   */
+  const describedFallbacks = new Set<BindingInfo>();
+  /** Bumped whenever either set changes, so a reader inside an effect re-runs. */
   const describedRev = new State(0);
 
   /**
@@ -802,7 +851,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * Validated where it is written: a description that is not a string would
    * otherwise reach a footer as `undefined`, a long way from the line that wrote it.
    */
-  function describe(patterns: readonly KeyPattern[], opts: DescribeOptions): () => void {
+  function describe(
+    patterns: readonly KeyPattern[],
+    opts: DescribeOptions,
+    into: Set<BindingInfo> = described
+  ): () => void {
     // untracked, whole, here and in the disposer: this is called from inside
     // effects, and a tracked read of the revision it is about to bump would
     // subscribe that effect to its own write (SIG-306, `src/signals/AGENTS.md`)
@@ -817,11 +870,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         priority: Number.isFinite(opts.priority) ? (opts.priority as number) : 0,
         scope: opts.scope,
       });
-      described.add(info);
+      into.add(info);
       describedRev.set(describedRev.get() + 1);
       return () =>
         untrack(() => {
-          if (described.delete(info)) {
+          if (into.delete(info)) {
             describedRev.set(describedRev.get() + 1);
           }
         });
@@ -1244,6 +1297,34 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     focus.focus(ring[Math.min(lastIndex, ring.length - 1)]);
   }
 
+  /**
+   * Runs the fallbacks on a key.
+   *
+   * Over a copy and a membership check, which is the rule every handler set here
+   * follows, and a router stopped by one of them stops the rest -- a function of
+   * its own rather than a loop in `dispatch()`, whose `stopped` is the event's.
+   *
+   * @param key - The key that nothing above claimed.
+   * @returns Whether any fallback was on it, and so claimed it.
+   */
+  function fireFallbacks(key: Key): boolean {
+    const handlers = fallbacks.get(formatKey(key));
+    if (handlers === undefined) {
+      return false;
+    }
+    // eslint-disable-next-line unicorn/no-useless-spread
+    for (const handler of [...handlers]) {
+      if (!handlers.has(handler)) {
+        continue;
+      }
+      handler(key);
+      if (stopped) {
+        break;
+      }
+    }
+    return true;
+  }
+
   /** Walks a key from the focused element up through its ancestors. */
   function dispatch(key: Key, paste: boolean): boolean {
     let stopped = false;
@@ -1308,6 +1389,15 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         return true;
       }
       at = at.parent;
+    }
+
+    // the fallbacks, under the tree rather than over it: a focused field that took
+    // the key stopped it above and never gets here, which is the whole point of the
+    // layer. And it is reached with **nothing focused**, where the walk above has
+    // nobody to ask -- the one layer that is. A pasted key is skipped for the
+    // reason the trie skips it: content cannot drive a binding
+    if (!paste && fireFallbacks(key)) {
+      return true;
     }
 
     return false;
@@ -2058,6 +2148,9 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   /**
    * Bindings, then the focused element and its ancestors, then the default.
    *
+   * The fallbacks come after the tree and before that default, so a key
+   * nothing focused wanted -- or nothing was focused for -- reaches the app.
+   *
    * Tab is the default rather than the first thing tried, so a component that
    * wants it -- a completion, a cell in a grid -- keeps it by stopping the
    * event. A binding sees every key before any of that, which is where Ctrl-C
@@ -2253,6 +2346,50 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       };
     },
 
+    fallback(keys: string, handler: FallbackHandler, help?: BindingHelp): () => void {
+      if (typeof handler !== 'function') {
+        throw new TypeError(`A fallback needs a handler: fallback("${keys}", fn)`);
+      }
+      const patterns = parseKeys(keys);
+      if (patterns.length !== 1) {
+        throw new KeySpecError(
+          `A fallback is one key: "${keys}" is ${patterns.length}. Bind a sequence with bind()`
+        );
+      }
+
+      const id = formatKey(patterns[0] as KeyPattern);
+      // after the checks, and the listing after the registration: a description that
+      // throws takes the handler back off, so a refused fallback leaves no key behind
+      let handlers = fallbacks.get(id);
+      if (handlers === undefined) {
+        handlers = new Set();
+        fallbacks.set(id, handlers);
+      }
+      // wrapped, so that one function added twice is two registrations and each
+      // disposer takes off its own
+      const entry: FallbackHandler = (key) => handler(key);
+      handlers.add(entry);
+      const set = handlers;
+      const off = (): void => {
+        set.delete(entry);
+        // an empty set is no fallback, and a key with none is not claimed
+        if (set.size === 0 && fallbacks.get(id) === set) {
+          fallbacks.delete(id);
+        }
+      };
+      let unlist: (() => void) | undefined;
+      try {
+        unlist = help === undefined ? undefined : describe(patterns, help, describedFallbacks);
+      } catch (error) {
+        off();
+        throw error;
+      }
+      return () => {
+        off();
+        unlist?.();
+      };
+    },
+
     bindings(): readonly BindingInfo[] {
       describedRev.get();
       // distance up from the focused element, which is the order `onKey` is offered
@@ -2273,7 +2410,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       }
       // `sort` is stable, so registration order holds within one element
       scoped.sort((a, b) => a.at - b.at);
-      return [...global, ...scoped.map((it) => it.info)];
+      return [...global, ...scoped.map((it) => it.info), ...describedFallbacks];
     },
 
     describe(keys: string, opts: DescribeOptions): () => void {

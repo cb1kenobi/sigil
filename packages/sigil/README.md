@@ -5634,10 +5634,29 @@ input.stop(); // puts back only what it turned on
 ```
 
 A key reaches the bindings, then the focused element, then its ancestors, then
-the default action. Bindings come first so that quitting always works — an app
-that cannot be quit because a focused text input swallowed Ctrl-C is the failure
-that ordering prevents. **Tab is last**, so a component that wants Tab keeps it
-by stopping the event rather than by asking to be left out of the focus ring.
+the fallbacks, then the default action. Bindings come first so that quitting
+always works — an app that cannot be quit because a focused text input swallowed
+Ctrl-C is the failure that ordering prevents. **Tab is last**, so a component that
+wants Tab keeps it by stopping the event rather than by asking to be left out of
+the focus ring.
+
+The layer between is for an app-wide key that a focused field outranks:
+
+```js
+input.fallback('q', () => app.exit(), { description: 'Quit' });
+input.fallback('/', () => input.focus.focus(filter), { description: 'filter' });
+```
+
+A `bind('q', fn)` is consulted before the focused element, so it quits while
+somebody types a word into a field, and an `onKey` on the root is reached only by
+bubbling up from a focused element, so with nothing focused no key reaches it. A
+fallback is after the focused element and its ancestors: a field that takes `q`
+stops the event and the fallback never sees it, anywhere else `q` falls through
+to it — and with **nothing focused** it is the one layer that still runs. It is
+one key, modifiers allowed (`'ctrl+r'`); a spec naming two throws, and a sequence
+stays with `bind()`. A key a fallback matches is claimed, so the Tab default does
+not also see it; a pasted key never reaches one. `fallback()` returns the function
+that removes it.
 
 A bracketed paste goes the other way round, which is the mouse's order: the
 focused element's `onPaste` and then each ancestor's are offered it first, the
@@ -5668,7 +5687,10 @@ input.bindings(); // what applies to the focus right now, in dispatch order
 A description is read by a listing and by nothing in dispatch: a binding without
 one behaves as it always did and is simply not listed. `bindings()` returns
 app-wide entries first, then the scoped ones from the focused element outwards,
-and subscribes whatever effect reads it to the focus and to the set changing.
+then the `fallback()` ones, and subscribes whatever effect reads it to the focus
+and to the set changing. A fallback is listed wherever the focus is: the router
+cannot know whether the focused field will take the key, so with a text field
+focused a footer still shows `q  Quit` and pressing `q` there types it.
 `describe()` is for a key an element's `onKey` handles, which the router cannot
 read; `scope` is the element whose focus -- or whose descendants' -- makes it
 apply. [`keyHelp()`](#a-key-help-footer) is the footer built on it.
@@ -5816,17 +5838,18 @@ function App() {
 process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] }).exited;
 ```
 
-| Option                         | Default       | What it does                                                                                       |
-| ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------- |
-| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                    |
-| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                      |
-| `theme`                        | none          | A theme sheet                                                                                      |
-| `cascade`                      | themed        | The whole cascade, in place of the themed one                                                      |
-| `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing |
-| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                         |
-| `detect`                       | `true`        | Asks the terminal for its background and colour depth once the app is up                           |
-| `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                      |
-| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                      |
+| Option                         | Default       | What it does                                                                                                   |
+| ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------------------- |
+| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                                |
+| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                                  |
+| `theme`                        | none          | A theme sheet                                                                                                  |
+| `cascade`                      | themed        | The whole cascade, in place of the themed one                                                                  |
+| `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing             |
+| `quitKey`                      | `'q'`         | The key that ends it with 0, as a `fallback()`: a focused field that takes `q` keeps it. `false` binds nothing |
+| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                                     |
+| `detect`                       | `true`        | Asks the terminal for its background and colour depth once the app is up                                       |
+| `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                                  |
+| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                                  |
 
 `runApp()` returns an `App`: `exit(code = 0)`, `exited`, `input`, `view` (the
 `Renderer`), `terminal`, `interactive` and `running`.
@@ -5837,6 +5860,7 @@ process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] 
 | ---------------------------------------------- | ---------------------------------------------- |
 | `exit(code)`, or `exit()`                      | `code`, or `0`                                 |
 | The quit key (Ctrl-C, Ctrl-D)                  | `130`, what a shell reports for Ctrl-C         |
+| `quitKey` (`q`)                                | `0`, the app choosing to go                    |
 | A failed frame, after `onError` has written it | `1`                                            |
 | A throw from the component's body              | `1`, and the throw propagates from `runApp()`  |
 | No terminal on both ends -- a refusal          | `1`                                            |
