@@ -553,10 +553,15 @@ the entry it belongs to.
   removed: `insertBefore()` is a move and a move is a removal followed by an
   insertion, so forgetting everything recorded would throw away the resolved
   style of every row a `For` reordered.
-- **The restyler is on the handle, because one thing only its owner can do is
-  something an app needs.** `touchSheets()` is how a stylesheet swapped at
-  runtime says that every rule is stale, and a theme change has no other way to
-  say it.
+- **The restyler is on the handle for reading, and nobody calls `touchSheets()`
+  from outside any more (SIG-307).** It was exposed because a stylesheet swapped at
+  runtime had no other way to say that every rule is stale. The renderer now
+  subscribes to the cascade with `cascade.onChange()` when it mounts and lets go
+  in `teardown()`, and any `add()`, `remove()` or `replace()` marks everything
+  stale and asks for a frame: a swap from a key handler is safe, and it arrives by
+  the clock like any other change. A cascade shared by two renderers tells both.
+  The animator is told in the frame, after the restyle, through a flag the
+  listener sets -- see "Transitions and keyframe animations" in `src/style`.
 - **An `onMount` throw is reported and the renderer stays up.** A mount callback
   is not the frame: it runs after one, its throw says nothing about whether what
   is on screen is right, and tearing the app down over it is a worse answer than
@@ -966,6 +971,21 @@ it.
   second context for a field of the first. Throwing rather than answering
   `undefined` is because a hook every caller has to guard is a hook nobody guards;
   a component that works with or without an app reads `useContext(AppContext)`.
+- **`app.cascade` and `app.setTheme()` (SIG-307).** The runner builds the cascade
+  before the component runs, so `app.cascade` -- also through `useApp()` -- is there
+  in the body, unlike `view`; it is the one passed as `cascade` where there is one.
+  Changing it restyles the app on its own. `setTheme(theme)` takes a `Stylesheet`,
+  source text or `undefined`, replaces the theme sheet the runner put in the
+  cascade in place (adding one where there was none, removing it for `undefined`),
+  and throws before swapping if the source does not parse. It **throws where the
+  app was given its own `cascade`**, saying to use `cascade.replace()`, because the
+  runner cannot know which sheet of a cascade it did not build is the theme. A
+  refused app has neither, and both throw naming the refusal as `view` does. The
+  theme sheet is parsed in `runApp()` and handed to `themedCascade()` as a sheet,
+  because a cascade finds a sheet by identity and the one `themedCascade()` parsed
+  for itself would not be findable. `src/theme`'s "Switching a theme at runtime"
+  has the semantics; the system monitor's `t` is `app.setTheme()` and no longer
+  scopes its themes under a class on the host.
 - **Resize is not something the runner owns.** The renderer re-matches and re-lays
   out on a resize already, and the full-screen backend follows the screen by
   itself, so there is nothing to wire.

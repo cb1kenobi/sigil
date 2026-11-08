@@ -854,6 +854,45 @@ toolchain's one reader.
   keeping in proportion: browsers optimize this hard because they have ten
   thousand elements and ten thousand rules, and a terminal UI has a couple of
   hundred of each. Naive may simply be the permanent answer; see SIG-65.
+- **A cascade can take a sheet out and put another in its place, and a change to
+  it restyles on its own (SIG-307).** `remove(sheet)` answers whether it was
+  there; `replace(old, next)` puts `next` in `old`'s turn in source order and
+  **throws** if `old` is not in the cascade. Both clear the bucket index and the
+  keyframes map as `add()` does, and each of the three then calls the listeners
+  `onChange()` registered. Origin order needed nothing: a theme is its own origin,
+  sorted between the framework's sheet and the app's, so a theme added last, or
+  inserted where there was none, still sits where a theme sits -- which is also why
+  `replace()` and not `remove()` plus `add()`: the order sheets were added in is
+  the tie-break _within_ an origin, and a swap that went to the end would beat a
+  sibling the old sheet lost to. A sheet held twice is replaced or removed at every
+  position, so "is it in there" has one answer afterwards.
+
+  The switcher this replaces had `cascade.add(sheetFor(css))`, a
+  `view.restyler.touchSheets()` and a `view.frame()`, and **prepended a reset
+  sheet restating every role's properties off**, because a cascade could only
+  layer: going from `MONO` to `VIOLET` left MONO's `underline` on the heading, its
+  `inverse` on the error and its `italic` on the info line, since a colour theme
+  has no reason to mention any of them. That was measured, and it is gone with the
+  cause. The framework's own defaults are what is left when the theme sheet is
+  removed, so the demo no longer restates them as a theme either, and `sigil` in
+  the switcher is _no sheet_ rather than a sheet saying the same thing.
+
+  **The cascade tells a listener _that_ it changed, not what.** The renderer
+  subscribes when it mounts and lets go in `teardown()`, and the answer to what is
+  a full re-match either way (`touchSheets()`, "the sheets changed, everything is
+  stale") -- measured under "Style invalidation" as well under a millisecond for a
+  large tree, once per frame at most, since the listener only marks and asks for a
+  frame. So **no caller reaches into `view.restyler` again**; it stays on the
+  handle to be read, and `touchSheets()` is the renderer's own. A listener is
+  dispatched over a copy with a membership check, as every set of them in the
+  renderer is. `media` is deliberately not a change: the renderer writes it on a
+  resize and follows that with a restyle of its own.
+
+  **A cascade shared by two renderers tells both,** and each answers for its own
+  tree; one going unsubscribes only itself. The cascade is the one thing two
+  trees can share, which is what makes the listener list and not a back-pointer
+  to a renderer the shape.
+
 - **An element with no parent is a first child.** It has no siblings, so it is
   the first of them, which is what browsers answer for the root element.
 - **`:hover` parses and matches nothing.** Mouse tracking does not exist yet and
@@ -1673,6 +1712,28 @@ renderer's `settle()`.
   recomputes when they have moved. `index()` is memoised on the `Keyframes` object
   for it, which is the right question by identity: the cascade hands back the same
   frozen array while its sheets do not move and a different one the moment they do.
+
+- **A sheet swap reaches the animator in the frame, after the restyle, and a swap
+  that moves only the `@keyframes` needed `Animator.touchSheets()` (SIG-307).**
+  Verified rather than assumed, with a swap in the middle of a running transition:
+  the restyle shows the animator a new base, and an interrupted transition eases on
+  from the value that is on screen, not from the old target and not from the
+  declared start -- the interruptibility rule above, met by a different input. And
+  when the swap removes the sheet that declared the `transition`, the running one
+  is cancelled, which the "declaration has gone" entry already covers. What was
+  **not** covered was the case the existing tests only reached by also changing a
+  colour: a theme that rewrites `@keyframes slide` while every element's resolved
+  style is exactly what it was. The restyle reports nothing for it, `animate()` is
+  only shown the elements whose style changed, so a running animation went on
+  against the stops it indexed at start and a finished one held a fill from stops
+  nobody had -- both failing tests, before the fix. The fix is `touchSheets(now)`,
+  the same re-decision over every element the animator has a base for that
+  `touchMedia()` is, called once from `animate()` after the observe loop so each
+  base is the _new_ one, and from a flag the cascade listener sets rather than
+  from the listener itself, so a swap mid-frame waits for the next one instead of
+  being told twice. It also starts an animation whose keyframes **arrive** after
+  the element asked for the name, which `#syncAnimation()` records as "runs
+  nothing, silently" because the sheet may not have arrived yet.
 
 - **The toolchain generates no utilities for the animation properties, and the
   exception is an explicit list.** `animation-direction` and `animation-fill-mode`

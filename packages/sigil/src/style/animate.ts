@@ -417,6 +417,31 @@ export class Animator<T extends object> {
   }
 
   /**
+   * The stylesheets changed, so what a name refers to may have.
+   *
+   * The same re-decision as `touchMedia()` and for the same reason: whether an
+   * animation runs, and on which stops, is read from the cascade, and an element
+   * the swap did not restyle is never shown to `observe()` again. That is the
+   * case this is for -- a theme that rewrites `@keyframes slide` while every
+   * element's resolved style is exactly what it was, because `animation-name` is
+   * still `slide` and nothing else moved. The restyle reports nothing for it to
+   * observe, so without this a running animation went on against the stops it
+   * indexed at start and a finished one held a fill from stops nobody has.
+   * The same goes for a sheet that *arrives* declaring a name an element already
+   * asked for, which `#syncAnimation()` records as "runs nothing, silently"
+   * precisely because the sheet may not have arrived yet.
+   *
+   * Called after the frame's restyle has been observed, so each base is the new
+   * one; the walk is over every element the animator has a base for, which is
+   * what the restyle it follows already cost.
+   *
+   * @param now - The clock, for an animation this starts.
+   */
+  touchSheets(now: number): void {
+    this.touchMedia(now);
+  }
+
+  /**
    * Drops everything the animator knows about an element.
    *
    * Called when an element is unmounted, for the reason `Restyler.forget()` is:

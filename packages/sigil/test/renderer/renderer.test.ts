@@ -2884,3 +2884,120 @@ describe('the settle guard under the frame loop', () => {
     }
   });
 });
+
+describe('a cascade that changes under a mounted tree', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const red = () => parseStylesheet('.field { color: red }');
+  const blue = () => parseStylesheet('.field { color: blue }');
+
+  function mountField(cascade: Cascade, h = harness()) {
+    let field: Element | undefined;
+    const view = render(() => (field = box({ class: 'field' }, text('x'))), {
+      backend: h.backend,
+      cascade,
+      colorLevel: 3,
+      effects,
+      frameMs: 10,
+      terminal: h.terminal,
+    });
+    return { field: field as unknown as Element, view };
+  }
+
+  it('should restyle on its own when a sheet is replaced, with nobody touching the restyler', () => {
+    const cascade = new Cascade([red()]);
+    const { field, view } = mountField(cascade);
+    expect(field.style.color).toBe(1);
+
+    cascade.replace(cascade.sheets[0] as never, blue());
+    // a frame is asked for rather than run now, so a swap from inside a handler
+    // is safe -- and it arrives by the clock, with no `frame()` call from the caller
+    expect(field.style.color).toBe(1);
+    vi.advanceTimersByTime(50);
+    expect(field.style.color).toBe(4);
+    view.dispose();
+  });
+
+  it('should restyle for an add and for a remove too', () => {
+    const cascade = new Cascade();
+    const { field, view } = mountField(cascade);
+    const theme = blue();
+
+    cascade.add(theme);
+    vi.advanceTimersByTime(50);
+    expect(field.style.color).toBe(4);
+
+    cascade.remove(theme);
+    vi.advanceTimersByTime(50);
+    // nothing left to say it, so the initial value and not the sheet's last word
+    expect(field.style.color).toBe(-1);
+    view.dispose();
+  });
+
+  it('should move the layout when a swapped sheet moves a box', () => {
+    const h = harness(12, 2);
+    const narrow = parseStylesheet('.field { padding-left: 1 }');
+    const wide = parseStylesheet('.field { padding-left: 5 }');
+    const cascade = new Cascade([narrow]);
+    const { view } = mountField(cascade, h);
+    expect(h.picture().split('\n')[0]).toBe('.x..........');
+
+    cascade.replace(narrow, wide);
+    vi.advanceTimersByTime(50);
+    expect(h.picture().split('\n')[0]).toBe('.....x......');
+    view.dispose();
+  });
+
+  it('should tell every renderer sharing the cascade, each for its own tree', () => {
+    const cascade = new Cascade([red()]);
+    const one = mountField(cascade);
+    const two = mountField(cascade);
+
+    cascade.replace(cascade.sheets[0] as never, blue());
+    vi.advanceTimersByTime(50);
+    expect(one.field.style.color).toBe(4);
+    expect(two.field.style.color).toBe(4);
+
+    // and one going does not take the other's subscription with it
+    one.view.dispose();
+    cascade.add(red());
+    vi.advanceTimersByTime(50);
+    expect(two.field.style.color).toBe(1);
+    two.view.dispose();
+  });
+
+  it('should let go of the cascade when the renderer goes', () => {
+    const cascade = new Cascade([red()]);
+    // the guard in the listener makes a leaked subscription invisible from outside,
+    // which is what a leak on a *shared* cascade is: the unsubscribe itself is asked
+    const real = cascade.onChange.bind(cascade);
+    let subscribed = 0;
+    let unsubscribed = 0;
+    vi.spyOn(cascade, 'onChange').mockImplementation((listener) => {
+      subscribed++;
+      const off = real(listener);
+      return () => {
+        unsubscribed++;
+        off();
+      };
+    });
+    const { field, view } = mountField(cascade);
+    expect(subscribed).toBe(1);
+    expect(unsubscribed).toBe(0);
+    view.dispose();
+    expect(unsubscribed).toBe(1);
+
+    const timers = vi.getTimerCount();
+    cascade.add(blue());
+    // no frame is asked for by a renderer that is gone, and nothing restyled it
+    expect(vi.getTimerCount()).toBe(timers);
+    vi.advanceTimersByTime(50);
+    expect(field.style.color).toBe(1);
+  });
+});

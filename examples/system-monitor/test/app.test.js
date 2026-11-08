@@ -433,6 +433,22 @@ describe('the system monitor', () => {
     expect(app.term.output).toMatch(new RegExp(`${ESC}\\[35m\\[ No \\]`));
   });
 
+  it('should come back to the framework colours after a lap of the themes, leaking nothing', async () => {
+    const ESC = String.fromCharCode(0x1b);
+    const app = mount({ colorLevel: 1 });
+    await app.step();
+    // violet is magenta where the framework is cyan
+    await app.press('t', 't');
+    expect(app.term.output).toContain(`${ESC}[35mtheme: violet`);
+
+    // amber, phosphor, neon and round to `sigil`: no theme sheet at all, so the
+    // accent is the framework's cyan again with nothing restated to get it there
+    const seen = app.term.output.length;
+    await app.press('t', 't', 't', 't');
+    expect(app.screen()).toContain('theme: sigil');
+    expect(app.term.output.slice(seen)).toContain(`${ESC}[36mtheme: sigil`);
+  });
+
   it('should reflow into a smaller screen', async () => {
     const app = mount({ processes: [proc(1, 5, 1)] });
     await app.step();

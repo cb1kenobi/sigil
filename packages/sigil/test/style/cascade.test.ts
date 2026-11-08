@@ -351,6 +351,154 @@ describe('matching', () => {
   });
 });
 
+describe('taking a sheet out, and putting another in its place', () => {
+  const red = sheet('.button { color: red }');
+  const blue = sheet('.button { color: blue }');
+
+  it('should report whether the sheet was there, and stop applying it', () => {
+    const cascade = new Cascade([red]);
+    expect(cascade.resolve(button).color).toEqual(palette(1));
+
+    expect(cascade.remove(red)).toBe(true);
+    expect(cascade.sheets).toHaveLength(0);
+    // the bucket index went with it, which a stale one would have answered from
+    expect(cascade.resolve(button).color).toEqual(initialStyle().color);
+
+    expect(cascade.remove(red)).toBe(false);
+    expect(cascade.remove(blue)).toBe(false);
+  });
+
+  it('should take away a sheet added twice, whole', () => {
+    const cascade = new Cascade([red, blue, red]);
+    expect(cascade.remove(red)).toBe(true);
+    expect(cascade.sheets).toEqual([blue]);
+  });
+
+  it('should put the new sheet in the old one’s place in source order', () => {
+    // both rules tie at (0,1,0) in one origin, so the sheet that comes last wins.
+    // Replacing `red` with a sheet saying `green` has to leave `blue` winning,
+    // which is what happens only if the new sheet kept `red`'s turn rather than
+    // taking the last one
+    const green = sheet('.button { color: green }');
+    const cascade = new Cascade([red, blue]);
+    expect(cascade.replace(red, green)).toBe(cascade);
+
+    expect(cascade.sheets).toEqual([green, blue]);
+    expect(cascade.resolve(button).color).toEqual(palette(4));
+
+    // and the other way round, where the replaced sheet was the later one
+    cascade.replace(blue, red);
+    expect(cascade.sheets).toEqual([green, red]);
+    expect(cascade.resolve(button).color).toEqual(palette(1));
+  });
+
+  it('should throw for a sheet that is not there, and change nothing', () => {
+    const cascade = new Cascade([red]);
+    let told = 0;
+    cascade.onChange(() => told++);
+
+    expect(() => cascade.replace(blue, red)).toThrow(/not in the cascade/);
+    expect(cascade.sheets).toEqual([red]);
+    expect(told).toBe(0);
+  });
+
+  it('should leave a sheet an origin places where its origin says, whatever order it arrived in', () => {
+    // a theme swapped in last still sits between the framework's sheet and the
+    // app's, because it is the origin that places it and not the order: nothing
+    // new was needed for a theme to be inserted where there was none
+    const framework = sheet('.button { color: red; padding: 1 }', { origin: 'framework' });
+    const app = sheet('.button { padding: 3 }');
+    const theme = sheet('.button { color: blue; padding: 2 }', { origin: 'theme' });
+    const cascade = new Cascade([framework, app]);
+    cascade.add(theme);
+
+    const style = cascade.resolve(button);
+    expect(style.color).toEqual(palette(4));
+    expect(style.paddingTop).toBe(3);
+
+    cascade.remove(theme);
+    expect(cascade.resolve(button).color).toEqual(palette(1));
+  });
+
+  it('should answer for the keyframes of the sheets it has now', () => {
+    const slide = sheet('@keyframes slide { to { left: 9 } }');
+    const cascade = new Cascade([slide]);
+    expect(cascade.keyframes('slide')).toBeDefined();
+
+    const other = sheet('@keyframes slide { to { left: 3 } }');
+    const before = cascade.keyframes('slide');
+    cascade.replace(slide, other);
+    expect(cascade.keyframes('slide')).toBeDefined();
+    expect(cascade.keyframes('slide')).not.toBe(before);
+
+    cascade.remove(other);
+    expect(cascade.keyframes('slide')).toBeUndefined();
+  });
+});
+
+describe('telling a listener the sheets changed', () => {
+  const a = sheet('.button { color: red }');
+  const b = sheet('.button { color: blue }');
+
+  it('should say so once for each of add, remove and replace', () => {
+    const cascade = new Cascade();
+    let told = 0;
+    cascade.onChange(() => told++);
+
+    cascade.add(a);
+    expect(told).toBe(1);
+    cascade.replace(a, b);
+    expect(told).toBe(2);
+    cascade.remove(b);
+    expect(told).toBe(3);
+  });
+
+  it('should stay quiet for a remove that removed nothing, and for construction', () => {
+    const cascade = new Cascade([a, b]);
+    let told = 0;
+    cascade.onChange(() => told++);
+    expect(cascade.remove(sheet('.x { color: red }'))).toBe(false);
+    expect(told).toBe(0);
+  });
+
+  it('should have changed by the time it is told', () => {
+    const cascade = new Cascade([a]);
+    const seen: unknown[] = [];
+    cascade.onChange(() => seen.push(cascade.resolve(button).color));
+    cascade.replace(a, b);
+    expect(seen).toEqual([palette(4)]);
+  });
+
+  it('should stop telling one that unsubscribed', () => {
+    const cascade = new Cascade();
+    let told = 0;
+    const off = cascade.onChange(() => told++);
+    cascade.add(a);
+    off();
+    cascade.add(b);
+    expect(told).toBe(1);
+  });
+
+  it('should call over a copy, with a membership check', () => {
+    const cascade = new Cascade();
+    const calls: string[] = [];
+    const off: (() => void)[] = [];
+    cascade.onChange(() => {
+      calls.push('first');
+      // the second is gone before it is reached, and a third joined by a handler
+      // is not called for the change that added it
+      off[0]?.();
+      cascade.onChange(() => calls.push('late'));
+    });
+    off.push(cascade.onChange(() => calls.push('second')));
+
+    cascade.add(a);
+    expect(calls).toEqual(['first']);
+    cascade.add(b);
+    expect(calls).toEqual(['first', 'first', 'late']);
+  });
+});
+
 describe('what resolve hands back', () => {
   it('should be a complete style, every time', () => {
     const style: Style = resolve('.button { color: red }');

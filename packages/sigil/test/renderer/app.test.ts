@@ -3,7 +3,9 @@ import { box, type Element, text } from '../../src/element/index.js';
 import { type App, AppContext, runApp, useApp } from '../../src/renderer/app.js';
 import { createEffect, onCleanup, onMount, useContext } from '../../src/renderer/index.js';
 import { State } from '../../src/signals/index.js';
+import { Cascade } from '../../src/style/index.js';
 import { createTestTerminal, ctrl, KEYS, tick } from '../../src/testing/index.js';
+import { parseTheme } from '../../src/theme/index.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -891,6 +893,162 @@ describe('the README example', () => {
     expect(term.viewport[0]).toContain('Enter saves');
     await term.press(KEYS.enter);
     expect(await app.exited).toBe(0);
+  });
+});
+
+describe('app.setTheme()', () => {
+  /** Waits out the frames a swap asked for on its own: nobody here calls `frame()`. */
+  const frames = () => new Promise((resolve) => setTimeout(resolve, 40));
+
+  /** An accent that only the theme colours, and an info line the app colours too. */
+  function two(opts: Parameters<typeof runApp>[1] = {}) {
+    let accent: Element | undefined;
+    let info: Element | undefined;
+    const started = start(
+      () => {
+        accent = text('accent', { class: 'sigil-accent' });
+        info = text('info', { class: 'sigil-info' });
+        return box({}, accent, info);
+      },
+      { colorLevel: 3, frameMs: 1, sheets: ['.sigil-info { color: red }'], ...opts }
+    );
+    return { ...started, accent: accent as unknown as Element, info: info as unknown as Element };
+  }
+
+  it('should restyle the running app on its own, with no frame asked for', async () => {
+    const { accent, app } = two({ theme: '.sigil-accent { color: green }' });
+    expect(accent.style.color).toBe(2);
+
+    app.setTheme('.sigil-accent { color: magenta }');
+    // not yet: a frame is asked for, and it arrives by the clock
+    expect(accent.style.color).toBe(2);
+    await frames();
+    expect(accent.style.color).toBe(5);
+  });
+
+  it('should leave nothing of the old theme behind, with no reset sheet', async () => {
+    // the point of the swap: the old theme's `italic` is gone with its sheet,
+    // where adding a second sheet over the first used to leave it standing
+    const { accent, app } = two({ theme: '.sigil-accent { color: green; italic: true }' });
+    expect(accent.style.italic).toBe(true);
+
+    app.setTheme('.sigil-accent { color: magenta }');
+    await frames();
+    expect(accent.style.color).toBe(5);
+    expect(accent.style.italic).toBe(false);
+  });
+
+  it('should go back to the framework defaults for undefined', async () => {
+    const { accent, app } = two({ theme: '.sigil-accent { color: green; italic: true }' });
+    app.setTheme(undefined);
+    await frames();
+    // the framework's accent is cyan
+    expect(accent.style.color).toBe(6);
+    expect(accent.style.italic).toBe(false);
+    expect(app.cascade.sheets.map((sheet) => sheet.origin)).toEqual(['framework', 'app', 'app']);
+  });
+
+  it('should insert a theme where a theme goes when the app started with none', async () => {
+    // added last, and still between the framework's sheet and the app's: the
+    // origin places it, so the app's red beats it and its green beats the
+    // framework's cyan
+    const { accent, app, info } = two();
+    expect(accent.style.color).toBe(6);
+
+    app.setTheme('.sigil-accent, .sigil-info { color: green }');
+    await frames();
+    expect(accent.style.color).toBe(2);
+    expect(info.style.color).toBe(1);
+  });
+
+  it('should take a parsed sheet as well as source', async () => {
+    const { accent, app } = two();
+    app.setTheme(parseTheme('.sigil-accent { color: yellow }'));
+    await frames();
+    expect(accent.style.color).toBe(3);
+  });
+
+  it('should keep the old theme on screen when the new one does not parse', async () => {
+    const { accent, app } = two({ theme: '.sigil-accent { color: green }' });
+    const sheets = [...app.cascade.sheets];
+
+    expect(() => app.setTheme('.sigil-accent { not-a-property: 1 }')).toThrow();
+    await frames();
+    expect(app.cascade.sheets).toEqual(sheets);
+    expect(accent.style.color).toBe(2);
+    // and the app can still swap afterwards
+    app.setTheme('.sigil-accent { color: blue }');
+    await frames();
+    expect(accent.style.color).toBe(4);
+  });
+
+  it('should do nothing for the sheet that is already the theme', () => {
+    const { app } = two();
+    const theme = parseTheme('.sigil-accent { color: green }');
+    app.setTheme(theme);
+    let told = 0;
+    app.cascade.onChange(() => told++);
+
+    app.setTheme(theme);
+    app.setTheme(theme);
+    expect(told).toBe(0);
+    expect(app.cascade.sheets.filter((sheet) => sheet === theme)).toHaveLength(1);
+  });
+
+  it('should say to use cascade.replace() where the app was given a cascade of its own', () => {
+    const cascade = new Cascade([parseTheme('.sigil-accent { color: green }')]);
+    const { app } = start(() => text('x'), { cascade });
+
+    expect(app.cascade).toBe(cascade);
+    expect(() => app.setTheme('.sigil-accent { color: red }')).toThrow(/cascade\.replace\(/);
+    expect(() => app.setTheme(undefined)).toThrow(/cascade option/);
+    expect(cascade.sheets).toHaveLength(1);
+  });
+
+  it('should restyle a cascade the caller swapped itself, with no setTheme()', async () => {
+    const old = parseTheme('.sigil-accent { color: green }');
+    const cascade = new Cascade([old]);
+    let accent: Element | undefined;
+    const { app } = start(() => (accent = text('x', { class: 'sigil-accent' })), {
+      cascade,
+      colorLevel: 3,
+      frameMs: 1,
+    });
+    expect(accent?.style.color).toBe(2);
+
+    app.cascade.replace(old, parseTheme('.sigil-accent { color: blue }'));
+    await frames();
+    expect(accent?.style.color).toBe(4);
+  });
+
+  it('should expose the cascade while the body runs, through useApp() too', () => {
+    let seen: Cascade | undefined;
+    const { app } = start(() => {
+      seen = useApp().cascade;
+      return text('x');
+    });
+    expect(seen).toBeDefined();
+    expect(seen).toBe(app.cascade);
+    // the runner's own: the framework's sheet first
+    expect(app.cascade.sheets[0]?.origin).toBe('framework');
+  });
+
+  it('should refuse for an app that never started, as view does', async () => {
+    const term = createTestTerminal({ isTTY: false });
+    const app = runApp(() => text('x'), { terminal: term.terminal });
+    expect(await app.exited).toBe(1);
+    expect(() => app.cascade).toThrow(/refused/);
+    expect(() => app.setTheme('.sigil-accent { color: red }')).toThrow(/refused/);
+  });
+
+  it('should stop restyling once the app has ended', async () => {
+    const { accent, app } = two({ theme: '.sigil-accent { color: green }' });
+    app.exit();
+    await app.exited;
+
+    app.setTheme('.sigil-accent { color: magenta }');
+    await frames();
+    expect(accent.style.color).toBe(2);
   });
 });
 

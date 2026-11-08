@@ -926,3 +926,172 @@ describe('an animation on a frame that rebuilt a windowed list', () => {
     view.dispose();
   });
 });
+
+describe('a sheet swapped under an animation', () => {
+  /** A cascade of the app's layout and, apart from it, a theme to swap. */
+  function swappable(theme: string, layout = '') {
+    const sheet = parseStylesheet(theme, { origin: 'theme' });
+    const cascade = new Cascade([sheet, ...(layout ? [parseStylesheet(layout)] : [])], {
+      ...DEFAULT_MEDIA,
+      reducedMotion: 'no-preference',
+    });
+    return { cascade, sheet };
+  }
+
+  const widthOf = (node: Element) => (node.style.width as { value: number }).value;
+
+  it('should ease on from where a transition was when the sheet that sets its target is replaced', () => {
+    // verified rather than assumed: the swap is a restyle, so the animator is
+    // shown a new base for an element it is already easing, and an interrupted
+    // transition animates from the value on screen -- not from the old target,
+    // and not from the declared start
+    const h = harness();
+    const { cascade, sheet } = swappable(
+      'box { width: 4 } box.wide { width: 10 }',
+      'box { height: 1; transition: width 300ms linear }'
+    );
+
+    let node: Element;
+    const view = render(() => (node = box({})), {
+      backend: h.backend,
+      cascade,
+      effects,
+      reducedMotion: 'no-preference',
+      terminal: h.terminal,
+    });
+
+    node!.addClass('wide');
+    vi.setSystemTime(0);
+    view.frame();
+    vi.setSystemTime(150);
+    view.frame();
+    const midway = widthOf(node!);
+    expect(midway).toBeGreaterThan(4);
+    expect(midway).toBeLessThan(10);
+
+    cascade.replace(
+      sheet,
+      parseStylesheet('box { width: 4 } box.wide { width: 20 }', { origin: 'theme' })
+    );
+    const walked: number[] = [midway];
+    for (let at = 150; at <= 450; at += 30) {
+      vi.setSystemTime(at);
+      view.frame();
+      walked.push(widthOf(node!));
+    }
+
+    // no jump to the new target and none back to the start: a monotone walk from
+    // where it was, to the new end
+    expect(walked).toEqual([...walked].sort((a, b) => a - b));
+    expect(walked.every((width) => width >= midway)).toBe(true);
+    expect(walked.at(-1)).toBe(20);
+    expect(new Set(walked).size).toBeGreaterThan(4);
+    view.dispose();
+  });
+
+  it('should cancel a transition when the sheet that declared it goes', () => {
+    // the declaration is the theme's, so removing the theme removes the
+    // transition with it -- and a transition still easing on a rule nobody
+    // declares any more is one with no live writer
+    const h = harness();
+    const { cascade, sheet } = swappable(
+      'box { width: 4; height: 1; transition: width 300ms linear } box.wide { width: 10 }'
+    );
+
+    let node: Element;
+    const view = render(() => (node = box({})), {
+      backend: h.backend,
+      cascade,
+      effects,
+      reducedMotion: 'no-preference',
+      terminal: h.terminal,
+    });
+
+    node!.addClass('wide');
+    vi.setSystemTime(0);
+    view.frame();
+    vi.setSystemTime(100);
+    view.frame();
+    expect(view.animating).toBe(true);
+    expect(widthOf(node!)).toBeLessThan(10);
+
+    cascade.replace(
+      sheet,
+      parseStylesheet('box { width: 4; height: 1 } box.wide { width: 10 }', { origin: 'theme' })
+    );
+    vi.setSystemTime(130);
+    view.frame();
+    expect(widthOf(node!)).toBe(10);
+    expect(view.animating).toBe(false);
+    view.dispose();
+  });
+
+  it('should take up keyframes a swap rewrote under the name the element already used', () => {
+    // nothing about the element's resolved style changes here -- same
+    // `animation`, same everything -- so the restyle reports nothing for the
+    // animator to observe. Only the stops moved
+    const h = harness();
+    const layout = 'box { height: 1; position: relative; animation: slide 100ms linear forwards }';
+    const { cascade, sheet } = swappable(
+      '@keyframes slide { from { left: 0 } to { left: 10 } }',
+      layout
+    );
+
+    let node: Element;
+    const view = render(() => (node = box({ height: 1, width: 1 })), {
+      backend: h.backend,
+      cascade,
+      effects,
+      reducedMotion: 'no-preference',
+      terminal: h.terminal,
+    });
+
+    vi.setSystemTime(0);
+    view.frame();
+    vi.setSystemTime(50);
+    view.frame();
+    expect((node!.style.left as { value: number }).value).toBe(5);
+
+    cascade.replace(
+      sheet,
+      parseStylesheet('@keyframes slide { from { left: 0 } to { left: 100 } }', { origin: 'theme' })
+    );
+    vi.setSystemTime(50);
+    view.frame();
+    expect((node!.style.left as { value: number }).value).toBe(50);
+    view.dispose();
+  });
+
+  it('should recompute the fill of a finished animation when its keyframes are swapped', () => {
+    const h = harness();
+    const layout = 'box { height: 1; position: relative; animation: slide 100ms linear forwards }';
+    const { cascade, sheet } = swappable('@keyframes slide { to { left: 10 } }', layout);
+
+    let node: Element;
+    const view = render(() => (node = box({ height: 1, width: 1 })), {
+      backend: h.backend,
+      cascade,
+      effects,
+      reducedMotion: 'no-preference',
+      terminal: h.terminal,
+    });
+
+    vi.setSystemTime(0);
+    view.frame();
+    vi.setSystemTime(300);
+    view.frame();
+    expect((node!.style.left as { value: number }).value).toBe(10);
+    expect(view.animating).toBe(false);
+
+    cascade.replace(
+      sheet,
+      parseStylesheet('@keyframes slide { to { left: 3 } }', { origin: 'theme' })
+    );
+    vi.setSystemTime(300);
+    view.frame();
+    expect((node!.style.left as { value: number }).value).toBe(3);
+    // held, not restarted
+    expect(view.animating).toBe(false);
+    view.dispose();
+  });
+});

@@ -457,9 +457,10 @@ export interface Renderer {
   /**
    * What holds each element's resolved style.
    *
-   * Exposed because there is one thing only its owner can do and an app
-   * legitimately needs: `touchSheets()`, for a stylesheet swapped at runtime --
-   * a theme change has no other way to say that every rule is stale.
+   * Exposed for reading what an element resolved to. A stylesheet swapped at
+   * runtime is *not* its business any more: change the cascade -- `add()`,
+   * `remove()`, `replace()` -- and the renderer restyles on its own, so nobody
+   * calls `touchSheets()` from outside.
    */
   readonly restyler: Restyler;
   /**
@@ -649,6 +650,16 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
   let full = true;
   let owner: Owner | undefined;
   let offResize: (() => void) | undefined;
+  let offCascade: (() => void) | undefined;
+  /**
+   * Whether the sheets changed since the animator last heard.
+   *
+   * Told in the frame, after the restyle, rather than when the cascade says so:
+   * the animator reads each element's *new* base, which only the settle has
+   * written, and a swap that comes in mid-frame waits for the next one instead of
+   * being told twice.
+   */
+  let sheetsMoved = false;
   /** Whether a frame is settling, which is what makes `frame()` safe to call. */
   let settling = false;
   /** What is selected, which the paint pass draws over whatever it drew. */
@@ -774,6 +785,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     frameHandlers.clear();
     excluded.clear();
     offResize?.();
+    offCascade?.();
     scope.setScheduler(previousScheduler);
     scope.setErrorHandler(previousHandler);
     if (owner) {
@@ -1058,6 +1070,13 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
         const element = target as Element;
         animator.observe(element, element.style, at);
       }
+      if (sheetsMoved) {
+        sheetsMoved = false;
+        // an element the swap did not restyle was not observed above, and a
+        // `@keyframes` rewritten under a name it already uses changes nothing it
+        // would have said
+        animator.touchSheets(at);
+      }
       const frame = animator.tick(at);
       for (const [element, style] of frame.styles) {
         element.style = style;
@@ -1259,6 +1278,20 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     terminal.restore();
     throw error;
   }
+
+  // a change to the cascade restyles on its own: whoever swaps a theme says so to
+  // the cascade and never to the restyler, which is the renderer's to keep. A
+  // cascade shared by two renderers tells both, and each answers for its own tree.
+  // Unsubscribed by `teardown()`, which is also what a cascade that outlives its
+  // renderer needs -- a listener nothing will ever call is a reference to a tree
+  offCascade = cascade.onChange(() => {
+    if (disposed || failed) {
+      return;
+    }
+    restyler.touchSheets();
+    sheetsMoved = true;
+    requestFrame();
+  });
 
   offResize = terminal.onResize(() => {
     if (disposed || failed) {

@@ -668,6 +668,35 @@ describe('an animation', () => {
     expect(present(it, node, 'left', 50)).toEqual(cells(50));
   });
 
+  it('should re-read the stops of an element the swap never restyled', () => {
+    // `observe()` is only shown what a restyle changed, and a theme that rewrites
+    // `@keyframes slide` changes no element's resolved style -- so the animator is
+    // told the sheets moved instead
+    const sheets = cascade(sheet, { reducedMotion: 'no-preference' });
+    const it = new Animator<{ name: string }>(sheets);
+    const node = target();
+    const base = { animation: 'slide 100ms linear', color: 'red', position: 'relative' };
+    it.observe(node, declare(base), 0);
+    expect(present(it, node, 'left', 50)).toEqual(cells(5));
+
+    sheets.add(parseStylesheet('@keyframes slide { from { left: 0 } to { left: 100 } }'));
+    it.touchSheets(50);
+    expect(present(it, node, 'left', 50)).toEqual(cells(50));
+  });
+
+  it('should start an animation whose keyframes arrive after the element asked', () => {
+    const sheets = cascade('', { reducedMotion: 'no-preference' });
+    const it = new Animator<{ name: string }>(sheets);
+    const node = target();
+    it.observe(node, declare({ animation: 'late 100ms linear', position: 'relative' }), 0);
+    expect(it.active).toBe(false);
+
+    sheets.add(parseStylesheet('@keyframes late { from { left: 0 } to { left: 10 } }'));
+    it.touchSheets(0);
+    expect(it.active).toBe(true);
+    expect(present(it, node, 'left', 50)).toEqual(cells(5));
+  });
+
   it('should recompute a fill a sheet made stale', () => {
     // the same question asked of an animation that has already finished: the
     // value it is holding came from stops that are no longer the animation's
