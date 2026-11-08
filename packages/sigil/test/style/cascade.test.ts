@@ -392,6 +392,16 @@ describe('taking a sheet out, and putting another in its place', () => {
     expect(cascade.resolve(button).color).toEqual(palette(1));
   });
 
+  it('should replace a sheet in every position it held', () => {
+    // as `remove()` takes every occurrence: the sheet is either in the cascade or
+    // it is not, and replacing it must not leave the old one standing in a second
+    // place
+    const green = sheet('.button { color: green }');
+    const cascade = new Cascade([red, blue, red]);
+    cascade.replace(red, green);
+    expect(cascade.sheets).toEqual([green, blue, green]);
+  });
+
   it('should throw for a sheet that is not there, and change nothing', () => {
     const cascade = new Cascade([red]);
     let told = 0;

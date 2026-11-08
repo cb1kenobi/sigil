@@ -1062,6 +1062,47 @@ describe('a sheet swapped under an animation', () => {
     view.dispose();
   });
 
+  it('should not replay a finished animation when the theme that declares it goes and comes back', () => {
+    // `setTheme(A)`, `setTheme(undefined)`, `setTheme(A)`: the @keyframes is missing
+    // for a frame in the middle, and a name that resolves to nothing used to take
+    // the animation's `ran` record with it
+    const h = harness();
+    const layout = 'box { height: 1; position: relative; animation: slide 100ms linear forwards }';
+    const { cascade, sheet } = swappable('@keyframes slide { to { left: 10 } }', layout);
+
+    let node: Element;
+    const view = render(() => (node = box({ height: 1, width: 1 })), {
+      backend: h.backend,
+      cascade,
+      effects,
+      reducedMotion: 'no-preference',
+      terminal: h.terminal,
+    });
+    const left = () => (node!.style.left as { value?: number }).value;
+
+    vi.setSystemTime(0);
+    view.frame();
+    vi.setSystemTime(300);
+    view.frame();
+    expect(left()).toBe(10);
+
+    cascade.remove(sheet);
+    vi.setSystemTime(310);
+    view.frame();
+    expect(left()).toBeUndefined();
+    expect(view.animating).toBe(false);
+
+    cascade.add(sheet);
+    vi.setSystemTime(320);
+    view.frame();
+    expect(left()).toBe(10);
+    expect(view.animating).toBe(false);
+    vi.setSystemTime(330);
+    view.frame();
+    expect(left()).toBe(10);
+    view.dispose();
+  });
+
   it('should recompute the fill of a finished animation when its keyframes are swapped', () => {
     const h = harness();
     const layout = 'box { height: 1; position: relative; animation: slide 100ms linear forwards }';

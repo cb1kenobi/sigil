@@ -1735,6 +1735,27 @@ renderer's `settle()`.
   the element asked for the name, which `#syncAnimation()` records as "runs
   nothing, silently" because the sheet may not have arrived yet.
 
+- **A `@keyframes` that is missing for a while keeps its animation, and the
+  animation does nothing meanwhile (SIG-307, review).** `#syncAnimation()` used to
+  drop the running animation and its fill the moment `animation-name` resolved to
+  nothing -- a rule written when the only way to get there was a typo or a sheet
+  that had not arrived. A sheet swap makes it routine: `setTheme(A)`,
+  `setTheme(undefined)`, `setTheme(A)` replayed every finished one-shot animation
+  on screen and restarted every running one, which contradicts the rule above that
+  only a change of _name_ is a reason to run again. CSS keeps the animation and its
+  timeline across a missing `@keyframes`, so this does: a running one moves to
+  `Entry.missing` with its start time, a finished one stays in `settled` with its
+  `ran` and an empty stop set. While the name resolves to nothing there is no
+  effect and no fill, and nothing keeps the frame loop awake -- it is not
+  `animation`, which `active` reads, so an endless animation with no keyframes does
+  not hold the timer open for as long as the sheet is gone. When the keyframes come
+  back a finished animation shows its fill again without playing, and a running one
+  is where its own clock puts it; one that ran out in between is retired by the
+  next tick and settles as having run. Only the _same name_ is kept: `none`, or a
+  different name, still takes the animation and its fill away, as before. Found by
+  review (probes P6 and P7) and reproduced before the fix: a finished animation
+  replayed from the start, and a running one resumed from its first frame.
+
 - **The toolchain generates no utilities for the animation properties, and the
   exception is an explicit list.** `animation-direction` and `animation-fill-mode`
   are keyword properties, so the rule that a keyword added to a property gets its

@@ -146,6 +146,10 @@ export interface AppOptions extends Pick<
   /**
    * A theme, over the framework's defaults and under `sheets`.
    *
+   * Source text is parsed as a theme. A `Stylesheet` must already be one -- made by
+   * `parseTheme()`, at origin `theme` -- and anything else throws; so does the same
+   * sheet as both the theme and one of `sheets`. `app.setTheme()` swaps it later.
+   *
    * Ignored where `cascade` is given.
    */
   theme?: Stylesheet | string;
@@ -228,22 +232,32 @@ export interface App {
   /**
    * Swaps the theme under the running app, and the screen follows.
    *
-   * Takes a stylesheet, source text -- parsed at origin `theme`, as the `theme`
-   * option reads it -- or `undefined` for the framework's own defaults. The theme
-   * sheet the runner holds is replaced in place, so what the old one set and the
-   * new one does not is gone rather than left standing, which is why a switcher
-   * needs no reset sheet and no restatement of the defaults. With no theme sheet
-   * yet, setting one adds it, and the origin puts it between the framework's and
-   * the app's wherever it arrives; `undefined` takes it out. Setting the sheet
+   * Takes source text -- parsed as a theme, as the `theme` option reads it -- a
+   * stylesheet already at origin `theme`, which is what `parseTheme()` makes, or
+   * `undefined` for the framework's own defaults. A sheet at any other origin
+   * throws, since the origin is what places it and the same call would otherwise
+   * land in different places depending on whether there was a theme already.
+   *
+   * The theme sheet the runner holds is replaced in place, so what the old one set
+   * and the new one does not is gone rather than left standing, which is why a
+   * switcher needs no reset sheet and no restatement of the defaults. With no theme
+   * sheet yet, setting one adds it, and the origin puts it between the framework's
+   * and the app's wherever it arrives; `undefined` takes it out. Setting the sheet
    * that is already the theme does nothing.
+   *
+   * The runner owns the one sheet it set. If the app took it out of
+   * `app.cascade`, or swapped it for another, a later call adds a new one and
+   * leaves whatever the app put there alone.
    *
    * A source that does not parse throws before anything is swapped, so the old
    * theme stays on screen.
    *
    * @param theme - The new theme, or `undefined` for none.
-   * @throws If the app was given its own `cascade`, because the runner did not
-   *   build it and cannot know which of its sheets is the theme: use
-   *   `app.cascade.replace()` there. Also throws for an app that refused to start.
+   * @throws For an app that refused to start, which has no cascade. For a
+   *   stylesheet not at origin `theme`, or one the cascade already holds as
+   *   another sheet. And if the app was given its own `cascade`, because the runner
+   *   did not build it and cannot know which of its sheets is the theme: use
+   *   `app.cascade.replace()` there.
    */
   setTheme(theme: Stylesheet | string | undefined): void;
   /** The terminal the app is drawing on. */
@@ -265,6 +279,32 @@ export interface App {
  * into a key, so the code the shell would have reported is the one handed back.
  */
 const EXIT_INTERRUPTED = 130;
+
+/**
+ * Reads a theme the way `runApp()` and `setTheme()` both do.
+ *
+ * Source text is `parseTheme()`'s. A parsed sheet must already be a theme, which
+ * is its *origin* being `theme`: the origin is what puts it between the
+ * framework's sheet and the app's, so a sheet parsed at another one would sit
+ * somewhere else depending on whether an app happened to have a theme already --
+ * after the app's sheets when it was added, in the theme's slot when it replaced
+ * one. Refused rather than guessed at, naming the function that makes one.
+ *
+ * @param theme - What the caller gave.
+ * @returns The theme sheet, or `undefined` for none.
+ * @throws For a sheet whose origin is not `theme`.
+ */
+function readTheme(theme: Stylesheet | string | undefined): Stylesheet | undefined {
+  if (typeof theme === 'string') {
+    return parseTheme(theme);
+  }
+  if (theme !== undefined && theme.origin !== 'theme') {
+    throw new Error(
+      `A theme must be a stylesheet at origin "theme", and this one is at "${theme.origin}": make it with parseTheme(css), or hand over the source text`
+    );
+  }
+  return theme;
+}
 
 /** The exit code for stdin ending: 128 plus `SIGHUP`'s 1, a terminal hanging up. */
 const EXIT_HUNG_UP = 129;
@@ -492,25 +532,37 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       return running;
     },
     setTheme(next: Stylesheet | string | undefined): void {
+      // the refusal first: an app that never started has no cascade whatever it
+      // was given, and that is the answer, not a complaint about the option
+      const sheets = app.cascade;
       if (opts.cascade !== undefined) {
         throw new Error(
           'App.setTheme() cannot swap the theme of a cascade passed as the cascade option: the app did not build it and cannot know which of its sheets is the theme. Use app.cascade.replace(old, next) instead'
         );
       }
-      // the app's own cascade, and a refusal's absence of one is said by the getter
-      const sheets = app.cascade;
-      // parsed before anything moves, so a source that fails leaves the old theme
-      // on screen -- the swap below is the only part that can be seen
-      const sheet = typeof next === 'string' ? parseTheme(next) : next;
-      if (sheet === themeSheet) {
+      // read before anything moves, so a source that fails -- or a sheet that is
+      // not a theme -- leaves the old theme on screen
+      const sheet = readTheme(next);
+      // the sheet this app set, if it is still in there. `setTheme()` owns that
+      // one sheet; an app that edited the cascade itself has taken it back, and
+      // then there is nothing here to replace or remove
+      const held = themeSheet !== undefined && sheets.sheets.includes(themeSheet);
+      if (held && sheet === themeSheet) {
         return;
       }
-      if (themeSheet === undefined) {
-        sheets.add(sheet as Stylesheet);
+      if (sheet !== undefined && sheets.sheets.includes(sheet)) {
+        throw new Error(
+          'App.setTheme() was given a stylesheet the cascade already holds as another sheet: a sheet is one theme or one app sheet, because the cascade finds it by identity and would swap both'
+        );
+      }
+      if (!held) {
+        if (sheet !== undefined) {
+          sheets.add(sheet);
+        }
       } else if (sheet === undefined) {
-        sheets.remove(themeSheet);
+        sheets.remove(themeSheet as Stylesheet);
       } else {
-        sheets.replace(themeSheet, sheet);
+        sheets.replace(themeSheet as Stylesheet, sheet);
       }
       themeSheet = sheet;
     },
@@ -591,7 +643,14 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       // parsed here rather than inside `themedCascade()`, which would parse the
       // same text to the same sheet, because `setTheme()` has to be able to hand
       // that very sheet to `replace()` -- a cascade finds a sheet by identity
-      themeSheet = typeof opts.theme === 'string' ? parseTheme(opts.theme) : opts.theme;
+      themeSheet = readTheme(opts.theme);
+      // one sheet, one job: a cascade finds a sheet by identity, so the same
+      // object as the theme and as an app sheet would be swapped out of both
+      if (themeSheet !== undefined && opts.sheets?.includes(themeSheet)) {
+        throw new Error(
+          'runApp() was given the same stylesheet as the theme and as one of sheets: a sheet is one or the other, because setTheme() swaps it by identity'
+        );
+      }
       cascade = themedCascade({
         colorScheme: opts.colorScheme,
         reducedMotion: opts.reducedMotion,

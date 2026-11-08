@@ -5820,7 +5820,7 @@ process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] 
 | ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------- |
 | `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                    |
 | `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                      |
-| `theme`                        | none          | A theme sheet                                                                                      |
+| `theme`                        | none          | A theme: source text, or a sheet from `parseTheme()` (any other origin throws)                     |
 | `cascade`                      | themed        | The whole cascade, in place of the themed one; `app.setTheme()` throws with it                     |
 | `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing |
 | `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                         |
@@ -5831,14 +5831,18 @@ process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] 
 `runApp()` returns an `App`: `exit(code = 0)`, `exited`, `input`, `view` (the
 `Renderer`), `cascade`, `setTheme()`, `terminal`, `interactive` and `running`.
 
-**`app.setTheme(theme)` swaps the theme under the running app.** It takes a
-`Stylesheet`, source text or `undefined` for the framework's defaults, and the
-screen follows on its own: the theme sheet the runner holds is replaced in place,
-so what the old theme set and the new one does not is gone — there is nothing to
-reset and no defaults to restate. Source that does not parse throws before
-anything moves, leaving the old theme on screen. An app given its own `cascade`
-gets a `setTheme()` that throws, because the runner cannot know which of those
-sheets is the theme; swap it there with `app.cascade.replace(old, next)`.
+**`app.setTheme(theme)` swaps the theme under the running app.** It takes source
+text, a `Stylesheet` made by `parseTheme()`, or `undefined` for the framework's
+defaults, and the screen follows on its own: the theme sheet the runner holds is
+replaced in place, so what the old theme set and the new one does not is gone —
+there is nothing to reset and no defaults to restate. A `Stylesheet` at any origin
+but `theme` throws, here and for the `theme` option: the origin is what places a
+sheet, and `parseStylesheet(css)` makes an app one. Source that does not parse
+throws before anything moves, leaving the old theme on screen. `setTheme()` owns
+the one sheet it set: if the app took it out of `app.cascade` itself, the next call
+adds a new one and leaves yours alone. An app given its own `cascade` gets a
+`setTheme()` that throws, because the runner cannot know which of those sheets is
+the theme; swap it there with `app.cascade.replace(old, next)`.
 
 ```js
 import { runApp, useApp } from '@ttylabs/sigil/app';

@@ -10,6 +10,7 @@ import {
   parseStylesheet,
   type PropertyName,
   type Style,
+  type Stylesheet,
 } from '../../src/style/index.js';
 import { describe, expect, it } from 'vitest';
 
@@ -695,6 +696,105 @@ describe('an animation', () => {
     it.touchSheets(0);
     expect(it.active).toBe(true);
     expect(present(it, node, 'left', 50)).toEqual(cells(5));
+  });
+
+  describe('across a @keyframes that is gone for a while', () => {
+    const slide = '@keyframes slide { from { left: 0 } to { left: 100 } }';
+
+    it('should not replay a finished animation when its keyframes come back', () => {
+      // CSS keeps the animation across a missing @keyframes, and `ran` is the
+      // record that stops it playing again. A theme swapped out and back used to
+      // replay every finished one-shot on screen
+      const sheets = cascade(slide, { reducedMotion: 'no-preference' });
+      const it = new Animator<{ name: string }>(sheets);
+      const node = target();
+      const base = declare({
+        animation: 'slide 100ms linear 0s 1 normal forwards',
+        position: 'relative',
+      });
+      it.observe(node, base, 0);
+      expect(present(it, node, 'left', 500)).toEqual(cells(100));
+      expect(it.active).toBe(false);
+
+      const only = sheets.sheets[0] as Stylesheet;
+      sheets.remove(only);
+      it.touchSheets(510);
+      // no effect and no fill while the name resolves to nothing
+      expect(present(it, node, 'left', 510)).toBeUndefined();
+      expect(it.active).toBe(false);
+
+      sheets.add(only);
+      it.touchSheets(520);
+      // the fill is back, and it did not play again
+      expect(present(it, node, 'left', 520)).toEqual(cells(100));
+      expect(it.active).toBe(false);
+      expect(present(it, node, 'left', 560)).toEqual(cells(100));
+    });
+
+    it('should carry a running animation on its own clock when its keyframes come back', () => {
+      const sheets = cascade(slide, { reducedMotion: 'no-preference' });
+      const it = new Animator<{ name: string }>(sheets);
+      const node = target();
+      const base = declare({ animation: 'slide 100ms linear 3', position: 'relative' });
+      it.observe(node, base, 0);
+      expect(present(it, node, 'left', 150)).toEqual(cells(50));
+
+      const only = sheets.sheets[0] as Stylesheet;
+      sheets.remove(only);
+      it.touchSheets(160);
+      expect(present(it, node, 'left', 160)).toBeUndefined();
+      // nothing to present, so nothing to wake for
+      expect(it.active).toBe(false);
+
+      sheets.add(only);
+      it.touchSheets(180);
+      // started at 0, so 180ms in is 80% through its second iteration -- not 0
+      expect(present(it, node, 'left', 180)).toEqual(cells(80));
+      expect(it.active).toBe(true);
+    });
+
+    it('should settle a finite animation that ran out while its keyframes were gone', () => {
+      const sheets = cascade(slide, { reducedMotion: 'no-preference' });
+      const it = new Animator<{ name: string }>(sheets);
+      const node = target();
+      const base = declare({
+        animation: 'slide 100ms linear 0s 1 normal forwards',
+        position: 'relative',
+      });
+      it.observe(node, base, 0);
+      present(it, node, 'left', 50);
+
+      const only = sheets.sheets[0] as Stylesheet;
+      sheets.remove(only);
+      it.touchSheets(60);
+      sheets.add(only);
+      // back after its end: it finished meanwhile, so it holds its fill and is done
+      it.touchSheets(900);
+      expect(present(it, node, 'left', 900)).toEqual(cells(100));
+      expect(it.active).toBe(false);
+      expect(present(it, node, 'left', 950)).toEqual(cells(100));
+    });
+
+    it('should still drop an animation for a name that is no longer the element’s', () => {
+      const sheets = cascade(slide, { reducedMotion: 'no-preference' });
+      const it = new Animator<{ name: string }>(sheets);
+      const node = target();
+      const base = {
+        animation: 'slide 100ms linear 0s 1 normal forwards',
+        position: 'relative',
+      };
+      it.observe(node, declare(base), 0);
+      present(it, node, 'left', 500);
+
+      // `none` takes the fill away, as it always did
+      it.observe(node, declare({ ...base, animation: 'none' }), 600);
+      expect(present(it, node, 'left', 600)).toBeUndefined();
+
+      // and so does a name that resolves to nothing, then is declared again later:
+      // it was never the same animation
+      it.observe(node, declare(base), 700);
+      expect(present(it, node, 'left', 750)).toEqual(cells(50));
+    });
   });
 
   it('should recompute a fill a sheet made stale', () => {

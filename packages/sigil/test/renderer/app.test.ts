@@ -3,7 +3,7 @@ import { box, type Element, text } from '../../src/element/index.js';
 import { type App, AppContext, runApp, useApp } from '../../src/renderer/app.js';
 import { createEffect, onCleanup, onMount, useContext } from '../../src/renderer/index.js';
 import { State } from '../../src/signals/index.js';
-import { Cascade } from '../../src/style/index.js';
+import { Cascade, parseStylesheet } from '../../src/style/index.js';
 import { createTestTerminal, ctrl, KEYS, tick } from '../../src/testing/index.js';
 import { parseTheme } from '../../src/theme/index.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -980,6 +980,124 @@ describe('app.setTheme()', () => {
     app.setTheme('.sigil-accent { color: blue }');
     await frames();
     expect(accent.style.color).toBe(4);
+  });
+
+  it('should refuse a stylesheet that is not at origin theme, whatever the app already has', () => {
+    // two histories that used to answer differently: with no theme yet it was added
+    // after the app's sheets, and with one it replaced into the theme's slot
+    for (const theme of [undefined, '.sigil-accent { color: green }']) {
+      const { app } = two({ theme });
+      const sheets = [...app.cascade.sheets];
+      expect(() => app.setTheme(parseStylesheet('.sigil-accent { color: red }'))).toThrow(
+        /parseTheme\(/
+      );
+      expect(() =>
+        app.setTheme(parseStylesheet('.sigil-accent { color: red }', { origin: 'framework' }))
+      ).toThrow(/origin "theme".*"framework"/);
+      expect(app.cascade.sheets).toEqual(sheets);
+    }
+  });
+
+  it('should refuse a theme option that is not at origin theme, and leave nothing running', () => {
+    const term = createTestTerminal({ columns: 30, rows: 6 });
+    expect(() =>
+      runApp(() => text('x'), {
+        detect: false,
+        terminal: term.terminal,
+        theme: parseStylesheet('.sigil-accent { color: red }'),
+      })
+    ).toThrow(/parseTheme\(/);
+    expect(term.screen.alternate).toBe(false);
+    expect(term.stdin.rawMode).toBe(false);
+    // and a theme at the right origin is taken as it always was
+    const { app } = two({ theme: parseTheme('.sigil-accent { color: red }') });
+    expect(app.cascade.sheets.map((sheet) => sheet.origin)).toEqual([
+      'framework',
+      'theme',
+      'app',
+      'app',
+    ]);
+  });
+
+  it('should put the new theme in the old one’s turn, not at the end of its origin', async () => {
+    // a second sheet at origin theme, added after the first. At equal specificity
+    // the later one wins, so a theme swapped in by `remove()` and `add()` would
+    // jump over it, where `replace()` leaves it winning
+    const { accent, app } = two({ theme: '.sigil-accent { color: green }' });
+    app.cascade.add(parseTheme('.sigil-accent { color: red }'));
+    await frames();
+    expect(accent.style.color).toBe(1);
+
+    app.setTheme('.sigil-accent { color: blue }');
+    await frames();
+    expect(accent.style.color).toBe(1);
+    expect(app.cascade.sheets.map((sheet) => sheet.origin)).toEqual([
+      'framework',
+      'theme',
+      'app',
+      'app',
+      'theme',
+    ]);
+  });
+
+  it('should add rather than replace once the app took its theme out of the cascade', async () => {
+    const theme = parseTheme('.sigil-accent { color: green }');
+    const { accent, app } = two({ theme });
+    app.cascade.remove(theme);
+    await frames();
+    expect(accent.style.color).toBe(6);
+
+    // `setTheme()` owns the sheet it set, and that one is gone: this is an add
+    app.setTheme('.sigil-accent { color: blue }');
+    await frames();
+    expect(accent.style.color).toBe(4);
+    app.setTheme(undefined);
+    await frames();
+    expect(accent.style.color).toBe(6);
+  });
+
+  it('should leave a sheet the app swapped in itself to the app', async () => {
+    const theme = parseTheme('.sigil-accent { color: green }');
+    const { accent, app } = two({ theme });
+    const mine = parseTheme('.sigil-accent { color: magenta }');
+    app.cascade.replace(theme, mine);
+
+    // not the sheet it set any more, so it neither replaces nor removes it
+    app.setTheme('.sigil-accent { color: blue }');
+    await frames();
+    expect(app.cascade.sheets).toContain(mine);
+    app.setTheme(undefined);
+    await frames();
+    expect(app.cascade.sheets).toContain(mine);
+    expect(app.cascade.sheets.filter((sheet) => sheet.origin === 'theme')).toEqual([mine]);
+    expect(accent.style.color).toBe(5);
+  });
+
+  it('should refuse one stylesheet as both the theme and an app sheet', () => {
+    const shared = parseTheme('.sigil-accent { color: green }');
+    const term = createTestTerminal({ columns: 30, rows: 6 });
+    expect(() =>
+      runApp(() => text('x'), {
+        detect: false,
+        sheets: [shared],
+        terminal: term.terminal,
+        theme: shared,
+      })
+    ).toThrow(/same stylesheet/);
+    expect(term.screen.alternate).toBe(false);
+
+    // and the same from the other side: a sheet the cascade already holds
+    const { app } = two({ sheets: [shared] });
+    expect(() => app.setTheme(shared)).toThrow(/already holds/);
+    expect(app.cascade.sheets.filter((sheet) => sheet === shared)).toHaveLength(1);
+  });
+
+  it('should answer for a refused app with the refusal, whatever cascade it was given', async () => {
+    const term = createTestTerminal({ isTTY: false });
+    const app = runApp(() => text('x'), { cascade: new Cascade(), terminal: term.terminal });
+    expect(await app.exited).toBe(1);
+    expect(() => app.setTheme('.sigil-accent { color: red }')).toThrow(/refused/);
+    expect(() => app.setTheme('.sigil-accent { color: red }')).not.toThrow(/cascade option/);
   });
 
   it('should do nothing for the sheet that is already the theme', () => {

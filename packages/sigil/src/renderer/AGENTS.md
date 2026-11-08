@@ -980,11 +980,14 @@ it.
   and throws before swapping if the source does not parse. It **throws where the
   app was given its own `cascade`**, saying to use `cascade.replace()`, because the
   runner cannot know which sheet of a cascade it did not build is the theme. A
-  refused app has neither, and both throw naming the refusal as `view` does. The
+  refused app has neither, and both throw naming the refusal as `view` does --
+  before the `cascade` option is looked at, because a refused app has no cascade
+  whatever it was given. The
   theme sheet is parsed in `runApp()` and handed to `themedCascade()` as a sheet,
   because a cascade finds a sheet by identity and the one `themedCascade()` parsed
   for itself would not be findable. `src/theme`'s "Switching a theme at runtime"
-  has the semantics; the system monitor's `t` is `app.setTheme()` and no longer
+  has the semantics, including that a sheet not at origin `theme` is refused; the
+  system monitor's `t` is `app.setTheme()` and no longer
   scopes its themes under a class on the host.
 - **Resize is not something the runner owns.** The renderer re-matches and re-lays
   out on a resize already, and the full-screen backend follows the screen by
