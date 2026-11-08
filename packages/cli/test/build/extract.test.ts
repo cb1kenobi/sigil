@@ -415,8 +415,11 @@ describe('extracting a command module', () => {
     // SIG-316. A module is read after argv matched the name it is routed by,
     // so none of these can route anything. Only said when the caller knows the
     // module is routed, and only for what differs from the route
-    const routing = (body: string, route = 'list') =>
-      extractCommand('list.js', `export default { ${body} };`, route).routing;
+    const routing = (
+      body: string,
+      route = 'list',
+      rest: { default?: boolean; index?: boolean } = {}
+    ) => extractCommand('list.js', `export default { ${body} };`, { name: route, ...rest }).routing;
 
     it('should say nothing when it was not told what routes to the module', () => {
       const { routing: none } = extractCommand('a.js', `export default { name: 'a, b' };`);
@@ -469,9 +472,42 @@ describe('extracting a command module', () => {
     });
 
     it('should keep them out of the diagnostics a placeholder description silences', () => {
-      const result = extractCommand('a.js', `export default { alias: 'ls' };`, 'a');
+      const result = extractCommand('a.js', `export default { alias: 'ls' };`, { name: 'a' });
       expect(result.diagnostics).to.deep.equal([]);
       expect(result.routing).to.have.lengthOf(1);
+    });
+
+    it('should treat an explicit undefined as not declared, the way the runtime does', () => {
+      // `placeholderRouting()` reads these as absent, and a warning about a
+      // declaration the runtime does not see is a false one
+      expect(routing(`name: undefined`)).to.deep.equal([]);
+      expect(routing(`alias: undefined`)).to.deep.equal([]);
+      expect(routing(`default: undefined`)).to.deep.equal([]);
+      expect(routing(`name: void 0, alias: void 0`)).to.deep.equal([]);
+    });
+
+    it('should say nothing when the placeholder declares the default too', () => {
+      expect(routing(`default: true`, 'list', { default: true })).to.deep.equal([]);
+      expect(routing(`default: true`, 'list', { default: false })).to.have.lengthOf(1);
+      // a value this cannot read does not repeat anything
+      expect(routing(`default: flag`, 'list', { default: true })).to.have.lengthOf(1);
+    });
+
+    it('should say a spelling written twice once, in the message and in the example', () => {
+      const [alias] = routing(`alias: ['ls', 'ls']`);
+      expect(alias?.message).toContain('declares "ls", which');
+      expect(alias?.message).toContain("commands: { 'list, ls': ");
+      const [name] = routing(`name: 'list, ls, ls'`);
+      expect(name?.message).toContain('declares "ls", which');
+    });
+
+    it('should name the directory in the advice for an index module', () => {
+      // a key pointed at `db/index.ts` is one command with no subcommands, so
+      // `database migrate` stops working; pointed at `./db` it keeps them
+      const [first, second] = routing(`alias: 'database', default: true`, 'db', { index: true });
+      expect(first?.message).toContain("commands: { 'db, database': './path/to/this-directory' }");
+      expect(second?.message).toContain("path: './path/to/this-directory'");
+      expect(routing(`alias: 'database'`, 'db')[0]?.message).toContain('./path/to/this-file');
     });
   });
 });

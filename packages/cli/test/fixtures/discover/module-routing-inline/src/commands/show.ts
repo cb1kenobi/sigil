@@ -1,1 +1,1 @@
-export default { alias: 'sh', desc: 'Show it', run() {} };
+export default { alias: 'sh', default: true, desc: 'Show it', run() {} };

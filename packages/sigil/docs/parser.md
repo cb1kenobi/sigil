@@ -521,12 +521,24 @@ answers to `list` and to nothing else: `mycli ls` is `Unexpected argument "ls"`,
 in a directory walk, behind a `path`, behind a `load` and in a directory's
 `index` module alike, from source and after `sigil build`. A module's `default`
 is read after the module loads, by which time the command was already matched
-by name, so `default: true` there does nothing either.
+by name, so `default: true` there does nothing either. The exception is a
+**package** a schema points at by `path`: it is imported when the schema is
+built and names itself, so from source its own `name` and `alias` do route.
 
 Help only publishes what routes, so the `Alias:` block, the `Commands:` list,
 the completion menu and the markdown reference leave out a spelling that exists
-only inside a module. `sigil check` and `sigil build` warn about each one, naming
-the file. Declare the spelling where the route is declared:
+only inside a module. Two things still print a name that does not route, and
+neither is changed here: a `subcommandLoaded` hook's replacement brings its own
+label, because it is the parent's code and not a module, and a module that
+renames the command (`name: 'show'` under the key `list`) lists the placeholder's
+spellings but its usage line still names `show`.
+
+`sigil check` and `sigil build` warn about a name, an alias or a `default: true`
+a module declares that its route does not already say, naming the file. They
+read the modules of a directory walk and the ones a schema points at by `path`
+or `load`; they do not read a package a walk finds, or the routes under a
+directory a schema points at by key. Declare the spelling where the route is
+declared:
 
 ```js
 const schema = {

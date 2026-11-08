@@ -237,27 +237,47 @@ makes it testable with a fixture directory and no bundler at all.
   walked route, a route one level down, a directory's `index`, a declared `path`
   and a `load`. A `default: true` in a module is the silent twin: it is read after
   the module loads, by which time the command was matched by name, so it does
-  nothing and says nothing. Help leaves the spelling out (see "A routed module's
-  name string does not route" in `packages/sigil/src/help/AGENTS.md`); this is the
+  nothing and says nothing. Help leaves the spelling out (see "The help label is the
+  name string's", its last paragraph, in `packages/sigil/src/help/AGENTS.md`); this is the
   half that tells the author, in the file.
 
-  `factsOf(parsed, route)` takes what routes to the module and returns the
-  warnings in `Extracted.routing`, **apart from `diagnostics`**, and the reason is
-  who can silence them. `moduleFacts()` drops a module's `diagnostics` when the
-  placeholder already declares a `desc`, because those are about what help shows
-  before the module loads and the placeholder answered that. A module's `alias`
-  does not start to route because the placeholder has a `desc`, so these are never
-  dropped. `route` is the file or directory name of a walked route, and for a
-  schema entry the placeholder's name string with its `alias` property joined on:
-  everything argv matches before the module is read. Only what **differs** from it
-  is reported -- `name: 'list'` in `list.ts` repeats the route and says nothing
-  wrong, and a warning that fires on correct code teaches people to ignore
-  warnings -- compared as spellings, so a `!` or `@` prefix and an inline
-  `<argument>` do not count, and `default: false` is not `default: true`. A value
-  the source does not hold (`name: spelling()`, `alias: names`, `default: flag`)
-  is reported too, since nothing says it matches. A caller that does not say what
-  routes gets no warning, which is `extractCommand()` without a `route`, and a tree resolved with
-  `facts: false`.
+  `factsOf(parsed, routedBy)` takes how the module is reached (`RoutedBy`) and
+  returns the warnings in `Extracted.routing`, **apart from `diagnostics`**, and
+  the reason is who can silence them. `moduleFacts()` drops a module's
+  `diagnostics` when the placeholder already declares a `desc`, because those are
+  about what help shows before the module loads and the placeholder answered that.
+  A module's `alias` does not start to route because the placeholder has a `desc`,
+  so these are never dropped. `RoutedBy.name` is the file or directory name of a
+  walked route, and for a schema entry the placeholder's name string with its
+  `alias` property joined on: everything argv matches before the module is read.
+  Only what **differs** from it is reported -- `name: 'list'` in `list.ts` repeats
+  the route and says nothing wrong, `default: true` repeats a placeholder that
+  says it too (`RoutedBy.default`), and a warning that fires on correct code
+  teaches people to ignore warnings -- compared as spellings, so a `!` or `@`
+  prefix and an inline `<argument>` do not count, a spelling written twice is one,
+  and `default: false` is not `default: true`. A property written as `undefined`
+  is not declared, as `placeholderRouting()` and the runtime read it, and shares
+  that helper (`isUndefined()` in `literals.ts`). A value the source does not hold
+  (`name: spelling()`, `alias: names`, `default: flag`) is reported, since nothing
+  says it matches. A caller that does not say how the module is reached gets no
+  warning, which is `extractCommand()` without a `routedBy`, and a tree resolved
+  with `facts: false`.
+
+  **Two places say nothing on purpose, and one is a different bug.** A **package a
+  schema points at by `path`** (`commands: { foo: './pkg' }`) is imported when the
+  schema is built and names itself, so from source its module's own `name` and
+  `alias` are what route and the key is not: warning there is wrong, and following
+  the advice loses the spellings that work. `routedByPlaceholder()` in
+  `discover.ts` returns nothing for it. A built app routes the other way round --
+  the key `foo`, and not the package's names -- so source and build disagree about
+  what a package is called. That predates SIG-316 and is not settled here. And a
+  **directory's `index` module** gets advice that names the _directory_
+  (`RoutedBy.index`): pointing a key at `db/index.ts` is one command with none of
+  `db`'s subcommands, so `database migrate` would stop working. What is **not
+  checked at all**: a package a directory walk finds (`tree.ts` takes its
+  description from the manifest and does not read the module), and the routes under
+  a directory a schema points at by key (`dd: './commands/dd'`; the build reads
+  its `index` and not what is beside it).
 
   The advice is one sentence, `DECLARE_ON_THE_ROUTE` in `extract.ts`, and it says
   to declare the spelling on the schema key that routes the module

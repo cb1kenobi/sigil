@@ -64,6 +64,7 @@
 import type { Diagnostic } from './diagnostic.ts';
 import { translatedKey } from './i18n.ts';
 import {
+  isUndefined,
   literalBoolean,
   literalString,
   objectLiteral,
@@ -116,6 +117,27 @@ export interface Extracted {
   readonly routing: readonly Diagnostic[];
 }
 
+/** What a caller knows about how a module is reached, for `factsOf()`. */
+export interface RoutedBy {
+  /**
+   * Whether the placeholder already declares `default: true`, in which case the
+   * module repeating it says nothing wrong.
+   */
+  readonly default?: boolean;
+  /**
+   * Whether the module is a directory's `index`, so that the advice names the
+   * directory. Pointing a key at the `index` file makes it one command with no
+   * subcommands, which loses everything else in the directory.
+   */
+  readonly index?: boolean;
+  /**
+   * What routes to it, as written: the file or directory name of a walked
+   * route, or the name string of the placeholder that points at it with its
+   * `alias` joined on.
+   */
+  readonly name: string;
+}
+
 /** The keys this lifts, so the set is one list rather than several checks. */
 const LIFTED = ['desc', 'hidden'] as const;
 
@@ -124,13 +146,13 @@ const LIFTED = ['desc', 'hidden'] as const;
  *
  * @param file - Where the source came from; its extension decides TypeScript.
  * @param source - The module's source.
- * @param route - What routes to it, as `factsOf()` takes it.
+ * @param routedBy - How it is reached, as `factsOf()` takes it.
  * @returns Its facts and every diagnostic reading it produced.
  * @throws If the source does not parse. A file that is not a module is not a
  *   thing to warn about and carry on from.
  */
-export function extractCommand(file: string, source: string, route?: string): Extracted {
-  return factsOf(parseModule(file, source), route);
+export function extractCommand(file: string, source: string, routedBy?: RoutedBy): Extracted {
+  return factsOf(parseModule(file, source), routedBy);
 }
 
 /**
@@ -142,15 +164,15 @@ export function extractCommand(file: string, source: string, route?: string): Ex
  * it.
  *
  * @param parsed - The module.
- * @param route - What routes to it, as written: the file or directory name of
- *   a walked route, or the key of a `commands` entry. Given by a caller that
- *   knows the module is *routed*, which turns on the warning for what such a
- *   module declares that cannot route -- see `unroutable()`. Omitted by a
- *   caller reading a module for its facts alone, which has nothing to say about
- *   how it was reached.
+ * @param routedBy - How the module is reached. Given by a caller that knows it
+ *   is *routed*, which turns on the warning for what such a module declares
+ *   that cannot route -- see `unroutable()`. Omitted by a caller reading a
+ *   module for its facts alone, which has nothing to say about how it was
+ *   reached, and by one whose module names itself: a package a schema points
+ *   at is imported when the schema is built, so its own `name` is what routes.
  * @returns Its facts and every diagnostic reading it produced.
  */
-export function factsOf(parsed: ParsedModule, route?: string): Extracted {
+export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
   const diagnostics: Diagnostic[] = [];
   const at = (offset?: number) => locate(parsed, offset);
 
@@ -245,7 +267,7 @@ export function factsOf(parsed: ParsedModule, route?: string): Extracted {
   return {
     diagnostics,
     facts,
-    routing: route === undefined ? [] : unroutable(parsed, object, route),
+    routing: routedBy === undefined ? [] : unroutable(parsed, object, routedBy),
   };
 }
 
@@ -294,33 +316,47 @@ function spellingsOf(name: string): string[] {
  *
  * @param parsed - The module.
  * @param object - Its default-exported command.
- * @param route - What routes to it, as written.
+ * @param routedBy - How it is reached.
  * @returns A warning per declaration that cannot take effect.
  */
-function unroutable(parsed: ParsedModule, object: ObjectExpression, route: string): Diagnostic[] {
+function unroutable(
+  parsed: ParsedModule,
+  object: ObjectExpression,
+  routedBy: RoutedBy
+): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
+  const route = routedBy.name;
   const routed = new Set(spellingsOf(route));
+  const target = routedBy.index ? './path/to/this-directory' : './path/to/this-file';
   const warn = (start: number, message: string) =>
     diagnostics.push({ ...locate(parsed, start), message, severity: 'warning' });
+  /** The property, unless it is absent or `undefined`, which the runtime reads as absent. */
+  const declared = (key: string) => {
+    const property = plainProperty(object, key);
+    return property && !isUndefined(property.value) ? property : undefined;
+  };
+  /** Spellings written twice are one spelling, and are said once. */
+  const quoted = (spellings: readonly string[]) =>
+    [...new Set(spellings)].map((spelling) => `"${spelling}"`).join(', ');
 
-  const name = plainProperty(object, 'name');
+  const name = declared('name');
   if (name) {
     const written = literalString(name.value);
     const extra = written === undefined ? [] : spellingsOf(written).filter((s) => !routed.has(s));
     if (written === undefined || extra.length > 0) {
-      const example = [...routed, ...extra].join(', ');
+      const example = [...new Set([...routed, ...extra])].join(', ');
       warn(
         name.start,
         written === undefined
           ? `"name" is computed, so nothing says it matches "${route}", the name this module is routed by; a name in a routed module has no effect on routing, ` +
               `so ${DECLARE_ON_THE_ROUTE}`
-          : `"name" declares ${extra.map((s) => `"${s}"`).join(', ')}, which does not route: this module is loaded only after argv has matched "${route}", ` +
-              `so a name in it has no effect and help leaves it out; ${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${example}': './path/to/this-file' }\``
+          : `"name" declares ${quoted(extra)}, which does not route: this module is loaded only after argv has matched "${route}", ` +
+              `so a name in it has no effect and help leaves it out; ${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${example}': '${target}' }\``
       );
     }
   }
 
-  const alias = plainProperty(object, 'alias');
+  const alias = declared('alias');
   if (alias) {
     const written = stringList(alias.value);
     const extra =
@@ -328,20 +364,26 @@ function unroutable(parsed: ParsedModule, object: ObjectExpression, route: strin
     if (written.kind !== 'strings' || extra.length > 0) {
       warn(
         alias.start,
-        `"alias" ${written.kind === 'strings' ? `declares ${extra.map((s) => `"${s}"`).join(', ')}` : 'is not a list of strings written down'}, ` +
+        `"alias" ${written.kind === 'strings' ? `declares ${quoted(extra)}` : 'is not a list of strings written down'}, ` +
           `which does not route: this module is loaded only after argv has matched "${route}", so an alias in it has no effect; ` +
-          `${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${[...routed, ...extra].join(', ')}': './path/to/this-file' }\``
+          `${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${[...new Set([...routed, ...extra])].join(', ')}': '${target}' }\``
       );
     }
   }
 
-  const fallback = plainProperty(object, 'default');
-  if (fallback && literalBoolean(fallback.value) !== false) {
+  // `default: true` on a placeholder that already says so is the module
+  // repeating the route, as a name equal to it is
+  const fallback = declared('default');
+  if (
+    fallback &&
+    literalBoolean(fallback.value) !== false &&
+    !(routedBy.default && literalBoolean(fallback.value) === true)
+  ) {
     warn(
       fallback.start,
       `"default" has no effect here: this module is read only after argv has matched "${route}", ` +
         `so it cannot make the command the default; ${DECLARE_ON_THE_ROUTE}, such as ` +
-        `\`commands: { '${route}': { default: true, path: './path/to/this-file' } }\``
+        `\`commands: { '${route}': { default: true, path: '${target}' } }\``
     );
   }
 

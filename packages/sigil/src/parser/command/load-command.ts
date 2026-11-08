@@ -274,7 +274,8 @@ export async function loadCommand(
     // is the one thing that routed, so its label is the one that is published.
     // The module's spellings still register (below), which is what settles a
     // shared one by declaration order; they are just not advertised. See
-    // "A routed module's name string does not route" in `src/help/AGENTS.md`
+    // "The help label is the name string's" (its last paragraph) in
+    // `src/help/AGENTS.md`
     loaded[Internal].label = internal.label;
 
     // a module's own aliases are only known now, so an alias that takes a

@@ -6,9 +6,15 @@ export default {
   commands: {
     // the module's name string repeats the key's: nothing to say
     'list, ls': './commands/list.ts',
-    // the placeholder declares the alias, so the module repeating it says
-    // nothing wrong
+    // the placeholder declares the alias and the default, so the module
+    // repeating them says nothing wrong
     show: { alias: 'sh', default: true, path: './commands/show.ts' },
+    // `undefined` is not a declaration
+    und: './commands/und.ts',
+    // a package names itself, so there is nothing to say about its names
+    pkg: './pkg',
+    // a directory with an `index`: the advice has to keep its subcommands
+    dd: './commands/dd',
     // and here the module is the only one saying it
     open: { desc: 'Open it', path: './commands/open.ts' },
   },

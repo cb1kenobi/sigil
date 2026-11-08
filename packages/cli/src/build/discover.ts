@@ -39,8 +39,9 @@
  */
 
 import { type Diagnostic, displayPath } from './diagnostic.ts';
-import { factsOf } from './extract.ts';
+import { factsOf, type RoutedBy } from './extract.ts';
 import {
+  isUndefined,
   isWrongType,
   literalBoolean,
   literalString,
@@ -51,12 +52,12 @@ import {
   plainProperty,
   propertyKey,
   stringList,
-  unwrapShallow,
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
+import { readPackage } from '@ttylabs/sigil/routes';
 import { readFileSync, statSync } from 'node:fs';
-import nodePath, { dirname, isAbsolute, join, resolve } from 'node:path';
+import nodePath, { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Expression, ObjectExpression } from 'oxc-parser';
 
 /**
@@ -596,10 +597,20 @@ function readCommand(
   // as one command however many files sit behind it
   const asPath = literalString(value);
   if (asPath !== undefined) {
+    const module = resolveSpecifier(from, asPath);
     return {
       commands: [],
       kind: 'inline',
-      ...moduleFacts(resolveSpecifier(from, asPath), asPath, name, parsed, diagnostics, value),
+      ...moduleFacts(
+        module,
+        asPath,
+        name,
+        parsed,
+        diagnostics,
+        value,
+        false,
+        routedByPlaceholder(from, asPath, module, true, name)
+      ),
       name,
     };
   }
@@ -629,15 +640,23 @@ function readCommand(
   // `hidden` the module computes is what the `!` name prefix is for
   const described = declaredDesc !== undefined && literalString(declaredDesc.value) !== undefined;
 
+  const module = specifier ? resolveSpecifier(from, specifier) : undefined;
   const facts = moduleFacts(
-    specifier ? resolveSpecifier(from, specifier) : undefined,
+    module,
     specifier,
     name,
     parsed,
     diagnostics,
     value,
     described,
-    [named, ...(routing.alias ?? [])].join(', ')
+    routedByPlaceholder(
+      from,
+      specifier,
+      module,
+      plainProperty(object, 'path') !== undefined,
+      [named, ...(routing.alias ?? [])].join(', '),
+      routing.default === true
+    )
   );
 
   return {
@@ -802,18 +821,6 @@ function placeholderName(
 }
 
 /**
- * Whether a node is `undefined`, which the runtime reads as not declared:
- * the identifier, or `void` over anything, which is how a minifier spells it.
- */
-function isUndefined(node: Expression): boolean {
-  const value = unwrapShallow(node);
-  return (
-    (value.type === 'Identifier' && value.name === 'undefined') ||
-    (value.type === 'UnaryExpression' && value.operator === 'void')
-  );
-}
-
-/**
  * What a placeholder declares that a built app does not carry.
  *
  * The runtime reads **every** property off a placeholder -- `initCommand()`
@@ -945,6 +952,72 @@ function moduleSpecifier(object: ObjectExpression): string | undefined {
 }
 
 /**
+ * How a placeholder reaches its module, for the warning about what a module
+ * declares that cannot route.
+ *
+ * Nothing for a **package** the schema points at by `path`: the runtime imports
+ * it when the schema is built, because a package names itself, so its module's
+ * own `name` and `alias` are what route from source and the key is not. Warning
+ * there is wrong, and following the warning's advice would lose the spellings
+ * that work. A built app routes the other way round (the key, and not the
+ * package's names), which is a divergence that predates the warning and is not
+ * this function's to settle.
+ *
+ * `index` is whether the specifier named a directory that resolved to its
+ * `index` module. The advice then has to name the directory: a key pointed at
+ * the `index` file is one command with none of the directory's subcommands.
+ *
+ * @param from - What the specifier is relative to.
+ * @param specifier - What the command declared its module by.
+ * @param module - The file it resolved to.
+ * @param path - Whether it was declared by `path`; a `load` is a function and is
+ *   never registered as a package.
+ * @param name - Every spelling the placeholder is routed by, as a name string.
+ * @param defaulted - Whether the placeholder declares `default: true`.
+ * @returns How it is reached, or nothing where the module names itself.
+ */
+function routedByPlaceholder(
+  from: string,
+  specifier: string | undefined,
+  module: string | undefined,
+  path: boolean,
+  name: string,
+  defaulted = false
+): RoutedBy | undefined {
+  if (specifier === undefined || module === undefined) {
+    return undefined;
+  }
+
+  const target = isAbsolute(specifier) ? specifier : resolve(from, specifier);
+
+  if (path && isPackage(target)) {
+    return undefined;
+  }
+
+  return {
+    default: defaulted,
+    index:
+      /^index\.[cm]?[jt]sx?$/.test(basename(module)) && !/(^|[\\/])index\.[^\\/]*$/.test(specifier),
+    name,
+  };
+}
+
+/**
+ * Whether a directory is a package, as the runtime decides it.
+ *
+ * A manifest that does not parse is the runtime's own error to raise when it is
+ * imported; here it only means there is nothing safe to say, so it is not a
+ * package and the module is checked like any other.
+ */
+function isPackage(dir: string): boolean {
+  try {
+    return readPackage(dir) !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * What a command's module says about itself, when there is one to read.
  *
  * @param module - The resolved path, if it resolved.
@@ -954,9 +1027,9 @@ function moduleSpecifier(object: ObjectExpression): string | undefined {
  * @param diagnostics - Where to report.
  * @param at_ - The node to point at.
  * @param described - Whether the placeholder already said what help shows.
- * @param route - Every spelling the placeholder is routed by, as a name string:
- *   what a name, an alias or a default inside the module is compared with.
- *   Defaults to `name`, which is what a command declared as a bare path has.
+ * @param routedBy - How the placeholder reaches the module, which is what a
+ *   name, an alias or a default inside it is compared with; absent where the
+ *   module names itself, which is a package. See `routedByPlaceholder()`.
  * @returns Its facts and its module.
  */
 function moduleFacts(
@@ -966,8 +1039,8 @@ function moduleFacts(
   parsed: ParsedModule,
   diagnostics: Diagnostic[],
   at_: { start: number },
-  described = false,
-  route = name
+  described: boolean,
+  routedBy: RoutedBy | undefined
 ): { desc?: string; hidden?: boolean; module?: string } {
   if (!module) {
     if (specifier) {
@@ -983,7 +1056,7 @@ function moduleFacts(
   // the module the schema points at is a command module like any other, so it
   // is read the same way -- which is what makes `check` check the commands
   // rather than only the tree above them
-  const read = factsOf(parseModule(module, readFileSync(module, 'utf-8')), route);
+  const read = factsOf(parseModule(module, readFileSync(module, 'utf-8')), routedBy);
 
   // an `error` is the module being unusable rather than merely unreadable -- no
   // default export at all -- and that is worth saying however well the

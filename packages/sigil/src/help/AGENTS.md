@@ -316,8 +316,8 @@ the entry it belongs to.
   decision was to leave help alone from routing rather than teach routing to read
   a module: a level's walk would have to import every module to learn its names,
   which is what the deferral exists to avoid. `sigil check` and `sigil build` warn
-  about the declaration instead (`packages/cli/AGENTS.md`, "...and a module that
-  declares one is warned about"), and SIG-324 is the real fix.
+  about the declaration instead (`packages/cli/AGENTS.md`, the entry that begins
+  "...and a module that declares one is warned about"), and SIG-324 is the real fix.
 
   Three consequences, none of them new defects. A module that renames the command
   to something else (`name: 'show'` under the key `list`) lists the placeholder's

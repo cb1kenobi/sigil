@@ -295,6 +295,8 @@ describe('sigil check', () => {
       expect(index).toHaveLength(2);
       expect(index[0]).toContain('"alias" declares "database", which does not route');
       expect(index[1]).toContain('"default" has no effect here');
+      // pointing a key at `db/index.ts` would lose `db migrate`
+      expect(index[0]).toContain("commands: { 'db, database': './path/to/this-directory' }");
     });
 
     it('should say nothing where a module repeats the name it is routed by', async () => {
@@ -317,6 +319,34 @@ describe('sigil check', () => {
       expect(found.join('\n')).toContain("commands: { 'open, op': ");
       // `list` repeats its key and `show` repeats the alias its placeholder holds
       expect(err).not.toContain('src/commands/list.ts');
+      expect(err).not.toContain('src/commands/show.ts');
+    });
+  });
+
+  describe("a routed module's own names, where the advice would make things worse", () => {
+    const inline = join(fixtures, 'discover', 'module-routing-inline');
+
+    it('should say nothing about a package the schema points at, which names itself', async () => {
+      // imported when the schema is built, so from source its own `name` and
+      // `alias` route and the key does not: following the advice would lose the
+      // spellings that work
+      const { err } = await sigil('check', inline);
+
+      expect(err).not.toContain('src/pkg/index.js');
+    });
+
+    it("should name the directory, not its index file, in a directory's advice", async () => {
+      // pointing a key at `dd/index.ts` is one command with no `sub`
+      const { err } = await sigil('check', inline);
+      const [dd] = err.split('\n').filter((line) => line.startsWith('src/commands/dd/index.ts:'));
+
+      expect(dd).toContain("commands: { 'dd, d2': './path/to/this-directory' }");
+    });
+
+    it('should treat undefined as not declared, and a repeated default as repeated', async () => {
+      const { err } = await sigil('check', inline);
+
+      expect(err).not.toContain('src/commands/und.ts');
       expect(err).not.toContain('src/commands/show.ts');
     });
   });
