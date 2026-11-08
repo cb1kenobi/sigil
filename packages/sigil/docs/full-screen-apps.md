@@ -270,4 +270,5 @@ The first `frame()` matters: the first row takes the focus once the first frame
 has drawn, so a key pressed before then has no row to go to. `detect: false`
 skips asking the terminal what it is, which a test terminal cannot answer.
 
-The [examples](../../../examples) are complete apps built this way.
+The [examples](../../../examples) are complete apps built this way, and
+[Testing](testing.md) covers the rest of `@ttylabs/sigil/testing`.

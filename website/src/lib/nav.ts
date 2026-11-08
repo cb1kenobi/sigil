@@ -88,7 +88,7 @@ export function isDocsPath(pathname: string): boolean {
  * this list, so adding one is a decision about where it goes rather than
  * something that happens by dropping a file.
  */
-export const GUIDE_SLUGS = ['getting-started', 'full-screen-apps', 'parser'] as const;
+export const GUIDE_SLUGS = ['getting-started', 'full-screen-apps', 'testing', 'parser'] as const;
 
 /** The route of a guide, or of About. */
 export function guideHref(slug: string): string {

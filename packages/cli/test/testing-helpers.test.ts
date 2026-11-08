@@ -93,36 +93,37 @@ describe('the helpers through the published subpath', () => {
     expect(ui.lines).toEqual(['? Name? chris']);
   });
 
-  it('should name every export in the README', () => {
+  it('should name every export in the Testing guide', () => {
     // the whole ticket is that this knowledge was undiscoverable from outside
     // the repository, so an export nobody can find is that complaint one level
     // in -- `screenStream` was exactly that until this was written. Read off the
     // **bundle** rather than the barrel source, so a re-export added without a
     // sentence is caught too
-    // the **`## Testing` section** rather than the whole file, which is what
-    // made the first version of this nearly vacuous: a bare `includes()` over
-    // the README matched `tick` in `bar.tick()`, `alt` in `alt-{0}` and `ctrl`
-    // in `ctrl-{0}` -- all of them somebody else's prose hundreds of lines
-    // away -- so deleting every mention of the helper left it green. Found by
-    // review, and it is this ticket's own complaint applied to its own guard
+    // the Testing guide, since SIG-323 moved the documentation there and left
+    // the README's `## Testing` section a summary and a link. A name counts only
+    // where the guide's **prose** names it as code, in a `` `span` `` outside
+    // the examples: the README version of this matched with a bare `includes()`
+    // and was nearly vacuous, because `tick` matched `bar.tick()`, `alt`
+    // matched `alt-{0}` and `ctrl` matched `ctrl-{0}`, all of them somebody
+    // else's text -- so deleting every mention of a helper left it green. Found
+    // by review, and it is this ticket's own complaint applied to its own guard.
+    // The guide's own example calls `bar.tick()`, so the same hole was here
     // line endings normalized first, because the checkout's are the
     // platform's: git converts to CRLF on Windows, so a search embedding a
     // bare `\n` finds the `\r` and answers -1 -- which is this repo's own
     // rule that a test never writes a separator, met on the line axis rather
     // than the path one. Caught by CI on all three Windows jobs and nowhere
     // else
-    const readme = readFileSync(join(pkg, '..', 'sigil', 'README.md'), 'utf8').replaceAll(
-      '\r\n',
-      '\n'
+    const guide = readFileSync(join(pkg, '..', 'sigil', 'docs', 'testing.md'), 'utf8')
+      .replaceAll('\r\n', '\n')
+      .replaceAll(/^```[\s\S]*?^```$/gm, '');
+    const named = new Set(
+      [...guide.matchAll(/`([^`\n]+)`/g)].flatMap(([, span]) => span!.match(/\w+/g) ?? [])
     );
-    const start = readme.indexOf('\n## Testing\n');
-    const end = readme.indexOf('\n## ', start + 1);
 
-    expect(start, 'the README has no `## Testing` section').toBeGreaterThan(0);
-    expect(end, 'the `## Testing` section runs to the end of the file').toBeGreaterThan(start);
+    expect(named.size, 'the Testing guide names nothing as code').toBeGreaterThan(20);
 
-    const section = readme.slice(start, end);
-    const missing = Object.keys(testing).filter((name) => !section.includes(name));
+    const missing = Object.keys(testing).filter((name) => !named.has(name));
 
     expect(missing).toEqual([]);
 
@@ -137,7 +138,7 @@ describe('the helpers through the published subpath', () => {
       ].map(([, name]) => name as string)
     );
 
-    expect([...declared].filter((name) => !section.includes(name))).toEqual([]);
+    expect([...declared].filter((name) => !named.has(name))).toEqual([]);
     expect(declared.size).toBeGreaterThan(20);
     // and the other half, because an empty list passes trivially if the import
     // ever stops resolving

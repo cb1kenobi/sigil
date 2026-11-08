@@ -70,6 +70,11 @@ for (const guide of GUIDES) {
         write(dir, step);
         continue;
       }
+      // a `$ npm test` step is the guide test's to run: its summary carries a
+      // start time and a duration, so there is no fixed output to capture
+      if (step.kind !== 'run') {
+        continue;
+      }
 
       const ran = await run(dir, step.argv, {
         ...environment(all, step.env),

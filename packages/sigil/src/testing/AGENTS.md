@@ -329,7 +329,7 @@ sentence under "The extraction, and what it was allowed to touch" in
   is for a caller pointing the model at their own output, which is what shipping
   it means.
 
-- **It throws on a sequence it does not model, and the README says so.** That is
+- **It throws on a sequence it does not model, and the docs say so.** That is
   how it says it has no answer rather than quietly getting a row wrong, and it
   is the same policy the `default` branch already had. Walking the inputs
   confirmed the rest: a tab, a `BEL` and a `NUL` each take no cell rather than
@@ -340,8 +340,8 @@ sentence under "The extraction, and what it was allowed to touch" in
   what was written rather than a defect -- a terminal draws something there too.
 
 - **What it still does not model is styling, bar reverse video.** That is a
-  limitation rather than a defect and is documented in the README where a caller
-  meets it: a claim about _colour_ belongs in a `runOnTerminal()` run, where a
+  limitation rather than a defect and is documented where a caller meets it --
+  the Testing guide, since SIG-323: a claim about _colour_ belongs in a `runOnTerminal()` run, where a
   real styler writes real sequences a test can read. `lastInverse` is the one
   exception and stays the one exception, because a prompt's caret _is_ styling and
   the cell under it holds the same character either way. An erase still leaves the
@@ -367,9 +367,10 @@ sentence under "The extraction, and what it was allowed to touch" in
   one runner.
 - **No demo under `demos/`.** Those are runnable examples of what an app _does_,
   spawned by `demos.test.ts` and read by somebody looking at a terminal; a
-  testing helper has nothing to show there. What it has instead is the README
-  section, which is most of the value of the ticket, and the scaffold, which puts
-  a working one in front of every new app.
+  testing helper has nothing to show there. What it has instead is the
+  documentation, which is most of the value of the ticket -- the README section
+  then, the Testing guide since SIG-323 -- and the scaffold, which puts a working
+  one in front of every new app.
 
 - **A root schema's `run` was never dispatched, so `sigil new --single`
   scaffolded an app that did nothing -- reported here and fixed in SIG-150.**
@@ -398,6 +399,50 @@ sentence under "The extraction, and what it was allowed to touch" in
   and the usage line reads the registry. Left alone deliberately -- it is a
   question about what help prints for an app with no commands of its own, which
   is help's to answer and not a dispatch rule.
+
+### The Testing guide is the documentation, and it is run (SIG-323)
+
+`packages/sigil/docs/testing.md` is where these helpers are documented, at
+`/docs/testing` on the website, and it is a guide rather than a reference:
+each helper with the problem it solves, and a recipe for a command's output
+and exit code, an error, what a terminal changes, what is on the screen, a
+prompt, and a full-screen app.
+
+- **The README's `## Testing` section is a summary and a link.** Kept under its
+  heading, so `#testing` and the table of contents still land, and cut to a
+  list of the helpers because two full descriptions of one helper are two that
+  can disagree. `should name every export in the Testing guide` in
+  `packages/cli/test/testing-helpers.test.ts` moved with it: every export and
+  every declared field has to be named in the **guide**, and only where its
+  prose names it as an inline code span. A fenced example does not count,
+  because the guide's own `sync` command calls `bar.tick()` -- the same hole the
+  README version had with `tick`, `alt` and `ctrl`, and the reason the match is
+  no longer a bare `includes()`.
+- **Its examples are tests, so the replay runs them.** `guides.test.ts` writes
+  each `// <path>` block and runs each `$ my-cli` line, as it does for Getting
+  started, and a `$ npm test` line is now a step of its own: the app's own
+  vitest, linked into the scaffold beside `@ttylabs/sigil`, over every file the
+  guide has written by then. It has to exit `0`, and the summary lines the
+  transcript shows have to be in its output in that order -- a summary carries a
+  start time and a duration, so the transcript elides with `...` and the
+  comparison cannot be the exact one a run gets. Getting started's `$ npm test`
+  is checked by the same rule now, where it used to be on the skipped list. The
+  worker's own `VITEST*` variables are taken out of the environment first, so
+  the nested run is the app's suite rather than a confused worker of ours, and
+  the website's capture script skips these steps, since there is no fixed
+  output to capture. Sabotaged both ways: a test on the page asserting `7` for a
+  sum of `6` fails the step and names `sum.test.ts > prints the total`, and a
+  transcript claiming `16 passed (16)` fails it on the summary line.
+- **It sits third in `GUIDE_SLUGS`, after Getting started and Building a
+  full-screen app and before the parser reference.** Its recipes test both
+  kinds of app those two build, and both end in a "Test it" section that points
+  here, while the parser is a reference rather than a step in the reading
+  order.
+- **The full-screen recipe is written against the helpers as they are.** A
+  50 ms `setTimeout` waits for a frame, and the component is mounted on a test
+  terminal rather than the command run through `runOnTerminal()`, which has no
+  TTY stdin and so refuses a full-screen app. SIG-309 changes exactly those
+  helpers, and updating that section is its job.
 
 ### The suite removes every directory it makes
 
