@@ -146,15 +146,63 @@ the `ui` tag run by plain `node`.
   `demos.test.ts` into `packages/cli/test/spawned.ts`, one definition for both.
   It lives in `packages/cli` for `demos.test.ts`'s reason: it needs `dist/`.
 
-- **The in-process JSX twin is compiled by vite, and vite does not follow the
-  example's `tsconfig.json` for it.** Measured three ways: with
-  `jsxImportSource` set to `react`, to a package that does not exist, and with
-  the file deleted, `root.tsx` still compiled against sigil's `jsxDEV` and every
-  test passed. How vite arrives at that was not run down. What it means is that
-  the tsconfig's JSX lines are checked by `sigil build`, not by vitest: set to
-  `react`, the build fails with `TS2875`, and `pnpm test` builds before it tests.
-  The same-screen assertion is what proves the in-process twin produced sigil
-  elements at all.
+- **Vite does follow an example's `tsconfig.json`; vitest's module cache is what
+  made it look as though it did not (SIG-312).** The first version of this entry
+  said vite ignored the tsconfig: with `jsxImportSource` set to `react`, to a
+  package that does not exist, and with the file deleted, `root.tsx` still
+  compiled against sigil and every test passed. That was measured and it was
+  true, and the cause it was put down to was wrong. Vite 8.2.2 hands the file to
+  rolldown's `transformSync` along with a tsconfig resolution cache, which finds
+  the nearest `tsconfig.json` above **each file** and reads its `jsx` and
+  `jsxImportSource`; `vitest@5.1.0` adds nothing of its own, and neither the root
+  config, the package's config, a plugin nor `projects` sets an import source.
+  Measured with vite alone, `createServer().transformRequest()` over
+  `examples/hello/src/root.tsx` fails with `Failed to resolve import
+  "react/jsx-dev-runtime"` once the tsconfig says `react`, and a scratch
+  directory with `jsxImportSource: "from-tsconfig"` compiles to
+  `from-tsconfig/jsx-dev-runtime`.
+
+  What hid it is `fsModuleCache`, on by default since vitest 5 and stored in
+  `node_modules/.vitest-cache`. A transform is cached under a key made of the
+  module's id, **its content**, and the config (plugins, resolve, the config
+  files' own text); the tsconfig is in none of those, so editing the tsconfig
+  alone leaves `root.tsx` byte for byte what it was and the cached output, built
+  against whatever the tsconfig said when the cache was written, is served. Same
+  tree, `--fsModuleCachePath` pointed at a fresh directory each time: the original
+  tsconfig passes; `react` fails with `Cannot find package 'react/jsx-dev-runtime'`;
+  `no-such-pkg` fails the same way; **no tsconfig at all** fails too, because
+  without one the default import source is `react`. Pointed at a **warm** cache,
+  `react` passes against the original's output, and the reverse holds: restoring
+  the tsconfig over a cache written while it said `react` keeps failing, which is
+  the same hole read from the other side. A cold cache, as on a fresh clone or
+  CI, therefore checks the line, and a warm one checks it only when `root.tsx`
+  itself changed.
+
+  The decision is that the harness keeps what vite does and does **not** override
+  the import source, and the line is guarded by a read that no cache can answer
+  for. Pinning `oxc.jsx.importSource` in a vitest config would make the
+  in-process twin agree with the build by construction, and would make a wrong
+  tsconfig invisible to it for good, which is the opposite of the ticket. The
+  build overrides the line on purpose (`packages/cli/AGENTS.md`, "JSX compiles
+  against `@ttylabs/sigil`"), so what it checks is not the line but the type
+  gate: set to `react`, `sigil build` fails with `TS2875`, and `pnpm test` builds
+  first. So three things guard it, each from a different side: that gate, a cold
+  vitest cache, and `should name sigil as its JSX import source` in
+  `examples.test.ts`, which reads each JSX example's `tsconfig.json` (following a
+  relative `extends`) and asks for `jsxImportSource` of `@ttylabs/sigil` and a
+  `jsx` of `react-jsx` or `react-jsxdev`. That read is the one with no cache in
+  front of it. Sabotaged: `react`, no tsconfig, and `jsx: "preserve"` each fail
+  it. `guides.test.ts` also fails for `examples/hello` when the line changes,
+  because the guide quotes `compilerOptions` whole, but only for that example.
+
+  Not done, and the option that is left: a `defineCacheKeyGenerator` in a plugin
+  (the `configureVitest` hook) that adds the nearest tsconfig's text to the key
+  of a `.tsx`, which would make the in-process mount itself honest on a warm
+  cache. It is not taken here because the hole is vitest's rather than this
+  harness's -- every tsconfig setting is invisible to the cache the same way, for
+  every project in the workspace -- and a key that follows an `extends` chain
+  halfway is worse than a documented gap. When a transform seems to ignore a
+  tsconfig, `rm -rf node_modules/.vitest-cache` first.
 
 - **`runApp()` runs every example, and `start()` is gone.** Until SIG-276
   landed, each example carried a hand-wired `start()` shaped like the runner,
@@ -228,7 +276,7 @@ the `ui` tag run by plain `node`.
   excerpt drifting by two words, a wrong package name, the projects glob without
   its `.md` exclusion, a missing bundle, and a non-TTY path that throws: each
   fails the suite. A wrong `jsxImportSource` is caught by `sigil build`'s
-  `TS2875`, for the reason above. Removing the Ctrl-C binding would have
+  `TS2875` and by the tsconfig read, for the reason above. Removing the Ctrl-C binding would have
   survived the first harness, which only quit on `q`; the Ctrl-C test was added
   for it before the pass, and the binding's removal fails it. `start()` is gone
   now, so the `dispose()` and `input.stop()` sabotages are the runner's to keep,
