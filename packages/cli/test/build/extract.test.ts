@@ -506,7 +506,11 @@ describe('extracting a command module', () => {
       // `database migrate` stops working; pointed at `./db` it keeps them
       const [first, second] = routing(`alias: 'database', default: true`, 'db', { index: true });
       expect(first?.message).toContain("commands: { 'db, database': './path/to/this-directory' }");
-      expect(second?.message).toContain("path: './path/to/this-directory'");
+      // and `default` has nowhere to go: a key's string value is the only thing
+      // that walks a directory and it cannot carry `default`, while an object's
+      // `path` is imported as a file and a directory there crashes from source
+      expect(second?.message).toContain('cannot be made the default from the schema today');
+      expect(second?.message).not.toContain('path:');
       expect(routing(`alias: 'database'`, 'db')[0]?.message).toContain('./path/to/this-file');
     });
   });

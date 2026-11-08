@@ -13,6 +13,8 @@ export default {
     und: './commands/und.ts',
     // a package names itself, so there is nothing to say about its names
     pkg: './pkg',
+    // but an object's `path` is imported as a file, so this one is not a package
+    objpkg: { path: './objpkg' },
     // a directory with an `index`: the advice has to keep its subcommands
     dd: './commands/dd',
     // and here the module is the only one saying it

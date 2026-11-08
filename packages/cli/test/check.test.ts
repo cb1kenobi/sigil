@@ -335,6 +335,15 @@ describe('sigil check', () => {
       expect(err).not.toContain('src/pkg/index.js');
     });
 
+    it("should still warn about a package reached by an object's path, which is not one", async () => {
+      // `registerCommandPackage()` is reached through a key's string value and
+      // never through a `path` property, so the module is loaded after the key
+      // matched and its own names route nothing
+      const { err } = await sigil('check', inline);
+
+      expect(err).toContain('src/objpkg/index.js:4:18: warning: "name" declares "obj", "ob"');
+    });
+
     it("should name the directory, not its index file, in a directory's advice", async () => {
       // pointing a key at `dd/index.ts` is one command with no `sub`
       const { err } = await sigil('check', inline);

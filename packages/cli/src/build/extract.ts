@@ -281,6 +281,19 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
 const DECLARE_ON_THE_ROUTE = 'declare it on the schema key that routes this module instead';
 
 /**
+ * What a directory command's `default` is told, which is that there is nowhere
+ * to say it yet.
+ *
+ * The advice above does not work for it from source: only a key's string value
+ * walks a directory and a string cannot carry `default`, while an object's
+ * `path` is imported as a file, and Node refuses a directory. SIG-324's
+ * `commands.json` is where a directory will say it, and this changes with
+ * `DECLARE_ON_THE_ROUTE` when that lands.
+ */
+const NO_WAY_TO_DEFAULT_A_DIRECTORY =
+  'a directory command cannot be made the default from the schema today, so this line can only be removed';
+
+/**
  * The labels of a name string a route is reached by, less the arguments.
  *
  * The split `parseName()` makes, and a `!` or `@` prefix is stripped because
@@ -374,6 +387,9 @@ function unroutable(
   // `default: true` on a placeholder that already says so is the module
   // repeating the route, as a name equal to it is
   const fallback = declared('default');
+  const advice = routedBy.index
+    ? NO_WAY_TO_DEFAULT_A_DIRECTORY
+    : `${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${route}': { default: true, path: '${target}' } }\``;
   if (
     fallback &&
     literalBoolean(fallback.value) !== false &&
@@ -382,8 +398,7 @@ function unroutable(
     warn(
       fallback.start,
       `"default" has no effect here: this module is read only after argv has matched "${route}", ` +
-        `so it cannot make the command the default; ${DECLARE_ON_THE_ROUTE}, such as ` +
-        `\`commands: { '${route}': { default: true, path: '${target}' } }\``
+        `so it cannot make the command the default; ${advice}`
     );
   }
 

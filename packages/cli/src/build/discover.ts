@@ -653,7 +653,7 @@ function readCommand(
       from,
       specifier,
       module,
-      plainProperty(object, 'path') !== undefined,
+      false,
       [named, ...(routing.alias ?? [])].join(', '),
       routing.default === true
     )
@@ -955,9 +955,12 @@ function moduleSpecifier(object: ObjectExpression): string | undefined {
  * How a placeholder reaches its module, for the warning about what a module
  * declares that cannot route.
  *
- * Nothing for a **package** the schema points at by `path`: the runtime imports
- * it when the schema is built, because a package names itself, so its module's
- * own `name` and `alias` are what route from source and the key is not. Warning
+ * Nothing for a **package** a key's value is the path of
+ * (`commands: { foo: './pkg' }`): the runtime imports it when the schema is
+ * built, because a package names itself, so its module's own `name` and `alias`
+ * are what route from source and the key is not. That is `commandAtPath()`'s
+ * string value and nothing else -- an object's `path` property is imported as a
+ * file, so a directory there is refused and a package is not one. Warning
  * there is wrong, and following the warning's advice would lose the spellings
  * that work. A built app routes the other way round (the key, and not the
  * package's names), which is a divergence that predates the warning and is not
@@ -970,8 +973,9 @@ function moduleSpecifier(object: ObjectExpression): string | undefined {
  * @param from - What the specifier is relative to.
  * @param specifier - What the command declared its module by.
  * @param module - The file it resolved to.
- * @param path - Whether it was declared by `path`; a `load` is a function and is
- *   never registered as a package.
+ * @param keyed - Whether the specifier is a key's string value, which is the
+ *   only way the runtime registers a package. An object's `path` property and a
+ *   `load` are not: the first is imported as a file, the second is a function.
  * @param name - Every spelling the placeholder is routed by, as a name string.
  * @param defaulted - Whether the placeholder declares `default: true`.
  * @returns How it is reached, or nothing where the module names itself.
@@ -980,7 +984,7 @@ function routedByPlaceholder(
   from: string,
   specifier: string | undefined,
   module: string | undefined,
-  path: boolean,
+  keyed: boolean,
   name: string,
   defaulted = false
 ): RoutedBy | undefined {
@@ -990,7 +994,7 @@ function routedByPlaceholder(
 
   const target = isAbsolute(specifier) ? specifier : resolve(from, specifier);
 
-  if (path && isPackage(target)) {
+  if (keyed && isPackage(target)) {
     return undefined;
   }
 

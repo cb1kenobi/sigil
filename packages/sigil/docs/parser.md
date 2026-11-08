@@ -522,7 +522,7 @@ in a directory walk, behind a `path`, behind a `load` and in a directory's
 `index` module alike, from source and after `sigil build`. A module's `default`
 is read after the module loads, by which time the command was already matched
 by name, so `default: true` there does nothing either. The exception is a
-**package** a schema points at by `path`: it is imported when the schema is
+**package** a key's value is the path of (`foo: './pkg'`, and not `foo: { path: './pkg' }`): it is imported when the schema is
 built and names itself, so from source its own `name` and `alias` do route.
 
 Help only publishes what routes, so the `Alias:` block, the `Commands:` list,

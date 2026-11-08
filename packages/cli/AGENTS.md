@@ -264,16 +264,27 @@ makes it testable with a fixture directory and no bundler at all.
   with `facts: false`.
 
   **Two places say nothing on purpose, and one is a different bug.** A **package a
-  schema points at by `path`** (`commands: { foo: './pkg' }`) is imported when the
+  key's value is the path of** (`commands: { foo: './pkg' }`) is imported when the
   schema is built and names itself, so from source its module's own `name` and
   `alias` are what route and the key is not: warning there is wrong, and following
   the advice loses the spellings that work. `routedByPlaceholder()` in
   `discover.ts` returns nothing for it. A built app routes the other way round --
   the key `foo`, and not the package's names -- so source and build disagree about
-  what a package is called. That predates SIG-316 and is not settled here. And a
+  what a package is called. That predates SIG-316 and is not settled here. Only the
+  string value is exempt: `registerCommandPackage()` is reached through
+  `commandAtPath()`, which a key's string value or an unnamed path goes through
+  and an object's `path` property does not -- that is imported as a file, a
+  directory there is refused (`Directory import ... is not supported`), and a
+  package is checked like any other module. A `load` is a function and is no more a
+  package than the object form. And a
   **directory's `index` module** gets advice that names the _directory_
   (`RoutedBy.index`): pointing a key at `db/index.ts` is one command with none of
-  `db`'s subcommands, so `database migrate` would stop working. What is **not
+  `db`'s subcommands, so `database migrate` would stop working. Its `default: true` is told there is
+  no spelling for it, rather than a `path`: only a string value walks a directory
+  and a string cannot carry `default`, while `{ db: { path: './db', default: true } }`
+  crashes from source on the directory import
+  (`NO_WAY_TO_DEFAULT_A_DIRECTORY`, which changes with `DECLARE_ON_THE_ROUTE` when
+  SIG-324 lands). What is **not
   checked at all**: a package a directory walk finds (`tree.ts` takes its
   description from the manifest and does not read the module), and the routes under
   a directory a schema points at by key (`dd: './commands/dd'`; the build reads
