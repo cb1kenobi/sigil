@@ -353,7 +353,7 @@ describe('app completion with nobody to ask', () => {
 describe('what the sabotage pass found', () => {
   it('should ask, and write only the block, where only the block is outstanding', async () => {
     expect((await run([], { keys: [CR, CR] })).code).toBe(0);
-    const before = statSync(zshScript());
+    const before = statSync(zshScript(), { bigint: true });
     const rc = join(box, 'home', '.zshrc');
 
     // the state SIG-155 moved, reached by taking the block back out by hand: the
@@ -365,8 +365,10 @@ describe('what the sabotage pass found', () => {
 
     expect(again.stderr).toMatch(/Install zsh completion/);
     // the script is not rewritten, which the inode says and the bytes cannot:
-    // it is identical either way, so a rewrite is invisible to a comparison
-    expect(statSync(zshScript()).ino).toBe(before.ino);
+    // it is identical either way, so a rewrite is invisible to a comparison.
+    // A bigint, because an NTFS file ID is past 2^53 and a rename-over is
+    // handed the neighbouring one, which a number reads as the same file
+    expect(statSync(zshScript(), { bigint: true }).ino).toBe(before.ino);
     // and what it reports is the block alone, which is what two `Done` flags
     // are for -- "Wrote" here would name a file nothing touched
     expect(again.stderr).toContain('up to date');

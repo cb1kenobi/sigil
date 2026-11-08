@@ -128,13 +128,24 @@ function write(path: string, body: string): void {
  * what fails there rather than the check going quiet, which is the right place
  * for a claim about a platform this is not written on.
  *
+ * Read as a **bigint**, because a meaningful inode is not the same thing as one
+ * that fits in a number. An NTFS file ID is 64 bits and real ones are past
+ * 2^53, where a double stops telling neighbouring integers apart -- and a temp
+ * file renamed over an original is handed an ID next to the original's, so
+ * `11821949023213364` and `11821949023213365` both read back as the first. Two
+ * files with one identity is a stale page read as one this run wrote, which is
+ * the check going quiet over exactly the file it exists to report. Seen in CI,
+ * on a Windows runner, in a test of the same pattern one package along; the
+ * test that pins it here is `should not read two files as one where their IDs
+ * differ past 2^53`.
+ *
  * @param path - The file.
  * @returns Its identity, or `undefined`.
  * @throws If it is there and cannot be read.
  */
 function identity(path: string): string | undefined {
   try {
-    const it = statSync(path);
+    const it = statSync(path, { bigint: true });
     return `${it.dev}:${it.ino}`;
   } catch (err) {
     if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {

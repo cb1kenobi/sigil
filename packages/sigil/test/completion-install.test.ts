@@ -703,7 +703,7 @@ describe('installing, and re-running', () => {
     const target = pick('zsh');
 
     await install(target, script);
-    const before = lstatSync(target.file);
+    const before = lstatSync(target.file, { bigint: true });
 
     // the **inode** rather than only the mtime, and that is what makes this
     // test say what its name does: `writeAtomic()` renames a temp file over the
@@ -711,13 +711,16 @@ describe('installing, and re-running', () => {
     // whatever the clock did. An mtime can tie on a coarse filesystem, so a
     // regression that rewrote the file within one tick passed -- and the first
     // version of this comment claimed a sentinel, an unwritable file, that the
-    // body never set up. Found by review
+    // body never set up. Found by review. Read as a bigint, because an NTFS
+    // file ID is past 2^53 and a rename-over is handed the neighbouring one,
+    // which a number cannot tell from the original -- and the mtime in
+    // nanoseconds, since a bigint's `mtimeMs` drops the fraction a number kept
     const plan = planInstall(target, script, 'mycli');
     expect(await applyInstall(plan, script)).toBe(false);
 
-    const after = lstatSync(target.file);
+    const after = lstatSync(target.file, { bigint: true });
     expect(after.ino).toBe(before.ino);
-    expect(after.mtimeMs).toBe(before.mtimeMs);
+    expect(after.mtimeNs).toBe(before.mtimeNs);
   });
 
   it('should say update rather than current when the app changed, which is the input that makes the comparison matter', async () => {
