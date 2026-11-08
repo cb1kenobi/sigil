@@ -25,10 +25,11 @@ export function frame(
 /**
  * The frame the golden files are of: every kind of thing a screenshot draws,
  * once -- line drawing in all four weights, blocks, braille, the sixteen and a
- * truecolour ramp, every attribute, a wide character the font lacks, a link.
+ * truecolour ramp, every attribute, a wide character no bundled font has, a
+ * link, fullwidth ASCII, and sigil's own symbols from the bundled symbol font.
  */
 export function showcase(): CellBuffer {
-  return frame(40, 12, (p) => {
+  return frame(40, 13, (p) => {
     p.text(0, 0, '╭────────╮ ┏━━━━┓ ╔══╦══╗ ┌─┬─┐', { fg: palette(6) });
     p.text(0, 1, '│', { fg: palette(6) });
     p.text(2, 1, 'sigil', { attrs: ATTR.bold, fg: palette(5) });
@@ -56,9 +57,14 @@ export function showcase(): CellBuffer {
     });
     p.text(7, 8, 'hidden', { attrs: ATTR.hidden, bg: palette(1) });
     p.text(14, 8, 'overline', { attrs: ATTR.overline });
+    p.text(24, 8, 'ＳＩＧ！', { fg: palette(2) });
     p.text(0, 9, 'The quick brown fox jumps over the dog.');
     p.text(0, 10, '0123456789 {}[]()<>=!-+*/\\|&^%$#@~`');
     p.text(0, 11, '╒═╤═╕ ╓─╥─╖ ╞═╪═╡ ╟─╫─╢ ╭╮╰╯', { fg: palette(3) });
+    p.text(0, 12, '✔', { fg: palette(2) });
+    p.text(2, 12, 'done', { attrs: ATTR.bold });
+    p.text(7, 12, '✖', { fg: palette(1) });
+    p.text(9, 12, 'fail ℹ info ☐ ☒ ◐ ◴ ✸ ⊶ ⌠ⁿ');
   });
 }
 

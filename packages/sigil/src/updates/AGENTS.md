@@ -393,3 +393,17 @@ and the pty runs are in
   module would put the 8.9 kB worker string -- a 14.7 kB chunk with the check around
   it, as of this change -- into every app, and no test of the feature would notice. The worker's chunk is shared with `updates.mjs` now, so the dist guard
   reads `staticGraph('updates.mjs')` rather than the entry alone.
+
+- **The parent never loads `node:https`, because the worker asks for it
+  (SIG-328).** The parent imports `worker.ts` for `WORKER_ARGV`, `WORKER_ENTRY`
+  and the in-process fetch, so a static `import https` there put `tls`, `net`
+  and `http` on every run of an app that declares `updateCheck` -- a fresh
+  cache, which is most runs, included. `fetchJSON()` asks
+  `process.getBuiltinModule('node:https')` instead, which is synchronous, hands
+  back the object `vi.spyOn(https, 'get')` spies on, and works piped: the worker
+  fetched over https on node 24.18 and 26.10 and on bun 1.2.23, 1.3.14 and
+  1.4.4. It still imports `node:` builtins and types and nothing else, so the
+  piping rule above holds. `child_process` in `index.ts` is asked for at the
+  spawn for the same reason. The chunk `main()` imports went from 6.90 to 3.42 ms
+  of a fresh node's import. The comment in `worker.ts` is two lines on purpose:
+  the file is baked into `dist/` as text, comments and all.

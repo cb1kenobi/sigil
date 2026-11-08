@@ -77,7 +77,6 @@ import type { InputRouter, KeyEvent } from '../input/index.js';
 import type { FrameStats, Renderer } from '../renderer/index.js';
 import type { Key } from './keys.js';
 import { ScrollBox } from './scroll-box.js';
-import { format } from 'node:util';
 
 /**
  * Which console method produced a line.
@@ -394,6 +393,10 @@ export function captureConsole(ring: LogRing, opts: CaptureOptions = {}): Consol
     Record<LogLevel, (...args: unknown[]) => void>
   >;
   const installed: Installed = { originals: {}, patched: {}, target };
+  // asked for here rather than imported: `node:util` brings `worker_threads`
+  // and the stream stack behind it, and the components entry that holds this is
+  // loaded by every app that draws anything, overlay or not. SIG-328
+  const { format } = process.getBuiltinModule('node:util');
 
   // recorded before anything is replaced, and unwound on the way out of a
   // throw: `format()` is Node's own and a property assignment on a frozen or

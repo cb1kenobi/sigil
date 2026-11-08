@@ -16,6 +16,7 @@ import {
 } from './chunks.js';
 import { unfilter } from './filters.js';
 import type { RgbaImage } from './image.js';
+import { zlib } from './zlib.js';
 /**
  * Reading a PNG: chunks in, 8-bit RGBA out.
  *
@@ -33,7 +34,6 @@ import type { RgbaImage } from './image.js';
  * size of the machine.
  */
 import { constants } from 'node:buffer';
-import { inflateSync } from 'node:zlib';
 
 /** What `decodePng()` takes besides the bytes. */
 export interface DecodePngOptions {
@@ -316,7 +316,7 @@ function inflate(chunks: Uint8Array[], header: Header): Uint8Array {
   const stream = chunks.length === 1 ? chunks[0] : Buffer.concat(chunks);
   let raw: Uint8Array;
   try {
-    raw = inflateSync(stream, { maxOutputLength: expected });
+    raw = zlib().inflateSync(stream, { maxOutputLength: expected });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') {
       throw new Error(

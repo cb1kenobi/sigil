@@ -1,7 +1,7 @@
 import { cellColors, type ColorOptions, resolveColors, type Rgb } from './colors.js';
 import { type Coverage, rasterizeOutline } from './font/raster.js';
 import type { Font } from './font/truetype.js';
-import { type FontOption, type LoadedFaces, loadFaces } from './fonts.js';
+import { type FontOption, type LoadedFaces, loadFaces, symbolFont } from './fonts.js';
 import { type CellBox, CoveragePen, drawGeometry, drawTofu, isGeometry } from './geometry.js';
 import { gridSize, readShot, type Shootable, type ShotCell, type StyleLookup } from './grid.js';
 import { type CellMetrics, cellMetrics, type SizeOptions } from './metrics.js';
@@ -41,8 +41,17 @@ const DIM = 128;
 /** Code points that change how a cluster looks rather than adding to it. */
 const INVISIBLE = new Set([0x20_0d, 0xfe_0e, 0xfe_0f]);
 
+/**
+ * How far the fullwidth ASCII forms, `U+FF01` to `U+FF5E`, sit from the ASCII
+ * they are the wide spelling of.
+ */
+const FULLWIDTH = 0xff_01 - 0x21;
+
+/** The glyph cache's id for the bundled symbol font, apart from the faces' and the fallbacks'. */
+const SYMBOL_FACE = 4;
+
 /** A face as it is drawn: the font and whatever it has to synthesize. */
-interface Face {
+export interface Face {
   bold: boolean;
   font: Font;
   /** Which face this is, for the glyph cache's key. */
@@ -258,6 +267,71 @@ export function rasterize(input: Shootable, options: RasterOptions = {}): RgbaIm
 }
 
 /**
+ * The face that has a character, in the order a terminal would look: the face
+ * the style asks for, each `fallback` in turn, then the bundled symbol font.
+ *
+ * A fallback has no faces of its own, so its style is synthesized from what the
+ * cell asked for -- read off the attributes rather than off which face was
+ * picked, because one file given as both `regular` and `bold` loads as one font,
+ * and asking which slot it came from would embolden a regular character.
+ */
+function findFace(
+  faces: LoadedFaces,
+  codePoint: number,
+  attrs: number
+): { face: Face; glyph: number } | undefined {
+  const face = faceFor(faces, attrs);
+  const glyph = face.font.glyphFor(codePoint);
+  if (glyph !== 0) {
+    return { face, glyph };
+  }
+  const synthesized = (font: Font, id: number): Face => ({
+    bold: (attrs & ATTR.bold) !== 0,
+    font,
+    id,
+    italic: (attrs & ATTR.italic) !== 0,
+  });
+  for (const [i, font] of faces.fallback.entries()) {
+    const fallback = font.glyphFor(codePoint);
+    if (fallback !== 0) {
+      return { face: synthesized(font, 10 + i), glyph: fallback };
+    }
+  }
+  const symbols = symbolFont();
+  const symbol = symbols.glyphFor(codePoint);
+  return symbol === 0 ? undefined : { face: synthesized(symbols, SYMBOL_FACE), glyph: symbol };
+}
+
+/**
+ * Where the base of a cluster is drawn from, or `undefined` for the tofu box.
+ *
+ * Every font first, so a `fallback` that has a real fullwidth `Ａ` is drawn with
+ * it. Then a fullwidth ASCII form none of them has is drawn from its ASCII
+ * glyph, centred across the two cells it spans: the bundled fonts have no
+ * fullwidth designs, a CJK font that does is some 16 MB, and the decrypt
+ * effect's default alphabet is made of them.
+ *
+ * Exported for the guard test, which asks it about every character
+ * `@ttylabs/sigil`'s components can draw. Not part of the package's API.
+ *
+ * @param faces - The faces.
+ * @param codePoint - The base of the cluster.
+ * @param attrs - The cell's attributes, which pick the face.
+ * @returns The face and glyph.
+ */
+export function findGlyph(
+  faces: LoadedFaces,
+  codePoint: number,
+  attrs: number
+): { face: Face; glyph: number } | undefined {
+  const found = findFace(faces, codePoint, attrs);
+  if (found || codePoint < 0xff_01 || codePoint > 0xff_5e) {
+    return found;
+  }
+  return findFace(faces, codePoint - FULLWIDTH, attrs);
+}
+
+/**
  * Rasterized glyphs, kept for the length of one screenshot.
  *
  * A frame repeats a few dozen characters across thousands of cells, so the
@@ -283,71 +357,60 @@ class GlyphCache {
     if (isGeometry(base)) {
       return [this.#shape(base, span)];
     }
-    const face = faceFor(this.#faces, attrs);
-    const found = this.#find(base, face, attrs);
+    const found = findGlyph(this.#faces, base, attrs);
     if (!found) {
       return [this.#tofu(span)];
     }
     const out: Coverage[] = [];
-    const add = (font: Face, glyph: number): void => {
-      const cover = this.#glyph(font, glyph, span);
+    const { face } = found;
+    const unit = this.#metrics.fontPx / face.font.metrics.unitsPerEm;
+    // the base is centred on its advance across the cells it spans, and the pen
+    // then moves past it, as it would along a line: a combining mark is drawn
+    // from there, because a font with no positioning tables puts a mark's ink
+    // to the left of its own origin, over the glyph before it. Drawing a mark
+    // centred on its zero advance put it half a cell to the left of its base
+    // -- review round 1
+    let pen = (this.#metrics.width * span - face.font.advance(found.glyph) * unit) / 2;
+    const add = (glyph: number): void => {
+      const cover = this.#glyph(face, glyph, span, pen);
       if (cover) {
         out.push(cover);
       }
+      pen += face.font.advance(glyph) * unit;
     };
-    add(found.face, found.glyph);
+    add(found.glyph);
     for (const mark of points.slice(1)) {
       if (INVISIBLE.has(mark)) {
         continue;
       }
       // a mark is looked for in the face its base was found in, and dropped if
       // it is not there: a mark from another font sits at another font's height
-      const glyph = found.face.font.glyphFor(mark);
+      const glyph = face.font.glyphFor(mark);
       if (glyph !== 0) {
-        add(found.face, glyph);
+        add(glyph);
       }
     }
     return out;
   }
 
-  /** The face that has a character: the styled one, then each fallback. */
-  #find(codePoint: number, face: Face, attrs: number): { face: Face; glyph: number } | undefined {
-    const glyph = face.font.glyphFor(codePoint);
-    if (glyph !== 0) {
-      return { face, glyph };
-    }
-    for (const [i, font] of this.#faces.fallback.entries()) {
-      const fallback = font.glyphFor(codePoint);
-      if (fallback !== 0) {
-        // the fallback has no faces of its own, so the style is synthesized
-        // from what the cell asked for. Read off the attributes rather than off
-        // which face was picked: one file given as both `regular` and `bold`
-        // loads as one font, and asking which slot it came from would then
-        // embolden a regular character
-        return {
-          face: {
-            bold: (attrs & ATTR.bold) !== 0,
-            font,
-            id: 10 + i,
-            italic: (attrs & ATTR.italic) !== 0,
-          },
-          glyph: fallback,
-        };
-      }
-    }
-    return undefined;
-  }
-
-  #glyph(face: Face, glyph: number, span: number): Coverage | undefined {
-    const key = `${face.id}:${glyph}:${face.bold ? 1 : 0}:${face.italic ? 1 : 0}:${span}`;
+  /**
+   * One glyph's coverage, with its origin `x` pixels into the cell.
+   *
+   * Scaled by the face's own em rather than the regular's: a fallback is another
+   * font, and DejaVu's 2048 units read at JetBrains Mono's 1000 drew it at twice
+   * its size. The origin is in the key, since a mark's depends on the advance of
+   * the base it follows and DejaVu's advances are not one width.
+   */
+  #glyph(face: Face, glyph: number, span: number, x: number): Coverage | undefined {
+    const key = `${face.id}:${glyph}:${face.bold ? 1 : 0}:${face.italic ? 1 : 0}:${span}:${x}`;
     if (this.#glyphs.has(key)) {
       return this.#glyphs.get(key);
     }
     const m = this.#metrics;
-    const advance = face.font.advance(glyph) * m.unit;
+    const unit = m.fontPx / face.font.metrics.unitsPerEm;
     const cover = rasterizeOutline(face.font.outline(glyph), {
       embolden: face.bold ? m.fontPx * EMBOLDEN : 0,
-      scale: m.unit,
+      scale: unit,
       shear: face.italic ? ITALIC_SHEAR : 0,
       // the cell and one cell's worth either side, which is as far as an
       // overhang a terminal would show goes; anything past it is a font lying
@@ -358,7 +421,7 @@ class GlyphCache {
         right: 2 * m.width * span,
         top: -m.baseline - m.height,
       },
-      x: (m.width * span - advance) / 2,
+      x,
     });
     // positioned against the cell's top rather than the baseline
     const placed = cover ? { ...cover, top: cover.top + m.baseline } : undefined;

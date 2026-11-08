@@ -7,9 +7,10 @@
  * const svg = screenshot(canvas.snapshot(), { format: 'svg' });
  * ```
  *
- * A package of its own because the font and the rasterizer are about a megabyte
- * together, and an app that never takes a screenshot should pay nothing for
- * them -- the reasoning the config stores follow, for the same constraint.
+ * A package of its own because the fonts and the rasterizer are about two
+ * megabytes together, and an app that never takes a screenshot should pay
+ * nothing for them -- the reasoning the config stores follow, for the same
+ * constraint.
  */
 
 export {
@@ -29,6 +30,7 @@ export {
   type FontOption,
   type FontSource,
   loadFont,
+  SYMBOL_FONT,
 } from './fonts.js';
 export type { CellGrid, ScreenGrid, Shootable, StyleLookup } from './grid.js';
 export { DEFAULT_FONT_SIZE, type SizeOptions } from './metrics.js';

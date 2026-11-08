@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="336" height="232" viewBox="0 0 336 232">
+<svg xmlns="http://www.w3.org/2000/svg" width="336" height="250" viewBox="0 0 336 250">
 <style>text{font-family:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;font-size:14px;white-space:pre}rect{shape-rendering:crispEdges}</style>
-<rect width="336" height="232" fill="#1e1e1e"/>
+<rect width="336" height="250" fill="#1e1e1e"/>
 <rect x="280" y="62" width="24" height="18" fill="#d4d4d4"/>
 <rect x="8" y="116" width="8" height="18" fill="#000028"/>
 <rect x="16" y="116" width="8" height="18" fill="#000628"/>
@@ -113,6 +113,11 @@
 <text x="8" y="148" textLength="136" fill="#ffb400" xml:space="preserve">漢字 &lt;&amp;&gt; "quotes"</text>
 <a href="https://example.com/?a=1&amp;b=2"><text x="8" y="166" textLength="48" fill="#2472c8" text-decoration="underline" xml:space="preserve">a link</text></a>
 <text x="120" y="166" textLength="64" fill="#d4d4d4" text-decoration="overline" xml:space="preserve">overline</text>
+<text x="200" y="166" textLength="64" fill="#0dbc79" xml:space="preserve">ＳＩＧ！</text>
 <text x="8" y="184" textLength="312" fill="#d4d4d4" xml:space="preserve">The quick brown fox jumps over the dog.</text>
 <text x="8" y="202" textLength="280" fill="#d4d4d4" xml:space="preserve">0123456789 {}[]()&lt;&gt;=!-+*/\|&amp;^%$#@~`</text>
+<text x="8" y="238" textLength="8" fill="#0dbc79" xml:space="preserve">✔</text>
+<text x="24" y="238" textLength="32" fill="#d4d4d4" font-weight="bold" xml:space="preserve">done</text>
+<text x="64" y="238" textLength="8" fill="#cd3131" xml:space="preserve">✖</text>
+<text x="80" y="238" textLength="208" fill="#d4d4d4" xml:space="preserve">fail ℹ info ☐ ☒ ◐ ◴ ✸ ⊶ ⌠ⁿ</text>
 </svg>

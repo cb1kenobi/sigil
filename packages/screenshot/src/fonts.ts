@@ -10,6 +10,11 @@ import { fileURLToPath } from 'node:url';
  * four faces under the SIL Open Font License -- `fonts/OFL.txt` is the licence,
  * shipped beside the files it covers as the licence requires.
  *
+ * Behind every face sits DejaVu Sans, bundled for the symbols JetBrains Mono
+ * lacks -- `✔`, `✖`, `ℹ`, `☐`, the spinners' shapes -- which a terminal would
+ * borrow from a system font and a screenshot, reading none, has nowhere else to
+ * find. Its licence is `fonts/DejaVu-LICENSE.txt`, beside it for the same reason.
+ *
  * The files are read from `../fonts/` relative to this module, which is the same
  * directory from `src/` and from `dist/`: nothing copies them into a build, so a
  * build reads none of them and a cached `dist/` cannot hold a stale copy.
@@ -28,7 +33,8 @@ export interface FontFaces {
   boldItalic?: FontSource;
   /**
    * Fonts to look in, in order, for a character the faces above do not have.
-   * A character none of them has is drawn as a box.
+   * The bundled symbol font is looked in after these, and a character none of
+   * them has is drawn as a box.
    */
   fallback?: readonly FontSource[];
   italic?: FontSource;
@@ -58,6 +64,27 @@ export const DEFAULT_FONTS: Readonly<Record<'bold' | 'boldItalic' | 'italic' | '
     italic: bundled('Italic'),
     regular: bundled('Regular'),
   });
+
+/**
+ * Where the bundled symbol font is: DejaVu Sans, the last place a character is
+ * looked for before it is drawn as a box. Behind every face and every
+ * `fallback`, including a font set that names none of the bundled faces.
+ */
+export const SYMBOL_FONT: URL = new URL('../fonts/DejaVuSans.ttf', import.meta.url);
+
+let symbols: Font | undefined;
+
+/**
+ * The bundled symbol font, read the first time a character is missing from
+ * everything in front of it -- so an SVG, which never looks a glyph up, and a
+ * frame the faces cover between them never read it.
+ *
+ * @returns The font.
+ */
+export function symbolFont(): Font {
+  symbols ??= loadFont(SYMBOL_FONT);
+  return symbols;
+}
 
 /** Fonts read from a path, so a second screenshot does not parse them again. */
 const byPath = new Map<string, Font>();

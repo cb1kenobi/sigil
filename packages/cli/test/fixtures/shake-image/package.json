@@ -1,0 +1,7 @@
+{
+  "name": "shake-image",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

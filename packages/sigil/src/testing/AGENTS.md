@@ -497,3 +497,133 @@ prints what was left grouped by prefix, which names the test that made it, and
 it exits 1. One project at a time, so that a leak is charged to the package that
 made it. The measurements and the sabotage passes are in
 [docs/history/the-suite-removes-every-directory-it-makes.md](../../../../docs/history/the-suite-removes-every-directory-it-makes.md).
+
+### What each entry loads at import, and what it only asks for (SIG-328)
+
+SIG-326 put the PNG codec, and `node:zlib` with it, on `@ttylabs/sigil/components`
+so that `imageView()` could decode bytes, and moved that entry's ceiling from 448
+to 640 KiB to fit. SIG-328 audited every published entry for the same shape --
+something only some callers need, loaded by all of them -- and made the safe
+changes. The full before-and-after, the A/B runs and the sabotage passes are in
+[docs/history/what-each-entry-loads-at-import.md](../../../../docs/history/what-each-entry-loads-at-import.md).
+
+- **One reader of the graph, shared by the test and the script.** `staticGraph()`
+  moved out of `test/dist.test.ts` into `test/static-graph.ts`, beside
+  `graphBytes()` and `staticBuiltins()`, because a test file cannot be imported
+  from outside vitest and the audit had to read the graph the ceilings read.
+  `scripts/entry-cost.mjs` prints the table below from it: modules, bytes and the
+  builtins each graph imports statically, plus the median wall clock of an
+  `await import()` in a fresh node and the builtins `process.moduleLoadList`
+  says that import really loaded. Bytes are not the whole story -- `node:https`
+  is 3.6 ms and almost no bytes of ours. Re-derive with it rather than reading
+  the figures here, which are as of this change.
+
+- **`staticBuiltins()` reads the minifier's spelling only, `from"node:x"`.** The
+  update worker is baked into `updates.mjs` as text, and its own imports sit in
+  a string literal where they load nothing; a looser pattern reads them as
+  imports of the chunk that holds them. `should not read an import that is only
+  text in a string` asks that of a module written for it, because the shipped
+  chunk stopped being able to: the worker's one remaining import is `node:fs`,
+  which the chunk also imports for real, so review round 1 found the old check
+  passing for a reader of either spelling. `should still see a static import` is
+  the presence half that stops the reader going blind without anyone noticing.
+
+- **Measured, as of SIG-328, on node 26.10 on arm64 macOS.** Medians of 41
+  interleaved fresh-process imports of the old and new `dist/`, since a single
+  run of the table moves by a millisecond with whatever else the machine is
+  doing; `index` is the control.
+
+  | entry        | modules | bytes before → after | import ms before → after | what stopped loading                      |
+  | ------------ | ------: | -------------------- | ------------------------ | ----------------------------------------- |
+  | `index`      |       8 | 12,326 → 12,326      | 3.03 → 2.95              | nothing (control)                         |
+  | `components` |      38 | 473,733 → 473,873    | 15.33 → 14.08            | `zlib`, `child_process`, `worker_threads` |
+  | `config`     |       9 | 39,397 → 39,414      | 5.92 → 3.76              | `crypto`                                  |
+  | `png`        |       5 | 14,609 → 14,676      | 3.16 → 2.53              | `zlib`                                    |
+  | `updates`    |       4 | 18,332 → 18,536      | 6.18 → 2.55              | `https`, `tls`, `http`, `child_process`   |
+
+  The chunk `main()` imports for `updateCheck`, which every run of such an app
+  pays whether or not its cache is fresh, went from 6.90 to 3.42 ms. The XML and
+  YAML stores inherit the `config` figure and `@ttylabs/screenshot` the `png`
+  one, since each reaches the builtin only through those subpaths.
+
+- **A builtin needed only inside a function is `process.getBuiltinModule()`,
+  and that is the whole change.** It is synchronous, so `decodePng()`,
+  `encodePng()`, every write and `imageView()` kept their signatures, and it
+  returns the same module object a static import binds, so `vi.spyOn(https,
+  'get')` still sees the worker's call. It is core on the `engines` floor (node
+  22.3 added it; the floor is 22.19) and was verified in bun 1.2.23, 1.3.14 and
+  1.4.4 -- the update worker is piped into bun on one path, and it fetched over
+  https on all three. What moved is when the builtin loads: the first
+  `decodePng()` or first save pays it once, and nothing that used to throw at
+  import throws later instead, since asking a runtime for one of its own core
+  modules does not fail. Six call sites: zlib in `src/png/`, `crypto` in
+  `config/atomic.ts`, `https` in the update worker, `child_process` in
+  `updates/index.ts` and `components/editor.ts`, `util` in the debug overlay.
+
+- **Two things it is not for.** A builtin a test replaces with `vi.mock()`:
+  `getBuiltinModule()` does not go through the module graph, so it would bypass
+  the mock silently. That is why `node:fs/promises` stays a static import in
+  `components/path.ts`, which the path prompt, the file picker and the tree read
+  directories through, and in the config module, at about 0.3 ms -- six test
+  files mock it. And a builtin used at module level: the debug
+  logger's `class StdioStream extends Writable` needs `node:stream` when the
+  module evaluates, and `debug()` is called at load by every logger and returns
+  a `Console`, so `node:console` and `node:stream` stay on every entry. They
+  cost about 0.35 ms, and taking them off would mean returning something other
+  than a `Console` or a Proxy, which this repository does not use.
+
+- **What stayed static, and why.** The codec's **code**, about 10 kB of the
+  components entry: `imageView()` decodes when the view is built so that a bad
+  file throws where the caller can catch it, and loading the codec later would
+  make that asynchronous or move the error into a frame -- both refused in
+  src/components/AGENTS.md. Everything else the ticket named was already lazy:
+  the update check is one `import()` inside `main()`, completion and the
+  installer sit behind the parse chunk's `import()`s, and help and the parser
+  are behind `main()`'s. Prompts, the debug overlay, the QR encoder, markdown
+  and the editor are **components** and live in the components barrel; the
+  largest, the QR encoder, measured 10,255 B of it when SIG-136 added it. `@ttylabs/sigil/testing`'s `child_process`
+  is a test helper's. `os`, `path` and `fs` are loaded by node before user code
+  runs, or cost nothing measurable.
+
+- **`sigil build` shakes the codec's bytes away, and it was keeping its
+  builtin.** A one-spinner app built with `sigil build` carried no codec at all
+  -- 192,891 B over seven files against the barrel's 473,733 over 38 -- but it
+  still imported `node:zlib`, `node:os` and `node:child_process`: the encoder's
+  deflate options were an object at module level reading `constants`, the
+  editor built a signal-name table in a loop at module level, and a tree-shaker
+  cannot drop a member read or a loop it cannot prove pure. Both are inside
+  functions now, the encoder's `TextEncoder` is marked pure, and the same app's
+  entry graph imports `console`, `fs`, `path` and `stream` and nothing else.
+  Built, it went from 36.3 to 35.4 ms of wall clock; run unbundled from
+  `node_modules`, 40.2 to 38.7. So the build does not make this moot, and the
+  unbundled app is the one that pays most. `packages/cli/test/build/shake-builtins.test.ts`
+  builds the app and an image-drawing twin as its presence half.
+
+- **Every entry has a ceiling now, at about 2x.** Most had none, so an entry
+  could double with nothing saying so. `CEILINGS` in `test/dist.test.ts` holds
+  the rest, each beside what it measured as of this change, and
+  `should hold every published entry to a ceiling` reads the manifest, so a new
+  subpath without one fails naming itself. The entries with a test of their own
+  keep it: `coerce` went from 24 to 16 KiB and `suggest` from 8 to 3, to meet the
+  2x; `index`, `config`, `input` and `png` were already under it. The components
+  ceiling stays at 640 KiB, 1.38x, because what this change took out of that
+  entry was time and not bytes.
+
+- **The lazy loads are pinned twice, statically and at run time.** `should not
+  import ... at load` asserts each builtin is absent from the entry's static
+  imports and still asked for through `getBuiltinModule()`; `should load none of
+  them` imports the built entry in a fresh node and reads `moduleLoadList`. The
+  second exists because a `getBuiltinModule()` at **module level** loads the
+  builtin as surely as an import and is in no import list -- which is what the
+  encoder's options object would have been with its `constants` spelled
+  `zlib().constants`. Each half was proved by putting the import back: every
+  sabotage type-checked and failed the tests it should.
+
+- **Recommended rather than done, because each changes a public API.** Per-
+  component subpaths: in a scratch build with a spinner as an entry of its own,
+  that entry was 194,707 B over 29 modules and 8.4 ms to import, against 475,138
+  over 41 and 15.4 ms for the barrel in the same build, so an unbundled one-spinner app would pay about half -- but that is new
+  public surface on the package every app depends on, and the split would have to
+  be decided for 50 modules at once. And an `imageView()` that takes only RGBA,
+  with `decodePng()` left to the caller, which would take the codec's 10 kB off
+  the barrel and is a breaking change to a component one release old.

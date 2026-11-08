@@ -43,6 +43,7 @@ const ALLOWED = new Set([
   'demos/canvas/02-image.js',
   'demos/canvas/03-links.js',
   'demos/components/images/macaw.png',
+  'packages/screenshot/fonts/DejaVuSans.ttf',
   'packages/screenshot/fonts/JetBrainsMono-Bold.ttf',
   'packages/screenshot/fonts/JetBrainsMono-BoldItalic.ttf',
   'packages/screenshot/fonts/JetBrainsMono-Italic.ttf',

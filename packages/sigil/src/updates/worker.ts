@@ -27,7 +27,6 @@
 // check, and this one is now left with no judgement to make.
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import https from 'node:https';
 
 /**
  * What the runtime is told, which is nothing but "read a module from stdin".
@@ -105,6 +104,10 @@ export interface FetchJSONOptions {
  */
 export function fetchJSON(opts: FetchJSONOptions): Promise<unknown> {
   const { headers = {}, timeout, unref, url } = opts;
+
+  // asked for rather than imported, so the parent can import this module
+  // without loading tls; src/updates/AGENTS.md has the measurement. SIG-328
+  const https = process.getBuiltinModule('node:https');
 
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers }, (res) => {
