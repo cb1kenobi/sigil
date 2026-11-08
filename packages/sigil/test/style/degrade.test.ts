@@ -8,6 +8,7 @@ import {
   oklab,
   paletteRgb,
   parseStylesheet,
+  quantizeColor,
 } from '../../src/style/index.js';
 import { describe, expect, it } from 'vitest';
 
@@ -93,6 +94,31 @@ describe('the ladder', () => {
     expect(at(palette(232), 1)).toBe(0); // darkest grey -> black
     // #eeeeee is nearer xterm's white (#e5e5e5) than its bright white (#ffffff)
     expect(at(palette(255), 1)).toBe(7);
+  });
+});
+
+describe('quantizeColor()', () => {
+  // one function behind both, so the memoized and the unmemoized answers are
+  // one answer: swept over a coarse cube of 24-bit colours and the palette
+  it('should give the answer degradeColor gives, at every level', () => {
+    const colors = [DEFAULT_COLOR];
+    for (let index = 0; index < 256; index++) {
+      colors.push(palette(index));
+    }
+    for (let r = 0; r < 256; r += 51) {
+      for (let g = 0; g < 256; g += 51) {
+        for (let b = 0; b < 256; b += 51) {
+          colors.push(rgb(r, g, b));
+        }
+      }
+    }
+    for (const level of [0, 1, 2, 3] as const) {
+      for (const color of colors) {
+        expect(quantizeColor(color, level), `${color} at ${level}`).toBe(
+          degradeColor(color, level)
+        );
+      }
+    }
   });
 });
 

@@ -6359,6 +6359,153 @@ to a string, each with a `*View()` returning `{ element, width }`, and the split
   ticks between the top and the bottom label; a live form (the app rebuilds the
   string or the tree); and negative bars below a zero baseline.
 
+### An image: a picture fitted to the box it got, in half blocks (SIG-326)
+
+`src/components/image.ts` is `imageView()` and the `image()` facade over it.
+`Pixels` already drew 1x2 pixels per cell and a caller had no way to get a
+picture into it but working out every pixel; this fits one. The box filter is
+`resampleImage()` in `src/canvas`, and what it did to the style table is recorded
+there under "An image over `Pixels`".
+
+- **A `raw`, sized by layout and resampled to what it was given.** It _asks_ for
+  one column per pixel across and a row per two pixels down, or for the room it
+  was offered at the picture's proportions where that is less; `width` and
+  `height` ask for a size instead, and either alone gives the other from the
+  proportions. What it _draws_ at is the box it ended up in, whatever a sheet, a
+  flex row or a `width: 50%` made of the request. Both minimums are zero, because
+  a picture is drawn at a size rather than having one -- unlike a word, it has
+  nothing to protect from a squeeze.
+- **A width asked for is a `max-width`, and `measure()` answers the width it is
+  handed rather than the one it asked for.** Both were the other way round in
+  the first version, and review round 1 found what that cost. The layout asks a
+  measuring node at the width it will have -- a `max-width`, padding and border
+  already taken off -- and answering the request regardless reserved the rows of
+  a 40-column picture for one drawn at 10, left as bands round a letterbox. And a
+  declared `width` is what the layout measures a node at however narrow a row
+  then flexes it, so a 40-column request squeezed to 17 kept the height of 40.
+  As a ceiling the request is still the size where there is room, and a column's
+  stretch stops at it rather than widening the picture. A `height` stays a
+  `height`, because "fit this many rows" is what it says; a height alone also
+  sets the `max-width` its proportions give. `should be as tall as the width it
+  got` fails for each half put back on its own.
+- **A size asked for in code beats a stylesheet's `max-width`, because it is a
+  prop.** Review round 2 found the cost of the move above: a sheet's
+  `.sigil-image { max-width: 10 }` used to clamp a requested `width: 40` (min
+  and max apply over a width) and stopped doing so the moment the request became
+  a `max-width` prop, since a prop replaces a sheet's value for its property.
+  Kept, because a prop is this element's inline style and that is the rule
+  everywhere here -- a colour a component writes as a prop is one a theme cannot
+  reach either -- and `!important` is the escape the cascade keeps for exactly
+  this (`applyPropsInto()` skips a locked property). The alternatives were
+  worse: a declared `width` is the shrink bug back, and `align-self:
+  flex-start` to stop a column's stretch overrides a parent's `center`. A
+  sheet's `width` is a different property and still applies, under the request.
+  `should keep a size asked for in code over a sheet, as any prop is` pins all
+  three.
+- **`image()` caps at the terminal only where no size was named.** Round 2
+  again: once a height alone became a `max-width` rather than a `width`, the
+  facade's render width -- the terminal's, where less than the picture's -- was
+  the room the root was laid out in, so a 40-row request on an 8-column terminal
+  came out 8 columns of letterbox. A height names a width as surely as a width
+  does, so it is laid out at its proportions, terminal or not.
+- **In a row it is as tall as its width makes it, and that is the layout's rule
+  rather than this component's.** A row stretches a measuring item to the larger
+  of the room and its own height, which `src/layout` records for a text whose
+  rows past the bottom would otherwise be lost. So a picture whose width gives it
+  54 rows in a row 24 tall overflows and is clipped, where a column shrinks it to
+  fit. Not special-cased: a `raw` that measured differently in a row from a column
+  would be a second layout rule living in a component. `height`, or a column, is
+  how to say "fit this many rows".
+- **PNG bytes or RGBA, told apart by shape.** A PNG is a byte array and RGBA is
+  an object holding one, so `imageView(readFileSync('logo.png'))` and
+  `imageView(decodePng(bytes))` are the same picture and there is no flag to get
+  wrong. Raw RGBA is first-class because it is the way in for every other
+  format: a caller with a JPEG brings a decoder. Either is decoded or checked
+  when the view is **built**, so a bad file throws where the caller can catch it
+  rather than from inside a frame. Taking bytes puts `@ttylabs/sigil/png` on the
+  components entry, which measured 10,323 B of the 15,344 this change added to
+  it, and `node:zlib` with it, which an unbundled app importing any component
+  pays. Taken, because the alternative is every caller writing the `decodePng()`
+  the ticket asked this to do for them, and a component barrel that is 472 KB is
+  not where 10 KB is decided; the lever on that number is still SIG-81's.
+- **`fit` is `contain`, `cover` or `fill`.** The three `object-fit` values that
+  mean something without a natural size to fall back on. `contain` is the default
+  and may sit half a row down, since `Pixels` has a colour per half; `cover` crops
+  centred, through `resampleImage()`'s fractional source rectangle; `fill`
+  stretches.
+- **The resample is done once per box size, the rest once per frame.** A frame
+  repaints every cell, and a box filter over a photograph sixty times a second
+  for the same answer is the cost this keeps out of it. The composition over the
+  background is per frame, because the background is the grid's and can change
+  under a picture that did not; so is the depth, which can be refined by what the
+  terminal said. A cell outside the clip is neither composed nor matched.
+- **Alpha is mixed with what is under the pixel, and over the terminal's own it
+  is drawn or not at half.** `painter.backgroundAt()` is the cell's background,
+  read at paint time, so a picture over a sibling or an absolutely placed panel
+  mixes with that rather than with an ancestor's colour nobody can see there --
+  pinned by a picture laid over two differently coloured cells. `DEFAULT_COLOR`
+  is the absence of a colour, and the terminal is not asked for its own, so there
+  is nothing to mix with: more than half covered is the pixel and less is the
+  terminal showing through, which is the canvas's rule that nothing invents a
+  colour. A wholly transparent pixel paints nothing at all rather than the
+  background's colour, so `Pixels` skips the cell and a half block's empty half
+  keeps whatever is already there. Per-cell alpha that survives a composite is
+  SIG-103's, and is not needed for this.
+- **The depth is the tree's, read off the element.** A `raw` paints colours
+  nobody declared, so it degrades them itself -- and to the depth the rest of the
+  frame was resolved at, which is `Element.colorLevel` (recorded in
+  `src/element`). An `opts.colorLevel` defaulting to `ansi.level`, which every
+  string facade here takes, would be a second answer inside a running app whose
+  level was refined from what the terminal said: the frame at 256 colours and the
+  picture in truecolor, on exactly the terminals degradation exists for. The
+  facade takes one because it builds the tree and so is the one place that says.
+- **`quantizeColor()`, not `degradeColor()`.** The degrader's memo is never
+  evicted, on the argument that what reaches it is declared colour and an app
+  has a few dozen. A photograph is a few thousand colours nobody declared, a
+  different few thousand at each size it is drawn at -- so this asks the
+  unmemoized half of the same function and keeps its own map, dropped when the
+  size or the depth moves and bounded at four entries a pixel besides -- asked
+  before a frame adds its own, so the limit it checks is three -- for a
+  background animating under a part-transparent picture.
+- **At level 0 it draws nothing, keeps its box, and the facade is `''`.** A
+  picture with its colour taken away is not a picture, and `NO_COLOR` and a pipe
+  both asked for no escape sequences. The box stays reserved inside a tree,
+  because a layout that moves when colour goes away is a layout that depends on
+  colour. The string facade has no layout to keep the shape of, and a column of
+  blank lines the picture's height is a strange thing to write into a log, so it
+  returns the empty string.
+- **Settled: `renderToString()` supports an image, and it fell out.** It shares
+  the painter, the element carries its depth through the same walk, and
+  `image()` is that path with a size picked. What is defined is the rule above
+  for level 0 and the depth asked for at every other level, and both are tested
+  -- the facade's output to the byte at level 3.
+- **Settled: no braille mode.** `Dots` is 2x4 and monochrome, the tier that works
+  literally everywhere, and it does not make a picture without three decisions
+  none of which has one right answer. _Which dots are lit_: a lit dot is the
+  foreground, so on a dark terminal bright pixels light and on a light one dark
+  ones do, and the scheme is a guess (`colorScheme` is one, and qrcode carries a
+  whole entry about getting it wrong). _Threshold or dither_: line art wants a
+  threshold and a photograph wants error diffusion, so it is two modes rather than
+  one. _What colour_: one foreground for up to eight pixels is an average that
+  belongs to none of them. And the QR entry above already measured that braille
+  does not **tile** -- the dots have gaps about their own width, so a solid region
+  is a texture. The case it was asked for, "level-0-ish terminals", is the case
+  this draws nothing for on purpose: a pipe and `NO_COLOR` want no picture, not a
+  monochrome one. A caller with line art and an opinion about polarity has `Dots`,
+  public since it was written, and a threshold over `resampleImage()`'s output at
+  `columns * 2` by `rows * 4` is a loop.
+- **No ASCII form, as with the QR code.** The three glyphs are `▀ ▄ █`, which
+  are in CP437 and every console font, and there is no ASCII picture worth
+  drawing. `unicodeSupported()` is not consulted.
+- **Not selectable, by the default a `raw` already has.** `RawOptions.drawsText`
+  records the case it was written for -- "a sparkline and a half-block image: a
+  wall of block characters nobody wants in their clipboard" -- and this is the
+  second of those.
+- **Not done.** Animation (a GIF is a decoder and a clock, and the clock is the
+  app's), alt text (a picture with nothing drawn has nothing to say on its behalf
+  that the app does not know better), passthrough protocols (refused in
+  `src/canvas`), and `object-position`.
+
 ### Progress: several bars at once, and an ETA
 
 `src/components/progress.ts` gained a rate estimator and `src/components/multi-progress.ts`

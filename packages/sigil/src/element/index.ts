@@ -43,6 +43,7 @@
  * across renders and retrofitting keys is worse than carrying an unused prop.
  */
 
+import type { ColorLevel } from '../ansi/color-support.js';
 import type { Painter } from '../canvas/index.js';
 import type { KeyHandler, MouseHandler, PasteHandler } from '../input/index.js';
 import type { Box, LayoutNode, Measurement } from '../layout/index.js';
@@ -303,6 +304,27 @@ export class Element implements LayoutNode {
    * question asked by the layer below.
    */
   style: Style;
+
+  /**
+   * The colour depth `style` was resolved at, which a `raw` painting colours of
+   * its own has to degrade them to.
+   *
+   * Degradation happens at resolve time, so every colour a stylesheet or a prop
+   * names is already one the destination can emit by the time paint reads it --
+   * and a `raw` is the one thing that paints colours nobody declared. An image is
+   * thousands of them, worked out from the box layout gave it, so they cannot be
+   * degraded before paint; what paint needs is the depth the rest of the tree was
+   * degraded to, and the result the cascade resolved carries exactly that. It is
+   * written beside `style` by the same walk, so the two cannot describe
+   * different frames, and asking anything else -- `ansi.level`, a component's own
+   * option -- is a second answer that disagrees with the frame on the terminals a
+   * refined level exists for.
+   *
+   * Truecolor until something resolves a style, which is what `renderToString()`
+   * assumes when nobody names a level, and what an unresolved tree's initial style
+   * already means: nothing degraded.
+   */
+  colorLevel: ColorLevel = 3;
 
   /** Where the arrange pass put this element, if it has run. */
   box: Box | undefined;

@@ -8,4 +8,4 @@
  */
 export { decodePng, MAX_PIXELS, type DecodePngOptions } from './decode.js';
 export { encodePng } from './encode.js';
-export type { RgbaImage } from './image.js';
+export { assertRgbaImage, type AssertRgbaImageOptions, type RgbaImage } from './image.js';

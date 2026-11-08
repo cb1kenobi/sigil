@@ -660,6 +660,9 @@ export function settleStyles(root: Element, restyler: Restyler): Update {
     const style = restyler.styleOf(element);
     if (style) {
       element.style = style;
+      // and the depth it was degraded to, for a `raw` that paints colours of its
+      // own: the two are one answer, so they are written together
+      element.colorLevel = restyler.levelOf(element) ?? element.colorLevel;
     }
     for (const child of element.children) {
       walk(child);

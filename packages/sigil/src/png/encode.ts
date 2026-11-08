@@ -1,6 +1,6 @@
 import { chunkCrc, INDEXED, MAX_CHUNK_LENGTH, RGB, RGBA, rowBytes, SIGNATURE } from './chunks.js';
 import { filter, NONE, PAETH } from './filters.js';
-import type { RgbaImage } from './image.js';
+import { assertRgbaImage, type RgbaImage } from './image.js';
 /**
  * Writing a PNG: 8-bit RGBA in, the smallest of the plain encodings out.
  *
@@ -47,24 +47,10 @@ const DEFLATE = { level: 6, memLevel: 9, strategy: constants.Z_DEFAULT_STRATEGY,
  * positive whole numbers, or `data` that is not `width * height * 4` bytes.
  */
 export function encodePng(image: RgbaImage): Uint8Array {
-  const { width, height } = image ?? ({} as RgbaImage);
-  const input: unknown = image?.data;
-  if (!isDimension(width) || !isDimension(height)) {
-    throw new TypeError(
-      `encodePng() expects a width and height that are whole numbers from 1 to ${MAX_CHUNK_LENGTH}, got ${quote(width)}x${quote(height)}`
-    );
-  }
-  // a Uint8ClampedArray is what a canvas hands back, and is the same bytes
-  if (!(input instanceof Uint8Array || input instanceof Uint8ClampedArray)) {
-    throw new TypeError(`encodePng() expects data to be a Uint8Array, got ${describe(input)}`);
-  }
-  // read through the same indices either way, so one type serves both
-  const data = input as Uint8Array;
-  if (data.length !== width * height * 4) {
-    throw new TypeError(
-      `encodePng() expects ${width * height * 4} bytes of data for ${width}x${height} RGBA, got ${data.length}`
-    );
-  }
+  // at least one pixel, because a PNG cannot be empty where a picture can
+  assertRgbaImage(image, { min: 1, name: 'encodePng()' });
+  // a Uint8ClampedArray is read through the same indices, so one type serves both
+  const { data, height, width } = image;
 
   const census = countColours(data);
   const chunks: [string, Uint8Array][] = [];
@@ -107,29 +93,6 @@ export function encodePng(image: RgbaImage): Uint8Array {
   chunks.push(['IEND', new Uint8Array(0)]);
 
   return assemble(chunks);
-}
-
-/**
- * A value as an error message may quote it. The caller wrote it, but a CLI's
- * error handler prints it, so a control character in it -- a string width, a
- * `Symbol.toStringTag` -- is escaped the way the decoder names a chunk type in
- * hex: `ESC [ 2 J` in a message clears the terminal of whoever reads it.
- */
-function quote(value: unknown): string {
-  return String(value).replaceAll(
-    /\p{Cc}/gu,
-    (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`
-  );
-}
-
-function describe(value: unknown): string {
-  return quote(
-    typeof value === 'object' ? Object.prototype.toString.call(value).slice(8, -1) : typeof value
-  );
-}
-
-function isDimension(n: unknown): n is number {
-  return Number.isInteger(n) && (n as number) >= 1 && (n as number) <= MAX_CHUNK_LENGTH;
 }
 
 function header(width: number, height: number, depth: number, colourType: number): Uint8Array {

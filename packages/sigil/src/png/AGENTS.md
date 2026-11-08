@@ -168,6 +168,33 @@ screenshot writes. SIG-114.
   canvas hands back and it is the same bytes; any other typed array is refused,
   because `Float32Array` of the right length is not RGBA.
 
+#### One check of the shape
+
+- **`assertRgbaImage()` is the encoder's check, published, and the image
+  component uses it too (SIG-326).** SIG-326 wrote its own check of the same
+  shape for `resampleImage()` beside this one, and two checks of one shape are
+  two answers to what a picture is. The encoder's was the stricter and the more
+  careful, so it is the one that stayed: `encodePng()` calls it with
+  `{ name: 'encodePng()', min: 1 }` and its four messages are word for word
+  what they were, which `should keep the encoder's messages, word for word`
+  pins. What `name` buys is that `resampleImage()` and `imageView()` say the
+  same thing in their own words.
+- **What changed was the other check, in three ways, and the encoder in none.**
+  The image side accepted any safe integer and now stops at 2^31-1, IHDR's
+  limit -- no limit in practice, since a picture that wide is eight gigabytes of
+  `data`. It threw JavaScript's own `TypeError` on a `null` or `undefined`
+  picture and now throws this one. And its messages are this one's. The single
+  difference kept is the minimum: an empty picture is a picture -- a component
+  draws nothing for one -- while a PNG cannot be empty, so `min` defaults to 0
+  and the encoder asks for 1.
+- **It lives in `image.ts` beside the type, and so does the 2^31-1.**
+  `resampleImage()` imports it from that module rather than from the subpath's
+  barrel, because the barrel is the codec and `chunks.ts` imports `node:zlib`
+  for its CRC: checking a shape must not load zlib into `@ttylabs/sigil/canvas`.
+  So the constant moved here too and `MAX_CHUNK_LENGTH` reads it, which is one
+  definition of one number. `should keep zlib out of the canvas` in
+  `test/dist.test.ts` fails if the import goes through the barrel.
+
 #### The corpus
 
 - **PngSuite is vendored whole, and checked against ImageMagick rather than

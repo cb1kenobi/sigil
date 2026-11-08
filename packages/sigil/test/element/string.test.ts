@@ -3,6 +3,7 @@ import {
   box,
   type Element,
   paragraph,
+  raw,
   renderToLines,
   renderToString,
   text,
@@ -253,6 +254,38 @@ describe('renderToString()', () => {
         width: 10,
       })
     ).to.equal('loud');
+  });
+});
+
+describe('the colour depth a raw is handed', () => {
+  // a `raw` paints colours nobody declared, so it has to degrade them itself,
+  // and the depth it degrades to is the one the rest of the tree was resolved
+  // at -- not `ansi.level`, and not a component's own guess at it
+  const seen = (colorLevel?: 0 | 1 | 2 | 3): number[] => {
+    const levels: number[] = [];
+    const probe = raw({
+      measure: () => ({ height: 1, width: 1 }),
+      paint: (_painter, _box, self) => {
+        levels.push(self.colorLevel);
+      },
+    });
+    renderToString(box({}, probe), { colorLevel, width: 4 });
+    return levels;
+  };
+
+  it('should be the depth the tree was resolved at', () => {
+    expect(seen(0)).toEqual([0]);
+    expect(seen(1)).toEqual([1]);
+    expect(seen(2)).toEqual([2]);
+    expect(seen(3)).toEqual([3]);
+  });
+
+  it('should be truecolor where nobody named one, as everything else is', () => {
+    expect(seen()).toEqual([3]);
+  });
+
+  it('should be truecolor on a tree nothing has resolved', () => {
+    expect(text('x').colorLevel).toBe(3);
   });
 });
 

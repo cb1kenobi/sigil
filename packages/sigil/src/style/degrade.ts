@@ -83,8 +83,19 @@ export function paletteRgb(index: number): readonly [number, number, number] {
   return [grey, grey, grey];
 }
 
-/** Pulls the channels out of a colour, whichever kind it is. */
-function channels(color: Color): readonly [number, number, number] {
+/**
+ * The RGB a colour stands for, whichever kind it is.
+ *
+ * A 24-bit colour is its own channels and a palette index is `paletteRgb()`'s
+ * answer, with the basic sixteen read off the xterm defaults for the reason that
+ * function gives. Exported for anything mixing a colour it was handed with one
+ * of its own -- an image over a box's background is the case -- so the mix and
+ * the degrader read a palette index the same way.
+ *
+ * @param color - The colour. Not `DEFAULT_COLOR`, which stands for no RGB at all.
+ * @returns The channels.
+ */
+export function colorRgb(color: Color): readonly [number, number, number] {
   return rgbChannels(color) ?? paletteRgb(color);
 }
 
@@ -196,8 +207,8 @@ export function mixColors(from: Color, to: Color, t: number): Color | undefined 
     return from;
   }
 
-  const a = oklab(channels(from));
-  const b = oklab(channels(to));
+  const a = oklab(colorRgb(from));
+  const b = oklab(colorRgb(to));
   const [r, g, bl] = rgbFromOklab([
     a[0] + (b[0] - a[0]) * t,
     a[1] + (b[1] - a[1]) * t,
@@ -235,7 +246,7 @@ const OKLAB_OF: readonly (readonly [number, number, number])[] = range(0, 256).m
  * @returns The nearest index.
  */
 function nearest(color: Color, targets: readonly number[]): number {
-  const wanted = oklab(channels(color));
+  const wanted = oklab(colorRgb(color));
   let best = targets[0];
   let bestDistance = Number.POSITIVE_INFINITY;
 
@@ -271,13 +282,45 @@ const MEMO: Map<number, Color>[] = [new Map(), new Map(), new Map(), new Map()];
  * Memoized per level, and the memo is never evicted. What reaches this is a
  * *declared* colour -- what a stylesheet or a prop wrote -- of which an app has
  * a few dozen, so the table is small and stays small. A gradient painted cell by
- * cell does not come through here: it goes to the canvas directly.
+ * cell does not come through here: it goes to the canvas directly. Neither does
+ * an image, whose colours are `quantizeColor()`'s.
  *
  * @param color - The declared colour.
  * @param level - How much colour the destination can render.
  * @returns A colour the destination can emit.
  */
 export function degradeColor(color: Color, level: ColorLevel): Color {
+  if (color === DEFAULT_COLOR || level <= 0 || level >= 3) {
+    return quantizeColor(color, level);
+  }
+
+  const memo = MEMO[level];
+  const cached = memo.get(color);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const answer = quantizeColor(color, level);
+  memo.set(color, answer);
+  return answer;
+}
+
+/**
+ * `degradeColor()`'s answer, worked out every time rather than remembered.
+ *
+ * The memo is right for what a stylesheet declares and wrong for a picture: a
+ * photograph resampled into a box is a few thousand colours nobody declared, a
+ * different few thousand at every size it is drawn at, and a memo that is never
+ * evicted would keep every one of them for the life of the process. So a caller
+ * painting colours it computed -- an image is the one in this package -- asks
+ * this, and remembers what it likes for as long as it likes. One function behind
+ * both, so the two cannot come to disagree about a colour.
+ *
+ * @param color - The colour.
+ * @param level - How much colour the destination can render.
+ * @returns A colour the destination can emit.
+ */
+export function quantizeColor(color: Color, level: ColorLevel): Color {
   // the terminal's own foreground survives every level: it is not a colour we
   // chose, it is the absence of one
   if (color === DEFAULT_COLOR || level >= 3) {
@@ -287,12 +330,6 @@ export function degradeColor(color: Color, level: ColorLevel): Color {
     return DEFAULT_COLOR;
   }
 
-  const memo = MEMO[level];
-  const cached = memo.get(color);
-  if (cached !== undefined) {
-    return cached;
-  }
-
   // a palette colour the level can already emit is left exactly as declared.
   // At 256 that is every palette index, the basic sixteen included: AGENTS.md
   // records that a named colour stays a palette index, because those sixteen are
@@ -300,17 +337,13 @@ export function degradeColor(color: Color, level: ColorLevel): Color {
   // into the cube's #0000ff would override a choice they already made. Only a
   // colour the level *cannot* emit is matched, and only ever onto the fixed part
   // of the palette
-  const answer =
-    level === 2
-      ? color < RGB_BASE
-        ? color
-        : palette(nearest(color, TARGETS_256))
-      : color < 16
-        ? color
-        : palette(nearest(color, TARGETS_16));
-
-  memo.set(color, answer);
-  return answer;
+  return level === 2
+    ? color < RGB_BASE
+      ? color
+      : palette(nearest(color, TARGETS_256))
+    : color < 16
+      ? color
+      : palette(nearest(color, TARGETS_16));
 }
 
 /**

@@ -207,18 +207,20 @@ the entry it belongs to.
   `undefined`.
 - **The style table is swept on growth, not on every frame.** Interning was the
   only way in and there was no way out, so the table grew for the life of the
-  canvas: `paint()` clears the back buffer and interns again, and `Pixels.blit()`
-  interns a style per cell, which is a new entry per distinct pixel colour per
-  frame -- order of a million `Style` objects a minute at 80x24 and 60fps. Once
-  `present()` has copied back over front, the live set is exactly what `front`
-  names, and `StyleTable.compact()` keeps those and says where each one moved.
-  Sweeping every frame is the obvious version and is wrong in the case that
-  matters most: reading the live set walks every cell, which measures 0.013ms
-  against an ordinary TUI frame's 0.10ms -- an eighth of the frame, forever, to
-  reclaim nothing, since such a table settles at a couple of dozen entries and
-  never moves. So the trigger is growth past twice what survived the last sweep,
-  with a floor, which bounds the table at twice a frame's own usage and costs an
-  integer comparison to the canvas that never needs it. A resize sweeps
+  canvas: `paint()` clears the back buffer and interns again, and
+  `Pixels.blit()` interns a style per cell, which is a new entry per distinct
+  pixel colour per frame -- order of a million `Style` objects a minute at 80x24
+  and 60fps. Once `present()` has copied back over front, the live set is
+  exactly what `front` names, and `StyleTable.compact()` keeps those and says
+  where each one moved. Sweeping every frame is the obvious version and is wrong
+  in the case that matters most: reading the live set walks every cell, which
+  measures 0.013ms against an ordinary TUI frame's 0.10ms -- an eighth of the
+  frame, forever, to reclaim nothing, since such a table settles at a couple of
+  dozen entries and never moves. So the trigger is growth past twice what
+  survived the last sweep, with a floor, which bounds the table at about three
+  times a frame's own usage -- twice what survived, checked after the frame that
+  crosses it has interned, which SIG-326 measured under a photograph -- and
+  costs an integer comparison to the canvas that never needs it. A resize sweeps
   unconditionally and that is the cheap case: both grids come back blank, so
   nothing names a style and there is nothing to walk or remap. Indices move, so
   the sweep rewrites _both_ grids -- `back` is what the next `present()` is
@@ -873,3 +875,78 @@ byte-identical. A refactor inside a feature branch is where a test quietly loses
 an assertion, so the diff is the evidence rather than the green suite.
 
 > Moved: _What the ticket got wrong, and what it left open_ — see [docs/history/layers-and-masks-compositing-and-the-transition-it-buys.md](../../../../docs/history/layers-and-masks-compositing-and-the-transition-it-buys.md).
+
+### An image over `Pixels`: the style table under a photograph
+
+SIG-326 put a component over `Pixels` -- `imageView()` in `src/components`, whose
+decisions are recorded there -- and gave this directory the two pieces of it that
+belong under a cell grid: `resampleImage()` in `image.ts`, and two questions a
+`Painter` can now be asked, `backgroundAt()` and `inside()`. The ticket's own
+worry was the style table, and it was right to be worried for a reason it did not
+name.
+
+- **The box filter is the canvas's, and it knows nothing about cells.** A
+  `Pixels` pixel is a cell wide and half a cell tall, which a terminal cell about
+  twice as tall as it is wide makes square, so "account for the cell's aspect" is
+  one sentence -- resample to `columns` by `rows * 2` -- and it is said by the
+  component that has a box rather than by the filter. That keeps `resampleImage()`
+  one function anybody resizing RGBA can use, which is why it is exported from
+  `@ttylabs/sigil/canvas` rather than buried in the component. Exact area weights
+  at both ends of every span, because 1,002 rows into 48 is 20.875 a row and a sum
+  over whole pixels counts the shared row twice; two passes, across then down, so
+  a source pixel is read once; and **premultiplied**, so a transparent pixel's
+  colour bytes -- usually black -- do not fringe the edge of a cut-out.
+- **`backgroundAt()` is `text()`'s question asked out loud.** Alpha is composed
+  against what is under the pixel at blit time, and "A glyph keeps the background
+  under it" already argued where that answer lives: the grid, which knows about a
+  box filled first, a sibling painted earlier and an absolutely placed panel, none
+  of which an ancestor walk can see. Read through the clip, so a cell nothing may
+  paint answers the terminal's own.
+- **`Pixels.blit()` asks `inside()` before it builds a style, and that was the
+  measurement's finding.** `text()` interns the style it is handed whether or not
+  anything lands. For a run of text that is one entry; for `Pixels` it is one per
+  cell. Measured against a real photograph before the check went in, a picture
+  that ran off the bottom of an 80x24 canvas -- which is what a row does to an
+  image taller than its box, because a row stretches a measuring item to the
+  larger of the room and its height -- interned **4,229** styles a frame of which
+  **1,850** were on screen, so every sweep dropped 2,379 that the next frame put
+  straight back, the table crossed twice its swept size again, and it was swept
+  on **every one of 200 frames** of a picture that never changed. That is the
+  exact cost the growth trigger exists to keep off a frame with nothing to
+  reclaim, and the same thing happens to a picture scrolled half out of a pane.
+  With the check, the same still picture is swept once, on the first frame, and
+  never again. `should intern no style for a cell off the grid or outside the
+  clip` fails without it.
+- **The trigger holds, and the bound it gives is three times the live set rather
+  than the two the sweep's own entry says.** Measured with
+  `demos/components/images/macaw.png`, a public-domain photograph by Adrian
+  Pingstone, drawn with `fit: 'cover'` filling the whole canvas in a column at
+  three sizes, through `createCanvas()` for 200 frames each:
+
+  | canvas | live styles | still: sweeps | still: peak table | panning: sweeps | panning: peak / live |
+  | ------ | ----------- | ------------- | ----------------- | --------------- | -------------------- |
+  | 80x24  | 1,913       | 1             | 1,914             | 107 of 200      | 3.01                 |
+  | 120x40 | 4,751       | 1             | 4,752             | 101 of 200      | 3.01                 |
+  | 200x60 | 11,903      | 1             | 11,904            | 100 of 200      | 3.05                 |
+
+  The first version of this table had 1,850, 4,580 and 11,147 in it, which were
+  the picture overflowing a **row** -- the shape of the entry above -- written
+  under a heading that said it filled the canvas; review round 1 re-derived the
+  canvas-filling figures and they are what stands. Panning is the worst case
+  there is: the crop moves a source pixel each frame, so every frame is a screen
+  of colours the last one did not have. The table is swept every other frame and
+  is bounded, and the bound is survivors + one frame that did not cross + the
+  frame that did -- about **3x**, since the trigger is checked after a frame has
+  interned rather than before. A `present()` that sweeps cost **0.62ms against
+  0.34ms** at 80x24 and **4.96ms against 2.73ms** at 200x60, medians over 180
+  frames on a machine running other suites, so the worst case amortizes to about
+  0.15ms and 1.1ms a frame. At level 2 the still photograph's live set at 80x24
+  is 477, since the cube folds neighbours together. So the existing measurement
+  does not cover a photograph -- it was taken at 1,920 live styles on a frame
+  that fit its grid -- but its conclusion survives one: nothing about a
+  photograph needed the trigger changed, only the interning in front of it.
+  Recorded rather than retuned: a lower factor sweeps a panning picture every
+  frame to save memory nobody is short of, and the factor is what keeps a
+  settled table from ever being walked. `should sweep a still photograph once at
+  every size` pins the live counts at all three sizes exactly, so the table
+  cannot drift from the code without a failure.

@@ -226,6 +226,7 @@ describe('what importing the package costs', () => {
     'filePicker',
     'selectRow',
     'treeView',
+    'imageView',
   ];
 
   /** The bundles in a graph that define any of them. */
@@ -571,6 +572,15 @@ describe('what importing the package costs', () => {
     expect(bytes, `${[...coerce].join(', ')}`).toBeLessThan(24 * 1024);
   });
 
+  it("should keep zlib out of the canvas, which checks a picture with the codec's own check", () => {
+    // `resampleImage()` asks `assertRgbaImage()` from `png/image.ts` rather than
+    // from the subpath's barrel, because the barrel is the codec and the codec
+    // loads `node:zlib`. The presence half: the check really is in the canvas
+    const canvas = staticGraph('canvas.mjs');
+    expect(carriers(canvas, 'node:zlib')).toEqual([]);
+    expect(carriers(canvas, 'expects a width and height')).not.toEqual([]);
+  });
+
   it('should keep the png subpath to the codec and off the root entry', () => {
     // `@ttylabs/sigil/png` is read by whatever draws an image and by whatever
     // writes a screenshot, and by nothing that only parses argv -- so it is a
@@ -695,12 +705,20 @@ describe('what importing the package costs', () => {
     // growth, which a ceiling exists not to catch, so the ceiling moved -- to
     // 1.4x of the new figure, which is the ratio it was set at
     //
+    // 472,476 B over 37 when SIG-326 added the image component, which crossed
+    // the 448 KiB the ceiling had been moved to: `main` was at 457,132 over 36,
+    // already 1.003x under it rather than the 1.4x it was set at. Of the 15,344
+    // the image added, 5,021 are its own -- the component, the box filter in
+    // `canvas/image.ts` and `quantizeColor()` -- and 10,323 are the PNG codec,
+    // the one new module, which `imageView()` decodes bytes with. Ordinary
+    // growth, so the ceiling moved to 640 KiB, which is 1.39x of the new figure
+    //
     // A ceiling rather than a measurement, at about 1.4x, so ordinary growth
     // never touches it and a second runtime stack does
     const graph = staticGraph('components.mjs');
     const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
 
-    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(448 * 1024);
+    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(640 * 1024);
   });
 
   // SIG-183 put seven spinner sets in the components entry and the rest in the

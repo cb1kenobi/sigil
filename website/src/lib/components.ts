@@ -583,6 +583,14 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     registry: 'qrcode',
     example: { rows: 30 },
   },
+  {
+    slug: 'image',
+    name: 'image()',
+    family: 'output',
+    exports: ['image', 'imageView'],
+    registry: 'image',
+    example: { cwd: 'demos/components/images', rows: 30 },
+  },
 
   // ------------------------------------------------------------- fullscreen
   {

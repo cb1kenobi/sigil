@@ -972,6 +972,17 @@ toolchain's one reader.
   app has a few dozen of those, not the 16.7 million a cap would be protecting
   against -- a gradient painted cell by cell goes to the canvas directly and
   never passes through the cascade at all.
+- **`quantizeColor()` is `degradeColor()` without the memo, and an image is
+  why (SIG-326).** The memo is never evicted on the argument that what reaches
+  it is declared colour; a photograph resampled into a box is a few thousand
+  colours nobody declared, a different few thousand at every size, so a caller
+  painting colours it computed asks the unmemoized half and keeps what it likes
+  for as long as it likes. One function behind both rather than two matchers, so
+  they cannot come to disagree about a colour -- `should give the answer
+  degradeColor gives, at every level` sweeps the palette and a cube of 24-bit
+  colours through both. `colorRgb()` was the private `channels()` and is
+  exported for the same caller: mixing a pixel over a palette background has to
+  read the palette the way the matcher does.
 - **The basic sixteen are matched against the xterm defaults.** Terminal themes
   make them unknowable, and being wrong for somebody running Solarized is a
   smaller failure than refusing to degrade.

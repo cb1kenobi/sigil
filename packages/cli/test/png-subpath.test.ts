@@ -18,8 +18,13 @@ function gradient(width: number, height: number): png.RgbaImage {
 }
 
 describe('@ttylabs/sigil/png', () => {
-  it('should publish the codec and nothing else', () => {
-    expect(Object.keys(png).sort()).toEqual(['MAX_PIXELS', 'decodePng', 'encodePng']);
+  it('should publish the codec and the check of its shape, and nothing else', () => {
+    expect(Object.keys(png).sort()).toEqual([
+      'MAX_PIXELS',
+      'assertRgbaImage',
+      'decodePng',
+      'encodePng',
+    ]);
   });
 
   it('should round-trip through the bundle, signature and all', () => {
