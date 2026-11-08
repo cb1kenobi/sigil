@@ -1963,6 +1963,30 @@ other is refused with numbers.
   reaches further than a bug fix should: it is the shape to take if this area is
   opened again.
 
+- **A test copies a fixture with `copyFixture()`, which never reads a
+  `node_modules`.** The work directory above is the app's own, so a fixture
+  built in place by one test file has a directory appearing and vanishing under
+  its `node_modules/.sigil/` while other workers run. A whole-tree copy of that
+  fixture lists the directory and then finds it gone: `ENOENT` with `syscall:
+  'cp'`, from a test that passes alone (SIG-331, `an import nothing can
+  resolve`). Forced with a probe -- 33 of 8,445 copies of `buildable` failed
+  against four real build loops, and the test itself failed 3 runs in 10 against
+  synthetic churn and 0 in 10 after the fix. The four copies in
+  `package-command.test.ts` had each met the same race and been given a filter
+  of their own, a substring test that would also have dropped a command called
+  `node_modules.js`, so the five are now one helper in
+  `test/copy-fixture.ts`. A refused directory is not descended into, which is
+  what closes the race rather than dropping what it found. A test proves it by
+  making the scratch directory unreadable, on POSIX and not as root, since
+  Windows has no mode bit to take away and root reads it anyway. Leaving
+  `node_modules` out loses nothing: no fixture commits one. `copying a fixture`
+  in `test/copy-fixture.test.ts` scans the tests of every package, the examples
+  and the website's tests for a tree copy, or an import renaming one, that does
+  not go through the helper. The exemptions are by name and by count: the
+  helper's own call, and `update-check.test.ts`'s two, since it copies
+  `package.json` and `src` alone into variants under the fixture's own `out/`. The fixture walk in `cli.test.ts` is the same race on `readdirSync`
+  and was fixed there earlier by skipping `node_modules`.
+
 - **`sigil build` empties its output directory, and refuses the one that would
   hurt.** A build that leaves the last one behind publishes the union of every
   build ever run there -- a renamed command's chunk stays, a removed one's
