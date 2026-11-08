@@ -325,6 +325,13 @@ export const REFUSALS: readonly RefusalEntry[] = [
     template: `<box onClick=\${0} />`,
   },
   {
+    exprs: ['() => scope.log.push("bare")'],
+    message:
+      '`on` is not an event this element has. The handlers are onKey, onMouse, onPaste, onFocusChange, onScroll, onResize, onLayout (at line 1)',
+    name: 'a prop named just on, which the length of the name used to let through',
+    template: `<box on=\${0} />`,
+  },
+  {
     exprs: ['() => scope.log.push("click")'],
     message:
       '`on-click` is not an event this element has. The handlers are onKey, onMouse, onPaste, onFocusChange, onScroll, onResize, onLayout (at line 1)',

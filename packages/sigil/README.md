@@ -2638,15 +2638,19 @@ without a word. `TextField` owns `onKey`, `onPaste`, `onFocusChange` and
 `onResize`; `ScrollBox` `onKey` and `onMouse`; `createPager` `onKey`;
 `tabRowView` `onKey`, `onFocusChange` and `onResize`; `openModal` `onPaste`;
 `showToast` `onMouse`; `attachTooltip` `onLayout`. Put a handler for those on an
-element around the component. `refuseOwnedHooks(who, props, hooks)` from
+element around the component. A wrapper that forwards `props` types them as
+`ElementPropsWithout<...>` with the same hooks: a value typed plain `ElementProps`
+no longer fits, because it may carry a handler the component would replace.
+`refuseOwnedHooks(who, props, hooks)` from
 `@ttylabs/sigil/components` is the check they share, for an ejected or a
 hand-written component that spreads `props` into its host and sets a hook there.
 
 ### `sigil/template`
 
 The `ui` tag, its parser, and the emitter's leaves -- `applyProp()`,
-`applyRef()`, `splitRefs()`, `applyText()`, `appendValue()`, `rawElement()`,
-`rootElement()`, `componentChildren()`, `rawParts()` and `textPart()` -- which
+`applyRef()`, `splitRefs()`, `refuseHandlerName()`, `applyText()`,
+`appendValue()`, `rawElement()`, `rootElement()`, `componentChildren()`,
+`rawParts()` and `textPart()` -- which
 `sigil build`'s template compiler calls rather than restating, so a compiled
 template and an interpreted one cannot come to disagree about what a prop, a
 child or a `<raw>` means.

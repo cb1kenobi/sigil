@@ -206,7 +206,7 @@ describe('a near miss for a handler name', () => {
     expect(calls).toBe(0);
   });
 
-  it.each(['onClick', 'on-click', 'onChange', 'onFocus'])(
+  it.each(['on', 'onClick', 'on-click', 'onChange', 'onFocus'])(
     'should refuse %s given a function as an event this element does not have',
     (name) => {
       calls = 0;

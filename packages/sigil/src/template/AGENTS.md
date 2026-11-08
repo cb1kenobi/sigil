@@ -411,7 +411,7 @@ the entry it belongs to.
   -- kebab or lower case, matched with the dashes taken out and the case folded
   -- is refused whatever its value, naming the right one; the compiler can answer
   that from the IR, so it is a compile error there. **Any other `on`-prefixed
-  name given a function** is "not an event this element has", listing the seven;
+  name given a function** -- including a prop named just `on` -- is "not an event this element has", listing the seven;
   only the interpreter knows the value, so that half is a run-time error in a
   compiled template, with the same words and position. A non-function under such
   a name is not its business: it reaches the cascade, which refuses an unknown

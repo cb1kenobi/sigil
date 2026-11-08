@@ -349,7 +349,7 @@ export function refuseHandlerName(name: string, value: unknown, loc?: SourceLoca
       loc
     );
   }
-  if (typeof value === 'function' && name.startsWith('on') && name.length > 2) {
+  if (typeof value === 'function' && name.startsWith('on')) {
     throw templateError(
       `\`${name}\` is not an event this element has. The handlers are ` +
         `${HANDLER_PROPS.join(', ')}`,

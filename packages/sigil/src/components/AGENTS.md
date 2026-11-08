@@ -9947,6 +9947,15 @@ exception per widget. This is the one answer, and every widget below follows it.
   `owned-hooks.ts` is the one definition. `undefined` is let through, since an
   optional prop a caller passed along is not a handler.
 
+  **The type break, accepted.** A value typed `ElementProps` no longer fits these
+  components' `props`: `function MyField(p: { props?: ElementProps }) { return
+  TextField({ props: p.props }) }`, or a shared `const style: ElementProps`, fails
+  with TS2322 where it compiled before hooks were props. Accepted because the
+  error is true -- such a value may carry a handler the component would replace
+  -- and a forwarder types its own `props` as `ElementPropsWithout<...>` with the
+  same hooks. `owned-hooks.test.ts` pins that spelling compiling and the other
+  not.
+
   | component       | hooks it owns on the host its `props` go to     |
   | --------------- | ----------------------------------------------- |
   | `TextField`     | `onKey`, `onPaste`, `onFocusChange`, `onResize` |

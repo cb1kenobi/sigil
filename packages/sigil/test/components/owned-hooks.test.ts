@@ -9,6 +9,8 @@ import { attachTooltip } from '../../src/components/tooltip.js';
 import {
   box,
   type Element,
+  type ElementProps,
+  type ElementPropsWithout,
   HANDLER_PROPS,
   type HandlerProp,
   renderToLines,
@@ -257,6 +259,27 @@ describe("the type of a component's props", () => {
       Collapsible({ props: { onKey: mine }, title: 'x' });
       // and a hook passed along as undefined is not a handler
       TextField({ props: { onKey: undefined } });
+    };
+    expect(never).toBeTypeOf('function');
+  });
+
+  it('should make a forwarder type its own props as ElementPropsWithout<>', () => {
+    // a value typed `ElementProps` no longer fits a component that owns a hook,
+    // where it compiled before hooks became props. Accepted: it is the type
+    // telling the truth, since such a value may carry a handler the component
+    // would replace. The spelling that compiles is the narrower one
+    const never = (): void => {
+      type FieldProps = ElementPropsWithout<'onFocusChange' | 'onKey' | 'onPaste' | 'onResize'>;
+      const forwarder = (p: { props?: FieldProps }): Element => TextField({ props: p.props });
+      const shared: FieldProps = { padding: 1 };
+      forwarder({ props: shared });
+
+      // @ts-expect-error -- a wrapper that types its props as ElementProps does not fit
+      const wrapper = (p: { props?: ElementProps }): Element => TextField({ props: p.props });
+      const style: ElementProps = { padding: 1 };
+      // @ts-expect-error -- nor does a shared value typed ElementProps
+      TextField({ props: style });
+      void wrapper;
     };
     expect(never).toBeTypeOf('function');
   });
