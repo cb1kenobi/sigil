@@ -121,6 +121,7 @@ const config: UserConfig = defineConfig({
     layout: './src/layout/index.ts',
     index: './src/index.ts',
     paths: './src/paths.ts',
+    png: './src/png/index.ts',
     reference: './src/reference/index.ts',
     renderer: './src/renderer/index.ts',
     routes: './src/parser/command/routes.ts',

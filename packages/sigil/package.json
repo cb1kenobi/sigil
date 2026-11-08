@@ -90,6 +90,10 @@
       "types": "./dist/paths.d.mts",
       "default": "./dist/paths.mjs"
     },
+    "./png": {
+      "types": "./dist/png.d.mts",
+      "default": "./dist/png.mjs"
+    },
     "./reference": {
       "types": "./dist/reference.d.mts",
       "default": "./dist/reference.mjs"

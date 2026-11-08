@@ -571,6 +571,34 @@ describe('what importing the package costs', () => {
     expect(bytes, `${[...coerce].join(', ')}`).toBeLessThan(24 * 1024);
   });
 
+  it('should keep the png subpath to the codec and off the root entry', () => {
+    // `@ttylabs/sigil/png` is read by whatever draws an image and by whatever
+    // writes a screenshot, and by nothing that only parses argv -- so it is a
+    // subpath, the root entry's graph does not reach it, and its own graph is
+    // the codec plus the `__` tag its errors are written in
+    const root = staticGraph('index.mjs');
+    const png = staticGraph('png.mjs');
+
+    expect(
+      [...root].filter((name) => name.startsWith('png')),
+      'png in the root'
+    ).toEqual([]);
+
+    // the presence half: both directions really are in it, and the parser and
+    // the drawing stack really are not
+    expect(carriers(png, 'Not a PNG file')).not.toEqual([]);
+    expect(carriers(png, 'IEND')).not.toEqual([]);
+    for (const marker of ['Missing required arguments', SEGMENTATION]) {
+      expect(carriers(png, marker), marker).toEqual([]);
+    }
+
+    // measured at 14,344 B over three modules as of SIG-114, of which the codec
+    // is 10,365; a ceiling at about 2x, so ordinary growth never touches it and
+    // anything that is not a codec arriving does
+    const bytes = [...png].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+    expect(bytes, `${[...png].join(', ')}`).toBeLessThan(28 * 1024);
+  });
+
   it('should keep the suggest subpath free of anything a browser cannot load', () => {
     // `@ttylabs/sigil/suggest` exists so that the website's 404 page can ask the
     // parser's own "did you mean" rule in the browser. The parser's module
