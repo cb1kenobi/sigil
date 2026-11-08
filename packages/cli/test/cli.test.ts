@@ -361,6 +361,7 @@ describe('@ttylabs/cli', () => {
       'packages/cli/package.json',
       'packages/config-xml/package.json',
       'packages/config-yaml/package.json',
+      'packages/screenshot/package.json',
       'website/package.json',
       ...examples,
     ].map((path) => ({
@@ -375,7 +376,7 @@ describe('@ttylabs/cli', () => {
       // a path that stopped resolving would pass this suite by checking
       // nothing, which is the failure mode a list of paths has
       expect(examples.length).toBeGreaterThan(0);
-      expect(manifests).toHaveLength(7 + examples.length);
+      expect(manifests).toHaveLength(8 + examples.length);
       for (const { json, path } of manifests) {
         expect(json.name, `${path} has no name`).toBeDefined();
       }
@@ -608,6 +609,7 @@ describe('@ttylabs/cli', () => {
       '@ttylabs/cli#build',
       '@ttylabs/config-xml#build',
       '@ttylabs/config-yaml#build',
+      '@ttylabs/screenshot#build',
     ];
 
     /**
@@ -642,6 +644,16 @@ describe('@ttylabs/cli', () => {
       // the same shape, for the same reason: `tsdown` over
       // `tsconfig.build.json` and nothing else
       '@ttylabs/config-yaml#build': [
+        'package.json',
+        'tsconfig.build.json',
+        'tsconfig.json',
+        'tsdown.config.ts',
+      ],
+      // the same shape again: `tsdown` over `tsconfig.build.json`. The fonts
+      // under `fonts/` are read at run time from beside `dist/` and never by
+      // the build, so they are not a build input and a font edit rebuilds
+      // nothing -- which is right, since the bundle does not change
+      '@ttylabs/screenshot#build': [
         'package.json',
         'tsconfig.build.json',
         'tsconfig.json',

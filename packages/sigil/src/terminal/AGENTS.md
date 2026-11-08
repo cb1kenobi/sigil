@@ -35,7 +35,7 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   146.9 after. Identical inside the noise, which is what it has to be, since
   nothing new is on either path. Two tests hold it rather than the measurement:
   one runs a parse, a failing parse, a help screen and a `renderToString()` with
-  stdout recorded and asserts that not one of the six query sequences was written,
+  stdout recorded and asserts that not one of the query sequences was written,
   and `what importing the package costs` in `test/dist.test.ts` already walks the
   root entry's static import graph -- which is the half that catches somebody
   adding a convenience re-export.
@@ -242,6 +242,15 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   the decoder still in "an introducer is an answer" mode. The caller gets what had
   arrived, which is what a deadline would have given it anyway. Rejecting instead
   is refused for the reason `query()` never rejects over a quiet terminal.
+- **The foreground and the palette are asked for the way the background is
+  (SIG-325).** `foreground: true` writes OSC 10 and `palette: true` writes one OSC
+  4 query per entry 0-15 into the same batch, ahead of the DA1 sentinel, and
+  neither is written unless asked -- the no-query test lists both. One query per
+  entry rather than xterm's `4;0;?;1;?;...` list, because a terminal that does not
+  parse the list answers the first pair and drops the rest; a reply that carries
+  several pairs is still read. The first readable answer per entry wins, which is
+  the background's rule. A screenshot is what reads them, and the decisions are
+  in `packages/screenshot/AGENTS.md`.
 - **Eight-bit C1 introducers are out of scope, and that is a boundary rather than
   a hole.** A terminal told to use them sends `0x9b` for CSI, `0x9d` for OSC and
   `0x90` for DCS, none of which this decoder reads -- and it never has, so an arrow

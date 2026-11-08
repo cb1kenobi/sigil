@@ -97,6 +97,18 @@ export class CellBuffer {
   #height: number;
   /** What may be painted, when something has narrowed it. */
   #clip: Clip | undefined;
+  /**
+   * What the style indices on this grid mean, when the grid has been told.
+   *
+   * A cell holds an index into somebody's `StyleTable`, and the table is
+   * deliberately not something a grid carries: the canvas owns it and only the
+   * canvas may compact it. So a grid handed out -- `canvas.snapshot()` -- is a
+   * grid of numbers with no way to say what they are, and the one reader that has
+   * to know is a screenshot. This is that table's `view()`, which stays correct for
+   * every index handed out before the next `compact()` because interning only
+   * appends and a compaction builds a new list rather than rewriting this one.
+   */
+  #styleView: readonly Style[] | undefined;
 
   constructor(width: number, height: number) {
     this.#width = Math.max(0, Math.trunc(width));
@@ -284,6 +296,44 @@ export class CellBuffer {
   occupiedAt(x: number, y: number): boolean {
     const index = this.#at(x, y);
     return index >= 0 && this.#occupied[index] !== 0;
+  }
+
+  /**
+   * The style a cell is drawn in, when the grid knows what its indices mean.
+   *
+   * A grid knows when it was bound to a table's view, which `canvas.snapshot()`
+   * does. One that was not answers for the default style alone, since index `0`
+   * is the default in every table there is, and `undefined` for anything else:
+   * guessing would be reading another table's entry under this one's number.
+   *
+   * @param x - The column.
+   * @param y - The row.
+   * @returns The style, or `undefined` when the grid cannot say.
+   */
+  cellStyle(x: number, y: number): Style | undefined {
+    const index = this.styleAt(x, y);
+    if (index === StyleTable.DEFAULT) {
+      return DEFAULT_STYLE;
+    }
+    return this.#styleView?.[index];
+  }
+
+  /**
+   * The view this grid's indices resolve through, or `undefined` for none.
+   *
+   * @internal For the canvas, which rebinds a grid it remaps.
+   */
+  get styleView(): readonly Style[] | undefined {
+    return this.#styleView;
+  }
+
+  /**
+   * Says what this grid's style indices mean, from a `StyleTable.view()`.
+   *
+   * @param view - The table's view, or `undefined` to forget it.
+   */
+  bindStyles(view: readonly Style[] | undefined): void {
+    this.#styleView = view;
   }
 
   /** @internal Raw access, for the diff, which walks by index. */
@@ -635,6 +685,8 @@ export class CellBuffer {
     }
     this.#styles.set(other.#styles);
     this.#occupied.set(other.#occupied);
+    // the indices came from there, so what they mean comes with them
+    this.#styleView = other.#styleView;
   }
 
   /**
@@ -688,6 +740,32 @@ export class Painter {
   }
 
   /**
+   * Brings a bound grid onto this painter's table before anything is written.
+   *
+   * A grid bound to a view -- a `canvas.snapshot()` -- holds indices that mean
+   * what that view says. Once a sweep has compacted the table, the view a snapshot
+   * kept off `layers` is the old list, still right for what the snapshot holds and
+   * wrong for anything interned since: painting into it would write the new
+   * table's numbers under the old table's meanings, and `cellStyle()` would then
+   * read a colour some earlier frame used. So the grid is re-interned through the
+   * table this painter writes to and bound to its view, once, the first time it
+   * is painted after the two parted. A grid bound to nothing is left alone, which
+   * is what keeps `front` and `back` off this path entirely.
+   */
+  #sync(): void {
+    const bound = this.#buffer.styleView;
+    const view = this.#styles.view();
+    if (bound === undefined || bound === view) {
+      return;
+    }
+    const indices = this.#buffer.rawStyles();
+    for (let i = 0; i < indices.length; i++) {
+      indices[i] = this.#styles.intern(bound[indices[i]] ?? DEFAULT_STYLE);
+    }
+    this.#buffer.bindStyles(this.#styles.view());
+  }
+
+  /**
    * Paints text.
    *
    * A glyph whose background is `DEFAULT_COLOR` keeps the background already in
@@ -708,6 +786,7 @@ export class Painter {
    * @returns How many columns were consumed.
    */
   text(x: number, y: number, text: string, style: Partial<Style> = DEFAULT_STYLE): number {
+    this.#sync();
     const index = this.#styles.intern(style);
     const own = this.#styles.get(index);
     if (own.bg !== DEFAULT_COLOR) {
@@ -786,6 +865,7 @@ export class Painter {
     style: Partial<Style> = DEFAULT_STYLE,
     cluster: string = BLANK
   ): void {
+    this.#sync();
     this.#buffer.fill(x, y, width, height, cluster, this.#styles.intern(style));
   }
 
@@ -826,6 +906,7 @@ export class Painter {
     length: number,
     transform: (style: Style, x: number, y: number) => Partial<Style> | undefined
   ): void {
+    this.#sync();
     for (let column = x; column < x + length; column++) {
       if (!this.#buffer.inside(column, y)) {
         continue;

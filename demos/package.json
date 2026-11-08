@@ -7,6 +7,7 @@
   "dependencies": {
     "@ttylabs/config-xml": "workspace:*",
     "@ttylabs/config-yaml": "workspace:*",
+    "@ttylabs/screenshot": "workspace:*",
     "@ttylabs/sigil": "workspace:*"
   }
 }

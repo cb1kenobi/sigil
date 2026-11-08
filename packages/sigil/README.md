@@ -5596,6 +5596,12 @@ backend with no terminal returns before `canvas.present()` -- `render()` does ca
 to snapshot, the layer composites nothing, and each frame of the ramp is the new
 state.
 
+A snapshot also says what it looks like: `snapshot.cellStyle(x, y)` is the `Style`
+a cell is drawn in, read through the style table that painted it without the table
+being handed out. That is what [`@ttylabs/screenshot`](../screenshot/README.md)
+reads to turn a frame into an SVG or a PNG, and `rgbChannels(color)` is the other
+half -- a 24-bit colour's channels, `rgb()` read backwards.
+
 #### What a backend owes it
 
 Movement is relative, and downward movement never scrolls — so **every row of the
