@@ -4,6 +4,7 @@ import { createSpinner, DOTS, LINE } from '../../src/components/spinner.js';
 import { table } from '../../src/components/table.js';
 import { box, text } from '../../src/element/index.js';
 import { stringWidth } from '../../src/width/index.js';
+import { runsOf, sourcesOf } from '../runs-of.js';
 import { screenSetup, setup } from './helpers.js';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -230,6 +231,81 @@ describe('createSpinner()', () => {
 
       expect(stdout.text).to.equal('Building\nLinking\n✔ Done\n');
     });
+  });
+});
+
+describe('a spinner started from an effect', () => {
+  // SIG-321. The view reads the label to build its text node, and the renderer
+  // ran that build tracked -- so starting a spinner from an effect subscribed the
+  // effect to the spinner's own label, and every later `text = ...` ran it again
+  it('should not re-run the effect when the text is changed from outside', () => {
+    const ui = screenSetup();
+    const spinner = createSpinner({
+      ansi: ui.ansi,
+      ascii: false,
+      terminal: ui.terminal,
+      text: 'a',
+    });
+
+    expect(
+      runsOf(
+        () => spinner.start(),
+        () => {
+          spinner.text = 'b';
+        }
+      )
+    ).toBe(2);
+    expect(ui.frame).to.equal(`${DOTS.frames[0]} b`);
+    spinner.stop();
+  });
+
+  it.each(['succeed', 'fail', 'warn', 'info'] as const)(
+    'should not re-run the effect that called %s() when the spinner is started again',
+    (method) => {
+      // settling mounts a spinner nobody started, and that mount is a build too
+      const ui = screenSetup();
+      const spinner = createSpinner({ ansi: ui.ansi, terminal: ui.terminal, text: 'a' });
+
+      expect(
+        runsOf(
+          () => spinner[method]('done'),
+          () => spinner.start('again')
+        )
+      ).toBe(2);
+      spinner.stop();
+    }
+  );
+
+  it('should leave the effect that changed the text subscribed to nothing', () => {
+    // a frame flushes the renderer's own effects, and that drain read each of
+    // them tracked: the label's effect became a source of the caller's. It
+    // returns nothing, so the caller never re-ran and the run count cannot see
+    // it -- the graph can
+    const ui = screenSetup();
+    const spinner = createSpinner({ ansi: ui.ansi, terminal: ui.terminal, text: 'a' }).start();
+
+    expect(
+      sourcesOf(() => {
+        spinner.text = 'b';
+      })
+    ).toBe(0);
+    expect(ui.frame).to.match(/ b$/);
+    spinner.stop();
+  });
+});
+
+describe('a bar relabelled from an effect', () => {
+  it('should leave the effect subscribed to nothing', () => {
+    // SIG-321: the frame the setter paints drained the label's effect tracked
+    const ui = screenSetup();
+    const bar = createProgress({ ansi: ui.ansi, terminal: ui.terminal, total: 10 });
+
+    expect(
+      sourcesOf(() => {
+        bar.text = 'Copying';
+      })
+    ).toBe(0);
+    bar.stop();
   });
 });
 

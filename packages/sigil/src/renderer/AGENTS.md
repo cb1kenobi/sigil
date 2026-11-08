@@ -262,6 +262,26 @@ the entry it belongs to.
   own state, while looking perfectly alive. Nothing leaks by opting out, because
   the caller opting out is the one that owns the branch and disposes it. See
   `test/signals/effect.test.ts`.
+- **A root and a frame run untracked, because nothing in either is the caller's
+  to depend on.** `runWithOwner()` puts the signals layer's _parentage_ aside and
+  never put the _consumer_ aside, so `createRoot()` ran a body tracked by whatever
+  effect was on the stack -- and `render()` is called from one whenever a
+  built-in mounts lazily: a spinner's `start()` from an effect. `spinnerView()`
+  reads its label to build the text node, so that effect became a sink of the
+  spinner's own label and ran again on every later `s.text = ...`, which is
+  SIG-321's 3 runs where 2 belong. A task log's title is the same spinner view.
+  The frame is the second half: `render()` paints its first one before it
+  returns, a component's methods call `frame()` from wherever they were called,
+  and a frame reads frame handlers, the scope's own flush, measures and `onMount`
+  callbacks, none of them the caller's. So `createRoot()` untracks and so does
+  `runFrame()`, whole, each pinned under `a renderer started from an effect` in
+  `test/renderer/renderer.test.ts`. The untracking stops at the root and the
+  frame: `runWithOwner()` itself is public and still tracks, because
+  `provideContext()` inside an effect body is a caller that may mean its reads to
+  be tracked, and `For` and
+  `Show` already say `untrack()` where they mean it. The inner effects were never
+  parented to the caller -- `unowned()` saw to that -- and a test now says so:
+  the renderer keeps its effects when the effect that started it runs again.
 - **`onMount` fires after a frame, not at the end of the body.** The useful thing
   to do there is read what the component came out as, and `element.box` has no
   answer until something has laid it out -- so a callback that ran at the end of
