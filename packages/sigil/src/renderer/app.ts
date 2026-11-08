@@ -53,6 +53,7 @@ import {
   type InputStream,
   isAbort,
   type Key,
+  parseFallbackKey,
   type MouseSurface,
 } from '../input/index.js';
 import { type Cascade, parseStylesheet, type Stylesheet } from '../style/index.js';
@@ -335,6 +336,12 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     throw new TypeError(
       `quitKey is a key spec or false: got ${quitKey === null ? 'null' : typeof quitKey}`
     );
+  }
+  // and that it is one key, here and not only where it is registered: that is
+  // inside the render callback, which a run that refuses to start never reaches --
+  // so a piped CI run would pass what a terminal throws on
+  if (quitKey !== false) {
+    parseFallbackKey(quitKey);
   }
   const terminal = opts.terminal ?? defaultTerminal;
   const stdin = opts.stdin ?? (terminal.stdin as InputStream | undefined);

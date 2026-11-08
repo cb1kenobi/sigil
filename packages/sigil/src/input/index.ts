@@ -193,6 +193,27 @@ export const SEQUENCE_TIMEOUT: number = 500;
  */
 const MAX_DELAY = 2_147_483_647;
 
+/**
+ * Reads the spec of a {@link InputRouter.fallback}, which is exactly one key.
+ *
+ * Its own function so that `runApp()` can refuse a bad `quitKey` before it knows
+ * whether it will get as far as registering one -- a piped run never does -- with
+ * the very message `fallback()` gives rather than a copy of it.
+ *
+ * @param keys - The spec.
+ * @returns The key.
+ * @throws {KeySpecError} When the spec is not exactly one key.
+ */
+export function parseFallbackKey(keys: string): KeyPattern {
+  const patterns = parseKeys(keys);
+  if (patterns.length !== 1) {
+    throw new KeySpecError(
+      `A fallback is one key: "${keys}" is ${patterns.length}. Bind a sequence with bind()`
+    );
+  }
+  return patterns[0] as KeyPattern;
+}
+
 /** Raised when there is nobody to read keys from. */
 export class InputError extends Error {
   constructor(message: string) {
@@ -2351,13 +2372,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       if (typeof handler !== 'function') {
         throw new TypeError(`A fallback needs a handler: fallback("${keys}", fn)`);
       }
-      const patterns = parseKeys(keys);
-      if (patterns.length !== 1) {
-        throw new KeySpecError(
-          `A fallback is one key: "${keys}" is ${patterns.length}. Bind a sequence with bind()`
-        );
-      }
-
+      const patterns = [parseFallbackKey(keys)];
       const id = formatKey(patterns[0] as KeyPattern);
       // after the checks, and the listing after the registration: a description that
       // throws takes the handler back off, so a refused fallback leaves no key behind

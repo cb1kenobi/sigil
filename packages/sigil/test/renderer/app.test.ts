@@ -269,6 +269,25 @@ describe('runApp()', () => {
     }
   );
 
+  it.each(['g g', ''])(
+    'should refuse a quitKey that is not one key, %j, even where it would refuse to start',
+    (quitKey) => {
+      // no terminal on the output: the refusal that never builds a router or
+      // calls the component, which is where a piped run used to pass what a
+      // terminal threw on
+      const term = createTestTerminal({ columns: 30, rows: 6, isTTY: false });
+
+      expect(() =>
+        runApp(() => text('x'), {
+          detect: false,
+          onError: () => {},
+          quitKey,
+          terminal: term.terminal,
+        })
+      ).toThrow(quitKey === '' ? /names no key/ : /A fallback is one key/);
+    }
+  );
+
   it('should read an undefined quitKey as the default, and only that', async () => {
     const { app, term } = start(() => text('x'), { quitKey: undefined });
     await term.press('q');
