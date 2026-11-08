@@ -1976,13 +1976,15 @@ other is refused with numbers.
   of their own, a substring test that would also have dropped a command called
   `node_modules.js`, so the five are now one helper in
   `test/copy-fixture.ts`. A refused directory is not descended into, which is
-  what closes the race rather than dropping what it found, and a test proves it
-  by making the scratch directory unreadable. Leaving `node_modules` out loses
-  nothing: no fixture commits one. `copying a fixture` in
-  `test/copy-fixture.test.ts` scans every test suite for a tree copy that does
-  not use the helper, with `update-check.test.ts` exempt by name, since it
-  copies `package.json` and `src` alone into variants under the fixture's own
-  `out/`. The fixture walk in `cli.test.ts` is the same race on `readdirSync`
+  what closes the race rather than dropping what it found. A test proves it by
+  making the scratch directory unreadable, on POSIX and not as root, since
+  Windows has no mode bit to take away and root reads it anyway. Leaving
+  `node_modules` out loses nothing: no fixture commits one. `copying a fixture`
+  in `test/copy-fixture.test.ts` scans the tests of every package, the examples
+  and the website's tests for a tree copy, or an import renaming one, that does
+  not go through the helper. The exemptions are by name and by count: the
+  helper's own call, and `update-check.test.ts`'s two, since it copies
+  `package.json` and `src` alone into variants under the fixture's own `out/`. The fixture walk in `cli.test.ts` is the same race on `readdirSync`
   and was fixed there earlier by skipping `node_modules`.
 
 - **`sigil build` empties its output directory, and refuses the one that would
