@@ -365,3 +365,13 @@ SIG-329. `fonts/DejaVuSans.ttf` is looked in after every face and every
   so "none of the fonts has fullwidth forms" was not true of its `cmap`. Those two
   are drawn from the face, centred across both cells, which is what the rewrite
   would have drawn; the wording says so now, and nothing in the code changed.
+
+#### What review round 2 found
+
+Nothing. It re-read round 1's fix and the files round 1 had skipped: `svg.ts`,
+which never looks a glyph up and so needs nothing, and the two PNG goldens, which
+it decoded and matched against a fresh render byte for byte, with the
+fullwidth letters and the symbol row drawn as glyphs. It also checked the pen
+against italic, bold and bold italic and found the mark still over its base,
+and found the float origin in the cache key collision-free across every advance
+DejaVu's em can give. There was no round 3, since there was nothing to fix.
