@@ -15,10 +15,14 @@ which is why every before-and-after that a decision rests on is an
 could import it; `dist.test.ts` imports it from there. Two readers were added
 beside it: `graphBytes()`, which the five ceilings were each spelling out as a
 `reduce`, and `staticBuiltins()`, which reads `from"node:x"` and `import"node:x"`
-in the minifier's spelling. The first version of it matched any quote and any
-space, and reported `node:https` on `updates.mjs` after the import had gone --
-the baked worker's own `import https from 'node:https'`, inside a string. That
-is the reason the spelling is narrow.
+in the minifier's spelling, because `updates.mjs` carries the update worker
+baked in as a string, imports and all, and a reader that took any quote would
+count text as an import. While the worker still imported `node:https`, that
+string held `from 'node:https'` and the shipped chunk was a real test of the
+reader; once this change made the worker ask for https instead, the only import
+left in the string was `node:fs`, which the chunk also imports for real, and the
+assertion written against the shipped bytes passed for a reader of either
+spelling. Review round 1 found that, below.
 
 `scripts/entry-cost.mjs` prints the table. The runtime half runs a fresh node
 per sample, warms `performance` before reading anything (the first version
@@ -200,19 +204,52 @@ and wrote its cache on node 24.18.0 and 26.10.0 and on bun 1.2.23, 1.3.14 and
 Each against a fresh `pnpm build`, each type-checked with `tsc --noEmit`
 before the run so that a failure could not be a type error:
 
-| sabotage                                                        | tsc | failed                                        |
-| --------------------------------------------------------------- | --- | --------------------------------------------- |
-| static `inflateSync` import back in `decode.ts`                 | 0   | 4: both entries, static and run time          |
-| `zlib().constants` read at module level in `encode.ts`          | 0   | 2: run time only -- the case that half is for |
-| static `randomBytes` import back in `atomic.ts`                 | 0   | 2                                             |
-| static `https` import back in `worker.ts`                       | 0   | 3                                             |
-| static `spawn` import back in `editor.ts`                       | 0   | 2                                             |
-| static `spawn` import back in `updates/index.ts`                | 0   | 2                                             |
-| static `format` import back in `debug-overlay.ts`               | 0   | 1: static only, as designed                   |
-| `staticBuiltins()` matching single quotes instead               | 0   | 1: the honesty test                           |
-| `which` removed from `CEILINGS`                                 | 0   | 1: the manifest check                         |
-| `DEFAULT_STRATEGY` hoisted to a static `node:zlib` import again | 0   | 2: both halves of `shake-builtins.test.ts`    |
+| sabotage                                                        | tsc | failed                                           |
+| --------------------------------------------------------------- | --- | ------------------------------------------------ |
+| static `inflateSync` import back in `decode.ts`                 | 0   | 4: both entries, static and run time             |
+| `zlib().constants` read at module level in `encode.ts`          | 0   | 2: run time only -- the case that half is for    |
+| static `randomBytes` import back in `atomic.ts`                 | 0   | 2                                                |
+| static `https` import back in `worker.ts`                       | 0   | 3                                                |
+| static `spawn` import back in `editor.ts`                       | 0   | 2                                                |
+| static `spawn` import back in `updates/index.ts`                | 0   | 2                                                |
+| static `format` import back in `debug-overlay.ts`               | 0   | 1: static only, as designed                      |
+| `staticBuiltins()` matching single quotes instead               | 0   | 1: the presence checks -- it went blind          |
+| `staticBuiltins()` matching either quote, with spaces (round 1) | 0   | 1: `should not read an import that is only text` |
+| the editor's signal table back at module level (round 1)        | 0   | 1: the spinner half of `shake-builtins.test.ts`  |
+| `which` removed from `CEILINGS`                                 | 0   | 1: the manifest check                            |
+| `DEFAULT_STRATEGY` hoisted to a static `node:zlib` import again | 0   | 2: both halves of `shake-builtins.test.ts`       |
 
 The last one failed the image half too, because a static import of zlib is a
 static import in a picture-drawing app as much as in a spinner -- which is what
 that test's last assertion is for.
+
+#### Review round 1
+
+grok-4.7, over the whole diff. It confirmed no public API changed shape and
+measured the per-call cost of `getBuiltinModule()` at about 37 ns after warm-up
+-- `chunkCrc()` runs it once per PNG chunk, `deflate()` once or twice per
+encode, `tempFor()` once per name, `captureConsole()` once per install -- so
+none of the six is worth caching. It also checked that `vi.spyOn(https, 'get')`
+still sees the worker's call, that `moduleLoadList` spells ids the same way on
+node 24 and 26, and every figure in `CEILINGS` against the built `dist/`. Three
+findings, all reproduced:
+
+- **Medium: the honesty test no longer distinguished anything.** Its
+  `not.toContain('node:https')` on `updates.mjs` was written while the baked
+  worker still said `from 'node:https'`; after this change it does not, so a
+  reader widened to any quote passed it. Replaced by a module written into a
+  temp directory with one real import and two imports inside a template
+  literal, read through `staticGraph()`'s `dir` argument. Widening the reader
+  now fails it. The "single quotes instead" row above failed before the fix
+  too, but through the presence checks, because that reader went blind rather
+  than wide -- which is the distinction the round drew.
+- **Low: the shake test named `node:os` and did not guard it.** It cannot be
+  asked about by name -- the update check's lazy chunk imports `node:os` for
+  real -- so the test looks for the loop itself,
+  `Object.entries(<x>.signals)`, absent from the spinner app and present in the
+  package's `components.mjs` as its presence half. Putting the loop back at
+  module level fails it.
+- **Low: two comments outside the diff still said the codec loads zlib.**
+  `png/image.ts` and `canvas/image.ts` gave zlib as the reason the canvas
+  imports `assertRgbaImage()` from the module rather than the barrel; the reason
+  is now the codec's bytes, and both say so.

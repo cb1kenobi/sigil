@@ -521,7 +521,11 @@ changes. The full before-and-after, the A/B runs and the sabotage passes are in
 - **`staticBuiltins()` reads the minifier's spelling only, `from"node:x"`.** The
   update worker is baked into `updates.mjs` as text, and its own imports sit in
   a string literal where they load nothing; a looser pattern reads them as
-  imports of the chunk that holds them. `should still see a static import` is
+  imports of the chunk that holds them. `should not read an import that is only
+  text in a string` asks that of a module written for it, because the shipped
+  chunk stopped being able to: the worker's one remaining import is `node:fs`,
+  which the chunk also imports for real, so review round 1 found the old check
+  passing for a reader of either spelling. `should still see a static import` is
   the presence half that stops the reader going blind without anyone noticing.
 
 - **Measured, as of SIG-328, on node 26.10 on arm64 macOS.** Medians of 41

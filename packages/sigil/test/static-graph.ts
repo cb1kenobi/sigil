@@ -75,10 +75,13 @@ export function graphBytes(graph: Set<string>, dir: string = dist): number {
  *
  * The specifier is read in the form the minifier writes -- `from"node:zlib"`,
  * double quoted with no space -- and that is a decision rather than laziness:
- * `updates.mjs` carries the update worker baked in as text, and the worker's
- * own `from 'node:https'` is in a string literal, single quoted, where it loads
- * nothing. A looser pattern reads it as an import of the chunk that holds it.
- * A `process.getBuiltinModule()` or an `import()` is not a static import, so
+ * `updates.mjs` carries the update worker baked in as text, so the worker's own
+ * `import { readFileSync, writeFileSync } from 'node:fs'` sits in that chunk
+ * inside a string literal, single quoted, where it loads nothing. It happens to
+ * name a builtin the chunk also imports for real, so today a looser pattern
+ * would give the same answer -- which is why `dist.test.ts` asks the question
+ * of a module written for it rather than of the shipped one. A
+ * `process.getBuiltinModule()` or an `import()` is not a static import, so
  * neither is here, which is the point: they are what this exists to tell apart.
  *
  * @param graph - What `staticGraph()` returned.

@@ -22,7 +22,7 @@
  */
 
 // from the module rather than the subpath's barrel: the barrel is the codec,
-// and the codec loads `node:zlib`, which checking a shape has no use for
+// about 10 kB that checking a shape has no use for
 import { assertRgbaImage, type RgbaImage } from '../png/image.js';
 
 /** A rectangle of a picture, in its pixels. It may be fractional. */

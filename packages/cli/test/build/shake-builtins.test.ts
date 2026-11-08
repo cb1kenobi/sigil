@@ -1,10 +1,12 @@
 import { bundleApp, discoverApp } from '../../src/build/index.ts';
 import { tempDir } from '../temp.js';
 import { readdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+const require = createRequire(import.meta.url);
 const fixtures = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures');
 
 /**
@@ -27,6 +29,9 @@ async function built(name: string): Promise<string> {
     .map((entry) => readFileSync(join(entry.parentPath, entry.name), 'utf-8'))
     .join('\n');
 }
+
+/** The editor's signal-name table, `Object.entries(os.constants.signals)` minified. */
+const SIGNAL_TABLE = /Object\.entries\([\w$]+\.signals\)/;
 
 /** A static import of `builtin`, in either spelling rolldown writes one. */
 const imports = (builtin: string): RegExp => new RegExp(`\\b(?:from|import)\\s*["']${builtin}["']`);
@@ -53,7 +58,21 @@ describe('what a built app keeps of a capability it never uses', () => {
     for (const builtin of ['node:zlib', 'node:child_process']) {
       expect(code, builtin).not.toMatch(imports(builtin));
     }
+    // the editor's signal-name table, which is the third: `node:os` cannot be
+    // asked about by name, because the update check's lazy chunk imports it
+    // for real, so the loop itself is what is looked for
+    expect(code).not.toMatch(SIGNAL_TABLE);
   }, 60_000);
+
+  it('should still have the signal table in the package, so its absence means something', () => {
+    // the presence half: the loop is in the components bundle the app was
+    // built from, in the spelling the absence above looks for
+    const components = readFileSync(
+      join(dirname(require.resolve('@ttylabs/sigil/package.json')), 'dist', 'components.mjs'),
+      'utf-8'
+    );
+    expect(components).toMatch(SIGNAL_TABLE);
+  });
 
   it('should keep both in an app that draws a picture, so the absence means something', async () => {
     // the presence half: the decoder is in this one and reaches zlib the way the

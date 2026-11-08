@@ -1,6 +1,7 @@
 import { dist, graphBytes, staticBuiltins, staticGraph } from './static-graph.js';
+import { tempDir } from './temp.js';
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -831,9 +832,21 @@ describe('the builtins an entry loads, and the ones it only asks for', () => {
     expect(staticBuiltins(staticGraph('png.mjs'))).toContain('node:buffer');
     expect(staticBuiltins(staticGraph('config.mjs'))).toContain('node:fs/promises');
     expect(staticBuiltins(staticGraph('updates.mjs'))).toContain('node:fs');
-    // and not about the worker's own `import ... from 'node:fs'`, which is text
-    // inside the bundle and loads nothing -- the case the spelling is chosen for
-    expect(staticBuiltins(staticGraph('updates.mjs'))).not.toContain('node:https');
+  });
+
+  it('should not read an import that is only text in a string', () => {
+    // the case the spelling is chosen for: the update worker is baked into
+    // `updates.mjs` as a string, imports and all. Asked of a module written for
+    // it rather than of the shipped one, because the worker's one remaining
+    // import is `node:fs`, which that chunk also imports for real -- so the
+    // shipped bytes cannot tell a reader that ignores the string from one that
+    // does not, and review round 1 found this assertion passing either way
+    const dir = tempDir('sigil-static-builtins-');
+    writeFileSync(
+      join(dir, 'entry.mjs'),
+      'import{a as b}from"node:fs";const w=`import https from \'node:https\';\nimport "node:zlib";`;export{b,w};'
+    );
+    expect(staticBuiltins(staticGraph('entry.mjs', dir), dir)).toEqual(['node:fs']);
   });
 
   // the runtime half, which the static one cannot be: a `getBuiltinModule()`

@@ -73,9 +73,11 @@ export function assertRgbaImage(
 /**
  * The largest width or height, and the largest chunk: the PNG specification
  * caps both at 2^31-1. Defined here rather than in `chunks.ts`, which reads it
- * from here, because that module imports `node:zlib` for its CRC and this one
- * is what `@ttylabs/sigil/canvas` imports to check a picture -- a canvas that
- * resamples pixels has no business loading zlib to do it.
+ * from here, because that module is the codec's and this one is what
+ * `@ttylabs/sigil/canvas` imports to check a picture -- a canvas that resamples
+ * pixels has no business carrying a PNG codec to do it. (`chunks.ts` imported
+ * `node:zlib` for its CRC when this was written; since SIG-328 it asks for zlib
+ * only when it computes one.)
  */
 export const MAX_DIMENSION = 0x7fffffff;
 
