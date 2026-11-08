@@ -281,6 +281,167 @@ describe('what is drawn in a cell', () => {
   });
 });
 
+describe('the bundled symbol font', () => {
+  /** The first and last columns holding anything but the background. */
+  const inked = (image: ReturnType<typeof rasterize>): [number, number] => {
+    const bg = key(rgbOf(dark.background));
+    let first = Infinity;
+    let last = -Infinity;
+    for (let x = 0; x < image.width; x++) {
+      for (let y = 0; y < image.height; y++) {
+        if (key(pixel(image, x, y)) !== bg) {
+          first = Math.min(first, x);
+          last = Math.max(last, x);
+        }
+      }
+    }
+    return [first, last];
+  };
+  const one = (char: string, attrs = 0): ReturnType<typeof rasterize> =>
+    rasterize(
+      frame(3, 1, (p) => p.text(1, 0, char, { attrs })),
+      OPTS
+    );
+  const tofu = one('͸');
+
+  it.each([...'✔✖ℹ☐☒◐◴✸⊶ⁿ⌠'])('should draw %s rather than a box', (char) => {
+    expect(one(char).data).not.toEqual(tofu.data);
+    expect(one(char, ATTR.bold | ATTR.italic).data).not.toEqual(tofu.data);
+  });
+
+  it.each([...'✔✖☐☒◐✸⊶'])('should centre %s in its cell, whatever its advance', (char) => {
+    // DejaVu Sans is proportional, and these are wider than the cell: the
+    // advance is centred, and their bearings are even, so the ink is too --
+    // overhanging both neighbours alike, as a terminal's fallback does
+    const [first, last] = inked(one(char));
+    expect(Math.abs(first - W - (2 * W - 1 - last))).toBeLessThanOrEqual(1);
+  });
+
+  it("should draw a fallback at its own em rather than the regular face's", () => {
+    // the bug this found: a fallback was scaled by the regular face's units per
+    // em, so DejaVu's 2048 read at JetBrains Mono's 1000 drew every symbol at
+    // twice its size. The same square at two ems is the same picture
+    const square = (em: number): Uint8Array =>
+      buildFont(
+        [
+          simpleGlyph([
+            [em / 10, 0],
+            [em / 2, 0],
+            [em / 2, (em * 6) / 10],
+            [em / 10, (em * 6) / 10],
+          ]),
+        ],
+        { 0x27_14: 1 },
+        em
+      );
+    const regular = readFileSync(DEFAULT_FONTS.regular);
+    const shot = frame(3, 1, (p) => p.text(1, 0, '✔'));
+    const at = (em: number): Uint8Array =>
+      rasterize(shot, { ...OPTS, font: { fallback: [square(em)], regular } }).data;
+    expect(at(2000)).toEqual(at(1000));
+  });
+
+  it('should look in a fallback that was given before the bundled one', () => {
+    const square = buildFont(
+      [
+        simpleGlyph([
+          [0, -300],
+          [600, -300],
+          [600, 900],
+          [0, 900],
+        ]),
+      ],
+      { 0x27_14: 1 }
+    );
+    const regular = readFileSync(DEFAULT_FONTS.regular);
+    const shot = frame(1, 1, (p) => p.text(0, 0, '✔'));
+    const given = rasterize(shot, { ...OPTS, font: { fallback: [square], regular } });
+    // a solid block where DejaVu's tick has its open corner
+    expect(pixel(given, 1, 4)).toEqual(rgbOf(dark.foreground));
+    expect(given.data).not.toEqual(rasterize(shot, OPTS).data);
+  });
+
+  it('should be looked in behind a font set that names none of the bundled faces', () => {
+    const regular = readFileSync(DEFAULT_FONTS.regular);
+    const shot = frame(1, 1, (p) => p.text(0, 0, '✔'));
+    expect(rasterize(shot, { ...OPTS, font: regular }).data).toEqual(rasterize(shot, OPTS).data);
+  });
+});
+
+describe('fullwidth ASCII', () => {
+  it('should draw a fullwidth form as its ASCII glyph, centred across both cells', () => {
+    // the advance is centred in sixteen pixels rather than eight, which is four
+    // whole pixels along: the same subpixel phase, so the very same pixels
+    for (const [wide, narrow] of [
+      ['Ａ', 'A'],
+      ['０', '0'],
+      ['！', '!'],
+      ['～', '~'],
+    ]) {
+      const full = rasterize(
+        frame(2, 1, (p) => p.text(0, 0, wide)),
+        OPTS
+      );
+      const ascii = rasterize(
+        frame(2, 1, (p) => p.text(0, 0, narrow)),
+        OPTS
+      );
+      const bg = rgbOf(dark.background);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < 2 * W; x++) {
+          expect(pixel(full, x, y), `${wide} at ${x},${y}`).toEqual(
+            x < 4 ? bg : pixel(ascii, x - 4, y)
+          );
+        }
+      }
+    }
+  });
+
+  it('should keep the style of the cell', () => {
+    const draw = (attrs: number): Uint8Array =>
+      rasterize(
+        frame(2, 1, (p) => p.text(0, 0, 'Ａ', { attrs })),
+        OPTS
+      ).data;
+    expect(draw(ATTR.bold)).not.toEqual(draw(0));
+    expect(draw(ATTR.italic)).not.toEqual(draw(0));
+  });
+
+  it('should draw a real fullwidth glyph where a font has one', () => {
+    const square = buildFont(
+      [
+        simpleGlyph([
+          [0, 0],
+          [1000, 0],
+          [1000, 700],
+          [0, 700],
+        ]),
+      ],
+      { 0xff_21: 1 }
+    );
+    const regular = readFileSync(DEFAULT_FONTS.regular);
+    const shot = frame(2, 1, (p) => p.text(0, 0, 'Ａ'));
+    const given = rasterize(shot, { ...OPTS, font: { fallback: [square], regular } });
+    expect(given.data).not.toEqual(rasterize(shot, OPTS).data);
+    // the square spans the middle of both cells, where an `A` has its counter
+    expect(pixel(given, W, 10)).toEqual(rgbOf(dark.foreground));
+  });
+
+  it('should leave the rest of the fullwidth block to the fonts', () => {
+    // U+FF5F, a fullwidth white parenthesis, is past the ASCII forms: no font
+    // here has it, and it is not the wide spelling of anything to borrow
+    const past = rasterize(
+      frame(2, 1, (p) => p.text(0, 0, '｟')),
+      OPTS
+    );
+    const box = rasterize(
+      frame(2, 1, (p) => p.text(0, 0, '漢')),
+      OPTS
+    );
+    expect(past.data).toEqual(box.data);
+  });
+});
+
 describe('what it reads', () => {
   it('should refuse a grid that cannot say what its styles are', () => {
     const table = new StyleTable();

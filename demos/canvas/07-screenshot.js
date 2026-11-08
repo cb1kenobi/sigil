@@ -10,10 +10,10 @@
  * the PNG is the bundled JetBrains Mono rasterized -- and the box, the blocks and
  * the braille are drawn as shapes in both, so they meet whatever the font.
  *
- * The ticks are `✓` rather than the `✔` sigil's own components use, and that
- * is the font: JetBrains Mono has the one and not the other, a terminal would
- * borrow the missing one from a system font, and a screenshot has no system
- * fonts to borrow from -- it draws a box, unless it is given a `fallback`.
+ * The ticks are `✔`, the one sigil's own components use, and JetBrains Mono
+ * does not have it. A terminal would borrow it from a system font; a screenshot
+ * reads none, so that one frame is one image everywhere, and borrows it from the
+ * symbol font it bundles instead -- DejaVu Sans, behind the four faces.
  *
  * The canvas here is never written to the terminal. A snapshot is of what was
  * *presented*, and `present()` is what makes a frame the presented one; where
@@ -38,9 +38,9 @@ canvas.paint((p) => {
 
   p.text(2, 1, 'sigil', { attrs: ATTR.bold, fg: palette(5) });
   p.text(8, 1, 'build', { fg: palette(8) });
-  p.text(2, 3, '✓', { fg: palette(2) });
+  p.text(2, 3, '✔', { fg: palette(2) });
   p.text(4, 3, 'compiled 12 modules');
-  p.text(2, 4, '✓', { fg: palette(2) });
+  p.text(2, 4, '✔', { fg: palette(2) });
   p.text(4, 4, 'type-checked', { attrs: ATTR.italic });
 
   // a bar of half blocks, two colours a cell, which is what `Pixels` draws with

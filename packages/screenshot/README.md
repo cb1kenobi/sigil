@@ -21,8 +21,8 @@ PNG. `await` on it is harmless.
 
 ## Why a package of its own
 
-The font and the rasterizer are about a megabyte together, and an app that never
-takes a screenshot should pay nothing for them — the reasoning
+The fonts and the rasterizer are about two megabytes together, and an app that
+never takes a screenshot should pay nothing for them — the reasoning
 [`@ttylabs/config-xml`](../config-xml) and [`@ttylabs/config-yaml`](../config-yaml)
 follow, for the same constraint. It depends on `@ttylabs/sigil` and nothing else:
 the TrueType parser and the rasterizer are written here, and the PNG encoder is
@@ -100,7 +100,10 @@ No rasterizer: the text is `<text>` in a monospace font stack, and the viewer's
 font draws it. That keeps an SVG crisp at every zoom, selectable, searchable and a
 few kilobytes. Backgrounds are rectangles merged into runs, and each run of text
 carries a `textLength` so a viewer whose font has a different advance still puts
-it in the right columns.
+it in the right columns. A symbol or a fullwidth letter the monospace font lacks
+is the viewer's to find, as it is a terminal's: every browser falls back per
+character to a font that has it, so the bundled symbol font is a PNG matter and
+an SVG does not carry it.
 
 Box drawing, block elements and braille are drawn as rectangles and paths rather
 than as text, so a box meets itself whatever font the reader has. OSC 8 links are
@@ -120,10 +123,23 @@ reports a terminal's font reliably, so a different one is an option; CFF fonts
 - **Box drawing, block elements and braille are drawn as geometry**, as real
   terminals do, so lines meet with no gaps between cells and a `▀` over a `▄`
   splits a cell exactly.
+- **Symbols come from a bundled fallback.** JetBrains Mono lacks some of what
+  sigil's own components draw — `✔`, `✖`, `ℹ`, `☐`, `☒`, `◐` and most of the
+  spinners' shapes — which a terminal would borrow from a system font. A
+  screenshot reads no system fonts, so that one frame is one image on every
+  machine, and bundles **DejaVu Sans** for them instead, under its own licence,
+  [`fonts/DejaVu-LICENSE.txt`](fonts/DejaVu-LICENSE.txt). It is looked in after
+  the faces and after any `fallback` you give, whatever `font` is, and a symbol
+  from it is drawn at its own size and centred in its cell, overhanging the
+  cells beside it a little as a terminal's fallback does. A test in this package
+  fails if anything `@ttylabs/sigil`'s components can draw would come out as a
+  box.
+- **Fullwidth ASCII** — `Ａ`, `０`, `！`, the decrypt effect's alphabet — is drawn
+  from the ASCII glyph, centred across the two cells, unless a font has the real
+  one.
 - **Wide characters span two cells.** A character no font has is drawn as a box.
-  JetBrains Mono has no CJK and lacks some symbols — `✔`, `✖`, `☐`, `ℹ` among
-  them — which a terminal would borrow from a system font; give a `fallback`
-  font to do the same:
+  None of the bundled fonts has CJK, so give a `fallback` font for it, which is
+  looked in before the bundled one:
 
   ```js
   screenshot(frame, {
@@ -132,7 +148,7 @@ reports a terminal's font reliably, so a different one is an option; CFF fonts
       bold: DEFAULT_FONTS.bold,
       italic: DEFAULT_FONTS.italic,
       boldItalic: DEFAULT_FONTS.boldItalic,
-      fallback: ['/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'],
+      fallback: ['/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf'],
     },
     format: 'png',
   });
