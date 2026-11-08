@@ -12,14 +12,25 @@
 /**
  * Which console method produced a line.
  *
- * `trace` is deliberately not one of them: it prints a stack rather than a line,
- * and replacing it with a formatted line would throw the stack away -- which is
- * the whole of what anybody calls it for.
+ * `trace` is not patched and is captured all the same: Node's `trace()` builds
+ * its stack and hands it to `this.error()`, which is the patched one, so the
+ * stack arrives as `error` lines -- one per frame. So do `table()`, `group()`,
+ * `time*()`, `count()` and `assert()`, which end in `log` or `warn`. `dir()` and
+ * `dirxml()` are the two that do not route through the public methods and write
+ * through Node's own writer, so they are patched (as `log`) and nothing else is.
  */
 export type LogLevel = 'debug' | 'error' | 'info' | 'log' | 'warn';
 
+/** A console method the capture replaces: a level, or one of the two that bypass them. */
+type Method = LogLevel | 'dir' | 'dirxml';
+
 /** The console methods the capture replaces, in a fixed order. */
-const LEVELS: readonly LogLevel[] = ['debug', 'error', 'info', 'log', 'warn'];
+const METHODS: readonly Method[] = ['debug', 'dir', 'dirxml', 'error', 'info', 'log', 'warn'];
+
+/** The level a line from a method is stored under: `dir` and `dirxml` are `log`. */
+function levelOf(method: Method): LogLevel {
+  return method === 'dir' || method === 'dirxml' ? 'log' : method;
+}
 
 /** One captured line. */
 export interface LogEntry {
@@ -261,17 +272,17 @@ export interface CaptureOptions {
    * toolchain. A capture installed on an object of its own is still exclusive of
    * a capture installed on the global one, for the reason the latch records.
    */
-  console?: Partial<Record<LogLevel, (...args: unknown[]) => void>>;
+  console?: Partial<Record<Method, (...args: unknown[]) => void>>;
 }
 
 /** What one installation replaced, so that it can be put back exactly. */
 interface Installed {
   /** What was there before, per level. */
-  originals: Partial<Record<LogLevel, (...args: unknown[]) => void>>;
+  originals: Partial<Record<Method, (...args: unknown[]) => void>>;
   /** What was put there, so a patch over ours is not clobbered. */
-  patched: Partial<Record<LogLevel, (...args: unknown[]) => void>>;
+  patched: Partial<Record<Method, (...args: unknown[]) => void>>;
   /** The object patched, which is the global console unless a test said otherwise. */
-  target: Partial<Record<LogLevel, (...args: unknown[]) => void>>;
+  target: Partial<Record<Method, (...args: unknown[]) => void>>;
 }
 
 /**
@@ -313,14 +324,12 @@ export function captureConsole(ring: LogRing, opts: CaptureOptions = {}): Consol
     return NOT_INSTALLED;
   }
 
-  const target = (opts.console ?? console) as Partial<
-    Record<LogLevel, (...args: unknown[]) => void>
-  >;
+  const target = (opts.console ?? console) as Partial<Record<Method, (...args: unknown[]) => void>>;
   const installed: Installed = { originals: {}, patched: {}, target };
   // asked for here rather than imported: `node:util` brings `worker_threads`
   // and the stream stack behind it, and the components entry that holds this is
   // loaded by every app that draws anything, overlay or not. SIG-328
-  const { format } = process.getBuiltinModule('node:util');
+  const { format, inspect } = process.getBuiltinModule('node:util');
 
   // recorded before anything is replaced, and unwound on the way out of a
   // throw: `format()` is Node's own and a property assignment on a frozen or
@@ -328,17 +337,25 @@ export function captureConsole(ring: LogRing, opts: CaptureOptions = {}): Consol
   // -- and half of a patched console with nothing holding the originals is worse
   // than none of one
   try {
-    for (const level of LEVELS) {
+    for (const level of METHODS) {
       const original = target[level];
-      const patch = (...args: unknown[]): void => {
-        ring.push(level, format(...args));
-      };
+      // `dir` is Node's own `inspect()` with `customInspect` off and the caller's
+      // options over it, minus the colour its stream would have chosen: a ring is
+      // text. `dirxml` is `log`, as it is in Node
+      const patch =
+        level === 'dir'
+          ? (value?: unknown, options?: unknown): void => {
+              ring.push('log', inspect(value, { customInspect: false, ...(options as object) }));
+            }
+          : (...args: unknown[]): void => {
+              ring.push(levelOf(level), format(...args));
+            };
       installed.originals[level] = original;
       installed.patched[level] = patch;
       target[level] = patch;
     }
   } catch (error) {
-    for (const level of LEVELS) {
+    for (const level of METHODS) {
       if (installed.patched[level] !== undefined && target[level] === installed.patched[level]) {
         restoreOne(installed, level);
       }
@@ -363,11 +380,11 @@ export function captureConsole(ring: LogRing, opts: CaptureOptions = {}): Consol
    * is still the one there: a capture installed in between holds the console, and
    * a retry leaves it alone exactly as the first call left the foreign patch.
    */
-  const done = new Set<LogLevel>();
+  const done = new Set<Method>();
   return {
     installed: true,
     restore(): boolean {
-      if (done.size === LEVELS.length) {
+      if (done.size === METHODS.length) {
         return false;
       }
       // the latch goes on the first call whatever it managed, because holding it
@@ -381,12 +398,12 @@ export function captureConsole(ring: LogRing, opts: CaptureOptions = {}): Consol
       // `restoreOne()` refuses it and the `add` is never reached -- the guard
       // could not change an answer, which is what this repo deletes rather than
       // comments
-      for (const level of LEVELS) {
+      for (const level of METHODS) {
         if (restoreOne(installed, level)) {
           done.add(level);
         }
       }
-      return done.size === LEVELS.length;
+      return done.size === METHODS.length;
     },
   };
 }
@@ -398,7 +415,7 @@ export function captureConsole(ring: LogRing, opts: CaptureOptions = {}): Consol
  * @param level - Which method.
  * @returns Whether it put that one back.
  */
-function restoreOne(installed: Installed, level: LogLevel): boolean {
+function restoreOne(installed: Installed, level: Method): boolean {
   const { originals, patched, target } = installed;
   if (target[level] !== patched[level]) {
     // somebody patched over ours. Removing theirs is not "putting back what you

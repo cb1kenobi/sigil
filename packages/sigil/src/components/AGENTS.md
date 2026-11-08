@@ -1139,9 +1139,18 @@ patch, a pane, and three additions to the renderer that the pane needs.
   exists for, and forwarding past it to the raw stream would write into the
   alternate screen the renderer is diffing. The ring is the destination.
 
-- **`trace` is left alone.** It prints a stack rather than a line, and replacing
-  it with a formatted line would throw the stack away -- which is the whole of
-  what anybody calls it for. Five methods: `debug`, `error`, `info`, `log`, `warn`.
+- **`trace` is not patched, and it is captured anyway (corrected in SIG-310).** This
+  entry said it was left alone because replacing it with a formatted line would
+  throw the stack away. Measured with a spy on `process.stderr.write`: Node's
+  `trace()` builds the stack and hands it to `this.error()`, so with `error`
+  patched it arrives as `error` lines, one per frame, and is not left alone at all.
+  Seven methods are patched: `debug`, `dir`, `dirxml`, `error`, `info`, `log`,
+  `warn`. `dir` and `dirxml` were not on the list and are the two that wrote into
+  the alternate screen past it, because Node writes them through its own writer
+  rather than the public methods; they are stored as `log`, `dir` through
+  `inspect()` with `customInspect: false` and the caller's options, as Node does,
+  and `dirxml` through `format()`. `table`, `group`, `time*`, `count` and `assert`
+  end in `log` or `warn` and were always captured.
 
 - **The console patch follows "put back what you attached", and reports whether
   this call was the one that changed it.** The rule `hideCursor()`,

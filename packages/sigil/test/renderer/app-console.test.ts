@@ -5,7 +5,8 @@ import { type App, runApp, useApp } from '../../src/renderer/app.js';
 import { createEffect, onCleanup, onMount } from '../../src/renderer/index.js';
 import { State } from '../../src/signals/index.js';
 import { createTestTerminal, ctrl, tick } from '../../src/testing/index.js';
-import { afterEach, describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * `runApp()` and the console (SIG-310): a `console.log()` while the app owns the
@@ -174,13 +175,23 @@ describe('runApp() and the console', () => {
       expect(term.screen.alternate).toBe(false);
     });
 
-    it('should replay for Ctrl-C, which is 130 and not zero', async () => {
+    it('should discard the ring for Ctrl-C, which is the habitual way out of a healthy app', async () => {
       const { app, term, writes } = start(() => text('x'));
       console.log('before the interrupt');
+      console.error('and a warning');
       await term.press(ctrl('c'));
 
       expect(await app.exited).toBe(130);
-      expect(plain(writes)).toEqual(['stdout: before the interrupt']);
+      expect(plain(writes)).toEqual([]);
+    });
+
+    it('should discard the ring for an exit(130) of the app own, which is the same code', async () => {
+      const { app, writes } = start(() => text('x'));
+      console.log('before');
+      app.exit(130);
+
+      expect(await app.exited).toBe(130);
+      expect(plain(writes)).toEqual([]);
     });
 
     it('should replay when stdin hangs up under it, which is 129', async () => {
@@ -251,6 +262,116 @@ describe('runApp() and the console', () => {
       const lines = plain(writes);
       expect(lines).toHaveLength(1);
       expect(lines[0]).toContain('mount broke');
+    });
+
+    it('should write what a cleanup logs during a failed frame before the error report', async () => {
+      const boom = new State(false);
+      const { app, writes } = start(() => {
+        onCleanup(() => console.log('cleanup says goodbye'));
+        const label = text('');
+        createEffect(() => {
+          if (boom.get()) {
+            throw new Error('frame broke');
+          }
+          label.setText('fine');
+        });
+        return label;
+      });
+      app.view.frame();
+      console.log('before');
+      boom.set(true);
+      app.view.frame();
+
+      expect(await app.exited).toBe(1);
+      const lines = plain(writes);
+      expect(lines.slice(0, 2)).toEqual(['stdout: before', 'stdout: cleanup says goodbye']);
+      expect(lines[2]).toContain('frame broke');
+      expect(lines).toHaveLength(3);
+    });
+
+    it('should never lose what a custom onError logs through console, on a clean exit', async () => {
+      const { app, writes } = start(
+        () => {
+          onMount(() => {
+            throw new Error('mount broke');
+          });
+          return text('x');
+        },
+        { onError: (error) => console.error('APP ERROR:', (error as Error).message) }
+      );
+      app.view.frame();
+      console.log('chatter that a clean exit discards');
+      app.exit(0);
+
+      expect(await app.exited).toBe(0);
+      // on the main screen, on stderr, once -- and the chatter is still discarded
+      expect(plain(writes)).toEqual(['stderr: APP ERROR: mount broke']);
+      expect(
+        writes
+          .filter((w) => w.alternate)
+          .map((w) => w.text)
+          .join('')
+      ).not.toContain('APP ERROR');
+    });
+
+    it('should write what a custom onError logs after the replay, and only once, on a failure', async () => {
+      const { app, writes } = start(
+        () => {
+          onMount(() => {
+            throw new Error('mount broke');
+          });
+          return text('x');
+        },
+        { onError: (error) => console.error('APP ERROR:', (error as Error).message) }
+      );
+      app.view.frame();
+      console.log('what led up to it');
+      app.exit(2);
+
+      expect(await app.exited).toBe(2);
+      expect(plain(writes)).toEqual([
+        'stdout: what led up to it',
+        'stderr: APP ERROR: mount broke',
+      ]);
+    });
+
+    it('should not draw what a custom onError logs into the alternate screen', async () => {
+      const boom = new State(false);
+      const { app, term, writes } = start(
+        () => {
+          createEffect(() => {
+            if (boom.get()) {
+              throw new Error('frame broke');
+            }
+          });
+          return text('x');
+        },
+        { onError: (error) => console.error('APP ERROR:', (error as Error).message) }
+      );
+      app.view.frame();
+      boom.set(true);
+      app.view.frame();
+
+      expect(await app.exited).toBe(1);
+      expect(plain(writes)).toEqual(['stderr: APP ERROR: frame broke']);
+      expect(term.screen.alternate).toBe(false);
+    });
+
+    it('should capture console.dir() and console.dirxml(), which do not go through the public methods', () => {
+      const out = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+      try {
+        const { app } = start(() => text('x'));
+        console.dir({ a: { b: { c: { d: 1 } } } }, { depth: 0 });
+        console.dirxml({ b: 2 });
+
+        expect(out).not.toHaveBeenCalled();
+        expect(app.logs?.entries().map((e) => [e.level, e.text])).toEqual([
+          ['log', '{ a: [Object] }'],
+          ['log', '{ b: 2 }'],
+        ]);
+      } finally {
+        out.mockRestore();
+      }
     });
 
     it('should write the lines ahead of a custom onError as well', async () => {
@@ -474,14 +595,23 @@ describe('runApp() and the console', () => {
 
   describe('opting out', () => {
     it('should leave the console alone with console: false', async () => {
-      const { app, writes } = start(() => text('x'), { console: false });
+      // a stand-in for the console's own `log`: nothing the runner does may replace it
+      const own = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        const { app, writes } = start(() => text('x'), { console: false });
 
-      expect(app.logs).toBeUndefined();
-      expect(console.log).toBe(pristine.log);
+        expect(app.logs).toBeUndefined();
+        expect(console.log).toBe(own);
+        console.log('not captured');
+        expect(own).toHaveBeenCalledWith('not captured');
 
-      app.exit(1);
-      await app.exited;
-      expect(plain(writes)).toEqual([]);
+        app.exit(1);
+        await app.exited;
+        // and nothing replayed: there is no ring to replay
+        expect(plain(writes)).toEqual([]);
+      } finally {
+        own.mockRestore();
+      }
     });
 
     it('should leave a capture the app installed itself alone, and have no logs', async () => {
@@ -508,6 +638,22 @@ describe('runApp() and the console', () => {
       expect(console.log).toBe(pristine.log);
     });
 
+    it('should give an app that starts under another one no logs, and leave its console alone', async () => {
+      const first = start(() => text('A'));
+      const second = start(() => text('B'));
+
+      expect(first.app.logs).toBeDefined();
+      expect(second.app.logs).toBeUndefined();
+
+      first.app.exit();
+      await first.app.exited;
+      // the console is the real one again, so the second app's lines are now its own
+      // screen's business: nothing captures them
+      expect(console.log).toBe(pristine.log);
+      second.app.exit();
+      await second.app.exited;
+    });
+
     it('should patch nothing where it refuses to start', async () => {
       const term = createTestTerminal({ inputTTY: false });
       const app = runApp(() => text('x'), { detect: false, terminal: term.terminal });
@@ -517,5 +663,78 @@ describe('runApp() and the console', () => {
       expect(await app.exited).toBe(1);
       await tick();
     });
+  });
+});
+
+/**
+ * A throw nobody caught, a rejection nobody handled, or a `process.exit()` ends the
+ * process under a running app. Only a real process can say what happens then, so
+ * this runs the built runner in a child: its test terminal forwards every write as
+ * a line of JSON on stdout, and the console it logs through is the child's own.
+ */
+describe('runApp() when the process ends under it', () => {
+  const dist = new URL('../../dist/', import.meta.url).href;
+
+  /** Runs `body` in a child over a watched terminal; returns what it wrote. */
+  function child(body: string) {
+    const source = `
+      const { runApp } = await import(${JSON.stringify(`${dist}app.mjs`)});
+      const E = await import(${JSON.stringify(`${dist}element.mjs`)});
+      const T = await import(${JSON.stringify(`${dist}testing.mjs`)});
+      const term = T.createTestTerminal({ columns: 30, rows: 6 });
+      const t = term.terminal;
+      const w = t.write.bind(t);
+      const we = t.writeErr.bind(t);
+      const tell = (stream, chunk) =>
+        process.stdout.write('W|' + stream + '|' + term.screen.alternate + '|' + JSON.stringify(chunk) + '\\n');
+      t.write = (c) => (tell('out', c), w(c));
+      t.writeErr = (c) => (tell('err', c), we(c));
+      const app = runApp(() => E.text('x'), { detect: false, terminal: t });
+      app.view.frame();
+      ${body}
+    `;
+    const ran = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
+      encoding: 'utf8',
+    });
+    const writes: Write[] = [];
+    const raw: string[] = [];
+    for (const line of ran.stdout.split('\n')) {
+      const match = /^W\|(out|err)\|(true|false)\|(.*)$/.exec(line);
+      if (match) {
+        writes.push({
+          alternate: match[2] === 'true',
+          stream: match[1] === 'err' ? 'stderr' : 'stdout',
+          text: JSON.parse(match[3] as string) as string,
+        });
+      } else if (line !== '') {
+        raw.push(line);
+      }
+    }
+    return { raw, status: ran.status, stderr: ran.stderr, writes };
+  }
+
+  it('should replay the ring and put the console back when a timer throws', () => {
+    const ran = child(`
+      console.log('context before the crash');
+      process.on('exit', () => console.log('exit handler speaks'));
+      setTimeout(() => { throw new Error('async crash'); }, 5);
+    `);
+
+    expect(ran.status).toBe(1);
+    expect(ran.stderr).toContain('async crash');
+    expect(plain(ran.writes)).toEqual(['stdout: context before the crash']);
+    // after the screen was back, and a handler of the app own wrote normally
+    expect(ran.writes.every((w) => !w.alternate || !w.text.includes('context'))).toBe(true);
+    expect(ran.raw).toEqual(['exit handler speaks']);
+  });
+
+  it('should replay for process.exit() with a code, and discard it for 0', () => {
+    const failed = child(`console.log('kept'); process.exit(3);`);
+    expect(failed.status).toBe(3);
+    expect(plain(failed.writes)).toEqual(['stdout: kept']);
+
+    const clean = child(`console.log('dropped'); process.exit(0);`);
+    expect(clean.status).toBe(0);
+    expect(plain(clean.writes)).toEqual([]);
   });
 });

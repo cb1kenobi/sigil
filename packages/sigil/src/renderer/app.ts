@@ -111,12 +111,22 @@ export interface AppOptions extends Pick<
    * changed -- so by default `runApp()` patches the console methods into a ring
    * of the last 1,000 lines, `app.logs`, and nothing reaches the screen while
    * the app owns it. Full screen replays the ring to the main screen once it is
-   * back, **only when the app failed**: a non-zero exit code (130 for Ctrl-C
-   * included) or a crash, before the error report, `log`, `info` and `debug` to
-   * stdout and `warn` and `error` to stderr as the console would have printed
-   * them. A clean exit discards it. Inline (`fullscreen: false`) writes each line
-   * above the live region as it arrives, to the same two streams, and holds
-   * nothing.
+   * back, **only when the app failed**: an exit code that is not `0` or `130`, a
+   * throw from the component's body, a failed frame, or the process ending under
+   * the app (a throw or rejection nobody caught, or a `process.exit(n)`), before the
+   * error report, `log`, `info`, `debug`, `dir` and `dirxml` to stdout and `warn`
+   * and `error` to stderr as the console would have printed them. A clean exit
+   * discards it, and so does `130`: Ctrl-C is the habitual way out of a healthy app,
+   * and an app that hangs never reaches its quit binding. A signal ends the process
+   * without an `exit` event, so it loses the ring. Inline (`fullscreen: false`)
+   * writes each line above the live region as it arrives, to the same two streams,
+   * and holds nothing.
+   *
+   * What a custom `onError` logs through `console` is never discarded and never
+   * drawn into the screen: it is written to the main screen after the replay, on any
+   * exit code. Only one capture can be live, so an app that starts while another
+   * holds it gets `logs === undefined` and its console is the real one -- and once
+   * the first exits, the second's lines reach its screen.
    *
    * `false` leaves the console alone. So does a capture already installed by
    * `captureConsole()` before `runApp()`: the patch is global and only one can
@@ -288,6 +298,11 @@ interface Held {
   to?: 'stderr';
 }
 
+/** Whether an exit code asks for the ring to be written out: not `0`, and not Ctrl-C's `130`. */
+function replayable(code: number): boolean {
+  return code !== EXIT_OK && code !== EXIT_INTERRUPTED;
+}
+
 /** The stream the console method would have written an entry to. */
 function streamOf(entry: LogEntry): 'stderr' | undefined {
   return entry.level === 'warn' || entry.level === 'error' ? 'stderr' : undefined;
@@ -379,7 +394,28 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   const terminal = opts.terminal ?? defaultTerminal;
   const stdin = opts.stdin ?? (terminal.stdin as InputStream | undefined);
   const interactive = stdin !== undefined && canReadKeys({ stdin, terminal });
-  const report = opts.onError ?? reportError;
+  const custom = opts.onError;
+  /**
+   * How many custom `onError` calls are on the stack.
+   *
+   * Whatever such a handler logs through `console` is the app saying why it
+   * failed, and the capture has just taken it into a ring that is replayed on a
+   * failed exit and thrown away on a clean one -- where "the error vanished" is the
+   * result. So a line logged inside the call is a report: held with the others and
+   * written after the replay whatever the exit code, never into the alternate
+   * screen, and never replayed a second time (`diverted`).
+   */
+  let reporting = 0;
+  const report = custom
+    ? (error: unknown): void => {
+        reporting++;
+        try {
+          custom(error);
+        } finally {
+          reporting--;
+        }
+      }
+    : reportError;
 
   let view: Renderer | undefined;
   let input: InputRouter | undefined;
@@ -409,9 +445,11 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
    * A report written while the app runs would go to the backend's held buffer in
    * the order it happened, which puts it before the lines the ring replays -- and
    * the replay goes first, so that the report reads as the end of what led to it.
-   * `settleFailure()` and `finish()` write the lines and then these.
+   * `finish()` writes the lines and then these, whatever the exit code.
    */
-  const reports: string[] = [];
+  const reports: Held[] = [];
+  /** The ring entries a custom `onError` logged, which are reports and not replayed. */
+  const diverted = new Set<number>();
   /** Whether a failed exit replays the ring: a full-screen capture that is installed. */
   let replays = false;
   /** Whether reports wait in `reports`: a full-screen capture, until it has been written. */
@@ -446,7 +484,7 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   function reportError(error: unknown): void {
     const line = `${renderError(error).replace(/[\r\n]+$/, '')}\n`;
     if (view) {
-      deliver(line, 'stderr');
+      hold(line, 'stderr');
     } else if (rendering) {
       early.push({ text: line, to: 'stderr' });
     } else {
@@ -457,11 +495,25 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   const early: Held[] = [];
 
   /** Through the backend, or into `reports` where a full-screen capture is holding them. */
-  function deliver(text: string, to?: 'stderr'): void {
-    if (holding && to === 'stderr') {
-      reports.push(text);
+  function hold(text: string, to?: 'stderr'): void {
+    if (holding) {
+      reports.push({ text, to });
+    } else if (view) {
+      view.backend.write(text, to);
+    } else if (rendering) {
+      early.push({ text, to });
     } else {
-      view?.backend.write(text, to);
+      direct(text, to);
+    }
+  }
+
+  /** What the ring does with a line the moment it is stored. */
+  function captured(entry: LogEntry): void {
+    if (inline) {
+      echo(entry);
+    } else if (reporting > 0) {
+      diverted.add(entry.seq);
+      hold(`${entry.text}\n`, streamOf(entry));
     }
   }
 
@@ -502,20 +554,25 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     for (const entry of ring.entries()) {
       if (entry.seq > written) {
         written = entry.seq;
-        write(`${entry.text}\n`, streamOf(entry));
+        if (!diverted.has(entry.seq)) {
+          write(`${entry.text}\n`, streamOf(entry));
+        }
       }
     }
   }
 
   /**
-   * A failure that the backend is still on the alternate screen for: the lines,
-   * then the reports, through the backend.
+   * A failed frame that a custom `onError` is about to hear of: the lines, then
+   * the reports, through the backend.
    *
-   * Through `backend.write()` because the backend flushes what it holds as it
-   * stops, in order, and `fail()` stops it before it reports why -- so what is
-   * written here lands ahead of the failure's own report, which a replay run from
-   * `finish()` a microtask later never could. Once is enough: the flag is the
-   * ring's discarded-or-replayed decision, and `finish()` writes only the tail.
+   * Only for a custom handler. The default one is held like every other report, so
+   * `fail()` reports into `reports` and `finish()` writes the lines, the cleanups'
+   * lines among them, and then it. A custom handler writes wherever it likes the
+   * moment it is called, and the only way to put the lines ahead of that is to
+   * write them first -- through `backend.write()`, which holds them and flushes
+   * them in order as `fail()` stops the backend. The cost is that a cleanup which
+   * logs during that same teardown lands in the tail `finish()` writes after the
+   * handler, which is the best a handler the runner cannot hold allows.
    */
   function settleFailure(): void {
     if (!holding || view === undefined) {
@@ -524,8 +581,8 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     holding = false;
     const backend = view.backend;
     replay((text, to) => backend.write(text, to));
-    for (const line of reports.splice(0)) {
-      backend.write(line, 'stderr');
+    for (const held of reports.splice(0)) {
+      backend.write(held.text, held.to);
     }
   }
 
@@ -544,6 +601,33 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       early.push({ text: `${entry.text}\n`, to });
     } else {
       direct(`${entry.text}\n`, to);
+    }
+  }
+
+  /**
+   * The process is ending under a running app: a throw nobody caught, a rejection
+   * nobody handled, or a `process.exit()`.
+   *
+   * The terminal's own `exit` handler puts the screen back, and this is called
+   * `restore()` again for the order's sake -- it is idempotent, and it means the
+   * lines below land on the main screen whichever handler ran first. The console
+   * goes back so that an `exit` handler of the app's own writes normally rather
+   * than into a ring nobody will read. The replay is `finish()`'s rule with the
+   * process's code. A signal never gets here: the terminal re-raises it and the
+   * process dies without an `exit` event, so a signal loses the ring.
+   */
+  function onProcessExit(exitCode: number): void {
+    process.removeListener('exit', onProcessExit);
+    terminal.restore();
+    uncapture();
+    if (replays) {
+      holding = false;
+      if (replayable(exitCode)) {
+        replay(direct);
+      }
+      for (const held of reports.splice(0)) {
+        direct(held.text, held.to);
+      }
     }
   }
 
@@ -613,19 +697,21 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     // the console goes back after the teardown rather than before it, so that a
     // cleanup which logs is captured like everything else rather than drawn over
     // a screen that is on its way out
+    process.removeListener('exit', onProcessExit);
     uncapture();
     if (replays) {
       // the screen is back, so these go straight out. Not for a clean exit: the
       // ring is the app's own scrollback and 0 means nothing needs explaining.
-      // Already written, in a failed frame's case, so only the tail is
-      const failing = final !== EXIT_OK;
+      // Nor for Ctrl-C, which is the habitual way out of a healthy app. Already
+      // written, for a custom handler's failed frame, so only the tail is
+      const failing = replayable(final);
       if (holding) {
         holding = false;
         if (failing) {
           replay(direct);
         }
-        for (const line of reports.splice(0)) {
-          direct(line, 'stderr');
+        for (const held of reports.splice(0)) {
+          direct(held.text, held.to);
         }
       } else if (failing) {
         replay(direct);
@@ -732,16 +818,14 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   // and patches nothing. A capture the app installed itself is the one that is
   // live, and the latch says no -- leaving it alone is the whole of that rule
   if (opts.console !== false) {
-    const ring = createLogRing({
-      capacity: LOG_LINES,
-      onPush: inline ? echo : undefined,
-    });
+    const ring = createLogRing({ capacity: LOG_LINES, onPush: captured });
     const installed = captureConsole(ring);
     if (installed.installed) {
       capture = installed;
       logs = ring;
       replays = !inline;
       holding = replays;
+      process.on('exit', onProcessExit);
     }
   }
 
@@ -792,11 +876,16 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     // about it
     running = false;
     router.stop();
+    process.removeListener('exit', onProcessExit);
     uncapture();
     // a crash: the lines first, then why, as for any failure. Inline has nothing
     // to replay -- its lines went out as they came, or wait in `early`
     if (replays) {
+      holding = false;
       replay(direct);
+      for (const held of reports.splice(0)) {
+        direct(held.text, held.to);
+      }
     }
     for (const held of early.splice(0)) {
       direct(held.text, held.to);
@@ -812,19 +901,19 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   }
 
   for (const held of early.splice(0)) {
-    deliver(held.text, held.to);
+    hold(held.text, held.to);
   }
   // the renderer going by any route ends the app: `view.dispose()` from a
   // handler, which is the app ending itself, or a frame that failed. The handler
   // need not know which -- `finish()` asks `view.failed`, and a failure beats the
   // 0 this asks for. A first frame that failed inside `render()` has already
-  // gone, so this is called at once -- after its report was delivered, which a
-  // full-screen capture holds, so the lines still go ahead of it. A failed frame
-  // writes the console lines here, while its backend is still to be stopped, so
-  // that they land ahead of the report `fail()` makes once the screen is back
+  // gone, so this is called at once. A report is held by a full-screen capture,
+  // so the lines go ahead of it; a custom `onError` is the exception, and a failed
+  // frame writes the lines here, while its backend is still to be stopped, so that
+  // they land ahead of what `fail()` hands it once the screen is back
   const renderer = view;
   renderer.onDispose(() => {
-    if (renderer.failed) {
+    if (renderer.failed && custom !== undefined) {
       settleFailure();
     }
     app.exit();

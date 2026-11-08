@@ -5883,19 +5883,31 @@ command({
   does not know those cells changed and the line stays as garbage until something
   repaints over it. So `runApp()` patches `console.debug`, `error`, `info`, `log`
   and `warn` into a ring of the last 1,000 lines, `app.logs` (also on `useApp()`),
-  and nothing reaches the screen:
+  along with `dir` and `dirxml`, and nothing reaches the screen. `trace`, `table`,
+  `group`, `time`, `count` and `assert` are captured through those, so a trace
+  arrives as `error` lines, one per stack frame:
 
   - **Full screen** writes nothing while the app runs. **When the app fails** -- a
-    non-zero exit code, 130 for Ctrl-C included, or a crash -- the ring is written
-    to the main screen once it is back, in order, _before_ the error report:
-    `log`, `info` and `debug` to stdout, `warn` and `error` to stderr, as `console`
-    would have printed them, with no prefix. If the ring dropped lines, a note on
-    stderr says how many first. **A clean exit (`0`) discards the ring.**
+    throw from the component's body, a failed frame, the process ending under the
+    app (an uncaught throw, an unhandled rejection, `process.exit(n)`), or an exit
+    code other than `0` and `130` -- the ring is written to the main screen once it
+    is back, in order, _before_ the error report: `log`, `info` and `debug` to
+    stdout, `warn` and `error` to stderr, as `console` would have printed them, with
+    no prefix. If the ring dropped lines, a note on stderr says how many first.
+    **A clean exit (`0`) discards the ring, and so does `130`:** Ctrl-C is the
+    habitual way out of a healthy app, and an app that hangs never reaches its quit
+    binding. `129` (the terminal hung up) replays. A **signal** (`SIGTERM`,
+    `SIGHUP`) ends the process without an `exit` event, so it loses the ring.
+  - **What a custom `onError` logs through `console`** is never discarded and never
+    drawn into the screen: it is written to the main screen after the replay, on
+    any exit code.
   - **Inline** (`fullscreen: false`) writes each line above the live region as it
     arrives, to the same two streams, and holds nothing.
   - `console: false` leaves the console alone. So does a `captureConsole()` you
     installed before `runApp()`: the patch is global and only one can be live, so
-    the runner does not take yours over and `app.logs` is `undefined`.
+    the runner does not take yours over and `app.logs` is `undefined`. The same goes
+    for a second app that starts while the first holds the capture: its `logs` is
+    `undefined`, and once the first exits its lines reach its screen.
   - Not the console, and still written straight to the screen: a bare
     `process.stdout.write()`, and a child process's stderr.
 

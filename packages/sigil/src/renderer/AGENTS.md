@@ -986,43 +986,75 @@ it.
   of the two has to own it. Nothing is patched for a refusal either: an app that
   never draws has nothing to protect.
 
-  _Full screen replays on failure and discards on success._ A non-zero code or a
-  crash writes the ring to the main screen once it is back: in order, `log`,
-  `info` and `debug` to stdout and `warn` and `error` to stderr, as `console`
-  would have printed them, with **no level prefix** and before the error report.
-  If the ring dropped lines, a stderr note first says how many
+  _Full screen replays on failure and discards on success._ A failure writes the
+  ring to the main screen once it is back: in order, `log`, `info`, `debug`, `dir`
+  and `dirxml` to stdout and `warn` and `error` to stderr, as `console` would have
+  printed them, with **no level prefix** and before the error report. If the ring
+  dropped lines, a stderr note first says how many
   (`5 earlier console lines were dropped (the last 1000 follow)`). **Code `0`
-  discards the ring** -- the lines were the app's own scrollback and nothing
-  needs explaining. **130 from Ctrl-C replays**, and that was decided rather than
-  fallen into: a quit key is the normal end of an interactive app, but 130 is
-  exactly what a shell reports for a program somebody had to interrupt, and the
-  case where the lines are wanted is the one where the user pressed Ctrl-C
-  because something was wrong. A user who ends a healthy app with Ctrl-C and
-  would rather not see its chatter has `quit: (key) => ...` with `exit(0)`, or
-  `console: false`; 129 (the terminal hung up) replays for the same reason, to a
-  screen that may not be there. What counts is the code `exited` settles with,
-  read in `finish()` after a failure has been given its say.
+  discards the ring** -- the lines were the app's own scrollback and nothing needs
+  explaining. **So does 130, and that was a decision revised in review.** It first
+  replayed, on the reading that 130 is what a shell reports for a program somebody
+  had to interrupt. The user's decision is the other one: Ctrl-C is the habitual
+  way out of a healthy interactive app, so replaying on it would put an app's
+  chatter on the screen every time it was quit, and an app that has hung never
+  reaches its quit binding in the first place, so 130 is not the code a hang
+  produces. Every other non-zero code replays, 129 (the terminal hung up) included,
+  to a screen that may not be there. An app's own `exit(130)` is the same number
+  and discards too. What counts is the code `exited` settles with, read in
+  `finish()` after a failure has been given its say (`replayable()`).
 
-  _The lines go ahead of the error report, which took two moves._ A failed frame
+  _What "a crash" covers._ A throw from the component's body (the catch in
+  `runApp()`), a failed frame, and **the process ending under a running app**: an
+  uncaught throw, an unhandled rejection, a `process.exit(n)`. The last is one
+  `exit` listener on the real `process`, attached with the capture and removed by
+  `finish()` and the body-throw path, which calls `terminal.restore()` (idempotent,
+  so the screen is back whichever handler ran first), puts the console back and
+  replays by the process's own exit code. Putting the console back is the part that
+  was a defect and not a gap: an `exit` handler of the app's own that logged wrote
+  into a ring nobody would read. It is a listener of the runner's rather than a hook
+  on `Terminal` because the terminal's restore path is shared by every caller and
+  runs on `restore()` called by `fail()` in the middle of a failure, where a replay
+  would be early. **A signal is not covered, and the docs say so:** the terminal
+  restores on `SIGTERM`, `SIGHUP` and `SIGINT` and re-raises, and the process dies
+  by the signal without an `exit` event, so there is no point at which to replay;
+  adding a signal listener of the runner's own would change whether the signal
+  still kills the process, which is the terminal's entry to settle. The test is a
+  spawned child over the built runner, for the reason the TypeScript routes are.
+
+  _The lines go ahead of the error report, which took three moves._ A failed frame
   is reported by `fail()` after it has stopped the backend, and that happens
-  **before** the teardown microtask `finish()` runs on -- so a replay written from
-  `finish()` landed after the report. The `onDispose()` handler is the one place
-  that runs inside `fail()` before the backend stops, so a failure settles there:
-  the lines go through `backend.write()`, which holds them and flushes them in
-  order as the backend stops, ahead of `onError`. A first frame that failed
-  inside `render()` has already gone when the handler is registered, so it is
-  called at once -- and its report is held with the others by then, so the lines
-  still go first. (A separate `settleFailure()` on return for that case was
-  written, and deleting it changed no answer: the sabotage pass is what showed it
-  was dead.) Every other route (`exit(n)`, the quit key, stdin
-  ending) settles in `finish()`, once the screen is back and the writes can go
-  straight out. And **reports made while the app is up wait in the runner**
-  rather than in the backend's held buffer: a report held there is older than the
-  lines the ring replays, so the mount error that was thrown early would have
-  printed _above_ the lines logged after it. Held in `reports` and written after
-  the lines, a clean exit writes them with no lines, which is what it always did.
-  A custom `onError` is not intercepted -- it is called when it was, and for a
-  failed frame the lines are already out by then.
+  **before** the teardown microtask `finish()` runs on. The first answer settled the
+  failure inside an `onDispose()` handler, which does run inside `fail()` before
+  the backend stops -- and review found what that costs: the dispose handlers run
+  **before** `disposeOwner()` runs the cleanups, so the ring was written before a
+  cleanup that logged, then `fail()` reported, then `finish()` wrote that tail
+  after the report. The second answer is the one that holds: with the default
+  reporter the report is **held in `reports`** like every other, so `fail()` stores
+  it, and `finish()` writes the lines, the cleanups' among them, and then the
+  report. The `onDispose()` settle survives for a custom `onError` only, because
+  such a handler writes wherever it likes the moment it is called and the only way
+  to put the lines ahead of it is to write them first; a cleanup that logs during
+  that teardown lands in the tail after it, which is the best a handler the runner
+  cannot hold allows. A first frame that failed inside `render()` has already gone
+  when the handler is registered, and its report is held by then, so the lines go
+  first there too. Every other route (`exit(n)`, stdin ending) settles in
+  `finish()`, once the screen is back and the writes can go straight out. And
+  **reports made while the app is up wait in the runner** rather than in the
+  backend's held buffer: a report held there is older than the lines the ring
+  replays, so the mount error that was thrown early would have printed _above_ the
+  lines logged after it. A clean exit writes them with no lines.
+
+  _What a custom `onError` logs through `console` is a report, not a log line._
+  The capture took it into the ring, which a clean exit discards -- an
+  `onError: (e) => console.error(...)` and an `onMount` that threw made the error
+  vanish on `exit(0)` -- and a handler called while the app was up would have been
+  writing into a ring rather than the screen. A counter around the custom call
+  (`reporting`) makes the ring's `onPush` treat a line pushed inside it as a report:
+  held with the others, written after the replay on **any** code, and remembered in
+  `diverted` so a failed exit does not replay it a second time. It stays in the
+  ring, so `app.logs` and the overlay still show it. It never reaches the alternate
+  screen: nothing the handler logs does.
 
   _The console goes back after the teardown, not before._ A cleanup that logs
   while the tree unmounts is captured like everything else, and a second pass of
@@ -1037,7 +1069,8 @@ it.
   The ring is still kept, so `app.logs` is there and the overlay can show it; it
   is the ring's `onPush` that does the echo, a hook added to `createLogRing()`
   for this because a wrapper around `push()` would have to split a write into
-  lines the way the ring does and say it twice. A line logged during the first
+  lines the way the ring does and say it twice -- and the same hook is how a custom
+  `onError`'s output is told from the app's. A line logged during the first
   frame, before the backend is returned, waits in the same queue the early
   reports do. Nothing is replayed on failure: it is all out already.
 
@@ -1054,7 +1087,18 @@ it.
 
   _Out of scope, and said so in the README._ A bare `process.stdout.write()` and a
   child process's stderr are not the console and still write into the screen.
-  `trace` is left alone for the reason the capture records. A live log file to
+  `trace` is not patched and is captured anyway, which this entry first had wrong:
+  Node builds the stack and hands it to `this.error()`, so it arrives as `error`
+  lines, one per frame; `table`, `group`, `time`, `count` and `assert` end in `log`
+  or `warn` the same way. `dir()` and `dirxml()` are the two that do not, and
+  wrote into the alternate screen past the patch -- found by review, which put
+  `process.stdout.write` under a spy and called each method. They are patched now,
+  as `log`, with `inspect()` and `customInspect: false` and the caller's options
+  the way Node does it, without the colour its stream would have chosen.
+  **Overlapping apps:** the capture is one global latch, so an app that starts
+  while another holds it gets `logs === undefined`, is not captured, and once the
+  first exits its lines reach its own screen. That is the rule for a capture the
+  app installed itself, applied to the second runner, and not an error. A live log file to
   `tail -f` from another terminal is a follow-up.
 
   _Sabotage, fourteen by hand over `app-console.test.ts`:_ the console not put
@@ -1064,6 +1108,12 @@ it.
   ring, 130 treated as clean, and inline replaying. Thirteen were caught; the
   fourteenth, a separate `settleFailure()` for the first-frame case, changed no
   answer and was deleted.
+
+  _Sabotage, round two, nine over the review's fixes:_ the `onDispose()` settle for
+  the default reporter again, the divert off, the diverted lines replayed twice,
+  `dir`/`dirxml` unpatched, `dir` not through `inspect()`, 130 replayed, no `exit`
+  listener, the `exit` handler not putting the console back, and the `exit` handler
+  replaying on any code. All nine were caught.
 
 - **Sabotage, in two passes.** The first was twenty-three, with nine survivors: six
   were made to fail by a new test -- the router left listening (twice: on exit and

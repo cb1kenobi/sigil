@@ -1,6 +1,7 @@
 import { createCanvas } from '../../src/canvas/index.js';
 import {
   captureConsole,
+  type CaptureOptions,
   createLogRing,
   type DebugOverlayOptions,
   enableDebugOverlay,
@@ -324,6 +325,26 @@ describe('captureConsole()', () => {
       'info:note',
       'debug:quiet',
     ]);
+  });
+
+  it('should capture dir() and dirxml(), which Node writes without the public methods, as log', () => {
+    const target: NonNullable<CaptureOptions['console']> = {};
+    const ring = createLogRing();
+    const capture = captureConsole(ring, { console: target });
+
+    try {
+      target.dir?.({ a: { b: { c: 1 } } }, { depth: 0 });
+      target.dirxml?.('a', 'b');
+    } finally {
+      capture.restore();
+    }
+
+    expect(ring.entries().map((e) => `${e.level}:${e.text}`)).to.deep.equal([
+      'log:{ a: [Object] }',
+      'log:a b',
+    ]);
+    // and put back: a method that was not there is not there again
+    expect(Object.keys(target)).to.deep.equal([]);
   });
 
   /**
