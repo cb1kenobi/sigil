@@ -66,10 +66,20 @@ const BLANK = ' ';
  * chunk: a bare `ESC`, a CSI with no final byte yet, or an unterminated control
  * string. Anchored, because what is being asked is about the end of a chunk.
  */
-const PARTIAL = new RegExp(`^${ESC}(?:\\[[\\d;:?]*|[\\]P][^${ESC}\\u0007]*(?:${ESC})?)?$`);
+const PARTIAL = new RegExp(
+  `^${ESC}(?:\\[[<=>?]?[\\d;:]*[ -/]*|[\\]P][^${ESC}\\u0007]*(?:${ESC})?)?$`
+);
 
-/** A CSI sequence: the parameters, any private marker, and the final byte. */
-const CSI = new RegExp(`^${ESC}\\[(\\??)([\\d;:]*)([A-Za-z])`);
+/**
+ * A CSI sequence: any private marker, the parameters, any intermediates, and the
+ * final byte.
+ *
+ * The marker is any of the four ECMA-48 allows and not only `?`, and the
+ * intermediates are modelled for one reason: the sequences a program writes to
+ * *ask* something -- `ESC[>q`, `ESC[c`, `ESC[?2026$p` -- have a `>` or a `$` in
+ * them, and a pattern that could not read them reported each one as unparsed.
+ */
+const CSI = new RegExp(`^${ESC}\\[([<=>?]?)([\\d;:]*)([ -/]*)([@-~])`);
 
 /** SGR and anything else that only changes how text looks, which this ignores. */
 const OSC = new RegExp(`^${ESC}\\]([^${ESC}\\u0007]*)(?:${ESC}\\\\|\\u0007)`);
@@ -484,9 +494,19 @@ export class Screen {
           throw new Error(`unparsed escape at ${i}: ${JSON.stringify(output.slice(i, i + 12))}`);
         }
 
-        const [match, priv, params, final] = csi;
+        const [match, priv, params, intermediates, final] = csi;
         const n = Number.parseInt(params, 10) || 1;
         i += match.length;
+
+        // a query, or a setting this model has no cell for. A program asks what
+        // the terminal is with `CSI c`, `CSI > q`, `CSI ? Pd $ p` and the rest
+        // before its first frame, and none of them changes a cell: the answer
+        // comes back on the *input* stream, which is the far end's to give. Left
+        // to the `default` below they threw, which for a child's output replayed
+        // as it arrives was the first thing any full-screen app wrote
+        if (priv === '<' || priv === '=' || priv === '>' || intermediates !== '') {
+          continue;
+        }
 
         if (priv === '?') {
           // the private modes this models: the cursor and the alternate screen
@@ -633,13 +653,16 @@ export class Screen {
             }
             break;
           }
+          case 'c':
+          case 't':
           case 'n': {
-            // a device status request -- `CSI 6 n` is "where is the cursor". It
-            // changes nothing on screen, and the answer comes back on the *input*
-            // stream, which a test supplies by feeding bytes rather than something
-            // this could write. Modelled as nothing rather than left to the
-            // `default` below, which threw and was swallowed by the one caller
-            // that cannot report anything
+            // device attributes (`CSI c`), a window operation (`CSI 14 t`, the text
+            // area in pixels) and a device status request (`CSI 6 n`, "where is
+            // the cursor"). They ask and none draws, and the answer comes back on
+            // the *input* stream, which a test supplies by feeding bytes rather
+            // than something this could write. Modelled as nothing rather than
+            // left to the `default` below, which threw and was swallowed by the
+            // one caller that cannot report anything
             break;
           }
           default: {

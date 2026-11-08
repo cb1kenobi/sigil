@@ -157,12 +157,14 @@ that knowledge was undiscoverable from outside this repository.
   clear, on one platform of the three. Over-clearing is the safe direction --
   nothing reads a lowercase `ci`, and `env` puts back anything a run needs.
 
-- **It writes nothing to the child's stdin, so a prompt is not what to spawn.**
-  A prompt needs keys delivered over time and the far end held open: write and
-  close, and the router reports the stream ended and the prompt rejects with
-  exactly that. An async handle that holds stdin open and writes on demand is a
-  bigger API than this, and `createTestTerminal()` already answers the question
-  in-process, so the surface says no rather than half-yes.
+- **It writes nothing to the child's stdin unless asked, and a prompt is still
+  not what to spawn it for.** This entry said it writes nothing, ever, and gave
+  the reason: a prompt needs keys delivered over time and the far end held open,
+  and write-and-close reports the stream ended. The reason stands and the
+  absolute does not -- `stdin: true` is the opt-in, and "Typing into a spawned
+  program" below is what it is. `createTestTerminal()` is still the answer for a
+  prompt, because it is in-process with no clock; the spawned handle is for a
+  whole program.
 
 - **`runOnTerminal()` is `async`, so every refusal is a rejection.** A function
   that returns a promise and _sometimes_ throws synchronously is one a caller has
@@ -350,7 +352,8 @@ sentence under "The extraction, and what it was allowed to touch" in
 
 #### What is deliberately out, and one finding that is somebody else's ticket
 
-- **No stdin writing in `runOnTerminal()`**, for the reason above.
+- **No stdin writing in `runOnTerminal()`** was the position when this was
+  written, and SIG-309 reversed it: see "Typing into a spawned program".
 - **No rewrite of `output-forms.test.ts` onto the fixture.** It would be the
   strongest possible proof that the helper is sufficient for the hardest real
   case here, and it is the regression suite for the two output forms: a refactor
@@ -398,6 +401,178 @@ sentence under "The extraction, and what it was allowed to touch" in
   and the usage line reads the registry. Left alone deliberately -- it is a
   question about what help prints for an app with no commands of its own, which
   is help's to answer and not a dispatch rule.
+
+### Typing into a spawned program, waiting for a frame, and the colour level (SIG-309)
+
+The examples harness and the system monitor's tests hit the same three limits.
+`runOnTerminal()` faked the child's output and never wrote to its stdin, so the
+harness mounted each root in-process and the monitor's builder fell back to
+`script(1)`; there was no way to wait for a frame, so tests slept 50ms and
+polled a screen until it stopped changing; and `createTestTerminal({ colorLevel })`
+did not reach `render()`, so the level was said twice. None of them needed a
+dependency.
+
+- **Stdin is a terminal the same way stdout is, by the same preload.** The
+  child's `process.stdin` gets `isTTY: true`, a `setRawMode()` that accepts the
+  call, returns the stream and records the mode on `isRaw`, and the far end is a
+  pipe held open. `createInput()` asks `isTTY` and calls `setRawMode` optionally,
+  which is all a real app does with stdin, so the whole of the
+  `examples/` entries run unmodified: `main()`, the schema, `runApp()`, the
+  capability queries going out unanswered. It is the same `defineProperty` module
+  rather than a second mechanism, for the reason `streamsOf()` records for the
+  other two.
+
+- **It is `stdin: true`, an option of its own, and `tty: true` does not imply
+  it.** Stdin has been `/dev/null` since this was written, and a program that
+  reads it to the end gets end-of-file at once; on a pipe nobody closes it hangs.
+  So the default must not move, and `tty` is about output (`FakeableStream` is
+  still `stdout | stderr`). A test that wants both writes both. TERM is set for
+  either, since a stream claiming to be a terminal with no `TERM` behind it
+  detects level 0.
+
+- **The handle is the promise.** `runOnTerminal()` returns a `Promise` carrying
+  `press()`, `paste()`, `waitFor()`, `kill()`, and the child's `screen`,
+  `viewport`, `lines` and `output`, because a full-screen program ends when it is
+  told to, so the handle has to exist before the promise settles. `await
+  runOnTerminal(...)` is what it was, and `.rejects` still works, since it is a
+  real promise. It stopped being an `async` function to do this, which is the
+  decision the "`runOnTerminal()` is `async`" entry above protects the _reason_
+  for: every refusal is still a rejection. A refusal is a rejected handle whose
+  methods reject with the same error, rather than a handle with nothing on it or
+  a synchronous throw. The names and the key vocabulary are
+  `createTestTerminal()`'s -- `press(...chunks)`, `paste()`, `viewport`, `lines`,
+  `output`, `KEYS`, `ctrl()`, `alt()` -- so one test reads the same in-process
+  and spawned, and `checkChunks()` and `bracketed()` are shared so the
+  refusals say the same thing.
+
+- **Order is promised and read boundaries are not.** In-process, `press('a', 'b')`
+  is two reads, because a `PassThrough` emits synchronously from `write()`. Over
+  a pipe the kernel may hand the child two writes as one read, and does so more
+  often than not for writes made back to back: measured, `press('a', KEYS.up,
+  ctrl('c'))` reached a child as `a`, then `ESC [ A ETX` in one read. Nothing the
+  router or a prompt does depends on it -- it joins a held tail with the next
+  read and serialises a chunk's keys through one queue -- and `paste()` is the
+  distinction that is observable. A test that asserts on read boundaries over a
+  pipe is asserting on the kernel; the spawn tests join the bytes instead.
+
+- **`press()` resolves when the bytes are on the pipe, not when the program drew
+  what they caused, and that is `waitFor()`.** The program paints on its own
+  clock and the only thing this process sees is bytes. `waitFor(text | RegExp)`
+  looks at the viewport and at the main buffer of the **replayed screen** --
+  never at the raw bytes, because a frame is a diff and the bytes of a repaint
+  hold no text a reader could match. It rejects, with the screen in the message,
+  if the program exits first or `timeout` (5s) passes, and clears its timer
+  either way. The `ready` detector in `quiet-forms.test.ts` looked for a `?` in
+  the bytes and was fired by `ESC [ ? 25 l`; reading the screen cannot be.
+
+- **The live screen decodes as a stream and survives what it does not model.**
+  A `StringDecoder` feeds the model, so a character split across two `data`
+  events is not a `U+FFFD`, while `RanOnTerminal.out` is still concatenated and
+  decoded once. The model throws on a sequence it has no answer for, and a throw
+  in a `data` handler is an uncaught exception in the test runner; so it is
+  caught, remembered, and rethrown from `viewport`, `lines` and `waitFor()`,
+  where the test is reading.
+
+- **`Screen` models the questions a program asks, as nothing.** Before its first
+  frame an app asks what the terminal is -- `ESC [ c`, `ESC [ > q`,
+  `ESC [ ? 2026 $ p`, `ESC [ 14 t`, `ESC [ 6 n` -- and the model threw on the
+  first, which for output replayed as it arrives was the first thing every
+  full-screen app wrote. The CSI pattern takes the four private markers and the
+  intermediates now, and a sequence with a `<`, `=` or `>` or an intermediate, and
+  the plain `c` and `t`, change no cell. This is not a retreat from "it throws on
+  what it does not model": a question is modelled, as nothing, and the answer
+  comes back on the input stream, which is the far end's to give. The harness
+  runs its entries with `detect` on, so the queries go out and nobody answers,
+  which is the real case for a CI run with no terminal.
+
+- **What it cannot give a program, and does not claim to.** No mode: nothing is
+  cooked or raw, nothing echoes, Ctrl-C is a byte and not a signal. Raw mode is
+  recorded on the **child's** `process.stdin.isRaw`, which the parent cannot read;
+  a side channel back to the parent (a fourth fd) was refused for a mode that the
+  screen model already shows the effect of -- an app that leaves the alternate
+  screen and shows the cursor again has run its teardown, which is what restoring
+  raw mode rides on. No `resize()`: a child learns its size from `stdout.columns`
+  and a `SIGWINCH` that does not exist on Windows. The window size is the one
+  `columns` and `rows` set for stdout; a terminal's input has no size to agree
+  with.
+
+- **`frame(app)` paints a frame now, and does not wait for one.** The clock is
+  `FRAME_MS`, about 30 a second, so a key leaves the screen as it was until the
+  next tick, and so does anything an `onMount` wrote. Three shapes were available
+  and two refused:
+
+  - `await term.frame()` on the test terminal. The terminal can only see bytes
+    written, and a frame that finds nothing dirty writes none, so it would hang
+    exactly when the answer is "nothing changed". It also has no way to know there
+    is an app at all.
+  - An awaitable that resolves on the _next_ frame the renderer paints. Same hang:
+    a program with nothing dirty never schedules one.
+  - **Forcing one**, through `Renderer.frame()`, whose own doc says "settles and
+    paints a frame now, whatever the pacing says". That is deterministic and
+    costs no wall clock, which is what removed `settled()` -- two frame periods of
+    polling per mount -- from the harness. It takes the app (or the renderer
+    `render()` returned), checks `running` first because `view` throws for an app
+    that refused, and takes one `tick()` on either side: before, so a key's
+    promise chain has run; after, so the effects the frame ran have.
+
+  **A claim this ticket was opened on did not survive measurement:** that a key
+  pressed before the first frame reaches no focused element, because the first row
+  takes the focus in `onMount`, after the first frame. In-process, `onMount` runs
+  synchronously at the end of `render()`, `hello`'s focus exists before any frame,
+  and a key pressed straight after `runApp()` counts -- removing the leading
+  `frame()` from the guide's test fails nothing. What lags is the screen, by a
+  tick, and anything an `onMount` _wrote_ to a signal, which lands in the frame
+  after the first paint (`frame.test.ts` pins that one). The old guide paragraph
+  saying otherwise is rewritten.
+
+  What it does not do is cover a handler with async work of its own, which is
+  `await frame(app)` again: the monitor's `settle()` calls it four times, for a
+  sampler that resolves, a state write and the frame it asks for. A spawned
+  program paints on its own clock and is `waitFor()`.
+
+  `frame.ts` imports `App` and `Renderer` as **types only**, so it adds nothing to
+  `testing.mjs`'s static graph.
+
+- **The colour level is the terminal's.** `Terminal` gained an optional
+  `colorLevel`, `TerminalOptions` a matching one, and `render()` reads it between
+  an explicit `colorLevel` option and `supportsColor()`: `refined ?? opts ??
+  terminal ?? environment`. `runApp()` hands its options to `render()` so it
+  inherits it. A test terminal sets it from its own `colorLevel`, **0 by default**,
+  which is the `ansi` it already built -- so the level is said once, where it was
+  said twice (the monitor's `mount()` passed it to both). An explicit option still
+  wins, because a caller who names a level has decided, and the detect reply still
+  refines it upward, since `refineColorLevel()` refuses to raise off 0 and nothing
+  else changed.
+
+  **A real terminal is unchanged**, and that is what the optional field is for:
+  `createTerminal()` without a `colorLevel` leaves it `undefined` and the renderer
+  asks the environment as it always did. A getter that detected from the
+  terminal's own `env` and stream was the alternative and was refused, because it
+  would change what a custom `createTerminal({ stdout })` answers for every app
+  that builds one. `frame.test.ts` pins both halves, with `FORCE_COLOR` standing in
+  for the environment. The cost, which is deliberate, is that a test terminal at
+  its default now renders at level 0 where it used to take the worker's
+  environment, which `FORCE_COLOR` in a CI runner could make anything: that is the
+  nondeterminism this file records everywhere else. The components'
+  `opts.colorLevel ?? ansi.level` (`mountLive()` and each component) are not
+  changed; a prompt is handed an `ansi` already.
+
+- **Sabotage: fifteen against the helpers, all caught, and two survivors in the
+  harness that are said rather than hidden.** `frame()` not painting, and without
+  its `running` check; `setRawMode` absent from the preload, `isTTY` absent on
+  stdin, and `setRawMode` not recording; the `StringDecoder` replaced by per-chunk
+  decoding; `waitFor()` reading the bytes instead of the screen, and its timer left
+  uncleared; `tty` implying `stdin`; the model's error left to throw from the
+  `data` handler; `Screen` throwing on a query again; `render()` ignoring the
+  terminal's level, the terminal's beating an explicit option, and the test
+  terminal not passing its level on; and `press()` not waiting for the write. Two
+  of those were found by writing the sabotage rather than the test -- the
+  screen-versus-bytes one and the timer one had no test until the pass asked.
+  In the examples: `hello`'s trailing `frame()` removed fails, the harness's
+  spawned `stdin: true` turned off fails, the monitor's `settle()` without its
+  `frame()` fails 24 tests. **Survived:** the leading `frame()` in `hello`, which
+  is why it is gone, and `mount()`'s call, which is kept for the first example
+  whose mount draws something and is said so in `examples/AGENTS.md`.
 
 ### The suite removes every directory it makes
 

@@ -343,6 +343,35 @@ describe('the screen model as it was', () => {
     expect(() => new Screen(4, 1).write(`${ESC}[5Z`)).toThrow(/unmodelled sequence/);
   });
 
+  it.each([
+    ['device attributes', `${ESC}[c`],
+    ['secondary device attributes', `${ESC}[>c`],
+    ['the terminal version', `${ESC}[>q`],
+    ['a mode report request', `${ESC}[?2026$p`],
+    ['a text area size request', `${ESC}[14t`],
+    ['a cursor position request', `${ESC}[6n`],
+    ['a cursor style', `${ESC}[2 q`],
+  ])('should take %s as a question that draws nothing', (_what, query) => {
+    // a program asks what the terminal is before its first frame, so output
+    // replayed as it arrives meets these first. The answer comes back on stdin,
+    // which is the far end's to give; nothing here moves
+    const screen = new Screen(8, 2);
+
+    screen.write(`ab${query}cd`);
+
+    expect(screen.viewport[0]).toBe('abcd');
+    expect(screen.column).toBe(4);
+  });
+
+  it('should hold a question cut off by the end of a chunk', () => {
+    const screen = new Screen(8, 2);
+
+    screen.write(`ab${ESC}[>`);
+    screen.write(`qcd`);
+
+    expect(screen.viewport[0]).toBe('abcd');
+  });
+
   it('should leave the deferred wrap alone for a mode change', () => {
     const screen = new Screen(3, 2);
 
