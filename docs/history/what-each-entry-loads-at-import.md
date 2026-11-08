@@ -244,7 +244,8 @@ findings, all reproduced:
   too, but through the presence checks, because that reader went blind rather
   than wide -- which is the distinction the round drew.
 - **Low: the shake test named `node:os` and did not guard it.** It cannot be
-  asked about by name -- the update check's lazy chunk imports `node:os` for
+  asked about by name -- the lazy chunks of the update check and the completion
+  installer import `node:os` for
   real -- so the test looks for the loop itself,
   `Object.entries(<x>.signals)`, absent from the spinner app and present in the
   package's `components.mjs` as its presence half. Putting the loop back at
@@ -253,3 +254,23 @@ findings, all reproduced:
   `png/image.ts` and `canvas/image.ts` gave zlib as the reason the canvas
   imports `assertRgbaImage()` from the module rather than the barrel; the reason
   is now the codec's bytes, and both say so.
+
+#### Review round 2
+
+grok-4.7, over the round 1 fix and what round 1 had not covered: `packages/cli/src/build/`
+as far as it touches this, the CommonJS form `sigil package` uses for a node
+single executable, `updates/host.ts` and `auto.ts`, and the website's client
+bundles. **No substantive findings.** It checked, by building in memory with
+rolldown 1.2.16, that CommonJS and ESM output both keep each
+`process.getBuiltinModule()` call inside its function rather than hoisting it
+to a `require`, and that the CommonJS output executes; that `bun build --target
+node` leaves the call alone; that nothing in the toolchain's `define`,
+`external` or plugins depends on these builtins being static imports; and that
+`@ttylabs/sigil/suggest` and the website's two client importers of it reach no
+module the change touched. It measured the widened readers against the new
+string fixture -- either quote with spaces and single quotes with a space both
+fail it -- and confirmed the signal-table regex matches the minified loop in
+`components.mjs`. One nit, taken: the shake test's comment named only the
+update check's chunk as the one importing `node:os` for real, where the
+completion installer's does too. Not run by either round: a SEA binary, and
+Windows, which CI covers for the tests.

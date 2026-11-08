@@ -59,8 +59,9 @@ describe('what a built app keeps of a capability it never uses', () => {
       expect(code, builtin).not.toMatch(imports(builtin));
     }
     // the editor's signal-name table, which is the third: `node:os` cannot be
-    // asked about by name, because the update check's lazy chunk imports it
-    // for real, so the loop itself is what is looked for
+    // asked about by name, because the lazy chunks of the update check and the
+    // completion installer import it for real, through `paths.ts`'s `homedir`,
+    // so the loop itself is what is looked for
     expect(code).not.toMatch(SIGNAL_TABLE);
   }, 60_000);
 
