@@ -93,16 +93,24 @@ describe('copying a fixture', () => {
     { cwd: repo, encoding: 'utf-8' }
   )
     .stdout.split('\n')
-    .filter((path) => /\.(?:[cm]?[jt]s|tsx)$/.test(path))
+    .filter((path) => /\.[cm]?[jt]sx?$/.test(path))
     .filter((path) => !path.includes('/fixtures/'));
 
   /**
    * The copies that do not go through `copyFixture()`, and why each is safe.
    *
    * Named with a count rather than as a file that may copy freely, so that a
-   * third copy added to one of them is a decision somebody makes.
+   * third copy added to one of them is a decision somebody makes. The count
+   * sees a copy added and not one of these changed into a whole-tree copy,
+   * which is what the reason beside it is for. The helper is listed too, at
+   * its one filtered call, so that an unfiltered second call beside it is
+   * counted like anywhere else.
    */
   const exempt: Record<string, { count: number; why: string }> = {
+    'packages/cli/test/copy-fixture.ts': {
+      count: 1,
+      why: 'the helper itself, whose one call is the filtered one',
+    },
     'packages/cli/test/update-check.test.ts': {
       count: 2,
       why:
@@ -112,12 +120,16 @@ describe('copying a fixture', () => {
     },
   };
 
-  /** A call to node's tree copy, synchronous or not, however it was imported. */
-  const call = /\b(?:cpSync|cp)\s*\(/g;
+  /**
+   * A call to node's tree copy, synchronous or not and through a namespace
+   * or not, or an import that renames one. A renamed binding's
+   * calls cannot be told from any other function's, so the rename itself is
+   * what is counted.
+   */
+  const call = /\b(?:cpSync|cp)(?:\s*\(|\s+as\b)/g;
 
   const copies = Object.fromEntries(
     sources
-      .filter((path) => path !== 'packages/cli/test/copy-fixture.ts')
       .map((path) => [path, readFileSync(join(repo, path), 'utf-8').match(call)?.length ?? 0])
       .filter(([, count]) => count)
   );
