@@ -156,6 +156,38 @@ export const BACKGROUND_COLOR: string = `${OSC}11;?${ST}`;
 export const FOREGROUND_COLOR: string = `${OSC}10;?${ST}`;
 
 /**
+ * Asks the terminal what one palette entry is.
+ *
+ * `OSC 4 ; index ; ?` and the reply is `OSC 4 ; index ; rgb:RRRR/GGGG/BBBB`, the
+ * same colour shapes OSC 10 and 11 answer in -- so it is read by the same
+ * `parseReportedColor()`. One query per index rather than xterm's
+ * `4;0;?;1;?;...` list, because a list is a form only some terminals parse, and a
+ * terminal that does not reads the first pair and drops the rest.
+ *
+ * @param index - The palette index, 0-255.
+ * @returns The query.
+ */
+export function requestPaletteColor(index: number): string {
+  if (!Number.isInteger(index) || index < 0 || index > 255) {
+    throw new TypeError(`Invalid palette index ${String(index)}: expected a whole number 0-255`);
+  }
+  return `${OSC}4;${index};?${ST}`;
+}
+
+/**
+ * How many palette entries a probe asks for, which is the sixteen a terminal
+ * theme actually sets. `16`-`255` are the xterm cube and grey ramp, fixed by the
+ * spec, and a terminal that redefines them is rare enough not to be worth two
+ * hundred and forty more queries in one write.
+ */
+export const PALETTE_SIZE: number = 16;
+
+/** Asks for the sixteen palette entries a terminal theme sets, in one write. */
+export const PALETTE_COLORS: string = Array.from({ length: PALETTE_SIZE }, (_, i) =>
+  requestPaletteColor(i)
+).join('');
+
+/**
  * What DECRPM says about a mode.
  *
  * The numbers are DEC's: `0` is a mode the terminal has never heard of, which is
@@ -393,6 +425,15 @@ export interface Capabilities {
   readonly name?: string;
   /** The terminal's background, from an OSC 11 reply, on 0-255 per channel. */
   readonly background?: ReportedColor;
+  /** The terminal's foreground, from an OSC 10 reply, on 0-255 per channel. */
+  readonly foreground?: ReportedColor;
+  /**
+   * The sixteen palette entries, from OSC 4 replies, indexed by palette index.
+   *
+   * Always sixteen long when present, with a hole wherever that entry went
+   * unanswered or could not be read, and absent when none of them could be.
+   */
+  readonly palette?: readonly (ReportedColor | undefined)[];
   /**
    * The scheme that background implies.
    *
@@ -498,6 +539,10 @@ function scale(digits: string): number {
 export interface DetectOptions {
   /** Ask for the background colour, for `prefers-color-scheme`. Off by default. */
   background?: boolean;
+  /** Ask for the foreground colour. Off by default. */
+  foreground?: boolean;
+  /** Ask for the sixteen palette entries, with OSC 4. Off by default. */
+  palette?: boolean;
   /** Ask for the cell and text-area pixel geometry. Off by default. */
   geometry?: boolean;
   /** What the environment inferred, which a reply may only refine upwards. */
@@ -612,6 +657,12 @@ export async function detectCapabilities(
   if (opts.background) {
     parts.push(BACKGROUND_COLOR);
   }
+  if (opts.foreground) {
+    parts.push(FOREGROUND_COLOR);
+  }
+  if (opts.palette) {
+    parts.push(PALETTE_COLORS);
+  }
   if (opts.geometry) {
     parts.push(CELL_PIXELS, TEXT_AREA_PIXELS);
   }
@@ -644,6 +695,8 @@ export function readCapabilities(
   inferred?: ColorLevel
 ): Capabilities {
   let background: ReportedColor | undefined;
+  let foreground: ReportedColor | undefined;
+  const palette: (ReportedColor | undefined)[] = Array.from({ length: PALETTE_SIZE });
   let cell: { height: number; width: number } | undefined;
   let device: readonly number[] | undefined;
   let name: string | undefined;
@@ -689,6 +742,24 @@ export function readCapabilities(
       // and taken out again -- a line that can be deleted with the suite still green
       // reads as load-bearing and is not
       background = parseReportedColor(it.text);
+    } else if (it.kind === 'osc' && it.params[0] === 10 && foreground === undefined) {
+      // the background's rule, for the foreground's own command
+      foreground = parseReportedColor(it.text);
+    } else if (it.kind === 'osc' && it.params[0] === 4) {
+      // `index;colour`, and a terminal may answer several in one reply as xterm
+      // writes the query: `0;rgb:...;1;rgb:...`. A colour never holds a `;`, so
+      // the pairs split cleanly. The first readable answer per index wins, for
+      // the reason the background's does
+      const fields = it.text.split(';');
+      for (let i = 0; i + 1 < fields.length; i += 2) {
+        // trimmed as the colour is, by `parseReportedColor()`: a space after
+        // the `;` is no reason to throw away an answer that is otherwise read
+        const field = fields[i].trim();
+        const index = /^\d+$/.test(field) ? Number.parseInt(field, 10) : -1;
+        if (index >= 0 && index < PALETTE_SIZE && palette[index] === undefined) {
+          palette[index] = parseReportedColor(fields[i + 1]);
+        }
+      }
     } else if (it.kind === 'size') {
       // the reply's first parameter says which question it answers: 6 is a cell
       // and 4 is the text area. The *request* numbers are 16 and 14, which is
@@ -715,7 +786,9 @@ export function readCapabilities(
       ? { colorScheme: schemeForBackground(background.r, background.g, background.b) }
       : {}),
     ...(device ? { device } : {}),
+    ...(foreground ? { foreground } : {}),
     ...(name === undefined ? {} : { name }),
+    ...(palette.some((it) => it !== undefined) ? { palette: Object.freeze(palette) } : {}),
     ...(pixels ? { pixels: Object.freeze(pixels) } : {}),
     ...(version === undefined ? {} : { version }),
     replies: Object.freeze([...replies]),

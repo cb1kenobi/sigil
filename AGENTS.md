@@ -7,7 +7,7 @@ that lean heavily on subcommands.
 Unqualified `src/...` and `test/...` paths in this file mean
 `packages/sigil/src/...` and `packages/sigil/test/...`.
 
-This is a pnpm workspace with four published packages, and the split is load
+This is a pnpm workspace with five published packages, and the split is load
 bearing.
 
 | Package                | Name                   | Dependencies                                       |
@@ -16,6 +16,7 @@ bearing.
 | `packages/cli`         | `@ttylabs/cli`         | Whatever it needs. Provides the `sigil` bin        |
 | `packages/config-xml`  | `@ttylabs/config-xml`  | `@ttylabs/sigil` and an XML parser. Opt-in per app |
 | `packages/config-yaml` | `@ttylabs/config-yaml` | `@ttylabs/sigil` and a YAML parser. Opt-in per app |
+| `packages/screenshot`  | `@ttylabs/screenshot`  | `@ttylabs/sigil` only, plus a bundled font. Opt-in |
 
 **Zero production dependencies in `@ttylabs/sigil` is a hard constraint.** Anything the
 runtime needs — ANSI handling, text wrapping, dotenv, `which`, debug logging,
@@ -106,11 +107,11 @@ two directories, which is the one arrangement that hides the point. It is
 
 **`packages/` holds the published packages and nothing else.** `packages/*` is
 the glob the workspace, turbo, vitest's `projects`, and the coverage `include`
-all read, so anything put there joins all four silently -- and the four
+all read, so anything put there joins all of them silently -- and the five
 entries that belong there are the ones the table above describes. What a new
 one costs is written down under "An XML config store" in `packages/config-xml`
-and was paid again, identically, for the YAML one: two `--filter` lists, two
-guards in `cli.test.ts`, and this paragraph. Which is the entry earning its
+and was paid again, identically, for the YAML one and for the screenshot one:
+two `--filter` lists, two guards in `cli.test.ts`, and this paragraph. Which is the entry earning its
 keep -- the second time through, the list was a checklist rather than a
 discovery. The website is a private Next.js app at the top level, a workspace
 member so it shares the lockfile, with its own `website/turbo.json` overriding
@@ -1327,6 +1328,7 @@ decision being re-litigated or "fixed".
 | [`packages/cli`](packages/cli/AGENTS.md)                                   | The build: reading an app off disk · Writing the CLI in sigil · `sigil new` · The registry: what `sigil add` copies · `sigil package`: a binary, and which runtime is inside it · A markdown command reference, and a surface snapshot · What the build tells an app's update check to look at                                                                                                                                                                                                                                                        |
 | [`packages/config-xml`](packages/config-xml/AGENTS.md)                     | An XML config store, in a package of its own                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | [`packages/config-yaml`](packages/config-yaml/AGENTS.md)                   | A YAML config store, and the second time an outsider implemented `ConfigStore`                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| [`packages/screenshot`](packages/screenshot/AGENTS.md)                     | Screenshots: a canvas as SVG or PNG, the TrueType rasterizer, and the bundled font                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | [`packages/sigil/src/canvas`](packages/sigil/src/canvas/AGENTS.md)         | Canvas · A glyph keeps the background under it · Layers and masks: compositing, and the transition it buys                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | [`packages/sigil/src/completion`](packages/sigil/src/completion/AGENTS.md) | Shell completion, printed from the tree the parser already holds                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | [`packages/sigil/src/components`](packages/sigil/src/components/AGENTS.md) | A scroll box: the scrollbar, scroll-into-view, and culling · A debug overlay: captured console output and frame stats · The built-in components · Prompts and keys · Accessible mode: the prompts as lines                                                                                                                                                                                                                                                                                                                                            |

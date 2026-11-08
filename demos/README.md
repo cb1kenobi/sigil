@@ -973,6 +973,7 @@ block asks for no level and gets the detected one, so `NO_COLOR=1` makes it plai
 | [`canvas/04-inline.js`](canvas/04-inline.js)           | A canvas at the bottom of a scrolling log  |
 | [`canvas/05-fullscreen.js`](canvas/05-fullscreen.js)   | The alternate screen, given back           |
 | [`canvas/06-transitions.js`](canvas/06-transitions.js) | Four transitions over one mechanism        |
+| [`canvas/07-screenshot.js`](canvas/07-screenshot.js)   | A frame as an SVG and a PNG                |
 
 The first two draw with ordinary characters — braille patterns and half blocks —
 so they need nothing from the terminal but the font. Each prints what the frame
@@ -1009,6 +1010,21 @@ nothing on screen to snapshot, the
 layer composites nothing, and every frame of the ramp is the end state. An
 animation with no screen to play on is one that has already finished, which is
 the same answer `SIGIL_REDUCED_MOTION=1` gives one layer up.
+
+`07-screenshot.js` takes the frame `canvas.snapshot()` holds and writes it out
+with [`@ttylabs/screenshot`](../packages/screenshot/README.md), as an SVG and as a
+PNG at 2x. With no argument it says what each came to; give it a directory and it
+writes both files there to open:
+
+```sh
+node demos/canvas/07-screenshot.js
+node demos/canvas/07-screenshot.js ./shots   # screenshot.svg and screenshot.png
+```
+
+The canvas is never written to the terminal, and it does not have to be: a
+snapshot is of what was _presented_, and `present()` is what makes a frame the
+presented one, wherever its bytes go. That is also why a canvas behind a backend
+with no terminal photographs as blank -- its backend never presents.
 
 ## The terminal
 

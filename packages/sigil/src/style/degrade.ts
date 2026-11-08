@@ -20,7 +20,7 @@
  */
 
 import type { ColorLevel } from '../ansi/color-support.js';
-import { type Color, DEFAULT_COLOR, palette, rgb } from '../canvas/style.js';
+import { type Color, DEFAULT_COLOR, palette, rgb, rgbChannels } from '../canvas/style.js';
 import { ATTRIBUTE_PROPERTIES, COLOR_PROPERTIES, type Style } from './properties.js';
 
 /** Where the 24-bit range starts, past the 256 palette. Mirrors `canvas/style.ts`. */
@@ -85,11 +85,7 @@ export function paletteRgb(index: number): readonly [number, number, number] {
 
 /** Pulls the channels out of a colour, whichever kind it is. */
 function channels(color: Color): readonly [number, number, number] {
-  if (color >= RGB_BASE) {
-    const packed = color - RGB_BASE;
-    return [(packed >> 16) & 0xff, (packed >> 8) & 0xff, packed & 0xff];
-  }
-  return paletteRgb(color);
+  return rgbChannels(color) ?? paletteRgb(color);
 }
 
 /**

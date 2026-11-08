@@ -65,6 +65,25 @@ function byte(value: number, name: string): number {
   return value;
 }
 
+/**
+ * The channels of a 24-bit colour, which is `rgb()` read backwards.
+ *
+ * Beside the packing so that one module knows the layout. A palette index or
+ * `DEFAULT_COLOR` has no channels of its own -- they are the terminal's, or the
+ * xterm cube's -- so those answer `undefined` and the caller decides what they
+ * stand for: `paletteRgb()` in the degrader, a screenshot's own palette there.
+ *
+ * @param color - The colour.
+ * @returns Red, green and blue, or `undefined` for a colour that is not 24-bit.
+ */
+export function rgbChannels(color: Color): readonly [number, number, number] | undefined {
+  if (!isRgb(color)) {
+    return undefined;
+  }
+  const packed = color - RGB_BASE;
+  return [(packed >> 16) & 0xff, (packed >> 8) & 0xff, packed & 0xff];
+}
+
 /** Whether a colour is 24-bit rather than a palette index. */
 function isRgb(color: Color): boolean {
   return color >= RGB_BASE;
@@ -185,6 +204,24 @@ export class StyleTable {
    */
   get(index: number): Style {
     return this.#styles[index] ?? DEFAULT_STYLE;
+  }
+
+  /**
+   * The styles as they stand, indexed the way `get()` is.
+   *
+   * Read-only and not a copy, and correct for every index handed out before the
+   * next `compact()` -- after it as well, which is the point: interning only ever
+   * appends, and a compaction builds a new list rather than rewriting this one,
+   * so a grid that kept the indices it had keeps a view that still says what they
+   * meant. A grid that was *remapped* has to be bound to the new view, which is
+   * the canvas's job, because only the canvas knows which grids it rewrote.
+   *
+   * Handed out where the table itself is not, because a view cannot compact.
+   *
+   * @returns The styles.
+   */
+  view(): readonly Style[] {
+    return this.#styles;
   }
 
   /** How many distinct styles have been interned, the default included. */

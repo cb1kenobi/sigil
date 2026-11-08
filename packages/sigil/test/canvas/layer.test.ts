@@ -4,6 +4,7 @@ import {
   composite,
   compositeAll,
   createCanvas,
+  DEFAULT_STYLE,
   dissolveMask,
   type Layer,
   MASK_MAX,
@@ -1247,6 +1248,86 @@ describe('a canvas with layers', () => {
       const kept = freshIndex(canvas, rgb(1, 2, 3));
       const dropped = freshIndex(canvas, rgb(1, 0, 7));
       expect(dropped).toBeGreaterThan(kept);
+    });
+
+    /**
+     * A snapshot is bound to the table's view, so a screenshot can read the
+     * colours off it without the table being handed out -- and the binding has
+     * to survive the sweep in both of the shapes a snapshot can be in.
+     */
+    describe('a snapshot says what its styles are', () => {
+      const painted = (): ReturnType<typeof createCanvas> => {
+        const canvas = createCanvas({ height: 2, width: 40 });
+        canvas.paint((p) => p.text(0, 1, 'S', { attrs: 1, fg: rgb(1, 2, 3) }));
+        canvas.present();
+        return canvas;
+      };
+
+      it('should resolve a cell through the table it was painted with', () => {
+        const shot = painted().snapshot();
+        expect(shot.cellStyle(0, 1)).toMatchObject({ attrs: 1, fg: rgb(1, 2, 3) });
+        expect(shot.cellStyle(5, 0)).toBe(DEFAULT_STYLE);
+      });
+
+      it('should go on meaning what it meant when kept off the layers', () => {
+        // the snapshot is not remapped, and the view it holds is the list the
+        // compaction replaced rather than rewrote -- so the old numbers still
+        // read the old styles. The sabotage is binding to the *table*: the next
+        // assertion then reads whatever moved into the slot
+        const canvas = painted();
+        const shot = canvas.snapshot();
+        growPastSweep(canvas);
+        expect(freshIndex(canvas, rgb(9, 9, 9))).toBeLessThan(64);
+        expect(shot.cellStyle(0, 1)).toMatchObject({ attrs: 1, fg: rgb(1, 2, 3) });
+      });
+
+      it('should be rebound when a sweep remaps it as a layer', () => {
+        const canvas = painted();
+        const shot = canvas.snapshot();
+        canvas.layers.push({ cells: shot, x: 0, y: 0 });
+        growPastSweep(canvas);
+        expect(freshIndex(canvas, rgb(9, 9, 9))).toBeLessThan(64);
+        expect(shot.cellStyle(0, 1)).toMatchObject({ attrs: 1, fg: rgb(1, 2, 3) });
+      });
+
+      it('should bring a snapshot onto the table before painting into it after a sweep', () => {
+        // review round 1: the snapshot kept the pre-sweep view, the painter
+        // interned into the post-sweep table, and the new index read back as
+        // whatever an old frame had in that slot
+        const canvas = painted();
+        const shot = canvas.snapshot();
+        growPastSweep(canvas);
+        expect(freshIndex(canvas, rgb(9, 9, 9))).toBeLessThan(64);
+        canvas.painter(shot).text(0, 0, 'Z', { fg: rgb(9, 8, 7) });
+        expect(shot.cellStyle(0, 0)).toMatchObject({ fg: rgb(9, 8, 7) });
+        // and what it held before is still what it was
+        expect(shot.cellStyle(0, 1)).toMatchObject({ attrs: 1, fg: rgb(1, 2, 3) });
+      });
+
+      it('should bring it over even through a painter made before the sweep', () => {
+        const canvas = painted();
+        const shot = canvas.snapshot();
+        const painter = canvas.painter(shot);
+        growPastSweep(canvas);
+        painter.fill(1, 0, 1, 1, { bg: rgb(4, 5, 6) });
+        expect(shot.cellStyle(1, 0)).toMatchObject({ bg: rgb(4, 5, 6) });
+        expect(shot.cellStyle(0, 1)).toMatchObject({ fg: rgb(1, 2, 3) });
+      });
+
+      it('should say nothing for a grid nobody bound, except about the default', () => {
+        const canvas = createCanvas({ height: 1, width: 4 });
+        const loose = new CellBuffer(4, 1);
+        canvas.painter(loose).text(0, 0, 'x', { fg: rgb(1, 2, 3) });
+        expect(loose.cellStyle(0, 0)).toBeUndefined();
+        expect(loose.cellStyle(3, 0)).toBe(DEFAULT_STYLE);
+      });
+
+      it('should carry the binding across a copy, because the indices come with it', () => {
+        const shot = painted().snapshot();
+        const copy = new CellBuffer(1, 1);
+        copy.copyFrom(shot);
+        expect(copy.cellStyle(0, 1)).toMatchObject({ fg: rgb(1, 2, 3) });
+      });
     });
 
     it('should remap a buffer two layers share exactly once', () => {

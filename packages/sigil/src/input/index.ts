@@ -128,6 +128,8 @@ export {
   FOREGROUND_COLOR,
   isCapabilityResponse,
   type ModeState,
+  PALETTE_COLORS,
+  PALETTE_SIZE,
   parseCapabilityResponse,
   parseReportedColor,
   QUERY_TIMEOUT,
@@ -138,6 +140,7 @@ export {
   readCapabilities,
   refineColorLevel,
   requestMode,
+  requestPaletteColor,
   TEXT_AREA_PIXELS,
   XTVERSION,
 } from './capabilities.js';
