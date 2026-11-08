@@ -39,7 +39,7 @@
  */
 
 import { analyze, compile, renderImports } from '../src/template/index.js';
-import { CORPUS, type CorpusEntry } from './template-corpus.js';
+import { CORPUS, type CorpusEntry, REFUSALS } from './template-corpus.js';
 import { box, type Element, HANDLER_PROPS, renderToString, text } from '@ttylabs/sigil/element';
 import { createRoot, For, Show } from '@ttylabs/sigil/renderer';
 import { flush, State } from '@ttylabs/sigil/signals';
@@ -442,6 +442,94 @@ describe('the runtime emitter and the build emitter', () => {
   });
 });
 
+describe('a name that is a near miss for a handler', () => {
+  /** The error a build of the template ends in, or `undefined` if it builds. */
+  function thrownBy(build: () => unknown): string | undefined {
+    try {
+      build();
+    } catch (error) {
+      return (error as Error).message;
+    }
+    return undefined;
+  }
+
+  it.each(REFUSALS.map((entry) => [entry.name, entry] as const))(
+    'should be refused with the same words compiled as interpreted: %s',
+    async (_, entry) => {
+      const { order, quasis } = split(entry.template);
+      const exprs = order.map((at) => entry.exprs[at]!);
+
+      // interpreted: the expressions are evaluated, so the template is parsed
+      // from real values, with a function where the source had one
+      const scope = makeScope();
+      const values = exprs.map((source) => new Function('scope', `return (${source})`)(scope));
+      const interpreted = thrownBy(() =>
+        createRoot((dispose) => {
+          try {
+            return emit(parse(quasis, values));
+          } finally {
+            dispose();
+          }
+        })
+      );
+
+      // compiled: the compiler may refuse it outright, or print a template that
+      // refuses when it first runs -- the sentence has to be the same
+      let compiledMessage: string | undefined;
+      try {
+        const compiled = compile(
+          [
+            analyze(
+              parse(
+                quasis,
+                exprs.map((source) => new Expr(source))
+              )
+            ),
+          ],
+          {
+            prefix: '$r_',
+          }
+        );
+        const file = resolve(out, `refusal-${REFUSALS.indexOf(entry)}.mjs`);
+        mkdirSync(out, { recursive: true });
+        writeFileSync(
+          file,
+          [
+            renderImports(compiled.imports),
+            ...compiled.hoisted,
+            `export const build = (scope) => ${compiled.sources[0]};`,
+            '',
+          ].join('\n'),
+          'utf-8'
+        );
+        const { build } = (await import(pathToFileURL(file).href)) as {
+          build: (scope: Scope) => Element;
+        };
+        compiledMessage = thrownBy(() =>
+          createRoot((dispose) => {
+            try {
+              return build(makeScope());
+            } finally {
+              dispose();
+            }
+          })
+        );
+      } catch (error) {
+        compiledMessage = (error as Error).message;
+      }
+
+      expect(interpreted).toBe(entry.message);
+      expect(compiledMessage).toBe(entry.message);
+    }
+  );
+
+  it('should leave a legitimate handler and a legitimate property alone', () => {
+    // the other side of the refusals: nothing `on`-shaped but a near miss is caught
+    expect(() => emit(parse(['<box onKey=', ' />'], [() => {}]))).not.toThrow();
+    expect(() => emit(parse(['<box onClick=', ' />'], [undefined]))).not.toThrow();
+  });
+});
+
 describe('what the build emitter writes', () => {
   /**
    * Compiles one template written inline.
@@ -545,6 +633,21 @@ describe('what the build emitter writes', () => {
     expect(() => build(['<box onKey="x" />'])).toThrow(/`onKey` takes a function/);
     expect(() => build(['<box onResize />'])).toThrow(/`onResize` takes a function/);
     expect(() => build(['<box>\n<text onMouse="x" /></box>'])).toThrow(/at line 2/);
+  });
+
+  it('should refuse a spelling of a handler at build time, and leave a would-be event to run time', () => {
+    // the half of the name check a compiler can answer from the IR: the spelling
+    // is wrong whatever it is given. The sentence is the same one the interpreter
+    // throws, so only a test that compiles *without running* can tell the two
+    // paths apart -- the differential case in `REFUSALS` cannot
+    expect(() => build(['<box on-key=', ' />'], '() => {}')).toThrow(
+      '`on-key` is not a handler name: write `onKey`'
+    );
+    expect(() => build(['<text onkey=', '>x</text>'], '() => {}')).toThrow(/write `onKey`/);
+    // `onClick=${x}` is only an error if x is a function, which a compiler cannot
+    // know, so it compiles and the printed call carries the position
+    const { source } = build(['<box onClick=', ' />'], 'maybe');
+    expect(source).toContain('$applyProp($e0, "onClick", (maybe), ');
   });
 
   it('should refuse a ref written as a value', () => {

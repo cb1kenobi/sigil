@@ -44,7 +44,13 @@
 
 import { ansi as defaultAnsi, strip } from '../ansi/index.js';
 import { createFullscreenCanvas } from '../canvas/index.js';
-import { box, type Element, type ElementProps, text, toDisplayText } from '../element/index.js';
+import {
+  box,
+  type Element,
+  type ElementPropsWithout,
+  text,
+  toDisplayText,
+} from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import {
   canReadKeys,
@@ -58,6 +64,7 @@ import { render } from '../renderer/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { graphemes, graphemeWidth, stringWidth } from '../width/index.js';
+import { refuseOwnedHooks } from './owned-hooks.js';
 import { ScrollBox, scrollControl, type ScrollControl } from './scroll-box.js';
 
 /** How a query is read. */
@@ -85,7 +92,7 @@ export interface PagerOptions {
    */
   onQuit?: () => void;
   /** The host's own props: the height it is given, a border, a class. */
-  props?: ElementProps;
+  props?: ElementPropsWithout<'onKey'>;
   /** Whether to draw a scrollbar. Defaults to `true`. */
   scrollbar?: boolean;
   /**
@@ -482,6 +489,7 @@ interface Typing {
  * @returns The pager.
  */
 export function createPager(opts: PagerOptions): Pager {
+  refuseOwnedHooks('createPager', opts.props, ['onKey']);
   const lines = pagerLines(opts.content);
   const wrap = opts.wrap ?? true;
   const mode = opts.search ?? 'literal';

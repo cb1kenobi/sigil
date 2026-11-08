@@ -343,5 +343,9 @@ the entry it belongs to.
   the fields' and cannot disagree with them. `ElementProps`' index signature
   widened by the hook types to admit them, which is the cost: `box({ padding: fn })`
   now type-checks and fails where the cascade refuses it, as a misspelled string
-  value always has. See "A host element takes the seven hooks as props" in
+  value always has. The cost that is not acceptable is the other one -- a
+  component that spreads its caller's `props` into its host and then assigns a
+  hook of its own overwrote the caller's, with no error -- and `ElementPropsWithout<>`
+  is its type half: see "A component's `props` may not carry a hook it owns" in
+  `packages/sigil/src/components`. See "A host element takes the seven hooks as props" in
   `packages/sigil/src/template`.

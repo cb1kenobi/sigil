@@ -8,7 +8,7 @@
  * `jsxs()`, which is what the transform emits; the tag is called directly.
  */
 
-import { box, type Element, HANDLER_PROPS, text } from '../../src/element/index.js';
+import { box, type Element, HANDLER_PROPS, renderToString, text } from '../../src/element/index.js';
 import { createInput } from '../../src/input/index.js';
 import { createEffect, createRoot, onCleanup } from '../../src/renderer/index.js';
 import { flush, State } from '../../src/signals/index.js';
@@ -20,9 +20,13 @@ import { describe, expect, it } from 'vitest';
 /** The props the cases below set; the rest of the template is the same in both. */
 interface Props {
   class?: unknown;
+  onFocusChange?: unknown;
   onKey?: unknown;
+  onLayout?: unknown;
   onMouse?: unknown;
+  onPaste?: unknown;
   onResize?: unknown;
+  onScroll?: unknown;
   ref?: unknown;
 }
 
@@ -30,6 +34,8 @@ interface Props {
 interface Frontend {
   name: string;
   build: (props: Props) => Element;
+  /** `<box><box ref=${ref} /></box>`: a ref on an element that gets a parent. */
+  nest: (ref: unknown) => Element;
 }
 
 const FRONTENDS: Frontend[] = [
@@ -40,11 +46,23 @@ const FRONTENDS: Frontend[] = [
         children: [jsx('text', { children: 'x' }), jsx('text', { children: 'y' })],
       }),
     name: 'jsx',
+    nest: (ref) => jsx('box', { children: jsx('box', { ref }) }),
   },
   {
     build: (props) =>
-      ui`<box class=${props.class} onKey=${props.onKey} onMouse=${props.onMouse} onResize=${props.onResize} ref=${props.ref}><text>x</text><text>y</text></box>`,
+      ui`<box
+        class=${props.class}
+        onFocusChange=${props.onFocusChange}
+        onKey=${props.onKey}
+        onLayout=${props.onLayout}
+        onMouse=${props.onMouse}
+        onPaste=${props.onPaste}
+        onResize=${props.onResize}
+        onScroll=${props.onScroll}
+        ref=${props.ref}
+      ><text>x</text><text>y</text></box>`,
     name: 'the ui tag',
+    nest: (ref) => ui`<box><box ref=${ref} /></box>`,
   },
 ];
 
@@ -71,13 +89,15 @@ describe.each(FRONTENDS)('a handler prop in $name', ({ build }) => {
   });
 
   it('should assign every one of the seven hooks', () => {
+    // all seven through each frontend: the tag's template names each of them, so
+    // a hook this frontend did not route is one that fails here by name
     for (const name of HANDLER_PROPS) {
       const handler = () => false;
-      const el =
-        name === 'onKey' || name === 'onMouse' || name === 'onResize'
-          ? inRoot(() => build({ [name]: handler }))
-          : inRoot(() => jsx('box', { [name]: handler }));
+      const el = inRoot(() => build({ [name]: handler }));
       expect(el[name], name).toBe(handler);
+      for (const other of HANDLER_PROPS.filter((hook) => hook !== name)) {
+        expect(el[other], `${name} set ${other}`).toBeUndefined();
+      }
     }
   });
 
@@ -121,6 +141,25 @@ describe.each(FRONTENDS)('a handler prop in $name', ({ build }) => {
     expect(() => inRoot(() => build({ onKey: null }))).toThrow(/`onKey` takes a function/);
   });
 
+  it('should name a value it cannot print, rather than fail printing it', () => {
+    // `String(Object.create(null))` throws, and that was the error reported
+    // instead of the one that says what is wrong
+    const bare = Object.create(null);
+    const hostile = {
+      toString: () => {
+        throw new Error('no');
+      },
+    };
+    for (const value of [bare, hostile]) {
+      expect(() => inRoot(() => build({ onKey: value }))).toThrow(
+        /`onKey` takes a function, and was given \[object Object\]/
+      );
+      expect(() => inRoot(() => build({ ref: value }))).toThrow(
+        /`ref` takes a function, and was given \[object Object\]/
+      );
+    }
+  });
+
   it('should reach the router, so an app written in a template is interactive', async () => {
     const keys: string[] = [];
     const el = inRoot(() =>
@@ -138,6 +177,76 @@ describe.each(FRONTENDS)('a handler prop in $name', ({ build }) => {
   });
 });
 
+/** `<box NAME=${value} />`, with the attribute name chosen by the caller. */
+function tagWith(name: string, value: unknown): Element {
+  const strings = [`<box ${name}=`, ' />'];
+  return ui(Object.assign(strings, { raw: strings }) as TemplateStringsArray, value);
+}
+
+describe('a near miss for a handler name', () => {
+  // the thunk rule would call the function with no arguments while the template
+  // built and carry on, which is the failure the hooks-as-props change ended for
+  // exactly one spelling. Each of these used to build
+  let calls = 0;
+  const fn = () => {
+    calls += 1;
+  };
+
+  it.each([
+    ['on-key', 'onKey'],
+    ['onkey', 'onKey'],
+    ['onKEY', 'onKey'],
+    ['on-focus-change', 'onFocusChange'],
+    ['onfocuschange', 'onFocusChange'],
+  ])('should point %s at %s, in both frontends, without calling it', (spelled, right) => {
+    calls = 0;
+    const message = new RegExp(`\`${spelled}\` is not a handler name: write \`${right}\``);
+    expect(() => inRoot(() => jsx('box', { [spelled]: fn }))).toThrow(message);
+    expect(() => inRoot(() => tagWith(spelled, fn))).toThrow(message);
+    expect(calls).toBe(0);
+  });
+
+  it.each(['onClick', 'on-click', 'onChange', 'onFocus'])(
+    'should refuse %s given a function as an event this element does not have',
+    (name) => {
+      calls = 0;
+      const message = new RegExp(`\`${name}\` is not an event this element has`);
+      expect(() => inRoot(() => jsx('box', { [name]: fn }))).toThrow(message);
+      expect(() => inRoot(() => tagWith(name, fn))).toThrow(message);
+      expect(calls).toBe(0);
+    }
+  );
+
+  it('should name the seven in the message, so the right one is on screen', () => {
+    expect(() => inRoot(() => ui`<box onClick=${fn} />`)).toThrow(
+      'The handlers are onKey, onMouse, onPaste, onFocusChange, onScroll, onResize, onLayout'
+    );
+  });
+
+  it('should let a name that is not a function reach the cascade, which refuses it', () => {
+    // not the near-miss rule's: a value is never called, and the cascade already
+    // says what is wrong with a property it does not know
+    // at the first style resolve, where every unknown property is refused
+    expect(() =>
+      renderToString(
+        inRoot(() => ui`<box onClick="x" />`),
+        { colorLevel: 0, width: 10 }
+      )
+    ).toThrow(/Unknown property/);
+  });
+
+  it('should leave a component alone, which reads its props as it likes', () => {
+    const seen: string[] = [];
+    const Comp = (props: Record<string, unknown>) => {
+      seen.push(...Object.keys(props));
+      return box();
+    };
+    inRoot(() => ui`<${Comp} onClick=${fn} on-key=${fn} ref=${fn} />`);
+    expect(seen).toEqual(['onClick', 'on-key', 'ref']);
+    expect(calls).toBe(0);
+  });
+});
+
 describe('a handler in the tag', () => {
   it('should refuse a static value and a bare attribute', () => {
     expect(() => inRoot(() => ui`<box onKey="x" />`)).toThrow(/`onKey` takes a function/);
@@ -149,7 +258,7 @@ describe('a handler in the tag', () => {
   });
 });
 
-describe.each(FRONTENDS)('a ref in $name', ({ build }) => {
+describe.each(FRONTENDS)('a ref in $name', ({ build, nest }) => {
   it('should be called once with the element', () => {
     const seen: Element[] = [];
     const el = inRoot(() => build({ ref: (one: Element) => seen.push(one) }));
@@ -175,14 +284,15 @@ describe.each(FRONTENDS)('a ref in $name', ({ build }) => {
   });
 
   it('should be called before the element is attached to its parent', () => {
-    const parents: unknown[] = [];
-    const ref = (el: Element) => parents.push(el.parent);
-    inRoot(() => {
-      const child = build({ ref });
-      const parent = box({}, child);
-      expect(child.parent).toBe(parent);
-    });
-    expect(parents).toEqual([undefined]);
+    // built through the template with a parent, so the parent is the template's
+    // own: a ref called after `append()` would see it
+    const seen: { parent: unknown; siblings: number | undefined }[] = [];
+    const outer = inRoot(() =>
+      nest((el: Element) => seen.push({ parent: el.parent, siblings: el.parent?.children.length }))
+    );
+    expect(seen).toEqual([{ parent: undefined, siblings: undefined }]);
+    // and it did get one, afterwards
+    expect(outer.children[0]?.parent).toBe(outer);
   });
 
   it('should hold a State, which is the shape a ref takes in an app', () => {

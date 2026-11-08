@@ -203,8 +203,11 @@ export interface Tree {
  * Written out, and it is the one list the handler props hang off: every name is
  * a field of `Element`, so the *types* below are read off the class and cannot
  * disagree with it, and a hook the class gains is one line here and one in
- * `ReservedProps`. `test/template/props.test.ts` asserts the two lists agree and
- * that each name really is a field.
+ * `ReservedProps`. Pinned from three sides: `test/element/handlers.test.ts` reads
+ * the class's own `on*` fields and fails for a hook this list lacks,
+ * `test/template/jsx-types.tsx` fails for a hook `HostProps` has no prop for, and
+ * `test/template/props.test.ts` asserts that every name `ReservedProps` carries is
+ * one `setProp()` routes to `#apply()`.
  */
 export const HANDLER_PROPS: readonly [
   'onKey',
@@ -271,6 +274,17 @@ const RESERVED = new Set([
 ]);
 
 export type PropValue = boolean | number | string | undefined;
+
+/**
+ * Element props without some of the hooks, for a component that owns them.
+ *
+ * `Omit<ElementProps, 'onKey'>` would not do it: the index signature already
+ * admits a hook, so omitting the key leaves `{ onKey: fn }` legal. This pins the
+ * named hooks to `undefined` instead, which an optional prop passed along still
+ * satisfies and a handler does not. `components/owned-hooks.ts` is the run-time
+ * half, for a caller the type does not reach.
+ */
+export type ElementPropsWithout<K extends HandlerProp> = ElementProps & { [P in K]?: undefined };
 
 /** What an element is built with: style props, plus the reserved names. */
 export interface ElementProps extends HandlerProps {

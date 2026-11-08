@@ -35,9 +35,13 @@
  * `emit()` decides the *shape* of a tree and then hands every leaf decision --
  * is this prop reactive, what does this text come to, what does a slot append
  * -- to `applyProp()`, `applyText()`, `appendValue()`, `rawElement()` and
- * `rootElement()`, and to `applyRef()` and `splitRefs()` for the one prop that
- * runs after the children. The build emitter in `@ttylabs/cli` calls the same
- * seven, and calls nothing else from this module. So the two emitters cannot
+ * `rootElement()`, and to `applyRef()` for the one prop that runs after the
+ * children. The code the build emitter in `@ttylabs/cli` *generates* calls those
+ * same six and nothing else from this module. The compiler itself also reads
+ * `componentChildren()`, `rawParts()`, `splitRefs()`, `textPart()`,
+ * `refuseHandlerName()` and `templateError()` while it prints -- the rules about
+ * which children, props and names exist, which are not to be written twice and
+ * which never reach an app's bundle. So the two emitters cannot
  * come to disagree about what a prop or a child *means*; they can only disagree
  * about which of them was decided ahead of time, and that is exactly what the
  * differential test is pointed at.
@@ -54,6 +58,7 @@ import {
   box,
   Element,
   type ElementProps,
+  HANDLER_PROPS,
   isHandlerProp,
   type PropValue,
   raw,
@@ -280,6 +285,8 @@ export function applyProp(
     throw templateError('A ref is applied by applyRef(), after the element is built', loc);
   }
 
+  refuseHandlerName(name, value, loc);
+
   if (isHandlerProp(name)) {
     if (value !== undefined && typeof value !== 'function') {
       throw templateError(`\`${name}\` takes a function, and was given ${describe(value)}`, loc);
@@ -300,6 +307,54 @@ export function applyProp(
   // what the JSX transform passes for an omitted attribute
   if (value !== undefined) {
     element.setProp(name, value as PropValue);
+  }
+}
+
+/**
+ * Refuses a name that is a near miss for a handler, or an event no element has.
+ *
+ * The thunk rule is what makes this necessary: `on-key=${fn}`, `onkey=${fn}` and
+ * `onClick=${fn}` are not handler names, so they fall to the rule that calls a
+ * function with no arguments while the template builds -- the exact failure the
+ * hooks-as-props change exists to end, left standing for every spelling but one.
+ * No style property starts with `on` (`test/template/props.test.ts` pins it), so
+ * nothing legitimate is lost.
+ *
+ * - **A spelling of one of the seven** -- kebab or lower case -- is refused
+ *   whatever its value, pointing at the right name. There is one spelling.
+ * - **Any other `on`-prefixed name given a function** is refused as an event this
+ *   element does not have. Given anything else it reaches the cascade, which
+ *   already refuses an unknown property; a function is the only value that would
+ *   have been called instead.
+ *
+ * Both emitters ask it: the interpreter at build time of the element, the
+ * compiler with no value (an interpolation's type is not known until it runs),
+ * so the first half is a compile error and the second is the interpreter's own.
+ *
+ * @param name - The prop.
+ * @param value - Its value, or `undefined` where the caller cannot know it.
+ * @param loc - Where it was written.
+ * @throws If the name is one of those.
+ */
+export function refuseHandlerName(name: string, value: unknown, loc?: SourceLocation): void {
+  if (isHandlerProp(name)) {
+    return;
+  }
+  const folded = name.replaceAll('-', '').toLowerCase();
+  const right = HANDLER_PROPS.find((hook) => hook.toLowerCase() === folded);
+  if (right !== undefined) {
+    throw templateError(
+      `\`${name}\` is not a handler name: write \`${right}\`. There is one spelling, ` +
+        'and it is the camelCase one in both frontends',
+      loc
+    );
+  }
+  if (typeof value === 'function' && name.startsWith('on') && name.length > 2) {
+    throw templateError(
+      `\`${name}\` is not an event this element has. The handlers are ` +
+        `${HANDLER_PROPS.join(', ')}`,
+      loc
+    );
   }
 }
 
@@ -363,7 +418,17 @@ export function splitRefs(props: readonly IRProp[]): {
 
 /** What a value that was refused reads as in the message. */
 function describe(value: unknown): string {
-  return typeof value === 'string' ? JSON.stringify(value) : String(value);
+  if (typeof value === 'string') {
+    return JSON.stringify(value);
+  }
+  // `String()` throws for an object with no prototype, and for one whose
+  // `toString` does -- and this is the message for a value that is already wrong,
+  // which must not be replaced by a different error about printing it
+  try {
+    return String(value);
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
 }
 
 /**

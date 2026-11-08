@@ -73,6 +73,7 @@ import {
   type IRNode,
   type IRProp,
   rawParts,
+  refuseHandlerName,
   type SourceLocation,
   splitRefs,
   templateError,
@@ -519,13 +520,13 @@ class Printer {
    *
    * @param name - The element's binding.
    * @param props - The props still to write.
-   * @param at - Where the element was written. Printed only for a handler, the
-   *   one prop `applyProp()` can refuse, so a prop that cannot throw prints the
-   *   call it always did.
+   * @param at - Where the element was written. Printed only for a name starting
+   *   `on`, the props `applyProp()` can refuse, so a prop that cannot throw prints
+   *   the call it always did.
    */
   #applyProps(name: string, props: readonly IRProp[], at: SourceLocation | undefined): void {
     for (const prop of props) {
-      const where = isHandlerProp(prop.name) ? `, ${loc(at)}` : '';
+      const where = prop.name.startsWith('on') ? `, ${loc(at)}` : '';
       this.#lines.push(
         `${this.#use(this.#template, 'applyProp')}(${name}, ${quote(prop.name)}, ${this.#source(prop.value)}${where});`
       );
@@ -576,6 +577,10 @@ class Printer {
     // never a function -- so it is a build error rather than a constructor
     // argument that throws when the screen is first built
     for (const prop of props) {
+      // the half of the name check a compiler can answer: a spelling of a handler
+      // is wrong whatever it is given, where a function under some other `on*`
+      // name is the interpreter's to refuse, since only it knows the value
+      refuseHandlerName(prop.name, undefined, at);
       if (isHandlerProp(prop.name) && !(prop.value instanceof Expr) && prop.value !== undefined) {
         throw templateError(
           `\`${prop.name}\` takes a function, and was given a value rather than an expression`,

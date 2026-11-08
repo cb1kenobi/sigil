@@ -346,6 +346,7 @@ export {
   type TasksOptions,
 } from './tasks.js';
 export { decodeKeys, isAbort, type Key, pendingLength } from './keys.js';
+export { refuseOwnedHooks } from './owned-hooks.js';
 export {
   encodeQr,
   type QrCode,

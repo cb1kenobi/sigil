@@ -128,9 +128,11 @@ type ShorthandProps = {
 /**
  * The props that are not style properties.
  *
- * Exactly what `Element.#apply()` branches on before it hands the rest to the
- * cascade, which is what makes this list the same list rather than one more of
- * them. The seven hooks are on it, typed as the `Element` fields they set
+ * The names `Element`'s `RESERVED` set holds, which `setProp()` routes to
+ * `#apply()` instead of the cascade -- the same list rather than one more of
+ * them, and `test/template/props.test.ts` asserts it name by name. One thing
+ * `#apply()` branches on is not here: `href`, a `text`'s link, which `RESERVED`
+ * does not name and this interface does not offer. The seven hooks are on it, typed as the `Element` fields they set
  * (`Element['onKey']`) rather than listed by hand, so a handler with the wrong
  * signature is a type error and a hook the class gains is one line here. Not
  * `Reactive<>`: a handler is assigned once, and a function under one of these

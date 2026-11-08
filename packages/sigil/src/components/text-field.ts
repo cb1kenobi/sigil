@@ -29,7 +29,7 @@
  * Escape still dismisses. `AGENTS.md` has the reasons under "A text field".
  */
 
-import { box, type Element, type ElementProps, text as textNode } from '../element/index.js';
+import { box, type Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
@@ -46,6 +46,7 @@ import {
   wordAfter,
   wordBefore,
 } from './editing.js';
+import { refuseOwnedHooks } from './owned-hooks.js';
 import { promptWindow } from './prompt.js';
 
 export interface TextFieldProps {
@@ -76,7 +77,7 @@ export interface TextFieldProps {
   /** Shown, muted, while the value is empty. */
   placeholder?: string;
   /** The host box's own props: a class, a margin, a `flex-grow`. Geometry only, never a colour. */
-  props?: ElementProps;
+  props?: ElementPropsWithout<'onFocusChange' | 'onKey' | 'onPaste' | 'onResize'>;
   /**
    * The value.
    *
@@ -104,6 +105,7 @@ const CONTROL = /\p{Cc}/gu;
  * @returns The host element, which is the focusable one.
  */
 export function TextField(props: TextFieldProps = {}): Element {
+  refuseOwnedHooks('TextField', props.props, ['onKey', 'onPaste', 'onFocusChange', 'onResize']);
   if (
     props.value !== undefined &&
     typeof props.value !== 'string' &&

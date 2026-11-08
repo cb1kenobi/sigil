@@ -25,6 +25,7 @@
 import { type Element, HANDLER_PROPS, type HandlerProp } from '../../src/element/index.js';
 import { For, Show } from '../../src/renderer/index.js';
 import { State } from '../../src/signals/index.js';
+import type { ReservedProps } from '../../src/template/props.js';
 import type { HostProps } from '../../src/template/runtime.js';
 
 // --- the host element vocabulary ---
@@ -80,6 +81,18 @@ const shorthandsCamel = <box flexFlow="column" fontWeight="bold" textDecoration=
 // so that the list this checks is the list the runtime branches on
 type EveryHookIsAProp = { [K in HandlerProp]: HostProps[K] };
 const hookNames: readonly HandlerProp[] = HANDLER_PROPS;
+
+// and `ReservedProps` carries these names and no others -- written out because an
+// interface cannot be enumerated at run time, and checked against `RESERVED` by
+// `props.test.ts`, which routes each of them through `setProp()`. Mutual
+// assignability, so a name added to either side fails here
+type ReservedNames = 'class' | 'focusable' | 'id' | 'key' | 'selectable' | 'tabindex' | HandlerProp;
+type ReservedIsExactlyThose = [keyof ReservedProps] extends [ReservedNames]
+  ? [ReservedNames] extends [keyof ReservedProps]
+    ? true
+    : never
+  : never;
+export const reservedIsExactlyThose: ReservedIsExactlyThose = true;
 
 const keyed = <box onKey={(event) => event.stop()} focusable />;
 const hooked = (

@@ -10,22 +10,17 @@ import { describe, expect, it } from 'vitest';
 const noop = () => false;
 
 describe('an element built with handler props', () => {
-  it('should name the seven hooks, each a field of the class', () => {
-    // the list the props and the template read, against the class it describes:
-    // a name here that `Element` does not carry would be a prop that sets a field
-    // nothing reads, and a hook the class gains is one this fails for
-    expect([...HANDLER_PROPS]).toEqual([
-      'onKey',
-      'onMouse',
-      'onPaste',
-      'onFocusChange',
-      'onScroll',
-      'onResize',
-      'onLayout',
-    ]);
-    const el = box();
+  it('should name every hook the class carries, and only those', () => {
+    // the list the props and the template read, against the class it describes.
+    // The class's own `on*` fields are what an `Element` is built with, so
+    // reading them off an instance means a hook it gains is one this fails for --
+    // and a name in the list that is not a field fails the other way
+    const fields = Object.keys(box())
+      .filter((name) => /^on[A-Z]/.test(name))
+      .toSorted();
+    expect([...HANDLER_PROPS].toSorted()).toEqual(fields);
+    expect(fields).toHaveLength(7);
     for (const name of HANDLER_PROPS) {
-      expect(name in el, name).toBe(true);
       expect(isHandlerProp(name)).toBe(true);
     }
     expect(isHandlerProp('onClick')).toBe(false);

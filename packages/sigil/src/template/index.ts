@@ -39,6 +39,7 @@ export {
   isHost,
   rawElement,
   rawParts,
+  refuseHandlerName,
   rootElement,
   type SourceLocation,
   splitRefs,

@@ -275,3 +275,60 @@ export const CORPUS: readonly CorpusEntry[] = [
     template: `<box><text __proto__="x">x</text></box>`,
   },
 ];
+
+/**
+ * Templates that must be refused, and refused with the same words on both paths.
+ *
+ * Apart from `CORPUS` because nothing here builds a tree to compare: the
+ * interpreter throws while it builds, and the compiler throws either while it
+ * compiles (what a build can know from the IR alone) or when the compiled
+ * template first runs (what only the value can say). The claim is that it is the
+ * same sentence either way, with the same position -- which is the near-miss
+ * handler names SIG-305 refuses, because the thunk rule would otherwise have
+ * called the function with no arguments and carried on.
+ */
+export interface RefusalEntry {
+  readonly exprs: readonly string[];
+  /** What the refusal says, exactly, on both paths. */
+  readonly message: string;
+  readonly name: string;
+  readonly template: string;
+}
+
+export const REFUSALS: readonly RefusalEntry[] = [
+  {
+    exprs: ['() => scope.log.push("key")'],
+    message:
+      '`on-key` is not a handler name: write `onKey`. There is one spelling, and it is the camelCase one in both frontends (at line 1)',
+    name: 'a kebab spelling of a handler',
+    template: `<box on-key=\${0} />`,
+  },
+  {
+    exprs: ['() => scope.log.push("key")'],
+    message:
+      '`onkey` is not a handler name: write `onKey`. There is one spelling, and it is the camelCase one in both frontends (at line 1)',
+    name: 'a lower-case spelling of a handler',
+    template: `<box onkey=\${0} />`,
+  },
+  {
+    exprs: ['() => scope.log.push("focus")'],
+    message:
+      '`on-focus-change` is not a handler name: write `onFocusChange`. There is one spelling, and it is the camelCase one in both frontends (at line 1)',
+    name: 'a kebab spelling on a text, whose handlers are the same seven',
+    template: `<box><text on-focus-change=\${0}>x</text></box>`,
+  },
+  {
+    exprs: ['() => scope.log.push("click")'],
+    message:
+      '`onClick` is not an event this element has. The handlers are onKey, onMouse, onPaste, onFocusChange, onScroll, onResize, onLayout (at line 1)',
+    name: 'an event no element has, given a function',
+    template: `<box onClick=\${0} />`,
+  },
+  {
+    exprs: ['() => scope.log.push("click")'],
+    message:
+      '`on-click` is not an event this element has. The handlers are onKey, onMouse, onPaste, onFocusChange, onScroll, onResize, onLayout (at line 1)',
+    name: 'a kebab event no element has, given a function',
+    template: `<box on-click=\${0} />`,
+  },
+];

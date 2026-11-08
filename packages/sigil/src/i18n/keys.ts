@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 305 keys, which is what a catalog has to carry to translate sigil's own
+ * 306 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -314,6 +314,7 @@ export const SIGIL_KEYS: readonly string[] = [
   '{0} must hold an object',
   '{0} names it, and sigil did not add that',
   '{0} options:',
+  '{0} sets {1} itself, so a {2} in its props would be replaced: put the handler on an element around it',
   '{0} task failed',
   '{0} was not written by sigil',
   '{0} was stopped by {1}',
