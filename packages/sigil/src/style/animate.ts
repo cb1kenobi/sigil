@@ -619,8 +619,12 @@ export class Animator<T extends object> {
     const live = this.#entries.get(target);
     const name = base.animationName;
     const frames = name === 'none' ? undefined : this.#cascade.keyframes(name);
+    const found = frames ? index(frames) : undefined;
 
-    if (!frames) {
+    // a name with no stops in it is the same effect as a name nothing declares: an
+    // empty `@keyframes a {}` touches no property, so a running animation parks
+    // through it exactly as it does through a missing one, and does not restart
+    if (found === undefined || found.size === 0) {
       if (!live) {
         return;
       }
@@ -656,7 +660,7 @@ export class Animator<T extends object> {
       return;
     }
 
-    const stops = index(frames);
+    const stops = found;
     const settled = live?.settled;
 
     // back from missing, mid-run: on its own clock rather than from the start. A
@@ -693,8 +697,12 @@ export class Animator<T extends object> {
     }
 
     const entry = this.#entryFor(target, base);
-    // whatever the animation this replaces left behind goes with it
+    // whatever the animation this replaces left behind goes with it -- a parked
+    // timeline included, which belongs to the name it was parked under: kept past
+    // a switch to another name, it resumed a long-finished `a` from its old start
+    // when the element came back to it, and held `tick()` from dropping the entry
     entry.settled = undefined;
+    entry.missing = undefined;
     this.#commit(entry, { name, start: now, stops, ...timing(base) });
   }
 

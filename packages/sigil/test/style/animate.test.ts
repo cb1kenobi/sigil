@@ -775,6 +775,103 @@ describe('an animation', () => {
       expect(present(it, node, 'left', 950)).toEqual(cells(100));
     });
 
+    it('should start a fresh animation when the element comes back to a name it left while it was gone', () => {
+      // a parked timeline belongs to the name it was parked under. Kept past a
+      // switch to another name that exists, it resumed a long-finished `a` from its
+      // old start and nothing animated
+      const themeA = parseStylesheet('@keyframes a { from { left: 0 } to { left: 100 } }', {
+        origin: 'theme',
+      });
+      const sheets = new Cascade(
+        [themeA, parseStylesheet('@keyframes b { from { top: 0 } to { top: 100 } }')],
+        { ...DEFAULT_MEDIA, reducedMotion: 'no-preference' }
+      );
+      const it = new Animator<{ name: string }>(sheets);
+      const node = target();
+      const st = (animation: string) => declare({ animation, position: 'relative' });
+
+      it.observe(node, st('a 100ms linear'), 0);
+      expect(present(it, node, 'left', 50)).toEqual(cells(50));
+      sheets.remove(themeA);
+      it.touchSheets(60);
+      // `b` exists, and runs out
+      it.observe(node, st('b 100ms linear'), 70);
+      expect(present(it, node, 'top', 120)).toEqual(cells(50));
+      it.tick(300);
+      sheets.add(themeA);
+      it.touchSheets(400);
+
+      it.observe(node, st('a 100ms linear'), 500);
+      expect(present(it, node, 'left', 550)).toEqual(cells(50));
+      expect(it.active).toBe(true);
+    });
+
+    it('should drop the entry once the name that parked it has been replaced', () => {
+      const sheets = cascade(slide, { reducedMotion: 'no-preference' });
+      const it = new Animator<{ name: string }>(sheets);
+      const node = target();
+      it.observe(node, declare({ animation: 'slide 100ms linear', position: 'relative' }), 0);
+      it.tick(50);
+      sheets.remove(sheets.sheets[0] as Stylesheet);
+      it.touchSheets(60);
+      // parked: the entry is kept for it
+      it.tick(70);
+      expect(it.size).toBe(1);
+
+      // another name that exists but has no play time, so it leaves nothing of its
+      // own behind -- an animation that ran would keep the entry for its `ran`, and
+      // hide whether the parked one was still holding it
+      sheets.add(parseStylesheet('@keyframes other { from { top: 0 } to { top: 10 } }'));
+      it.observe(node, declare({ animation: 'other 0ms linear', position: 'relative' }), 80);
+      it.tick(90);
+      expect(it.size).toBe(0);
+    });
+
+    it('should park a running animation through an empty @keyframes as through a missing one', () => {
+      // an empty rule set has the same effect as no rule set: it touches no
+      // property. The timeline used to be dropped, so the animation restarted
+      const theme = parseStylesheet(slide, { origin: 'theme' });
+      const sheets = new Cascade([theme], { ...DEFAULT_MEDIA, reducedMotion: 'no-preference' });
+      const it = new Animator<{ name: string }>(sheets);
+      const node = target();
+      it.observe(node, declare({ animation: 'slide 100ms linear 3', position: 'relative' }), 0);
+      expect(present(it, node, 'left', 50)).toEqual(cells(50));
+
+      const empty = parseStylesheet('@keyframes slide { }', { origin: 'theme' });
+      sheets.replace(theme, empty);
+      it.touchSheets(60);
+      expect(present(it, node, 'left', 70)).toBeUndefined();
+      expect(it.active).toBe(false);
+
+      sheets.replace(empty, theme);
+      it.touchSheets(170);
+      // started at 0: 180ms in is 80% through the second iteration, not 10% of a restart
+      expect(present(it, node, 'left', 180)).toEqual(cells(80));
+    });
+
+    it('should hold no fill through an empty @keyframes, and not replay when it fills again', () => {
+      const theme = parseStylesheet(slide, { origin: 'theme' });
+      const sheets = new Cascade([theme], { ...DEFAULT_MEDIA, reducedMotion: 'no-preference' });
+      const it = new Animator<{ name: string }>(sheets);
+      const node = target();
+      it.observe(
+        node,
+        declare({ animation: 'slide 100ms linear 0s 1 normal forwards', position: 'relative' }),
+        0
+      );
+      expect(present(it, node, 'left', 500)).toEqual(cells(100));
+
+      const empty = parseStylesheet('@keyframes slide { }', { origin: 'theme' });
+      sheets.replace(theme, empty);
+      it.touchSheets(510);
+      expect(present(it, node, 'left', 510)).toBeUndefined();
+
+      sheets.replace(empty, theme);
+      it.touchSheets(520);
+      expect(present(it, node, 'left', 530)).toEqual(cells(100));
+      expect(it.active).toBe(false);
+    });
+
     it('should still drop an animation for a name that is no longer the element’s', () => {
       const sheets = cascade(slide, { reducedMotion: 'no-preference' });
       const it = new Animator<{ name: string }>(sheets);

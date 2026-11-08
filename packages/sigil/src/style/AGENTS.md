@@ -1752,8 +1752,15 @@ renderer's `settle()`.
   back a finished animation shows its fill again without playing, and a running one
   is where its own clock puts it; one that ran out in between is retired by the
   next tick and settles as having run. Only the _same name_ is kept: `none`, or a
-  different name, still takes the animation and its fill away, as before. Found by
-  review (probes P6 and P7) and reproduced before the fix: a finished animation
+  different name, still takes the animation and its fill away, as before -- a
+  parked timeline included, so the new-start path clears `missing`: it once
+  survived a switch to another name that exists, and the element coming back to the
+  old one resumed a long-finished timeline from its old start and animated nothing
+  (round 2, probe Q1), while the stale record also held `tick()` from dropping the
+  entry. **An empty `@keyframes a {}` parks the same way**, because it touches no
+  property and so has the same effect as a missing one; `#commit()` with no stops
+  used to drop the timeline instead, restarting a running animation through it
+  (probe Q8b). Found by review (probes P6 and P7) and reproduced before the fix: a finished animation
   replayed from the start, and a running one resumed from its first frame.
 
 - **The toolchain generates no utilities for the animation properties, and the
