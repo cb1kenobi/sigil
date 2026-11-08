@@ -63,6 +63,7 @@
  * carry no parser to shake out. The tag is the frontend that ships one.
  */
 
+import { isHandlerProp } from '@ttylabs/sigil/element';
 import { byCodeUnit } from '@ttylabs/sigil/reference';
 import {
   type ComponentRef,
@@ -73,6 +74,7 @@ import {
   type IRProp,
   rawParts,
   type SourceLocation,
+  splitRefs,
   templateError,
   textPart,
 } from '@ttylabs/sigil/template';
@@ -353,10 +355,11 @@ class Printer {
    */
   #box(node: IRElement): string {
     const name = this.#name();
-    const statics = this.#statics(node.props);
+    const { props, refs } = splitRefs(node.props);
+    const statics = this.#statics(props, node.loc);
 
     this.#lines.push(`const ${name} = ${this.#use(this.#element, 'box')}(${statics.argument});`);
-    this.#applyProps(name, statics.rest);
+    this.#applyProps(name, statics.rest, node.loc);
 
     for (const child of node.children) {
       if (child.kind === 'text') {
@@ -374,6 +377,7 @@ class Printer {
       }
     }
 
+    this.#applyRefs(name, refs, node.loc);
     return name;
   }
 
@@ -384,7 +388,8 @@ class Printer {
    * @returns The expression, or the name it was bound to.
    */
   #text(node: IRElement): string {
-    const statics = this.#statics(node.props);
+    const { props, refs } = splitRefs(node.props);
+    const statics = this.#statics(props, node.loc);
     const make = this.#use(this.#element, 'text');
     const tail = statics.argument === '' ? '' : `, ${statics.argument}`;
 
@@ -392,7 +397,7 @@ class Printer {
     // string written into the constructor, with no array, no scan for a thunk
     // and no effect
     const folded = node.children.length === 0 || isFolded(node.children);
-    if (folded && statics.rest.length === 0) {
+    if (folded && statics.rest.length === 0 && refs.length === 0) {
       return `${make}(${quote(content(node.children))}${tail})`;
     }
 
@@ -400,7 +405,7 @@ class Printer {
     this.#lines.push(
       `const ${name} = ${make}(${quote(folded ? content(node.children) : '')}${tail});`
     );
-    this.#applyProps(name, statics.rest);
+    this.#applyProps(name, statics.rest, node.loc);
 
     if (!folded) {
       const parts = node.children.map((child) => this.#part(child));
@@ -409,6 +414,7 @@ class Printer {
       );
     }
 
+    this.#applyRefs(name, refs, node.loc);
     return name;
   }
 
@@ -433,7 +439,8 @@ class Printer {
    * @returns The expression, or the name it was bound to.
    */
   #raw(node: IRElement): string {
-    const { measure, paint, props } = rawParts(node);
+    const { measure, paint, props: all } = rawParts(node);
+    const { props, refs } = splitRefs(all);
 
     // a value the template wrote out is a value, and a value is never a
     // function -- so this one is decidable now, and a build that fails is
@@ -452,7 +459,7 @@ class Printer {
       }
     }
 
-    const statics = this.#statics(props);
+    const statics = this.#statics(props, node.loc);
     const args = [
       this.#source(measure),
       this.#source(paint),
@@ -461,13 +468,14 @@ class Printer {
     ];
     const expression = `${this.#use(this.#template, 'rawElement')}(${args.join(', ')})`;
 
-    if (statics.rest.length === 0) {
+    if (statics.rest.length === 0 && refs.length === 0) {
       return expression;
     }
 
     const name = this.#name();
     this.#lines.push(`const ${name} = ${expression};`);
-    this.#applyProps(name, statics.rest);
+    this.#applyProps(name, statics.rest, node.loc);
+    this.#applyRefs(name, refs, node.loc);
     return name;
   }
 
@@ -511,11 +519,38 @@ class Printer {
    *
    * @param name - The element's binding.
    * @param props - The props still to write.
+   * @param at - Where the element was written. Printed only for a handler, the
+   *   one prop `applyProp()` can refuse, so a prop that cannot throw prints the
+   *   call it always did.
    */
-  #applyProps(name: string, props: readonly IRProp[]): void {
+  #applyProps(name: string, props: readonly IRProp[], at: SourceLocation | undefined): void {
     for (const prop of props) {
+      const where = isHandlerProp(prop.name) ? `, ${loc(at)}` : '';
       this.#lines.push(
-        `${this.#use(this.#template, 'applyProp')}(${name}, ${quote(prop.name)}, ${this.#source(prop.value)});`
+        `${this.#use(this.#template, 'applyProp')}(${name}, ${quote(prop.name)}, ${this.#source(prop.value)}${where});`
+      );
+    }
+  }
+
+  /**
+   * Writes the refs, which come after everything else the element has.
+   *
+   * @param name - The element's binding.
+   * @param refs - The `ref` props, in the order they were written.
+   * @param at - Where the element was written.
+   */
+  #applyRefs(name: string, refs: readonly IRProp[], at: SourceLocation | undefined): void {
+    for (const ref of refs) {
+      if (!(ref.value instanceof Expr)) {
+        // decidable now, so a build that fails beats an app that throws when
+        // the screen is first built
+        throw templateError(
+          '`ref` takes a function, and was given a value rather than an expression',
+          at
+        );
+      }
+      this.#lines.push(
+        `${this.#use(this.#template, 'applyRef')}(${name}, ${this.#source(ref.value)}, ${loc(at)});`
       );
     }
   }
@@ -533,7 +568,22 @@ class Printer {
    * @returns The constructor argument, empty when there is nothing to pass, and
    *   the props left over.
    */
-  #statics(props: readonly IRProp[]): { argument: string; rest: readonly IRProp[] } {
+  #statics(
+    props: readonly IRProp[],
+    at: SourceLocation | undefined
+  ): { argument: string; rest: readonly IRProp[] } {
+    // a handler written as a value could only ever be a mistake -- a value is
+    // never a function -- so it is a build error rather than a constructor
+    // argument that throws when the screen is first built
+    for (const prop of props) {
+      if (isHandlerProp(prop.name) && !(prop.value instanceof Expr) && prop.value !== undefined) {
+        throw templateError(
+          `\`${prop.name}\` takes a function, and was given a value rather than an expression`,
+          at
+        );
+      }
+    }
+
     const names = props.map((prop) => prop.name);
     const repeated = names.length !== new Set(names).size;
 

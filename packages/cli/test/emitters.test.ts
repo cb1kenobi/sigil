@@ -40,7 +40,7 @@
 
 import { analyze, compile, renderImports } from '../src/template/index.js';
 import { CORPUS, type CorpusEntry } from './template-corpus.js';
-import { box, type Element, renderToString, text } from '@ttylabs/sigil/element';
+import { box, type Element, HANDLER_PROPS, renderToString, text } from '@ttylabs/sigil/element';
 import { createRoot, For, Show } from '@ttylabs/sigil/renderer';
 import { flush, State } from '@ttylabs/sigil/signals';
 import { emit, Expr, type IRNode, parse, ui } from '@ttylabs/sigil/template';
@@ -57,6 +57,8 @@ interface Scope {
   count: State<number>;
   For: typeof For;
   items: State<string[]>;
+  /** What the handlers and refs under test write, in the order they ran. */
+  log: string[];
   /** A component that reports what its children arrived as. */
   Kind: (props: { children?: unknown }) => Element;
   made: Element;
@@ -195,6 +197,7 @@ function makeScope(): Scope {
     count: new State(1),
     For,
     items: new State(['parser', 'canvas']),
+    log: [],
     // what a component's children arrived as is the one thing the two paths
     // could disagree about invisibly, so the component says it out loud
     Kind: (props: { children?: unknown }) =>
@@ -212,6 +215,8 @@ interface Node {
   focusable: boolean;
   id: string | undefined;
   key: number | string | undefined;
+  /** Which of the seven hooks this element carries. */
+  hooks: string[];
   props: Record<string, unknown>;
   tabIndex: number | undefined;
   text: string;
@@ -229,6 +234,7 @@ function structure(element: Element): Node {
     children: element.children.map((child) => structure(child)),
     classes: [...element.classes],
     focusable: element.focusable,
+    hooks: HANDLER_PROPS.filter((name) => element[name] !== undefined),
     id: element.id,
     key: element.key,
     props: { ...element.props },
@@ -236,6 +242,31 @@ function structure(element: Element): Node {
     text: element.type === 'text' ? element.text : '',
     type: element.type,
   };
+}
+
+/**
+ * Calls every hook in the tree, in document order, and says what they wrote.
+ *
+ * A handler that was assigned is a function that logs when it is called, and a
+ * handler that was *called as a thunk* at build time has already logged by now
+ * -- which is what `built` is compared for. The arguments are empty because the
+ * corpus's handlers ignore them: what is asked here is which function is on the
+ * element, not what the router would hand it.
+ *
+ * @param element - The root.
+ * @param scope - The scope the handlers write to.
+ * @returns The log after every hook has run.
+ */
+function fire(element: Element, scope: Scope): string[] {
+  scope.log.length = 0;
+  const visit = (one: Element): void => {
+    for (const name of HANDLER_PROPS) {
+      (one[name] as (() => unknown) | undefined)?.();
+    }
+    one.children.forEach(visit);
+  };
+  visit(element);
+  return [...scope.log];
 }
 
 /**
@@ -252,6 +283,10 @@ function styles(element: Element): string[] {
 
 /** One frame: the tree, its styles, and what it painted. */
 interface Frame {
+  /** What the refs wrote while the tree was built, which no handler has run for. */
+  built: string[];
+  /** The same log after every hook was called, in document order. */
+  fired: string[];
   render: string;
   structure: Node;
   styles: string[];
@@ -268,11 +303,14 @@ function frames(build: (scope: Scope) => Element): { after: Frame; before: Frame
     const scope = makeScope();
     const element = build(scope);
     flush();
+    const built = [...scope.log];
 
     // in full colour, so that the resolved style reaches the comparison as
     // bytes as well as as data: a divergence the structure hides is one the
     // user sees
     const snapshot = (): Frame => ({
+      built,
+      fired: fire(element, scope),
       render: renderToString(element, { colorLevel: 3, width: 30 }),
       structure: structure(element),
       styles: styles(element),
@@ -339,9 +377,12 @@ describe('the runtime emitter and the build emitter', () => {
       const other = frames((scope) => analyzed[name]!(scope));
 
       expect(other.before.structure).toEqual(one.before.structure);
+      expect(other.before.built).toEqual(one.before.built);
+      expect(other.before.fired).toEqual(one.before.fired);
       expect(other.before.styles).toEqual(one.before.styles);
       expect(other.before.render).toBe(one.before.render);
       expect(other.after.structure).toEqual(one.after.structure);
+      expect(other.after.fired).toEqual(one.after.fired);
       expect(other.after.styles).toEqual(one.after.styles);
       expect(other.after.render).toBe(one.after.render);
     });
@@ -351,6 +392,8 @@ describe('the runtime emitter and the build emitter', () => {
       const other = frames((scope) => compiled[name]!(scope));
 
       expect(other.before.structure).toEqual(one.before.structure);
+      expect(other.before.built).toEqual(one.before.built);
+      expect(other.before.fired).toEqual(one.before.fired);
       expect(other.before.styles).toEqual(one.before.styles);
       expect(other.before.render).toBe(one.before.render);
     });
@@ -362,6 +405,7 @@ describe('the runtime emitter and the build emitter', () => {
       const other = frames((scope) => compiled[name]!(scope));
 
       expect(other.after.structure).toEqual(one.after.structure);
+      expect(other.after.fired).toEqual(one.after.fired);
       expect(other.after.styles).toEqual(one.after.styles);
       expect(other.after.render).toBe(one.after.render);
     });
@@ -391,7 +435,7 @@ describe('the runtime emitter and the build emitter', () => {
     expect(imports).toEqual([
       'import { box as $c_box, text as $c_text } from "@ttylabs/sigil/element";',
       'import { appendValue as $c_appendValue, applyProp as $c_applyProp, ' +
-        'applyText as $c_applyText, rawElement as $c_rawElement, ' +
+        'applyRef as $c_applyRef, applyText as $c_applyText, rawElement as $c_rawElement, ' +
         'rootElement as $c_rootElement } from "@ttylabs/sigil/template";',
     ]);
     expect(imports.join('\n')).not.toMatch(/\b(?:emit|parse|ui)\b/);
@@ -493,6 +537,44 @@ describe('what the build emitter writes', () => {
       /a value rather than an expression/
     );
     expect(() => build(['<raw paint=', ' />'], '() => {}')).toThrow(/its measure is missing/);
+  });
+
+  it('should refuse a handler written as a value, which could only be a mistake', () => {
+    // decidable at build time, where the interpreter throws when the screen is
+    // first built: a value is never a function
+    expect(() => build(['<box onKey="x" />'])).toThrow(/`onKey` takes a function/);
+    expect(() => build(['<box onResize />'])).toThrow(/`onResize` takes a function/);
+    expect(() => build(['<box>\n<text onMouse="x" /></box>'])).toThrow(/at line 2/);
+  });
+
+  it('should refuse a ref written as a value', () => {
+    expect(() => build(['<box ref="x" />'])).toThrow(/`ref` takes a function/);
+  });
+
+  it('should write a handler through applyProp(), where the thunk rule does not apply to it', () => {
+    // the call is the same one a reactive prop makes; what keeps the function
+    // from being read as a thunk is the name, decided inside `applyProp()` by
+    // the one list the interpreter reads
+    const { source } = build(['<box onKey=', ' />'], '(event) => event.stop()');
+    expect(source).toContain('$applyProp($e0, "onKey", ((event) => event.stop()), ');
+  });
+
+  it('should write a ref after the children, and bind a text that would have been inline', () => {
+    const { source } = build(['<box ref=', '><text>a</text></box>'], '(el) => el');
+    expect(source.indexOf('$e1.append')).toBeLessThan(source.indexOf('$applyRef($e0'));
+
+    // a folded static `<text>` is one expression with nothing to bind, and a
+    // ref is the thing that gives it something to be called with
+    const text = build(['<text ref=', '>fixed</text>'], '(el) => el').source;
+    expect(text).toContain('const $e0 = $text("fixed")');
+    expect(text).toContain('$applyRef($e0, ((el) => el), ');
+  });
+
+  it('should leave the call a prop that cannot throw has always made', () => {
+    // the position is printed for a handler and for nothing else, so an app
+    // with no handlers compiles to the bytes it did before
+    const { source } = build(['<box class=', ' />'], '() => "a"');
+    expect(source).toContain('$applyProp($e0, "class", (() => "a"));');
   });
 
   it('should refuse a prefix that cannot keep the output out of the way', () => {

@@ -332,3 +332,68 @@ the entry it belongs to.
   two hand-written sides can be quietly edited to agree, and one corpus cannot.
   The expression _source_ is what is shared, so the interpreter and the compiler
   are provably given the same expressions to evaluate.
+- **A host element takes the seven hooks as props, and a function under one of
+  those names is the handler, never a thunk (SIG-305).** A template was
+  display-only: `ReservedProps` named six props, so `onKey=${fn}` fell through to
+  the thunk rule, which called `fn` with no arguments while the template built
+  and set what it returned as a style property -- a `TypeError` for a handler
+  that reads its event, `Unknown property "onKey"` for one that returns a string,
+  and a silent no-op for one that returns nothing. The system monitor built every
+  interactive node with `box()` and slotted it in for exactly that. Now
+  `onKey`, `onMouse`, `onPaste`, `onFocusChange`, `onScroll`, `onResize` and
+  `onLayout` are props, spelled the same in JSX and in the tag (`onKey={fn}`,
+  `onKey=${fn}`) with **no kebab form**, since a handler is not a style property.
+  - **Decided by the name, in `applyProp()`.** `isHandlerProp()` is
+    `Element`'s own list, asked before the thunk rule, so the template and
+    `box({ onKey })` read one list and one `Element.#apply()` branch -- which is
+    what keeps the `ReservedProps` comment, "exactly what `#apply()` branches
+    on", true. A handler is assigned once. Swapping one through a signal is not
+    supported: the handler reads the state it needs when it runs, and an app that
+    needs more has other ways to get it. Not a limitation of the implementation
+    to be lifted later -- a thunk that returns a handler is indistinguishable from
+    a handler, which is the ambiguity the name rule exists to remove.
+  - **A value that is not a function is a template error**, with the position,
+    `onKey="x"` and a bare `onKey` included. `undefined` sets nothing, which is
+    what an omitted JSX attribute passes. `null` is refused: the hooks are typed
+    `X | undefined`, and one way to say nothing is enough.
+  - **Typed from `Element`'s fields**, `onKey?: Element['onKey']` and so on, so a
+    wrong signature is a type error and a hook the class gains is one line in
+    `ReservedProps`, `HANDLER_PROPS` and nowhere else. `jsx-types.tsx` pins it
+    both ways. Two things a type cannot say are not pinned and are not claimed:
+    a thunk returning a handler type-checks, because a function returning
+    anything is assignable to a `void` return, and `on-key` is not checked at
+    all, because TypeScript exempts a hyphenated JSX attribute from the prop
+    check.
+  - **`ref` is a callback and nothing else, and it is the template's, not the
+    element's.** `ref={(el) => ...}`, called once with the element **after its
+    props and children are built and before it is attached to its parent** -- so
+    it sees its children and no parent and no `box`, and `onLayout` is the hook
+    for sizes. Not called on removal, because there is nothing to call it for
+    that the owner's `onCleanup()` does not already do. A `State` is
+    `ref={(el) => node.set(el)}`; a `State` itself is refused rather than being
+    a second spelling. A function under `ref` is never a thunk for the reason a
+    handler is not. It is **not** in `ReservedProps`: `Element.#apply()` does not
+    branch on it, an element has no `ref`, and putting it there would make that
+    comment false. `RefProps` sits beside it in `HostProps`.
+  - **The ref runs after the children, so both emitters split it out.**
+    `splitRefs()` is the one definition of which props are refs; `emit()` calls
+    `applyRef()` once the children are in, and the build emitter prints
+    `applyRef(name, expr, loc)` at the same place. A `<text>` or a `<raw>` the
+    compiler would have printed as one inline expression is bound to a name when
+    it carries a ref, since a ref has to be called with something. Untracked: a
+    template is built inside an effect when it is a `For` row, and a ref that
+    read a signal would subscribe that row to it.
+  - **The build refuses at build time what the interpreter refuses at run
+    time.** A literal under a handler name or `ref` is a compile error with the
+    template's position, because a literal is never a function and the
+    constructor would otherwise throw when the screen was first built. The
+    position is printed into `applyProp()` for a handler and for nothing else,
+    so an app with no handler compiles to the bytes it did before.
+  - **Pinned by the corpus, which now fires the handlers.** `emitters.test.ts`
+    calls every hook on every element in document order and compares what the
+    three builds logged, and compares what the refs logged _during the build_,
+    which is where a handler called as a thunk would show. The new entries cover
+    all seven hooks beside a reactive `class`, an `undefined` handler, a ref on
+    each host type, and two refs on a reactive text. `handlers.test.ts` runs
+    every behaviour over both frontends by name, including a key reaching the
+    `onKey` through a real router.

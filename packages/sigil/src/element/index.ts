@@ -198,6 +198,57 @@ export interface Tree {
 }
 
 /**
+ * The seven hooks an element carries, which are props as well as properties.
+ *
+ * Written out, and it is the one list the handler props hang off: every name is
+ * a field of `Element`, so the *types* below are read off the class and cannot
+ * disagree with it, and a hook the class gains is one line here and one in
+ * `ReservedProps`. `test/template/props.test.ts` asserts the two lists agree and
+ * that each name really is a field.
+ */
+export const HANDLER_PROPS: readonly [
+  'onKey',
+  'onMouse',
+  'onPaste',
+  'onFocusChange',
+  'onScroll',
+  'onResize',
+  'onLayout',
+] = Object.freeze([
+  'onKey',
+  'onMouse',
+  'onPaste',
+  'onFocusChange',
+  'onScroll',
+  'onResize',
+  'onLayout',
+] as const);
+
+/** The name of one of the seven hooks. */
+export type HandlerProp = (typeof HANDLER_PROPS)[number];
+
+/** The hooks as an element is built with them, each typed by the field it sets. */
+export type HandlerProps = { [K in HandlerProp]?: Element[K] };
+
+/** What any one of the seven may be set to: a function, or nothing to clear it. */
+export type HandlerValue = Element[HandlerProp];
+
+const HANDLERS: ReadonlySet<string> = new Set(HANDLER_PROPS);
+
+/**
+ * Whether a prop name is one of the seven hooks.
+ *
+ * Exported because a template has to ask the same question before it decides a
+ * function is a thunk: the list is `HANDLER_PROPS` and nowhere else.
+ *
+ * @param name - The prop.
+ * @returns True for `onKey` and the other six.
+ */
+export function isHandlerProp(name: string): name is HandlerProp {
+  return HANDLERS.has(name);
+}
+
+/**
  * The prop names that are not style properties.
  *
  * Reserved rather than carried in a bag of their own, because every one of them
@@ -205,15 +256,25 @@ export interface Tree {
  * what the renderer reconciles it by, and whether input can land on it. A prop
  * this list does not name is a style property and is handed to the cascade,
  * which refuses one it does not know -- so a typo is an error rather than a
- * value nothing reads.
+ * value nothing reads. The seven hooks are on it for the same reason from the
+ * other side: the input router and the frame read them off every element, and
+ * `box({ onKey })` and a template's `onKey=${fn}` are one path through here.
  */
-const RESERVED = new Set(['class', 'focusable', 'id', 'key', 'selectable', 'tabindex']);
+const RESERVED = new Set([
+  'class',
+  'focusable',
+  'id',
+  'key',
+  'selectable',
+  'tabindex',
+  ...HANDLER_PROPS,
+]);
 
 export type PropValue = boolean | number | string | undefined;
 
 /** What an element is built with: style props, plus the reserved names. */
-export interface ElementProps {
-  [name: string]: PropValue | readonly string[];
+export interface ElementProps extends HandlerProps {
+  [name: string]: HandlerValue | PropValue | readonly string[];
   class?: string | readonly string[];
   /** Whether the focus ring stops here. A `tabindex` implies it. */
   focusable?: boolean;
@@ -618,7 +679,7 @@ export class Element implements LayoutNode {
    * @param value - The value, or `undefined` to drop it.
    * @returns This element.
    */
-  setProp(name: string, value: PropValue | readonly string[]): this {
+  setProp(name: string, value: HandlerValue | PropValue | readonly string[]): this {
     if (RESERVED.has(name)) {
       this.#apply({ [name]: value } as ElementProps);
       return this;
@@ -1081,6 +1142,14 @@ export class Element implements LayoutNode {
           // moves, and what changes is the style of the cells the text draws
           this.#mark('paint');
         }
+      } else if (HANDLERS.has(name)) {
+        // assigned, not merged: a hook is one function, and `undefined` clears
+        // it. Nothing is marked, since no layer reads a hook off a mark -- the
+        // router and the frame read the field when an event or a layout arrives
+        if (value !== undefined && typeof value !== 'function') {
+          throw new TypeError(`Invalid ${name}: expected a function, got ${typeof value}`);
+        }
+        (this as unknown as Record<string, unknown>)[name] = value;
       } else if (name === 'tabindex') {
         const next = value === undefined ? undefined : Number(value);
         if (next !== this.#tabIndex) {

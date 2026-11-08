@@ -223,6 +223,53 @@ export const CORPUS: readonly CorpusEntry[] = [
     template: `<\${0} key="row-1"><text>keyed</text></>`,
   },
   {
+    exprs: [
+      '() => scope.log.push("onKey")',
+      '() => scope.log.push("onMouse")',
+      '() => scope.log.push("onPaste")',
+      '() => scope.log.push("onFocusChange")',
+      '() => scope.log.push("onScroll")',
+      '() => { scope.log.push("onResize"); return false; }',
+      '() => { scope.log.push("onLayout"); return false; }',
+      '() => (scope.count.get() > 2 ? "wide" : "narrow")',
+    ],
+    name: 'all seven handlers, which are assigned and never called as thunks',
+    // a handler is a function and so is a reactive prop; the handler names are
+    // what keep the first from being read as the second, and `class` beside
+    // them is what shows the thunk rule still applies to everything else
+    template: `<box onKey=\${0} onMouse=\${1} onPaste=\${2} onFocusChange=\${3} onScroll=\${4}
+      onResize=\${5} onLayout=\${6} class=\${7}><text>x</text></box>`,
+  },
+  {
+    exprs: ['undefined', '() => scope.log.push("onKey")'],
+    name: 'a handler that is undefined, which sets nothing, then one that does',
+    template: `<box onKey=\${0}><text onKey=\${1}>x</text></box>`,
+  },
+  {
+    exprs: [
+      '(el) => scope.log.push(`box children=${el.children.length} parent=${!!el.parent}`)',
+      '(el) => scope.log.push(`text parent=${!!el.parent} box=${!!el.box}`)',
+      '() => ({ height: 1, width: 3 })',
+      '() => {}',
+      '(el) => scope.log.push(`raw parent=${!!el.parent}`)',
+    ],
+    name: 'a ref on each host type, called after the children and before the parent',
+    shadow: true,
+    template: `<box ref=\${0}>
+      <text ref=\${1}>plain</text>
+      <raw measure=\${2} paint=\${3} ref=\${4} />
+    </box>`,
+  },
+  {
+    exprs: [
+      '(el) => scope.log.push(`first ${el.text}`)',
+      '(el) => scope.log.push(`second ${el.text}`)',
+      '() => scope.count.get()',
+    ],
+    name: 'two refs and a reactive text, where the order and the content at the call are the answer',
+    template: `<text ref=\${0} color="red" ref=\${1}>n=\${2}</text>`,
+  },
+  {
     exprs: [],
     name: 'a prop named __proto__, which is not a key in an object literal',
     template: `<box><text __proto__="x">x</text></box>`,

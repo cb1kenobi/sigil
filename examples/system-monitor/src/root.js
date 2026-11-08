@@ -331,25 +331,6 @@ export function App() {
     table.element
   );
 
-  // -- the footer -------------------------------------------------------------
-  // the footer asks for a width before the root exists, and is not told when the
-  // layout changes it: it asks again only when the bindings or the focus move
-  /** @type {import('@ttylabs/sigil/element').Element | undefined} */
-  let root;
-  const footer = keyHelp(input, { width: () => Math.max(20, (root?.box?.width ?? 80) - 24) });
-
-  root = ui`<box class="app">
-    <box class="top">
-      ${cpu}
-      <box class="side">${mem}${network}</box>
-    </box>
-    ${procs}
-    <box class="row footer">
-      ${footer}
-      <text class="sigil-accent">${() => status.get()}</text>
-    </box>
-  </box>`;
-
   // -- keys -------------------------------------------------------------------
   const cycleTheme = () => {
     // on the app's host rather than on this root, so that a dialog -- which is
@@ -433,11 +414,11 @@ export function App() {
     }
   };
 
-  // the app's keys are the root's, reached by bubbling from whatever has the
-  // focus, rather than router bindings: a binding sees every key before the
-  // focused element, so `q` typed into the filter would quit. A layer of app
-  // keys that a focused text field outranks is SIG-308
-  root.onKey = (event) => {
+  // the app's keys are the root's -- `onKey` on it below -- reached by bubbling
+  // from whatever has the focus, rather than router bindings: a binding sees
+  // every key before the focused element, so `q` typed into the filter would
+  // quit. A layer of app keys that a focused text field outranks is SIG-308
+  const onKey = (event) => {
     const { key } = event;
     if (input.focus.current.get() === field) {
       // Escape abandons the filter, where Enter keeps it
@@ -502,6 +483,25 @@ export function App() {
         }
     }
   };
+
+  // -- the footer -------------------------------------------------------------
+  // the footer asks for a width before the root exists, and is not told when the
+  // layout changes it: it asks again only when the bindings or the focus move
+  /** @type {import('@ttylabs/sigil/element').Element | undefined} */
+  let root;
+  const footer = keyHelp(input, { width: () => Math.max(20, (root?.box?.width ?? 80) - 24) });
+
+  root = ui`<box class="app" onKey=${onKey}>
+    <box class="top">
+      ${cpu}
+      <box class="side">${mem}${network}</box>
+    </box>
+    ${procs}
+    <box class="row footer">
+      ${footer}
+      <text class="sigil-accent">${() => status.get()}</text>
+    </box>
+  </box>`;
 
   // what the footer lists, and unlisted with the component
   const undo = [

@@ -8,12 +8,12 @@
  *
  * What is also here, and reads oddly until you know why, is the handful of
  * functions `emit()` uses for its leaves: `applyProp()`, `applyProps()`,
- * `applyText()`, `appendValue()`, `rawElement()` and `rootElement()`. They are
- * exported because the *build* emitter in `@ttylabs/cli` calls exactly those --
- * generated code is a call to each of them wherever the compiler could not
- * settle the answer at build time. So the two emitters share every leaf
- * decision rather than agreeing about it, which is what makes SIG-72's
- * differential test an invariant instead of a hope.
+ * `applyRef()`, `splitRefs()`, `applyText()`, `appendValue()`, `rawElement()`
+ * and `rootElement()`. They are exported because the *build* emitter in
+ * `@ttylabs/cli` calls exactly those -- generated code is a call to each of them
+ * wherever the compiler could not settle the answer at build time. So the two
+ * emitters share every leaf decision rather than agreeing about it, which is
+ * what makes SIG-72's differential test an invariant instead of a hope.
  *
  * `parse()` and `Expr` are the other half of that seam: a compiler reads a
  * template out of a file with this parser, putting an `Expr` where a value
@@ -25,6 +25,7 @@ export {
   appendValue,
   applyProp,
   applyProps,
+  applyRef,
   applyText,
   type ComponentRef,
   componentChildren,
@@ -40,6 +41,7 @@ export {
   rawParts,
   rootElement,
   type SourceLocation,
+  splitRefs,
   templateError,
   textPart,
   textValue,

@@ -2627,11 +2627,35 @@ by one.
 ### `sigil/template`
 
 The `ui` tag, its parser, and the emitter's leaves -- `applyProp()`,
-`applyText()`, `appendValue()`, `rawElement()`, `rootElement()`,
-`componentChildren()`, `rawParts()` and `textPart()` -- which `sigil build`'s
-template compiler calls rather than restating, so a compiled template and an
-interpreted one cannot come to disagree about what a prop, a child or a `<raw>`
-means.
+`applyRef()`, `splitRefs()`, `applyText()`, `appendValue()`, `rawElement()`,
+`rootElement()`, `componentChildren()`, `rawParts()` and `textPart()` -- which
+`sigil build`'s template compiler calls rather than restating, so a compiled
+template and an interpreted one cannot come to disagree about what a prop, a
+child or a `<raw>` means.
+
+A host element takes the seven hooks as props -- `onKey`, `onMouse`, `onPaste`,
+`onFocusChange`, `onScroll`, `onResize` and `onLayout` -- in JSX and in the tag,
+spelled the same way (`onKey={fn}`, `onKey=${fn}`) and typed as the `Element`
+fields they set, so a handler with the wrong signature is a type error. A
+function under one of those names is **the handler**, never a reactive thunk: it
+is assigned once, and is not called while the template builds. Swapping a
+handler through a signal is not supported; a handler reads the state it needs
+when it runs. A value that is not a function (`onKey="x"`) is a template error.
+`box({ onKey })` and a template are one path.
+
+```jsx
+let list;
+<box onKey={(event) => event.key.name === 'q' && app.exit()} ref={(el) => (list = el)}>
+  <text>press q</text>
+</box>;
+```
+
+`ref` is a callback and nothing else, `ref={(el) => ...}`. It is called once with
+the element, after its props and children are built and before it is attached
+to its parent -- so layout has not run (`onLayout` is the hook for sizes). It is
+not called again on removal; cleanup goes through the owner (`onCleanup()`). A
+`State` holds an element as `ref={(el) => node.set(el)}`. Like a handler, a
+function under `ref` is never a thunk.
 
 ### `sigil/help`
 
