@@ -51,7 +51,6 @@ import {
   runPrompt,
   setPromptNote,
 } from './prompt.js';
-import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { constants, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -157,12 +156,30 @@ interface Exit {
  */
 const INTERRUPTED = new Set([130, 0xc000013a]);
 
-/** Each signal's name by its number, the first name where two share one. */
-const SIGNAL_NAMES = new Map<number, NodeJS.Signals>();
-for (const [name, number] of Object.entries(constants.signals)) {
-  if (!SIGNAL_NAMES.has(number)) {
-    SIGNAL_NAMES.set(number, name as NodeJS.Signals);
+/** Each signal's name by its number, built the first time an exit is read. */
+let signalNames: Map<number, NodeJS.Signals> | undefined;
+
+/**
+ * A signal's name by its number, the first name where two share one.
+ *
+ * Built on first use rather than at load, because a loop at module level is a
+ * statement no tree-shaker can drop: `sigil build` kept this one, and the
+ * `node:os` import under it, in an app that drew a spinner and never opened an
+ * editor. SIG-328.
+ *
+ * @param number - The signal's number.
+ * @returns Its name, or `undefined` where the platform has none.
+ */
+function signalName(number: number): NodeJS.Signals | undefined {
+  if (signalNames === undefined) {
+    signalNames = new Map();
+    for (const [name, n] of Object.entries(constants.signals)) {
+      if (!signalNames.has(n)) {
+        signalNames.set(n, name as NodeJS.Signals);
+      }
+    }
   }
+  return signalNames.get(number);
 }
 
 /**
@@ -179,7 +196,7 @@ for (const [name, number] of Object.entries(constants.signals)) {
 function throughShell(exit: Exit): Exit {
   const name =
     exit.signal === null && exit.code !== null && exit.code > 128
-      ? SIGNAL_NAMES.get(exit.code - 128)
+      ? signalName(exit.code - 128)
       : undefined;
   return name === undefined ? exit : { code: null, signal: name };
 }
@@ -199,11 +216,16 @@ function throughShell(exit: Exit): Exit {
  * only because the prompt has already let go of it: a stdin still flowing into a
  * listener here would take keys out from under the editor.
  *
+ * `node:child_process` is asked for here rather than imported, because this is
+ * the one place in the components entry that spawns and the entry is what
+ * every app that draws anything loads. SIG-328.
+ *
  * @param command - The editor, as the user wrote it.
  * @param file - The file to edit.
  * @returns How it ended.
  */
 function launch(command: string, file: string): Promise<Exit> {
+  const { spawn } = process.getBuiltinModule('node:child_process');
   const child =
     process.platform === 'win32'
       ? spawn(`${command} "${file}"`, { shell: true, stdio: 'inherit' })

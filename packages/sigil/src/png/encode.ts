@@ -1,6 +1,7 @@
 import { chunkCrc, INDEXED, MAX_CHUNK_LENGTH, RGB, RGBA, rowBytes, SIGNATURE } from './chunks.js';
 import { filter, NONE, PAETH } from './filters.js';
 import { assertRgbaImage, type RgbaImage } from './image.js';
+import { zlib } from './zlib.js';
 /**
  * Writing a PNG: 8-bit RGBA in, the smallest of the plain encodings out.
  *
@@ -28,17 +29,31 @@ import { assertRgbaImage, type RgbaImage } from './image.js';
  * chunk is written, so the same pixels give the same bytes: a screenshot can
  * be committed and diffed.
  */
-import { constants, deflateSync } from 'node:zlib';
 
-const encoder = new TextEncoder();
+// pure, so that a bundle which never calls the encoder drops it: a `new` at
+// module level is otherwise a side effect a tree-shaker has to keep
+const encoder = /* @__PURE__ */ new TextEncoder();
 
 /**
- * The deflate settings, every one spelled out, so that the bytes do not move
+ * Deflates `data` with every setting spelled out, so that the bytes do not move
  * if a default does. Level 6 rather than 9 because it was measured: on a
  * 960x640 screenshot, 9 was **3x slower** for **0.8% fewer bytes** indexed and
  * 1.7% truecolour, and across the whole of PngSuite 1.4%.
+ *
+ * A function rather than a module-level options object, because the strategy
+ * is a zlib constant and reading it at load is reading zlib at load -- and
+ * `sigil build` kept that one property access in an app that drew one spinner,
+ * since a tree-shaker cannot prove a member read has no effect. SIG-328.
  */
-const DEFLATE = { level: 6, memLevel: 9, strategy: constants.Z_DEFAULT_STRATEGY, windowBits: 15 };
+function deflate(data: Uint8Array): Uint8Array {
+  const { constants, deflateSync } = zlib();
+  return deflateSync(data, {
+    level: 6,
+    memLevel: 9,
+    strategy: constants.Z_DEFAULT_STRATEGY,
+    windowBits: 15,
+  });
+}
 
 /**
  * Encodes 8-bit RGBA as a PNG.
@@ -76,15 +91,15 @@ export function encodePng(image: RgbaImage): Uint8Array {
     // both ways, and the smaller kept: see the module comment
     const rows = indexedRows(data, width, height, depth, census.index);
     const stride = rowBytes(width, depth);
-    const plain = deflateSync(filterRows(rows, stride, height, 1, false), DEFLATE);
-    const adaptive = deflateSync(filterRows(rows, stride, height, 1, true), DEFLATE);
+    const plain = deflate(filterRows(rows, stride, height, 1, false));
+    const adaptive = deflate(filterRows(rows, stride, height, 1, true));
     compressed = adaptive.length < plain.length ? adaptive : plain;
   } else {
     const alpha = hasAlpha(data);
     const channels = alpha ? 4 : 3;
     chunks.push(['IHDR', header(width, height, 8, alpha ? RGBA : RGB)]);
     const rows = truecolourRows(data, width, height, alpha);
-    compressed = deflateSync(filterRows(rows, width * channels, height, channels, true), DEFLATE);
+    compressed = deflate(filterRows(rows, width * channels, height, channels, true));
   }
 
   for (let at = 0; at < compressed.length; at += MAX_CHUNK_LENGTH) {

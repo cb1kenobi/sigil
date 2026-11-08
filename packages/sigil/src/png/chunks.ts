@@ -1,4 +1,6 @@
 import { MAX_DIMENSION } from './image.js';
+import { zlib } from './zlib.js';
+
 /**
  * What the decoder and the encoder agree on: the signature, the colour types,
  * and how a chunk's CRC is computed.
@@ -6,9 +8,9 @@ import { MAX_DIMENSION } from './image.js';
  * `zlib.crc32()` is core on the `engines` floor (node >=22.19), and it is the
  * CRC the PNG specification names -- ISO 3309, the same polynomial zlib's gzip
  * framing uses -- so a table of our own would be a second answer to a question
- * node already answers.
+ * node already answers. It is reached through `zlib()` rather than imported,
+ * so that loading the codec does not load zlib.
  */
-import { crc32 } from 'node:zlib';
 
 /** `\x89PNG\r\n\x1A\n`, written as numbers so that no control byte sits in source. */
 export const SIGNATURE: Uint8Array = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
@@ -47,6 +49,7 @@ export const MAX_CHUNK_LENGTH: number = MAX_DIMENSION;
  * the way out, so it is computed in two calls rather than over a copy.
  */
 export function chunkCrc(type: Uint8Array, data: Uint8Array): number {
+  const { crc32 } = zlib();
   return crc32(data, crc32(type));
 }
 

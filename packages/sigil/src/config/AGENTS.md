@@ -1159,6 +1159,15 @@ hold, and `Config.save()` is the one caller of all four.
   planting at a guessed name would pass for any name at all the moment the
   spelling changed, whether or not the open had become exclusive.
 
+  `randomBytes()` is asked of `node:crypto` when a name is drawn rather than
+  imported (SIG-328): `@ttylabs/sigil/config` is loaded on every run of an app
+  with a config file, writing or not, and crypto was the costliest thing on it
+  -- 5.92 to 3.76 ms of a fresh node's import. `process.getBuiltinModule()` is
+  synchronous, so `writeAtomicSync()` is what it was. `node:fs/promises` is not given
+  the same treatment, because `atomic-temp.test.ts` and five component tests
+  replace it with `vi.mock()` and a `getBuiltinModule()` call would go round the
+  mock without a word.
+
 - **Where it goes is pinned by a wrapped `fs` rather than by reading the
   directory afterwards.** The temp file exists only between the open and the
   rename, so nothing outside can look -- and the first version of that test read

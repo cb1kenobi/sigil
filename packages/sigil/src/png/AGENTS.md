@@ -30,6 +30,21 @@ screenshot writes. SIG-114.
   middle; the sync zlib calls are what make the codec a pure function of its
   bytes.
 
+- **zlib is asked for when the codec runs, not imported (SIG-328).** Every zlib
+  call is inside a function, and the codec is on the components entry because
+  `imageView()` decodes bytes, so a static `import` made every app that imported
+  any component load zlib -- about 0.6 ms of a fresh node's import, for apps
+  that never draw a picture. `zlib()` in `zlib.ts` is
+  `process.getBuiltinModule('node:zlib')`, which is synchronous, so the API is
+  as it was; the first decode or encode pays the load instead. The deflate
+  options are built in `deflate()` rather than held at module level, because an
+  object reading `constants` at load is zlib at load by another route -- and
+  `sigil build` kept exactly that member read in an app that drew one spinner,
+  since a tree-shaker cannot prove it pure. Pinned statically and at run time in
+  `test/dist.test.ts`, and for a built app in
+  `packages/cli/test/build/shake-builtins.test.ts`; the audit is in
+  `src/testing/AGENTS.md`.
+
 - **The contract was fixed before the code, because two other packages were
   written against it at the same time.** Three names and one shape. What has
   been added is a trailing options bag on `decodePng()` and `MAX_PIXELS`, which
@@ -189,11 +204,13 @@ screenshot writes. SIG-114.
   and the encoder asks for 1.
 - **It lives in `image.ts` beside the type, and so does the 2^31-1.**
   `resampleImage()` imports it from that module rather than from the subpath's
-  barrel, because the barrel is the codec and `chunks.ts` imports `node:zlib`
-  for its CRC: checking a shape must not load zlib into `@ttylabs/sigil/canvas`.
-  So the constant moved here too and `MAX_CHUNK_LENGTH` reads it, which is one
-  definition of one number. `should keep zlib out of the canvas` in
-  `test/dist.test.ts` fails if the import goes through the barrel.
+  barrel, because the barrel is the codec: checking a shape must not put about
+  10 kB of codec into `@ttylabs/sigil/canvas`. It was written when `chunks.ts`
+  imported `node:zlib` for its CRC, which made zlib the louder half of the
+  reason; since SIG-328 the codec asks for zlib only when it runs, and the bytes
+  are reason enough. So the constant moved here too and `MAX_CHUNK_LENGTH` reads
+  it, which is one definition of one number. `should keep zlib out of the
+  canvas` in `test/dist.test.ts` fails if the import goes through the barrel.
 
 #### The corpus
 

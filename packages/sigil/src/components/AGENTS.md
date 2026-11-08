@@ -1463,6 +1463,12 @@ patch, a pane, and three additions to the renderer that the pane needs.
   appending rows to a subtree nobody can see, for the life of the process.
   Deleting the unsubscribe survived every other test here.
 
+- **`format()` is asked of `node:util` when the console is captured, not
+  imported (SIG-328).** The ESM import of `node:util` brought `worker_threads`
+  and the stream stack in behind it, on the barrel every app that draws anything
+  loads, for an overlay most of them never turn on. `process.getBuiltinModule()`
+  hands back the module without that, and synchronously.
+
 > Moved: _What the sabotage pass found, and what it got wrong_, _What the second review round found, and it was all prose_ — see [docs/history/a-debug-overlay-captured-console-output-and-frame-stats.md](../../../../docs/history/a-debug-overlay-captured-console-output-and-frame-stats.md).
 
 #### What is deliberately out
@@ -6425,9 +6431,14 @@ there under "An image over `Pixels`".
   rather than from inside a frame. Taking bytes puts `@ttylabs/sigil/png` on the
   components entry, which measured 10,323 B of the 15,344 this change added to
   it, and `node:zlib` with it, which an unbundled app importing any component
-  pays. Taken, because the alternative is every caller writing the `decodePng()`
+  paid. Taken, because the alternative is every caller writing the `decodePng()`
   the ticket asked this to do for them, and a component barrel that is 472 KB is
   not where 10 KB is decided; the lever on that number is still SIG-81's.
+  SIG-328 took the zlib half back -- the codec asks for it when it decodes, so
+  importing the barrel no longer loads it -- and kept the bytes, because decoding
+  later would move a bad file's error into a frame or make this asynchronous.
+  The measurements are under "What each entry loads at import" in
+  `src/testing/AGENTS.md`.
 - **`fit` is `contain`, `cover` or `fill`.** The three `object-fit` values that
   mean something without a natural size to fall back on. `contain` is the default
   and may sit half a row down, since `Pixels` has a colour per half; `cover` crops
@@ -7878,6 +7889,13 @@ the answer.
   the terminal object wraps. An app drawing to `/dev/tty` with stdout piped would
   hand the editor a pipe; nothing has asked for that, and the fds of a terminal
   object are not always there to pass.
+- **`node:child_process` is asked for when the editor opens, not imported, and
+  the signal-name table is built on first use (SIG-328).** This is the one
+  module in the barrel that spawns, and the barrel is what every app that draws
+  anything loads -- and a loop at module level is a statement no tree-shaker can
+  drop, so `sigil build` kept it, and the `node:os` import under it, in an app
+  that drew a spinner. `process.getBuiltinModule()` is synchronous, so nothing
+  about `editor()` changed shape.
 - **Not done.** An `editor` given as an argv array rather than a command; waiting
   out the alternate-screen question; `$VISUAL` skipped on a dumb terminal (git's
   rule, and a prompt does not draw on one anyway); a way to accept the default

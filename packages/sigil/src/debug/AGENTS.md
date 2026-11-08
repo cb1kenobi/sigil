@@ -30,3 +30,10 @@ the entry it belongs to.
   excluded one, and they used to fall through to the `/./` that means
   "everything the exclusions left" -- so a `DEBUG` naming nothing at all turned
   every logger in the process on. Covered by `test/debug/debug.test.ts`.
+- **`node:console` and `node:stream` stay static imports, on every entry
+  (SIG-328).** The audit that made six builtins lazy measured these two at about
+  0.35 ms and left them: `StdioStream` extends `Writable` at module level, and
+  `debug()` is called at load by every logger and returns a `Console`, so a lazy
+  version would have to return something that is not one, or be a Proxy, which
+  this repository does not use. The table is under "What each entry loads at
+  import" in `src/testing/AGENTS.md`.
