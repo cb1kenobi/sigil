@@ -1022,6 +1022,26 @@ it.
   still kills the process, which is the terminal's entry to settle. The test is a
   spawned child over the built runner, for the reason the TypeScript routes are.
 
+  _Three edges of the `exit` handler, found by the second review round._ **It is
+  prepended** (`process.prependListener`), because listeners run in registration
+  order and a handler the app registered before `runApp()` would otherwise log
+  into the ring this is about to discard, or have its line replayed as ring
+  content. **It writes synchronously**, through the stream's file descriptor
+  (`writeAll()`, `EAGAIN` retried for up to five seconds, any other error ending the
+  write quietly): an `exit` handler runs with no event loop to finish a write that
+  could not complete at once, so a replay into a pipe whose reader was behind was
+  cut off at exactly the pipe's 65,536 bytes. The terminal has no synchronous write
+  of its own to reuse -- its exit restore is a few bytes through `stream.write()` --
+  so this is the only one; a stream with no descriptor (a test terminal's) is
+  written the ordinary way. The test uses a shell pipe and not a spawned child's
+  `stdio: 'pipe'`, which is a socket pair and delivered the whole replay with the
+  loss still in place. **And it writes `early`** after the reports, the order the
+  body-throw path uses. The probe that was reported for this one (`mount A broke`
+  lost beside a `process.exit()` in a second `onMount`) does not reach it: mount
+  errors are collected and reported after the whole batch has run, so that report
+  was never made. What does reach `early` is a line an inline app logged while
+  building, which is what the test pins.
+
   _The lines go ahead of the error report, which took three moves._ A failed frame
   is reported by `fail()` after it has stopped the backend, and that happens
   **before** the teardown microtask `finish()` runs on. The first answer settled the
@@ -1114,6 +1134,10 @@ it.
   `dir`/`dirxml` unpatched, `dir` not through `inspect()`, 130 replayed, no `exit`
   listener, the `exit` handler not putting the console back, and the `exit` handler
   replaying on any code. All nine were caught.
+
+  _Sabotage, round three, four over the exit-path fixes:_ no `early` flush,
+  `on` instead of `prependListener`, the write through `stream.write()` again, and
+  `writeAll()` giving up on `EAGAIN`. All four were caught.
 
 - **Sabotage, in two passes.** The first was twenty-three, with nine survivors: six
   were made to fail by a new test -- the router left listening (twice: on exit and

@@ -298,6 +298,45 @@ interface Held {
   to?: 'stderr';
 }
 
+/**
+ * How long `writeAll()` waits for a reader that is not reading, in milliseconds.
+ *
+ * An `exit` handler cannot be allowed to hang the process for ever on a pipe nobody
+ * drains, and a reader that has not taken a pipe's buffer in this long is not going
+ * to.
+ */
+const WRITE_PATIENCE_MS = 5000;
+
+/**
+ * Writes all of `text` to a file descriptor, blocking, or gives up quietly.
+ *
+ * A non-blocking pipe answers `EAGAIN` when it is full, and the way to wait for
+ * the reader without an event loop is to sleep a millisecond and try the rest.
+ * Any other error is the far end gone (`EPIPE`) or a real fault in a process that
+ * is already exiting, and neither is worth a throw out of an `exit` handler.
+ * Not exported: it is public API the day it is, and the spawned test in
+ * `app-console.test.ts` is what pins it.
+ *
+ * @param fd - The descriptor.
+ * @param text - What to write.
+ */
+function writeAll(fd: number, text: string): void {
+  const { writeSync } = process.getBuiltinModule('node:fs');
+  const bytes = Buffer.from(text);
+  const deadline = Date.now() + WRITE_PATIENCE_MS;
+  let at = 0;
+  while (at < bytes.length) {
+    try {
+      at += writeSync(fd, bytes, at);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EAGAIN' || Date.now() > deadline) {
+        return;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1);
+    }
+  }
+}
+
 /** Whether an exit code asks for the ring to be written out: not `0`, and not Ctrl-C's `130`. */
 function replayable(code: number): boolean {
   return code !== EXIT_OK && code !== EXIT_INTERRUPTED;
@@ -517,6 +556,25 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     }
   }
 
+  /**
+   * Straight to the stream's file descriptor, and not back until it is all out.
+   *
+   * For `onProcessExit()` alone. An `exit` handler runs after the event loop has
+   * stopped, so a `stream.write()` that cannot complete at once -- a pipe whose
+   * reader is behind -- is queued for a loop that never comes round again, and the
+   * rest of a long replay is dropped: 65,536 bytes of it, exactly a pipe's buffer.
+   * A stream without a descriptor (a test terminal's) has nothing to wait on and
+   * is written the ordinary way. See `writeAll()`.
+   */
+  function flush(text: string, to?: 'stderr'): void {
+    const fd = ((to === 'stderr' ? terminal.stderr : terminal.stdout) as { fd?: unknown }).fd;
+    if (typeof fd === 'number') {
+      writeAll(fd, text);
+    } else {
+      direct(text, to);
+    }
+  }
+
   /** Straight to the terminal, for once the backend has gone or never was. */
   function direct(text: string, to?: 'stderr'): void {
     if (to === 'stderr') {
@@ -623,11 +681,17 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     if (replays) {
       holding = false;
       if (replayable(exitCode)) {
-        replay(direct);
+        replay(flush);
       }
       for (const held of reports.splice(0)) {
-        direct(held.text, held.to);
+        flush(held.text, held.to);
       }
+    }
+    // what a first frame reported or echoed before `render()` had a backend to
+    // hand it to: the process is ending inside that frame, and nothing else will
+    // ever write it. The order the body-throw path uses
+    for (const held of early.splice(0)) {
+      flush(held.text, held.to);
     }
   }
 
@@ -825,7 +889,10 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       logs = ring;
       replays = !inline;
       holding = replays;
-      process.on('exit', onProcessExit);
+      // first, so that the console is back before any other `exit` handler runs: an
+      // app's own, registered earlier, would otherwise log into the ring this is
+      // about to discard, or replay as part of it
+      process.prependListener('exit', onProcessExit);
     }
   }
 

@@ -675,12 +675,22 @@ describe('runApp() and the console', () => {
 describe('runApp() when the process ends under it', () => {
   const dist = new URL('../../dist/', import.meta.url).href;
 
-  /** Runs `body` in a child over a watched terminal; returns what it wrote. */
-  function child(body: string) {
+  /**
+   * Runs `body` in a child over a watched terminal; returns what it wrote.
+   *
+   * `before` runs ahead of `runApp()`, which is where an `exit` handler of the app's
+   * own that was registered first goes; `component` is the app's source.
+   */
+  function child(
+    body: string,
+    { before = '', component = '() => E.text("x")', options = '' } = {}
+  ) {
     const source = `
       const { runApp } = await import(${JSON.stringify(`${dist}app.mjs`)});
       const E = await import(${JSON.stringify(`${dist}element.mjs`)});
+      const R = await import(${JSON.stringify(`${dist}renderer.mjs`)});
       const T = await import(${JSON.stringify(`${dist}testing.mjs`)});
+      ${before}
       const term = T.createTestTerminal({ columns: 30, rows: 6 });
       const t = term.terminal;
       const w = t.write.bind(t);
@@ -689,7 +699,7 @@ describe('runApp() when the process ends under it', () => {
         process.stdout.write('W|' + stream + '|' + term.screen.alternate + '|' + JSON.stringify(chunk) + '\\n');
       t.write = (c) => (tell('out', c), w(c));
       t.writeErr = (c) => (tell('err', c), we(c));
-      const app = runApp(() => E.text('x'), { detect: false, terminal: t });
+      const app = runApp(${component}, { detect: false, terminal: t${options} });
       app.view.frame();
       ${body}
     `;
@@ -737,4 +747,68 @@ describe('runApp() when the process ends under it', () => {
     expect(clean.status).toBe(0);
     expect(plain(clean.writes)).toEqual([]);
   });
+
+  it('should put the console back before an exit handler registered ahead of runApp() runs', () => {
+    const before = `process.on('exit', () => console.log('early handler speaks'));`;
+
+    const clean = child(`console.log('dropped'); process.exit(0);`, { before });
+    expect(clean.raw).toEqual(['early handler speaks']);
+    expect(plain(clean.writes)).toEqual([]);
+
+    // and it is not replayed as if it were ring content, on a failed exit
+    const failed = child(`console.log('kept'); process.exit(3);`, { before });
+    expect(failed.raw).toEqual(['early handler speaks']);
+    expect(plain(failed.writes)).toEqual(['stdout: kept']);
+  });
+
+  it('should write what was waiting for a backend when the process exits during the first frame', () => {
+    // inline, where a line logged while the component is built waits for the
+    // backend `render()` has not returned yet -- and the process ends before it does
+    const ran = child('', {
+      component: `() => {
+        console.log('logged while building');
+        console.warn('and a warning');
+        process.exit(1);
+      }`,
+      options: ', fullscreen: false',
+    });
+
+    expect(ran.status).toBe(1);
+    expect(plain(ran.writes)).toEqual(['stdout: logged while building', 'stderr: and a warning']);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'should write a long replay whole to a pipe whose reader is behind',
+    () => {
+      // a real pipe, which a spawned child's `stdio: 'pipe'` is not (that is a socket
+      // pair, which blocks differently and never showed the loss): the shell makes
+      // one, with a reader that takes nothing for half a second. The replay is 120 KB
+      // to stderr and a pipe holds 64 KB, and an `exit` handler has no event loop to
+      // finish a write that did not complete at once
+      const source = `
+        for (const s of [process.stdout, process.stderr]) {
+          Object.defineProperty(s, 'isTTY', { configurable: true, value: true });
+          Object.defineProperty(s, 'columns', { configurable: true, value: 40 });
+          Object.defineProperty(s, 'rows', { configurable: true, value: 10 });
+        }
+        const { runApp } = await import(${JSON.stringify(`${dist}app.mjs`)});
+        const E = await import(${JSON.stringify(`${dist}element.mjs`)});
+        const T = await import(${JSON.stringify(`${dist}testing.mjs`)});
+        runApp(() => E.text('x'), { detect: false, stdin: T.createTestTerminal().stdin });
+        for (let i = 0; i < 3000; i++) {
+          (i % 2 ? console.error : console.log)('LINE ' + i + ' ' + 'x'.repeat(240));
+        }
+        setTimeout(() => process.exit(3), 5);
+      `;
+      const ran = spawnSync(
+        'sh',
+        ['-c', '"$NODE" --input-type=module -e "$SCRIPT" 2>&1 >/dev/null | (sleep 0.5; cat)'],
+        { encoding: 'utf8', env: { ...process.env, NODE: process.execPath, SCRIPT: source } }
+      );
+
+      // the ring keeps the last 1,000 of the 3,000, and the odd ones go to stderr
+      expect(ran.stdout).toContain('LINE 2999 ');
+      expect(ran.stdout.match(/LINE \d+ /g)).toHaveLength(500);
+    }
+  );
 });
