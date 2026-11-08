@@ -646,12 +646,20 @@ describe('runOnTerminal() with a terminal on stdin', () => {
     async function unhandledDuring(body: () => Promise<void>, settleMs = 100): Promise<unknown[]> {
       const seen: unknown[] = [];
       const listener = (reason: unknown): void => void seen.push(reason);
+      // the runner's own listeners are set aside while this one is the only one,
+      // or a rejection a test is here to observe is also an unhandled error that
+      // fails the whole run
+      const runners = process.listeners('unhandledRejection');
+      process.removeAllListeners('unhandledRejection');
       process.on('unhandledRejection', listener);
       try {
         await body();
         await new Promise((resolve) => setTimeout(resolve, settleMs));
       } finally {
         process.off('unhandledRejection', listener);
+        for (const it of runners) {
+          process.on('unhandledRejection', it);
+        }
       }
       return seen;
     }
@@ -672,36 +680,39 @@ describe('runOnTerminal() with a terminal on stdin', () => {
       expect(seen, 'the spawn error arrived a second time, with nobody to hear it').toEqual([]);
     });
 
-    it('should not report a failed wait a second time when the run times out later', async () => {
-      // the shape of a test that fails at `waitFor()` and so never reaches
-      // `await run` or `kill()`: the child lives until the run's own timeout, and
-      // the base promise then rejects with nobody listening
+    it('should still report the run timing out after a wait that was expected to fail', async () => {
+      // the test passes: it asked for a wait that cannot succeed, caught the
+      // rejection, and walked away from a child that is killed for time later.
+      // That kill is the run's own failure and nothing delivered it, so it is
+      // reported -- marking the whole run handled because *a* method rejected hid
+      // exactly the leak this guards
       const seen = await unhandledDuring(async () => {
         const run = runOnTerminal({
           source: 'setInterval(() => {}, 1000);',
           stdin: true,
           timeout: 300,
         });
-        await expect(run.waitFor('never', { timeout: 50 })).rejects.toThrow(/did not show/);
-        // and a key after the kill says why, rather than that "it exited"
+        await run.waitFor('never', { timeout: 50 }).catch(() => {});
         await new Promise((resolve) => setTimeout(resolve, 450));
+        // told the cause when asked, though it is too late to have been the first to hear
         await expect(run.press('a')).rejects.toThrow(/did not finish within 300ms/);
-      }, 150);
+      }, 100);
 
-      expect(seen).toEqual([]);
+      expect(seen).toHaveLength(1);
+      expect(String(seen[0])).toMatch(/did not finish within 300ms/);
     });
 
-    it('should not report a refused key a second time when the run times out later', async () => {
-      // `press()` rejects here for a reason of its own -- the run has no terminal
-      // on stdin -- and the base promise is rejected later by the kill timer, with
-      // nobody having awaited it
+    it('should still report the run timing out after a key refused for its own reason', async () => {
+      // `press()` rejects here because the run has no terminal on stdin, which
+      // says nothing about whether the run finishes
       const seen = await unhandledDuring(async () => {
         const run = runOnTerminal({ source: 'setInterval(() => {}, 1000);', timeout: 200 });
         await expect(run.press('a')).rejects.toThrow(/stdin: true/);
         await new Promise((resolve) => setTimeout(resolve, 350));
       }, 100);
 
-      expect(seen).toEqual([]);
+      expect(seen).toHaveLength(1);
+      expect(String(seen[0])).toMatch(/did not finish within 200ms/);
     });
 
     it('should tell a wait that is pending when the run is killed for time, and why', async () => {

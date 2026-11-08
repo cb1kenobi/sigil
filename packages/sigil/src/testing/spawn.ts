@@ -538,6 +538,8 @@ function begin(opts: TerminalRunOptions): TerminalRun {
   let exited = false;
   /** Why the run cannot go on -- it never started, or it was killed for taking too long. */
   let failure: Error | undefined;
+  /** Whether the run has already rejected, after which marking it handled is too late and only noisy. */
+  let rejected = false;
   const watchers = new Set<() => void>();
 
   const promise = new Promise<RanOnTerminal>((settle, fail) => {
@@ -549,6 +551,7 @@ function begin(opts: TerminalRunOptions): TerminalRun {
       for (const watcher of watchers) {
         watcher();
       }
+      rejected = true;
       fail(failure);
     }, timeout);
 
@@ -580,6 +583,7 @@ function begin(opts: TerminalRunOptions): TerminalRun {
       for (const watcher of watchers) {
         watcher();
       }
+      rejected = true;
       fail(error);
     });
     child.on('close', (code, signal) => {
@@ -598,17 +602,27 @@ function begin(opts: TerminalRunOptions): TerminalRun {
   });
 
   /**
-   * Delivers a rejection to a caller of a method, and marks the run handled.
+   * Marks the run handled when, and only when, `error` is the run's own failure.
    *
    * The base promise is the other way to find out how the run ended, and it
-   * rejects on its own later -- the spawn error, or the kill timer -- with nobody
+   * rejects on its own -- the spawn error, or the kill timer -- with nobody
    * listening if the caller's test already failed at a `waitFor()` and never got
-   * as far as `await run`. That is the same failure reported a second time as an
-   * unhandled rejection, after the test that caused it, so a method that has
-   * delivered its rejection takes the base one off the hook.
+   * as far as `await run`. When a method delivers *that* error the caller has been
+   * told, and a second report from the base promise is the same failure twice.
+   * A method's own refusal is not it: a `press()` without `stdin: true` or a
+   * `waitFor()` that timed out says nothing about the run, so a run that later
+   * fails or is killed for time still has to be reported -- silencing it for the
+   * whole run was the first version, and it hid exactly the leak this guards.
    */
+  const delivered = (error: Error): void => {
+    if (error === failure && !rejected) {
+      promise.catch(() => {});
+    }
+  };
+
+  /** Delivers a rejection to a caller of a method. */
   const reject = (error: Error): Promise<never> => {
-    promise.catch(() => {});
+    delivered(error);
     return Promise.reject(error);
   };
 
@@ -631,7 +645,6 @@ function begin(opts: TerminalRunOptions): TerminalRun {
       child.stdin?.write(chunk, (error) => {
         if (error) {
           fail(new Error('the program has already exited, so there is nobody to type to'));
-          promise.catch(() => {});
         } else {
           resolve();
         }
@@ -711,7 +724,7 @@ function begin(opts: TerminalRunOptions): TerminalRun {
             if (error === undefined) {
               settle();
             } else {
-              promise.catch(() => {});
+              delivered(error);
               fail(error);
             }
           };

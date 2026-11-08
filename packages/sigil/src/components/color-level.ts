@@ -13,8 +13,13 @@ import type { Terminal } from '../terminal/index.js';
  * level-0 test terminal wrote colour under `FORCE_COLOR=3` and a test that read
  * the screen for text still found it in escapes on a CI runner that sets it.
  *
- * Twenty-three sites spelled `colorLevelOf(opts, opts.terminal)`
- * and now call this, so a fourth source is one edit and not twenty-three.
+ * Twenty-three sites spelled `opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level`
+ * and now call this, so a fourth source is one edit and not twenty-three. Only six
+ * of them pass a terminal -- `mountLive()`, `group`, `pager`, `tasks` and the two in
+ * `log` -- because those are the components that draw on one. The rest are string
+ * facades and view builders whose options carry no `terminal`, and pass none: they
+ * resolve exactly as they did, and a terminal's level reaches them only through
+ * the `colorLevel` or `ansi` of whoever mounts them.
  *
  * @param opts - What the caller passed.
  * @param terminal - The terminal the component draws on, if it has one.

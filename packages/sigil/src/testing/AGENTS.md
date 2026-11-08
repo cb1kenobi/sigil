@@ -603,13 +603,22 @@ dependency.
     in `try { ... } finally { run.kill() }`, which is safe after the exit. That is
     the rule for any test that can fail between starting a run and awaiting it,
     and it is in `runOnTerminal()`'s doc comment.
-  - **A method that delivers a rejection takes the base promise off the hook.**
-    `waitFor()`, `press()` and `paste()` mark the run handled when they reject, so
-    the failure is reported once, through whichever API the caller used. A refused
-    handle is the same: its promise rejects before anything is asked of it, and a
-    test that only awaited `run.press()` got the refusal a second time from a
-    promise it never held. `await run` still rejects, since marking a promise
-    handled does not settle it differently.
+  - **A method that delivers the run's own failure takes the base promise off the
+    hook, and no other rejection does.** `waitFor()`, `press()` and `paste()` mark
+    the run handled only when the error they reject with _is_ the run's `failure`
+    (the spawn error, or the kill for time), so that failure is reported once,
+    through whichever API reached it first. The first version marked the run
+    handled whenever any method rejected, and round 2 found what that hid: a test
+    that expects a wait to fail, catches it, and walks away from a child that is
+    killed for time later -- or a `press()` refused for want of `stdin: true` --
+    had its run's real failure silenced for the whole run. A method's own refusal,
+    or a wait that timed out, says nothing about the run, so a later failure is
+    still reported. A refused handle is the exception that proves it: its method
+    rejects with the base promise's own error, so it always marks it. `await run`
+    still rejects, since marking a promise handled does not settle it differently.
+    Marking after the base has already rejected is skipped, since it cannot help
+    and only prints Node's "handled asynchronously" warning (the one sabotage
+    that survives, because a warning is not something a test observes).
   - **The cause is told to a pending wait before the run rejects with it.** A
     `cwd` that is not there is `spawn ENOENT` as an event, and `waitFor()` said
     "the program exited before the screen showed", which names nothing that
