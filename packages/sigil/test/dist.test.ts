@@ -1,6 +1,8 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { dist, graphBytes, staticBuiltins, staticGraph } from './static-graph.js';
+import { execFileSync } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -16,8 +18,6 @@ import { describe, expect, it } from 'vitest';
  * Reads `dist/`, so it needs a build first, which is what `pnpm test` does and
  * what `@ttylabs/cli`'s tests already require.
  */
-
-const dist = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 
 /** Tab, newline and carriage return: the file's own formatting, not a sequence. */
 const FORMATTING = new Set([0x09, 0x0a, 0x0d]);
@@ -77,40 +77,6 @@ describe('the shipped bundles', () => {
     expect(imported).toMatch(/\\x1B/i);
   });
 });
-
-/**
- * Every module a static `import` of `entry` would load, and nothing else.
- *
- * Static rather than every specifier, because the difference is the whole
- * point: `main()` reaches the parser and the help screen through `await
- * import()`, so neither is on the graph that importing the package costs. A
- * dynamic import is spelled `import(` and a static one is `import ... from"x"`
- * or `import"x"`, so the parenthesis is what tells them apart.
- *
- * @param entry - A bundle in `dist/`, by name.
- * @returns The bundles reachable from it without calling anything.
- */
-function staticGraph(entry: string): Set<string> {
-  const seen = new Set<string>();
-  const queue = [entry];
-
-  while (queue.length > 0) {
-    const name = queue.shift() as string;
-    if (seen.has(name)) {
-      continue;
-    }
-    seen.add(name);
-
-    const source = readFileSync(join(dist, name), 'utf8');
-    for (const re of [/\bfrom\s*["'](\.\/[^"']+)["']/g, /\bimport\s*["'](\.\/[^"']+)["']/g]) {
-      for (const [, spec] of source.matchAll(re)) {
-        queue.push((spec as string).slice(2));
-      }
-    }
-  }
-
-  return seen;
-}
 
 /**
  * What grapheme segmentation looks like in a shipped chunk.
@@ -390,7 +356,7 @@ describe('what importing the package costs', () => {
 
   it('should cost a module rather than a component', () => {
     const graph = staticGraph('config.mjs');
-    const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+    const bytes = graphBytes(graph);
 
     // 38,239 B over eight modules, of which 9,880 B over six is what it starts
     // from: `paths.mjs`, `i18n.mjs`, the `transform` and `debug` chunks, the
@@ -427,7 +393,7 @@ describe('what importing the package costs', () => {
 
   it('should keep the root entry small enough to be worth it', () => {
     const graph = staticGraph('index.mjs');
-    const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+    const bytes = graphBytes(graph);
 
     // a ceiling rather than a measurement -- it sits about 1.7x over the 11.7 KB
     // this is today, so ordinary growth never touches it and pulling a
@@ -502,7 +468,7 @@ describe('what importing the package costs', () => {
     // A ceiling rather than a measurement, at about 3x, so ordinary growth never
     // touches it and a barrel import does
     const graph = staticGraph('input.mjs');
-    const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+    const bytes = graphBytes(graph);
 
     expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(100 * 1024);
   });
@@ -566,16 +532,20 @@ describe('what importing the package costs', () => {
     }
 
     // measured at 7,529 B over four modules as of SIG-201, of which the
-    // coercion itself is nearly all; a ceiling at about 3x, so ordinary growth
-    // never touches it and the parser arriving does
-    const bytes = [...coerce].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
-    expect(bytes, `${[...coerce].join(', ')}`).toBeLessThan(24 * 1024);
+    // coercion itself is nearly all, and 7,563 as of SIG-328, which moved the
+    // ceiling from 24 KiB -- about 3x -- to the 2x the rest of the entries are
+    // held to: ordinary growth never touches it and the parser arriving does
+    const bytes = graphBytes(coerce);
+    expect(bytes, `${[...coerce].join(', ')}`).toBeLessThan(16 * 1024);
   });
 
   it("should keep zlib out of the canvas, which checks a picture with the codec's own check", () => {
     // `resampleImage()` asks `assertRgbaImage()` from `png/image.ts` rather than
-    // from the subpath's barrel, because the barrel is the codec and the codec
-    // loads `node:zlib`. The presence half: the check really is in the canvas
+    // from the subpath's barrel, because the barrel is the codec: about 10 kB,
+    // and the `node:zlib` it asks for when it encodes or decodes, which since
+    // SIG-328 is a `getBuiltinModule()` call rather than an import -- so the
+    // specifier is still in the codec's bytes, and still the marker that it
+    // arrived. The presence half: the check really is in the canvas
     const canvas = staticGraph('canvas.mjs');
     expect(carriers(canvas, 'node:zlib')).toEqual([]);
     expect(carriers(canvas, 'expects a width and height')).not.toEqual([]);
@@ -605,7 +575,7 @@ describe('what importing the package costs', () => {
     // measured at 14,344 B over three modules as of SIG-114, of which the codec
     // is 10,365; a ceiling at about 2x, so ordinary growth never touches it and
     // anything that is not a codec arriving does
-    const bytes = [...png].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+    const bytes = graphBytes(png);
     expect(bytes, `${[...png].join(', ')}`).toBeLessThan(28 * 1024);
   });
 
@@ -629,11 +599,12 @@ describe('what importing the package costs', () => {
     expect([...graph].join(', ')).not.toMatch(/\bparse-|\bi18n|\bdebug-/);
     expect(carriers(graph, 'Unknown command')).toEqual([]);
 
-    // measured at 685 B over the shared `fuzzy` chunk as of SIG-268; a ceiling
-    // well over that, so ordinary growth never touches it and the parser
-    // arriving does
-    const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
-    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(8 * 1024);
+    // measured at 685 B over the shared `fuzzy` chunk as of SIG-268 and 1,344
+    // over two as of SIG-328, which moved the ceiling from 8 KiB -- six times
+    // what it guards -- to about 2x: ordinary growth never touches it and the
+    // parser arriving does
+    const bytes = graphBytes(graph);
+    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(3 * 1024);
   });
 
   it('should not put the prompts on the path that only prints a script', () => {
@@ -713,10 +684,20 @@ describe('what importing the package costs', () => {
     // the one new module, which `imageView()` decodes bytes with. Ordinary
     // growth, so the ceiling moved to 640 KiB, which is 1.39x of the new figure
     //
+    // 473,873 B over 38 as of SIG-328, which audited every entry to win that
+    // back and did not: what it took out of this entry was load **time** --
+    // zlib, `child_process` and `util` became `getBuiltinModule()` calls inside
+    // the functions that need them, 15.3 ms to 14.1 ms of a fresh node's import
+    // -- and the bytes are where they were, because the codec is decoded when
+    // `imageView()` is built and so cannot be loaded later without making that
+    // asynchronous. So the ceiling stays: 640 KiB is already 1.38x, under the 2x
+    // the other entries are held to, and moving it either way would be a number
+    // changed for its own sake. The audit is in src/testing/AGENTS.md
+    //
     // A ceiling rather than a measurement, at about 1.4x, so ordinary growth
     // never touches it and a second runtime stack does
     const graph = staticGraph('components.mjs');
-    const bytes = [...graph].reduce((n, name) => n + statSync(join(dist, name)).size, 0);
+    const bytes = graphBytes(graph);
 
     expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(640 * 1024);
   });
@@ -768,6 +749,182 @@ describe('what importing the package costs', () => {
       expect(carriers(staticGraph('app.mjs'), symbol)).not.toEqual([]);
     }
   );
+});
+
+/**
+ * Whether a graph asks for a builtin lazily, through `process.getBuiltinModule()`.
+ *
+ * A pattern rather than a fixed string, because the quote is the minifier's to
+ * pick: the source says `'node:zlib'` and the bundle says it with backticks,
+ * while the update worker -- baked in as text -- keeps the source's.
+ */
+function asks(graph: Set<string>, builtin: string): string[] {
+  const re = new RegExp(`getBuiltinModule\\(\\s*[\`'"]${builtin}[\`'"]\\s*\\)`);
+  return [...graph].filter((name) => re.test(readFileSync(join(dist, name), 'utf8')));
+}
+
+/**
+ * The builtins node has loaded, by name, once `entry` is imported -- and again
+ * once each of `then` has been asked for.
+ *
+ * In a fresh node, because a builtin loaded is loaded for the life of the
+ * process. Read off `process.moduleLoadList` whole rather than as a difference
+ * from before the import, so that a builtin node had already loaded at startup
+ * reads as loaded here and fails the absence below rather than passing it.
+ */
+function loadedBy(entry: string, then: string[]): { atImport: string[]; asked: string[] } {
+  const probe = `
+    const names = () => process.moduleLoadList
+      .filter((m) => m.startsWith('NativeModule '))
+      .map((m) => 'node:' + m.slice('NativeModule '.length));
+    await import(process.argv[1]);
+    const atImport = names();
+    for (const b of process.argv.slice(2)) process.getBuiltinModule(b);
+    process.stdout.write(JSON.stringify({ atImport, asked: names() }));
+  `;
+  // without NODE_OPTIONS, so that whatever loader a test runner was started
+  // with is not counted against the entry
+  const { NODE_OPTIONS: _ignored, ...env } = process.env;
+  return JSON.parse(
+    execFileSync(
+      process.execPath,
+      ['--input-type=module', '-e', probe, pathToFileURL(join(dist, entry)).href, ...then],
+      { encoding: 'utf8', env }
+    )
+  );
+}
+
+describe('the builtins an entry loads, and the ones it only asks for', () => {
+  // SIG-328's audit, pinned. Each of these is a builtin the entry needs inside
+  // a function and not at load, and each was measured as the costliest thing
+  // left on that entry's import: `node:https` is `tls`, `net` and `http` behind
+  // it, about 3.4 ms of a fresh node's; `node:crypto` about 2 ms; `node:zlib`
+  // about 0.7. They are `process.getBuiltinModule()` calls now, which is
+  // synchronous, so `decodePng()`, `encodePng()` and every write kept their
+  // signatures. `node:util` is in the static half only: node has it loaded
+  // before any user code runs, and what its ESM import cost was the
+  // `worker_threads` and stream stack the facade pulled in behind it
+  const LAZY: [string, string][] = [
+    ['components.mjs', 'node:zlib'],
+    ['components.mjs', 'node:child_process'],
+    ['components.mjs', 'node:util'],
+    ['png.mjs', 'node:zlib'],
+    ['config.mjs', 'node:crypto'],
+    ['updates.mjs', 'node:https'],
+    ['updates.mjs', 'node:child_process'],
+  ];
+
+  it.each(LAZY)('should not import %s at load: %s', (entry, builtin) => {
+    const graph = staticGraph(entry);
+    expect(staticBuiltins(graph)).not.toContain(builtin);
+    // the presence half, for the reason every pair above gives: the code that
+    // needs it is still in the graph and still asks for it, so the absence is
+    // about how it is reached rather than about it having gone
+    expect(asks(graph, builtin), `${entry} no longer asks for ${builtin}`).not.toEqual([]);
+  });
+
+  it('should still see a static import, which is the half that keeps the table honest', () => {
+    // `staticBuiltins()` reads one spelling of an import, the minifier's, and a
+    // reader that matched nothing would pass every absence above forever. So it
+    // is asked about imports that are really there, one per entry in the table
+    expect(staticBuiltins(staticGraph('components.mjs'))).toContain('node:fs');
+    expect(staticBuiltins(staticGraph('png.mjs'))).toContain('node:buffer');
+    expect(staticBuiltins(staticGraph('config.mjs'))).toContain('node:fs/promises');
+    expect(staticBuiltins(staticGraph('updates.mjs'))).toContain('node:fs');
+    // and not about the worker's own `import ... from 'node:fs'`, which is text
+    // inside the bundle and loads nothing -- the case the spelling is chosen for
+    expect(staticBuiltins(staticGraph('updates.mjs'))).not.toContain('node:https');
+  });
+
+  // the runtime half, which the static one cannot be: a `getBuiltinModule()`
+  // call at module level loads the builtin as surely as an import does and is
+  // in no import list -- and the encoder's deflate options were one in waiting,
+  // an object at module level reading zlib's `constants`, which spelled as a
+  // `zlib().constants` would have loaded zlib at import with no import in sight.
+  // Here the entry is imported and the process asked what it loaded. `tls` stands for the
+  // https stack, since `https` is what was asked for and `tls` is what cost
+  const LOADED: [string, string[]][] = [
+    ['components.mjs', ['node:zlib', 'node:child_process']],
+    ['png.mjs', ['node:zlib']],
+    ['config.mjs', ['node:crypto']],
+    ['updates.mjs', ['node:https', 'node:tls', 'node:child_process']],
+  ];
+
+  it.each(LOADED)('should load none of them to import %s: %j', (entry, builtins) => {
+    const { asked, atImport } = loadedBy(entry, builtins);
+    for (const builtin of builtins) {
+      expect(atImport, `${entry} loads ${builtin} at import`).not.toContain(builtin);
+      // the presence half: asking for it does load it, in a list read the same
+      // way -- so a `moduleLoadList` that stopped naming builtins like this
+      // would fail here rather than pass the absence
+      expect(asked, `asking for ${builtin} did not load it`).toContain(builtin);
+    }
+  });
+});
+
+/**
+ * Every published entry's byte ceiling, about 2x what it measured as of SIG-328.
+ *
+ * The convention every dedicated ceiling above already follows, extended to the
+ * entries that had none -- which was most of them, so an entry could double and
+ * nothing would say so. In KiB; what each measured is the second figure, and it
+ * is a measurement **as of SIG-328** rather than a claim about the tree, which
+ * is the root AGENTS.md's rule about byte figures. The entries with a test of
+ * their own keep it and are listed in `DEDICATED`, so that no entry has two
+ * ceilings to disagree.
+ */
+const CEILINGS: Record<string, [kib: number, measured: number]> = {
+  ansi: [16, 7_790],
+  app: [400, 207_114],
+  canvas: [76, 38_777],
+  element: [256, 131_505],
+  'error-handler': [16, 8_422],
+  help: [360, 184_164],
+  i18n: [8, 3_979],
+  'i18n-keys': [18, 9_446],
+  'jsx-dev-runtime': [336, 170_545],
+  'jsx-runtime': [336, 170_311],
+  layout: [26, 13_269],
+  paths: [4, 1_855],
+  reference: [82, 41_961],
+  renderer: [328, 166_513],
+  routes: [5, 2_604],
+  signals: [14, 6_776],
+  style: [148, 75_603],
+  template: [340, 174_120],
+  terminal: [30, 15_242],
+  testing: [100, 51_372],
+  theme: [188, 96_225],
+  themes: [8, 4_119],
+  updates: [36, 18_536],
+  width: [8, 4_220],
+  which: [3, 1_446],
+  wrap: [18, 9_157],
+};
+
+/** The entries whose ceiling is a test of its own, above. */
+const DEDICATED = ['index', 'coerce', 'components', 'config', 'input', 'png', 'suggest'];
+
+describe('what each entry costs', () => {
+  it('should hold every published entry to a ceiling', () => {
+    // derived from the manifest rather than listed, because a list somebody has
+    // to add to is how `ScrollBox` went unpinned above: a new subpath without a
+    // ceiling fails here, naming itself
+    const manifest = JSON.parse(
+      readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8')
+    ) as { exports: Record<string, unknown> };
+    const published = Object.keys(manifest.exports)
+      .filter((key) => key !== './package.json')
+      .map((key) => (key === '.' ? 'index' : key.slice(2)))
+      .sort();
+
+    expect([...Object.keys(CEILINGS), ...DEDICATED].sort()).toEqual(published);
+  });
+
+  it.each(Object.entries(CEILINGS))('should keep %s under its ceiling', (entry, [kib]) => {
+    const graph = staticGraph(`${entry}.mjs`);
+    expect(graphBytes(graph), [...graph].join(', ')).toBeLessThan(kib * 1024);
+  });
 });
 
 // `src/updates/worker.ts` is piped into a runtime rather than imported on the

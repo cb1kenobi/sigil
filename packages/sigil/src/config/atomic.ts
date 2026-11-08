@@ -1,5 +1,4 @@
 import { mkdirOwnerSync } from '../util/mkdir-owner-sync.js';
-import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
   chownSync,
@@ -242,8 +241,14 @@ function isRoot(): boolean {
  * follows a symlink sitting at it, dangling or not; the random name is what
  * makes that refusal a coincidence rather than a denial of service anybody can
  * stage by guessing the next pid. Either alone leaves half of it open.
+ *
+ * `node:crypto` is asked for here rather than imported, because this is the
+ * only thing in the module that needs it and `@ttylabs/sigil/config` is what
+ * an app with a config file loads on every run, writing or not: it was about
+ * 2 ms of a fresh node's import, the costliest builtin in the entry. SIG-328.
  */
 function tempFor(path: string): string {
+  const { randomBytes } = process.getBuiltinModule('node:crypto');
   return `${path}.${randomBytes(8).toString('hex')}.tmp`;
 }
 

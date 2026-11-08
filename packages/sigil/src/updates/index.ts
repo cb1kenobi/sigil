@@ -5,7 +5,6 @@ import { bakedConfig, compiledHost } from './host.js';
 import { cacheFileName } from './registry.js';
 import { workerSource } from './worker-source.js';
 import { cacheResponse, fetchJSON, WORKER_ARGV, WORKER_ENTRY, type UpdateCache } from './worker.js';
-import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -282,6 +281,10 @@ async function checkInWorker(opts: RunOptions): Promise<UpdateCache | undefined>
   };
 
   log(`Spawning update worker (${checker.type})...`);
+  // asked for here rather than imported: a fresh cache, which is most runs,
+  // spawns nothing, and this module is loaded on every run of an app that
+  // declares `updateCheck`. SIG-328
+  const { spawn } = process.getBuiltinModule('node:child_process');
   const worker = spawn(process.execPath, [...WORKER_ARGV], {
     env,
     stdio: ['pipe', 'pipe', 'pipe'],
