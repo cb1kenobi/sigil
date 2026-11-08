@@ -6653,6 +6653,20 @@ RGBA with straight alpha. Pixel `(x, y)` starts at byte `(y * width + x) * 4`.
 Raw RGBA is also how any other format gets in: if you have a JPEG, decode it
 with something else and pass the pixels to `encodePng()`.
 
+`assertRgbaImage(image, { name, min })` is the check both use on that shape, and
+throws a `TypeError` that says what is wrong: a width or height that is not a
+whole number from `min` (0 unless given) to 2^31-1, `data` that is not a
+`Uint8Array` or a `Uint8ClampedArray`, or `data` that is not exactly
+`width * height * 4` bytes. `name` opens the message, so a function taking
+pixels can check them in its own words:
+
+```js
+import { assertRgbaImage } from '@ttylabs/sigil/png';
+
+assertRgbaImage(pixels, { name: 'drawLogo()' });
+// TypeError: drawLogo() expects 64 bytes of data for 4x4 RGBA, got 60
+```
+
 `decodePng()` reads every colour type at every bit depth (1, 2, 4, 8 and 16),
 palettes and `tRNS` transparency, all five scanline filters, and Adam7
 interlacing. The output is always 8-bit RGBA. A 16-bit sample is rounded to the

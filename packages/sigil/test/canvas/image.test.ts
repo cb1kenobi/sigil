@@ -140,7 +140,9 @@ describe('resampleImage()', () => {
     // a row short reads as `undefined`, which the arithmetic would turn into a
     // `NaN` that `rgb()` throws about from somewhere else entirely
     const short = { data: new Uint8Array(12), height: 2, width: 2 };
-    expect(() => resampleImage(short, 1, 1)).toThrow(/expected 16 bytes of RGBA for 2x2, got 12/);
+    expect(() => resampleImage(short, 1, 1)).toThrow(
+      'resampleImage() expects 16 bytes of data for 2x2 RGBA, got 12'
+    );
     const wrong = { data: [1, 2, 3, 4] as unknown as Uint8Array, height: 1, width: 1 };
     expect(() => resampleImage(wrong, 1, 1)).toThrow(TypeError);
     expect(() => resampleImage({ data: new Uint8Array(0), height: 1.5, width: 0 }, 1, 1)).toThrow(

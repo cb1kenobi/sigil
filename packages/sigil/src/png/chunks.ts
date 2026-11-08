@@ -1,3 +1,4 @@
+import { MAX_DIMENSION } from './image.js';
 /**
  * What the decoder and the encoder agree on: the signature, the colour types,
  * and how a chunk's CRC is computed.
@@ -38,7 +39,7 @@ export const DEPTHS: Readonly<Record<number, readonly number[]>> = {
 };
 
 /** The largest length a chunk may declare: 2^31 - 1, so it fits a signed int. */
-export const MAX_CHUNK_LENGTH = 0x7fffffff;
+export const MAX_CHUNK_LENGTH: number = MAX_DIMENSION;
 
 /**
  * The CRC of a chunk, which covers its type and its data but not its length.

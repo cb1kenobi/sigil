@@ -17,11 +17,13 @@
  * component that has a box.
  *
  * The picture is `RgbaImage`, the shape `@ttylabs/sigil/png` decodes to and
- * the one a caller bringing their own decoder hands in: one definition, in the
- * codec, and imported here as a type so that resampling costs nothing of it.
+ * the one a caller bringing their own decoder hands in, checked by the codec's
+ * own `assertRgbaImage()`: one definition of both, in the codec.
  */
 
-import type { RgbaImage } from '../png/index.js';
+// from the module rather than the subpath's barrel: the barrel is the codec,
+// and the codec loads `node:zlib`, which checking a shape has no use for
+import { assertRgbaImage, type RgbaImage } from '../png/image.js';
 
 /** A rectangle of a picture, in its pixels. It may be fractional. */
 export interface ImageRect {
@@ -91,38 +93,6 @@ function spans(start: number, length: number, size: number, count: number): Span
 }
 
 /**
- * Whether a picture is what it says it is.
- *
- * Refused rather than read as far as it goes, for the reason `rgb()` refuses a
- * channel out of range: a `data` one row short reads as `undefined`, which the
- * arithmetic turns into `NaN` and `rgb()` then throws about from somewhere that
- * has nothing to do with the mistake.
- *
- * @param image - The picture.
- */
-export function assertImage(image: RgbaImage): void {
-  const { height, width } = image;
-  // read as `unknown`, because what is being checked is that it is what the type
-  // says, and a caller in JavaScript can hand over anything
-  const data: unknown = image.data;
-  if (!Number.isSafeInteger(width) || width < 0 || !Number.isSafeInteger(height) || height < 0) {
-    throw new TypeError(
-      `Invalid image size ${String(width)}x${String(height)}: expected whole numbers of pixels`
-    );
-  }
-  // a Uint8ClampedArray is what a canvas's `ImageData` holds, and is the same
-  // bytes read through the same indices -- `encodePng()` takes one too
-  const bytes = data instanceof Uint8Array || data instanceof Uint8ClampedArray;
-  if (!bytes || data.length !== width * height * 4) {
-    throw new TypeError(
-      `Invalid image data: expected ${width * height * 4} bytes of RGBA for ${width}x${height}, got ${
-        bytes ? (data as Uint8Array).length : typeof data
-      }`
-    );
-  }
-}
-
-/**
  * Resamples a picture, or a rectangle of one, to a size, with a box filter.
  *
  * Every destination pixel is the average of the source pixels under it, each
@@ -145,8 +115,9 @@ export function assertImage(image: RgbaImage): void {
  * @param from - The rectangle of the picture to resample. All of it, if omitted;
  *   clamped to the picture where it reaches past an edge.
  * @returns A new picture of exactly `width` by `height`.
- * @throws A `TypeError` for a picture whose data does not match its size, and a
- *   `RangeError` for a size that is not a whole number of pixels.
+ * @throws A `TypeError` for a picture that is not an `RgbaImage`, which is
+ *   `assertRgbaImage()`'s, and a `RangeError` for a size to resample to that is
+ *   not a whole number of pixels.
  */
 export function resampleImage(
   image: RgbaImage,
@@ -154,7 +125,7 @@ export function resampleImage(
   height: number,
   from?: ImageRect
 ): RgbaImage {
-  assertImage(image);
+  assertRgbaImage(image, { name: 'resampleImage()' });
   if (!Number.isSafeInteger(width) || width < 0 || !Number.isSafeInteger(height) || height < 0) {
     throw new RangeError(
       `Invalid resample size ${String(width)}x${String(height)}: expected whole numbers of pixels`

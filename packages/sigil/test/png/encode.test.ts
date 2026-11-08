@@ -1,4 +1,4 @@
-import { decodePng, encodePng, type RgbaImage } from '../../src/png/index.js';
+import { assertRgbaImage, decodePng, encodePng, type RgbaImage } from '../../src/png/index.js';
 import { createHash } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
@@ -295,5 +295,53 @@ describe('encodePng()', () => {
         }
       }
     });
+  });
+});
+
+describe('assertRgbaImage()', () => {
+  // one check of the shape, shared by the encoder and by everything that reads
+  // pixels -- `resampleImage()` and `imageView()` -- so that what counts as a
+  // picture cannot differ between them. The encoder's messages are its own
+  // words through `name`, and are pinned exactly here so that sharing the check
+  // could not have moved them
+  it("should keep the encoder's messages, word for word", () => {
+    const cases: [unknown, string][] = [
+      [
+        undefined,
+        'encodePng() expects a width and height that are whole numbers from 1 to 2147483647, got undefinedxundefined',
+      ],
+      [
+        { data: new Uint8Array(0), height: 1, width: 0 },
+        'encodePng() expects a width and height that are whole numbers from 1 to 2147483647, got 0x1',
+      ],
+      [
+        { data: [0, 0, 0, 0], height: 1, width: 1 },
+        'encodePng() expects data to be a Uint8Array, got Array',
+      ],
+      [
+        { data: new Uint8Array(15), height: 2, width: 2 },
+        'encodePng() expects 16 bytes of data for 2x2 RGBA, got 15',
+      ],
+    ];
+    for (const [input, message] of cases) {
+      expect(() => encodePng(input as RgbaImage)).toThrow(new TypeError(message));
+    }
+  });
+
+  it('should take an empty picture unless asked for at least a pixel, as a PNG is', () => {
+    const empty = { data: new Uint8Array(0), height: 0, width: 0 };
+    expect(() => assertRgbaImage(empty)).not.toThrow();
+    expect(() => assertRgbaImage(empty, { min: 1 })).toThrow(TypeError);
+  });
+
+  it('should take a Uint8ClampedArray, and name the caller it was given', () => {
+    const clamped = { data: new Uint8ClampedArray(4), height: 1, width: 1 };
+    expect(() => assertRgbaImage(clamped)).not.toThrow();
+    expect(() => assertRgbaImage({ data: new Float32Array(4), height: 1, width: 1 })).toThrow(
+      'an RgbaImage expects data to be a Uint8Array, got Float32Array'
+    );
+    expect(() => assertRgbaImage(null, { name: 'resampleImage()' })).toThrow(
+      /^resampleImage\(\) expects a width and height/
+    );
   });
 });

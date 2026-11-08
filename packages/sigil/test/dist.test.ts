@@ -572,6 +572,15 @@ describe('what importing the package costs', () => {
     expect(bytes, `${[...coerce].join(', ')}`).toBeLessThan(24 * 1024);
   });
 
+  it("should keep zlib out of the canvas, which checks a picture with the codec's own check", () => {
+    // `resampleImage()` asks `assertRgbaImage()` from `png/image.ts` rather than
+    // from the subpath's barrel, because the barrel is the codec and the codec
+    // loads `node:zlib`. The presence half: the check really is in the canvas
+    const canvas = staticGraph('canvas.mjs');
+    expect(carriers(canvas, 'node:zlib')).toEqual([]);
+    expect(carriers(canvas, 'expects a width and height')).not.toEqual([]);
+  });
+
   it('should keep the png subpath to the codec and off the root entry', () => {
     // `@ttylabs/sigil/png` is read by whatever draws an image and by whatever
     // writes a screenshot, and by nothing that only parses argv -- so it is a

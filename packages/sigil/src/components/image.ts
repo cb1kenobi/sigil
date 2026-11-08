@@ -17,16 +17,9 @@
  */
 
 import { ansi as defaultAnsi } from '../ansi/index.js';
-import {
-  assertImage,
-  type Color,
-  DEFAULT_COLOR,
-  Pixels,
-  resampleImage,
-  rgb,
-} from '../canvas/index.js';
+import { type Color, DEFAULT_COLOR, Pixels, resampleImage, rgb } from '../canvas/index.js';
 import { type Element, raw, renderToString } from '../element/index.js';
-import { decodePng, type RgbaImage } from '../png/index.js';
+import { assertRgbaImage, decodePng, type RgbaImage } from '../png/index.js';
 import { colorRgb, quantizeColor } from '../style/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { terminalWidth } from '../wrap/index.js';
@@ -386,7 +379,7 @@ function pictureOf(input: ImageSource): RgbaImage {
   if (input instanceof Uint8Array) {
     return decodePng(input);
   }
-  assertImage(input);
+  assertRgbaImage(input, { name: 'imageView()' });
   return input;
 }
 
