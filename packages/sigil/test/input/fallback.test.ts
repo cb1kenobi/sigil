@@ -220,6 +220,25 @@ describe('fallback()', () => {
     expect(seen).toEqual(['first']);
   });
 
+  it('should hand a key to a fallback added earlier in the same dispatch by an onKey that let it through', async () => {
+    // the copy is taken where the layer starts, so this one is simply there: the
+    // rule is about a fallback added by a fallback, and the trie layer is the same
+    const { input, other, press, root } = setup();
+    const seen: string[] = [];
+    input.focus.focus(other);
+    let added = false;
+    root.onKey = () => {
+      if (!added) {
+        added = true;
+        input.fallback('x', () => seen.push('late'));
+      }
+    };
+
+    await press('x');
+
+    expect(seen).toEqual(['late']);
+  });
+
   it('should run no more fallbacks once one of them stopped the router', async () => {
     const { input } = setup();
     const seen: string[] = [];
@@ -235,7 +254,7 @@ describe('fallback()', () => {
     expect(seen).toEqual(['first']);
   });
 
-  it('should not hand a key to a fallback added while that key was being dispatched', async () => {
+  it('should not hand a key to a fallback that another fallback added while that key was being dispatched', async () => {
     const { input, press } = setup();
     const seen: string[] = [];
     input.fallback('q', () => {

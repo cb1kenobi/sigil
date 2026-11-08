@@ -1,5 +1,7 @@
 import { createSinkCanvas } from '../../src/canvas/index.js';
+import { keyHelpEntries } from '../../src/components/index.js';
 import { box, type Element, text } from '../../src/element/index.js';
+import { type Catalog, loadCatalog } from '../../src/i18n/index.js';
 import { type App, AppContext, runApp, useApp } from '../../src/renderer/app.js';
 import { createEffect, onCleanup, onMount, useContext } from '../../src/renderer/index.js';
 import { State } from '../../src/signals/index.js';
@@ -216,10 +218,61 @@ describe('runApp()', () => {
     expect(term.screen.alternate).toBe(false);
   });
 
-  it('should list q as Quit, so a key-help footer shows it without the app writing the line', () => {
+  it('should list q as quit, so a key-help footer shows it without the app writing the line', () => {
     const { app } = start(() => text('x'));
 
-    expect(app.input?.bindings().map((b) => [b.keys, b.description])).toEqual([['q', 'Quit']]);
+    expect(app.input?.bindings().map((b) => [b.keys, b.description])).toEqual([['q', 'quit']]);
+  });
+
+  it('should list q through the catalog, so a translated app does not get an English word', async () => {
+    const catalog: Catalog = { quit: 'beenden' };
+    await loadCatalog({ de: async () => catalog }, {}, 'de');
+    try {
+      const { app } = start(() => text('x'));
+      expect(app.input?.bindings().map((b) => b.description)).toEqual(['beenden']);
+    } finally {
+      await loadCatalog(undefined, {});
+    }
+  });
+
+  it("should merge with an app's own `q` described as quit, which is one line and not two", () => {
+    const { app } = start(() => {
+      useApp().input?.bind('q', () => {}, { description: 'quit', priority: 9 });
+      return text('x');
+    });
+
+    const infos = app.input?.bindings() ?? [];
+    expect(infos.map((b) => [b.keys, b.description])).toEqual([
+      ['q', 'quit'],
+      ['q', 'quit'],
+    ]);
+    expect(keyHelpEntries(infos).map((e) => [e.label, e.description])).toEqual([['q', 'quit']]);
+  });
+
+  it.each([true, null, 3, {}, ['q']])(
+    'should refuse a quitKey that is neither a string nor false: %j',
+    (quitKey) => {
+      const term = createTestTerminal({ columns: 30, rows: 6 });
+
+      expect(() =>
+        runApp(() => text('x'), {
+          detect: false,
+          quitKey: quitKey as never,
+          terminal: term.terminal,
+        })
+      ).toThrow(/quitKey is a key spec or false/);
+
+      // and before anything was taken
+      expect(term.stdin.rawMode).toBe(false);
+      expect(term.stdin.listenerCount('data')).toBe(0);
+      expect(term.screen.alternate).toBe(false);
+    }
+  );
+
+  it('should read an undefined quitKey as the default, and only that', async () => {
+    const { app, term } = start(() => text('x'), { quitKey: undefined });
+    await term.press('q');
+    expect(await app.exited).toBe(0);
   });
 
   it("should give an app's own binding on q the key first, and its own exit code", async () => {

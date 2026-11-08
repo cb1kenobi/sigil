@@ -274,9 +274,9 @@ the `ui` tag run by plain `node`.
   the table, because the field does not take them (it does take Home and End, as
   cursor motion), where the old handler returned early for everything but Escape.
 
-  The footer's description of `q` is the runner's, so it reads `q Quit` where the
-  monitor wrote `q quit`, and it is last because the runner registers it after the
-  body. Removing the focus-first workaround also removed a side effect nobody had
+  The footer's `q quit` is the runner's -- lower case and through `__`, like every
+  description the framework lists, so it is the line the monitor wrote and now
+  translates -- and it is last because the runner registers it after the body. Removing the focus-first workaround also removed a side effect nobody had
   named: the footer sized itself from the root's laid-out width, which does not
   exist at the first draw, and was cut to a guess of 80 until the focus moved --
   the mount-time `focus()` was what moved it. It reads `app.terminal.width` now,

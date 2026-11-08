@@ -75,8 +75,12 @@ the entry it belongs to.
     default does not also see it: a fallback on `tab` is the app saying Tab means
     something else, and moving the focus too would be two things for one press.
     Several on one key all run, in the order added, over a copy and a membership
-    check -- the rule every handler set here follows, so one added during the key
-    does not receive it and one removed during it is not called; and a router a
+    check -- the rule every handler set here follows, so one added **by a fallback**
+    during the key does not receive it and one removed during it is not called. A
+    fallback added earlier in the same dispatch -- by an `onKey` that did not stop
+    the key, or by a function binding that only watches keys -- is simply there when
+    this layer is reached, and does receive it; the trie layer behaves the same
+    way, and the copy is taken where the layer starts. And a router a
     handler stopped runs no more of them, `fire()`'s fourth place. Two
     registrations of one function are two entries (each is wrapped), so a
     disposer takes off its own.
@@ -84,11 +88,11 @@ the entry it belongs to.
     same reason: content cannot drive a binding. `should never see a pasted key,
     and should not be cancelled or advanced by one` pins it.
   - **`bindings()` lists fallbacks after the scoped entries, which is their
-    dispatch order,** and `describe()`'s second argument is the same function with a
+    dispatch order,** and `describe()`'s third argument (`into`) is the same function with a
     set of its own to write into -- a separate set rather than a sort key on a
     public record. A fallback applies wherever the focus is, so it is listed
     wherever the focus is. **With a text field focused the footer still shows
-    `q  Quit`, and pressing `q` there types it.** The router cannot know in
+    `q  quit`, and pressing `q` there types it.** The router cannot know in
     advance whether the focused element will take a key -- an `onKey` is a function
     and says nothing about which keys it is for, which is the whole reason
     `describe()` exists and can drift -- so the listing is the keys that _fall
@@ -131,7 +135,7 @@ the entry it belongs to.
   the first. Repair is only for the element that has gone.
 - **A focused element that is unmounted hands focus on by position.** Dropping it
   into nothing reads as an app that stopped responding: every key then goes to
-  the bindings and nowhere else. What is kept is where it sat in the ring, not
+  the bindings and the fallbacks and nowhere else. What is kept is where it sat in the ring, not
   which element it was, because the element is exactly what has gone.
 - **`focusable` and `tabindex` are reserved props, and `selectable` joined them.**
   Everything a prop names that this list does not is a style property, and the
@@ -1761,8 +1765,9 @@ may be copied, `src/terminal/clipboard.ts` is OSC 52, and
   focus signal and a revision counter, so an effect or a computed that calls it
   re-runs when the focus moves or a description is added or removed. Order is
   dispatch order: unscoped entries, then scoped ones from the focused element
-  outwards, registration order within a tie (`sort` is stable). A scope the focus
-  is not inside is not listed, and with nothing focused only unscoped entries are.
+  outwards, registration order within a tie (`sort` is stable), then the
+  `fallback()` ones (SIG-308). A scope the focus is not inside is not listed, and
+  with nothing focused only unscoped entries and fallbacks are.
 - **There is no scoping on `bind()` itself, and `scope` on `describe()` is
   documentation.** Only an element's `onKey` is focus-scoped today, and it is a
   function; `describe()` is the declaration of what it handles and can drift from

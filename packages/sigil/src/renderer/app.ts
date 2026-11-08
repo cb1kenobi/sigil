@@ -44,6 +44,7 @@ import { createFullscreenCanvas } from '../canvas/index.js';
 import type { CanvasBackend } from '../canvas/index.js';
 import { box, type Element } from '../element/index.js';
 import { renderError } from '../error-handler.js';
+import { __ } from '../i18n/index.js';
 import type { DetectOptions } from '../input/capabilities.js';
 import {
   canReadKeys,
@@ -135,7 +136,7 @@ export interface AppOptions extends Pick<
    * A **fallback**, `InputRouter.fallback()`: it comes after the focused element
    * and its ancestors, so a text field that takes `q` keeps it and typing a word
    * into a filter does not quit, while with nothing focused -- or focus anywhere
-   * that does not use the key -- `q` ends the app. It is listed as "Quit" by
+   * that does not use the key -- `q` ends the app. It is listed as "quit" (translated) by
    * `bindings()`, so a key-help footer shows it without the app writing the line.
    * Ends it with `0` rather than the `130` of `quit`: a `q` is the app choosing to
    * go, and it is not an interrupt.
@@ -326,6 +327,15 @@ export function useApp(): App {
  *   on the handle `useApp()` gave the body settles `1`.
  */
 export function runApp(component: () => Element, opts: AppOptions = {}): App {
+  // checked first, before a router is built and stdin is taken: from plain JS a
+  // `true` would reach the key grammar as `spec.split is not a function`, and a
+  // `null` would quietly mean `'q'`
+  const quitKey = opts.quitKey === undefined ? 'q' : opts.quitKey;
+  if (quitKey !== false && typeof quitKey !== 'string') {
+    throw new TypeError(
+      `quitKey is a key spec or false: got ${quitKey === null ? 'null' : typeof quitKey}`
+    );
+  }
   const terminal = opts.terminal ?? defaultTerminal;
   const stdin = opts.stdin ?? (terminal.stdin as InputStream | undefined);
   const interactive = stdin !== undefined && canReadKeys({ stdin, terminal });
@@ -503,7 +513,6 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   input = router;
 
   const quit = opts.quit ?? isAbort;
-  const quitKey = opts.quitKey ?? 'q';
   if (quit !== false) {
     // first, so that it sees every key before anything the component binds
     router.bind((event) => {
@@ -550,12 +559,12 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       () =>
         provideContext(AppContext, app, () => {
           host.append(component());
-          // after the body, so a key-help footer lists "Quit" last, where an app
+          // after the body, so a key-help footer lists "quit" last, where an app
           // puts it. In here rather than beside the router so that a spec which is
           // not one key throws the way a body that throws does: `render()` gives
           // the screen back, and the catch below the call stops the router
           if (quitKey !== false) {
-            router.fallback(quitKey, () => app.exit(), { description: 'Quit', priority: 9 });
+            router.fallback(quitKey, () => app.exit(), { description: __`quit`, priority: 9 });
           }
           return host;
         }),

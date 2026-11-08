@@ -174,7 +174,7 @@ describe('the system monitor', () => {
     expect(screen).toContain('─ processes · 2 of 2 ─');
     expect(screen).toContain('8.0 GiB / 16 GiB');
     expect(screen).toMatch(/cpu1 .* 75%/);
-    expect(screen).toMatch(/↑\/↓ select · s sort · \/ filter · x kill · t theme · q Quit/);
+    expect(screen).toMatch(/↑\/↓ select · s sort · \/ filter · x kill · t theme · q quit/);
   });
 
   it('should sort by cpu first, highest at the top', async () => {

@@ -5643,8 +5643,8 @@ the focus ring.
 The layer between is for an app-wide key that a focused field outranks:
 
 ```js
-input.fallback('q', () => app.exit(), { description: 'Quit' });
 input.fallback('/', () => input.focus.focus(filter), { description: 'filter' });
+input.fallback('s', () => sortNext(), { description: 'sort' });
 ```
 
 A `bind('q', fn)` is consulted before the focused element, so it quits while
@@ -5657,6 +5657,11 @@ one key, modifiers allowed (`'ctrl+r'`); a spec naming two throws, and a sequenc
 stays with `bind()`. A key a fallback matches is claimed, so the Tab default does
 not also see it; a pasted key never reaches one. `fallback()` returns the function
 that removes it.
+
+[`runApp()`](#sigilapp) already registers one for `q` (its `quitKey`), described as
+`quit`, so an app does not write that one. An app's own `fallback('q', …)` runs
+**as well as** the runner's -- every fallback on a key runs -- unless it passes
+`quitKey: false`.
 
 A bracketed paste goes the other way round, which is the mouse's order: the
 focused element's `onPaste` and then each ancestor's are offered it first, the
@@ -5690,7 +5695,7 @@ app-wide entries first, then the scoped ones from the focused element outwards,
 then the `fallback()` ones, and subscribes whatever effect reads it to the focus
 and to the set changing. A fallback is listed wherever the focus is: the router
 cannot know whether the focused field will take the key, so with a text field
-focused a footer still shows `q  Quit` and pressing `q` there types it.
+focused a footer still shows `q  quit` and pressing `q` there types it.
 `describe()` is for a key an element's `onKey` handles, which the router cannot
 read; `scope` is the element whose focus -- or whose descendants' -- makes it
 apply. [`keyHelp()`](#a-key-help-footer) is the footer built on it.

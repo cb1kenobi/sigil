@@ -832,7 +832,7 @@ it.
 - **`quitKey` is `q` by default, a fallback, and 0 (SIG-308).** The reason above
   for keeping `q` out of `quit` was that no layer existed that a text field
   outranked; `InputRouter.fallback()` is that layer, and the runner registers
-  `quitKey` on it, described as "Quit" with a priority of 9 so a narrow key-help
+  `quitKey` on it, described as `quit` -- through `__` and in lower case, as every description the framework lists is, and `'quit'` is already in `src/i18n/keys.ts` -- with a priority of 9 so a narrow key-help
   footer drops anything else first. So a field that takes `q` keeps it and every
   other focus, nothing focused included, quits on it. It ends the app with `0`
   rather than 130 because a `q` is the app choosing to go and not an interrupt.
@@ -845,7 +845,7 @@ it.
   Registered **inside the render callback, after the component's body**, for two
   reasons that decide against the obvious place beside the router. A key-help
   footer reads the fallbacks in registration order, and quit goes last where an
-  app puts it (the system monitor's footer is `... t theme · q Quit`). And a spec
+  app puts it (the system monitor's footer is `... t theme · q quit`). And a spec
   that cannot be a key throws there exactly as a body that throws does: `render()`
   has given the screen back and the catch under it stops the router and settles
   `exited` with 1, where a throw beside the router would have needed a copy of that

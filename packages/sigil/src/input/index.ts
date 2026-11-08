@@ -503,7 +503,7 @@ export interface InputRouter {
    *
    * Listed by `bindings()` after the scoped entries, which is where it sits in
    * dispatch. The router cannot know in advance whether the focused field will
-   * take the key, so a footer still shows `q  Quit` with a text field focused;
+   * take the key, so a footer still shows `q  quit` with a text field focused;
    * pressing `q` there types it. That is accepted rather than guessed at.
    *
    * @param keys - One key, as a spec.
@@ -1275,7 +1275,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * Hands focus somewhere sensible when the element holding it is unmounted.
    *
    * Dropping it into nothing is the alternative, and it reads as an app that
-   * stopped responding: every key then goes to the bindings and nowhere else.
+   * stopped responding: every key then goes to the bindings and the fallbacks
+   * and nowhere else.
    * The position in the ring is what is kept rather than the element, because
    * the element is exactly what has gone.
    */
