@@ -1501,6 +1501,20 @@ patch, a pane, and three additions to the renderer that the pane needs.
   overlay whose teardown order decides whether `console.log` still works. The app
   owns the pairing, which is what makes `installed` a statement it can act on.
 
+  **Under `runApp()` the runner is the app, and it makes the call (SIG-310).** It
+  captures the console by default into a ring it owns and exposes it as
+  `app.logs`, so the pairing is one line in the app --
+  `enableDebugOverlay(app.view, { input: app.input, log: app.logs })` -- and the
+  overlay still installs nothing. `log` is `undefined` when the runner captured
+  nothing (`console: false`, or a capture the app installed first), and an
+  overlay given `undefined` makes a ring of its own that nothing fills: pass the
+  ring that was passed to your own `captureConsole()`. The ring and the patch
+  moved to `console-capture.ts`, re-exported from here, so that the runner can
+  have them without the pane; the full decision is under "Running an app" in
+  `src/renderer/AGENTS.md`. `createLogRing()` gained `onPush`, called per line
+  after it is stored, which is what lets an inline app echo each captured line
+  above its region while the ring still keeps it.
+
 - **The pane holds its ring as ordinary children rather than as `rows`, and the
   reason is no longer a missing mechanism.** It was: "a list that has to grow
   while nobody is scrolling is left for a later tier -- it needs a way to ask for

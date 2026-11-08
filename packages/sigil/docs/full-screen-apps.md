@@ -186,6 +186,15 @@ answer.
 Without a terminal on both ends, piped into `cat` for example, `runApp()`
 refuses: it draws nothing, writes one line to stderr, and resolves `1`.
 
+While the app runs, `console.log()` is captured rather than written into the
+screen, so a stray log line from your code or a library cannot leave garbage in
+a frame. The lines are kept in `app.logs`. If the app fails -- a crash or a
+non-zero exit code, `130` for Ctrl-C included -- they are written to the main
+screen once it is back, ahead of the error: `log`, `info` and `debug` to stdout,
+`warn` and `error` to stderr. A clean exit throws them away. Pass `console:
+false` to leave the console alone. A bare `process.stdout.write()` and a child
+process's stderr are not the console and still write straight to the screen.
+
 With `"bin": { "hello": "./dist/hello.mjs" }` in `package.json`, `sigil build`
 type-checks the app, compiles the JSX, and writes the bundle:
 

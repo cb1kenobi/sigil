@@ -5823,13 +5823,14 @@ process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] 
 | `theme`                        | none          | A theme sheet                                                                                      |
 | `cascade`                      | themed        | The whole cascade, in place of the themed one                                                      |
 | `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing |
+| `console`                      | `true`        | Captures `console.*` while it runs, into `app.logs`; `false` leaves the console alone              |
 | `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                         |
 | `detect`                       | `true`        | Asks the terminal for its background and colour depth once the app is up                           |
 | `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                      |
 | `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                      |
 
 `runApp()` returns an `App`: `exit(code = 0)`, `exited`, `input`, `view` (the
-`Renderer`), `terminal`, `interactive` and `running`.
+`Renderer`), `logs`, `terminal`, `interactive` and `running`.
 
 **`exited` is the exit code, and setting the process's is yours.**
 
@@ -5877,6 +5878,31 @@ command({
   from the component's body propagates from `runApp()` with the terminal already
   restored, as it does from `render()`. A signal is the terminal's own business,
   as it always was.
+- **The console is captured while the app runs.** A `console.log()` from your code
+  or a library it calls would write into the alternate screen, where the next frame
+  does not know those cells changed and the line stays as garbage until something
+  repaints over it. So `runApp()` patches `console.debug`, `error`, `info`, `log`
+  and `warn` into a ring of the last 1,000 lines, `app.logs` (also on `useApp()`),
+  and nothing reaches the screen:
+
+  - **Full screen** writes nothing while the app runs. **When the app fails** -- a
+    non-zero exit code, 130 for Ctrl-C included, or a crash -- the ring is written
+    to the main screen once it is back, in order, _before_ the error report:
+    `log`, `info` and `debug` to stdout, `warn` and `error` to stderr, as `console`
+    would have printed them, with no prefix. If the ring dropped lines, a note on
+    stderr says how many first. **A clean exit (`0`) discards the ring.**
+  - **Inline** (`fullscreen: false`) writes each line above the live region as it
+    arrives, to the same two streams, and holds nothing.
+  - `console: false` leaves the console alone. So does a `captureConsole()` you
+    installed before `runApp()`: the patch is global and only one can be live, so
+    the runner does not take yours over and `app.logs` is `undefined`.
+  - Not the console, and still written straight to the screen: a bare
+    `process.stdout.write()`, and a child process's stderr.
+
+  To watch the lines live, hand the overlay the same ring:
+  `enableDebugOverlay(app.view, { input: app.input, log: app.logs })`. The overlay
+  never installs a capture of its own.
+
 - **No terminal means a refusal.** Where stdin or the output is not a terminal,
   inline or full screen, `runApp()` builds and draws nothing, writes one line to
   stderr and settles `exited` with `1`. A frame of a full-screen app in a pipe is
@@ -5894,7 +5920,8 @@ command({
   ```
 
 The debug overlay is one line on top, rather than an option, so that an app that
-never opens it does not load it: `enableDebugOverlay(app.view, { input: app.input })`.
+never opens it does not load it:
+`enableDebugOverlay(app.view, { input: app.input, log: app.logs })`.
 
 ### `sigil/style`
 

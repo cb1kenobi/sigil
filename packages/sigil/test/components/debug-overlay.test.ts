@@ -166,6 +166,24 @@ describe('createLogRing()', () => {
     expect([0, 1, 2].map((i) => ring.at(i)?.seq)).to.deep.equal([2, 3, 4]);
   });
 
+  it('should call onPush once per line, after it is stored, in order', () => {
+    const ring = createLogRing({
+      capacity: 2,
+      onPush: (entry) => seen.push([entry.text, ring.size]),
+    });
+    const seen: [string, number][] = [];
+    ring.push('log', 'a\nb\nc');
+
+    // a write that splits into three lines is three calls, each seeing the ring
+    // as it stood with that line in it -- and the third after it pushed one out
+    expect(seen).to.deep.equal([
+      ['a', 1],
+      ['b', 2],
+      ['c', 2],
+    ]);
+    expect(ring.dropped).to.equal(1);
+  });
+
   it('should hold exactly its capacity over many wraps', () => {
     const ring = createLogRing({ capacity: 5 });
     for (let i = 0; i < 53; i++) {

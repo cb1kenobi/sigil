@@ -970,9 +970,101 @@ it.
   out on a resize already, and the full-screen backend follows the screen by
   itself, so there is nothing to wire.
 - **The debug overlay is one line on top rather than an option.**
-  `enableDebugOverlay(app.view, { input: app.input })`. An option would put the
+  `enableDebugOverlay(app.view, { input: app.input, log: app.logs })`. An option would put the
   overlay's scroll box and log ring on every app's graph for an instrument most
   never open, or make the option an `await import()` whose handle arrives late.
+- **The console is captured while the app runs, and replayed only when the app
+  fails (SIG-310).** A `console.log()` from the app or a library it calls wrote
+  straight into the alternate screen, and the next frame's diff does not know
+  those cells changed, so the line stayed as garbage until something repainted
+  over it. `runApp()` now calls `captureConsole()` into a ring it owns, 1,000
+  lines, before the component's body runs, and exposes it as `app.logs` (on
+  `useApp()` too). Nothing reaches the screen while the app runs. `console:
+  false` turns it off; so does a capture the app installed itself before
+  `runApp()`, which the module-level latch refuses -- the runner **leaves that
+  one alone** and `app.logs` is `undefined`, because the patch is global and one
+  of the two has to own it. Nothing is patched for a refusal either: an app that
+  never draws has nothing to protect.
+
+  _Full screen replays on failure and discards on success._ A non-zero code or a
+  crash writes the ring to the main screen once it is back: in order, `log`,
+  `info` and `debug` to stdout and `warn` and `error` to stderr, as `console`
+  would have printed them, with **no level prefix** and before the error report.
+  If the ring dropped lines, a stderr note first says how many
+  (`5 earlier console lines were dropped (the last 1000 follow)`). **Code `0`
+  discards the ring** -- the lines were the app's own scrollback and nothing
+  needs explaining. **130 from Ctrl-C replays**, and that was decided rather than
+  fallen into: a quit key is the normal end of an interactive app, but 130 is
+  exactly what a shell reports for a program somebody had to interrupt, and the
+  case where the lines are wanted is the one where the user pressed Ctrl-C
+  because something was wrong. A user who ends a healthy app with Ctrl-C and
+  would rather not see its chatter has `quit: (key) => ...` with `exit(0)`, or
+  `console: false`; 129 (the terminal hung up) replays for the same reason, to a
+  screen that may not be there. What counts is the code `exited` settles with,
+  read in `finish()` after a failure has been given its say.
+
+  _The lines go ahead of the error report, which took two moves._ A failed frame
+  is reported by `fail()` after it has stopped the backend, and that happens
+  **before** the teardown microtask `finish()` runs on -- so a replay written from
+  `finish()` landed after the report. The `onDispose()` handler is the one place
+  that runs inside `fail()` before the backend stops, so a failure settles there:
+  the lines go through `backend.write()`, which holds them and flushes them in
+  order as the backend stops, ahead of `onError`. A first frame that failed
+  inside `render()` has already gone when the handler is registered, so it is
+  called at once -- and its report is held with the others by then, so the lines
+  still go first. (A separate `settleFailure()` on return for that case was
+  written, and deleting it changed no answer: the sabotage pass is what showed it
+  was dead.) Every other route (`exit(n)`, the quit key, stdin
+  ending) settles in `finish()`, once the screen is back and the writes can go
+  straight out. And **reports made while the app is up wait in the runner**
+  rather than in the backend's held buffer: a report held there is older than the
+  lines the ring replays, so the mount error that was thrown early would have
+  printed _above_ the lines logged after it. Held in `reports` and written after
+  the lines, a clean exit writes them with no lines, which is what it always did.
+  A custom `onError` is not intercepted -- it is called when it was, and for a
+  failed frame the lines are already out by then.
+
+  _The console goes back after the teardown, not before._ A cleanup that logs
+  while the tree unmounts is captured like everything else, and a second pass of
+  the replay writes that tail (only the entries past the last written one, with no
+  second note). It is put back on every way out: `finish()`, a body that throws,
+  and the refusal never takes it.
+
+  _Inline writes each line as it arrives and holds nothing._ "Inline" is
+  `fullscreen: false`, whatever backend was injected, because it is the option
+  that says there is an "above". Each entry goes through `backend.write()` --
+  clear the region, write above it, repaint -- to stderr for `warn` and `error`.
+  The ring is still kept, so `app.logs` is there and the overlay can show it; it
+  is the ring's `onPush` that does the echo, a hook added to `createLogRing()`
+  for this because a wrapper around `push()` would have to split a write into
+  lines the way the ring does and say it twice. A line logged during the first
+  frame, before the backend is returned, waits in the same queue the early
+  reports do. Nothing is replayed on failure: it is all out already.
+
+  _The ring and the patch moved to `src/components/console-capture.ts`._
+  `debug-overlay.ts` is a scroll box, a pane and a stats line, and the recorded
+  reason the overlay is not an option on `runApp()` is that an app which never
+  opens it must not carry it -- which the runner now needs the ring and the patch
+  of. So those two live in a module that imports nothing of the renderer, the
+  element tree or the sheet, and the overlay re-exports them: the surface of
+  `@ttylabs/sigil/components` is unchanged. The cost to `app.mjs` was one 1,351 B
+  chunk (the whole graph reads 209,538 B over 29 modules as of this change), and
+  `dist.test.ts` pins that the pane's strings stay off it. Overlay and runner are
+  paired by the app, as the overlay's entry records: `log: app.logs`.
+
+  _Out of scope, and said so in the README._ A bare `process.stdout.write()` and a
+  child process's stderr are not the console and still write into the screen.
+  `trace` is left alone for the reason the capture records. A live log file to
+  `tail -f` from another terminal is a follow-up.
+
+  _Sabotage, fourteen by hand over `app-console.test.ts`:_ the console not put
+  back, replaying on a clean exit, no settle in the `onDispose()` handler, reports
+  not held, everything to stdout, no dropped note, no inline echo, `console:
+  false` ignored, no `written` cursor, no replay on a body that throws, a 500-line
+  ring, 130 treated as clean, and inline replaying. Thirteen were caught; the
+  fourteenth, a separate `settleFailure()` for the first-frame case, changed no
+  answer and was deleted.
+
 - **Sabotage, in two passes.** The first was twenty-three, with nine survivors: six
   were made to fail by a new test -- the router left listening (twice: on exit and
   on a body that throws), `restore()` dropped, a synchronous `exit()`, an error
@@ -1021,8 +1113,6 @@ it.
   way out, and a different `'error'` spent the guard -- was eight, every one caught,
   under "A router stopped over a failed stream" in `src/input`; the attach tick
   survived the first run of it and is pinned by a test of its own.
-- **Not done:** capturing `console.log()` while the app owns the screen, which
-  writes straight into the alternate buffer today -- `backend.write()` holds a line
-  and the debug overlay's `captureConsole()` shows one, and neither is automatic;
-  and an `App` handle to a router the caller built, since the host is what makes the
-  router exist at build time.
+- **Not done:** an `App` handle to a router the caller built, since the host is
+  what makes the router exist at build time. Capturing `console.log()` while the
+  app owns the screen was on this list until SIG-310 -- see the entry above.
