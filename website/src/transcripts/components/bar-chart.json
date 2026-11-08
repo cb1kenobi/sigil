@@ -101,7 +101,14 @@
         "type": "number"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function barChart(data: BarData, opts?: BarChartOptions): string"
   },
   "registryDescription": "Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge",

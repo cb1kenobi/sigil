@@ -7,7 +7,7 @@
  * and the mouse while it is open**, and where the focus goes when it is not.
  *
  * ```js
- * import { confirmModal, openModal } from '@ttylabs/sigil/components';
+ * import { confirmModal, openModal } from '@ttylabs/sigil/components/modal';
  *
  * const answer = await confirmModal(view, {
  *   input,

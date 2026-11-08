@@ -1,5 +1,5 @@
 import { runApp } from '@ttylabs/sigil/app';
-import { attachTooltip } from '@ttylabs/sigil/components';
+import { attachTooltip } from '@ttylabs/sigil/components/tooltip';
 import { box, text } from '@ttylabs/sigil/element';
 
 const deploy = text(' Deploy ', { focusable: true, class: 'button' });

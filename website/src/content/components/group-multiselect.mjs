@@ -1,4 +1,4 @@
-import { groupMultiselect } from '@ttylabs/sigil/components';
+import { groupMultiselect } from '@ttylabs/sigil/components/group-multiselect';
 
 const stack = await groupMultiselect({
   message: 'Stack',

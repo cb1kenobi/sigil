@@ -102,11 +102,17 @@
       }
     ],
     "shared": [
+      "ansi",
       "backend",
+      "colorLevel",
+      "colorScheme",
       "frameMs",
       "onError",
       "quiet",
-      "terminal"
+      "reducedMotion",
+      "sheets",
+      "terminal",
+      "theme"
     ],
     "signature": "function filePicker(opts: FilePickerOptions): Promise<string>"
   },

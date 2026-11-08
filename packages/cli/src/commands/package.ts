@@ -75,7 +75,8 @@ import {
   resolveOut,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
-import { PromptError, select, table, text } from '@ttylabs/sigil/components';
+import { PromptError, select, text } from '@ttylabs/sigil/components/prompt';
+import { table } from '@ttylabs/sigil/components/table';
 import { canReadKeys } from '@ttylabs/sigil/input';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';

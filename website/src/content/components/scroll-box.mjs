@@ -1,5 +1,5 @@
 import { runApp } from '@ttylabs/sigil/app';
-import { ScrollBox } from '@ttylabs/sigil/components';
+import { ScrollBox } from '@ttylabs/sigil/components/scroll-box';
 import { box, text } from '@ttylabs/sigil/element';
 
 const lines = Array.from(

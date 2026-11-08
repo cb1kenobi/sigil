@@ -3387,7 +3387,7 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
  * and an empty variable is unset, the two rules `forcedMotion()` keeps.
  *
  * ```js
- * import { forcedAccessible } from '@ttylabs/sigil/components';
+ * import { forcedAccessible } from '@ttylabs/sigil/components/prompt';
  *
  * forcedAccessible(); // true with SIGIL_ACCESSIBLE=1, else undefined
  * ```

@@ -58,7 +58,14 @@
         "type": "number"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function diff(input: DiffInput, opts?: DiffOptions): string"
   },
   "registryDescription": "A diff view: unified or side by side, over two texts or a unified patch, with the edited words set apart",

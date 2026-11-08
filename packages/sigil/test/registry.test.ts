@@ -105,6 +105,25 @@ describe('the registry', () => {
     }
   });
 
+  it.each(names)(
+    'should import a sibling from its own subpath rather than the barrel, in %s',
+    (name) => {
+      // an ejected spinner importing `@ttylabs/sigil/components` would load every
+      // other component to draw itself, which is more than the built-in spinner it
+      // replaced costs -- so since SIG-330 a sibling is its own subpath
+      expect(manifest.entries[name]?.imports ?? []).not.toContain(`${pkg.name}/components`);
+    }
+  );
+
+  it('should import some sibling from a subpath, so the absence above means something', () => {
+    const siblings = names.flatMap((name) =>
+      (manifest.entries[name]?.imports ?? []).filter((spec) =>
+        spec.startsWith(`${pkg.name}/components/`)
+      )
+    );
+    expect(siblings).toContain(`${pkg.name}/components/mount`);
+  });
+
   it.each(names)('should import only names the published subpath exports, for %s', async (name) => {
     // the specifier being published is half of it: `number` imported
     // `layoutField` from `@ttylabs/sigil/components` for as long as the barrel

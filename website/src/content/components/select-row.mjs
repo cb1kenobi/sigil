@@ -1,4 +1,4 @@
-import { selectRow } from '@ttylabs/sigil/components';
+import { selectRow } from '@ttylabs/sigil/components/select-row';
 
 const deployment = await selectRow({
   message: 'Which deployment?',

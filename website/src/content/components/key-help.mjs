@@ -1,5 +1,5 @@
 import { runApp, useApp } from '@ttylabs/sigil/app';
-import { keyHelp } from '@ttylabs/sigil/components';
+import { keyHelp } from '@ttylabs/sigil/components/key-help';
 import { box, text } from '@ttylabs/sigil/element';
 
 const app = runApp(() => {

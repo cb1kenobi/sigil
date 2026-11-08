@@ -1,5 +1,5 @@
 import { main } from '@ttylabs/sigil';
-import { commandPalette } from '@ttylabs/sigil/components';
+import { commandPalette } from '@ttylabs/sigil/components/palette';
 
 await main({
   schema: {

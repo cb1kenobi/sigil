@@ -100,10 +100,39 @@ const inlineWorker = {
   },
 };
 
+/**
+ * One entry per component subpath, read off the manifest rather than listed here.
+ *
+ * `@ttylabs/sigil/components/<name>` is built from `src/components/subpaths/<name>.ts`
+ * -- the names the barrel exports from `src/components/<name>.ts`, and nothing
+ * else the module exports for its siblings -- for every one of them. So the build
+ * entries are a rule over the `exports` map rather than a second list of fifty-odd
+ * names to keep beside it: the manifest has to name each subpath anyway, since
+ * `exports` cannot be computed, and that makes it the one place a component is
+ * published. `test/component-subpaths.test.ts` holds that list to
+ * `src/components/` itself, so a module added without a subpath, or a subpath
+ * with no module behind it, fails there. The entries below are written out
+ * because each maps to a source path of its own.
+ */
+function componentEntries(): Record<string, string> {
+  const manifest = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
+  const entries: Record<string, string> = {};
+
+  for (const subpath of Object.keys(manifest.exports as Record<string, unknown>)) {
+    const name = /^\.\/components\/([a-z][a-z0-9-]*)$/.exec(subpath)?.[1];
+    if (name) {
+      entries[`components/${name}`] = `./src/components/subpaths/${name}.ts`;
+    }
+  }
+
+  return entries;
+}
+
 const config: UserConfig = defineConfig({
   // Every entry here must have a matching subpath in the package's `exports`
   // map, and vice versa; `test/exports.test.ts` asserts they stay in sync.
   entry: {
+    ...componentEntries(),
     ansi: './src/ansi/index.ts',
     app: './src/renderer/app.ts',
     canvas: './src/canvas/index.ts',

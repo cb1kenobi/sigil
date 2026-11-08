@@ -1,6 +1,7 @@
 import {
   COMPONENTS_LEDE,
   componentCapture,
+  componentSubpath,
   describeComponent,
   exampleSource,
   hasLineForm,
@@ -167,7 +168,7 @@ function componentMarkdown(entry: ComponentEntry): string {
 
   const facts = [
     `Family: ${family(entry.family).title}`,
-    `Exports: ${entry.exports.map((name) => `\`${name}\``).join(', ')}, from \`@ttylabs/sigil/components\``,
+    `Exports: ${entry.exports.map((name) => `\`${name}\``).join(', ')}, from \`${componentSubpath(entry.slug)}\``,
   ];
   if (hasLineForm(entry.slug)) {
     facts.push('Accessible: asks on plain lines a screen reader reads, with `SIGIL_ACCESSIBLE=1`');

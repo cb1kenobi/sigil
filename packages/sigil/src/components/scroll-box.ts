@@ -9,7 +9,7 @@
  * a different component rather than a different engine.
  *
  * ```js
- * import { ScrollBox } from '@ttylabs/sigil/components';
+ * import { ScrollBox } from '@ttylabs/sigil/components/scroll-box';
  * import { box, text } from '@ttylabs/sigil/element';
  *
  * const view = ScrollBox({

@@ -1,4 +1,4 @@
-import { badge } from '@ttylabs/sigil/components';
+import { badge } from '@ttylabs/sigil/components/badge';
 
 console.log(
   [

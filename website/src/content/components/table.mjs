@@ -1,4 +1,5 @@
-import { badgeView, table } from '@ttylabs/sigil/components';
+import { badgeView } from '@ttylabs/sigil/components/badge';
+import { table } from '@ttylabs/sigil/components/table';
 
 console.log(
   table(

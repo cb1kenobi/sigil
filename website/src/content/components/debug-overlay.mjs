@@ -1,5 +1,9 @@
 import { runApp } from '@ttylabs/sigil/app';
-import { captureConsole, createLogRing, enableDebugOverlay } from '@ttylabs/sigil/components';
+import {
+  captureConsole,
+  createLogRing,
+  enableDebugOverlay,
+} from '@ttylabs/sigil/components/debug-overlay';
 import { box } from '@ttylabs/sigil/element';
 
 // what console.log writes goes to the pane rather than over the app

@@ -1,4 +1,4 @@
-import { taskLog } from '@ttylabs/sigil/components';
+import { taskLog } from '@ttylabs/sigil/components/tasks';
 
 const log = taskLog({ title: 'npm test', limit: 4 });
 

@@ -7,6 +7,7 @@ import { DocsRail } from '@/components/docs-rail';
 import { TerminalBlock, TerminalRows } from '@/components/terminal-block';
 import {
   componentCapture,
+  componentSubpath,
   describeComponent,
   exampleSource,
   hasLineForm,
@@ -280,7 +281,11 @@ export function ComponentPage({ slug }: { slug: string }) {
           <Section id="options" title="Options">
             <p className="mt-3 text-[15px] leading-[1.6] text-fg-body">{OPTIONS_INTRO}</p>
             <div className="[&>figure]:mt-3">
-              <CodeBlock code={api.signature} lang="typescript" title="components.d.mts" />
+              <CodeBlock
+                code={api.signature}
+                lang="typescript"
+                title={`${componentSubpath(slug).slice('@ttylabs/sigil/'.length)}.d.mts`}
+              />
             </div>
             <OptionsTable options={api.options} />
             {api.shared.length > 0 ? (

@@ -1,4 +1,4 @@
-import { barChart } from '@ttylabs/sigil/components';
+import { barChart } from '@ttylabs/sigil/components/chart';
 
 console.log(
   barChart(

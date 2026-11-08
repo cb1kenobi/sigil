@@ -8,7 +8,8 @@
  * answers, scrolled sideways when what was typed is wider than the room for it.
  *
  * ```js
- * import { openModal, TextField } from '@ttylabs/sigil/components';
+ * import { openModal } from '@ttylabs/sigil/components/modal';
+ * import { TextField } from '@ttylabs/sigil/components/text-field';
  * import { State } from '@ttylabs/sigil/signals';
  *
  * const name = new State('draft.md');

@@ -51,7 +51,14 @@
         "type": "number"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function sparkline(values: readonly number[], opts?: SparklineOptions): string"
   },
   "registryDescription": "Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge",

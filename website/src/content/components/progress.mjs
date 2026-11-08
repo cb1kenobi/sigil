@@ -1,4 +1,4 @@
-import { createProgress } from '@ttylabs/sigil/components';
+import { createProgress } from '@ttylabs/sigil/components/progress';
 
 const files = Array.from({ length: 40 }, (_, i) => `src/file-${i + 1}.js`);
 const bar = createProgress({ text: 'Copying', total: files.length });

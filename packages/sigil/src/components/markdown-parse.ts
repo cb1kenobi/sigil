@@ -2,7 +2,7 @@
  * Reading markdown: the subset `markdown()` draws, parsed into blocks and runs.
  *
  * ```js
- * import { parseMarkdown } from '@ttylabs/sigil/components';
+ * import { parseMarkdown } from '@ttylabs/sigil/components/markdown-parse';
  *
  * parseMarkdown('# Title\n\nSome *words*.');
  * // [{ type: 'heading', level: 1, children: [...] }, { type: 'paragraph', ... }]

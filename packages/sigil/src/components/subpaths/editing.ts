@@ -1,0 +1,16 @@
+export {
+  boundary,
+  deleteAfter,
+  deleteBefore,
+  deleteRange,
+  type Edit,
+  insertAt,
+  isControlChar,
+  isSpaceCluster,
+  pastedBlock,
+  pastedLine,
+  snap,
+  typedText,
+  wordAfter,
+  wordBefore,
+} from '../editing.js';
