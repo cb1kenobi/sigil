@@ -512,8 +512,8 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
    * Whether this container's children break into more than one line.
    *
    * A row only, because the main axis of a wrapping column is its height and
-   * this function is never told one -- so there is no room to pack against, and
-   * a column is left measuring as it always did.
+   * this function is never told one -- so there is no room to pack against. A column
+   * is measured by what its items ask for along its height, below, and never wraps.
    */
   const wrapping = style.flexWrap !== 'nowrap' && !axis.column && children.length > 1;
 
@@ -574,8 +574,9 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
       ? Math.max(measured.minWidth ?? 0, declaredMinW) + extraH
       : Math.max(measured.minHeight ?? measured.height, declaredMinH) + extraV;
 
-    // the main pair is a column's. A row replaces both below, out of the same
-    // items the placement will flex, for the reason the cross pair is replaced:
+    // the main pair is read here for both axes. A row replaces both below, and a column
+    // replaces the total (not the minimum), out of the same items the placement will
+    // flex, for the reason the cross pair is replaced:
     // this reads each child at the room it was *offered* rather than at what it
     // asked for, and on the main axis that misses a `flex-basis` entirely. They
     // are still computed here because one loop for both axes is cheaper than a
@@ -1419,7 +1420,7 @@ function hypotheticalMain(item: Item, axis: Axis): number {
  * basis -- without which a `flex-basis: 0; flex-grow: 1` description contributes
  * nothing and the row it is in reports its own min-content width.
  *
- * Only a nowrap row sums it. A wrapping row is measured by the longest line it
+ * Only a nowrap row and a column sum it. A wrapping row is measured by the longest line it
  * packs into and has to be measured by the number that packed it, which is
  * `hypotheticalMain()`.
  *

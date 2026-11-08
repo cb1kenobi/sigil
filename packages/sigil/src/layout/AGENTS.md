@@ -313,9 +313,11 @@ the entry it belongs to.
   invariants with overflow _not_ allowed, which the fuzzer's own docblock records as
   legitimately failing on most of the corpus) went from 16,878 to 16,883 over those 17,500:
   six layouts that now report a child escaping its parent's content box and one that no
-  longer does. All six are the same shape, a `flex-shrink: 0` item with a basis larger than
-  the room its auto-height ancestor was given, which is overflow as CSS produces it and was
-  hidden before by the column measuring short and being squeezed to fit.
+  longer does. Every one of the six is a column that now measures what its items are placed
+  at and so is larger than the room its parent gave it, which it escapes on the cross axis;
+  the item carrying the basis has the default `flex-shrink: 1`, so it is not a frozen item
+  that causes it. That is overflow as CSS produces it, and the old engine hid it by
+  measuring the column short, so that the content was shrunk to nothing to fit.
 
 - **The flexed cross size _replaces_ what the per-child loop found rather than
   being a floor over it.** `Math.max` of the two was the first spelling and it is

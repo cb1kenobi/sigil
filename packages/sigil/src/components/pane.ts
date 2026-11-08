@@ -409,8 +409,15 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
     host.addClass(name);
   }
 
-  /** The z-index the app gave the pane, which a collapse raises and an expand puts back. */
-  const appZ = props.props?.['z-index'];
+  /**
+   * The z-index the app gave the pane, which a collapse raises and an expand puts back.
+   *
+   * Read again each time rather than kept from construction: it is whatever the host
+   * carries that this did not write, so an app that sets it later is not undone.
+   */
+  let appZ = props.props?.['z-index'];
+  /** What this last wrote there, which is how a value that is not its own is told. */
+  let wroteZ = appZ;
 
   /**
    * The cells this pane is given of the room its parent has.
@@ -429,7 +436,19 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
     if (host.parent === undefined || content === undefined) {
       return wanted;
     }
-    const extent = axis === 'row' ? content.width : content.height;
+    // the room the panes share is what is left once the things that will not give
+    // way have their cells: a box that cannot shrink keeps the size it was placed at,
+    // and the gaps between everything in the flow are the parent's. A box that can
+    // shrink or grow is what gives way, and claims nothing
+    const flow = host.parent.children.filter((it) => it === host || inFlow(it));
+    const gap = axis === 'row' ? host.parent.style.columnGap : host.parent.style.rowGap;
+    const fixed = flow
+      .filter((it) => it !== host && !models.has(it) && it.style.flexShrink <= 0)
+      .reduce((sum, it) => sum + extentOf(it, axis), 0);
+    const extent = Math.max(
+      0,
+      (axis === 'row' ? content.width : content.height) - fixed - gap * Math.max(0, flow.length - 1)
+    );
     const group: Array<{ claim: number; here: boolean; wanted: number }> = [];
     for (const child of host.parent.children) {
       const model = child === host ? undefined : models.get(child);
@@ -479,10 +498,12 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
     // a pane with no cells of its own has its edge on its neighbour's cell, and a
     // sibling later in the tree would paint over it. Only touched when it changes
     // hands: the app's own z-index is the app's, and is put back
-    host.setProp(
-      'z-index',
-      shut() ? Math.max(1, Number(appZ ?? 0)) : (appZ as number | string | undefined)
-    );
+    const now = host.props['z-index'];
+    if (now !== wroteZ) {
+      appZ = now;
+    }
+    wroteZ = shut() ? Math.max(1, Number(appZ ?? 0)) : (appZ as number | string | undefined);
+    host.setProp('z-index', wroteZ);
     const key = `${axis}:${shut()}`;
     if (key === placed) {
       return false;
@@ -493,12 +514,24 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
     return true;
   };
 
+  /**
+   * Hides the body while the pane is collapsed.
+   *
+   * Written at once by every move the pane makes itself, and again by the effect for a
+   * write to the state from outside: a key that collapses the pane and the key typed
+   * after it can arrive in one read, with no effect run between, and the router asks an
+   * inline `display` where it cannot ask a frame.
+   */
+  const showBody = (): void => {
+    body.setProp('display', isCollapsed() ? 'none' : undefined);
+  };
+
   createEffect(() => {
     // read here so the effect depends on all three
-    const closed = isCollapsed();
+    isCollapsed();
     size.get();
     applyBasis();
-    body.setProp('display', closed ? 'none' : undefined);
+    showBody();
     placeEdge();
     sync();
   });
@@ -530,21 +563,8 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
       return false;
     }
     const kept = cleared === undefined ? 0 : 1;
-    const bars: Element[] = [];
-    const walk = (element: Element): void => {
-      if (element.classes.includes('sigil-scroll-bar')) {
-        bars.push(element);
-      }
-      for (const child of element.children) {
-        walk(child);
-      }
-    };
-    walk(body);
-    return bars.some((bar) => {
-      const b = bar.box;
-      if (b === undefined) {
-        return false;
-      }
+    /** Whether a box reaches the edge's cell, with what is already kept clear added back. */
+    const touches = (b: { height: number; width: number; x: number; y: number }): boolean => {
       if (axis === 'row') {
         return side === 'end'
           ? b.x + b.width - 1 + kept >= at.x + at.width - 1
@@ -553,7 +573,20 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
       return side === 'end'
         ? b.y + b.height - 1 + kept >= at.y + at.height - 1
         : b.y - kept <= at.y;
-    });
+    };
+    // only boxes that reach the edge's cell can hold a bar that does, so the walk goes
+    // no further down a branch that stops short of it, and stops at the first bar
+    const find = (element: Element): boolean => {
+      if (element.classes.includes('sigil-scroll-bar')) {
+        return element.box !== undefined && touches(element.box);
+      }
+      return element.children.some(
+        (child) => child.box !== undefined && touches(child.box) && find(child)
+      );
+    };
+    return body.children.some(
+      (child) => child.box !== undefined && touches(child.box) && find(child)
+    );
   };
 
   host.onLayout = (): boolean => {
@@ -702,6 +735,7 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
       size.set(target);
     }
     anchor.neighbour?.control.size.set(anchor.neighbourStart - (target - anchor.start));
+    showBody();
     return target;
   };
 

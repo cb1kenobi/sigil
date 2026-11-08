@@ -4952,10 +4952,12 @@ border, which is what every dashboard, file manager and log viewer is made of.
   inline, as the note, the modal, the toast and the tooltip have it, with `ascii` and
   `border` the same options. `border-color` is not set at all, so a theme restyles
   the border with `.sigil-panel { border-color: cyan }` or its own class and the
-  default is the terminal's foreground. **No framework-sheet rule was added**: the
+  default is the terminal's foreground. **No framework-sheet rule sets a colour**: the
   title is `.sigil-heading` and the rest `.sigil-muted`, which are roles, and a
-  border colour would have been a twelfth declared exception to the role rule for a
-  decision a theme can make in one line. The classes `sigil-panel`, `-title`,
+  border colour would have been one more declared exception to the role rule for a
+  decision a theme can make in one line. The one rule the panel does have is
+  `.sigil-panel { flex-grow: 1 }`, which is a layout default and not a colour; it is
+  the entry above. The classes `sigil-panel`, `-title`,
   `-annotation`, `-footer`, `-footer-annotation` and `-body` are named in the sheet's
   vocabulary comment, which `should name every class a built-in draws with` holds.
 - **`:focus-within` was in the ticket and does not exist.** "Focus on a control"
@@ -4997,8 +4999,12 @@ owns its own edge. `paneControl(host)` is its handle.
   together, so every edge stays on the screen; otherwise each pane gets its minimum
   and the first ones in the document get the remainder. Only a real contention
   triggers it, so a parent that is exactly as big as its panes make it -- an
-  auto-height column -- is never a reason to ask for less. Plain siblings claim
-  nothing; they are what gives way.
+  auto-height column -- is never a reason to ask for less. What a plain sibling
+  claims depends on whether it gives way: one that cannot shrink (`flex-shrink: 0`)
+  keeps the size it was placed at and is taken off the room, with the parent's gaps;
+  one that can is what gives way and claims nothing. Two 15-cell panes beside a
+  `width: 10; flex-shrink: 0` box in 30 columns used to leave the second half off the
+  screen.
 - **The size state is the app's and is not clamped in place.** `min` and `max` clamp
   where it is read and where a drag writes, and a state an app set out of range
   draws in range and keeps its value, so a terminal that is wide again finds the pane
@@ -5022,7 +5028,10 @@ owns its own edge. `paneControl(host)` is its handle.
   or one the room has no cell for, is as unreachable as a collapsed one. That cell is
   the neighbour's, and a sibling later in the tree would paint over it, so the host
   takes `z-index: 1` -- or the app's own, if that is higher -- and puts the app's value
-  back when it has cells again. It is drawn dim (`.sigil-muted`) with the light glyph,
+  back when it has cells again. The app's value is whatever the host carries that the
+  pane did not write, read each layout, so an app that sets it later is not undone. The
+  raise is an inline value, which beats a stylesheet's: a z-index given by a sheet
+  is overridden by the `max(1, ...)` while the pane has no cells, and is back when it has. It is drawn dim (`.sigil-muted`) with the light glyph,
   so there is something on the screen to say the pane is there.
 - **A scrollbar on the edge's cell makes the content keep that cell clear.** The edge
   is on top of the pane's last column and a scroll box that fills a pane has its bar
@@ -5031,7 +5040,9 @@ owns its own edge. `paneControl(host)` is its handle.
   the edge's, and pads that side of the body by one -- `padding-right`, `-left`,
   `-bottom` or `-top` by axis and side -- so the edge has a column to itself. Asked of
   the boxes the layout placed with the padding it is already keeping added back, so
-  keeping the cell clear does not make the next answer "no" and flap. A `Panel`
+  keeping the cell clear does not make the next answer "no" and flap. The walk is
+  bounded to boxes that reach the edge's cell, and stops at the first bar, so it is not
+  the whole body on every layout. A `Panel`
   between the two puts the bar a cell inside the border and nothing is padded. This
   couples the pane to a scroll box's `sigil-scroll-bar` hook, which is published
   vocabulary; the alternatives were a documented rule that no scroll box may fill a

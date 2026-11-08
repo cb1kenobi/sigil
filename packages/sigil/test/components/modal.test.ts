@@ -388,6 +388,24 @@ describe('returning the focus', () => {
     expect(s.input.focus.current.get()).to.equal(handle);
   });
 
+  it('should not give a lower dialog’s focus back to something outside it', () => {
+    // reachable: a dialog can hold a pane's edge, and an app can `focus()` an element
+    // outside the open dialog -- which the trap pulls back at the next key, not at once.
+    // A second dialog opened in that window remembers the outsider as its `previous`,
+    // and closing it must land inside the dialog still open, because that one is a trap
+    const s = scene();
+    const handle = box({ tabindex: -1 }, text('handle'));
+    s.root.insertBefore(handle, s.two);
+    const lower = modalOn(s, { actions: [{ label: 'Yes' }] });
+    s.input.focus.focus(handle);
+
+    const upper = modalOn(s, { actions: [{ label: 'No' }] });
+    upper.close();
+
+    expect(lower.element.contains(s.input.focus.current.get() as Element)).to.equal(true);
+    expect(s.input.focus.current.get()).to.not.equal(handle);
+  });
+
   it('should not give the focus back to an element that left the tree', async () => {
     const s = scene();
     const handle = box({ tabindex: -1 }, text('handle'));

@@ -618,6 +618,20 @@ export interface InputRouter {
    * `Object.is` -- a key that cancels nothing does not ask for a frame.
    */
   readonly sequence: State<readonly Key[]>;
+  /**
+   * Hands the focus on if the element holding it is no longer there to hold it.
+   *
+   * An element that was unmounted, or that is under a `display: none`, gives up the
+   * focus to the stop that took its place, the way a browser blurs one. A frame is
+   * the right time to ask, with the tree's style resolved and before anything has read
+   * the focus -- `runApp()` does, from the root's `onLayout` -- so the key help, the
+   * `:focus` state and `onFocusChange` agree with what is on screen. A key and a paste
+   * ask it themselves, which is the backstop for an app that draws its own frames and
+   * does not call this.
+   *
+   * @returns Whether the focus moved.
+   */
+  reconcile(): boolean;
   /** Gives stdin back and puts raw mode and the paste markers back. */
   stop(): void;
 }
@@ -681,7 +695,7 @@ function focusables(root: Element | undefined): Element[] {
 
   const found: Element[] = [];
   const walk = (element: Element): void => {
-    if (element.style.display === 'none') {
+    if (element.style.display === 'none' || element.props.display === 'none') {
       // a subtree that is not laid out is not one a Tab can reach: there is
       // nothing on screen to move the focus to
       return;
@@ -760,7 +774,10 @@ function ringPosition(
  */
 function displayed(element: Element): boolean {
   for (let at: Element | undefined = element; at; at = at.parent) {
-    if (at.style.display === 'none') {
+    // the resolved style is as old as the last frame, and an inline `display` is
+    // current the moment it is written, which is what a component that hides its
+    // own body sets: asking both is what closes the window before the frame
+    if (at.style.display === 'none' || at.props.display === 'none') {
       return false;
     }
   }
@@ -1307,23 +1324,33 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * see -- so it is repaired the same way, which is a browser's rule too. Asked of
    * the element and every ancestor, and nothing to do with whether it is in the
    * ring: an element with a negative `tabindex` that is drawn keeps the focus.
+   *
+   * Asked at three times. A frame asks it once the tree has its style (`reconcile()`,
+   * which `runApp()` calls from its host's `onLayout`), which is what makes the
+   * repair happen before anything reads the focus. A key and a paste ask it too, as
+   * the backstop for the window before a frame: an element hidden by an inline
+   * `display` is hidden at once, and one hidden by a sheet is hidden when the frame
+   * has run.
+   *
+   * @returns Whether it moved the focus.
    */
-  function reconcileFocus(): void {
+  function reconcileFocus(): boolean {
     const at = current.get();
     // nothing focused is a legitimate state and not one to fix: an app that has
     // not put the focus anywhere yet should have its first Tab land on the
     // first element rather than on the second, which is what grabbing it here
     // quietly did
     if (!at || (attached(at, root) && displayed(at))) {
-      return;
+      return false;
     }
 
     const ring = focusables(root);
     if (ring.length === 0) {
       focus.focus(undefined);
-      return;
+      return true;
     }
     focus.focus(ring[Math.min(lastIndex, ring.length - 1)]);
+    return true;
   }
 
   /** Walks a key from the focused element up through its ancestors. */
@@ -1811,6 +1838,9 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   function flushPaste(text: string): void {
+    // a paste is aimed at the focus, so the focus is asked first: one that was
+    // hidden or unmounted since the last key is not where it goes
+    reconcileFocus();
     let stopped = false;
     const event: PasteEvent = {
       stop(): void {
@@ -2161,13 +2191,25 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       return;
     }
 
-    reconcileFocus();
+    const repaired = reconcileFocus();
 
     if (dispatch(key, false)) {
       return;
     }
 
     if (key.name === 'tab') {
+      // a Tab that arrived on a focus this call has just repaired is that Tab's
+      // answer: the repair put the focus on the stop that took the hidden one's
+      // place, which is where a browser's Tab lands once it has blurred. Stepping
+      // on from there skipped it
+      if (repaired) {
+        // and a Shift-Tab goes to the stop before the hidden one's place, which is the
+        // one before the stop the repair chose
+        if (key.shift) {
+          focus.previous();
+        }
+        return;
+      }
       if (key.shift) {
         focus.previous();
       } else {
@@ -2513,6 +2555,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         // is by construction something nobody is blocking on
         it.timer.unref?.();
       });
+    },
+
+    reconcile(): boolean {
+      return untrack(reconcileFocus);
     },
 
     sequence,

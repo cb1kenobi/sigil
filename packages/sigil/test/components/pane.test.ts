@@ -1108,6 +1108,51 @@ describe('Pane', () => {
       input.stop();
     });
 
+    it('should not deliver the key typed in the same read as a collapse to the hidden list', () => {
+      // `ctrl+b` collapses the pane and the Down after it arrives in the same read: no
+      // frame and no effect between them. The pane hides its body at once, and the router
+      // reads that
+      const { feed, terminal } = harness();
+      const list = box({ focusable: true }, text('list'));
+      const side = Pane({ ascii: false, collapsible: true, size: 8 }, list);
+      const editor = box({ focusable: true, 'flex-grow': 1, 'min-width': 0 }, text('editor'));
+      const root = row(side, editor);
+      picture(root, 30);
+      const input = createInput({ root, terminal });
+      const seen: string[] = [];
+      list.onKey = (event) => void seen.push(`list:${event.key.name}`);
+      editor.onKey = (event) => void seen.push(`editor:${event.key.name}`);
+      input.bind('ctrl+b', () => paneControl(side)?.toggle());
+
+      input.focus.focus(list);
+      feed(`${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(seen).toEqual(['editor:down']);
+      expect(input.focus.current.get()).toBe(editor);
+      input.stop();
+    });
+
+    it('should give the focus up when a frame has laid out a collapse, before any key', () => {
+      const { terminal } = harness();
+      const list = box({ focusable: true }, text('list'));
+      const side = Pane({ ascii: false, collapsible: true, size: 8 }, list);
+      const editor = box({ focusable: true, 'flex-grow': 1, 'min-width': 0 }, text('editor'));
+      const root = row(side, editor);
+      picture(root, 30);
+      const input = createInput({ root, terminal });
+      input.describe('down', { description: 'next file', scope: list });
+
+      input.focus.focus(list);
+      paneControl(side)?.collapse();
+      flush();
+      picture(root, 30);
+      expect(input.reconcile()).toBe(true);
+
+      expect(input.focus.current.get()).toBe(editor);
+      expect(input.bindings().map((binding) => binding.description)).toEqual([]);
+      input.stop();
+    });
+
     it('should keep the focus on the edge when the pane it is on collapses', () => {
       // the edge is outside the body, so it is still drawn: a key after a collapse
       // is the one that opens the pane again
@@ -1279,6 +1324,42 @@ describe('Pane', () => {
       // and it can be pulled open again from there
       dragTo(side, 0, 4);
       expect(paneControl(side)?.size.get()).toBe(4);
+    });
+
+    it('should let a fixed sibling and the gaps take their cells before the panes share the rest', () => {
+      // a box that cannot shrink keeps its size, so the room the panes share is what is
+      // left: two 15-cell panes beside a ten-cell fixed box left the second half off the
+      // screen in thirty columns
+      const a = pane('aaaa', { min: 5, size: 15 });
+      const b = pane('bbbb', { edge: 'start', min: 5, size: 15 });
+      const fixed = box({ 'flex-shrink': 0, width: 10 }, text('fixed'));
+      const root = box({ 'column-gap': 2, 'flex-direction': 'row' }, a, fixed, b);
+      picture(root, 30, 3);
+      picture(root, 30, 3);
+
+      expect([a.box?.width, fixed.box?.width, b.box?.width]).toEqual([11, 10, 5]);
+      expect((b.box?.x ?? 0) + (b.box?.width ?? 0)).toBeLessThanOrEqual(30);
+    });
+
+    it('should not wipe a z-index the app sets after the pane is built', () => {
+      const side = Pane({ ascii: false, collapsible: true, size: 8 }, text('side'));
+      const root = row(side, main());
+      const z = () => {
+        resolveStyles(root);
+        return side.style.zIndex;
+      };
+      picture(root, 30, 2);
+
+      side.setProp('z-index', 7);
+      picture(root, 30, 2);
+      expect(z()).toBe(7);
+
+      paneControl(side)?.collapse();
+      flush();
+      expect(z()).toBe(7);
+      paneControl(side)?.expand();
+      flush();
+      expect(z()).toBe(7);
     });
 
     it('should leave an app’s own z-index alone, and put it back after a collapse', () => {

@@ -482,6 +482,13 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   });
   input = router;
 
+  // after every layout, which is when the tree has its style: an element that has
+  // just stopped being drawn gives the focus up here, before the key help, `:focus`
+  // or a key reads it, and not on the next key. Answers whether the focus moved, so
+  // that a frame lays out again for what the move disturbed. The host is the app's
+  // own and has no other use for the hook
+  host.onLayout = () => router.reconcile();
+
   const quit = opts.quit ?? isAbort;
   if (quit !== false) {
     // first, so that it sees every key before anything the component binds

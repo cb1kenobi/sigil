@@ -104,11 +104,41 @@ the entry it belongs to.
   **An element that stops being displayed gives up the focus, whatever the ring says.**
   `reconcileFocus()` repaired only an unmounted element, so a pane collapsing around a
   focused row left the focus on a `display: none` subtree and the next arrow key went to
-  something nobody could see. It asks the element and every ancestor now, from the resolved
-  style, the same age as the ring: a browser blurs an element when it stops being displayed
-  and so does this, to the position it held. It is about display and not about the ring, so
-  a drawn element outside the ring keeps the focus -- `should leave the focus on a drawn
-  element that is outside the ring` is the guard for that direction.
+  something nobody could see. It asks the element and every ancestor now, and it is
+  about display and not about the ring, so a drawn element outside the ring keeps the
+  focus -- `should leave the focus on a drawn element that is outside the ring` is the
+  guard for that direction. A browser blurs an element when it stops being displayed
+  and so does this, to the position it held.
+
+  **When the repair happens, exactly.** The first version repaired on the next key only,
+  and a review round found what that leaves wrong between the collapse and the key:
+  `bindings()` still lists the hidden element's scoped keys, so a key-help footer shows
+  them; `focus.current`, `onFocusChange` and `:focus` have not moved; and a paste, which
+  never asked, goes to the hidden element. It happens at three times now, in this order of
+  preference:
+
+  1. **In the frame, after the layout.** `reconcile()` is the public form, and `runApp()`
+     calls it from its host's `onLayout`, which a frame dispatches after the restyle and
+     before the paint. That is the earliest the resolved style can say an element is
+     hidden, and it is before anything has read the focus -- the key help, `:focus` and
+     the handlers all agree with the screen. An app that draws its own frames with
+     `render()` and `createInput()` calls `input.reconcile()` itself, or lives with the
+     other two.
+  2. **At a key.** `route()` asks before it dispatches, as it always did for an unmount.
+     A Tab that arrives on a focus this call has just repaired is that Tab's answer: the
+     repair put the focus on the stop that took the hidden one's place, and stepping on
+     from there skipped it (`step()` is not called again after a repair it performed).
+  3. **At a paste.** `flushPaste()` asks first, which it never did -- for an unmounted
+     element either.
+
+  Between a collapse and the frame, "hidden" is read from the resolved style **and** from
+  an inline `display` prop, because the first is as old as the last frame and the second is
+  current the moment it is written. A component that hides its own body writes the prop at
+  once (`Pane` does, from every move it makes), so a collapse and the key typed after it
+  in one input read -- no frame, no effect between -- do not reach the hidden element.
+  What is not covered is a stylesheet or a class that hides an element, in that same
+  window: it is hidden when the frame has run. `Pane`'s own `collapsed` state written from
+  outside is the same, until its effect runs.
 
 - **A paste arrives whole, and bracketed paste joins the restore list.** Without
   the markers a pasted block arrives as though it had been typed, so a newline in

@@ -5808,6 +5808,13 @@ that cannot be quit because a focused text input swallowed Ctrl-C is the failure
 that ordering prevents. **Tab is last**, so a component that wants Tab keeps it
 by stopping the event rather than by asking to be left out of the focus ring.
 
+An element that is unmounted or stops being displayed gives up the focus to the stop
+that took its place, the way a browser blurs one. `runApp()` does it in the frame, after
+the layout, so the key help and `:focus` agree with the screen before a key is typed; an
+app that draws its own frames calls `input.reconcile()` there, which answers whether the
+focus moved. A key and a paste ask as well, so nothing reaches a hidden element in the
+window before a frame.
+
 A bracketed paste goes the other way round, which is the mouse's order: the
 focused element's `onPaste` and then each ancestor's are offered it first, the
 router's `onPaste()` handlers see what none of them stopped, and what nothing
