@@ -318,6 +318,18 @@ export const FRAMEWORK_CSS = `
 .sigil-markdown-strike { strikethrough: true }
 
 /*
+ * a panel
+ *
+ * The fifteenth declared exception to the role rule, and the one that is a layout
+ * default and not a look: a panel is a region that fills its slot, so it grows. It
+ * is here rather than in the component's props because a prop beats a sheet, and a
+ * panel used as a card in a column has to be able to say it does not -- with
+ * .card { flex-grow: 0 } as much as with props. The border's colour is not here: a
+ * border colour is the theme's, and the default is the terminal's foreground.
+ */
+.sigil-panel { flex-grow: 1 }
+
+/*
  * the debug overlay
  *
  * One declaration, and it is a background rather than a colour: the pane is

@@ -371,6 +371,36 @@ describe('returning the focus', () => {
     expect(s.input.focus.current.get()).to.equal(s.two);
   });
 
+  it('should give the focus back to an element that is not in the ring, if it is still there', async () => {
+    // a pane's edge, which a click focused and a Tab never stops on: the ring does
+    // not contain it, so the dialog could not find it there and took the focus to
+    // the top of the app instead
+    const s = scene();
+    const handle = box({ tabindex: -1 }, text('handle'));
+    s.root.insertBefore(handle, s.two);
+    s.input.focus.focus(handle);
+    expect(s.input.focus.ring()).to.not.include(handle);
+
+    const dialog = modalOn(s);
+    expect(dialog.element.contains(s.input.focus.current.get() as Element)).to.equal(true);
+    await escape(s.term);
+
+    expect(s.input.focus.current.get()).to.equal(handle);
+  });
+
+  it('should not give the focus back to an element that left the tree', async () => {
+    const s = scene();
+    const handle = box({ tabindex: -1 }, text('handle'));
+    s.root.insertBefore(handle, s.two);
+    s.input.focus.focus(handle);
+
+    modalOn(s);
+    handle.remove();
+    await escape(s.term);
+
+    expect(s.input.focus.current.get()).to.equal(s.one);
+  });
+
   it('should leave nothing focused when nothing had been', async () => {
     const s = scene();
     modalOn(s);

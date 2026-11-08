@@ -5081,8 +5081,9 @@ A bordered region with words set into the border: `title` along the top, left by
 default (`titleAlign: 'center'` or `'right'`), `annotation` at the top right, `footer`
 along the bottom and `footerAnnotation` at its right. Each is a string or a function
 of signals, re-read when what it reads changes. It takes its content as arguments,
-or as `children` from a template, grows to fill its slot (`props: { 'flex-grow': 0 }`
-says otherwise), and clips what is inside in a box of its own, so the labels are not
+or as `children` from a template, grows to fill its slot (that is a rule in the
+framework sheet, `.sigil-panel { flex-grow: 1 }`, so `.card { flex-grow: 0 }` in your
+stylesheet says otherwise, and so does `props: { 'flex-grow': 0 }`), and clips what is inside in a box of its own, so the labels are not
 clipped with it.
 
 When a border is too narrow the annotation goes first, then the label is cut with an
@@ -5114,7 +5115,7 @@ import { box } from '@ttylabs/sigil/element';
 box(
   { class: 'row' },
   Pane({ size: sidebarWidth, min: 16, collapsible: true }, Panel({ title: 'files' }, tree)),
-  box({ class: 'main', 'flex-grow': 1 }, editor),
+  box({ class: 'main', 'flex-grow': 1, 'min-width': 0 }, editor),
   Pane({ size: 30, min: 20, edge: 'start' }, Panel({ title: 'log' }, log))
 );
 ```
@@ -5124,7 +5125,9 @@ any number of them in any flex box -- there is no container -- and each owns its
 edge. `size` is cells along the parent's main axis, a width in a row and a height in
 a column, and is a number or a `State<number>`: a drag writes the state, which is how
 an app keeps the size between runs. `min` (default 1) and `max` clamp it, and a
-terminal resize keeps the pane at its size, clamped to the room there is.
+terminal resize keeps the pane at its size, clamped to the room there is: where the
+panes in one parent ask for more than the parent has, each keeps its `min` and the rest
+is handed out in order, so every edge stays on the screen.
 
 The edge is one cell laid over the pane's last column (`edge: 'end'`, the default) or
 its first (`'start'`), and takes no space. Over a `Panel` it sits on the panel's
@@ -5132,9 +5135,17 @@ border, and it lights up in the accent under the pointer (needs `motion: true` o
 router), while it is dragged and while it has the focus. A drag moves cells between
 the pane and the neighbour on that side, which is looked up when the press lands: a
 pane beside it gives or takes them within its own `min` and `max`, and a plain box
-with `flex-grow` absorbs the difference. Click the edge to focus it, and the arrows
+with `flex-grow` absorbs the difference -- down to the least the layout would let it be,
+which is its `min-width` (or `min-height` in a column) or else the width of its longest
+unbreakable word, so give it `min-width: 0` to let a drag take it to nothing. Click the edge to focus it, and the arrows
 move it a cell and **Shift** with an arrow five; it is not in the Tab order. The other
-direction's arrows, and any arrow with Ctrl or Alt, are left for the app.
+direction's arrows, and any arrow with Ctrl or Alt, are left for the app. A Tab from the
+edge carries on from where it sits in the document, as it does on the web.
+
+The edge is on the pane's own last column, so a scroll box that fills a pane has its
+scrollbar under it. A pane notices a scrollbar on its edge's cell and keeps that cell clear
+of the content, so both work; a `Panel` between the two puts the bar a cell inside its
+border and needs nothing.
 
 `collapsible: true` lets the pane go to zero cells: double-click the edge, press
 **Enter** or **Space** on it, or drag it below half of `min`. The edge stays, drawn

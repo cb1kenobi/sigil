@@ -133,14 +133,20 @@ type ShorthandProps = {
  */
 export interface ReservedProps {
   class?: Reactive<readonly string[] | string>;
-  /** Whether the focus ring stops here. A `tabindex` implies it. */
+  /**
+   * Whether the element can hold the focus, and a Tab stops here. A `tabindex`
+   * implies it; a negative one keeps it focusable and out of the ring.
+   */
   focusable?: Reactive<boolean>;
   id?: Reactive<string>;
   /** Identity across renders, which is what a keyed list diff matches on. */
   key?: number | string;
   /** Whether this element's content may be selected and copied. Inherits. */
   selectable?: Reactive<boolean>;
-  /** Where in the ring, for an element that should not be in document order. */
+  /**
+   * Where in the ring, for an element that should not be in document order. Below
+   * zero it is focusable and not in the ring a Tab walks.
+   */
   tabindex?: Reactive<number>;
 }
 

@@ -273,6 +273,30 @@ describe('Panel', () => {
     });
   });
 
+  describe('growing', () => {
+    const height = (theme: string, props: PanelProps = {}) => {
+      const host = panel({ title: 'x', ...props });
+      renderToLines(box({ 'flex-direction': 'column', height: 10 }, host), {
+        cascade: themedCascade({ theme }),
+        colorLevel: 0,
+        height: 10,
+        width: 20,
+      });
+      return host.box?.height;
+    };
+
+    it('should fill its slot by a rule in the framework sheet', () => {
+      expect(height('')).toBe(10);
+    });
+
+    it('should let a stylesheet say otherwise, as well as a prop', () => {
+      // it was an inline prop, which a stylesheet cannot beat: a panel used as a card in
+      // a column could only be made to stop growing from the call site
+      expect(height('.card { flex-grow: 0 }', { class: 'card' })).toBe(4);
+      expect(height('', { props: { 'flex-grow': 0 } })).toBe(4);
+    });
+  });
+
   describe('what it refuses', () => {
     it('should refuse a label that is neither a string nor a function', () => {
       expect(() => Panel({ title: 5 as never })).toThrow(/title to be a string or a function/);

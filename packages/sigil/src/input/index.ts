@@ -705,6 +705,68 @@ function focusables(root: Element | undefined): Element[] {
     : [...found].sort((a, b) => (a.tabIndex ?? 0) - (b.tabIndex ?? 0));
 }
 
+/**
+ * Where every element under a root sits in document order.
+ *
+ * Asked only for an element that is not in the ring, so a keystroke on an ordinary
+ * app never builds it.
+ */
+function documentOrder(root: Element | undefined): Map<Element, number> {
+  const order = new Map<Element, number>();
+  const walk = (element: Element): void => {
+    order.set(element, order.size);
+    for (const child of element.children) {
+      walk(child);
+    }
+  };
+  if (root) {
+    walk(root);
+  }
+  return order;
+}
+
+/**
+ * Where an element sits among the ring: its index if it is in it, else the index of
+ * the first ring member after it in the document.
+ *
+ * What a Tab from an element that is not a Tab stop continues from, and what the
+ * focus is repaired to if that element is unmounted: its neighbours, and not the top
+ * of the ring.
+ */
+function ringPosition(
+  ring: readonly Element[],
+  element: Element,
+  root: Element | undefined
+): number {
+  const at = ring.indexOf(element);
+  if (at !== -1) {
+    return at;
+  }
+  const order = documentOrder(root);
+  const here = order.get(element);
+  if (here === undefined) {
+    return 0;
+  }
+  const next = ring.findIndex((it) => (order.get(it) ?? -1) > here);
+  return next === -1 ? ring.length : next;
+}
+
+/**
+ * Whether an element is drawn: neither it nor anything above it is `display: none`.
+ *
+ * Read off the resolved style, the way the ring is, so it is only as current as the
+ * last frame -- which is the right age, since a key is dispatched against what the
+ * user saw.
+ */
+function displayed(element: Element): boolean {
+  for (let at: Element | undefined = element; at; at = at.parent) {
+    if (at.style.display === 'none') {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Whether an element is still hanging off the root. */
 function attached(element: Element, root: Element | undefined): boolean {
   for (let at: Element | undefined = element; at; at = at.parent) {
@@ -1162,7 +1224,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
             writingTo = undefined;
             current.set(element);
             if (element) {
-              lastIndex = Math.max(0, focusables(root).indexOf(element));
+              lastIndex = ringPosition(focusables(root), element, root);
               // and it is brought on screen, unconditionally. The ring already
               // skips a `display: none` subtree because there is nothing on screen
               // there to move the focus to; a row below the fold is that case with
@@ -1214,6 +1276,17 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 
       const at = current.get();
       const from = at ? ring.indexOf(at) : -1;
+      if (at && from === -1) {
+        // a focused element that is not a Tab stop -- a pane's edge, which a click
+        // focused -- carries on from where it sits, which is the web's rule: Tab goes to
+        // the next stop after it and Shift-Tab to the one before, and neither starts the
+        // ring over. One that is no longer in the tree has no place, and does start it
+        const place = ringPosition(ring, at, root);
+        if (attached(at, root)) {
+          focus.focus(ring[by > 0 ? place % ring.length : (place - 1 + ring.length) % ring.length]);
+          return;
+        }
+      }
       const index =
         from === -1 ? (by > 0 ? 0 : ring.length - 1) : (from + by + ring.length) % ring.length;
       focus.focus(ring[index]);
@@ -1221,12 +1294,19 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   }
 
   /**
-   * Hands focus somewhere sensible when the element holding it is unmounted.
+   * Hands focus somewhere sensible when the element holding it is unmounted, or is
+   * no longer drawn.
    *
    * Dropping it into nothing is the alternative, and it reads as an app that
    * stopped responding: every key then goes to the bindings and nowhere else.
    * The position in the ring is what is kept rather than the element, because
    * the element is exactly what has gone.
+   *
+   * An element under a `display: none` is gone in the way that matters -- the ring
+   * already walks past it, and a key delivered to it would act on a tree nobody can
+   * see -- so it is repaired the same way, which is a browser's rule too. Asked of
+   * the element and every ancestor, and nothing to do with whether it is in the
+   * ring: an element with a negative `tabindex` that is drawn keeps the focus.
    */
   function reconcileFocus(): void {
     const at = current.get();
@@ -1234,7 +1314,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // not put the focus anywhere yet should have its first Tab land on the
     // first element rather than on the second, which is what grabbing it here
     // quietly did
-    if (!at || attached(at, root)) {
+    if (!at || (attached(at, root) && displayed(at))) {
       return;
     }
 

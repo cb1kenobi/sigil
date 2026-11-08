@@ -215,7 +215,10 @@ export type PropValue = boolean | number | string | undefined;
 export interface ElementProps {
   [name: string]: PropValue | readonly string[];
   class?: string | readonly string[];
-  /** Whether the focus ring stops here. A `tabindex` implies it. */
+  /**
+   * Whether the element can hold the focus, and a Tab stops here. A `tabindex`
+   * implies it; a negative one keeps it focusable and takes it out of the ring.
+   */
   focusable?: boolean;
   /**
    * Where a `text` links to, as an OSC 8 hyperlink over the cells it draws.
@@ -242,7 +245,12 @@ export interface ElementProps {
    * `raw` that really does draw characters opts back in.
    */
   selectable?: boolean;
-  /** Where in the ring, for an element that should not be in document order. */
+  /**
+   * Where in the ring, for an element that should not be in document order.
+   *
+   * Below zero the element is focusable -- a press lands on it, and `focus()` can
+   * -- and not in the ring a Tab walks, which then carries on from where it sits.
+   */
   tabindex?: number;
 }
 
@@ -469,10 +477,13 @@ export class Element implements LayoutNode {
   }
 
   /**
-   * Whether the focus ring stops here.
+   * Whether the element can hold the focus.
    *
    * A `tabindex` implies it, because giving something a place in the ring and
-   * then leaving it out of the ring is not a thing anybody means.
+   * then leaving it out of the ring is not a thing anybody means. The exception is
+   * a negative one, which is the web's: focusable by a press or by `focus()`, and
+   * not in the ring a Tab walks. This is the answer to "can it be focused", and
+   * `focus.ring()` is the answer to "does a Tab stop here".
    */
   get focusable(): boolean {
     return this.#focusable || this.#tabIndex !== undefined;

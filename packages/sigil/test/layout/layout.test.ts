@@ -1871,3 +1871,88 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
     expect(measureNode(tree, 100).width).toBe(14);
   });
 });
+
+describe('an auto-height column is as tall as the basis its children flex from', () => {
+  // SIG-277. SIG-126 for the other axis. The per-child loop sums each child's
+  // measured *content* height, and `measureUncached()` reports a declared `height`
+  // and never a `flex-basis` -- so a `flex-basis: 3` child holding one row measured
+  // one, and the column around it was a row short of the three its child was placed
+  // at. A declared `height: 3` did not have the problem, which is how it went
+  // unseen: it is the same size said in the one way the measure reads
+  const column = (declarations: Parameters<typeof box>[0], ...children: ReturnType<typeof box>[]) =>
+    box({ 'flex-direction': 'column' }, box(declarations, ...children));
+
+  it('should read a flex-basis the placement will read', () => {
+    expect(
+      measureNode(column({ 'flex-basis': '3', 'flex-shrink': '0' }, text('a')), 10).height
+    ).toBe(3);
+    // the same size said as a height, which is what the measure already knew
+    expect(measureNode(column({ height: '3', 'flex-shrink': '0' }, text('a')), 10).height).toBe(3);
+  });
+
+  it('should draw the column the height its child is placed at', () => {
+    // the shape the pane hit: an auto-height column with a basis-sized child above a
+    // child that grows. The column was two rows, so the pane drew at two whatever it
+    // was asked for
+    const tree = box(
+      { 'align-items': 'flex-start', 'flex-direction': 'row' },
+      box(
+        { 'flex-direction': 'column' },
+        box({ 'flex-basis': '3', 'flex-grow': '0', 'flex-shrink': '0', width: '4' }, text('a')),
+        box({ 'flex-grow': '1', width: '4' }, text('b'))
+      )
+    );
+    const placed = layout(tree, { height: 8, width: 8 });
+
+    const column = placed.children[0];
+
+    expect(column.box).toMatchObject({ height: 4, width: 4 });
+    expect(column.children.map((child) => child.box)).toEqual([
+      { height: 3, width: 4, x: 0, y: 0 },
+      { height: 1, width: 4, x: 0, y: 3 },
+    ]);
+  });
+
+  it('should floor a growable item under its own basis', () => {
+    expect(
+      measureNode(
+        column({ 'flex-basis': '3', 'flex-grow': '1', 'flex-shrink': '0' }, text('a')),
+        10
+      ).height
+    ).toBe(3);
+  });
+
+  it('should not offer a content size to an item that cannot grow', () => {
+    // a basis smaller than the content, held there: the column is the basis
+    const tree = column(
+      { 'flex-basis': '1', 'flex-shrink': '0', 'min-height': '0' },
+      text('a\nb\nc')
+    );
+
+    expect(measureNode(tree, 10).height).toBe(1);
+  });
+
+  it('should honour a max-height the placement honours rather than measuring past it', () => {
+    // the one thing besides the basis that moves, and it moves because it was the
+    // same disagreement: the loop read a child's height unclamped, so a column
+    // measured thirteen rows around a box the placement puts at none. Over 42,000
+    // random layouts with neither `flex-basis` nor `max-height` declared, the
+    // old arithmetic and this one agree on every box
+    const tree = column({ height: '13', 'max-height': '2', 'flex-shrink': '0' });
+
+    expect(measureNode(tree, 10).height).toBe(2);
+    expect(
+      layout(box({}, tree), { height: 20, width: 10 }).children[0].children[0].box.height
+    ).toBe(2);
+  });
+
+  it('should add the gaps between the children once', () => {
+    const tree = box(
+      { 'flex-direction': 'column', 'row-gap': '2' },
+      box({ 'flex-basis': '3', 'flex-shrink': '0' }),
+      box({ 'flex-basis': '4', 'flex-shrink': '0' })
+    );
+
+    expect(measureNode(tree, 10).height).toBe(9);
+  });
+});

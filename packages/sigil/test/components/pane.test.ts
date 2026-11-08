@@ -2,7 +2,15 @@ import { strip } from '../../src/ansi/index.js';
 import type { Key } from '../../src/components/keys.js';
 import { Pane, type PaneProps, paneControl } from '../../src/components/pane.js';
 import { Panel } from '../../src/components/panel.js';
-import { box, type Element, renderToLines, text } from '../../src/element/index.js';
+import { ScrollBox } from '../../src/components/scroll-box.js';
+import {
+  box,
+  type Element,
+  hitTest,
+  renderToLines,
+  resolveStyles,
+  text,
+} from '../../src/element/index.js';
 import { createInput, type KeyEvent, type MouseEvent } from '../../src/input/index.js';
 import type { MouseButton, MouseEventKind } from '../../src/input/mouse.js';
 import { flush, State } from '../../src/signals/index.js';
@@ -206,6 +214,64 @@ describe('Pane', () => {
         '│ t        │',
         '╰──────────╯',
       ]);
+    });
+
+    it('should grow a pane in an auto-height column, which is as tall as the sizes it holds', () => {
+      // the column here is not given a height: it is as tall as its children ask, and
+      // a child sized by `flex-basis` is asked about by its content unless the layout
+      // reads the basis. The old test passed because each panel's content was
+      // exactly three rows, and it never resized anything
+      const top = pane('top', { size: 3 });
+      const root = row(
+        Pane({ ascii: false, size: 12 }, column(top, box({ 'flex-grow': 1 }, text('rest')))),
+        main()
+      );
+      expect(picture(root, 24, 10).slice(0, 5)).toEqual([
+        '╭─ top ────╮main',
+        '│ t        │',
+        '╰──────────╯',
+        'rest',
+        '',
+      ]);
+
+      expect(paneControl(top)?.resize(5)).toBe(5);
+      flush();
+      expect(picture(root, 24, 10).slice(0, 7)).toEqual([
+        '╭─ top ────╮main',
+        '│ t        │',
+        '│          │',
+        '│          │',
+        '╰──────────╯',
+        'rest',
+        '',
+      ]);
+
+      // and by the keys, one cell at a time, each laid out before the next
+      const down = key('down');
+      edgeOf(top).onKey?.(down);
+      flush();
+      picture(root, 24, 10);
+      expect(top.box?.height).toBe(6);
+    });
+
+    it('should grow a pane beside a pane in an auto-height column', () => {
+      const one = pane('one', { size: 3 });
+      const two = pane('two', { size: 3 });
+      const root = row(Pane({ ascii: false, size: 12 }, column(one, two)), main());
+      picture(root, 24, 10);
+
+      expect(paneControl(one)?.resize(5)).toBe(5);
+      flush();
+      expect(picture(root, 24, 10).slice(0, 7)).toEqual([
+        '╭─ one ────╮main',
+        '│ o        │',
+        '│          │',
+        '│          │',
+        '╰──────────╯',
+        '╰─ two ────╯',
+        '',
+      ]);
+      expect(paneControl(two)?.size.get()).toBe(1);
     });
 
     it('should refuse what is not a size', () => {
@@ -986,11 +1052,79 @@ describe('Pane', () => {
       feed(sgr(0, at + 1, 'm'));
       expect(input.focus.current.get()).toBe(edge);
 
-      // a Tab from the edge starts the ring over, as it does from nothing
+      // a Tab from the edge carries on from where the edge sits, which is the web's
+      // rule: the edge is after the field in the document, so the next stop wraps to
+      // the field and the previous one is the field too
       input.focus.next();
       expect(input.focus.current.get()).toBe(field);
-      input.focus.next();
-      expect(input.focus.current.get()).toBe(field);
+      input.stop();
+    });
+
+    it('should carry a Tab on from the edge to the stop after it, and a Shift-Tab to the one before', () => {
+      const { feed, terminal } = harness();
+      const tree = box({ focusable: true }, text('tree'));
+      const side = Pane({ ascii: false, size: 8 }, tree);
+      const editor = box({ focusable: true, 'flex-grow': 1, 'min-width': 0 }, text('editor'));
+      const log = box({ focusable: true }, text('log'));
+      const root = row(side, editor, log);
+      picture(root, 30);
+      const input = createInput({ root, terminal });
+
+      expect(input.focus.ring()).toEqual([tree, editor, log]);
+      input.focus.focus(edgeOf(side));
+      feed('\t');
+      expect(input.focus.current.get()).toBe(editor);
+
+      input.focus.focus(edgeOf(side));
+      feed(`${ESC}[Z`);
+      expect(input.focus.current.get()).toBe(tree);
+      input.stop();
+    });
+
+    it('should move the focus out of a pane that collapses around it', () => {
+      // `display: none` on the body left the focus on a tree nobody could see, and the
+      // next arrow went to it
+      const { feed, terminal } = harness();
+      const list = box({ focusable: true }, text('list'));
+      const side = Pane({ ascii: false, collapsible: true, size: 8 }, list);
+      const editor = box({ focusable: true, 'flex-grow': 1, 'min-width': 0 }, text('editor'));
+      const root = row(side, editor);
+      picture(root, 30);
+      const input = createInput({ root, terminal });
+      const seen: string[] = [];
+      list.onKey = (event) => void seen.push(event.key.name);
+
+      input.focus.focus(list);
+      feed(`${ESC}[B`);
+      expect(seen).toEqual(['down']);
+
+      paneControl(side)?.collapse();
+      flush();
+      picture(root, 30);
+      feed(`${ESC}[B`);
+
+      expect(input.focus.current.get()).toBe(editor);
+      expect(seen).toEqual(['down']);
+      input.stop();
+    });
+
+    it('should keep the focus on the edge when the pane it is on collapses', () => {
+      // the edge is outside the body, so it is still drawn: a key after a collapse
+      // is the one that opens the pane again
+      const { feed, terminal } = harness();
+      const side = Pane({ ascii: false, collapsible: true, size: 8 }, box({ focusable: true }));
+      const root = row(side, main());
+      picture(root, 30);
+      const input = createInput({ root, terminal });
+
+      input.focus.focus(edgeOf(side));
+      feed('\r');
+      flush();
+      picture(root, 30);
+      feed(`${ESC}[C`);
+
+      expect(input.focus.current.get()).toBe(edgeOf(side));
+      expect(paneControl(side)?.collapsed.get()).toBe(false);
       input.stop();
     });
 
@@ -1016,6 +1150,163 @@ describe('Pane', () => {
       feed(sgr(35, at + 10));
       expect(edge.classes).not.toContain('sigil-accent');
       input.stop();
+    });
+  });
+
+  describe('in a real layout', () => {
+    it('should keep a scroll box’s bar clear of the edge, and hand the press to the bar', () => {
+      // the edge is on the pane's last column and a scroll box that fills the pane has
+      // its bar there. The edge is on top, so it took every press the bar should have
+      const bar = ScrollBox({
+        children: () =>
+          box(
+            { 'flex-direction': 'column' },
+            ...Array.from({ length: 20 }, (_, i) => text(`line ${i}`))
+          ),
+      });
+      const side = Pane({ ascii: false, size: 12 }, bar);
+      const root = row(side, main());
+      picture(root, 30, 5);
+      picture(root, 30, 5);
+
+      const edge = edgeOf(side);
+      expect(hitTest(root, 11, 2)).toBe(edge);
+      expect(hitTest(root, 10, 2)?.classes.join(' ')).toMatch(/sigil-scroll-(thumb|track)/);
+      expect(picture(root, 30, 5)[0]).toBe('line 0    █ main');
+    });
+
+    it('should leave a bordered panel alone, because its border is between', () => {
+      const side = Pane(
+        { ascii: false, size: 12 },
+        Panel({ ascii: false }, ScrollBox({ children: () => text('x') }))
+      );
+      const root = row(side, main());
+      picture(root, 30, 5);
+      picture(root, 30, 5);
+
+      expect(side.children[0]?.style.paddingRight).toBe(0);
+    });
+
+    it('should keep every edge on the screen when the panes ask for more than there is', () => {
+      const a = pane('aaaa', { min: 12, size: 15 });
+      const b = pane('bbbb', { edge: 'start', min: 12, size: 15 });
+      const root = row(a, main(), b);
+
+      for (const width of [40, 30, 20, 12]) {
+        picture(root, width, 3);
+        picture(root, width, 3);
+        for (const host of [a, b]) {
+          const at = edgeOf(host).box;
+          expect(at?.x, `edge x at ${width}`).toBeGreaterThanOrEqual(0);
+          expect((at?.x ?? 0) + 1, `edge right at ${width}`).toBeLessThanOrEqual(width);
+        }
+      }
+    });
+
+    it('should share the room by minimums, and in order, when it is short', () => {
+      const a = pane('aaaa', { min: 4, size: 30 });
+      const b = pane('bbbb', { min: 4, size: 30 });
+      const root = row(a, b);
+      picture(root, 20, 3);
+      picture(root, 20, 3);
+
+      // the first keeps what is left after the second's minimum
+      expect([a.box?.width, b.box?.width]).toEqual([16, 4]);
+    });
+
+    it('should take a plain neighbour down to its minimum and no further', () => {
+      // a nowrap word cannot shrink, so the cells past it are not the neighbour's to
+      // give: the pane that took them pushed the box after it off the screen
+      const a = pane('aaaa', { size: 10 });
+      const word = box({ 'flex-grow': 1 }, text('nowrapcontent', { 'white-space': 'nowrap' }));
+      const tail = box({}, text('Z'));
+      const root = row(a, word, tail);
+      picture(root, 30, 3);
+
+      dragTo(a, 9, 25);
+      release(a, 25);
+      picture(root, 30, 3);
+
+      expect(a.box?.width).toBe(16);
+      expect(word.box?.width).toBe(13);
+      expect(picture(root, 30, 3)[0]?.endsWith('nowrapcontentZ')).toBe(true);
+    });
+
+    it('should let a plain neighbour with min-width 0 go to nothing', () => {
+      const a = pane('aaaa', { size: 10 });
+      const word = box(
+        { 'flex-grow': 1, 'min-width': 0 },
+        text('nowrapcontent', { 'white-space': 'nowrap' })
+      );
+      const root = row(a, word);
+      picture(root, 30, 3);
+
+      dragTo(a, 9, 100);
+      expect(paneControl(a)?.size.get()).toBe(30);
+    });
+
+    it('should not take more of a neighbour than it has in several steps before a frame', () => {
+      // three presses in one chunk, with no layout between them: each asked the stale
+      // box how much was left and was told one cell
+      const a = pane('aaaa', { size: 10 });
+      const nb = box({ 'flex-grow': 1, 'min-width': 0 }, text('m'));
+      const tail = box({ 'flex-shrink': 0 }, text('Z'));
+      const root = row(a, nb, tail);
+      picture(root, 12, 3);
+      expect(nb.box?.width).toBe(1);
+
+      for (let i = 0; i < 3; i++) {
+        edgeOf(a).onKey?.(key('right'));
+      }
+      flush();
+      expect(paneControl(a)?.size.get()).toBe(11);
+      expect(picture(root, 12, 3)[0]?.endsWith('Z')).toBe(true);
+    });
+
+    it('should put the edge of a pane with no cells where it can be reached', () => {
+      // not collapsible, `min: 0`, taken to nothing: the edge is not at column -1
+      const side = Pane({ ascii: false, min: 0, size: 5 }, text('side'));
+      const root = row(side, main());
+      picture(root, 20, 2);
+
+      expect(paneControl(side)?.resize(0)).toBe(0);
+      flush();
+      picture(root, 20, 2);
+
+      expect(side.box?.width).toBe(0);
+      expect(edgeOf(side).box?.x).toBe(0);
+      expect(hitTest(root, 0, 0)).toBe(edgeOf(side));
+      // and it can be pulled open again from there
+      dragTo(side, 0, 4);
+      expect(paneControl(side)?.size.get()).toBe(4);
+    });
+
+    it('should leave an app’s own z-index alone, and put it back after a collapse', () => {
+      const side = Pane(
+        { ascii: false, collapsible: true, props: { 'z-index': 3 }, size: 8 },
+        text('side')
+      );
+      const plain = Pane({ ascii: false, collapsible: true, size: 8 }, text('plain'));
+      const root = row(side, plain, main());
+      const z = (host: Element) => {
+        resolveStyles(root);
+        return host.style.zIndex;
+      };
+      picture(root, 30, 2);
+      expect(z(side)).toBe(3);
+      expect(z(plain)).toBe(0);
+
+      paneControl(side)?.collapse();
+      paneControl(plain)?.collapse();
+      flush();
+      expect(z(side)).toBe(3);
+      expect(z(plain)).toBe(1);
+
+      paneControl(side)?.expand();
+      paneControl(plain)?.expand();
+      flush();
+      expect(z(side)).toBe(3);
+      expect(z(plain)).toBe(0);
     });
   });
 });

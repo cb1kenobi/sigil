@@ -11,7 +11,7 @@
  * box(
  *   { class: 'row' },
  *   Pane({ size: sidebarWidth, min: 16, collapsible: true }, Panel({ title: 'files' }, tree)),
- *   box({ class: 'main', 'flex-grow': 1 }, editor),
+ *   box({ class: 'main', 'flex-grow': 1, 'min-width': 0 }, editor),
  *   Pane({ size: 30, min: 20, edge: 'start' }, Panel({ title: 'log' }, log))
  * );
  * ```
@@ -22,7 +22,7 @@
  * own last column (`edge: 'end'`, the default) or first (`'start'`), and takes no
  * space. Over a `Panel` it sits on the panel's border. A drag moves cells between
  * the pane and the neighbour on that side: another pane gives or takes them, and a
- * plain flex box absorbs the difference.
+ * plain flex box absorbs the difference, down to its own minimum.
  *
  * Click the edge to focus it, then the arrows move it a cell and Shift with an arrow
  * five. It is not in the Tab order. Double-clicking it, or Enter or Space on it,
@@ -41,6 +41,7 @@ import {
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { KeyEvent, MouseEvent } from '../input/index.js';
+import { measureNode } from '../layout/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { unicodeSupported } from './note.js';
@@ -122,8 +123,13 @@ export interface PaneControl {
 
 /** What a neighbour is asked, and what a pane keeps to answer it. */
 interface Model {
+  /** The cells it is given: its `effective()` size, less what the room cannot hold. */
+  allocated(): number;
+  /** What it claims of the room however little there is: its `min`, or nothing if shut. */
+  claim(): number;
   collapsed(): boolean;
   readonly control: PaneControl;
+  /** The cells it asks for: nothing if collapsed, else its size in range. */
   effective(): number;
   readonly max: number;
   readonly min: number;
@@ -183,6 +189,25 @@ function axisOf(host: Element): 'column' | 'row' {
 /** The main-axis extent of a placed element, or nothing if it has not been placed. */
 function extentOf(element: Element, axis: 'column' | 'row'): number {
   return axis === 'row' ? (element.box?.width ?? 0) : (element.box?.height ?? 0);
+}
+
+/**
+ * The fewest cells a plain box beside a pane can be made along the axis.
+ *
+ * The placement's own rule -- a declared `min-width` or `min-height`, else the
+ * automatic minimum its content gives -- so a drag stops where the layout would
+ * stop shrinking the box, and not at a size the box would then refuse and push the
+ * rest of the row off the screen with. A percentage is the content's answer, which is
+ * the one case this reads less than the placement does.
+ */
+function minimumOf(element: Element, axis: 'column' | 'row'): number {
+  const declared = axis === 'row' ? element.style.minWidth : element.style.minHeight;
+  if (declared.type === 'cells') {
+    return declared.value;
+  }
+  const at = element.box;
+  const measured = measureNode(element, at?.width ?? 0);
+  return axis === 'row' ? (measured.minWidth ?? 0) : (measured.minHeight ?? 0);
 }
 
 /** Whether a sibling takes part in the flow the pane's edge is a boundary of. */
@@ -290,12 +315,22 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
 
   const isCollapsed = (): boolean => collapsible && collapsed.get();
   const lit = (): boolean => hover || focused || drag !== undefined;
+  /**
+   * The cells the layout is asked for, which is what is in the `flex-basis`.
+   *
+   * Nothing for a collapsed pane, and nothing for a pane the room has no cell for.
+   * It is `0` that decides where the edge sits and whether it shows at rest, and not
+   * `collapsed`: a pane that is not collapsible and has `min: 0` is as unreachable
+   * at no cells as one that is, and the edge on its own column would be off the screen.
+   */
+  let basis = effective();
+  const shut = (): boolean => basis === 0;
 
   const paint: RawPaint = (painter, area, element) => {
     const on = lit();
     // at rest the border or the content underneath is what shows, unless the pane
     // is collapsed and there is nothing underneath to say it is here
-    if (!on && !isCollapsed()) {
+    if (!on && !shut()) {
       return;
     }
     const style = cellStyle(element.style);
@@ -319,15 +354,16 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
       // focusable by a click and by `focus()`, and out of the ring a Tab walks: the
       // edge is a pointer's handle with a keyboard fallback, not a stop in the form
       tabindex: -1,
-      ...edgeProps(axis, side, isCollapsed()),
+      ...edgeProps(axis, side, shut()),
     }
   );
+  let placed = `${axis}:${shut()}`;
 
   /** Puts the edge's look right for what it is doing. */
   const sync = (): void => {
     edge.toggleClass('sigil-accent', lit());
-    edge.toggleClass('sigil-muted', !lit() && isCollapsed());
-    edge.toggleClass('is-collapsed', isCollapsed());
+    edge.toggleClass('sigil-muted', !lit() && shut());
+    edge.toggleClass('is-collapsed', shut());
     edge.invalidatePaint();
   };
 
@@ -373,11 +409,58 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
     host.addClass(name);
   }
 
-  /** What the layout last said the parent has room for, so a pane never asks for more. */
-  let room: number | undefined;
-  let basis = effective();
+  /** The z-index the app gave the pane, which a collapse raises and an expand puts back. */
+  const appZ = props.props?.['z-index'];
+
+  /**
+   * The cells this pane is given of the room its parent has.
+   *
+   * What it asks for, unless the panes in that parent ask for more than the parent
+   * has. Then each keeps its minimum -- scaled down together if even those do not
+   * fit -- and the rest is handed out in document order, so every pane is at least
+   * as wide as it can be and every edge is on the canvas. A parent that has not been
+   * laid out gives no room to share, and neither does one whose size is the panes':
+   * an auto-sized parent is as big as they ask for, so its extent is no reason to
+   * ask for less.
+   */
+  const allocate = (): number => {
+    const wanted = effective();
+    const content = host.parent?.content;
+    if (host.parent === undefined || content === undefined) {
+      return wanted;
+    }
+    const extent = axis === 'row' ? content.width : content.height;
+    const group: Array<{ claim: number; here: boolean; wanted: number }> = [];
+    for (const child of host.parent.children) {
+      const model = child === host ? undefined : models.get(child);
+      if (child === host) {
+        group.push({ claim: wanted === 0 ? 0 : min, here: true, wanted });
+      } else if (model !== undefined && inFlow(child)) {
+        group.push({ claim: model.claim(), here: false, wanted: model.effective() });
+      }
+    }
+    if (group.reduce((sum, it) => sum + it.wanted, 0) <= extent) {
+      return wanted;
+    }
+    const claims = group.reduce((sum, it) => sum + it.claim, 0);
+    const mine = group.find((it) => it.here)?.claim ?? 0;
+    if (claims >= extent) {
+      return claims === 0 ? 0 : Math.floor((extent * mine) / claims);
+    }
+    let remaining = extent - claims;
+    for (const it of group) {
+      const extra = Math.min(it.wanted - it.claim, remaining);
+      remaining -= extra;
+      if (it.here) {
+        return it.claim + extra;
+      }
+    }
+    return wanted;
+  };
+
+  /** Writes the basis, and says whether it changed. */
   const applyBasis = (): boolean => {
-    const next = Math.min(effective(), room ?? Number.POSITIVE_INFINITY);
+    const next = allocate();
     if (next === basis) {
       return false;
     }
@@ -386,45 +469,161 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
     return true;
   };
 
+  /**
+   * Puts the edge where the basis says, and the pane above its siblings if the edge
+   * has gone over one of them.
+   *
+   * @returns Whether it moved the edge.
+   */
+  const placeEdge = (): boolean => {
+    // a pane with no cells of its own has its edge on its neighbour's cell, and a
+    // sibling later in the tree would paint over it. Only touched when it changes
+    // hands: the app's own z-index is the app's, and is put back
+    host.setProp(
+      'z-index',
+      shut() ? Math.max(1, Number(appZ ?? 0)) : (appZ as number | string | undefined)
+    );
+    const key = `${axis}:${shut()}`;
+    if (key === placed) {
+      return false;
+    }
+    placed = key;
+    edge.setProps(edgeProps(axis, side, shut()));
+    edge.invalidatePaint();
+    return true;
+  };
+
   createEffect(() => {
     // read here so the effect depends on all three
-    const shut = isCollapsed();
+    const closed = isCollapsed();
     size.get();
     applyBasis();
-    body.setProp('display', shut ? 'none' : undefined);
-    // a collapsed pane's edge is over its neighbour's cell, and the neighbour
-    // after it in the tree would be painted over it
-    host.setProp('z-index', shut ? 1 : undefined);
-    edge.setProps(edgeProps(axis, side, shut));
+    body.setProp('display', closed ? 'none' : undefined);
+    placeEdge();
     sync();
   });
+
+  /** Which padding keeps the content clear of the edge, by axis and side. */
+  const clearance = (): string =>
+    axis === 'row'
+      ? side === 'end'
+        ? 'padding-right'
+        : 'padding-left'
+      : side === 'end'
+        ? 'padding-bottom'
+        : 'padding-top';
+  let cleared: string | undefined;
+
+  /**
+   * Whether something inside draws a scrollbar on the edge's cell.
+   *
+   * The edge is laid over the pane's own last column, so a scroll box that fills the
+   * pane has its bar there -- and the edge, which is on top, takes every press the bar
+   * should. A bordered `Panel` between the two puts the bar a cell inside and nothing
+   * is needed. Where there is no border, the content keeps a cell clear instead, and
+   * the edge has a column to itself. Asked of the bars the layout placed, with what
+   * is already kept clear added back, so keeping it does not make the answer "no".
+   */
+  const barUnderEdge = (): boolean => {
+    const at = host.box;
+    if (at === undefined || isCollapsed()) {
+      return false;
+    }
+    const kept = cleared === undefined ? 0 : 1;
+    const bars: Element[] = [];
+    const walk = (element: Element): void => {
+      if (element.classes.includes('sigil-scroll-bar')) {
+        bars.push(element);
+      }
+      for (const child of element.children) {
+        walk(child);
+      }
+    };
+    walk(body);
+    return bars.some((bar) => {
+      const b = bar.box;
+      if (b === undefined) {
+        return false;
+      }
+      if (axis === 'row') {
+        return side === 'end'
+          ? b.x + b.width - 1 + kept >= at.x + at.width - 1
+          : b.x - kept <= at.x;
+      }
+      return side === 'end'
+        ? b.y + b.height - 1 + kept >= at.y + at.height - 1
+        : b.y - kept <= at.y;
+    });
+  };
 
   host.onLayout = (): boolean => {
     let changed = false;
     const next = axisOf(host);
     if (next !== axis) {
       axis = next;
-      edge.setProps(edgeProps(axis, side, isCollapsed()));
-      edge.invalidatePaint();
       changed = true;
     }
-    const parent = host.parent?.content;
-    const available =
-      parent === undefined ? undefined : axis === 'row' ? parent.width : parent.height;
-    if (available !== room) {
-      room = available;
-      changed = applyBasis() || changed;
+    changed = applyBasis() || changed;
+    changed = placeEdge() || changed;
+
+    const wanted = barUnderEdge() ? clearance() : undefined;
+    if (wanted !== cleared) {
+      if (cleared !== undefined) {
+        body.setProp(cleared, undefined);
+      }
+      if (wanted !== undefined) {
+        body.setProp(wanted, 1);
+      }
+      cleared = wanted;
+      changed = true;
     }
     return changed;
   };
 
   // -- moving the edge --------------------------------------------------------
+  /**
+   * Whether the parent is as big along the axis as its children make it, with
+   * nothing but them deciding.
+   *
+   * No declared size on that axis, and nothing above handing it one: a flex item
+   * only has the room of its parent when it grows into it (on the parent's main
+   * axis) or is stretched across it (on the cross axis), and only if that parent
+   * has a size to give in turn. The root is the canvas's. A parent for which the
+   * answer is no is exactly as big as its children ask for, so a pane growing makes
+   * it bigger and there is nobody to take the cells from; the allocation still caps
+   * a pane at the room there is, for the day the answer was wrong.
+   */
+  const shrinkWrapped = (): boolean => {
+    const parent = host.parent;
+    if (parent === undefined) {
+      return false;
+    }
+    const dimension = axis === 'row' ? 'width' : 'height';
+    const definite = (element: Element): boolean => {
+      if (element.style[dimension].type !== 'auto') {
+        return true;
+      }
+      const above = element.parent;
+      if (above === undefined) {
+        return true;
+      }
+      const along = above.style.flexDirection.startsWith('row') ? 'width' : 'height';
+      if (along === dimension) {
+        return element.style.flexGrow > 0 && definite(above);
+      }
+      const align =
+        element.style.alignSelf === 'auto' ? above.style.alignItems : element.style.alignSelf;
+      return align === 'stretch' && definite(above);
+    };
+    return !definite(parent);
+  };
+
   /** Looks up what is on the other side of the edge, and what each may give. */
   const begin = (): Anchor => {
     // what the layout will give, worked out from the state rather than read off
     // a box the last frame placed: a key pressed twice between two frames moves
     // from where the first one left it
-    const here = Math.min(effective(), room ?? Number.POSITIVE_INFINITY);
+    const here = allocate();
     const siblings = host.parent?.children.filter((it) => it === host || inFlow(it)) ?? [host];
     const beside = siblings[siblings.indexOf(host) + (side === 'end' ? 1 : -1)];
     const model = beside === undefined ? undefined : models.get(beside);
@@ -439,10 +638,19 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
       };
     }
     if (model === undefined) {
-      // a plain box takes up the difference through its own flex-grow, and can give
-      // up all it has
+      // a plain box takes up the difference through its own flex-grow. What it has to
+      // give is what the two of them shared when the layout last ran, less what this
+      // pane already holds: worked out from the pair and not from the box's own size,
+      // so a second step before the next frame finds the cells the first took gone.
+      // And not all of it: down to the least the placement would let it be, which is
+      // the width of the longest word that cannot break unless it says otherwise
+      const pair = (host.box === undefined ? here : extentOf(host, axis)) + extentOf(beside, axis);
       return {
-        grow: extentOf(beside, axis),
+        // a parent that is as big as its children ask for has nobody to take from: the
+        // pane growing makes the parent bigger, and the box beside it keeps what it has
+        grow: shrinkWrapped()
+          ? Number.POSITIVE_INFINITY
+          : Math.max(0, pair - here - minimumOf(beside, axis)),
         neighbour: undefined,
         neighbourStart: 0,
         shrink: Number.POSITIVE_INFINITY,
@@ -459,7 +667,7 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
         start: here,
       };
     }
-    const there = model.effective();
+    const there = model.allocated();
     return {
       grow: Math.max(0, there - model.min),
       neighbour: model,
@@ -526,6 +734,8 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
     },
   });
   models.set(host, {
+    allocated: allocate,
+    claim: () => (effective() === 0 ? 0 : min),
     collapsed: isCollapsed,
     control,
     effective,

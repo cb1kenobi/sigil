@@ -1097,8 +1097,8 @@ describe('focus', () => {
 
   it('should keep an element with a negative tabindex out of the ring and still focus it', () => {
     // the web's rule, and what a control that wants a click or `focus()` but no
-    // Tab stop is built on: the `tabindex` implies `focusable`, so a press lands
-    // on it, and the ring a Tab walks leaves it out
+    // Tab stop is built on: the `tabindex` implies `focusable`, so a press lands on
+    // it, and the ring a Tab walks leaves it out
     const { terminal } = harness();
     const first = box({ focusable: true });
     const sash = box({ tabindex: -1 });
@@ -1110,11 +1110,59 @@ describe('focus', () => {
 
     input.focus.focus(sash);
     expect(input.focus.current.get()).toBe(sash);
+    input.stop();
+  });
 
-    // a Tab from an element outside the ring starts the ring over, as it does
-    // from nothing
+  it('should carry on from where an element outside the ring sits, in either direction', () => {
+    // the other half of the web's rule. With the ring [tree, editor, log] and a sash
+    // between the first two, Tab goes to the editor and Shift-Tab to the tree --
+    // neither starts the ring over, which is what a user who clicked the sash and
+    // pressed Tab would have called a bug
+    const { terminal } = harness();
+    const tree = box({ focusable: true });
+    const sash = box({ tabindex: -1 });
+    const editor = box({ focusable: true });
+    const log = box({ focusable: true });
+    const root = box({}, box({}, tree, sash), editor, log);
+    const input = createInput({ root, terminal });
+
+    input.focus.focus(sash);
     input.focus.next();
-    expect(input.focus.current.get()).toBe(first);
+    expect(input.focus.current.get()).toBe(editor);
+
+    input.focus.focus(sash);
+    input.focus.previous();
+    expect(input.focus.current.get()).toBe(tree);
+
+    // and wraps from the ends, as the ring does
+    const head = box({ tabindex: -1 });
+    const tail = box({ tabindex: -1 });
+    root.insertBefore(head, root.children[0]);
+    root.append(tail);
+    input.focus.focus(head);
+    input.focus.previous();
+    expect(input.focus.current.get()).toBe(log);
+    input.focus.focus(tail);
+    input.focus.next();
+    expect(input.focus.current.get()).toBe(tree);
+    input.stop();
+  });
+
+  it('should hand focus to a neighbour when an element outside the ring is unmounted', () => {
+    // the position it held is where it sat in the document, not the top of the ring
+    const { feed, terminal } = harness();
+    const tree = box({ focusable: true });
+    const sash = box({ tabindex: -1 });
+    const editor = box({ focusable: true });
+    const log = box({ focusable: true });
+    const root = box({}, box({}, tree, sash), editor, log);
+    const input = createInput({ root, terminal });
+
+    input.focus.focus(sash);
+    sash.remove();
+    feed('x');
+
+    expect(input.focus.current.get()).toBe(editor);
     input.stop();
   });
 
@@ -1130,6 +1178,84 @@ describe('focus', () => {
     const input = createInput({ root, terminal });
 
     expect(input.focus.ring()).toEqual([shown]);
+    input.stop();
+  });
+
+  it('should hand focus on when the element holding it is hidden, or anything above it is', () => {
+    // a browser blurs an element that stops being displayed, and so does this: a key
+    // delivered to a tree nobody can see acts on something the user did not choose.
+    // Asked of the element and every ancestor, because `display: none` on a section
+    // is how a collapsed region hides what is in it
+    const { feed, terminal } = harness();
+    const inside = box({ focusable: true }, text('inside'));
+    const section = box({}, inside);
+    const before = box({ focusable: true }, text('before'));
+    const after = box({ focusable: true }, text('after'));
+    const root = box({}, before, section, after);
+    const input = createInput({ root, terminal });
+    const seen: string[] = [];
+    inside.onKey = () => void seen.push('hidden tree');
+
+    input.focus.focus(inside);
+    feed('x');
+    expect(seen).toEqual(['hidden tree']);
+
+    section.setProp('display', 'none');
+    resolveStyles(root);
+    feed('x');
+
+    // repaired the way an unmount is: to the element now at the position it held
+    expect(input.focus.current.get()).toBe(after);
+    expect(seen).toEqual(['hidden tree']);
+    input.stop();
+  });
+
+  it('should hand focus on when the focused element itself is hidden', () => {
+    const { feed, terminal } = harness();
+    const { root, second, third } = tree();
+    const input = createInput({ root, terminal });
+
+    input.focus.focus(second);
+    second.setProp('display', 'none');
+    resolveStyles(root);
+    feed('x');
+
+    expect(input.focus.current.get()).toBe(third);
+    input.stop();
+  });
+
+  it('should leave the focus on a drawn element that is outside the ring', () => {
+    // the other direction, and the reason the rule is about display and not about the
+    // ring: an element with a negative `tabindex` is not in the ring and is exactly
+    // where a click put the focus
+    const { feed, terminal } = harness();
+    const { first, root } = tree();
+    const handle = box({ tabindex: -1 }, text('handle'));
+    root.append(handle);
+    resolveStyles(root);
+    const input = createInput({ root, terminal });
+
+    input.focus.focus(handle);
+    feed('x');
+
+    expect(input.focus.ring()).not.toContain(handle);
+    expect(input.focus.current.get()).toBe(handle);
+    expect(first).toBeDefined();
+    input.stop();
+  });
+
+  it('should drop the focus when nothing else can take it', () => {
+    const { feed, terminal } = harness();
+    const only = box({ focusable: true }, text('only'));
+    const root = box({}, only);
+    const input = createInput({ root, terminal });
+
+    input.focus.focus(only);
+    only.setProp('display', 'none');
+    resolveStyles(root);
+    feed('x');
+
+    expect(input.focus.current.get()).toBeUndefined();
     input.stop();
   });
 

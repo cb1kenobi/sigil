@@ -720,6 +720,23 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
     minCrossMax = crossMin;
   }
 
+  // and a column asks for the same thing along its own main axis, which is its
+  // height. The loop above sums each child's measured *content* height, and a
+  // `flex-basis` is what that misses -- `measureUncached()` reports a declared
+  // `height` and never a basis, so a `flex-basis: 3` child holding one row measured
+  // one and the column around it was drawn a row short of the three its child was
+  // then placed at. SIG-126 closed this for a nowrap row; a column is the same
+  // sentence with the other axis, through the same two functions, because the
+  // placement's `resolveFlexible()` is the same function for both. There is nothing
+  // to flex against here -- this function is never told a height -- so only the two
+  // sums are taken, and no cross pass follows: a column's cross size is not decided
+  // by how its main axis flexes.
+  if (axis.column) {
+    mainTotal =
+      items.reduce((sum, item) => sum + maxContentMain(item, axis), 0) +
+      gapMain * Math.max(0, items.length - 1);
+  }
+
   const width = axis.column ? crossMax + inset.cross : mainTotal + inset.main;
   const height = axis.column ? mainTotal + inset.main : crossMax + inset.cross;
   const minWidth = axis.column ? minCrossMax + inset.cross : minMainTotal + inset.main;

@@ -4939,10 +4939,15 @@ border, which is what every dashboard, file manager and log viewer is made of.
   hidden` clips to the padding box, which is where the labels sit on the border row
   -- the same reason the monitor's stand-in had an inner `panel-body`. The labels are
   children of the panel and the content is a child of the body.
-- **It grows to fill its slot, and a prop says otherwise.** `flex-grow: 1` with
-  `min-width: 0` and `min-height: 0`, before `props.props` is spread so the app wins.
-  A panel inside a `Pane` is meant to fill it and a bordered region in a layout nearly
-  always is; the opposite default would have every use write `'flex-grow': 1`.
+- **It grows to fill its slot, by a rule in the framework sheet, so a stylesheet can say
+  otherwise.** `.sigil-panel { flex-grow: 1 }` is the fifteenth declared exception to
+  the role rule (`src/theme`). It was an inline `flex-grow: 1` in the first version,
+  which only `props` could undo: a prop beats a sheet, so a panel used as a card in a
+  column had no way to stop growing from a stylesheet. The size limits `min-width: 0`
+  and `min-height: 0` stay inline, because they are structure and not a default. A
+  panel inside a `Pane` is meant to fill it and a bordered region in a layout nearly
+  always is; the opposite default would have every use write `'flex-grow': 1`. Rendered
+  with no framework sheet at all -- a bare `Cascade` -- it does not grow.
 - **The border style is a prop, the colour is the cascade's.** `border-style` is
   inline, as the note, the modal, the toast and the tooltip have it, with `ascii` and
   `border` the same options. `border-color` is not set at all, so a theme restyles
@@ -4979,9 +4984,21 @@ owns its own edge. `paneControl(host)` is its handle.
   `onLayout`, which re-places the edge when the parent turns from a row into a column
   and says it changed the tree. `flex-grow: 0`, `flex-shrink: 0` and `min-width: 0`:
   the size is the size it was given, and a terminal narrower than the panes' sum makes
-  the plain box beside them go to nothing rather than squeezing a pane. The size is
-  also capped at the parent's content extent where the layout last said what that was,
-  so a pane larger than the whole screen has the screen.
+  the plain box beside them go to nothing rather than squeezing a pane. That needed
+  the layout to read a basis along a column, which it did not: "An auto-height column
+  is as tall as the basis its children flex from" in `src/layout`.
+- **When the panes ask for more than the parent has, each keeps its minimum and the
+  rest is handed out in order.** Capping each at the whole parent, which the first
+  version did, left two 15-cell panes in a 12-wide row each 12 wide and the second
+  off the canvas with its edge unreachable. `allocate()` is a pure function of the
+  panes' wanted sizes and the parent's extent, so every pane computes the same
+  answer from its own `onLayout` and no pane reads another's last frame: where the
+  asks fit it returns the ask; where the minimums do not fit they are scaled down
+  together, so every edge stays on the screen; otherwise each pane gets its minimum
+  and the first ones in the document get the remainder. Only a real contention
+  triggers it, so a parent that is exactly as big as its panes make it -- an
+  auto-height column -- is never a reason to ask for less. Plain siblings claim
+  nothing; they are what gives way.
 - **The size state is the app's and is not clamped in place.** `min` and `max` clamp
   where it is read and where a drag writes, and a state an app set out of range
   draws in range and keeps its value, so a terminal that is wide again finds the pane
@@ -4997,26 +5014,58 @@ owns its own edge. `paneControl(host)` is its handle.
   is told rather than `element.states`, so one flag per cause says why it is lit.
   Drawing over a panel's corner cells is deliberate: it is the whole height of the
   pane, like a sash in an editor.
-- **A collapsed pane's edge moves to the neighbour's cell, and the pane goes above its
+- **A pane with no cells has its edge on the neighbour's cell, and goes above its
   siblings.** An `end` edge on a zero-width pane at the left of the screen would be
-  column -1, off the canvas and not reachable, so a collapsed pane takes the other
-  inset and lands on the cell beside the boundary. That cell is the neighbour's, and
-  a sibling later in the tree would paint over it, so the host takes `z-index: 1` while
-  collapsed. It is drawn dim (`.sigil-muted`) with the light glyph, so there is
-  something on the screen to say the pane is there.
+  column -1, off the canvas and not reachable, so a pane of no cells takes the other
+  inset and lands on the cell beside the boundary. "No cells" is the basis being zero
+  and not `collapsed`: a pane that is not collapsible with `min: 0` taken to nothing,
+  or one the room has no cell for, is as unreachable as a collapsed one. That cell is
+  the neighbour's, and a sibling later in the tree would paint over it, so the host
+  takes `z-index: 1` -- or the app's own, if that is higher -- and puts the app's value
+  back when it has cells again. It is drawn dim (`.sigil-muted`) with the light glyph,
+  so there is something on the screen to say the pane is there.
+- **A scrollbar on the edge's cell makes the content keep that cell clear.** The edge
+  is on top of the pane's last column and a scroll box that fills a pane has its bar
+  there, so every press the bar should take went to the edge and a hover drew `┃`
+  over it. A pane looks for `sigil-scroll-bar` elements, in the content, whose cell is
+  the edge's, and pads that side of the body by one -- `padding-right`, `-left`,
+  `-bottom` or `-top` by axis and side -- so the edge has a column to itself. Asked of
+  the boxes the layout placed with the padding it is already keeping added back, so
+  keeping the cell clear does not make the next answer "no" and flap. A `Panel`
+  between the two puts the bar a cell inside the border and nothing is padded. This
+  couples the pane to a scroll box's `sigil-scroll-bar` hook, which is published
+  vocabulary; the alternatives were a documented rule that no scroll box may fill a
+  pane, which the README had been sanctioning, and a warning, which nothing in the
+  library has a place to print.
 - **A drag moves cells between the pane and its neighbour, and the neighbour is
   looked up when the press lands.** The siblings are read from the parent at that
   moment -- in-flow ones only, so an absolute overlay between them is skipped -- and
   nothing is cached, so a pane added or removed since the last drag is the one found.
   A `Pane` neighbour gives or takes within its own `min` and `max`; a plain box
-  gives up all it has and absorbs the rest through its own `flex-grow`; a collapsed
-  pane gives nothing and stays shut. The pane's own limits and its neighbour's are
+  gives up what it has down to the least the layout would let it be and absorbs the
+  rest through its own `flex-grow`; a collapsed pane gives nothing and stays shut. The pane's own limits and its neighbour's are
   intersected rather than applied in turn, so neither is exceeded by one cell. A
   neighbour a drag cannot satisfy leaves the pane where it was.
+
+  That least is `minimumOf()`: a declared `min-width` or `min-height`, else the
+  automatic minimum `measureNode()` reports for its content. Assuming it could give up
+  everything -- the first version -- let a pane take cells from a box holding a
+  `nowrap` word until the word pushed every later sibling off the screen. And what it
+  has to give is worked out from the pair: the cells the two shared when the layout
+  last ran, less what the pane already holds. Reading the neighbour's own box instead
+  told three Right presses in one input chunk, with no layout between them, that one
+  cell was left each time. The one place the pair is the wrong model is a parent that
+  is as big as its children make it, where growing the pane makes the parent bigger
+  and there is nobody to take from; `shrinkWrapped()` asks the parent and its
+  ancestors whether anything hands it a size (a declared one, a `flex-grow`, a
+  stretch, the canvas for the root), and unbounded growth is the answer where nothing
+  does. The first version used the measured extent against the measure, and a root row
+  squeezed exactly full was taken for a shrink-wrapped one.
+
 - **What a drag measures is the distance from the press, from where the layout will
   put the pane.** Not from the edge and not from the box a past frame placed: a key
   pressed twice between two frames moves from where the first left it, which the first
-  version got wrong by reading a stale box. The start is `min(effective(), room)`.
+  version got wrong by reading a stale box. The start is `allocate()`.
 - **Collapsing is a snap, not a limit.** A `collapsible` pane dragged below half its
   `min` is closed and not a small pane, as a sash in an editor snaps; between half and
   `min` it is `min`. Opening from collapsed by a drag uses the same rule, so it opens at
@@ -5037,7 +5086,10 @@ owns its own edge. `paneControl(host)` is its handle.
   setter: it clamps, it moves a neighbouring pane, and it answers what it took.
 - **The edge is focusable and not in the Tab order, which needed the router to learn a
   negative `tabindex`.** See "Input and focus" in `src/input`. A click focuses it, the arrows
-  move it a cell and Shift with one five, and a Tab walks past. The arrows are the
+  move it a cell and Shift with one five, and a Tab carries on from where it sits.
+  Collapsing a pane around a focused row hands the focus on, by the router's rule that an
+  element that stops being displayed gives it up; the edge itself is outside the body,
+  so a collapse from the edge leaves the focus on the edge and the next arrow opens it. The arrows are the
   physical direction of the edge: Right on an `end` edge grows the pane and on a `start`
   edge shrinks it. The arrows across the axis, and any with Ctrl or Alt, are left for
   whatever is around.

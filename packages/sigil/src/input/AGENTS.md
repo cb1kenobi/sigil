@@ -86,10 +86,30 @@ the entry it belongs to.
   focuses, so that the arrows land on it, and that a Tab must not stop on. It is the web's
   rule and the one place this differs from a plain `tabindex`. `focusables()` leaves out an
   element whose `tabindex` is below zero and still walks into its children; the element is
-  `focusable` all the same, so click-to-focus and `focus()` reach it. A Tab from it starts
-  the ring over, as it does from nothing, because `step()` already treated an element not in
-  the ring as no position. `should keep an element with a negative tabindex out of the ring
-  and still focus it` is the guard.
+  `focusable` all the same, so click-to-focus and `focus()` reach it.
+
+  **A Tab from it carries on from where it sits, not from the top.** The first version said
+  it started the ring over because `step()` treated an element not in the ring as no
+  position, and a review round pointed out that is not the web's rule: with the ring
+  `[tree, editor, log]` and a sash between the first two, Tab went to `tree` and Shift-Tab to
+  `log`. `ringPosition()` is the answer for an element that is mounted and not a stop: the
+  index of the first ring member after it in document order, so Tab goes to that one and
+  Shift-Tab to the one before it, wrapping at the ends. The same function is `lastIndex`, so
+  unmounting a focused sash hands the focus to a neighbour and not to `ring[0]`. An element
+  that is no longer in the tree has no place and starts the ring over, as nothing focused
+  does. `openModal()`'s close puts the focus back on an element it took it from if that
+  element is not in the ring and is still in the same tree -- it used to look for it in the
+  ring only, and took the focus to the top of the app.
+
+  **An element that stops being displayed gives up the focus, whatever the ring says.**
+  `reconcileFocus()` repaired only an unmounted element, so a pane collapsing around a
+  focused row left the focus on a `display: none` subtree and the next arrow key went to
+  something nobody could see. It asks the element and every ancestor now, from the resolved
+  style, the same age as the ring: a browser blurs an element when it stops being displayed
+  and so does this, to the position it held. It is about display and not about the ring, so
+  a drawn element outside the ring keeps the focus -- `should leave the focus on a drawn
+  element that is outside the ring` is the guard for that direction.
+
 - **A paste arrives whole, and bracketed paste joins the restore list.** Without
   the markers a pasted block arrives as though it had been typed, so a newline in
   the middle of an address is Enter and a text input submits half of it. With

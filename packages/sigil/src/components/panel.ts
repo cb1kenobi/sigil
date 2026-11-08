@@ -21,7 +21,7 @@
  * ```
  * ╭─ processes · 12 of 340 ──────── sort: cpu ─╮
  * │ pid   name            cpu   mem            │
- * ╰─ ↑↓ select · s sort ─────────────────────── ╯
+ * ╰─ ↑↓ select · s sort ────────── 1–4 of 340 ─╯
  * ```
  *
  * Each label is a string or a function of signals, and a function is re-read when
@@ -84,8 +84,10 @@ const SLOTS: readonly Slot[] = ['title', 'annotation', 'footer', 'footerAnnotati
 /**
  * Builds a panel.
  *
- * It grows to fill its slot, as a panel in a layout nearly always means to, and
- * `props: { 'flex-grow': 0 }` is how one says otherwise.
+ * It grows to fill its slot, as a panel in a layout nearly always means to. That is
+ * a rule in the framework sheet (`.sigil-panel { flex-grow: 1 }`), so a stylesheet
+ * says otherwise as well as `props: { 'flex-grow': 0 }` does -- a panel used as a card
+ * in a column is `.card { flex-grow: 0 }`.
  *
  * @param props - The labels, the border, and the host's own props.
  * @param children - What goes inside.
@@ -151,7 +153,6 @@ export function Panel(props: PanelProps = {}, ...children: Element[]): Element {
     {
       'border-style': props.border ?? ((props.ascii ?? !unicodeSupported()) ? 'ascii' : 'round'),
       'flex-direction': 'column',
-      'flex-grow': 1,
       'min-height': 0,
       'min-width': 0,
       'padding-left': 1,
