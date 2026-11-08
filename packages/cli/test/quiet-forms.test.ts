@@ -131,11 +131,17 @@ async function prompted(
     tty: ['stdout'],
   });
 
-  await run.waitFor(ready, { timeout: 120_000 });
-  const asked = [...run.viewport, ...run.lines].join('\n');
-  await run.press(answer);
+  try {
+    await run.waitFor(ready, { timeout: 120_000 });
+    const asked = [...run.viewport, ...run.lines].join('\n');
+    await run.press(answer);
 
-  return { asked, ...(await run) };
+    return { asked, ...(await run) };
+  } finally {
+    // a wait that failed leaves the binary running until the run's own timeout,
+    // two minutes of a process nobody is reading. Safe after it has exited
+    run.kill();
+  }
 }
 
 /**
@@ -314,25 +320,22 @@ describe('a declined add', () => {
   });
 
   /**
-   * The helper's own claim, asserted rather than commented. Found by a sabotage
-   * pass: looking for any `?` rather than the question left every other
-   * assertion green, because a pipe holds what nobody has read yet -- so an early
-   * key is invisible from outside the child, and the test above passed for a
-   * reason other than its name.
-   *
-   * `ESC [ ? 25 l` is the input that makes it matter: `mountLive()` writes it
-   * inside the **first paint**, before `createInput()` has attached its stdin
-   * listener, so a condition looking for a `?` fires at a moment nothing is
-   * reading.
+   * What the helper now guarantees by construction -- it writes the key only
+   * after the question is on the replayed screen, and writes it once -- is no
+   * longer something a test can fail, so this asserts what is left: the question
+   * is on the screen when the answer goes in, and the outcome is not. A command
+   * that decided without asking (a default taken, a flag read the wrong way) has
+   * its outcome on screen already, and fails here.
    */
-  it('should answer only once the question is on screen', async () => {
+  it('should show the question, and hold the outcome back until it is answered', async () => {
     const ask = 'Write these files?';
     const ran = await prompted(['add', 'spinner'], 'n', appFor(), ask);
     expect(ran.code).toBe(0);
     expect(ran.asked).toContain(ask);
-    // the cursor sequence really is there and really does hold a `?`, which is
-    // what a laxer condition would have fired on
-    expect(ran.out).toContain('\u001b[?25l');
+    expect(ran.asked, 'the outcome was on screen before the answer').not.toContain(
+      'Nothing written.'
+    );
+    expect(ran.out).toContain('Nothing written.');
   });
 });
 

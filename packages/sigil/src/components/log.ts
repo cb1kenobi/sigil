@@ -22,6 +22,7 @@ import { resolveOutput } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
+import { colorLevelOf } from './color-level.js';
 import { createStreamWrapper } from './log-stream.js';
 import { PROMPT_SYMBOLS } from './prompt.js';
 import { OUTCOME_SYMBOLS } from './spinner.js';
@@ -436,7 +437,7 @@ export function createLog(opts: LogOptions = {}): Log {
     const gutter = (time ? stringWidth(time) + 1 : 0) + (symbol ? stringWidth(symbol) + 1 : 0);
 
     detected ??= createAnsi({ stream: terminal.stderr });
-    const colorLevel = opts.colorLevel ?? (opts.ansi ?? detected).level;
+    const colorLevel = colorLevelOf(opts, terminal, detected);
 
     // a log file is not wrapped for a screen: the reader has a pager, and a line
     // cut at 80 columns is one that cannot be grepped whole
@@ -493,7 +494,7 @@ export function createLog(opts: LogOptions = {}): Log {
     const decoder = new TextDecoder();
 
     detected ??= createAnsi({ stream: terminal.stderr });
-    const colorLevel = opts.colorLevel ?? (opts.ansi ?? detected).level;
+    const colorLevel = colorLevelOf(opts, terminal, detected);
 
     // the glyph is drawn through the theme like any other, and leads the first
     // line only; the rest sit under the first one's text

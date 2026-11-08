@@ -42,10 +42,11 @@ function start(component: () => Element) {
 }
 
 describe('frame()', () => {
-  it('should paint the first frame, which a key pressed before it would miss', async () => {
-    // `onMount` runs after the first paint, so this is what a key finds when it
-    // is pressed too soon: the tree as it was built, before anything the mount
-    // set up -- a focused row among them -- is there
+  it('should paint what onMount wrote, which lands in the frame after the first paint', async () => {
+    // the first paint is synchronous and so is the mount -- a focused row has its
+    // focus before any frame -- but a signal written in `onMount` is a write like
+    // any other and reaches the screen in the next frame: the tree as it was
+    // built is what is there until one is painted
     const mounted = new State(false);
     const { app, term } = start(() => {
       onMount(() => void mounted.set(true));

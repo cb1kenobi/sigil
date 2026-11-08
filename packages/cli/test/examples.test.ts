@@ -31,6 +31,13 @@ import { describe, expect, it } from 'vitest';
  * the same first screen -- which is the claim the two syntaxes rest on, one IR
  * behind both, checked on a real app rather than asserted in prose.
  *
+ * **Spawned, with a terminal on stdin and stdout**, each runnable entry is run
+ * as a whole process: its own schema and `main()`, the capability queries going
+ * out unanswered. `waitFor()` is the first frame, a key goes in where the example
+ * has one that changes the screen -- the app's own frame clock, waited on rather
+ * than forced, which the in-process half cannot show since `frame()` forces it --
+ * and `q` has to quit with `0`, nothing on stderr, and the screen given back.
+ *
  * **Spawned, piped**, each runnable entry has to be refused the way `runApp()`
  * refuses: exit `1`, nothing on stdout, the one line on stderr, and no stack
  * anywhere. The built `bin` for a JSX example, which is the only thing that
@@ -131,6 +138,16 @@ function within<T>(promise: Promise<T>, what: string, ms = 2000): Promise<T> {
     }),
   ]);
 }
+
+/**
+ * The key that changes the screen, for the examples that have one the harness
+ * knows. The contract has no way to say which key does what, so this is a table
+ * of the examples whose keys are documented in their own README rather than
+ * something inferred: `hello`'s first row has the focus and Enter counts it.
+ */
+const KEYED: Record<string, { keys: string[]; shows: string } | undefined> = {
+  hello: { keys: [KEYS.enter], shows: '1 press' },
+};
 
 const COLUMNS = 60;
 const ROWS = 16;
@@ -333,15 +350,29 @@ describe('the examples', () => {
             stdin: true,
           });
 
-          await running.waitFor(/\S/);
-          await running.press('q');
-          const ran = await running;
+          try {
+            await running.waitFor(/\S/);
+            // a key that changes the screen, waited on rather than forced: this
+            // is the app's own frame clock, the one thing `frame()` skips
+            const keyed = KEYED[example.name];
+            if (keyed !== undefined) {
+              await running.press(...keyed.keys);
+              await running.waitFor(keyed.shows);
+            }
+            await running.press('q');
+            const ran = await running;
 
-          expect(`${ran.out}${ran.err}`, 'a stack reached the output').not.toMatch(STACK);
-          expect(ran.err, 'nothing on stderr').toBe('');
-          expect(ran.code, 'q quits with 0').toBe(0);
-          expect(running.screen.alternate, 'the alternate screen was left').toBe(false);
-          expect(running.screen.cursorHidden, 'the cursor was shown again').toBe(false);
+            expect(`${ran.out}${ran.err}`, 'a stack reached the output').not.toMatch(STACK);
+            expect(ran.err, 'nothing on stderr').toBe('');
+            expect(ran.code, 'q quits with 0').toBe(0);
+            expect(running.screen.alternate, 'the alternate screen was left').toBe(false);
+            expect(running.screen.cursorHidden, 'the cursor was shown again').toBe(false);
+          } finally {
+            // a wait or an assertion that failed above leaves the child running
+            // until the run's own timeout, 30 seconds of a process nobody is
+            // reading. Safe after it has exited
+            running.kill();
+          }
         }, 45_000);
 
         it.concurrent(`should print the package version for --version: ${label}`, async () => {

@@ -166,7 +166,9 @@ that knowledge was undiscoverable from outside this repository.
   prompt, because it is in-process with no clock; the spawned handle is for a
   whole program.
 
-- **`runOnTerminal()` is `async`, so every refusal is a rejection.** A function
+- **`runOnTerminal()` never throws, so every refusal is a rejection.** It was an
+  `async` function and is not one now (see "Typing into a spawned program"), but
+  the rule stands: a function
   that returns a promise and _sometimes_ throws synchronously is one a caller has
   to guard twice, and `.catch()` is the guard they will write. Exactly one of
   `run` and `source` is refused where it is written, because two answers to "what
@@ -436,7 +438,7 @@ dependency.
   told to, so the handle has to exist before the promise settles. `await
   runOnTerminal(...)` is what it was, and `.rejects` still works, since it is a
   real promise. It stopped being an `async` function to do this, which is the
-  decision the "`runOnTerminal()` is `async`" entry above protects the _reason_
+  decision the "`runOnTerminal()` never throws" entry above protects the _reason_
   for: every refusal is still a rejection. A refusal is a rejected handle whose
   methods reject with the same error, rather than a handle with nothing on it or
   a synchronous throw. The names and the key vocabulary are
@@ -470,20 +472,34 @@ dependency.
   events is not a `U+FFFD`, while `RanOnTerminal.out` is still concatenated and
   decoded once. The model throws on a sequence it has no answer for, and a throw
   in a `data` handler is an uncaught exception in the test runner; so it is
-  caught, remembered, and rethrown from `viewport`, `lines` and `waitFor()`,
-  where the test is reading.
+  caught, remembered, and rethrown from `viewport`, `lines`, `screen` and
+  `waitFor()`, where the test is reading. `screen` is guarded too because a model
+  that stopped listening during teardown leaves `alternate` and `cursorHidden`
+  frozen at what they were, and a test asserting the screen was given back would
+  be answered by it.
 
-- **`Screen` models the questions a program asks, as nothing.** Before its first
-  frame an app asks what the terminal is -- `ESC [ c`, `ESC [ > q`,
-  `ESC [ ? 2026 $ p`, `ESC [ 14 t`, `ESC [ 6 n` -- and the model threw on the
-  first, which for output replayed as it arrives was the first thing every
-  full-screen app wrote. The CSI pattern takes the four private markers and the
-  intermediates now, and a sequence with a `<`, `=` or `>` or an intermediate, and
-  the plain `c` and `t`, change no cell. This is not a retreat from "it throws on
-  what it does not model": a question is modelled, as nothing, and the answer
-  comes back on the input stream, which is the far end's to give. The harness
-  runs its entries with `detect` on, so the queries go out and nobody answers,
-  which is the real case for a CI run with no terminal.
+- **`Screen` models the questions a program asks, as nothing, and only those.**
+  Before its first frame an app asks what the terminal is -- `ESC [ c`,
+  `ESC [ > q`, `ESC [ ? 2026 $ p`, `ESC [ 14 t`, `ESC [ 6 n` -- and the model
+  threw on the first, which for output replayed as it arrives was the first thing
+  every full-screen app wrote. The CSI pattern reads the four markers and the
+  intermediates now, so a sequence can be told from the plain final byte it
+  shares, and `QUESTIONS` lists by marker, intermediates and final the ones known
+  to change no cell: `> c`, `= c`, `> q`, `$ p`, `? $ p`, `SP q`, and the kitty
+  keyboard `> u`, `< u`, `= u`, with the plain `c`, `t` and `n` in the switch.
+  Everything else with a marker or an intermediate **throws**, as it did before
+  any of this. The first version passed all of them -- `if (marker || intermediate)
+  continue` -- and the reviewer's probe found what that swallowed: `$ z`
+  (DECERA, erase a rectangle), `$ x` (DECFRA, fill one), `SP @` (SL, shift
+  columns), `' }` (DECIC) and `! p` (DECSTR, a reset that shows the cursor), each
+  a sequence that changes cells and each a screen that quietly disagreed with the
+  terminal. `$ t` and `$ r` (DECRARA, DECCARA) were worse: their final byte is the
+  window operation `t`, so a switch keyed on the final alone would have taken them
+  for a question. The list is what sigil sends (`c`, `> c`, `> q`, `$ p`, `6 n`,
+  `14 t`, `16 t`) plus what any program might and no cell moves for; a question
+  that is missing from it is a loud failure naming the sequence, which is the
+  right way round. The harness runs its entries with `detect` on, so the queries
+  go out and nobody answers, which is the real case for a CI run with no terminal.
 
 - **What it cannot give a program, and does not claim to.** No mode: nothing is
   cooked or raw, nothing echoes, Ctrl-C is a byte and not a signal. Raw mode is
@@ -553,9 +569,54 @@ dependency.
   for the environment. The cost, which is deliberate, is that a test terminal at
   its default now renders at level 0 where it used to take the worker's
   environment, which `FORCE_COLOR` in a CI runner could make anything: that is the
-  nondeterminism this file records everywhere else. The components'
-  `opts.colorLevel ?? ansi.level` (`mountLive()` and each component) are not
-  changed; a prompt is handed an `ansi` already.
+  nondeterminism this file records everywhere else. The components
+  too, which the first version left: `opts.colorLevel ?? (opts.ansi ??
+  defaultAnsi).level` was spelled out at 23 sites and beat the terminal's level
+  with the environment's, so a prompt handed `terminal: ui.terminal` and no `ansi`
+  -- the README's own `select()` example -- wrote colour on a level-0 test terminal
+  under `FORCE_COLOR=3`. They all call `colorLevelOf()` in
+  `components/color-level.ts` now: a named `colorLevel`, then a handed `ansi`, then
+  the terminal's, then the environment's (`log`'s own stream detection, for the
+  one caller that has one). A view builder whose options carry no `terminal`
+  passes none, and is unchanged. `color-level.test.ts` imports the prompt after
+  setting `FORCE_COLOR`, because the default styler reads its level once.
+
+  **One caller depended on the old order, and said so in a comment**:
+  `website/scripts/lib/home-scenes.mjs` drove prompts through
+  `createTestTerminal()` under `FORCE_COLOR=1` on the claim that "a terminal handed
+  to it is not asked". It is now, so the captured home screens lost their colour
+  until the scenes built their terminals at `ansi.level` -- the level the process
+  came to -- which is the same screens by the stated rule instead of by the
+  accident. `colorLevelOf` is exported from `@ttylabs/sigil/components` because
+  `sigil add` copies components out and a sibling file would not travel; the
+  website's component list files it under helpers.
+
+- **A failed test must not leave a child behind, and must not be told twice.**
+  A test that fails at a `waitFor()`, or at an assertion before `await run`,
+  never reaches the line that would end the child, and the child lives until the
+  run's own timeout -- 30 seconds by default, 120 in `quiet-forms` -- while the
+  base promise then rejects with nobody listening. The reviewer's probe: an
+  unhandled rejection at 1.5s from a test that had failed at 0.2s. Three things
+  follow, and none of them is a kill on the library's own initiative, which would
+  end a program the caller meant to keep:
+  - **The tests end their children.** The two migrated tests hold the spawned work
+    in `try { ... } finally { run.kill() }`, which is safe after the exit. That is
+    the rule for any test that can fail between starting a run and awaiting it,
+    and it is in `runOnTerminal()`'s doc comment.
+  - **A method that delivers a rejection takes the base promise off the hook.**
+    `waitFor()`, `press()` and `paste()` mark the run handled when they reject, so
+    the failure is reported once, through whichever API the caller used. A refused
+    handle is the same: its promise rejects before anything is asked of it, and a
+    test that only awaited `run.press()` got the refusal a second time from a
+    promise it never held. `await run` still rejects, since marking a promise
+    handled does not settle it differently.
+  - **The cause is told to a pending wait before the run rejects with it.** A
+    `cwd` that is not there is `spawn ENOENT` as an event, and `waitFor()` said
+    "the program exited before the screen showed", which names nothing that
+    happened: nothing ever ran. A spawn error and a kill for time are recorded as
+    the run's `failure`, handed to every pending wait before the base promise
+    rejects, and returned to a later `press()` or `waitFor()` in preference to
+    "already exited".
 
 - **Sabotage: fifteen against the helpers, all caught, and two survivors in the
   harness that are said rather than hidden.** `frame()` not painting, and without
@@ -573,6 +634,12 @@ dependency.
   `frame()` fails 24 tests. **Survived:** the leading `frame()` in `hello`, which
   is why it is gone, and `mount()`'s call, which is kept for the first example
   whose mount draws something and is said so in `examples/AGENTS.md`.
+
+  **Review round 1 added** the failure paths above, the explicit question list,
+  the guarded `screen`, `colorLevelOf()`, and a spawned example test that waits on
+  the app's own frame clock (`hello`'s Enter, then `waitFor('1 press')`) because
+  `frame()` forces the frame and no in-process example test exercises the clock
+  any more. Their sabotage pass is in the commit message.
 
 ### The suite removes every directory it makes
 

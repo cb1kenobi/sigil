@@ -298,7 +298,8 @@ export interface TerminalRun extends Promise<RanOnTerminal> {
    *
    * @param text - What was pasted.
    * @returns Settled once the bytes are on the pipe.
-   * @throws If the run was not given `stdin: true`, or the program has gone.
+   * @throws Rejects if the run was not given `stdin: true`, if the program has gone,
+   *   or with the spawn error if it never started.
    */
   paste(text: string): Promise<void>;
   /**
@@ -319,7 +320,8 @@ export interface TerminalRun extends Promise<RanOnTerminal> {
    *
    * @param chunks - The reads, in order.
    * @returns Settled once the last is on the pipe.
-   * @throws If the run was not given `stdin: true`, or the program has gone.
+   * @throws Rejects if the run was not given `stdin: true`, if the program has gone,
+   *   or with the spawn error if it never started.
    */
   press(...chunks: string[]): Promise<void>;
   /**
@@ -368,10 +370,21 @@ export interface TerminalRun extends Promise<RanOnTerminal> {
  * refusal comes back as a rejected handle, and its methods reject with the same
  * error.
  *
+ * It never throws. A refusal -- neither or both of `run` and `source`, a size
+ * that is not a count -- is a rejected handle, and so is a run that had to be
+ * killed for taking longer than `timeout` or never started (a `cwd` that is not
+ * there). The rejection reaches whoever asked: `await run` gets it, and so does a
+ * `waitFor()`, `press()` or `paste()` that was pending, with the spawn error
+ * itself rather than "the program exited". Once a method has delivered a
+ * rejection the run is marked handled, so a test that fails at a wait and never
+ * reaches `await run` does not get the same error again as an unhandled
+ * rejection after it. What it cannot do is end a child a failed test walked away
+ * from: a test that can fail between starting a run and awaiting it ends the
+ * child in a `finally` with `kill()`.
+ *
  * @param opts - What to run and what to fake.
- * @returns What it wrote and how it ended, with a way to type into it.
- * @throws If neither or both of `run` and `source` were given, or if it had to
- *   be killed.
+ * @returns A promise of what it wrote and how it ended, with a way to type into
+ *   it. Rejected, never thrown, for everything above.
  */
 export function runOnTerminal(opts: TerminalRunOptions): TerminalRun {
   try {
@@ -394,7 +407,16 @@ export function runOnTerminal(opts: TerminalRunOptions): TerminalRun {
 function refused(error: unknown): TerminalRun {
   const promise = Promise.reject(error) as TerminalRun;
   const screen = new Screen(80, 24);
-  const fail = (): Promise<never> => Promise.reject(error);
+  // a refusal is reported once, through whichever API the caller used. The base
+  // promise is rejected before anyone has asked for anything, so unless it is
+  // marked handled when a method delivers the same error, a test that only ever
+  // awaited `run.press()` gets the refusal twice -- once as the failure it
+  // wrote the test to see, and once as an unhandled rejection from a promise it
+  // never held
+  const fail = (): Promise<never> => {
+    promise.catch(() => {});
+    return Promise.reject(error);
+  };
 
   return Object.defineProperties(promise, {
     kill: { value: (): void => {} },
@@ -514,12 +536,20 @@ function begin(opts: TerminalRunOptions): TerminalRun {
   /** The model throws on a sequence it does not know; a handler must not. */
   let modelError: Error | undefined;
   let exited = false;
+  /** Why the run cannot go on -- it never started, or it was killed for taking too long. */
+  let failure: Error | undefined;
   const watchers = new Set<() => void>();
 
   const promise = new Promise<RanOnTerminal>((settle, fail) => {
     const timer = setTimeout(() => {
+      failure = new Error(`runOnTerminal() did not finish within ${timeout}ms`);
       child.kill('SIGKILL');
-      fail(new Error(`runOnTerminal() did not finish within ${timeout}ms`));
+      // a pending wait is told the cause now, and marks the run handled, before
+      // the run itself rejects with it
+      for (const watcher of watchers) {
+        watcher();
+      }
+      fail(failure);
     }, timeout);
 
     child.stdout.on('data', (chunk: globalThis.Buffer) => {
@@ -543,6 +573,13 @@ function begin(opts: TerminalRunOptions): TerminalRun {
     child.stdin?.on('error', () => {});
     child.on('error', (error) => {
       clearTimeout(timer);
+      // told to whoever is waiting first, and rejected second: a wait that is
+      // told delivers the error and marks the run handled, and one that is told
+      // after the rejection has already gone unhandled
+      failure = error;
+      for (const watcher of watchers) {
+        watcher();
+      }
       fail(error);
     });
     child.on('close', (code, signal) => {
@@ -560,24 +597,41 @@ function begin(opts: TerminalRunOptions): TerminalRun {
     });
   });
 
+  /**
+   * Delivers a rejection to a caller of a method, and marks the run handled.
+   *
+   * The base promise is the other way to find out how the run ended, and it
+   * rejects on its own later -- the spawn error, or the kill timer -- with nobody
+   * listening if the caller's test already failed at a `waitFor()` and never got
+   * as far as `await run`. That is the same failure reported a second time as an
+   * unhandled rejection, after the test that caused it, so a method that has
+   * delivered its rejection takes the base one off the hook.
+   */
+  const reject = (error: Error): Promise<never> => {
+    promise.catch(() => {});
+    return Promise.reject(error);
+  };
+
   /** Writes one chunk and resolves when it is on the pipe. */
   const write = (chunk: string): Promise<void> => {
+    if (failure !== undefined) {
+      return reject(failure);
+    }
     if (!stdin || child.stdin === null) {
-      return Promise.reject(
+      return reject(
         new Error(
           'runOnTerminal() was not given `stdin: true`, so there is no terminal to type into'
         )
       );
     }
     if (exited || child.stdin.destroyed || !child.stdin.writable) {
-      return Promise.reject(
-        new Error('the program has already exited, so there is nobody to type to')
-      );
+      return reject(new Error('the program has already exited, so there is nobody to type to'));
     }
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve, fail) => {
       child.stdin?.write(chunk, (error) => {
         if (error) {
-          reject(new Error('the program has already exited, so there is nobody to type to'));
+          fail(new Error('the program has already exited, so there is nobody to type to'));
+          promise.catch(() => {});
         } else {
           resolve();
         }
@@ -616,7 +670,18 @@ function begin(opts: TerminalRunOptions): TerminalRun {
         }
       },
     },
-    screen: { value: screen },
+    // guarded like `viewport` and `lines`: a model error during teardown leaves
+    // `alternate` and `cursorHidden` frozen at what they were before it, and a
+    // test asserting the screen was given back would be answered by a model that
+    // stopped listening
+    screen: {
+      get: (): Screen => {
+        if (modelError !== undefined) {
+          throw modelError;
+        }
+        return screen;
+      },
+    },
     viewport: {
       get: (): string[] => {
         if (modelError !== undefined) {
@@ -628,7 +693,7 @@ function begin(opts: TerminalRunOptions): TerminalRun {
     waitFor: {
       value: (what: string | RegExp, wait: { readonly timeout?: number } = {}): Promise<void> => {
         if (typeof what !== 'string' && !(what instanceof RegExp)) {
-          return Promise.reject(
+          return reject(
             new Error(`waitFor() takes text or a pattern, not ${JSON.stringify(what)}`)
           );
         }
@@ -638,15 +703,16 @@ function begin(opts: TerminalRunOptions): TerminalRun {
         const describe = (): string =>
           typeof what === 'string' ? JSON.stringify(what) : String(what);
 
-        return new Promise<void>((resolve, reject) => {
+        return new Promise<void>((settle, fail) => {
           let timer: ReturnType<typeof setTimeout> | undefined;
           const done = (error?: Error): void => {
             watchers.delete(check);
             clearTimeout(timer);
             if (error === undefined) {
-              resolve();
+              settle();
             } else {
-              reject(error);
+              promise.catch(() => {});
+              fail(error);
             }
           };
           const check = (): void => {
@@ -654,6 +720,8 @@ function begin(opts: TerminalRunOptions): TerminalRun {
               done(modelError);
             } else if (found()) {
               done();
+            } else if (failure !== undefined) {
+              done(failure);
             } else if (exited) {
               done(
                 new Error(`the program exited before the screen showed ${describe()}:\n${shown()}`)

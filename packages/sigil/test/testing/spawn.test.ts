@@ -1,5 +1,7 @@
 import { runOnTerminal } from '../../src/testing/spawn.js';
 import { alt, ctrl, KEYS } from '../../src/testing/terminal.js';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -543,6 +545,9 @@ describe('runOnTerminal() with a terminal on stdin', () => {
     await expect(run.waitFor('text')).rejects.toThrow(/unmodelled sequence/);
     expect(() => run.viewport).toThrow(/unmodelled sequence/);
     expect(() => run.lines).toThrow(/unmodelled sequence/);
+    // and the screen itself, which would otherwise answer from a model that stopped
+    // listening: `alternate` and `cursorHidden` frozen at what they were
+    expect(() => run.screen).toThrow(/unmodelled sequence/);
   });
 
   it('should leave no timer behind once a wait is over', async () => {
@@ -634,5 +639,99 @@ describe('runOnTerminal() with a terminal on stdin', () => {
     await expect(run.press('a')).rejects.toThrow(/exactly one/);
     await expect(run.waitFor('a')).rejects.toThrow(/exactly one/);
     expect(run.viewport).toHaveLength(24);
+  });
+
+  describe('when the run fails', () => {
+    /** Every unhandled rejection that reaches the process while `body` runs and settles. */
+    async function unhandledDuring(body: () => Promise<void>, settleMs = 100): Promise<unknown[]> {
+      const seen: unknown[] = [];
+      const listener = (reason: unknown): void => void seen.push(reason);
+      process.on('unhandledRejection', listener);
+      try {
+        await body();
+        await new Promise((resolve) => setTimeout(resolve, settleMs));
+      } finally {
+        process.off('unhandledRejection', listener);
+      }
+      return seen;
+    }
+
+    it('should tell a wait and a key that the program never started, with the spawn error', async () => {
+      // a `cwd` that is not there is `spawn ENOENT` as an event, and a wait that
+      // was told "the program exited before the screen showed" had been given
+      // the wrong cause: nothing ever ran
+      const missing = join(tmpdir(), 'sigil-no-such-directory-sig309');
+      const seen = await unhandledDuring(async () => {
+        const run = runOnTerminal({ cwd: missing, source: 'void 0;', stdin: true });
+
+        await expect(run.waitFor('x')).rejects.toThrow(/ENOENT/);
+        await expect(run.press('a')).rejects.toThrow(/ENOENT/);
+        await expect(run.paste('a')).rejects.toThrow(/ENOENT/);
+      });
+
+      expect(seen, 'the spawn error arrived a second time, with nobody to hear it').toEqual([]);
+    });
+
+    it('should not report a failed wait a second time when the run times out later', async () => {
+      // the shape of a test that fails at `waitFor()` and so never reaches
+      // `await run` or `kill()`: the child lives until the run's own timeout, and
+      // the base promise then rejects with nobody listening
+      const seen = await unhandledDuring(async () => {
+        const run = runOnTerminal({
+          source: 'setInterval(() => {}, 1000);',
+          stdin: true,
+          timeout: 300,
+        });
+        await expect(run.waitFor('never', { timeout: 50 })).rejects.toThrow(/did not show/);
+        // and a key after the kill says why, rather than that "it exited"
+        await new Promise((resolve) => setTimeout(resolve, 450));
+        await expect(run.press('a')).rejects.toThrow(/did not finish within 300ms/);
+      }, 150);
+
+      expect(seen).toEqual([]);
+    });
+
+    it('should not report a refused key a second time when the run times out later', async () => {
+      // `press()` rejects here for a reason of its own -- the run has no terminal
+      // on stdin -- and the base promise is rejected later by the kill timer, with
+      // nobody having awaited it
+      const seen = await unhandledDuring(async () => {
+        const run = runOnTerminal({ source: 'setInterval(() => {}, 1000);', timeout: 200 });
+        await expect(run.press('a')).rejects.toThrow(/stdin: true/);
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }, 100);
+
+      expect(seen).toEqual([]);
+    });
+
+    it('should tell a wait that is pending when the run is killed for time, and why', async () => {
+      const run = runOnTerminal({
+        source: 'setInterval(() => {}, 1000);',
+        stdin: true,
+        timeout: 200,
+      });
+
+      await expect(run.waitFor('never', { timeout: 5000 })).rejects.toThrow(
+        /did not finish within 200ms/
+      );
+    });
+
+    it('should report a refusal once, through the method that was used', async () => {
+      const seen = await unhandledDuring(async () => {
+        const run = runOnTerminal({});
+        await expect(run.press('a')).rejects.toThrow(/exactly one/);
+      });
+
+      expect(seen, 'the refusal arrived again from the handle nobody awaited').toEqual([]);
+    });
+
+    it('should still reject the handle itself for a caller that awaits that', async () => {
+      // marking it handled must not make it silent: `await run` is the other way
+      // to ask, and a promise that stopped rejecting would be a test that passes
+      const run = runOnTerminal({});
+      await run.press('a').catch(() => {});
+
+      await expect(run).rejects.toThrow(/exactly one/);
+    });
   });
 });

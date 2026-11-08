@@ -1789,6 +1789,13 @@ same in-process and spawned:
 - `viewport`, `lines`, `output` and `screen` are the child's stdout as it stands,
   read the way `createTestTerminal()`'s are, and `kill()` ends it.
 
+A test that can fail between starting a run and awaiting it ends the child
+itself — `try { … } finally { run.kill() }` — or the child lives until the run's
+own timeout, which is 30 seconds by default. A `waitFor()` or `press()` that
+rejects marks the run handled, so the failure is reported once; and one that
+finds the program never started rejects with the spawn error (`ENOENT` for a
+`cwd` that is not there) rather than with "the program exited".
+
 The model throws on a sequence it does not know, and from a `data` handler that
 would be an uncaught exception in your runner; the handle holds the error and
 rethrows it from `viewport`, `lines` and `waitFor()`, where you are reading. The
@@ -1879,9 +1886,11 @@ await pick; // 'two'
 `createTestTerminal()` takes `columns` (40) and `rows` (8), `env` (none at all,
 so nothing is detected from the real environment), `colorLevel` (0 — raise it
 for a test that reads `ui.output` for a sequence, remembering that `Screen`
-keeps characters rather than colour. It is the terminal's level, so `render()` and
-`runApp()` read it from the terminal they are handed; a `colorLevel` named on
-either still wins), `isTTY` (true) and `inputTTY` (follows
+keeps characters rather than colour. It is the terminal's level, so `render()`,
+`runApp()` and the built-in components read it from the terminal they are
+handed; a `colorLevel` or an `ansi` named on any of them still wins.
+`colorLevelOf(opts, terminal)` from `@ttylabs/sigil/components` is the one place a
+component decides, for a component of your own), `isTTY` (true) and `inputTTY` (follows
 `isTTY`). That last one is how to test the path where there is nobody to answer:
 with `inputTTY: false` a prompt rejects rather than hanging, which is what stops
 a build waiting for ever on a question nothing can answer.

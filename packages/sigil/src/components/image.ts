@@ -16,13 +16,13 @@
  * this reason -- a wall of half blocks is nothing anybody wants in a clipboard.
  */
 
-import { ansi as defaultAnsi } from '../ansi/index.js';
 import { type Color, DEFAULT_COLOR, Pixels, resampleImage, rgb } from '../canvas/index.js';
 import { type Element, raw, renderToString } from '../element/index.js';
 import { assertRgbaImage, decodePng, type RgbaImage } from '../png/index.js';
 import { colorRgb, quantizeColor } from '../style/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { terminalWidth } from '../wrap/index.js';
+import { colorLevelOf } from './color-level.js';
 
 /**
  * How a picture fills a box whose proportions are not its own.
@@ -425,7 +425,7 @@ export interface ImageOptions extends StyledOptions, ImageViewOptions {}
  *   hide behind a pipe.
  */
 export function image(source: ImageSource, opts: ImageOptions = {}): string {
-  const colorLevel = opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level;
+  const colorLevel = colorLevelOf(opts);
   const { element, width } = imageView(source, opts);
   if (colorLevel === 0) {
     return '';

@@ -75,14 +75,40 @@ const PARTIAL = new RegExp(
  * final byte.
  *
  * The marker is any of the four ECMA-48 allows and not only `?`, and the
- * intermediates are modelled for one reason: the sequences a program writes to
- * *ask* something -- `ESC[>q`, `ESC[c`, `ESC[?2026$p` -- have a `>` or a `$` in
- * them, and a pattern that could not read them reported each one as unparsed.
+ * intermediates are read so that a sequence is told apart from the plain final
+ * byte it shares: `ESC[>q` is not `ESC[q`, and `ESC[1;1;1;8$z` erases a rectangle
+ * where `ESC[z` would be nothing. Which of them are known to draw nothing is
+ * `QUESTIONS`; the rest throw.
  */
 const CSI = new RegExp(`^${ESC}\\[([<=>?]?)([\\d;:]*)([ -/]*)([@-~])`);
 
 /** SGR and anything else that only changes how text looks, which this ignores. */
 const OSC = new RegExp(`^${ESC}\\]([^${ESC}\\u0007]*)(?:${ESC}\\\\|\\u0007)`);
+
+/**
+ * The sequences with a marker or an intermediate that ask a question or set
+ * something with no cell to show it, spelled marker, intermediates, final.
+ *
+ * A program asks what the terminal is before its first frame -- `CSI > c` and
+ * `CSI = c` (device attributes), `CSI > q` (the version), `CSI ? Pd $ p` and
+ * `CSI Pd $ p` (a mode report) -- and the answer comes back on the *input*
+ * stream, which is the far end's to give. The rest are settings the model has no
+ * cell for: the cursor's shape (`CSI Ps SP q`) and the kitty keyboard protocol's
+ * push, pop and set (`CSI > u`, `CSI < u`, `CSI = u`). The first four are what
+ * sigil sends; the others are what any program might, and none of them moves a
+ * cell. The plain `c`, `t` and `n` are in the switch.
+ */
+const QUESTIONS: ReadonlySet<string> = new Set([
+  '>c',
+  '=c',
+  '>q',
+  '$p',
+  '?$p',
+  ' q',
+  '>u',
+  '<u',
+  '=u',
+]);
 
 interface Buffer {
   /** Rows that have scrolled off the top. The main buffer's only. */
@@ -498,14 +524,19 @@ export class Screen {
         const n = Number.parseInt(params, 10) || 1;
         i += match.length;
 
-        // a query, or a setting this model has no cell for. A program asks what
-        // the terminal is with `CSI c`, `CSI > q`, `CSI ? Pd $ p` and the rest
-        // before its first frame, and none of them changes a cell: the answer
-        // comes back on the *input* stream, which is the far end's to give. Left
-        // to the `default` below they threw, which for a child's output replayed
-        // as it arrives was the first thing any full-screen app wrote
-        if (priv === '<' || priv === '=' || priv === '>' || intermediates !== '') {
-          continue;
+        // a marker or an intermediate makes a sequence a different one from the
+        // plain final byte, and only the ones in `QUESTIONS` are known to change
+        // no cell. Everything else with either is refused, because the marker and
+        // the intermediate are exactly where the sequences that DO change cells
+        // live -- `$z` erases a rectangle, `$x` fills one, ` @` shifts columns,
+        // `!p` resets the terminal -- and a blanket pass left a screen that
+        // quietly disagreed with the terminal. `?` alone is the private-mode
+        // family below, whose unknown members have always been ignored
+        if ((priv !== '' && priv !== '?') || intermediates !== '') {
+          if (QUESTIONS.has(`${priv}${intermediates}${final}`)) {
+            continue;
+          }
+          throw new Error(`unmodelled sequence: ${priv}${intermediates}${final}`);
         }
 
         if (priv === '?') {
