@@ -211,6 +211,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-modal-body  .sigil-modal-actions  .sigil-modal-action
  *   .sigil-text-field  .sigil-text-field-before  .sigil-text-field-caret
  *   .sigil-text-field-after  .sigil-text-field-placeholder
+ *   .sigil-slider  .sigil-slider-track  .sigil-slider-fill  .sigil-slider-thumb
+ *   .sigil-slider-rest  .sigil-slider-value
  *   .sigil-toast  .sigil-toast-stack  .sigil-toast-fill  .sigil-toast-title
  *   .sigil-toast-message  .sigil-toast-note  .sigil-toast-info
  *   .sigil-toast-success  .sigil-toast-warning  .sigil-toast-error

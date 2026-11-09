@@ -1,0 +1,116 @@
+{
+  "api": {
+    "interface": "SliderProps",
+    "options": [
+      {
+        "description": "Draw the track with ASCII only. Defaults to what `unicodeSupported()` says, which is the rule `Tabs` and `Collapsible` keep.",
+        "default": "what `unicodeSupported()` says",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether the slider refuses input.",
+        "default": "`false`",
+        "name": "disabled",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
+        "description": "Draws a readout of the value after the track, as this returns it: `${v}%`, a time, a unit.",
+        "name": "format",
+        "optional": true,
+        "type": "(value: number) => string"
+      },
+      {
+        "description": "The top of the range. Defaults to 100.",
+        "default": "100",
+        "name": "max",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The bottom of the range. Defaults to 0.",
+        "default": "0",
+        "name": "min",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Called with the value after a key or the pointer moved it. Not called for a write the app made.",
+        "name": "onChange",
+        "optional": true,
+        "type": "(value: number) => void"
+      },
+      {
+        "description": "How far Page Up and Page Down move, in the value's own units, rounded to whole steps and never less than one. Defaults to a tenth of the range.",
+        "default": "a tenth of the range",
+        "name": "page",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The host box's own props: a class, a margin, a width. Geometry only, never a colour.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementPropsWithout<\"onFocusChange\" | \"onKey\">"
+      },
+      {
+        "description": "The size of one step. The value is always `min` plus a whole number of them, so the top of the range is the last step at or under `max`. Defaults to 1.",
+        "default": "1",
+        "name": "step",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The value.",
+        "default": "`min`",
+        "name": "value",
+        "optional": true,
+        "type": "number | State<number>"
+      },
+      {
+        "description": "How many columns the track takes. Defaults to what the layout gives it: the rest of the width in a column, and twenty columns in a row with no width of its own, shrinking to its share where the row is short.",
+        "default": "what the layout gives it: the rest of the width in a column",
+        "name": "width",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function Slider(props?: SliderProps): Element"
+  },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "left",
+        "right",
+        "home",
+        "end",
+        "pageUp",
+        "pageDown",
+        "tab",
+        "shiftTab"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
+  "registryDescription": "A slider: a value on a track, moved a step or a page by the keys and dragged by the pointer, with an optional readout",
+  "source": "packages/sigil/src/components/slider.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "Volume \u001b[36m━━━━━━━━\u001b[0m\u001b[7;36m●\u001b[0m\u001b[2m───────────\u001b[0m  41%"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "Volume \u001b[36m━━━━━━━━\u001b[0m\u001b[7;36m●\u001b[0m\u001b[2m───────────\u001b[0m  41%"
+    }
+  }
+}

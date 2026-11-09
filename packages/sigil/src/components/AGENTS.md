@@ -9438,6 +9438,172 @@ blanks on a dark terminal and `ESC[47m...` on a light one.
   `black` in its place fails four, a focus background and a disabled
   `background-color: default` fail two each (one of them the role invariant).
 
+### A slider: a value on a track, by key and by drag (SIG-286)
+
+`src/components/slider.ts`. `Slider()` is a number on a track that a tree can
+hold -- a settings screen's volume, a media player's seek bar -- and
+`describeSlider()` puts its keys in a key-help footer. An element in the shape
+`TextField` is: a function of props that returns the focusable host, the keys in
+`onKey`, the pointer in `onMouse`, the focus from `onFocusChange`. The demo is
+`demos/components/62-slider.js`; how each answer below was tested, and the
+sabotage pass, are in
+[docs/history/a-slider-a-value-on-a-track-by-key-and-by-drag.md](../../../../docs/history/a-slider-a-value-on-a-track-by-key-and-by-drag.md).
+
+- **The ticket's first question: `min`, `max` and `step`, and the value is a number
+  or a `State<number>`.** The shape `TextField`'s `value`, `Tabs`' `active` and
+  `Collapsible`'s `open` already have, for their reasons: a number is where it
+  starts, the state is the value, the keys and the pointer write it, and an app
+  that writes it moves the thumb. `onChange` is the text field's, called after a
+  key or the pointer moved the value and never after a write the app made, since
+  the app already knows -- and not called for a key that moved nothing, Left at
+  the bottom. No `sliderValue()` accessor the way `Tabs` has `tabsActive()`: that
+  door exists because tabs have no `onChange`, and a slider does. Defaults are
+  0, 100 and 1, which is HTML's `<input type="range">`.
+- **The value is always `min` plus a whole number of steps, and the top is the last
+  step at or under `max`.** HTML's rule, and the only one that keeps every value
+  reachable by the keys: a range of 0 to 10 in threes ends at 9, and End goes
+  there. The steps are counted from `min`, not from zero, so 1 to 21 in fives is
+  1, 6, 11. A step's value is `min + i * step` rounded to the decimal places `min`
+  and `step` are written with, so three Rights on a step of `0.1` is `0.3` and not
+  `0.30000000000000004` -- a value an app compares, prints, or stores in a config
+  file, where the noise is a bug report.
+- **A value the app writes outside the range or between two steps is drawn at the
+  nearest step and left as written.** The tabs' rule for an out-of-range `active`,
+  for the same reason: it is written at run time by an app and a refusal has
+  nowhere to land, and rewriting the app's state behind its back would be a write
+  nobody asked for. The next key moves from the nearest step. `NaN` reads as the
+  bottom. What is refused is refused at construction, with a `TypeError`: a
+  non-number value, a `min` not below `max`, a non-finite bound, a `step` or `page`
+  that is not positive, a `format` that is not a function, a `width` that is not a
+  positive whole number.
+- **The ticket's second question: horizontal only.** A vertical slider is a column
+  of one-cell rows, and a cell is about twice as tall as it is wide, so the same
+  range gets half the resolution in twice the screen -- and every use the ticket
+  names (volume, seeking, a settings row) is a row. Nothing asked for vertical, and
+  a feature nothing needs is a feature designed by guessing (the root file's
+  `which` entry). It is additive later -- an `orientation` prop, Up and Down -- so
+  refusing it now closes nothing.
+- **The ticket's third question: the label is the app's, the readout is the
+  slider's.** A form lines its labels up in a column whose width only the form
+  knows, which is why `TextField` has no label either; a settings screen's rows lay
+  out the same way whether the control is a field or a slider. The readout is the
+  other way round because only the slider can do it right. `05-drag.js`'s
+  hand-drawn slider is the trap the layout's `AGENTS.md` records: a readout as wide
+  as what it says took a column from its neighbours at exactly `100%` and nowhere
+  else, and moved the track. So `format` draws a readout after the track, and its
+  width is the widest `format` returns over the range -- every step when there are
+  at most a thousand, which is a hundred calls for the default range, and the two
+  ends past that, where an integer range's widest is an end anyway. Measured over
+  every step rather than at the ends because the ends are not always the widest:
+  `-0.5` is wider than `-1` and `1`. A `format` that comes back wider than it
+  measured (one that reads a clock) widens the readout rather than being cut: a
+  track moving once is better than a value nobody can read. No `format`, no
+  readout -- HTML's range shows none either, and a seek bar's `1:23 / 4:56` is
+  usually beside it rather than after it.
+- **The ticket's fourth question: Left and Right a step, Page Up and Page Down a
+  page, Home and End the ends -- and Up and Down are not the slider's.** ARIA's
+  slider also takes Up and Down, as increase and decrease. Here they are left to
+  bubble, because a settings screen is a column of rows and Up and Down are what a
+  form or a list around the slider moves between them with (SIG-199, SIG-280); a
+  horizontal slider taking the vertical arrows would be the one control in the
+  form that traps them. `page` is in the value's own units, rounded to whole steps
+  and never less than one, and defaults to a tenth of the range, so Page Up on a
+  0-to-4 range still moves. Modifiers and pastes are left alone, the `Tabs` rule.
+- **The keys are claimed at the ends too, which is the text field's rule and not the
+  tab row's.** `Tabs` and `Collapsible` hand on a key that would change nothing, so
+  Right on the last tab reaches the pane around the row. A slider is the one
+  control whose keys are held down: getting from 40 to 0 is Left with the key
+  repeating, and it overshoots. Every repeat past the end would reach whatever is
+  around the slider -- a list moving its selection, a tab row switching tabs --
+  which is `TextField`'s "Left at column zero is still the field's", for a stronger
+  reason.
+- **A press on the track puts the thumb under the pointer, and holding the button
+  drags it.** The press rather than the click, which is where `Tabs` and
+  `Collapsible` differ, because the press is when the thumb must move -- a drag
+  starts from it, and a slider that moved on release would draw the thumb in the
+  wrong place for the whole of the drag. The press is **not** stopped, so it still
+  focuses the slider, the pane's edge rule. The moves and the release are stopped:
+  the slider owns the drag, so nothing above it acts on it, which is what
+  `05-drag.js` does and is why the router's "a stopped `mouseup` does not cancel
+  the derived `click`" exists. The click that follows is stopped too, so a row
+  around the slider does not take it as well. Any release ends a drag, whatever
+  its button says, so a report that lost its button cannot leave the thumb stuck
+  to the pointer. The wheel is not the slider's: a slider in a scroll box changing
+  value as the page scrolls past is the web's best-known annoyance, and the wheel
+  goes on to whatever scrolls.
+- **The column is read against where the layout put the track, and clamped there.**
+  The pointer's offset into `track.box` over its width less one, the fraction
+  `05-drag.js` uses, so the left cell is the bottom and the right cell the top. A
+  captured drag reports columns past either end and off the canvas, which is
+  where the ends are -- clamped here rather than by the router, for the reason
+  `05-drag.js` gives: a captured report really is outside. Before the first layout
+  there is no box, and a press moves nothing.
+- **`onMouse` is on the track, not the host, and none of the track's parts ever
+  leaves the tree.** On the track, so a press on the readout moves nothing. The
+  press lands on one of the track's three parts -- the filled stretch, the thumb,
+  the rest -- and bubbles to the track; while the button is held the moves and the
+  release go to that part, wherever the pointer is. A part with nothing to draw is
+  drawn zero wide rather than taken out, which is what `Tabs` does with a part of
+  its rule: a press on the rest of the track that the drag then empties would
+  otherwise leave the capture holding an element no longer in the tree, and the
+  router bubbles a captured event up the target's own ancestry, which would no
+  longer reach the track.
+- **The track's width is its basis and the layout's, never its drawing.** Learned
+  through `onResize`, the tabs row's rule, and drawn to exactly that many cells.
+  With no `width`, the track is `flex-basis: 20` and grows and shrinks: the rest
+  of a column, twenty columns in a row with no width of its own, its share of a
+  row that is short. A basis rather than its content because what it draws is cut
+  to the room it was last given, so a track sized by its drawing could only ever
+  stay the size it last was -- the text field's SIG-318 in the other direction:
+  narrowed once, it never grew back. `min-width: 0` is what lets it take less than
+  it drew last. `width` is the **track**'s columns rather than the whole slider's,
+  so four sliders with readouts of different widths can still line their tracks
+  up, which is what the demo does; the host's `props` take a width for the whole.
+- **The focus: `.sigil-focus` on the thumb, and the thumb fills in.** "Focus on a
+  control", below, left the glyphs to this ticket. `○` at rest and `●` focused,
+  `o` and `O` in ASCII: the same width, in the cell the thumb already holds, so the
+  focus moves nothing and is drawn at every level -- which is the one cue at
+  colour level 0, where the role's `inverse` is dropped, and in a pipe. Hollow to
+  filled rather than another shape because "filled in" already reads as "this
+  one" beside the prompts' `◯` and `◉`. The filled stretch and the thumb are
+  `.sigil-accent`, the rest of the track `.sigil-muted`, the tabs' rule and its
+  heavy `━` against the light `─`. No new role and no framework-sheet exception.
+- **Disabled is a state, and it ends a drag.** The text field's `disabled`:
+  `focusable` follows it, the keys and the pointer do nothing, the accent parts go
+  to `.sigil-muted`, the readout is muted, and a disabled slider shows no focus
+  even if it kept the focus it had when it was disabled. A drag in progress ends
+  when the slider is disabled, so enabling it again does not resume a drag nobody
+  is holding. At colour level 0 a disabled slider is indistinguishable from an
+  enabled one at rest, which is the text field's cost too.
+- **One effect draws, and it was two.** `draw()` reads the value and `disabled`, so
+  the effect that runs it is what redraws on a write the app makes to either. There
+  was a second effect reading the value alone, and the sabotage pass found it was
+  dead: the disabled effect called `draw()` too, so it had been tracking the value
+  all along. The disabled effect now sets classes and nothing else.
+- **`describeSlider()` describes the six keys, the arrows above the rest.** `less`,
+  `more`, `much less`, `much more`, `minimum`, `maximum`: short, because six
+  entries have to fit an 80-column footer and `decrease by a page` did not. The
+  arrows carry priority 1, so a narrow footer drops Page Up, Page Down, Home and End
+  first. A helper rather than an option, the collapsible's reason: the router is
+  built from the tree the slider is in, so it does not exist while the slider is
+  being built.
+- **`demos/element/05-drag.js` stays drawn by hand.** Its subject is the router's
+  capture, and the root file's rule is that a demo lives with its subject: rebuilt
+  on `Slider` it would hide the fifteen lines that show what a component does with
+  a press, a move and a release, which is the whole of what it is for. Its doc
+  comment and the demos README point at `62-slider.js` as what an app should use.
+- **Sabotage: thirty-four, five survivors.** One was a sabotage that changed
+  nothing, rewritten and caught; one was a test whose helper turned "no button"
+  back into `'left'`, fixed; one was a missing test, the track growing back, added;
+  `overflow: hidden` on the track was deleted for surviving; and the dead value
+  effect, above. The list is in the history file.
+- **Not done:** vertical; Up and Down; the wheel; a `commit` callback on release,
+  for a seek that should happen once rather than on every move -- the keys have no
+  release, so it would be every key anyway, as HTML's `change` is, and an app that
+  wants fewer seeks debounces `onChange`; a range with two thumbs; tick marks under
+  the track; a vertical readout or a label inside the slider; snapping the app's
+  own writes into the state; and a level-0 cue for disabled.
+
 ### A toast: a timed message in a corner, and nothing it takes
 
 `src/components/toast.ts`. SIG-213, split from SIG-191. `showToast(host, opts)` puts
@@ -10383,8 +10549,8 @@ exception per widget. This is the one answer, and every widget below follows it.
   - **Menus** (SIG-285): `.sigil-focus` and the pointer on the highlighted item;
     a menubar's open title takes the role.
   - **Slider** (SIG-286): `.sigil-focus` on the thumb; at level 0 the thumb's
-    glyph swaps for one of the same width. Provisional: the slider picks the
-    glyphs.
+    glyph swaps for one of the same width. Settled there: `○` fills in to `●`,
+    `o` to `O` in ASCII -- "A slider", above.
 - **`:focus` is still the app's.** Nothing changes for an app writing
   `.panel:focus { border-color: cyan }`; the selector, the state and its
   invalidation are as they were. The framework sheet simply has no `:focus` rule
@@ -10466,6 +10632,7 @@ exception per widget. This is the one answer, and every widget below follows it.
   | `openModal`     | `onPaste` (on the panel)                        |
   | `showToast`     | `onMouse` (on the panel)                        |
   | `attachTooltip` | `onLayout` (on the bubble)                      |
+  | `Slider`        | `onKey`, `onFocusChange`                        |
 
   `Collapsible`, `Tabs` and `Show`/`For` assign none on the element their `props`
   reach (a `Collapsible`'s hooks are on its title, `Tabs`' on its row), so they

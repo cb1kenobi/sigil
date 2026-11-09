@@ -383,6 +383,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/54-markdown.js`](components/54-markdown.js)                                 | A changelog entry from markdown at two widths, themed, and highlighted    |
 | [`components/55-image.js`](components/55-image.js)                                       | A photograph in half blocks: fitted three ways, and RGBA with a soft edge |
 | [`components/56-panels.js`](components/56-panels.js)                                     | Panels with words in the border, and panes with an edge to drag           |
+| [`components/62-slider.js`](components/62-slider.js)                                     | A settings screen of sliders: keys, a press, a drag past the edge         |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -645,6 +646,17 @@ collapse it, or press `b`. Piped, it draws the tree at two widths -- the narrow 
 shows an annotation going first and a title being cut -- and then moves the edge with
 real keys and with `resize()`, which is what a drag calls, up to a maximum, through a
 collapse and back.
+
+`62-slider.js` is a settings screen: four rows, each a label the app lays out and a
+`Slider` with a readout. Tab moves between them, Left and Right a step, Page Up and
+Page Down a tenth of the range, Home and End to the ends; press a track and the
+thumb jumps under the pointer, and hold the button to drag it, past the end of the
+track and off the region, until the release. The focused slider's thumb fills in,
+`○` to `●`, which is what says it where colour is dropped. Each readout is as wide
+as the widest value its range formats to, so nothing moves as the volume goes from
+`9%` to `100%`; "Brightness" is disabled, so it is muted and out of the Tab ring.
+Piped, a scripted keyboard and a scripted pointer drive the same tree, and the demo
+prints it after each step.
 
 ### Try them without a terminal
 
@@ -1252,7 +1264,9 @@ landed on, wherever the pointer got to. Drag the bar off the left or right edge 
 watch the readout keep counting past the canvas: that is the same thing `clientX`
 does during a drag on a web page. There is deliberately no `drag` event — press,
 move and release are three events a component already has, and what a drag _means_
-differs per component.
+differs per component. `components/62-slider.js` is the same drag in the `Slider`
+element, which is what an app should reach for; this one stays hand-drawn because
+what it shows is the fifteen lines a component writes on top of the capture.
 
 **`06-panes.js`** is the other backend. It takes the whole screen, where translating
 a report is free — the alternate buffer starts at the top-left, so there is no

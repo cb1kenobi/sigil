@@ -69,6 +69,7 @@ export * from './subpaths/diff.js';
 export * from './subpaths/rule.js';
 export * from './subpaths/markdown-parse.js';
 export * from './subpaths/markdown.js';
+export * from './subpaths/slider.js';
 export {
   FRAMEWORK_CSS,
   frameworkSheet,

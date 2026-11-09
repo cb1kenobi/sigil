@@ -186,6 +186,10 @@ const ENTRIES = [
     name: 'text-field',
   },
   {
+    desc: 'A slider: a value on a track, moved a step or a page by the keys and dragged by the pointer, with an optional readout',
+    name: 'slider',
+  },
+  {
     desc: 'A toast: a timed message in a corner of the screen that stacks, never takes the focus, and stays out of --quiet',
     name: 'toast',
   },
