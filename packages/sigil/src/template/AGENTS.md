@@ -158,7 +158,11 @@ the entry it belongs to.
   `emit()` decides the shape of a tree and hands every leaf decision -- is this
   prop reactive, what does this content come to, what does a slot append -- to
   `applyProp()`, `applyText()`, `appendValue()`, `rawElement()` and
-  `rootElement()`. The build emitter in `@ttylabs/cli` calls the same five. So
+  `rootElement()`, and `applyRef()` for the one prop that runs after the
+  children. The code the build emitter in `@ttylabs/cli` generates calls those
+  six; the compiler itself also reads `componentChildren()`, `rawParts()`,
+  `splitRefs()`, `textPart()`, `refuseHandlerName()` and `templateError()` while
+  it prints, which are rules about what exists and never reach a bundle. So
   the two cannot come to _disagree_ about what a prop or a child means; they can
   only differ over which of those answers was settled ahead of time, and
   settling one ahead of time is the definition of a pure optimizer. The shape it
@@ -332,3 +336,105 @@ the entry it belongs to.
   two hand-written sides can be quietly edited to agree, and one corpus cannot.
   The expression _source_ is what is shared, so the interpreter and the compiler
   are provably given the same expressions to evaluate.
+- **A host element takes the seven hooks as props, and a function under one of
+  those names is the handler, never a thunk (SIG-305).** A template was
+  display-only: `ReservedProps` named six props, so `onKey=${fn}` fell through to
+  the thunk rule, which called `fn` with no arguments while the template built
+  and set what it returned as a style property -- a `TypeError` for a handler
+  that reads its event, `Unknown property "onKey"` for one that returns a string,
+  and a silent no-op for one that returns nothing. The system monitor built every
+  interactive node with `box()` and slotted it in for exactly that. Now
+  `onKey`, `onMouse`, `onPaste`, `onFocusChange`, `onScroll`, `onResize` and
+  `onLayout` are props, spelled the same in JSX and in the tag (`onKey={fn}`,
+  `onKey=${fn}`) with **no kebab form**, since a handler is not a style property.
+  - **Decided by the name, in `applyProp()`.** `isHandlerProp()` is
+    `Element`'s own list, asked before the thunk rule, so the template and
+    `box({ onKey })` read one list and one `Element.#apply()` branch -- which is
+    what keeps the `ReservedProps` comment, "exactly what `#apply()` branches
+    on", true. A handler is assigned once. Swapping one through a signal is not
+    supported: the handler reads the state it needs when it runs, and an app that
+    needs more has other ways to get it. Not a limitation of the implementation
+    to be lifted later -- a thunk that returns a handler is indistinguishable from
+    a handler, which is the ambiguity the name rule exists to remove.
+  - **A value that is not a function is a template error**, with the position,
+    `onKey="x"` and a bare `onKey` included. `undefined` sets nothing, which is
+    what an omitted JSX attribute passes. `null` is refused: the hooks are typed
+    `X | undefined`, and one way to say nothing is enough.
+  - **Typed from `Element`'s fields**, `onKey?: Element['onKey']` and so on, so a
+    wrong signature is a type error and a hook the class gains is one line in
+    `ReservedProps`, `HANDLER_PROPS` and nowhere else. `jsx-types.tsx` pins it
+    both ways. Two things a type cannot say are not pinned and are not claimed:
+    a thunk returning a handler type-checks, because a function returning
+    anything is assignable to a `void` return, and `on-key` is not checked at
+    all, because TypeScript exempts a hyphenated JSX attribute from the prop
+    check -- which is why the second is refused at run time, below.
+  - **`ref` is a callback and nothing else, and it is the template's, not the
+    element's.** `ref={(el) => ...}`, called once with the element **after its
+    props and children are built and before it is attached to its parent** -- so
+    it sees its children and no parent and no `box`, and `onLayout` is the hook
+    for sizes. Not called on removal, because there is nothing to call it for
+    that the owner's `onCleanup()` does not already do. A `State` is
+    `ref={(el) => node.set(el)}`; a `State` itself is refused rather than being
+    a second spelling. A function under `ref` is never a thunk for the reason a
+    handler is not. It is **not** in `ReservedProps`: `Element.#apply()` does not
+    branch on it, an element has no `ref`, and putting it there would make that
+    comment false. `RefProps` sits beside it in `HostProps`.
+  - **The ref runs after the children, so both emitters split it out.**
+    `splitRefs()` is the one definition of which props are refs; `emit()` calls
+    `applyRef()` once the children are in, and the build emitter prints
+    `applyRef(name, expr, loc)` at the same place. A `<text>` or a `<raw>` the
+    compiler would have printed as one inline expression is bound to a name when
+    it carries a ref, since a ref has to be called with something. Untracked: a
+    template is built inside an effect when it is a `For` row, and a ref that
+    read a signal would subscribe that row to it.
+  - **The build refuses at build time what the interpreter refuses at run
+    time.** A literal under a handler name or `ref` is a compile error with the
+    template's position, because a literal is never a function and the
+    constructor would otherwise throw when the screen was first built. The
+    position is printed into `applyProp()` for a handler and for nothing else,
+    so an app with no handler compiles to the bytes it did before.
+  - **Pinned by the corpus, which now fires the handlers.** `emitters.test.ts`
+    calls every hook on every element in document order and compares what the
+    three builds logged, and compares what the refs logged _during the build_,
+    which is where a handler called as a thunk would show. The new entries cover
+    all seven hooks beside a reactive `class`, an `undefined` handler, a ref on
+    each host type, and two refs on a reactive text. `handlers.test.ts` runs
+    every behaviour over both frontends by name, including a key reaching the
+    `onKey` through a real router.
+- **A near miss for a handler name is refused, because the thunk rule would
+  otherwise run it (SIG-305, review round 1).** "No kebab form" was a decision
+  nothing enforced: `on-key=${fn}`, `onkey=${fn}` and `onClick=${fn}` are not
+  handler names, so they fell to the rule that calls a function with no arguments
+  while the template builds -- the exact failure hooks-as-props was written to
+  end, left standing for every spelling but one. `refuseHandlerName()` is asked
+  by `applyProp()` and by the build emitter. A **spelling of one of the seven**
+  -- kebab or lower case, matched with the dashes taken out and the case folded
+  -- is refused whatever its value, naming the right one; the compiler can answer
+  that from the IR, so it is a compile error there. **Any other `on`-prefixed
+  name given a function** -- including a prop named just `on` -- is "not an event this element has", listing the seven;
+  only the interpreter knows the value, so that half is a run-time error in a
+  compiled template, with the same words and position. A non-function under such
+  a name is not its business: it reaches the cascade, which refuses an unknown
+  property at the first style resolve. Safe because **no style property starts
+  with `on`** -- `props.test.ts` asserts it over the property table, so a future
+  property that does fails there rather than being refused as an event.
+  `REFUSALS` in `packages/cli/test/template-corpus.ts` holds the cases and
+  `emitters.test.ts` asserts the sentence is identical on both paths. The
+  position is printed into `applyProp()` for any `on*` name, since those are the
+  calls that can now throw; every other prop still prints the call it always did.
+- **`ref` and the hooks are host-element props; on a component they are just
+  props (SIG-305, review round 1).** A component is handed what the template
+  wrote, raw, as it is for every other prop name -- so `<${Panel} ref=${fn} />`
+  calls `fn` only if `Panel` reads `props.ref` and forwards it to a host element,
+  and an `onKey` on a component reaches the component's props object and nothing
+  else. Left as it is on purpose: a component may take a `ref` or a handler as
+  its own prop and decide where it goes, and refusing one in the template would
+  make forwarding impossible. The cost is that a `ref` on a component that
+  ignores it is a no-op the template cannot see, which is a component's contract
+  to document and not the template's to police. Documented in the package README.
+- **A value that cannot be printed does not replace the error about it.**
+  `describe()` in `ir.ts` turned a wrong handler or ref into text with `String()`,
+  which throws `Cannot convert object to primitive value` for an object with no
+  prototype and for one whose `toString` throws -- so `onKey=${Object.create(null)}`
+  reported that instead of "takes a function". It falls back to
+  `Object.prototype.toString`.

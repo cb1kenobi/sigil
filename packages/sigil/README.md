@@ -69,7 +69,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Shell completion](#shell-completion) — `completion` installs it, `completion bash` prints it
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
 - [Typed argv](#typed-argv)
-- [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `KEYS`
+- [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `frame()`, `KEYS`
 - [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths, `save()`
 - [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `updates`, `testing`, `reference`, `png`
 
@@ -398,24 +398,28 @@ export default {
 A lazily loaded command appears in help by name alone until its module is read,
 because its description lives in that module. `help <command>` does load it.
 
-`routeInfo` is how a build that keeps the walk gets those descriptions onto the
-help screen without importing anything: it maps route names onto what was lifted
-out of them. `sigil build` does not write one — it bakes the whole tree into the
-executable it generates, as a `commands` literal with a `desc` and a `load` per
-command, which is the `load` shape further down.
+A `commands.json` beside the modules describes them without importing anything,
+and is also the one place a walked command can get an alias or be the default —
+a `name` or `alias` inside a module cannot route, since the module is read only
+after argv has matched its file:
 
-```js
-commands: './commands',
-routeInfo: {
-  build: { desc: 'Build the app' },
-  db: { desc: 'Database tasks', commands: { migrate: { desc: 'Run migrations' } } },
-},
+```json
+{
+  "build": { "desc": "Build the app", "alias": "b" },
+  "db": { "desc": "Database tasks" },
+  "serve": { "desc": "Run the server", "default": true }
+}
 ```
 
-It is a **cache over the walk, not a list of what exists**. The directory is
-still read, so a command with no entry still works and simply lists without a
-description — which is what keeps a command dropped into an installed app from
-becoming invisible. Once a module is loaded, its own `desc` is what stands.
+Each key is a route's name, and each directory has its own file, so
+`commands/db/commands.json` describes `db migrate`. It is a **description of the
+walk, not a list of what exists**: the directory is still read, so a command with
+no entry still works and simply lists without a description, and an entry naming
+no command is ignored (and `sigil check` says so). Once a module is loaded, its
+own `desc` is what stands. `sigil build` reads the same file and bakes it into
+the executable, so an alias routes the same before and after a build;
+`commands.jsonc` is read too. It replaces the schema's `routeInfo`, which is a
+breaking change: `routeInfo` is gone, and one left on a schema is ignored.
 
 `load` is `path` said as a function, for an app that has been bundled:
 
@@ -470,7 +474,6 @@ hook already are that moment.
 | `hooks`                       | `init`, `parse`, `help`, `afterRun`, `beforeError`, `subcommandLoaded`           |
 | `path`                        | a module to load the command from, resolved from the file that declared it       |
 | `load`                        | that module as a function -- `() => import('./build.js')` -- for a bundled app   |
-| `routeInfo`                   | descriptions a build lifted out of the modules a `commands` path points at       |
 | `examples`                    | `{ label, text }` pairs for help                                                 |
 
 ### Running one command from another
@@ -1642,9 +1645,11 @@ the repository's own suite.
 - `runCommand()` runs a schema through the real `main()` and hands back the exit
   code, stdout, stderr, the parsed values and the error.
 - `runOnTerminal()` runs a program in a child process whose streams claim to be
-  a terminal, because a test runner's streams are pipes.
+  a terminal, because a test runner's streams are pipes. With `stdin: true` it
+  types into the child and waits for what it draws.
 - `createTestTerminal()`, with `KEYS`, `ctrl()`, `alt()` and `tick()`, is a
-  terminal and a keyboard in-process, for driving a prompt or a full-screen app.
+  terminal and a keyboard in-process, for driving a prompt or a full-screen app,
+  and `frame()` paints an app's next frame now instead of waiting for it.
 - `Screen` and `screenStream()` replay what was written into a model of the
   screen, because a frame is a diff and its bytes do not say what is showing.
 
@@ -2424,14 +2429,73 @@ one line, each line break a space, which is what a table cell or a prefix
 beside a message wants -- a cell two lines tall pushes every row after it down
 by one.
 
+A hook is a prop too. `onKey`, `onMouse`, `onPaste`, `onFocusChange`, `onScroll`,
+`onResize` and `onLayout` can be given to `box()`, `text()` and `raw()` as well as
+assigned afterwards -- `box({ onKey: (event) => ... })` -- and a template writes
+them the same way. `HANDLER_PROPS` is the list, `isHandlerProp(name)` asks it,
+`HandlerProp` is the name of one, `HandlerProps` is the object of them typed by
+the fields they set, and `HandlerValue` is what any one may be (a function, or
+`undefined` to clear it). `ElementPropsWithout<'onKey'>` is `ElementProps` with
+some hooks pinned to `undefined`, which is the type of a built-in component's
+`props` where the component sets that hook itself: a component refuses a handler
+for a hook it owns, at run time as well as in the type, rather than replace it
+without a word. `TextField` owns `onKey`, `onPaste`, `onFocusChange` and
+`onResize`; `ScrollBox` `onKey` and `onMouse`; `createPager` `onKey`;
+`tabRowView` `onKey`, `onFocusChange` and `onResize`; `openModal` `onPaste`;
+`showToast` `onMouse`; `attachTooltip` `onLayout`. Put a handler for those on an
+element around the component. A wrapper that forwards `props` types them as
+`ElementPropsWithout<...>` with the same hooks: a value typed plain `ElementProps`
+no longer fits, because it may carry a handler the component would replace.
+`refuseOwnedHooks(who, props, hooks)` from
+`@ttylabs/sigil/components` is the check they share, for an ejected or a
+hand-written component that spreads `props` into its host and sets a hook there.
+
 ### `sigil/template`
 
 The `ui` tag, its parser, and the emitter's leaves -- `applyProp()`,
-`applyText()`, `appendValue()`, `rawElement()`, `rootElement()`,
-`componentChildren()`, `rawParts()` and `textPart()` -- which `sigil build`'s
-template compiler calls rather than restating, so a compiled template and an
-interpreted one cannot come to disagree about what a prop, a child or a `<raw>`
-means.
+`applyRef()`, `splitRefs()`, `refuseHandlerName()`, `applyText()`,
+`appendValue()`, `rawElement()`, `rootElement()`, `componentChildren()`,
+`rawParts()` and `textPart()` -- which
+`sigil build`'s template compiler calls rather than restating, so a compiled
+template and an interpreted one cannot come to disagree about what a prop, a
+child or a `<raw>` means.
+
+A host element takes the seven hooks as props -- `onKey`, `onMouse`, `onPaste`,
+`onFocusChange`, `onScroll`, `onResize` and `onLayout` -- in JSX and in the tag,
+spelled the same way (`onKey={fn}`, `onKey=${fn}`) and typed as the `Element`
+fields they set, so a handler with the wrong signature is a type error. A
+function under one of those names is **the handler**, never a reactive thunk: it
+is assigned once, and is not called while the template builds. Swapping a
+handler through a signal is not supported; a handler reads the state it needs
+when it runs. A value that is not a function (`onKey="x"`) is a template error.
+`box({ onKey })` and a template are one path.
+
+```jsx
+let list;
+<box onKey={(event) => event.key.name === 'q' && app.exit()} ref={(el) => (list = el)}>
+  <text>press q</text>
+</box>;
+```
+
+`ref` is a callback and nothing else, `ref={(el) => ...}`. It is called once with
+the element, after its props and children are built and before it is attached
+to its parent -- so layout has not run (`onLayout` is the hook for sizes). It is
+not called again on removal; cleanup goes through the owner (`onCleanup()`). A
+`State` holds an element as `ref={(el) => node.set(el)}`. Like a handler, a
+function under `ref` is never a thunk. `RefProps` is its type, which `HostProps`
+(from `@ttylabs/sigil/jsx-runtime`) already includes.
+
+`ref` and the hooks are props of a **host element**, `<box>`, `<text>` and
+`<raw>`. On a component, `<${Panel} ref=${fn} />`, they are props like any other:
+the template hands them to the component and does nothing with them, so a
+`ref` is called only if the component reads it and forwards it to a host. That is
+deliberate -- a component may take a `ref` on purpose -- and it means a `ref` on a
+component that ignores it is silently unused.
+
+A name that nearly spells a hook is refused rather than treated as a style
+property: `on-key`, `onkey` and the like say which name to write, and any other
+`on`-prefixed name given a function (`onClick=${fn}`) is "not an event this
+element has". No style property starts with `on`.
 
 ### `sigil/help`
 
@@ -5475,10 +5539,34 @@ input.stop(); // puts back only what it turned on
 ```
 
 A key reaches the bindings, then the focused element, then its ancestors, then
-the default action. Bindings come first so that quitting always works — an app
-that cannot be quit because a focused text input swallowed Ctrl-C is the failure
-that ordering prevents. **Tab is last**, so a component that wants Tab keeps it
-by stopping the event rather than by asking to be left out of the focus ring.
+the fallbacks, then the default action. Bindings come first so that quitting
+always works — an app that cannot be quit because a focused text input swallowed
+Ctrl-C is the failure that ordering prevents. **Tab is last**, so a component that
+wants Tab keeps it by stopping the event rather than by asking to be left out of
+the focus ring.
+
+The layer between is for an app-wide key that a focused field outranks:
+
+```js
+input.fallback('/', () => input.focus.focus(filter), { description: 'filter' });
+input.fallback('s', () => sortNext(), { description: 'sort' });
+```
+
+A `bind('q', fn)` is consulted before the focused element, so it quits while
+somebody types a word into a field, and an `onKey` on the root is reached only by
+bubbling up from a focused element, so with nothing focused no key reaches it. A
+fallback is after the focused element and its ancestors: a field that takes `q`
+stops the event and the fallback never sees it, anywhere else `q` falls through
+to it — and with **nothing focused** it is the one layer that still runs. It is
+one key, modifiers allowed (`'ctrl+r'`); a spec naming two throws, and a sequence
+stays with `bind()`. A key a fallback matches is claimed, so the Tab default does
+not also see it; a pasted key never reaches one. `fallback()` returns the function
+that removes it.
+
+[`runApp()`](#sigilapp) already registers one for `q` (its `quitKey`), described as
+`quit`, so an app does not write that one. An app's own `fallback('q', …)` runs
+**as well as** the runner's -- every fallback on a key runs -- unless it passes
+`quitKey: false`.
 
 A bracketed paste goes the other way round, which is the mouse's order: the
 focused element's `onPaste` and then each ancestor's are offered it first, the
@@ -5509,7 +5597,10 @@ input.bindings(); // what applies to the focus right now, in dispatch order
 A description is read by a listing and by nothing in dispatch: a binding without
 one behaves as it always did and is simply not listed. `bindings()` returns
 app-wide entries first, then the scoped ones from the focused element outwards,
-and subscribes whatever effect reads it to the focus and to the set changing.
+then the `fallback()` ones, and subscribes whatever effect reads it to the focus
+and to the set changing. A fallback is listed wherever the focus is: the router
+cannot know whether the focused field will take the key, so with a text field
+focused a footer still shows `q  quit` and pressing `q` there types it.
 `describe()` is for a key an element's `onKey` handles, which the router cannot
 read; `scope` is the element whose focus -- or whose descendants' -- makes it
 apply. [`keyHelp()`](#a-key-help-footer) is the footer built on it.
@@ -5657,20 +5748,22 @@ function App() {
 process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] }).exited;
 ```
 
-| Option                         | Default       | What it does                                                                                       |
-| ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------- |
-| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                    |
-| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                      |
-| `theme`                        | none          | A theme sheet                                                                                      |
-| `cascade`                      | themed        | The whole cascade, in place of the themed one                                                      |
-| `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing |
-| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                         |
-| `detect`                       | `true`        | Asks the terminal for its background and colour depth once the app is up                           |
-| `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                      |
-| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                      |
+| Option                         | Default       | What it does                                                                                                   |
+| ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------------------- |
+| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                                |
+| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                                  |
+| `theme`                        | none          | A theme sheet                                                                                                  |
+| `cascade`                      | themed        | The whole cascade, in place of the themed one                                                                  |
+| `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing             |
+| `quitKey`                      | `'q'`         | The key that ends it with 0, as a `fallback()`: a focused field that takes `q` keeps it. `false` binds nothing |
+| `console`                      | `true`        | Captures `console.*` while it runs, into `app.logs`; `false` leaves the console alone                          |
+| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                                     |
+| `detect`                       | `true`        | Asks the terminal for its background and colour depth once the app is up                                       |
+| `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                                  |
+| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                                  |
 
 `runApp()` returns an `App`: `exit(code = 0)`, `exited`, `input`, `view` (the
-`Renderer`), `terminal`, `interactive` and `running`.
+`Renderer`), `logs`, `terminal`, `interactive` and `running`.
 
 **`exited` is the exit code, and setting the process's is yours.**
 
@@ -5678,6 +5771,7 @@ process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] 
 | ---------------------------------------------- | ---------------------------------------------- |
 | `exit(code)`, or `exit()`                      | `code`, or `0`                                 |
 | The quit key (Ctrl-C, Ctrl-D)                  | `130`, what a shell reports for Ctrl-C         |
+| `quitKey` (`q`)                                | `0`, the app choosing to go                    |
 | A failed frame, after `onError` has written it | `1`                                            |
 | A throw from the component's body              | `1`, and the throw propagates from `runApp()`  |
 | No terminal on both ends -- a refusal          | `1`                                            |
@@ -5718,6 +5812,43 @@ command({
   from the component's body propagates from `runApp()` with the terminal already
   restored, as it does from `render()`. A signal is the terminal's own business,
   as it always was.
+- **The console is captured while the app runs.** A `console.log()` from your code
+  or a library it calls would write into the alternate screen, where the next frame
+  does not know those cells changed and the line stays as garbage until something
+  repaints over it. So `runApp()` patches `console.debug`, `error`, `info`, `log`
+  and `warn` into a ring of the last 1,000 lines, `app.logs` (also on `useApp()`),
+  along with `dir` and `dirxml`, and nothing reaches the screen. `trace`, `table`,
+  `group`, `time`, `count` and `assert` are captured through those, so a trace
+  arrives as `error` lines, one per stack frame:
+
+  - **Full screen** writes nothing while the app runs. **When the app fails** -- a
+    throw from the component's body, a failed frame, the process ending under the
+    app (an uncaught throw, an unhandled rejection, `process.exit(n)`), or an exit
+    code other than `0` and `130` -- the ring is written to the main screen once it
+    is back, in order, _before_ the error report: `log`, `info` and `debug` to
+    stdout, `warn` and `error` to stderr, as `console` would have printed them, with
+    no prefix. If the ring dropped lines, a note on stderr says how many first.
+    **A clean exit (`0`) discards the ring, and so does `130`:** Ctrl-C is the
+    habitual way out of a healthy app, and an app that hangs never reaches its quit
+    binding. `129` (the terminal hung up) replays. A **signal** (`SIGTERM`,
+    `SIGHUP`) ends the process without an `exit` event, so it loses the ring.
+  - **What a custom `onError` logs through `console`** is never discarded and never
+    drawn into the screen: it is written to the main screen after the replay, on
+    any exit code.
+  - **Inline** (`fullscreen: false`) writes each line above the live region as it
+    arrives, to the same two streams, and holds nothing.
+  - `console: false` leaves the console alone. So does a `captureConsole()` you
+    installed before `runApp()`: the patch is global and only one can be live, so
+    the runner does not take yours over and `app.logs` is `undefined`. The same goes
+    for a second app that starts while the first holds the capture: its `logs` is
+    `undefined`, and once the first exits its lines reach its screen.
+  - Not the console, and still written straight to the screen: a bare
+    `process.stdout.write()`, and a child process's stderr.
+
+  To watch the lines live, hand the overlay the same ring:
+  `enableDebugOverlay(app.view, { input: app.input, log: app.logs })`. The overlay
+  never installs a capture of its own.
+
 - **No terminal means a refusal.** Where stdin or the output is not a terminal,
   inline or full screen, `runApp()` builds and draws nothing, writes one line to
   stderr and settles `exited` with `1`. A frame of a full-screen app in a pipe is
@@ -5735,7 +5866,8 @@ command({
   ```
 
 The debug overlay is one line on top, rather than an option, so that an app that
-never opens it does not load it: `enableDebugOverlay(app.view, { input: app.input })`.
+never opens it does not load it:
+`enableDebugOverlay(app.view, { input: app.input, log: app.logs })`.
 
 ### `sigil/style`
 
@@ -6351,11 +6483,12 @@ import { createConfigSync, json, object } from '@ttylabs/sigil/config';
 ```
 
 It imports no parser module at all, which makes it usable from an app that does
-not use sigil's parser. The subpath is about 38 kB over nine modules — `paths`,
+not use sigil's parser. The subpath is about 39 kB over ten modules — `paths`,
 the type coercion, i18n, the debug logger, the environment-variable rule the
 parser shares, the directory creation the update cache shares, the atomic write
 the completion installer shares, the array-index rule the output formats share,
-and the module itself — which is a module
+the JSONC reader a routed directory's `commands.json` shares, and the module
+itself — which is a module
 rather than anything like `sigil/components`.
 
 ### `sigil/testing`

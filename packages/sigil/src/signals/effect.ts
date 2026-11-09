@@ -289,8 +289,16 @@ export function createEffects(): Effects {
       }
       // a scheduler may run this synchronously from inside the watcher's notify
       // callback. The callback may not touch the graph; the work it scheduled
-      // may, and this is the line between them
-      settled = outsideNotify(() => drain());
+      // may, and this is the line between them.
+      //
+      // And untracked, for the reason an effect's first run is: a flush is
+      // called wherever somebody calls it, and that can be inside another
+      // scope's effect body -- a renderer's `frame()` from an effect, which is
+      // a spinner's `start()` from one. Reading each pending effect tracked
+      // made that caller a sink of every effect this drain ran, so a write the
+      // caller never read re-validated it, and the next flush of the *caller's*
+      // scope ran this scope's effects for it, outside any frame (SIG-321)
+      settled = outsideNotify(() => untrack(drain));
     } finally {
       flushing = false;
       flushesRunning--;

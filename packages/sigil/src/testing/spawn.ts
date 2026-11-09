@@ -1,5 +1,9 @@
 import { cells, delay } from './numbers.js';
-import { spawn } from 'node:child_process';
+import { Screen } from './screen.js';
+import { bracketed, checkChunks } from './terminal.js';
+import { type ChildProcessByStdio, spawn } from 'node:child_process';
+import type { Readable, Writable } from 'node:stream';
+import { StringDecoder } from 'node:string_decoder';
 
 /**
  * Running a whole program on something that claims to be a terminal.
@@ -47,13 +51,19 @@ import { spawn } from 'node:child_process';
  * one -- so the buffers are concatenated and decoded once rather than decoded
  * per chunk, which is where a `U+FFFD` in an assertion comes from.
  *
- * ## What it deliberately does not do
+ * ## Typing into it
  *
- * It does not write to the child's stdin, so a **prompt** is not what to spawn.
- * A prompt needs keys delivered over time and the far end held open: write and
- * close, and the router reports the stream ended and the prompt rejects with
- * exactly that. `createTestTerminal()` is the answer for a prompt -- in-process,
- * no child, and `press()` delivers a key at a time.
+ * `stdin: true` makes the child's stdin a terminal the same way, and the handle
+ * the call returns writes to it. The far end is a pipe held open for the life of
+ * the child, with `isTTY` true and a `setRawMode()` that accepts the call and
+ * records it on `isRaw` -- which is all `createInput()` asks of a stream. It is
+ * off unless asked for, because a program that reads stdin to the end would
+ * otherwise hang on a pipe nobody closes where it used to get end-of-file at
+ * once.
+ *
+ * What it cannot give a program is a *mode*: nothing is cooked or raw, nothing
+ * echoes, and Ctrl-C is a byte rather than a signal. `createTestTerminal()` is
+ * still the answer for a prompt in-process; this is for the whole program.
  */
 
 /**
@@ -84,7 +94,7 @@ const COLOUR_ENV = [
   'WT_SESSION',
 ] as const;
 
-/** Which of the child's streams a run can fake. */
+/** Which of the child's output streams a run can fake. */
 export type FakeableStream = 'stderr' | 'stdout';
 
 /** What to run, and what the child should believe about its streams. */
@@ -112,6 +122,15 @@ export interface TerminalRunOptions {
   readonly rows?: number;
   /** An ES module to run inline. Exactly one of this and `run`. */
   readonly source?: string;
+  /**
+   * Whether stdin is a terminal the handle can type into. Defaults to `false`.
+   *
+   * Independent of `tty`, which is about the output. Off, stdin is `/dev/null`
+   * and ends at once, as it always was. On, it is a pipe held open that claims
+   * `isTTY` and accepts `setRawMode()`, and `press()` and `paste()` on the
+   * handle write to it.
+   */
+  readonly stdin?: boolean;
   /** How long to wait before killing it. Defaults to 30 seconds. */
   readonly timeout?: number;
   /**
@@ -212,13 +231,28 @@ function streamsOf(tty: TerminalRunOptions['tty']): readonly FakeableStream[] {
  * than a file, so there is no temporary path to clean up and nothing
  * platform-specific about where it lives.
  *
- * @param streams - Which streams to fake.
+ * Stdin is the same mechanism with different fields: a terminal's input has no
+ * size, but it has `isTTY`, and `setRawMode()` and `isRaw` -- the pair
+ * `createInput()` calls and reads. `setRawMode()` returns the stream, as the
+ * real one does, and records the mode where `isRaw` says so.
+ *
+ * @param streams - Which output streams to fake.
  * @param columns - The width to report.
  * @param rows - The height to report.
+ * @param stdin - Whether stdin is a terminal too.
  * @returns A URL for `--import`.
  */
-function preload(streams: readonly FakeableStream[], columns: number, rows: number): string {
-  const source = streams
+function preload(
+  streams: readonly FakeableStream[],
+  columns: number,
+  rows: number,
+  stdin: boolean
+): string {
+  const define = (name: string, field: string, value: string): string =>
+    `Object.defineProperty(process.${name},${JSON.stringify(field)},` +
+    `{configurable:true,value:${value}});`;
+
+  let source = streams
     .map((name) =>
       (
         [
@@ -227,31 +261,183 @@ function preload(streams: readonly FakeableStream[], columns: number, rows: numb
           ['rows', String(rows)],
         ] as const
       )
-        .map(
-          ([field, value]) =>
-            `Object.defineProperty(process.${name},${JSON.stringify(field)},` +
-            `{configurable:true,value:${value}});`
-        )
+        .map(([field, value]) => define(name, field, value))
         .join('')
     )
     .join('');
 
+  if (stdin) {
+    // `isRaw` is writable because `setRawMode()` writes it; the rest are values
+    source +=
+      define('stdin', 'isTTY', 'true') +
+      'Object.defineProperty(process.stdin,"isRaw",{configurable:true,writable:true,value:false});' +
+      define(
+        'stdin',
+        'setRawMode',
+        'function(mode){process.stdin.isRaw=Boolean(mode);return process.stdin}'
+      );
+  }
+
   return `data:text/javascript,${encodeURIComponent(source)}`;
+}
+
+/** A run in progress: the promise of what it came to, and a way to type into it. */
+export interface TerminalRun extends Promise<RanOnTerminal> {
+  /**
+   * Stops the child, and settles the run with the signal that ended it.
+   *
+   * @param signal - Defaults to `SIGTERM`.
+   */
+  kill(signal?: NodeJS.Signals): void;
+  /** The main buffer's lines so far, trailing blank rows dropped. As on `createTestTerminal()`. */
+  readonly lines: string[];
+  /** Everything it has written to stdout so far. */
+  readonly output: string;
+  /**
+   * Sends a bracketed paste, which is not the same as typing the text.
+   *
+   * @param text - What was pasted.
+   * @returns Settled once the bytes are on the pipe.
+   * @throws Rejects if the run was not given `stdin: true`, if the program has gone,
+   *   or with the spawn error if it never started.
+   */
+  paste(text: string): Promise<void>;
+  /**
+   * Writes each argument to the child's stdin, in order.
+   *
+   * The same vocabulary as `createTestTerminal().press()` -- `KEYS`, `ctrl()`
+   * and `alt()` are what it takes -- with one difference that is a pipe's and not
+   * this function's: **order is promised and read boundaries are not**. A kernel
+   * is free to hand the child two writes as one read, so `press(KEYS.up, KEYS.enter)`
+   * is two keys in that order and `press('chris')` is five characters, but
+   * whether the program sees one read or several is not something a pipe can say.
+   * Nothing a prompt or the key router does depends on it, and `paste()` is the
+   * distinction that is observable.
+   *
+   * It resolves when the bytes are on the pipe, not when the program has drawn
+   * what they caused. That is `waitFor()`, because the program paints on its own
+   * clock and this process only ever sees bytes.
+   *
+   * @param chunks - The reads, in order.
+   * @returns Settled once the last is on the pipe.
+   * @throws Rejects if the run was not given `stdin: true`, if the program has gone,
+   *   or with the spawn error if it never started.
+   */
+  press(...chunks: string[]): Promise<void>;
+  /**
+   * The child's stdout replayed against a screen model, as it is now.
+   *
+   * The same `Screen` `createTestTerminal()` has, sized to `columns` and `rows`,
+   * because a full-screen frame is a diff and the bytes alone say nothing about
+   * what is showing.
+   */
+  readonly screen: Screen;
+  /** The viewport row by row, blank rows included. As on `createTestTerminal()`. */
+  readonly viewport: string[];
+  /**
+   * Resolves when the screen shows `what`, and rejects if it never does.
+   *
+   * Looks at the viewport and at the main buffer, so a full-screen app's frame
+   * and an inline one's log both count. A string is matched as text, a regular
+   * expression against the rows joined by newlines. Already showing, it resolves
+   * at once.
+   *
+   * Rejects, with the screen in the message, when the program exits first or
+   * `timeout` passes -- a wait that cannot succeed has to say so rather than hold
+   * the suite until the run's own timeout. Cleared either way, so a wait leaves no
+   * timer behind.
+   *
+   * @param what - Text, or a pattern.
+   * @param opts - `timeout` in milliseconds, 5 seconds by default.
+   * @returns Settled once it is there.
+   */
+  waitFor(what: string | RegExp, opts?: { readonly timeout?: number }): Promise<void>;
 }
 
 /**
  * Runs a module in a child whose streams claim to be a terminal.
  *
- * `async` so that every refusal is a rejection: a function that returns a
- * promise and *sometimes* throws synchronously is one a caller has to guard
- * twice, and `.catch()` is the guard they will write.
+ * What it returns is a promise of what the run came to, so `await
+ * runOnTerminal(...)` is what it always was, with the means to talk to the
+ * child while it is still running: `press()`, `paste()`, `waitFor()` and the
+ * screen. A full-screen program is driven by keys over time and ends when it is
+ * told to, so the handle has to exist before the promise settles.
+ *
+ * Every refusal is a rejection. This is not an `async` function any more,
+ * because an `async` function returns a promise and not a handle -- and the rule
+ * that was written for it is *why* it was one: a function that returns a promise
+ * and sometimes throws synchronously is one a caller has to guard twice. So a
+ * refusal comes back as a rejected handle, and its methods reject with the same
+ * error.
+ *
+ * It never throws. A refusal -- neither or both of `run` and `source`, a size
+ * that is not a count -- is a rejected handle, and so is a run that had to be
+ * killed for taking longer than `timeout` or never started (a `cwd` that is not
+ * there). The rejection reaches whoever asked: `await run` gets it, and so does a
+ * `waitFor()`, `press()` or `paste()` that was pending, with the spawn error
+ * itself rather than "the program exited". Once a method has delivered a
+ * rejection the run is marked handled, so a test that fails at a wait and never
+ * reaches `await run` does not get the same error again as an unhandled
+ * rejection after it. What it cannot do is end a child a failed test walked away
+ * from: a test that can fail between starting a run and awaiting it ends the
+ * child in a `finally` with `kill()`.
  *
  * @param opts - What to run and what to fake.
- * @returns What it wrote and how it ended.
- * @throws If neither or both of `run` and `source` were given, or if it had to
- *   be killed.
+ * @returns A promise of what it wrote and how it ended, with a way to type into
+ *   it. Rejected, never thrown, for everything above.
  */
-export async function runOnTerminal(opts: TerminalRunOptions): Promise<RanOnTerminal> {
+export function runOnTerminal(opts: TerminalRunOptions): TerminalRun {
+  try {
+    return begin(opts);
+  } catch (error) {
+    return refused(error);
+  }
+}
+
+/**
+ * A handle for a run that never started, which is rejected throughout.
+ *
+ * Its screen is an empty one rather than `undefined`, so a test that reads
+ * `run.viewport` before it awaits gets the answer a program that wrote nothing
+ * gives.
+ *
+ * @param error - Why it was refused.
+ * @returns The handle.
+ */
+function refused(error: unknown): TerminalRun {
+  const promise = Promise.reject(error) as TerminalRun;
+  const screen = new Screen(80, 24);
+  // a refusal is reported once, through whichever API the caller used. The base
+  // promise is rejected before anyone has asked for anything, so unless it is
+  // marked handled when a method delivers the same error, a test that only ever
+  // awaited `run.press()` gets the refusal twice -- once as the failure it
+  // wrote the test to see, and once as an unhandled rejection from a promise it
+  // never held
+  const fail = (): Promise<never> => {
+    promise.catch(() => {});
+    return Promise.reject(error);
+  };
+
+  return Object.defineProperties(promise, {
+    kill: { value: (): void => {} },
+    lines: { get: () => screen.written },
+    output: { value: '' },
+    paste: { value: fail },
+    press: { value: fail },
+    screen: { value: screen },
+    viewport: { get: () => screen.viewport },
+    waitFor: { value: fail },
+  });
+}
+
+/**
+ * Validates, spawns, and builds the handle.
+ *
+ * @param opts - See `runOnTerminal()`.
+ * @returns The handle.
+ * @throws For a refusal, which `runOnTerminal()` turns into a rejection.
+ */
+function begin(opts: TerminalRunOptions): TerminalRun {
   // a size is refused where it is wrong and a delay falls back, which is two
   // rules because they are two kinds of value: a width is the caller's whole
   // statement about the screen the child believes it has -- silently using 80
@@ -284,6 +470,7 @@ export async function runOnTerminal(opts: TerminalRunOptions): Promise<RanOnTerm
   }
 
   const streams = streamsOf(opts.tty);
+  const stdin = opts.stdin === true;
   const env = sanitised();
   // both routes a program might ask by, which is the pair `bash` and `resize`
   // set: `COLUMNS` and `LINES` in the environment, and `columns` and `rows` on
@@ -293,7 +480,7 @@ export async function runOnTerminal(opts: TerminalRunOptions): Promise<RanOnTerm
   // the two routes
   env.COLUMNS = String(columns);
   env.LINES = String(rows);
-  if (streams.length > 0) {
+  if (streams.length > 0 || stdin) {
     // a terminal has a `TERM`, and without one a stream claiming to be a TTY
     // still detects level 0 -- so a run asserting colour would be asserting the
     // one thing that cannot happen
@@ -319,7 +506,8 @@ export async function runOnTerminal(opts: TerminalRunOptions): Promise<RanOnTerm
     env[name] = value;
   }
 
-  const args = streams.length > 0 ? ['--import', preload(streams, columns, rows)] : [];
+  const args =
+    streams.length > 0 || stdin ? ['--import', preload(streams, columns, rows, stdin)] : [];
   args.push(
     ...(opts.source === undefined
       ? [opts.run as string]
@@ -327,32 +515,83 @@ export async function runOnTerminal(opts: TerminalRunOptions): Promise<RanOnTerm
     ...(opts.argv ?? [])
   );
 
-  return new Promise<RanOnTerminal>((settle, fail) => {
-    const child = spawn(process.execPath, args, {
-      cwd: opts.cwd,
-      env,
-      // `shell` is deliberately left off: a shell would mean quoting rules that
-      // differ per platform, over arguments a test wrote as strings
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+  const child = spawn(process.execPath, args, {
+    cwd: opts.cwd,
+    env,
+    // `shell` is deliberately left off: a shell would mean quoting rules that
+    // differ per platform, over arguments a test wrote as strings
+    stdio: [stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+  }) as ChildProcessByStdio<Writable | null, Readable, Readable>;
 
-    // collected as bytes and decoded once, because a `data` event can end in the
-    // middle of a multi-byte character
-    const out: globalThis.Buffer[] = [];
-    const err: globalThis.Buffer[] = [];
+  // collected as bytes and decoded once, because a `data` event can end in the
+  // middle of a multi-byte character
+  const out: globalThis.Buffer[] = [];
+  const err: globalThis.Buffer[] = [];
+  // and the live screen is decoded as it goes, which cannot wait for the end:
+  // a decoder holds the incomplete tail of a character back, which is the same
+  // rule applied to a stream
+  const screen = new Screen(columns, rows);
+  const decoder = new StringDecoder('utf8');
+  let drawn = '';
+  /** The model throws on a sequence it does not know; a handler must not. */
+  let modelError: Error | undefined;
+  let exited = false;
+  /** Why the run cannot go on -- it never started, or it was killed for taking too long. */
+  let failure: Error | undefined;
+  /** Whether the run has already rejected, after which marking it handled is too late and only noisy. */
+  let rejected = false;
+  const watchers = new Set<() => void>();
+
+  const promise = new Promise<RanOnTerminal>((settle, fail) => {
     const timer = setTimeout(() => {
+      failure = new Error(`runOnTerminal() did not finish within ${timeout}ms`);
       child.kill('SIGKILL');
-      fail(new Error(`runOnTerminal() did not finish within ${timeout}ms`));
+      // a pending wait is told the cause now, and marks the run handled, before
+      // the run itself rejects with it
+      for (const watcher of watchers) {
+        watcher();
+      }
+      rejected = true;
+      fail(failure);
     }, timeout);
 
-    child.stdout.on('data', (chunk: globalThis.Buffer) => void out.push(chunk));
+    child.stdout.on('data', (chunk: globalThis.Buffer) => {
+      out.push(chunk);
+      const text = decoder.write(chunk);
+      drawn += text;
+      if (modelError === undefined) {
+        try {
+          screen.write(text);
+        } catch (error) {
+          modelError = error as Error;
+        }
+      }
+      for (const watcher of watchers) {
+        watcher();
+      }
+    });
     child.stderr.on('data', (chunk: globalThis.Buffer) => void err.push(chunk));
+    // a write to a child that has gone is `EPIPE` as an event, and an event with
+    // no listener is an uncaught exception in the test runner
+    child.stdin?.on('error', () => {});
     child.on('error', (error) => {
       clearTimeout(timer);
+      // told to whoever is waiting first, and rejected second: a wait that is
+      // told delivers the error and marks the run handled, and one that is told
+      // after the rejection has already gone unhandled
+      failure = error;
+      for (const watcher of watchers) {
+        watcher();
+      }
+      rejected = true;
       fail(error);
     });
     child.on('close', (code, signal) => {
       clearTimeout(timer);
+      exited = true;
+      for (const watcher of watchers) {
+        watcher();
+      }
       settle({
         code,
         err: globalThis.Buffer.concat(err).toString('utf8'),
@@ -361,4 +600,160 @@ export async function runOnTerminal(opts: TerminalRunOptions): Promise<RanOnTerm
       });
     });
   });
+
+  /**
+   * Marks the run handled when, and only when, `error` is the run's own failure.
+   *
+   * The base promise is the other way to find out how the run ended, and it
+   * rejects on its own -- the spawn error, or the kill timer -- with nobody
+   * listening if the caller's test already failed at a `waitFor()` and never got
+   * as far as `await run`. When a method delivers *that* error the caller has been
+   * told, and a second report from the base promise is the same failure twice.
+   * A method's own refusal is not it: a `press()` without `stdin: true` or a
+   * `waitFor()` that timed out says nothing about the run, so a run that later
+   * fails or is killed for time still has to be reported -- silencing it for the
+   * whole run was the first version, and it hid exactly the leak this guards.
+   */
+  const delivered = (error: Error): void => {
+    if (error === failure && !rejected) {
+      promise.catch(() => {});
+    }
+  };
+
+  /** Delivers a rejection to a caller of a method. */
+  const reject = (error: Error): Promise<never> => {
+    delivered(error);
+    return Promise.reject(error);
+  };
+
+  /** Writes one chunk and resolves when it is on the pipe. */
+  const write = (chunk: string): Promise<void> => {
+    if (failure !== undefined) {
+      return reject(failure);
+    }
+    if (!stdin || child.stdin === null) {
+      return reject(
+        new Error(
+          'runOnTerminal() was not given `stdin: true`, so there is no terminal to type into'
+        )
+      );
+    }
+    if (exited || child.stdin.destroyed || !child.stdin.writable) {
+      return reject(new Error('the program has already exited, so there is nobody to type to'));
+    }
+    return new Promise((resolve, fail) => {
+      child.stdin?.write(chunk, (error) => {
+        if (error) {
+          fail(new Error('the program has already exited, so there is nobody to type to'));
+        } else {
+          resolve();
+        }
+      });
+    });
+  };
+
+  /** What is on screen, as one string to look in. */
+  const shown = (): string => [...screen.viewport, ...screen.written].join('\n');
+
+  const handle = Object.defineProperties(promise, {
+    kill: {
+      value: (signal: NodeJS.Signals = 'SIGTERM'): void => void child.kill(signal),
+    },
+    lines: {
+      get: (): string[] => {
+        if (modelError !== undefined) {
+          throw modelError;
+        }
+        return screen.written;
+      },
+    },
+    output: { get: (): string => drawn },
+    paste: {
+      value: async (text: string): Promise<void> => {
+        await write(bracketed(text));
+      },
+    },
+    press: {
+      value: async (...chunks: string[]): Promise<void> => {
+        checkChunks(chunks);
+        // one write per argument, in order and each flushed before the next. The
+        // child may still read two as one: see the doc comment
+        for (const chunk of chunks) {
+          await write(chunk);
+        }
+      },
+    },
+    // guarded like `viewport` and `lines`: a model error during teardown leaves
+    // `alternate` and `cursorHidden` frozen at what they were before it, and a
+    // test asserting the screen was given back would be answered by a model that
+    // stopped listening
+    screen: {
+      get: (): Screen => {
+        if (modelError !== undefined) {
+          throw modelError;
+        }
+        return screen;
+      },
+    },
+    viewport: {
+      get: (): string[] => {
+        if (modelError !== undefined) {
+          throw modelError;
+        }
+        return screen.viewport;
+      },
+    },
+    waitFor: {
+      value: (what: string | RegExp, wait: { readonly timeout?: number } = {}): Promise<void> => {
+        if (typeof what !== 'string' && !(what instanceof RegExp)) {
+          return reject(
+            new Error(`waitFor() takes text or a pattern, not ${JSON.stringify(what)}`)
+          );
+        }
+        const limit = delay(wait.timeout, 5000);
+        const found = (): boolean =>
+          typeof what === 'string' ? shown().includes(what) : what.test(shown());
+        const describe = (): string =>
+          typeof what === 'string' ? JSON.stringify(what) : String(what);
+
+        return new Promise<void>((settle, fail) => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const done = (error?: Error): void => {
+            watchers.delete(check);
+            clearTimeout(timer);
+            if (error === undefined) {
+              settle();
+            } else {
+              delivered(error);
+              fail(error);
+            }
+          };
+          const check = (): void => {
+            if (modelError !== undefined) {
+              done(modelError);
+            } else if (found()) {
+              done();
+            } else if (failure !== undefined) {
+              done(failure);
+            } else if (exited) {
+              done(
+                new Error(`the program exited before the screen showed ${describe()}:\n${shown()}`)
+              );
+            }
+          };
+          timer = setTimeout(
+            () =>
+              done(
+                new Error(`the screen did not show ${describe()} within ${limit}ms:\n${shown()}`)
+              ),
+            limit
+          );
+          watchers.add(check);
+          check();
+        });
+      },
+    },
+  }) as TerminalRun;
+
+  return handle;
 }

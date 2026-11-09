@@ -262,6 +262,26 @@ the entry it belongs to.
   own state, while looking perfectly alive. Nothing leaks by opting out, because
   the caller opting out is the one that owns the branch and disposes it. See
   `test/signals/effect.test.ts`.
+- **A root and a frame run untracked, because nothing in either is the caller's
+  to depend on.** `runWithOwner()` puts the signals layer's _parentage_ aside and
+  never put the _consumer_ aside, so `createRoot()` ran a body tracked by whatever
+  effect was on the stack -- and `render()` is called from one whenever a
+  built-in mounts lazily: a spinner's `start()` from an effect. `spinnerView()`
+  reads its label to build the text node, so that effect became a sink of the
+  spinner's own label and ran again on every later `s.text = ...`, which is
+  SIG-321's 3 runs where 2 belong. A task log's title is the same spinner view.
+  The frame is the second half: `render()` paints its first one before it
+  returns, a component's methods call `frame()` from wherever they were called,
+  and a frame reads frame handlers, the scope's own flush, measures and `onMount`
+  callbacks, none of them the caller's. So `createRoot()` untracks and so does
+  `runFrame()`, whole, each pinned under `a renderer started from an effect` in
+  `test/renderer/renderer.test.ts`. The untracking stops at the root and the
+  frame: `runWithOwner()` itself is public and still tracks, because
+  `provideContext()` inside an effect body is a caller that may mean its reads to
+  be tracked, and `For` and
+  `Show` already say `untrack()` where they mean it. The inner effects were never
+  parented to the caller -- `unowned()` saw to that -- and a test now says so:
+  the renderer keeps its effects when the effect that started it runs again.
 - **`onMount` fires after a frame, not at the end of the body.** The useful thing
   to do there is read what the component came out as, and `element.box` has no
   answer until something has laid it out -- so a callback that ran at the end of
@@ -827,7 +847,41 @@ it.
   interrupted, and raw mode is the only reason this was a key instead. `q` is not in
   the default for the same reason it works: a function binding sees every key, so a
   default `q` would be a letter no text field could type. `quit` takes a predicate,
-  or `false` for an app that ends itself.
+  or `false` for an app that ends itself. **`q` is `quitKey`, a different option on a
+  different layer** -- see the next entry.
+- **`quitKey` is `q` by default, a fallback, and 0 (SIG-308).** The reason above
+  for keeping `q` out of `quit` was that no layer existed that a text field
+  outranked; `InputRouter.fallback()` is that layer, and the runner registers
+  `quitKey` on it, described as `quit` -- through `__` and in lower case, as every description the framework lists is, and `'quit'` is already in `src/i18n/keys.ts` -- with a priority of 9 so a narrow key-help
+  footer drops anything else first. So a field that takes `q` keeps it and every
+  other focus, nothing focused included, quits on it. It ends the app with `0`
+  rather than 130 because a `q` is the app choosing to go and not an interrupt.
+  `quit` is unchanged: it is checked
+  first, still 130, and a `quit` predicate that claims `q` wins (`should take a quit
+  key of the caller choosing` is still true). `quitKey: false` registers nothing
+  and frees the key; the option is one key, so a spec of two throws as `fallback()`
+  does.
+
+  Registered **inside the render callback, after the component's body**, for two
+  reasons that decide against the obvious place beside the router. A key-help
+  footer reads the fallbacks in registration order, and quit goes last where an
+  app puts it (the system monitor's footer is `... t theme · q quit`). And a spec
+  that cannot be a key throws there exactly as a body that throws does: `render()`
+  has given the screen back and the catch under it stops the router and settles
+  `exited` with 1, where a throw beside the router would have needed a copy of that
+  teardown. Pinned by `should refuse a quitKey of two keys, with the terminal given
+  back`.
+
+  **It changes what an existing app does, and every caller was read for it.** An
+  app that bound `q` itself -- `bind('q', ...)`, or a function binding -- gets the
+  key first and nothing moves: `demos/renderer/01-app.js`, `demos/element/06-panes.js`
+  and `examples/hello` all do and are left as they are, their binding now
+  redundant and harmless. An app whose elements take `q` as a character keeps it. An
+  app whose `q` meant something else and is not stopped anywhere would now quit; none
+  in the repository does, and `quitKey: false` is the opt-out. A prompt run over the
+  app's router swallows every key while it is up (its binding stops the event first),
+  so `q` typed into a prompt does not reach the fallback.
+
 - **`exited` is an exit code -- Chris's decision, and the reason is the design
   rather than the type.** `exit(code = 0)` settles it with `code`; the quit key with
   130; a failure that ended the app with 1, after `onError` has written it; the
@@ -970,9 +1024,175 @@ it.
   out on a resize already, and the full-screen backend follows the screen by
   itself, so there is nothing to wire.
 - **The debug overlay is one line on top rather than an option.**
-  `enableDebugOverlay(app.view, { input: app.input })`. An option would put the
+  `enableDebugOverlay(app.view, { input: app.input, log: app.logs })`. An option would put the
   overlay's scroll box and log ring on every app's graph for an instrument most
   never open, or make the option an `await import()` whose handle arrives late.
+- **The console is captured while the app runs, and replayed only when the app
+  fails (SIG-310).** A `console.log()` from the app or a library it calls wrote
+  straight into the alternate screen, and the next frame's diff does not know
+  those cells changed, so the line stayed as garbage until something repainted
+  over it. `runApp()` now calls `captureConsole()` into a ring it owns, 1,000
+  lines, before the component's body runs, and exposes it as `app.logs` (on
+  `useApp()` too). Nothing reaches the screen while the app runs. `console:
+  false` turns it off; so does a capture the app installed itself before
+  `runApp()`, which the module-level latch refuses -- the runner **leaves that
+  one alone** and `app.logs` is `undefined`, because the patch is global and one
+  of the two has to own it. Nothing is patched for a refusal either: an app that
+  never draws has nothing to protect.
+
+  _Full screen replays on failure and discards on success._ A failure writes the
+  ring to the main screen once it is back: in order, `log`, `info`, `debug`, `dir`
+  and `dirxml` to stdout and `warn` and `error` to stderr, as `console` would have
+  printed them, with **no level prefix** and before the error report. If the ring
+  dropped lines, a stderr note first says how many
+  (`5 earlier console lines were dropped (the last 1000 follow)`). **Code `0`
+  discards the ring** -- the lines were the app's own scrollback and nothing needs
+  explaining. **So does 130, and that was a decision revised in review.** It first
+  replayed, on the reading that 130 is what a shell reports for a program somebody
+  had to interrupt. The user's decision is the other one: Ctrl-C is the habitual
+  way out of a healthy interactive app, so replaying on it would put an app's
+  chatter on the screen every time it was quit, and an app that has hung never
+  reaches its quit binding in the first place, so 130 is not the code a hang
+  produces. Every other non-zero code replays, 129 (the terminal hung up) included,
+  to a screen that may not be there. An app's own `exit(130)` is the same number
+  and discards too. What counts is the code `exited` settles with, read in
+  `finish()` after a failure has been given its say (`replayable()`).
+
+  _What "a crash" covers._ A throw from the component's body (the catch in
+  `runApp()`), a failed frame, and **the process ending under a running app**: an
+  uncaught throw, an unhandled rejection, a `process.exit(n)`. The last is one
+  `exit` listener on the real `process`, attached with the capture and removed by
+  `finish()` and the body-throw path, which calls `terminal.restore()` (idempotent,
+  so the screen is back whichever handler ran first), puts the console back and
+  replays by the process's own exit code. Putting the console back is the part that
+  was a defect and not a gap: an `exit` handler of the app's own that logged wrote
+  into a ring nobody would read. It is a listener of the runner's rather than a hook
+  on `Terminal` because the terminal's restore path is shared by every caller and
+  runs on `restore()` called by `fail()` in the middle of a failure, where a replay
+  would be early. **A signal is not covered, and the docs say so:** the terminal
+  restores on `SIGTERM`, `SIGHUP` and `SIGINT` and re-raises, and the process dies
+  by the signal without an `exit` event, so there is no point at which to replay;
+  adding a signal listener of the runner's own would change whether the signal
+  still kills the process, which is the terminal's entry to settle. The test is a
+  spawned child over the built runner, for the reason the TypeScript routes are.
+
+  _Three edges of the `exit` handler, found by the second review round._ **It is
+  prepended** (`process.prependListener`), because listeners run in registration
+  order and a handler the app registered before `runApp()` would otherwise log
+  into the ring this is about to discard, or have its line replayed as ring
+  content. **It writes synchronously**, through the stream's file descriptor
+  (`writeAll()`, `EAGAIN` retried for up to five seconds, any other error ending the
+  write quietly): an `exit` handler runs with no event loop to finish a write that
+  could not complete at once, so a replay into a pipe whose reader was behind was
+  cut off at exactly the pipe's 65,536 bytes. The terminal has no synchronous write
+  of its own to reuse -- its exit restore is a few bytes through `stream.write()` --
+  so this is the only one; a stream with no descriptor (a test terminal's) is
+  written the ordinary way. The test uses a shell pipe and not a spawned child's
+  `stdio: 'pipe'`, which is a socket pair and delivered the whole replay with the
+  loss still in place. **And it writes `early`** after the reports, the order the
+  body-throw path uses. The probe that was reported for this one (`mount A broke`
+  lost beside a `process.exit()` in a second `onMount`) does not reach it: mount
+  errors are collected and reported after the whole batch has run, so that report
+  was never made. What does reach `early` is a line an inline app logged while
+  building, which is what the test pins.
+
+  _The lines go ahead of the error report, which took three moves._ A failed frame
+  is reported by `fail()` after it has stopped the backend, and that happens
+  **before** the teardown microtask `finish()` runs on. The first answer settled the
+  failure inside an `onDispose()` handler, which does run inside `fail()` before
+  the backend stops -- and review found what that costs: the dispose handlers run
+  **before** `disposeOwner()` runs the cleanups, so the ring was written before a
+  cleanup that logged, then `fail()` reported, then `finish()` wrote that tail
+  after the report. The second answer is the one that holds: with the default
+  reporter the report is **held in `reports`** like every other, so `fail()` stores
+  it, and `finish()` writes the lines, the cleanups' among them, and then the
+  report. The `onDispose()` settle survives for a custom `onError` only, because
+  such a handler writes wherever it likes the moment it is called and the only way
+  to put the lines ahead of it is to write them first; a cleanup that logs during
+  that teardown lands in the tail after it, which is the best a handler the runner
+  cannot hold allows. A first frame that failed inside `render()` has already gone
+  when the handler is registered, and its report is held by then, so the lines go
+  first there too. Every other route (`exit(n)`, stdin ending) settles in
+  `finish()`, once the screen is back and the writes can go straight out. And
+  **reports made while the app is up wait in the runner** rather than in the
+  backend's held buffer: a report held there is older than the lines the ring
+  replays, so the mount error that was thrown early would have printed _above_ the
+  lines logged after it. A clean exit writes them with no lines.
+
+  _What a custom `onError` logs through `console` is a report, not a log line._
+  The capture took it into the ring, which a clean exit discards -- an
+  `onError: (e) => console.error(...)` and an `onMount` that threw made the error
+  vanish on `exit(0)` -- and a handler called while the app was up would have been
+  writing into a ring rather than the screen. A counter around the custom call
+  (`reporting`) makes the ring's `onPush` treat a line pushed inside it as a report:
+  held with the others, written after the replay on **any** code, and remembered in
+  `diverted` so a failed exit does not replay it a second time. It stays in the
+  ring, so `app.logs` and the overlay still show it. It never reaches the alternate
+  screen: nothing the handler logs does.
+
+  _The console goes back after the teardown, not before._ A cleanup that logs
+  while the tree unmounts is captured like everything else, and a second pass of
+  the replay writes that tail (only the entries past the last written one, with no
+  second note). It is put back on every way out: `finish()`, a body that throws,
+  and the refusal never takes it.
+
+  _Inline writes each line as it arrives and holds nothing._ "Inline" is
+  `fullscreen: false`, whatever backend was injected, because it is the option
+  that says there is an "above". Each entry goes through `backend.write()` --
+  clear the region, write above it, repaint -- to stderr for `warn` and `error`.
+  The ring is still kept, so `app.logs` is there and the overlay can show it; it
+  is the ring's `onPush` that does the echo, a hook added to `createLogRing()`
+  for this because a wrapper around `push()` would have to split a write into
+  lines the way the ring does and say it twice -- and the same hook is how a custom
+  `onError`'s output is told from the app's. A line logged during the first
+  frame, before the backend is returned, waits in the same queue the early
+  reports do. Nothing is replayed on failure: it is all out already.
+
+  _The ring and the patch moved to `src/components/console-capture.ts`._
+  `debug-overlay.ts` is a scroll box, a pane and a stats line, and the recorded
+  reason the overlay is not an option on `runApp()` is that an app which never
+  opens it must not carry it -- which the runner now needs the ring and the patch
+  of. So those two live in a module that imports nothing of the renderer, the
+  element tree or the sheet, and the overlay re-exports them: the surface of
+  `@ttylabs/sigil/components` is unchanged. The cost to `app.mjs` was one 1,351 B
+  chunk (the whole graph reads 209,538 B over 29 modules as of this change), and
+  `dist.test.ts` pins that the pane's strings stay off it. Overlay and runner are
+  paired by the app, as the overlay's entry records: `log: app.logs`.
+
+  _Out of scope, and said so in the README._ A bare `process.stdout.write()` and a
+  child process's stderr are not the console and still write into the screen.
+  `trace` is not patched and is captured anyway, which this entry first had wrong:
+  Node builds the stack and hands it to `this.error()`, so it arrives as `error`
+  lines, one per frame; `table`, `group`, `time`, `count` and `assert` end in `log`
+  or `warn` the same way. `dir()` and `dirxml()` are the two that do not, and
+  wrote into the alternate screen past the patch -- found by review, which put
+  `process.stdout.write` under a spy and called each method. They are patched now,
+  as `log`, with `inspect()` and `customInspect: false` and the caller's options
+  the way Node does it, without the colour its stream would have chosen.
+  **Overlapping apps:** the capture is one global latch, so an app that starts
+  while another holds it gets `logs === undefined`, is not captured, and once the
+  first exits its lines reach its own screen. That is the rule for a capture the
+  app installed itself, applied to the second runner, and not an error. A live log file to
+  `tail -f` from another terminal is a follow-up.
+
+  _Sabotage, fourteen by hand over `app-console.test.ts`:_ the console not put
+  back, replaying on a clean exit, no settle in the `onDispose()` handler, reports
+  not held, everything to stdout, no dropped note, no inline echo, `console:
+  false` ignored, no `written` cursor, no replay on a body that throws, a 500-line
+  ring, 130 treated as clean, and inline replaying. Thirteen were caught; the
+  fourteenth, a separate `settleFailure()` for the first-frame case, changed no
+  answer and was deleted.
+
+  _Sabotage, round two, nine over the review's fixes:_ the `onDispose()` settle for
+  the default reporter again, the divert off, the diverted lines replayed twice,
+  `dir`/`dirxml` unpatched, `dir` not through `inspect()`, 130 replayed, no `exit`
+  listener, the `exit` handler not putting the console back, and the `exit` handler
+  replaying on any code. All nine were caught.
+
+  _Sabotage, round three, four over the exit-path fixes:_ no `early` flush,
+  `on` instead of `prependListener`, the write through `stream.write()` again, and
+  `writeAll()` giving up on `EAGAIN`. All four were caught.
+
 - **Sabotage, in two passes.** The first was twenty-three, with nine survivors: six
   were made to fail by a new test -- the router left listening (twice: on exit and
   on a body that throws), `restore()` dropped, a synchronous `exit()`, an error
@@ -1021,8 +1241,6 @@ it.
   way out, and a different `'error'` spent the guard -- was eight, every one caught,
   under "A router stopped over a failed stream" in `src/input`; the attach tick
   survived the first run of it and is pinned by a test of its own.
-- **Not done:** capturing `console.log()` while the app owns the screen, which
-  writes straight into the alternate buffer today -- `backend.write()` holds a line
-  and the debug overlay's `captureConsole()` shows one, and neither is automatic;
-  and an `App` handle to a router the caller built, since the host is what makes the
-  router exist at build time.
+- **Not done:** an `App` handle to a router the caller built, since the host is
+  what makes the router exist at build time. Capturing `console.log()` while the
+  app owns the screen was on this list until SIG-310 -- see the entry above.

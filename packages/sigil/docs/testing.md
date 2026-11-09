@@ -28,6 +28,7 @@ a CLI misses something:
 | `Screen` and `screenStream()`       | A frame is a diff, so its bytes do not say what is on the screen            |
 | `createTestTerminal()`              | A prompt refuses to run without a terminal and a keyboard                   |
 | `KEYS`, `ctrl()`, `alt()`, `tick()` | The bytes a key sends are not guessable, and drawing is not synchronous     |
+| `frame()`                           | A full-screen app draws on a clock, not once per key                        |
 
 They ship inside `@ttylabs/sigil` rather than as a separate package. Your app
 depends on `@ttylabs/sigil` at an exact version, so the helpers always match
@@ -244,20 +245,23 @@ be what you meant to differ: colour, wrapping, a layout. A program that writes
 the same bytes either way gets the same bytes back, so check that first if a
 comparison surprises you.
 
-It returns `{ code, out, err, signal }`, and takes:
+Awaited, it gives `{ code, out, err, signal }`. What it returns is a promise of
+that with a handle on the running child, which [A full-screen app](#a-full-screen-app)
+uses to type into one. It takes:
 
-| Option    | Default | What it does                                                           |
-| --------- | ------- | ---------------------------------------------------------------------- |
-| `run`     | none    | A module to run. Give exactly one of this and `source`                 |
-| `source`  | none    | An ES module to run inline, as `node --input-type=module -e` does      |
-| `argv`    | `[]`    | Arguments, after the module                                            |
-| `tty`     | `true`  | Which streams claim to be a terminal: `true`, `false`, or a list       |
-| `columns` | `80`    | Sets `COLUMNS`, and `columns` on the streams that claim to be one      |
-| `rows`    | `24`    | Sets `LINES`, and `rows` on the streams that claim to be one           |
-| `color`   | none    | A level to force, or `false` for none. Omitted, it detects from `TERM` |
-| `cwd`     | none    | The working directory                                                  |
-| `env`     | `{}`    | Variables, on top of a cleaned copy of the parent's environment        |
-| `timeout` | `30000` | How long to wait, in milliseconds, before killing it                   |
+| Option    | Default | What it does                                                            |
+| --------- | ------- | ----------------------------------------------------------------------- |
+| `run`     | none    | A module to run. Give exactly one of this and `source`                  |
+| `source`  | none    | An ES module to run inline, as `node --input-type=module -e` does       |
+| `argv`    | `[]`    | Arguments, after the module                                             |
+| `tty`     | `true`  | Which output streams claim to be a terminal: `true`, `false`, or a list |
+| `stdin`   | `false` | Whether stdin is a terminal the test can type into                      |
+| `columns` | `80`    | Sets `COLUMNS`, and `columns` on the streams that claim to be one       |
+| `rows`    | `24`    | Sets `LINES`, and `rows` on the streams that claim to be one            |
+| `color`   | none    | A level to force, or `false` for none. Omitted, it detects from `TERM`  |
+| `cwd`     | none    | The working directory                                                   |
+| `env`     | `{}`    | Variables, on top of a cleaned copy of the parent's environment         |
+| `timeout` | `30000` | How long to wait, in milliseconds, before killing it                    |
 
 `tty` takes a list to fake one stream and not the other, such as
 `tty: ['stderr']` for a program that reports on stderr.
@@ -276,11 +280,17 @@ It handles two things for you that are easy to get wrong:
 
 There is no pseudo-terminal involved. Node has none built in, and
 `@ttylabs/sigil` has no dependencies. So `runOnTerminal()` cannot tell you
-anything about terminal modes, such as raw mode, bracketed paste or mouse
-reporting. Test those by hand, in the terminals you care about.
+anything about terminal modes: nothing is cooked or raw, nothing echoes, and
+Ctrl-C is a byte rather than a signal. A program that calls `setRawMode()` gets
+the call accepted and recorded on its own `process.stdin.isRaw`, where the test
+cannot read it. Bracketed paste and mouse reporting are the same. Test those by
+hand, in the terminals you care about.
 
-It also writes nothing to the child's stdin, so it cannot answer a prompt.
-[Driving a prompt](#driving-a-prompt) is how to test one.
+Its stdin is not a terminal unless you pass `stdin: true`, which
+[Driving a prompt](#driving-a-prompt) and [A full-screen app](#a-full-screen-app)
+use to type into the program. It is off by default because a program that reads
+stdin to the end gets end-of-file at once from `/dev/null`, and would wait for
+ever on a pipe nobody closes.
 
 ## What is on the screen
 
@@ -373,8 +383,11 @@ Read it back with:
   the alternate screen is showing, and `clipboard` for what OSC 52 copied.
 
 It models the sequences sigil writes: cursor movement, erasing, the alternate
-screen, the cursor's visibility, and OSC 52. It **throws** on a sequence it
-does not model, rather than quietly getting a row wrong. It keeps characters,
+screen, the cursor's visibility, and OSC 52. The questions a program asks the
+terminal before its first frame, such as its device attributes, its version or
+a mode report, change nothing on a screen, so it reads them as nothing; nobody
+answers them. It **throws** on any other sequence it does not model, rather
+than quietly getting a row wrong. It keeps characters,
 not colour, so test colour with `runOnTerminal()` output as above. The one
 piece of styling it keeps is reverse video: `lastInverse` is the cell of the
 most recent write made in reverse video.
@@ -520,16 +533,16 @@ Use it before the first key, as above, or after writing to `ui.stdin` yourself.
 **The screen.** The prompt draws onto a `Screen`, and the test terminal reads
 it back for you:
 
-| Property   | What it is                                                            |
-| ---------- | --------------------------------------------------------------------- |
-| `lines`    | Everything the main screen holds, without the blank rows at the end   |
-| `viewport` | The rows on the screen now, blank ones included                       |
-| `screen`   | The `Screen` itself, for the cursor, `cellAt()`, and the rest         |
-| `output`   | Every byte written, for the few things that really are about bytes    |
-| `stdin`    | The input stream, for anything `press()` and `paste()` do not cover   |
-| `terminal` | The terminal to hand a prompt or an app                               |
-| `ansi`     | A styler at `colorLevel`, for a component that takes an `ansi` option |
-| `resize()` | Resizes the screen and tells the terminal, as a window resize does    |
+| Property   | What it is                                                          |
+| ---------- | ------------------------------------------------------------------- |
+| `lines`    | Everything the main screen holds, without the blank rows at the end |
+| `viewport` | The rows on the screen now, blank ones included                     |
+| `screen`   | The `Screen` itself, for the cursor, `cellAt()`, and the rest       |
+| `output`   | Every byte written, for the few things that really are about bytes  |
+| `stdin`    | The input stream, for anything `press()` and `paste()` do not cover |
+| `terminal` | The terminal to hand a prompt or an app                             |
+| `ansi`     | A styler at `colorLevel`, for code that takes a styler of its own   |
+| `resize()` | Resizes the screen and tells the terminal, as a window resize does  |
 
 `lines` and `viewport` differ once something switches to the alternate screen,
 as a full-screen app does: `viewport` is then what is showing, and `lines` is
@@ -540,11 +553,50 @@ the main screen behind it.
 `isTTY` (`true`) and `inputTTY` (the same as `isTTY`). `inputTTY: false` is how
 to test what happens when there is nobody to answer, as the last test does.
 
+`colorLevel` is the terminal's colour level, so `render()`, `runApp()` and the
+built-in components read it from the terminal they are handed, and a
+`colorLevel` or an `ansi` named on any of them still wins. Raise it for a test
+that reads `output` for a colour sequence. `Screen` keeps characters, not
+colour, so the screen reads the same at every level. `colorLevelOf(opts, terminal)`,
+from `@ttylabs/sigil/components/color-level`, is how a component decides, for a
+component of your own.
+
+**The whole command.** `askName()` is tested in-process because that is the
+fast way to drive one prompt. To test `my-cli init` itself, its parse and its
+output included, spawn it with `runOnTerminal()` and `stdin: true`, which makes
+the child's stdin a terminal and gives back a handle to type into it with. The
+handle is covered in [A full-screen app](#a-full-screen-app):
+
+```ts
+// test/init.test.ts
+import { KEYS, runOnTerminal } from '@ttylabs/sigil/testing';
+import { join } from 'node:path';
+import { expect, it } from 'vitest';
+
+it('creates the project it was told to', async () => {
+  const run = runOnTerminal({
+    argv: ['init'],
+    run: join(import.meta.dirname, '..', 'dev.ts'),
+    stdin: true,
+  });
+  try {
+    await run.waitFor('Project name');
+    await run.press('Ada', KEYS.enter);
+
+    expect((await run).code).toBe(0);
+    expect(run.lines).toEqual(['? Project name Ada', 'Created Ada']);
+  } finally {
+    run.kill();
+  }
+});
+```
+
 ## A full-screen app
 
-A full-screen app is tested the same way as a prompt: hand `runApp()` the test
-terminal, press keys, and read the screen. Here is a small one, written with
-the `ui` tag so that Node runs it with nothing compiled:
+A full-screen app is tested like a prompt, in one of two ways: mount it in the
+test's own process on a test terminal, or spawn the whole program on a terminal
+and type into it. Here is a small one, written with the `ui` tag so that Node
+runs it with nothing compiled:
 
 ```ts
 // src/counter.ts
@@ -596,31 +648,23 @@ $ my-cli counter
 Error: Cannot run an app because stdin or the output is not a terminal: it needs somebody to type and a screen to draw on
 ```
 
-The command passes `runApp()` no terminal, so it uses the real one. The test
-mounts the component itself, on a test terminal:
+**In-process.** Hand `runApp()` a test terminal, press keys, and read the
+screen:
 
 ```ts
 // test/counter.test.ts
 import { Counter, stylesheet } from '../src/counter.ts';
 import { runApp } from '@ttylabs/sigil/app';
-import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
+import { createTestTerminal, frame, KEYS } from '@ttylabs/sigil/testing';
 import { expect, it } from 'vitest';
-
-// frames are drawn on a clock, about 30 a second, rather than once per key,
-// so wait long enough for the next one
-const frame = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 it('counts Enter, and gives the screen back on q', async () => {
   const term = createTestTerminal({ columns: 30, rows: 4 });
-  const exited = runApp(Counter, {
-    detect: false,
-    sheets: [stylesheet],
-    terminal: term.terminal,
-  }).exited;
-  await frame();
+  const app = runApp(Counter, { detect: false, sheets: [stylesheet], terminal: term.terminal });
 
   await term.press(KEYS.enter, KEYS.enter);
-  await frame();
+  // the app draws on a clock, not once per key: paint the next frame now
+  await frame(app);
   expect(term.viewport).toEqual([
     '╭────────────────────────────╮',
     '│ Count: 2                   │',
@@ -629,22 +673,99 @@ it('counts Enter, and gives the screen back on q', async () => {
   ]);
 
   await term.press('q');
-  expect(await exited).toBe(0);
+  expect(await app.exited).toBe(0);
   expect(term.screen.alternate).toBe(false);
   expect(term.lines).toEqual([]);
 });
 ```
 
-- **Wait for a frame.** A full-screen app draws on a clock rather than once per
-  key, so `press()` returning does not mean the screen has been redrawn.
-  Waiting 50 milliseconds is enough for the next frame. Wait before the first
-  key too: an app that sets something up in `onMount()`, such as which row has
-  the focus, does it after its first frame.
+- **`frame(app)` paints the next frame.** A full-screen app draws on its
+  renderer's clock, about thirty frames a second, and not once per key, so
+  `press()` returning does not mean the screen has been redrawn. `frame()`
+  forces the frame the app owes instead of waiting for one, so the screen is
+  read as the keys left it. It takes the app `runApp()` returns or the renderer
+  `render()` returns, and does nothing for one that has gone or refused to
+  start. Work a handler starts for itself, such as a timer that updates the
+  screen later, needs another `await frame(app)` once it has run.
 - **`detect: false`** skips asking the terminal what it supports, which a test
   terminal cannot answer.
 - **The last three lines test the exit.** `exited` resolves with the exit code,
   `0` for `app.exit()`. The alternate screen is gone, and the main screen is
   empty, because the app drew nothing outside the alternate screen.
+
+**The whole program.** The in-process test mounts the component, so it skips the
+command around it. `runOnTerminal()` with `stdin: true` runs `my-cli counter`
+itself, as a user would, on a terminal it can type into:
+
+```ts
+// test/counter-command.test.ts
+import { KEYS, runOnTerminal } from '@ttylabs/sigil/testing';
+import { join } from 'node:path';
+import { expect, it } from 'vitest';
+
+it('runs as a command, on a terminal', async () => {
+  const run = runOnTerminal({
+    argv: ['counter'],
+    columns: 30,
+    rows: 4,
+    run: join(import.meta.dirname, '..', 'dev.ts'),
+    stdin: true,
+  });
+  try {
+    await run.waitFor('Count: 0');
+    await run.press(KEYS.enter, KEYS.enter);
+    await run.waitFor('Count: 2');
+    await run.press('q');
+
+    expect((await run).code).toBe(0);
+    expect(run.screen.alternate).toBe(false);
+  } finally {
+    run.kill();
+  }
+});
+```
+
+What `runOnTerminal()` returns is the promise of `{ code, out, err, signal }`,
+carrying the same vocabulary as a test terminal, so a test reads the same
+in-process and spawned:
+
+- `press(...reads)` and `paste(text)` write to the child's stdin, with `KEYS`,
+  `ctrl()` and `alt()` for the bytes. A pipe keeps the order of the writes but
+  not their boundaries: the child may receive two quick writes as one read.
+  Nothing a prompt or the key router does depends on that. Both resolve when
+  the bytes are on the pipe, not when the program has drawn what they caused.
+- `waitFor(text, { timeout })` is that wait. The program draws on its own
+  clock, so this replays its output onto a `Screen` and resolves when the
+  viewport or the main screen shows the text, or matches a regular expression.
+  It never looks at the raw bytes, which hold text a later frame has covered.
+  It rejects, with the screen in the message, if the program exits first or the
+  `timeout` (5 seconds) passes.
+- `viewport`, `lines`, `output` and `screen` are the child's output so far,
+  read the way a test terminal's are, and `kill()` ends it.
+
+Two things to know:
+
+- **End the child yourself.** A test that fails between starting a run and
+  awaiting it leaves the child running until the run's own `timeout`, 30
+  seconds by default, so wrap the test in `try` and `finally { run.kill() }`.
+  A `waitFor()` or `press()` that rejects because the run itself failed, such
+  as a program that never started, rejects with that failure, which is then
+  reported once.
+- **A sequence the screen cannot draw is an error where you read.** The screen
+  model throws on a sequence it does not know. The handle holds that error and
+  rethrows it from `viewport`, `lines` and `waitFor()`, rather than from inside
+  the child's output handler, where it would be an uncaught exception in your
+  test runner.
+
+A spawned run has no `resize()`, and it cannot show you terminal modes: raw
+mode is recorded on the child's own `process.stdin.isRaw`, where the test cannot
+read it. A program that gives the screen back has run the teardown that restores
+the terminal, and `run.screen` shows that it left the alternate screen and
+showed the cursor again.
+
+Use the in-process test for the app's behaviour, since it is faster and
+`frame()` makes it exact, and a spawned one for what only the whole program
+does: its parse, its own `main()`, and a real stdin.
 
 [Building a full-screen app](full-screen-apps.md) builds a larger app and
 tests it the same way.
@@ -656,13 +777,14 @@ tests it the same way.
 ```console
 $ npm test
 ...
- Test Files  7 passed (7)
-      Tests  15 passed (15)
+ Test Files  9 passed (9)
+      Tests  17 passed (17)
 ```
 
 Everything except the `runOnTerminal()` tests runs in vitest's own process, so
 the suite stays fast. Each `runOnTerminal()` call starts a Node process, so use
-it for what only a terminal changes, and `runCommand()` for the rest.
+it for what only a terminal or the whole program changes, and `runCommand()`,
+`createTestTerminal()` and `frame()` for the rest.
 
 ## Where next
 

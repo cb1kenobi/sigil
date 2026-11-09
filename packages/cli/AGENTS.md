@@ -229,6 +229,109 @@ makes it testable with a fixture directory and no bundler at all.
   loaded. Baking a module's own `name` would make a command reachable bundled
   under a spelling that does not resolve unbundled, which is exactly what the
   shared route rules exist to prevent.
+- **...and a module that declares one is warned about, because help used to print
+  it and nothing routed it.** SIG-316. `commands/list.ts` saying `name: 'list, ls'`
+  answered to `list` alone -- `mycli ls` was `Unexpected argument "ls"`, from
+  source, under `dev.ts` and after a build -- while `mycli help list` printed
+  `Alias: ls`. Reproduced over every way a module is reached, and none routes: a
+  walked route, a route one level down, a directory's `index`, a declared `path`
+  and a `load`. A `default: true` in a module is the silent twin: it is read after
+  the module loads, by which time the command was matched by name, so it does
+  nothing and says nothing. Help leaves the spelling out (see "The help label is the
+  name string's", its last paragraph, in `packages/sigil/src/help/AGENTS.md`); this is the
+  half that tells the author, in the file.
+
+  `factsOf(parsed, routedBy)` takes how the module is reached (`RoutedBy`) and
+  returns the warnings in `Extracted.routing`, **apart from `diagnostics`**, and
+  the reason is who can silence them. `moduleFacts()` drops a module's
+  `diagnostics` when the placeholder already declares a `desc`, because those are
+  about what help shows before the module loads and the placeholder answered that.
+  A module's `alias` does not start to route because the placeholder has a `desc`,
+  so these are never dropped. `RoutedBy.name` is the file or directory name of a
+  walked route, and for a schema entry the placeholder's name string with its
+  `alias` property joined on: everything argv matches before the module is read.
+  Only what **differs** from it is reported -- `name: 'list'` in `list.ts` repeats
+  the route and says nothing wrong, `default: true` repeats a placeholder that
+  says it too (`RoutedBy.default`), and a warning that fires on correct code
+  teaches people to ignore warnings -- compared as spellings, so a `!` or `@`
+  prefix and an inline `<argument>` do not count, a spelling written twice is one,
+  and `default: false` is not `default: true`. A property written as `undefined`
+  is not declared, as `placeholderRouting()` and the runtime read it, and shares
+  that helper (`isUndefined()` in `literals.ts`). A value the source does not hold
+  (`name: spelling()`, `alias: names`, `default: flag`) is reported, since nothing
+  says it matches. A caller that does not say how the module is reached gets no
+  warning, which is `extractCommand()` without a `routedBy`, and a tree resolved
+  with `facts: false`.
+
+  **Two places say nothing on purpose, and one is a different bug.** A **package a
+  key's value is the path of** (`commands: { foo: './pkg' }`) is imported when the
+  schema is built and names itself, so from source its module's own `name` and
+  `alias` are what route and the key is not: warning there is wrong, and following
+  the advice loses the spellings that work. `routedByPlaceholder()` in
+  `discover.ts` returns nothing for it. A built app routes the other way round --
+  the key `foo`, and not the package's names -- so source and build disagree about
+  what a package is called. That predates SIG-316 and is not settled here. Only the
+  string value is exempt: `registerCommandPackage()` is reached through
+  `commandAtPath()`, which a key's string value or an unnamed path goes through
+  and an object's `path` property does not -- that is imported as a file, a
+  directory there is refused (`Directory import ... is not supported`), and a
+  package is checked like any other module. A `load` is a function and is no more a
+  package than the object form. And a
+  **directory's `index` module** gets advice that names the _directory_
+  (`RoutedBy.index`): pointing a key at `db/index.ts` is one command with none of
+  `db`'s subcommands, so `database migrate` would stop working. Its `default: true` is told there is
+  no spelling for it, rather than a `path`: only a string value walks a directory
+  and a string cannot carry `default`, while `{ db: { path: './db', default: true } }`
+  crashes from source on the directory import
+  (`NO_WAY_TO_DEFAULT_A_DIRECTORY`; a _walked_ directory's `index` is told to use
+  its parent's `commands.json`, which can say it -- see the entry below). What is **not
+  checked at all**: a package a directory walk finds (`tree.ts` takes its
+  description from the manifest and does not read the module), and the routes under
+  a directory a schema points at by key (`dd: './commands/dd'`; the build reads
+  its `index` and not what is beside it).
+
+  The advice for a module a schema points at is one sentence,
+  `DECLARE_ON_THE_ROUTE` in `extract.ts`: declare the spelling on the schema key
+  that routes it (`commands: { 'list, ls': './path/to/this-file' }`). A **walked**
+  module has no schema key, so since SIG-324 it is told to use the `commands.json`
+  beside it instead, with the entry that says it --
+  `` `{ "list": { "alias": ["ls"] } }` `` -- through `declareIn()`, which
+  `RoutedBy.manifest` turns on. `tree.ts` sets it for every walked route, naming
+  the file the level has (`commands.jsonc` where that is the spelling) or
+  `commands.json` where it has none, and joins the entry's own `alias` onto
+  `RoutedBy.name`, so a module repeating what the file already routes is
+  silent. A walked directory's `index` is pointed at its parent's file, which
+  can make it the default where a schema key cannot. An alias declared there
+  routes and stays out of help, as the `alias` property does; a spelling help
+  shows still needs a name string on a schema key. A warning and not an error,
+  because the app runs: the declaration is just ignored by routing.
+
+- **The build reads a routed directory's `commands.json` through the runtime's
+  reader and bakes it.** SIG-324. `readRoutes()` reads the file out of the
+  listing it already has and applies each entry to its route, so `tree.ts`
+  receives routes with `desc`, `hidden`, `alias` and `default` already on them
+  and prints them through `generate.ts`'s existing `alias` and `default` fields
+  (SIG-315's) -- which is what makes an entry's alias or default route after a
+  build exactly as from source. No second reader, so no second wording: a file
+  that is not JSONC, a property of the wrong type, both spellings in one
+  directory or two defaults throw out of `readRoutes()`, which `walkCommandDir()`
+  turns into an error diagnostic, with the runtime's own message. An entry's
+  `desc` beats the lifted one (and drops a lifted `descTranslated`, since the
+  entry is prose), and a route with no entry, or an entry with no `desc`, keeps
+  the lift -- the settled fallback. When an entry has a `desc`, the module's own
+  pre-load diagnostics are dropped, which is `moduleFacts()`'s rule for a
+  placeholder with a `desc`; its routing warnings are not. What the runtime
+  ignores is a warning here, naming the file and no line: an entry naming no
+  route (`DirectoryRoutes.stale`), saying which alias does not route, and a
+  property that is none of the four (`RouteManifest.unknown`). `commands.json` is
+  read from the _app's_ tree, so nothing in this repository's own build reads
+  one; were the toolchain to grow one, it would sit under `src/**`, which its
+  `build.inputs` already hash. The build does not walk the routes under a
+  directory a schema points at by key (`dd: './commands/dd'`), so a
+  `commands.json` there is read from source and not by the build -- the same
+  pre-existing gap the SIG-316 entry records for their modules, and not
+  settled here.
+
 - **...but a _placeholder's_ `alias` and `default` are carried, because the same
   rule is what requires it.** The runtime reads both off the placeholder when the
   command is registered, which is before any module could be loaded, and a built
@@ -288,7 +391,7 @@ makes it testable with a fixture directory and no bundler at all.
   module that left the key `undefined`), and the baked tree holds `desc`,
   `hidden`, `alias`, `default`, `name`, the module and a nested `commands` written
   as an object literal. So `run` (an inline handler with no module prints help and
-  exits 0), `options`, `args`, `examples`, `format`, `hooks`, `help`, `routeInfo`,
+  exits 0), `options`, `args`, `examples`, `format`, `hooks`, `help`,
   custom data, and a nested `commands` given as a path or a list are
   dropped, and a placeholder with `options: { '--force': { type: 'bool' } }` and
   `args: [{ name: 'target' }]` answers `remove --force x` as
@@ -986,6 +1089,16 @@ makes it testable with a fixture directory and no bundler at all.
   `.jsx` has never been configurable that way in any app, with a tsconfig or
   without. It is the second property the build knows better than the app, after
   `commands`.
+- **The same line is read by vite in an example's tests, and that is not a
+  second rule.** `examples/*`'s in-process mount compiles its JSX with vite, which
+  (unlike this build) **follows** the example's own `tsconfig.json`, so a wrong
+  `jsxImportSource` fails there on a cold cache with a missing package instead of building. The two
+  agree on the outcome and differ on the mechanism, which is what the override
+  above allows. Measured in SIG-312, including why it once looked as though vite
+  ignored the line (vitest's transform cache is keyed on content, not the
+  tsconfig): see "Vite does follow an example's `tsconfig.json`" in
+  `examples/AGENTS.md`. Do not pin the import source in a vitest config to make
+  them agree; that removes the mount's own check of the line.
 - **The conflict warning rolldown emits for that is dropped, and only that
   one.** Setting the option makes rolldown say `compilerOptions.jsxImportSource`
   was overridden -- **without comparing the two values**, measured, so an app
@@ -1745,10 +1858,10 @@ other is refused with numbers.
   the change that stopped needing them, and the toolchain stopped filling the
   schema's `routeInfo` -- the shape to reach for when a generator appears beside
   a build is whether the build should have done it. `routeInfo` itself did
-  **not** go, and an earlier wording of this bullet said it had, which is the
-  one sentence here capable of causing damage: it is live runtime API, read in
-  `init-command.ts` wherever a placeholder is built, and the bullet below is
-  what stands between it and the next cleanup.
+  **not** go then, and an earlier wording of this bullet said it had, which was
+  the one sentence here capable of causing damage: it was live runtime API, read
+  in `init-command.ts` wherever a placeholder was built. It went in SIG-324, on
+  purpose rather than as a cleanup -- see the last bullet of these three.
 - **Except the lift-and-print module outlived everything around it, and dead
   code carrying instructions is worse than dead code.**
   `packages/cli/src/build/route-info.ts` -- the _generator_, which is a
@@ -1787,11 +1900,20 @@ other is refused with numbers.
   above under the route rules had all been saying otherwise. Each was false
   before the module was deleted rather than made false by deleting it, which is
   the only reason to correct them here: the deletion is what removes the last
-  thing in the tree those sentences could have been pointing at. Pinned now by
-  `a lifted description` in `test/parser/routing.test.ts`, which is the coverage
-  that was missing -- `routeInfo` is read throughout `init-command.ts` and was
-  tested nowhere at all, and a public API with no producer left in the tree is
-  one the next cleanup takes for dead.
+  thing in the tree those sentences could have been pointing at.
+
+  **And then `routeInfo` went, because a file replaced it.** SIG-324. Its one
+  writer was the test that pinned it, the runtime does not read it on a baked
+  tree, and a routed directory's `commands.json` covers the use it was published
+  for -- a build that keeps the walk writes that file instead -- while also saying
+  `alias` and `default`, which `RouteInfo` could not. `Schema.routeInfo`,
+  `Command.routeInfo`, `InternalCommandBase.routeInfo` and the `RouteInfo` type
+  were removed together, with the internal map that carried a subtree down the
+  walk: each level reads its own file now. A leftover `routeInfo` on a
+  declaration is custom data and is ignored, with no compatibility read and no
+  warning; `a commands.json` in `test/parser/routing.test.ts` pins the precedence
+  rules `a lifted description` used to, over the file.
+
 - **Stage 2 is the check that the compiler is a fixed point, and it holds.**
   Stage 1 is what stage 0 produces; stage 2 is what _stage 1_ produces, and the
   two are byte-identical. Two runs of one binary agreeing proves only

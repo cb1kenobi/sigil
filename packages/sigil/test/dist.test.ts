@@ -323,12 +323,12 @@ describe('what importing the package costs', () => {
     }
   );
 
-  it('should reach exactly the nine modules the measurement names', () => {
+  it('should reach exactly the ten modules the measurement names', () => {
     // the markers say what it must not reach and this says it reaches nothing
     // else at all, which is the only form that catches a parser module arriving
     // as a chunk of its own under a name nothing here could have predicted.
-    // Nine: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
-    // `env-value`, `mkdir-owner-sync`, `atomic` and `array-index` chunks --
+    // Ten: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
+    // `env-value`, `mkdir-owner-sync`, `atomic`, `array-index` and `jsonc` chunks --
     // which is the module list the byte figure below is over, so the two
     // cannot come apart.
     // `mkdir-owner-sync` is the write half's: `save()` creates the directory it
@@ -348,8 +348,14 @@ describe('what importing the package costs', () => {
     // spelling, and `format.ts` is on the root entry's graph, so the module is
     // shared and split out. Measured at 38,280 B over eight before and 38,672
     // over nine after, the rest of the difference being the store kit's text
-    // half; the root entry went from 12,269 B over seven to 12,326 over eight
-    expect([...staticGraph('config.mjs')].sort()).toHaveLength(9);
+    // half; the root entry went from 12,269 B over seven to 12,326 over eight.
+    //
+    // The tenth is the same shape a third time, from SIG-324: a routed
+    // directory's `commands.json` is read with `parseJsonc()`, so the JSONC
+    // reader is shared with `routes.ts` and split out of this entry rather than
+    // inlined. Measured at 39,576 B over ten after; the root entry did not move,
+    // since it reaches the parser only through a dynamic import
+    expect([...staticGraph('config.mjs')].sort()).toHaveLength(10);
   });
 
   it('should cost a module rather than a component', () => {
@@ -383,9 +389,9 @@ describe('what importing the package costs', () => {
     // onto it does. The **measured** figure is here and in src/config/AGENTS.md
     // and nowhere else, for the reason the root entry's is: two comments
     // disagreeing about one measurement leave a later reader with no way to
-    // tell which was measured. The README carries a rounded "about 38 kB over
-    // eight modules" for an app author deciding whether to import it, which is
-    // a different statement and names the same eight
+    // tell which was measured. The README carries a rounded "about 39 kB over
+    // ten modules" for an app author deciding whether to import it, which is
+    // a different statement and names the same ten
     expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(48 * 1024);
   });
 
@@ -750,6 +756,21 @@ describe('what importing the package costs', () => {
     }
   );
 
+  // The runner captures the console by default (SIG-310), so it needs the ring and
+  // the patch -- which live in a module of their own so that it does not need the
+  // overlay's pane, scroll box and stats line with them. A string the pane draws,
+  // absent from the runner's graph and present in the components one, and the
+  // patch's own presence in the runner's, so the split cannot pass by a rename
+  it('should not load the debug pane to import the app runner', () => {
+    expect(carriers(staticGraph('app.mjs'), 'stats off')).toEqual([]);
+    expect(carriers(staticGraph('components.mjs'), 'stats off')).not.toEqual([]);
+  });
+
+  it('should load the console patch to import the app runner', () => {
+    // `node:util` is asked for by the capture and by nothing else on this graph
+    expect(asks(staticGraph('app.mjs'), 'node:util')).not.toEqual([]);
+  });
+
   it.each(['mouseenter', '.sigil-text-field', 'outside runApp()'])(
     'should load %s to import the app runner',
     (symbol) => {
@@ -906,6 +927,10 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/chart': [396, 201_844],
   'components/clock': [384, 196_045],
   'components/collapsible': [380, 193_603],
+  // added when SIG-309 gave every component one colour-level rule
+  'components/color-level': [16, 7_639],
+  // added when SIG-310 split the ring and the console patch out of the overlay
+  'components/console-capture': [4, 1_573],
   'components/date': [496, 253_149],
   'components/debug-overlay': [272, 140_286],
   'components/decrypt': [384, 196_337],
@@ -932,6 +957,8 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/note': [316, 162_044],
   'components/number': [480, 246_689],
   'components/outline': [384, 195_717],
+  // added when SIG-305 gave seven components one way to refuse a hook they own
+  'components/owned-hooks': [9, 4_273],
   'components/pager': [428, 219_265],
   'components/paginator': [380, 194_228],
   'components/palette': [492, 252_125],
@@ -965,7 +992,9 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   paths: [4, 1_855],
   reference: [82, 41_961],
   renderer: [328, 166_513],
-  routes: [5, 2_604],
+  // SIG-324: a `commands.json` is read with the config module's JSONC reader,
+  // which brings `__` and the debug logger with it -- 2,604 B over two before
+  routes: [22, 10_979],
   signals: [14, 6_776],
   style: [148, 75_603],
   template: [340, 174_120],

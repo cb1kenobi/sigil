@@ -143,7 +143,10 @@ Options:
 You did not write `--help`, `help`, `completion` or `--quiet`; every app gets
 them. `hello` has no description in that list because its description is inside
 its module, and listing the commands does not import every module. The built
-app shows all of the descriptions (see [Build it](#build-it)).
+app shows all of the descriptions (see [Build it](#build-it)). To show them from
+source too, or to give a command an alias, describe the commands in a
+`commands.json` in `src/commands/`; see
+[A `commands.json`](./parser.md#a-commandsjson).
 
 ## Add a command
 

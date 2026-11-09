@@ -104,23 +104,21 @@ and is the least that works.
 - **`ProcessTable`** stands in for SIG-281. Its columns are padded strings and
   its rows are a pool of text elements that it rewrites in place.
 
-The stand-ins are built with `box()` and `text()` rather than the `ui` tag for
-a reason that is a gap of its own: a template has no way to put a handler on a
-node inside it. Besides style, a template knows `class`, `focusable`, `id`,
-`key`, `selectable` and `tabindex` (`ReservedProps` in
-`packages/sigil/src/template/props.ts`), and it has no `ref`. A function in any
-other prop is a reactive getter: the template calls it while it builds and
-takes what it returns as a style value. So `onKey=${(e) => e.stop()}` throws a
-`TypeError` during the build, a function returning a string throws
-`StyleError: Unknown property "onKey"`, and one returning nothing is called and
-dropped. A handler goes on an element you already hold: the root a template
-returns, which is how `App` takes its keys (`root.onKey = ...`), or a node built
-with `box()`. `ProcessTable` needs `onResize` and `onMouse` on its body, which
-is inside it, so it is built by hand.
+`LiveChart` and `ProcessTable` are written in the `ui` tag, with their handlers as
+props: `LiveChart`'s `onResize`, and the table body's `onResize` and `onMouse`.
+`ProcessTable` holds the header and the body it needs to write to through `ref`,
+which is called once the element's props and children are built. They used to be
+built by hand with `box()`, because a template could not put a handler on a node
+inside it and had no `ref`; SIG-305 gave a host element the seven `on*` hooks
+and a callback `ref`. `Panel` is still `box()` and `text()`, because another
+ticket replaces it outright (SIG-277).
 
-The app's own keys are on `App`'s root `onKey` rather than router bindings: a
+The app's own keys are `input.fallback()`s rather than router bindings: a
 binding sees every key before a focused field does, so `q` typed into the
-filter would quit. A layer of app keys a focused field outranks is SIG-308.
+filter would quit. A fallback comes after the focused element, so a field keeps
+the letters it is typed, and it runs with nothing focused, which is how the
+monitor starts. `q` is `runApp()`'s own `quitKey`, a fallback too. Escape, which
+belongs to the filter rather than the app, is the `onKey` prop on `App`'s root.
 
 ## Not yet
 

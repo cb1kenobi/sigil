@@ -74,6 +74,14 @@
       "types": "./dist/components/collapsible.d.mts",
       "default": "./dist/components/collapsible.mjs"
     },
+    "./components/color-level": {
+      "types": "./dist/components/color-level.d.mts",
+      "default": "./dist/components/color-level.mjs"
+    },
+    "./components/console-capture": {
+      "types": "./dist/components/console-capture.d.mts",
+      "default": "./dist/components/console-capture.mjs"
+    },
     "./components/date": {
       "types": "./dist/components/date.d.mts",
       "default": "./dist/components/date.mjs"
@@ -177,6 +185,10 @@
     "./components/outline": {
       "types": "./dist/components/outline.d.mts",
       "default": "./dist/components/outline.mjs"
+    },
+    "./components/owned-hooks": {
+      "types": "./dist/components/owned-hooks.d.mts",
+      "default": "./dist/components/owned-hooks.mjs"
     },
     "./components/pager": {
       "types": "./dist/components/pager.d.mts",

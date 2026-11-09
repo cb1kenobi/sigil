@@ -1,3 +1,4 @@
+import type { ColorLevel } from '../ansi/index.js';
 import { DEFAULT_WIDTH, terminalWidth } from '../wrap/index.js';
 import {
   DISABLE_MOUSE_BUTTONS,
@@ -92,6 +93,16 @@ export interface ProcessLike {
 }
 
 export interface TerminalOptions {
+  /**
+   * The colour level this terminal has, when somebody knows it.
+   *
+   * Left out, a terminal does not claim one and whatever draws on it asks the
+   * environment, which is what it always did. Named, it is the terminal's answer
+   * to "how many colours" and `render()` and `runApp()` read it from the
+   * terminal they are given -- which is how a test terminal built at a level
+   * does not have to be told the same level a second time.
+   */
+  colorLevel?: ColorLevel;
   /** The environment to read `COLUMNS` from. Defaults to `process.env`. */
   env?: Record<string, string | undefined>;
   /** Overrides TTY detection, which is otherwise the output stream's. */
@@ -115,6 +126,15 @@ export interface LiveClaim {
 }
 
 export interface Terminal {
+  /**
+   * The colour level the terminal was built with, or `undefined` when nobody said.
+   *
+   * `undefined` is the real terminal's answer: it does not know, and the renderer
+   * detects from the environment as it always has. It is set by a terminal that
+   * is a fixture, and `render()` reads it *below* an explicit `colorLevel` and
+   * above the environment.
+   */
+  readonly colorLevel?: ColorLevel;
   /**
    * Takes the live region, evicting whoever held it.
    *
@@ -525,6 +545,8 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
   }
 
   return {
+    colorLevel: opts.colorLevel,
+
     claimLive(onEvict?: () => void, above?: (text: string) => void): LiveClaim {
       const previous = claim;
       previous?.evict();

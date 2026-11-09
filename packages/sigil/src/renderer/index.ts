@@ -63,7 +63,7 @@ import {
 } from '../input/capabilities.js';
 import type { InputRouter } from '../input/index.js';
 import { measureNode } from '../layout/index.js';
-import { createEffects, type Effects } from '../signals/index.js';
+import { createEffects, type Effects, untrack } from '../signals/index.js';
 import {
   type AnimationFrame,
   Animator,
@@ -207,7 +207,9 @@ export interface RenderOptions {
   /** The stylesheets. Defaults to none, which is props and inheritance. */
   cascade?: Cascade;
   /**
-   * How much colour to resolve for. Defaults to what the terminal reports.
+   * How much colour to resolve for. Defaults to the terminal's `colorLevel` where
+   * it names one -- a test terminal does -- and to what the environment says
+   * otherwise.
    *
    * The same number `@media (color-level: N)` reads and the depth the cascade
    * degrades to, because one scale is what keeps an author's override and the
@@ -613,7 +615,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 
   const readMedia = (): void => {
     cascade.media = {
-      colorLevel: refined.colorLevel ?? opts.colorLevel ?? supportsColor(),
+      colorLevel: refined.colorLevel ?? opts.colorLevel ?? terminal.colorLevel ?? supportsColor(),
       // and the scheme reads the other way round from the level, which is not an
       // inconsistency: `opts.colorLevel` is what `mountLive()` fills with the
       // environment's own guess, so a reply has to be able to beat it, while
@@ -1219,7 +1221,13 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     last = clock();
     settling = true;
     try {
-      settle();
+      // untracked, whole: `frame()` is called from wherever the caller is, and
+      // a component's `start()` or `text = ...` called from an effect is inside
+      // that effect's body. Nothing a frame reads -- a frame handler, the
+      // scope's own flush, a measure, an `onMount` callback -- is something the
+      // caller asked to depend on, and every one of them would otherwise have
+      // left it subscribed (SIG-321)
+      untrack(settle);
     } catch (error) {
       fail(error);
     } finally {

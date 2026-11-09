@@ -26,7 +26,13 @@
  * under "Tabs".
  */
 
-import { box, type Element, type ElementProps, text as textNode } from '../element/index.js';
+import {
+  box,
+  type Element,
+  type ElementProps,
+  type ElementPropsWithout,
+  text as textNode,
+} from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { DescribeOptions } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
@@ -34,6 +40,7 @@ import { State } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
 import { labelLine, unicodeSupported } from './note.js';
+import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** One tab: its label, and the panel it shows. */
 export interface Tab {
@@ -75,7 +82,7 @@ export interface TabRowProps {
   /** The labels, in order. At least one. */
   labels: readonly string[];
   /** The row's own props. */
-  props?: ElementProps;
+  props?: ElementPropsWithout<'onFocusChange' | 'onKey' | 'onResize'>;
 }
 
 /** Where a row's keys are described, which is the whole of what is asked of a router. */
@@ -123,6 +130,7 @@ function setChildren(host: Element, next: readonly Element[]): void {
  * @returns The row, which is the focusable element and carries the keys.
  */
 export function tabRowView(props: TabRowProps): Element {
+  refuseOwnedHooks('tabRowView', props.props, ['onKey', 'onFocusChange', 'onResize']);
   if (!Array.isArray(props.labels) || props.labels.length === 0) {
     throw new TypeError(__`Expected tab labels to be a non-empty array of strings`);
   }

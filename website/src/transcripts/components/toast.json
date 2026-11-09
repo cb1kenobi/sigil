@@ -39,7 +39,7 @@
         "description": "The toast's own props: a margin, a class. Geometry only, never a colour.",
         "name": "props",
         "optional": true,
-        "type": "ElementProps"
+        "type": "ElementPropsWithout<\"onMouse\">"
       },
       {
         "description": "Whether this toast is progress rather than the answer -- `MountOptions.quiet`.",

@@ -3,8 +3,7 @@ import { SystemContext } from '../src/system.js';
 import { runApp } from '@ttylabs/sigil/app';
 import { ESCAPE_TIMEOUT } from '@ttylabs/sigil/input';
 import { provideContext } from '@ttylabs/sigil/renderer';
-import { flush } from '@ttylabs/sigil/signals';
-import { createTestTerminal, ctrl, KEYS } from '@ttylabs/sigil/testing';
+import { createTestTerminal, ctrl, frame, KEYS } from '@ttylabs/sigil/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -28,6 +27,7 @@ const mounted = [];
 function mount({
   colorLevel = 0,
   columns = 100,
+  mouse = false,
   cores = [0.25, 0.75],
   memory = { total: 16 * 1024 ** 3, used: 8 * 1024 ** 3 },
   pid = 99999,
@@ -88,19 +88,17 @@ function mount({
     }),
   };
   const app = runApp(() => provideContext(SystemContext, system, App), {
-    colorLevel,
     detect: false,
+    mouse,
     sheets: [stylesheet],
     terminal: term.terminal,
   });
 
+  // four, because a sampler that resolves, a state write and the frame it asks
+  // for are each a turn of their own
   const settle = async () => {
     for (let i = 0; i < 4; i++) {
-      await new Promise((resolve) => setImmediate(resolve));
-      flush();
-      if (app.running) {
-        app.view.frame();
-      }
+      await frame(app);
     }
   };
   const press = async (...keys) => {
@@ -347,6 +345,25 @@ describe('the system monitor', () => {
     expect(app.term.screen.lastInverse?.row).toBe(rowOf('proc-2'));
   });
 
+  it("should select the row that is clicked, through the table body's onMouse prop", async () => {
+    // the handler is a prop on a node inside a template, which is what a
+    // template could not do before SIG-305 -- so this is the one test that
+    // fails if the prop is dropped, where a key would not
+    const app = mount({
+      colorLevel: 1,
+      mouse: true,
+      processes: [proc(1, 5, 1), proc(2, 90, 2), proc(3, 40, 3)],
+    });
+    await app.step();
+    const row = app.term.viewport.findIndex((line) => line.includes('proc-3'));
+    const column = (app.term.viewport[row] ?? '').indexOf('proc-3') + 1;
+    expect(app.term.screen.lastInverse?.row).not.toBe(row);
+
+    // SGR mouse: press then release at the same cell is a click
+    await app.press(`\x1b[<0;${column};${row + 1}M`, `\x1b[<0;${column};${row + 1}m`);
+    expect(app.term.screen.lastInverse?.row).toBe(row);
+  });
+
   it('should cycle the sort column with s', async () => {
     const app = mount({ processes: [proc(1, 5, 9), proc(2, 90, 2), proc(3, 40, 3)] });
     await app.step();
@@ -387,6 +404,29 @@ describe('the system monitor', () => {
     expect(app.screen()).toContain('processes · 1 of 1');
     await app.press('q');
     expect(await app.app.exited).toBe(0);
+  });
+
+  it('should take its keys with nothing focused, and leave them to the filter when it is focused', async () => {
+    // SIG-308: the app's keys are fallbacks, under the focused element. Nothing is
+    // focused at the start, which used to mean no key reached them
+    const app = mount({ processes: [proc(1, 5, 1), proc(2, 90, 2)] });
+    await app.step();
+    expect(app.app.input.focus.current.get()).toBeUndefined();
+
+    await app.press('s');
+    expect(app.screen()).toContain('sorted by mem');
+
+    // typed into the filter, an `s` is a letter and `t` is not the theme
+    await app.press('/', 's', 't');
+    expect(app.screen()).toMatch(/filter st/);
+    expect(app.screen()).toContain('sorted by mem');
+    expect(app.screen()).not.toContain('theme: mono');
+
+    // and the filter handing the focus back leaves nothing focused, with the keys working
+    await app.press(KEYS.enter);
+    expect(app.app.input.focus.current.get()).toBeUndefined();
+    await app.press('t');
+    expect(app.screen()).toContain('theme: mono');
   });
 
   it('should exit 0 on q and give the terminal back', async () => {

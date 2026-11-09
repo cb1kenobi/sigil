@@ -1,7 +1,14 @@
 import { type Ran, run, STACK } from './spawned.ts';
-import { runApp } from '@ttylabs/sigil/app';
+import { type App, runApp } from '@ttylabs/sigil/app';
 import type { Element } from '@ttylabs/sigil/element';
-import { createTestTerminal, ctrl, KEYS, type TestTerminal } from '@ttylabs/sigil/testing';
+import {
+  createTestTerminal,
+  ctrl,
+  frame,
+  KEYS,
+  runOnTerminal,
+  type TestTerminal,
+} from '@ttylabs/sigil/testing';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -23,6 +30,13 @@ import { describe, expect, it } from 'vitest';
  * an example is written in more than one syntax, every one of them has to draw
  * the same first screen -- which is the claim the two syntaxes rest on, one IR
  * behind both, checked on a real app rather than asserted in prose.
+ *
+ * **Spawned, with a terminal on stdin and stdout**, each runnable entry is run
+ * as a whole process: its own schema and `main()`, the capability queries going
+ * out unanswered. `waitFor()` is the first frame, a key goes in where the example
+ * has one that changes the screen -- the app's own frame clock, waited on rather
+ * than forced, which the in-process half cannot show since `frame()` forces it --
+ * and `q` has to quit with `0`, nothing on stderr, and the screen given back.
  *
  * **Spawned, piped**, each runnable entry has to be refused the way `runApp()`
  * refuses: exit `1`, nothing on stdout, the one line on stderr, and no stack
@@ -101,6 +115,29 @@ function examples(): Example[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * The `compilerOptions` an example's `tsconfig.json` ends up with, following a
+ * relative `extends` chain, nearest file winning. `undefined` when the example
+ * has no `tsconfig.json` at all. Plain `JSON.parse()`, since every tsconfig in
+ * this repository is plain JSON and `@ttylabs/sigil` does not export its JSONC
+ * reader; a base that is not is a failure to read it, which is loud.
+ */
+function tsconfigOptions(dir: string): Record<string, unknown> | undefined {
+  const read = (file: string): Record<string, unknown> => {
+    const config = JSON.parse(readFileSync(file, 'utf-8')) as {
+      compilerOptions?: Record<string, unknown>;
+      extends?: string;
+    };
+    const base =
+      typeof config.extends === 'string' && config.extends.startsWith('.')
+        ? read(resolve(dirname(file), config.extends))
+        : {};
+    return { ...base, ...config.compilerOptions };
+  };
+  const file = join(dir, 'tsconfig.json');
+  return existsSync(file) ? read(file) : undefined;
+}
+
 /** What a root module exports. */
 interface RootModule {
   App: () => Element;
@@ -115,22 +152,6 @@ interface RootModule {
  */
 const REFUSAL = /^Error: Cannot run an app because stdin or the output is not a terminal\b.*\r?\n$/;
 
-/**
- * Waits for `test` to hold, or fails saying what was being waited for.
- *
- * Polling, because a frame is drawn on the renderer's clock rather than per
- * key, and nothing yet says when the next one has landed -- which is SIG-309.
- */
-async function until(test: () => boolean, what: string, ms = 2000): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!test()) {
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for ${what}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
-
 /** Settles with what `promise` settles with, or rejects after `ms`. */
 function within<T>(promise: Promise<T>, what: string, ms = 2000): Promise<T> {
   return Promise.race([
@@ -142,70 +163,14 @@ function within<T>(promise: Promise<T>, what: string, ms = 2000): Promise<T> {
 }
 
 /**
- * The renderer's frame period: thirty a second, `FRAME_MS` in
- * `packages/sigil/src/renderer/index.ts`, which does not export it.
+ * The key that changes the screen, for the examples that have one the harness
+ * knows. The contract has no way to say which key does what, so this is a table
+ * of the examples whose keys are documented in their own README rather than
+ * something inferred: `hello`'s first row has the focus and Enter counts it.
  */
-const FRAME_MS = 1000 / 30;
-
-/**
- * How long the screen has to stay as it is before it counts as settled: two
- * frame periods. A change schedules its frame at most one period out, so a
- * screen that has gone two without moving has no frame pending, and the second
- * period is the margin for a timer that fired late.
- */
-const QUIET_MS = 2 * FRAME_MS;
-
-/**
- * The screen once the frame loop has gone quiet, so that two runs compare like
- * for like. A wait SIG-309 would make a call.
- *
- * Measured by the clock rather than by counting polls, because a count says
- * nothing about time: three matching reads 10ms apart return inside one frame
- * period, which is a snapshot on whichever side of the next frame it fell.
- *
- * And measured only while the loop is running, because node fires due timers in
- * the order they were *due*, and this poll was armed before a frame that a
- * change already scheduled. After a stall longer than the window the poll runs
- * first, reads a clock that says the window is over, and would return the screen
- * from before a frame that is already due. So two things hold the window shut:
- * a poll that arrives more than a frame period after the one before it restarts
- * the window rather than counting the stall as quiet, and a window that looks
- * finished yields past the timers phase before it is believed, so every timer
- * already due -- a frame among them -- has run and the screen is read again.
- * What can still be pending after that is a frame dirtied inside the last
- * period, which is a change that started after the screen settled rather than
- * one the wait missed.
- */
-async function settled(term: Pick<TestTerminal, 'viewport'>): Promise<string[]> {
-  const deadline = Date.now() + 3000;
-  let last = term.viewport.join('\n');
-  let since = Date.now();
-  let polled = since;
-
-  for (;;) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    const at = Date.now();
-    const stalled = at - polled > FRAME_MS;
-    polled = at;
-
-    let now = term.viewport.join('\n');
-    if (!stalled && now === last && at - since >= QUIET_MS) {
-      // setImmediate runs in the check phase, after every timer that was due
-      await new Promise((resolve) => setImmediate(resolve));
-      now = term.viewport.join('\n');
-      if (now === last) {
-        return term.viewport;
-      }
-    }
-    if (stalled || now !== last) {
-      last = now;
-      since = Date.now();
-    }
-    if (Date.now() > deadline) {
-      throw new Error('timed out waiting for the screen to stop changing');
-    }
-  }
-}
+const KEYED: Record<string, { keys: string[]; shows: string } | undefined> = {
+  hello: { keys: [KEYS.enter], shows: '1 press' },
+};
 
 const COLUMNS = 60;
 const ROWS = 16;
@@ -218,23 +183,26 @@ const ROWS = 16;
  * capability query, and an app's first frame does not wait for one anyway.
  *
  * @param file - The root module.
- * @returns The first settled screen, and the terminal for whatever comes next.
+ * @returns The first screen, and the app and terminal for whatever comes next.
  */
 async function mount(
   file: string
-): Promise<{ done: Promise<number>; screen: string[]; term: TestTerminal }> {
+): Promise<{ app: App; done: Promise<number>; screen: string[]; term: TestTerminal }> {
   const rootModule = (await import(pathToFileURL(file).href)) as RootModule;
 
   const term = createTestTerminal({ columns: COLUMNS, rows: ROWS });
-  const done = runApp(rootModule.App, {
+  const app = runApp(rootModule.App, {
     detect: false,
     sheets: [rootModule.stylesheet],
     terminal: term.terminal,
-  }).exited;
+  });
 
-  await until(() => term.screen.alternate, 'the app to take the whole screen');
-  const screen = await settled(term);
-  return { done, screen, term };
+  // the first frame, painted now rather than waited for: the app has taken the
+  // whole screen and drawn once it has, and a root that takes the focus in
+  // `onMount` has it
+  await frame(app);
+  expect(term.screen.alternate, 'the app took the whole screen').toBe(true);
+  return { app, done: app.exited, screen: term.viewport, term };
 }
 
 /**
@@ -255,64 +223,6 @@ function refused({ code, stderr, stdout }: Ran): void {
 }
 
 const found = examples();
-
-describe('settled()', () => {
-  /** A screen that is whatever the test last set it to. */
-  function screen(initial: string): { set: (next: string) => void; term: { viewport: string[] } } {
-    let current = [initial];
-    return {
-      set: (next) => void (current = [next]),
-      term: {
-        get viewport() {
-          return current;
-        },
-      },
-    };
-  }
-
-  it('should wait two frame periods after the last change, whenever it lands', async () => {
-    // the second change is inside the window the first one opened, so it has
-    // to restart it. Literals rather than QUIET_MS: two frames at 30fps are
-    // 66ms, and a floor read off the constant shrinks along with it
-    const fake = screen('first');
-    setTimeout(() => fake.set('second'), 45);
-    setTimeout(() => fake.set('third'), 95);
-
-    const started = Date.now();
-    expect(await settled(fake.term)).toStrictEqual(['third']);
-    expect(Date.now() - started).toBeGreaterThanOrEqual(95 + 60);
-  });
-
-  it('should not count a stalled loop as quiet', async () => {
-    // the change is armed first and falls due second: the wait's first poll is
-    // due at 10ms, the change at 45ms, and the loop is then held past the
-    // window, so the poll runs first with the change already due
-    const fake = screen('first');
-    setTimeout(() => fake.set('second'), 45);
-    const waiting = settled(fake.term);
-
-    const stall = Date.now() + 100;
-    while (Date.now() < stall) {
-      // a busy worker: GC, or a CPU somebody else has
-    }
-    expect(await waiting).toStrictEqual(['second']);
-  });
-
-  it('should restart the window after a stall, for a frame the stall delayed arming', async () => {
-    // a state change at 45ms that only arms its frame when it runs, which is
-    // after the stall: yielding past the due timers runs the change and finds
-    // the frame still a period away, so only restarting the window sees it
-    const fake = screen('first');
-    setTimeout(() => setTimeout(() => fake.set('second'), FRAME_MS), 45);
-    const waiting = settled(fake.term);
-
-    const stall = Date.now() + 100;
-    while (Date.now() < stall) {
-      // a busy worker: GC, or a CPU somebody else has
-    }
-    expect(await waiting).toStrictEqual(['second']);
-  });
-});
 
 describe('the examples', () => {
   it('should have been found', () => {
@@ -349,6 +259,24 @@ describe('the examples', () => {
           'a built bin or an unbuilt src/ui entry'
         ).toBe(true);
       });
+
+      it.skipIf(!example.roots.some((file) => file.endsWith('.tsx')))(
+        'should name sigil as its JSX import source, because the build will not check',
+        () => {
+          // `sigil build` overrides `jsxImportSource` on purpose, so a wrong line
+          // builds; the build's own `tsc` (TS2875) stops some wrong sources, but not
+          // one that resolves with an untyped JSX runtime, so this read is the check. The in-process mount does honour the tsconfig, but vitest caches
+          // a transform by the module's content and not by the tsconfig, so a warm
+          // cache hides an edit to the line (SIG-312). Read from the file, so
+          // nothing cached can answer for it
+          const options = tsconfigOptions(example.dir);
+          expect(options, 'a JSX example has a tsconfig.json').toBeDefined();
+          expect(options?.jsxImportSource, 'compilerOptions.jsxImportSource').toBe(
+            '@ttylabs/sigil'
+          );
+          expect(['react-jsx', 'react-jsxdev'], 'compilerOptions.jsx').toContain(options?.jsx);
+        }
+      );
 
       for (const file of example.roots) {
         it(`should export App, taking no props, and its stylesheet: ${basename(file)}`, async () => {
@@ -445,6 +373,49 @@ describe('the examples', () => {
       }
 
       for (const { file, label } of entries) {
+        it.concurrent(`should draw, take a key and quit on q over a terminal stdin: ${label}`, async () => {
+          // the whole process, which the in-process half cannot be: the entry's
+          // own schema and `main()`, the real capability queries going out
+          // unanswered, and a stdin that claims to be a terminal with `q` written
+          // to it. `waitFor()` is what the first frame costs, and it is a read of
+          // the child's screen rather than a timer -- a `q` written before the
+          // first frame is a key no row has seen
+          if (file === built) {
+            expect(existsSync(file), missing(example, label)).toBe(true);
+          }
+          const running = runOnTerminal({
+            columns: COLUMNS,
+            cwd: dirname(file),
+            rows: ROWS,
+            run: file,
+            stdin: true,
+          });
+
+          try {
+            await running.waitFor(/\S/);
+            // a key that changes the screen, waited on rather than forced: this
+            // is the app's own frame clock, the one thing `frame()` skips
+            const keyed = KEYED[example.name];
+            if (keyed !== undefined) {
+              await running.press(...keyed.keys);
+              await running.waitFor(keyed.shows);
+            }
+            await running.press('q');
+            const ran = await running;
+
+            expect(`${ran.out}${ran.err}`, 'a stack reached the output').not.toMatch(STACK);
+            expect(ran.err, 'nothing on stderr').toBe('');
+            expect(ran.code, 'q quits with 0').toBe(0);
+            expect(running.screen.alternate, 'the alternate screen was left').toBe(false);
+            expect(running.screen.cursorHidden, 'the cursor was shown again').toBe(false);
+          } finally {
+            // a wait or an assertion that failed above leaves the child running
+            // until the run's own timeout, 30 seconds of a process nobody is
+            // reading. Safe after it has exited
+            running.kill();
+          }
+        }, 45_000);
+
         it.concurrent(`should print the package version for --version: ${label}`, async () => {
           // `sigil build` bakes the manifest's version into the bin, and the
           // unbuilt entry has no build to do that for it, so it reads the

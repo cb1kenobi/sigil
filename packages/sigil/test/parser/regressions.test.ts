@@ -2240,34 +2240,33 @@ describe('regressions', () => {
       expect(helpLabels(contexts)).to.deep.equal(['migrate', 'seed, go']);
     });
 
-    it('should leave it out of two walked routes, by what the registry says once each loads', async () => {
-      // each module publishes `go` in its own name string, so nothing knows
-      // about it until that module loads, and `ship.js` is the later route
+    it("should never publish a walked module's own name string, whichever loads first", async () => {
+      // each module declares `go` in its own name string. Nothing routes by it
+      // -- a walked module is read only once argv has matched its file name --
+      // so no screen may print it, though once both have loaded the registry
+      // does settle the spelling by declaration order, `ship.js` being later
       const schema = { ...bare, commands: fixtures };
 
-      // `build` loaded alone owns `go`, and says so
       let { contexts } = await parse({ argv: ['build'], schema });
       let root = contexts.at(-1)!;
       expect(root[Internal].commands.find('go')?.name).to.equal('build');
-      expect(helpLabels([root])).to.deep.equal(['build, go', 'ship']);
+      expect(helpLabels([root])).to.deep.equal(['build', 'ship']);
 
-      // ...until `ship` loads in the same tree and takes it, being later
       const ship = root[Internal].commands.find('ship')!;
       root[Internal].commands.replace(ship, await loadCommand(ship, root));
       expect(root[Internal].commands.find('go')?.name).to.equal('ship');
-      expect(helpLabels([root])).to.deep.equal(['build', 'ship, go']);
-      expect(await menuLabels([root])).to.deep.equal(['build', 'ship, go']);
+      expect(helpLabels([root])).to.deep.equal(['build', 'ship']);
+      expect(await menuLabels([root])).to.deep.equal(['build', 'ship']);
 
-      // and loaded the other way round, `build` never takes it back
       ({ contexts } = await parse({ argv: ['ship'], schema }));
       root = contexts.at(-1)!;
       const build = root[Internal].commands.find('build')!;
       root[Internal].commands.replace(build, await loadCommand(build, root));
       expect(root[Internal].commands.find('go')?.name).to.equal('ship');
-      expect(helpLabels([root])).to.deep.equal(['build', 'ship, go']);
+      expect(helpLabels([root])).to.deep.equal(['build', 'ship']);
     });
 
-    it("should follow a lazily loaded module's own name string once it loads", async () => {
+    it("should not publish a lazily loaded module's own name string once it loads", async () => {
       const load = (): Promise<unknown> => Promise.resolve({ default: { name: 'ship, go', run } });
       const schema = { ...bare, commands: { 'build, go': { run }, ship: { load } } };
 
@@ -2275,12 +2274,16 @@ describe('regressions', () => {
       const before = await parse({ schema });
       expect(helpLabels(before.contexts)).to.deep.equal(['build, go', 'ship']);
 
-      // and once it has, `ship` is the later declaration and owns it
+      // and once it has, the registry gives `go` to `ship`, the later
+      // declaration, in this process -- but `ship` never published it, because
+      // a fresh process reaches `ship` by its key and `go` runs `build` there.
+      // `build` stops listing what this process no longer routes to it, so the
+      // spelling is on no row: an omission, where it used to be a false claim
       const after = await parse({ argv: ['ship'], schema });
       const root = after.contexts.at(-1)!;
       expect(root[Internal].commands.find('go')?.name).to.equal('ship');
-      expect(helpLabels([root])).to.deep.equal(['build', 'ship, go']);
-      expect(await menuLabels([root])).to.deep.equal(['build', 'ship, go']);
+      expect(helpLabels([root])).to.deep.equal(['build', 'ship']);
+      expect(await menuLabels([root])).to.deep.equal(['build', 'ship']);
     });
 
     it('should leave it off a lazily loaded module that lost it to a later sibling', async () => {
@@ -2509,6 +2512,75 @@ describe('regressions', () => {
         expect([...registry.keys()].slice(0, 3)).to.deep.equal(['first', 'db', 'other']);
         expect(registry.find('x')?.name).to.equal('other');
       });
+    });
+  });
+
+  describe("help showed a routed module's name alias, but the alias did not run", () => {
+    // a module is read only once argv has matched the name the *registry* knows
+    // it by, so `name: 'list, ls'` inside `list.js` cannot route `ls`: nothing
+    // reads it until the command was already reached as `list`. Help read the
+    // loaded module and printed `Alias: ls` beside a command `ls` refuses
+    const dir = path.join(__dirname, 'fixtures/module-name-string');
+    const bare = { completion: false, name: 'mycli', quiet: false } as const;
+
+    /** The help screen for the command argv named, with its module loaded. */
+    const screen = async (schema: Schema, argv: string[]): Promise<string> => {
+      const { contexts } = await parse({ argv, schema: { ...bare, ...schema } });
+      return renderHelp({ contexts }, { width: 80 });
+    };
+
+    /** Every way a module gets reached: a walk, a path, a loader, an `index`. */
+    const arrivals: [string, Schema, string[], string][] = [
+      ['a walked route', { commands: dir }, ['list'], 'ls'],
+      ['a route one level down', { commands: dir }, ['db', 'migrate'], 'mig'],
+      ["a directory command's index", { commands: dir }, ['db'], 'database'],
+      ['a declared path', { commands: { list: path.join(dir, 'list.js') } }, ['list'], 'ls'],
+      [
+        'a loader',
+        { commands: { list: { load: () => import('./fixtures/module-name-string/list.js') } } },
+        ['list'],
+        'ls',
+      ],
+    ];
+
+    for (const [how, schema, argv, alias] of arrivals) {
+      it(`should leave out an alias ${how} brings in its own name string`, async () => {
+        expect(await screen(schema, argv)).not.toContain('Alias');
+        expect(await screen(schema, argv)).not.toMatch(new RegExp(`\\b${alias}\\b`));
+      });
+
+      it(`should not route the alias ${how} brings, which is why help leaves it out`, async () => {
+        const rest = argv.slice(0, -1);
+        await expect(parse({ argv: [...rest, alias], schema })).rejects.toThrow(
+          /Unexpected argument|Unknown command/
+        );
+      });
+    }
+
+    it("should leave it out of the parent's Commands list once the module has loaded", async () => {
+      // the registry holds the loaded command after a load, and `help list`
+      // loads it -- so this is the row a loaded module could have rewritten
+      const { contexts } = await parse({ argv: ['list'], schema: { ...bare, commands: dir } });
+      const root = contexts.at(-1)!;
+      expect(renderHelp({ contexts: [root] }, { width: 80 })).not.toMatch(/list, ls|\bls\b/);
+    });
+
+    it("should keep the placeholder's own alias, which is what routes", async () => {
+      // `list.js` still says `list, ls`, and the schema key says it too: the
+      // placeholder's name string is the one argv is matched against
+      const schema = { commands: { 'list, ls': path.join(dir, 'list.js') } };
+      expect(await screen(schema, ['list'])).toContain('Alias: ls');
+      expect((await parse({ argv: ['ls'], schema })).cmd?.name).to.equal('list');
+    });
+
+    it("should keep a placeholder's alias when its module renames the command", async () => {
+      // the module's name string used to replace the placeholder's label
+      // outright, taking the alias that routes with it
+      const load = (): Promise<unknown> =>
+        Promise.resolve({ default: { name: 'show', run: () => {} } });
+      const schema = { commands: { 'list, ls': { load } } };
+      expect(await screen(schema, ['ls'])).toContain('Aliases: list, ls');
+      expect((await parse({ argv: ['ls'], schema })).cmd?.name).to.equal('show');
     });
   });
 });
