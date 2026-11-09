@@ -834,22 +834,24 @@ ${
   built
     ? `It is written in JSX, which Node cannot run, so the \`dev\` script builds first
 (\`sigil build\`, which type-checks) and then runs the bundle. The Sigil UI template
-(the \`ui\` tag) is the alternative that needs no build, and this writes the same app in it:
+(the \`ui\` tag) is the alternative that needs no build, and this writes the same app
+in it:
 
 \`\`\`sh
 ${otherSyntaxCommand({ language, layout, linter: opts.linter, manager: opts.manager, name, syntax, tui })}
 \`\`\``
-    : `It is written in the Sigil UI template (the \`ui\` tag), which Node runs as it is, so there is nothing
-to build between an edit and the \`dev\` script. JSX is the alternative, whose props
-an editor checks and which is built to run, and this writes the same app in it:
+    : `It is written in the Sigil UI template (the \`ui\` tag), which Node runs as it is,
+so there is nothing to build between an edit and the \`dev\` script. JSX is the
+alternative, whose props an editor checks and which is built to run, and this
+writes the same app in it:
 
 \`\`\`sh
 ${otherSyntaxCommand({ language, layout, linter: opts.linter, manager: opts.manager, name, syntax, tui })}
 \`\`\``
 }
 
-\`<name>\` is a new directory, so give it a name of its own and run it from the folder that
-holds this app, not from inside it.
+\`<name>\` is a new directory, so give it a name of its own and run it from the
+folder that holds this app, not from inside it.
 
 \`test/tui.test.${e}\` runs it over a fake terminal, presses keys, and reads the
 screen back as text. It is the test to copy for the next screen.

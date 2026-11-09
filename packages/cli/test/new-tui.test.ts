@@ -9,7 +9,7 @@ import {
   type Tui,
 } from '../src/scaffold/index.ts';
 import { tempDir } from './temp.ts';
-import { TTY_PRELOAD, typeKeys } from './tty-child.ts';
+import { ttyPreload, typeKeys } from './tty-child.ts';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -374,9 +374,10 @@ describe('a scaffold with a full-screen app', () => {
         file(files({ manager: 'npm', tui: { at: 'command', command: 'ops' } }), 'README.md')
       ).toContain('npm run dev -- ops   # opens');
 
-      expect(file(files({ syntax: 'ui', tui: { at: 'root' } }), 'README.md')).toContain(
-        'there is nothing\nto build'
-      );
+      // wrapped where the README wraps, which is not what is being asserted
+      expect(
+        file(files({ syntax: 'ui', tui: { at: 'root' } }), 'README.md').replace(/\s+/g, ' ')
+      ).toContain('there is nothing to build');
     });
 
     it.each(['pnpm', 'npm', 'vlt'] as const)(
@@ -579,6 +580,22 @@ describe('the flags', () => {
       expect(run(dir, 'demo', '--yes', ...flag, '--syntax', 'ui').status).toBe(0);
       expect(existsSync(join(dir, 'demo', 'src', 'ui', 'app.ts'))).toBe(true);
     }
+  });
+
+  it.each([
+    ['a file', '', 'is a file, so a project cannot be created there'],
+    ['somewhere under a file', 'below', 'is a file, so a project cannot be created in'],
+  ])('should refuse a --cwd that is %s, before the first question', (_what, below, because) => {
+    // it passed every check and failed at the first mkdir with the system's
+    // `ENOTDIR: not a directory`, after every question had been answered
+    const dir = tempDir('sigil-new-tui-');
+    writeFileSync(join(dir, 'afile'), 'not a directory');
+    const ran = run(dir, 'demo', '--yes', '--cwd', below ? join('afile', below) : 'afile');
+
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toContain(because);
+    expect(ran.stderr).not.toContain('ENOTDIR');
+    expect(existsSync(join(dir, 'demo'))).toBe(false);
   });
 
   it('should list the four flags in its own help', () => {
@@ -867,18 +884,43 @@ function askName(
   return askWith(dir, keys, argv);
 }
 
+/**
+ * `askName()` on a terminal of a width the test chooses.
+ *
+ * For a message that carries a path: it wraps at the terminal's width, so on a
+ * Windows runner, whose temp directory is long, the phrase a test looks for is
+ * split across two lines with padding between the halves. The words are what is
+ * under test and not where they wrap, so those tests ask for a terminal too wide
+ * to wrap them.
+ *
+ * @param columns - The width the child believes it has.
+ * @param dir - Where to run it.
+ * @param keys - One entry per keystroke, starting with the answer to the name.
+ * @param argv - The flags that answer the questions this is not about.
+ * @returns What it printed and how it exited.
+ */
+function askNameAt(
+  columns: number,
+  dir: string,
+  keys: readonly string[],
+  ...argv: string[]
+): Promise<{ code: number | null; out: string }> {
+  return askWith(dir, keys, argv, columns);
+}
+
 /** Runs `sigil new` on a faked terminal with these arguments and types these keys. */
 function askWith(
   dir: string,
   keys: readonly string[],
-  args: readonly string[]
+  args: readonly string[],
+  columns = 80
 ): Promise<{ code: number | null; out: string }> {
   return new Promise((settle, fail) => {
     const child = spawn(
       process.execPath,
       [
         '--import',
-        TTY_PRELOAD,
+        ttyPreload(columns),
         cli,
         'new',
         ...args,
@@ -971,7 +1013,7 @@ describe('the questions', () => {
       ENTER,
     ]);
 
-    expect(ran.out).toContain('A command name is required.');
+    expect(ran.out).toContain('A command name is required');
     expect(ran.code, ran.out).toBe(0);
     expect(existsSync(join(dir, 'demo', 'src', 'commands', 'ops.ts'))).toBe(true);
   });
@@ -1046,7 +1088,7 @@ describe('the questions', () => {
     const dir = tempDir('sigil-new-tui-');
     const ran = await askName(dir, [ENTER, 'demo', ENTER, ENTER, ENTER], '--no-tui');
 
-    expect(ran.out).toContain('A name is required.');
+    expect(ran.out).toContain('A name is required');
     // and no suggestion of what to type
     expect(ran.out).not.toContain('my-cli');
     expect(ran.code, ran.out).toBe(0);
@@ -1061,7 +1103,7 @@ describe('the questions', () => {
       '--no-tui'
     );
 
-    expect(ran.out).toContain('A name is required.');
+    expect(ran.out).toContain('A name is required');
     expect(ran.code, ran.out).toBe(0);
     expect(existsSync(join(dir, 'demo', 'package.json'))).toBe(true);
   });
@@ -1087,13 +1129,26 @@ describe('the questions', () => {
     }
   );
 
+  // A message with a path in it wraps at the terminal's width, and where the path
+  // is most of a line the phrase is cut through its middle: on a Windows runner,
+  // whose temp directory is about 56 columns, it came out as "already exists  and
+  // is not empty" or "already  exists and...", split by the padding of a wrapped
+  // line. Measured at 80 columns by sweeping the length of the path: it is split at
+  // every length from 50 to 68 and whole at 72, where the path takes a line to
+  // itself, so whether a test passes depends on how long the machine's temp
+  // directory happens to be. A real user sees the wrap read correctly. The words
+  // are what these assert and not where they wrap, so they use a terminal too wide
+  // to wrap them
+  const WIDE = 400;
+
   it('should refuse a name whose directory is taken, at the prompt', async () => {
-    // knowable before the other questions, and refusing it after the last of them
-    // is refusing somebody who has answered everything for nothing
+    // knowable the moment the name is, so it can be corrected in the same field
+    // and not by starting the run again
     const dir = tempDir('sigil-new-tui-');
     mkdirSync(join(dir, 'demo'));
     writeFileSync(join(dir, 'demo', 'keep.txt'), 'mine');
-    const ran = await askName(
+    const ran = await askNameAt(
+      WIDE,
       dir,
       ['demo', ENTER, ...Array.from({ length: 4 }, () => BACKSPACE), 'other', ENTER, ENTER, ENTER],
       '--no-tui'
@@ -1105,20 +1160,35 @@ describe('the questions', () => {
     expect(readFileSync(join(dir, 'demo', 'keep.txt'), 'utf-8')).toBe('mine');
   });
 
+  it('should accept a name whose directory exists and is empty', async () => {
+    // `git init` and then `sigil new` is an ordinary order, and the same rule the
+    // argument has: only something in the way is in the way
+    const dir = tempDir('sigil-new-tui-');
+    mkdirSync(join(dir, 'demo'));
+    const ran = await askNameAt(WIDE, dir, ['demo', ENTER, ENTER, ENTER], '--no-tui');
+
+    expect(ran.out).not.toContain('already exists');
+    expect(ran.code, ran.out).toBe(0);
+    expect(existsSync(join(dir, 'demo', 'package.json'))).toBe(true);
+  });
+
   it('should check the name against --cwd, where the project would be made', async () => {
     const dir = tempDir('sigil-new-tui-');
-    mkdirSync(join(dir, 'apps', 'demo'), { recursive: true });
-    writeFileSync(join(dir, 'apps', 'demo', 'keep.txt'), 'mine');
-    const ran = await askName(
+    const apps = join(dir, 'apps');
+    mkdirSync(join(apps, 'demo'), { recursive: true });
+    writeFileSync(join(apps, 'demo', 'keep.txt'), 'mine');
+    const ran = await askNameAt(
+      WIDE,
       dir,
       ['demo', ENTER, ...Array.from({ length: 4 }, () => BACKSPACE), 'other', ENTER, ENTER, ENTER],
       '--no-tui',
       '--cwd',
-      'apps'
+      apps
     );
 
     expect(ran.out).toContain('already exists and is not empty');
-    expect(existsSync(join(dir, 'apps', 'other', 'package.json'))).toBe(true);
+    expect(ran.code, ran.out).toBe(0);
+    expect(existsSync(join(apps, 'other', 'package.json'))).toBe(true);
   });
 
   it('should offer the Sigil UI template by that name', async () => {

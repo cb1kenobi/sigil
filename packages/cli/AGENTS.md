@@ -2987,15 +2987,20 @@ people's software and will move.
   as both a default and a placeholder, so Enter made a command nobody chose, as
   `my-cli` suggested a name nobody had. Both are `text()`'s `validate` now, which
   shows the reason under the field and does not submit, so the answer is typed
-  into the same prompt: `A name is required.` and `A command name is required.`
-  for empty or blank, and otherwise the same functions the argument goes through
-  -- `nameProblem()` and `commandNameProblem()` -- so the prompt and the
-  positional argument cannot disagree about what a name is. The name prompt also
+  into the same prompt. The text is whatever the same functions the argument goes
+  through say -- `nameProblem()` and `commandNameProblem()`, which answer `A name
+  is required` and `A command name is required` for empty or blank, so there is
+  no second spelling of either for the prompt to disagree with. The name prompt also
   asks whether the directory it would make (under `--cwd`, which is why `run`
   works out the parent first) already exists and is not empty, because that is
-  knowable the moment the name is, and refusing it after the last of the other
-  questions is refusing somebody for nothing. Checked again after the answer, for
-  a name that came as an argument and never met the prompt. `DEFAULT_TUI_COMMAND`
+  knowable the moment the name is. The run was already refused for it, straight
+  after the name; what the prompt buys is correcting the name in the same field
+  instead of losing the run and starting over. One `dirProblem()` builds the
+  message for the prompt and for the check after the answer, which a name that
+  came as an argument still needs, having never met the prompt. `--cwd` is
+  checked the same way, before the first question: a `--cwd` that is a file, or
+  under one, was `ENOTDIR` from the first `mkdir` after every answer; it is refused
+  by name now, by walking up to the nearest part that exists. `DEFAULT_TUI_COMMAND`
   is deleted: `--yes` does not reach the question, since `--tui-command` is how a
   non-interactive run names it, so nothing else needed a default and a constant
   nothing reads is the dead property this file keeps recording.

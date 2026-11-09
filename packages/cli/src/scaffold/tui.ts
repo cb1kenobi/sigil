@@ -235,10 +235,9 @@ export function component(app: TuiApp): string {
 //
 //   ${other}`
     : `// The Sigil UI template (the \`ui\` tag) makes real elements out of a template, and
-// it runs as it is:
-// Node strips the types and there is no JSX to compile, so there is no build
-// between an edit and the \`dev\` script. What that gives up is the editor checking
-// every prop. To write the same program in JSX:
+// it runs as it is: Node strips the types and there is no JSX to compile, so there
+// is no build between an edit and the \`dev\` script. What that gives up is the
+// editor checking every prop. To write the same program in JSX:
 //
 //   ${other}`;
 

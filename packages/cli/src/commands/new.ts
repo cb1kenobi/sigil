@@ -42,7 +42,7 @@ import { confirm, select, text } from '@ttylabs/sigil/components/prompt';
 import { expand } from '@ttylabs/sigil/paths';
 import { which } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 
 /** This toolchain's own manifest, for the versions it writes. */
@@ -175,6 +175,10 @@ const newApp: AnyCommand = command({
     checkTuiFlags(argv, yes);
 
     const parent = parentDir(argv.cwd as string | undefined);
+    const blocked = parentProblem(parent);
+    if (blocked) {
+      throw new Error(blocked);
+    }
     const name = await askName(argv.projectName as string | undefined, yes, parent);
     // asked again of a name that came from the argument, which the prompt never
     // saw; for one that was typed it is the check the prompt already passed
@@ -184,8 +188,9 @@ const newApp: AnyCommand = command({
     }
 
     const dir = join(parent, name);
-    if (!usable(dir)) {
-      throw new Error(`${displayPath(dir)} already exists and is not empty`);
+    const taken = dirProblem(dir);
+    if (taken) {
+      throw new Error(taken);
     }
 
     const language = await askLanguage(argv, yes);
@@ -265,14 +270,52 @@ function parentDir(cwd: string | undefined): string {
 }
 
 /**
+ * What is wrong with the directory a project would be made in, if anything.
+ *
+ * One message in one place: it is asked of a name that came as an argument, after
+ * the answer, and of a name typed at the prompt, as it is typed.
+ *
+ * @param dir - The project's own directory.
+ * @returns What is wrong with it, or `undefined`.
+ */
+function dirProblem(dir: string): string | undefined {
+  return usable(dir) ? undefined : `${displayPath(dir)} already exists and is not empty`;
+}
+
+/**
+ * Why nothing can be created inside `parent`, if that is so.
+ *
+ * `--cwd` need not exist, since the scaffold makes each directory as it goes, but
+ * the nearest part of it that does has to be a directory: a file there, or anywhere
+ * above, is `ENOTDIR` from the first `mkdir` -- after every question was answered,
+ * with the system's words. Asked before the first one instead.
+ *
+ * @param parent - The directory the project would be created in.
+ * @returns What is wrong with it, or `undefined`.
+ */
+function parentProblem(parent: string): string | undefined {
+  let nearest = parent;
+  while (!existsSync(nearest)) {
+    const up = dirname(nearest);
+    if (up === nearest) {
+      return undefined;
+    }
+    nearest = up;
+  }
+  return statSync(nearest).isDirectory()
+    ? undefined
+    : `${displayPath(nearest)} is a file, so a project cannot be created ${nearest === parent ? 'there' : `in ${displayPath(parent)}`}`;
+}
+
+/**
  * What is wrong with a name typed at the prompt, which is everything that would
  * refuse it once it was answered.
  *
  * The same two checks `run` makes of a name that came as an argument -- the
- * package-name rule and the directory being usable -- so that somebody is told at
- * the prompt, where they can fix it, and not after answering every other
- * question. They are the same functions rather than a second copy, so the prompt
- * and the positional argument cannot disagree about what a name is.
+ * package-name rule and the directory being usable -- so that a name which would be
+ * refused can be corrected where it is typed, in the same field, instead of the run
+ * ending and starting again. They are the same functions rather than a second copy,
+ * so the prompt and the positional argument cannot disagree about what a name is.
  *
  * @param value - What was typed.
  * @param parent - The directory the project would be created in.
@@ -280,15 +323,7 @@ function parentDir(cwd: string | undefined): string {
  */
 function typedNameProblem(value: string, parent: string): string | undefined {
   const name = value.trim();
-  if (name === '') {
-    return 'A name is required.';
-  }
-  const problem = nameProblem(name);
-  if (problem) {
-    return problem;
-  }
-  const dir = join(parent, name);
-  return usable(dir) ? undefined : `${displayPath(dir)} already exists and is not empty`;
+  return nameProblem(name) ?? dirProblem(join(parent, name));
 }
 
 /**
@@ -466,8 +501,7 @@ async function askTui(
   const command = (
     await text({
       message: 'What is the command called?',
-      validate: (value) =>
-        value.trim() === '' ? 'A command name is required.' : commandNameProblem(value.trim()),
+      validate: (value) => commandNameProblem(value.trim()),
     })
   ).trim();
 
