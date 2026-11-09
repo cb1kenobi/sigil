@@ -31,7 +31,7 @@
         "description": "The host box's own props: the height it is given, a border, a class.",
         "name": "props",
         "optional": true,
-        "type": "ElementProps"
+        "type": "ElementPropsWithout<\"onKey\" | \"onMouse\">"
       },
       {
         "description": "A windowed list in place of `children`: only the visible rows are built.",

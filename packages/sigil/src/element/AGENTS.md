@@ -327,3 +327,25 @@ the entry it belongs to.
     writes its class after calling `focus()` overwrites the newer answer.
 
   History: [docs/history/a-focus-handler-is-told-after-the-move-has-committed.md](../../../../docs/history/a-focus-handler-is-told-after-the-move-has-committed.md).
+
+- **The seven hooks are reserved props, so `box({ onKey })` works and a template
+  has one path (SIG-305).** `onKey`, `onMouse`, `onPaste`, `onFocusChange`,
+  `onScroll`, `onResize` and `onLayout` were plain fields that only an assignment
+  after construction could set. `HANDLER_PROPS` names them, `RESERVED` includes
+  them, and `Element.#apply()` assigns them -- so the constructor, `setProp()`,
+  `setProps()` and a template's `applyProp()` all land in one branch. Assigned
+  rather than merged, `undefined` clears, and **nothing is marked**: no layer
+  reads a hook off a mark, the router and the frame read the field when an event
+  or a layout arrives. A value that is neither a function nor `undefined` throws
+  a `TypeError` naming the prop, rather than being stored and failing on the
+  first event. The list is written out because it is what a type is read from:
+  `HandlerProps` is `{ [K in HandlerProp]?: Element[K] }`, so the prop types are
+  the fields' and cannot disagree with them. `ElementProps`' index signature
+  widened by the hook types to admit them, which is the cost: `box({ padding: fn })`
+  now type-checks and fails where the cascade refuses it, as a misspelled string
+  value always has. The cost that is not acceptable is the other one -- a
+  component that spreads its caller's `props` into its host and then assigns a
+  hook of its own overwrote the caller's, with no error -- and `ElementPropsWithout<>`
+  is its type half: see "A component's `props` may not carry a hook it owns" in
+  `packages/sigil/src/components`. See "A host element takes the seven hooks as props" in
+  `packages/sigil/src/template`.

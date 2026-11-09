@@ -1,9 +1,10 @@
-import { ansi as defaultAnsi, strip } from '../ansi/index.js';
+import { strip } from '../ansi/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
 import { terminalWidth } from '../wrap/index.js';
 import { borderLabel, borderLabelText } from './border-label.js';
+import { colorLevelOf } from './color-level.js';
 
 /** Which role a block takes its colour from. */
 export type NoteVariant = 'note' | 'info' | 'success' | 'warning' | 'error';
@@ -223,7 +224,7 @@ export function note(message: string, opts: NoteOptions = {}): string {
 
   return renderToString(element, {
     cascade: themedCascade(opts),
-    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    colorLevel: colorLevelOf(opts),
     colorScheme: opts.colorScheme,
     width,
   }).replaceAll(NBSP, ' ');

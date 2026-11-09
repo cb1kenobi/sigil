@@ -222,126 +222,241 @@ describe('filesystem routing', () => {
   });
 
   /**
-   * `Schema.routeInfo` is how a build that keeps the walk gets the descriptions
-   * onto the help screen: a routed tree lists by name alone until each module
-   * has been imported, and not importing them is the whole of what the
-   * deferral buys.
+   * A `commands.json` in a routed directory describes and aliases the commands
+   * in it **without loading a module** (SIG-324). A routed tree otherwise lists
+   * by name alone until each module has been imported, and a module's own
+   * `name` or `alias` can never route, because the module is read only after
+   * argv has matched its file.
    *
-   * It is a **cache over the walk, never a manifest** -- the directory is
-   * still read, every route it finds is still a command, and a route with no
-   * entry works and simply lists without a description. So it cannot go stale
-   * in a way that loses a command, only in a way that loses a sentence.
-   *
-   * Pinned here because nothing in this repository writes one any more.
-   * `sigil build` bakes the tree into the entry it generates -- a `commands`
-   * literal with a `desc` and a `load` per command, which replaces the walk
-   * rather than caching it -- so the toolchain's own lift-and-print pass was
-   * deleted, and this is the half of it that is still live. A public API with
-   * no producer left in the tree is one the next cleanup deletes.
+   * It is the placeholder rule said in a file: an entry is what a hand-declared
+   * placeholder would have said, so its `desc` is what help shows before the
+   * module loads and the module's own wins after, and its `alias` and `default`
+   * route because they are read when the command is registered. The walk still
+   * decides what exists -- an entry describes a command and never creates or
+   * removes one.
    */
-  describe('a lifted description', () => {
+  describe('a commands.json', () => {
+    const described = path.join(__dirname, 'fixtures/routes-manifest');
+    const defaulted = path.join(__dirname, 'fixtures/routes-manifest-default');
+
     it('should describe a route without loading its module', async () => {
-      const result = await parse({
-        argv: [],
-        schema: { commands: routes, routeInfo: { build: { desc: 'lifted' } } },
-      });
+      const result = await parse({ argv: [], schema: { commands: described } });
       const build = result.contexts[0][Internal].commands.get('build');
 
-      expect(build?.desc).to.equal('lifted');
+      expect(build?.desc).to.equal('described');
       expect(build?.[Internal].loaded).to.equal(false);
     });
 
-    it("should carry a directory's entries down the walk", async () => {
-      // carried down rather than looked up, for the reason `baseDir` is: a
-      // level only knows where it sits in the tree because the level above
-      // told it. `migrate` is two levels in, and its own children are a third
-      const result = await parse({
-        argv: ['db', 'migrate'],
-        schema: {
-          commands: routes,
-          routeInfo: {
-            db: {
-              desc: 'database tasks',
-              commands: { migrate: { commands: { up: { desc: 'lifted up' } } } },
-            },
-          },
-        },
-      });
-      const up = result.cmd?.[Internal].commands.get('up');
-
-      expect(result.contexts.at(-2)?.desc).to.equal('database tasks');
-      expect(up?.desc).to.equal('lifted up');
-      expect(up?.[Internal].loaded).to.equal(false);
-    });
-
-    it('should hide a route the build read as hidden', async () => {
-      const result = await parse({
-        argv: [],
-        schema: { commands: routes, routeInfo: { build: { hidden: true } } },
-      });
-
-      expect(result.contexts[0][Internal].commands.get('build')?.hidden).to.equal(true);
-    });
-
     it('should leave a route with no entry listing by name alone', async () => {
-      // the half that keeps it a cache: a command dropped into an installed
-      // app after the build is undescribed rather than invisible.
-      //
-      // Both halves in one test on purpose, because either alone is a test no
-      // sabotage can fail: `config` being undescribed passes just as well
-      // when `routeInfo` is ignored outright, and `build` being described
-      // passes when an entry is applied to every route. It is the pair that
-      // says the map is read per route
-      const result = await parse({
-        argv: [],
-        schema: { commands: routes, routeInfo: { build: { desc: 'lifted' } } },
-      });
+      // the pair, because either half alone passes a sabotage: `undescribed`
+      // having no description passes when the file is ignored outright, and
+      // `build` having one passes when an entry is applied to every route. It is
+      // the two together that say the file is read per route
+      const result = await parse({ argv: [], schema: { commands: described } });
       const registry = result.contexts[0][Internal].commands;
 
-      expect(registry.get('build')?.desc).to.equal('lifted');
-      expect(registry.get('config')?.desc).to.equal(undefined);
-      expect(registry.get('config')?.[Internal].loaded).to.equal(false);
-    });
-
-    it('should lose to a package manifest, which cannot go stale', async () => {
-      // the filesystem wins wherever it has an answer: reading a
-      // `package.json` is free, so what a build lifted fills only what the
-      // walk could not say rather than second-guessing what it could
-      const result = await parse({
-        argv: [],
-        schema: { commands: routes, routeInfo: { 'routes-pkg': { desc: 'lifted' } } },
-      });
-
-      expect(result.contexts[0][Internal].commands.get('routes-pkg')?.desc).to.equal(
-        'a package found by the walk'
-      );
+      expect(registry.get('build')?.desc).to.equal('described');
+      expect(registry.get('undescribed')?.desc).to.equal(undefined);
+      expect(registry.get('undescribed')?.[Internal].loaded).to.equal(false);
     });
 
     it("should lose to the module's own desc once it loads", async () => {
-      // which is what a hand-declared placeholder already did, so the lifted
-      // case is not a second precedence rule to remember
-      const result = await parse({
-        argv: ['build'],
-        schema: { commands: routes, routeInfo: { build: { desc: 'lifted' } } },
-      });
+      // which is what a hand-declared placeholder already did, so this is not
+      // a second precedence rule to remember
+      const result = await parse({ argv: ['build'], schema: { commands: described } });
 
       expect(result.cmd?.[Internal].loaded).to.equal(true);
       expect(result.cmd?.desc).to.equal('build the app');
     });
 
-    it('should reach a directory a named path points at', async () => {
-      // the other way a path arrives: `commands: { db: './db' }` is one
-      // command however many files sit behind it, and the entry it is looked
-      // up under is the key rather than a route name
+    it('should keep its desc for a module that declares none', async () => {
+      const result = await parse({ argv: ['list'], schema: { commands: described } });
+
+      expect(result.cmd?.[Internal].loaded).to.equal(true);
+      expect(result.cmd?.desc).to.equal('List the things');
+    });
+
+    it('should hide a route the file says is hidden', async () => {
+      const result = await parse({ argv: [], schema: { commands: described } });
+      const registry = result.contexts[0][Internal].commands;
+
+      expect(registry.get('secret')?.hidden).to.equal(true);
+      expect(registry.get('build')?.hidden).to.equal(false);
+    });
+
+    it('should route an alias, which no module could', async () => {
+      const result = await parse({ argv: ['compile'], schema: { commands: described } });
+
+      expect(result.cmd?.name).to.equal('build');
+      expect(await result.cmd?.run?.(result as never)).to.equal('built');
+    });
+
+    it('should take an alias written as a string', async () => {
+      const result = await parse({ argv: ['ls'], schema: { commands: described } });
+
+      expect(result.cmd?.name).to.equal('list');
+      expect(await result.cmd?.run?.(result as never)).to.equal('listed');
+    });
+
+    it('should keep an alias out of the help label, as the alias property does', async () => {
+      // an entry's `alias` means what a placeholder's `alias` property means,
+      // and that one routes without being advertised (SIG-225)
+      const result = await parse({ argv: ['b'], schema: { commands: described } });
+
+      expect(result.cmd?.name).to.equal('build');
+      expect(result.cmd?.[Internal].label).to.equal('build');
+    });
+
+    it('should describe a directory in its parent, and its children in its own', async () => {
+      // each level reads its own file when it is walked: nothing is carried
+      // down from the level above
+      const root = await parse({ argv: [], schema: { commands: described } });
+      const db = root.contexts[0][Internal].commands.get('db');
+      expect(db?.desc).to.equal('database tasks');
+
+      const nested = await parse({ argv: ['database', 'm'], schema: { commands: described } });
+      expect(nested.contexts.map((c) => c.name)).to.deep.equal(['migrate', 'db', 'global']);
+      expect(nested.cmd?.desc).to.equal('run migrations');
+      expect(await nested.cmd?.run?.(nested as never)).to.equal('migrated');
+    });
+
+    it('should read the file of a directory a named path points at, for what is inside it', async () => {
+      // `commands: { db: './db' }` is one command the schema describes, and
+      // the routes under it are the directory's own to describe
       const result = await parse({
-        argv: [],
-        schema: {
-          commands: { db: path.join(routes, 'db') },
-          routeInfo: { db: { desc: 'lifted tasks' } },
-        },
+        argv: ['db', 'm'],
+        schema: { commands: { db: path.join(described, 'db') } },
       });
 
-      expect(result.contexts[0][Internal].commands.get('db')?.desc).to.equal('lifted tasks');
+      expect(result.cmd?.name).to.equal('migrate');
+      expect(result.cmd?.desc).to.equal('run migrations');
+    });
+
+    it('should lose to a package manifest, which cannot go stale', async () => {
+      // the filesystem wins wherever it has an answer: reading a `package.json`
+      // is free, so an entry fills only what the walk could not say. The entry
+      // is keyed by the name the package gives itself, and its alias routes
+      const result = await parse({ argv: [], schema: { commands: described } });
+      expect(result.contexts[0][Internal].commands.get('routes-pkg')?.desc).to.equal(
+        'from its package.json'
+      );
+
+      const aliased = await parse({ argv: ['rp'], schema: { commands: described } });
+      expect(aliased.cmd?.name).to.equal('routes-pkg');
+    });
+
+    it('should not create a command for an entry with no route', async () => {
+      // the walk decides what exists, so a stale entry is ignored -- and its
+      // alias does not route either. `sigil check` and `sigil build` warn
+      const result = await parse({ argv: [], schema: { commands: described } });
+      const names = [...result.contexts[0][Internal].commands.keys()];
+      expect(names).to.not.contain('gone');
+
+      await expect(parse({ argv: ['g'], schema: { commands: described } })).rejects.toThrow(
+        'Unexpected argument "g"'
+      );
+    });
+
+    it('should make an entry the default, which a module saying so cannot', async () => {
+      // `commands.jsonc`, with a comment and a trailing comma, is read too
+      const result = await parse({ argv: [], schema: { commands: defaulted } });
+
+      expect(result.cmd?.name).to.equal('open');
+      expect(await result.cmd?.run?.(result as never)).to.equal('opened');
+    });
+
+    it('should still route and list a default by its own name', async () => {
+      const result = await parse({ argv: ['open'], schema: { commands: defaulted } });
+      expect(result.cmd?.name).to.equal('open');
+
+      const other = await parse({ argv: ['close'], schema: { commands: defaulted } });
+      expect(other.cmd?.name).to.equal('close');
+      expect(other.cmd?.desc).to.equal('close it');
+    });
+
+    it('should ignore a routeInfo left on a schema, as custom data', async () => {
+      // `Schema.routeInfo` is gone, and nothing reads it any more
+      const result = await parse({
+        argv: [],
+        schema: { commands: routes, routeInfo: { build: { desc: 'lifted' } } } as never,
+      });
+
+      expect(result.contexts[0][Internal].commands.get('build')?.desc).to.equal(undefined);
+    });
+
+    describe('what it refuses', () => {
+      /** A directory holding `build.js` and the given files. */
+      function app(files: Record<string, string>): string {
+        const dir = tempDir('sigil-routes-manifest-');
+        writeFileSync(path.join(dir, 'build.js'), 'export default { run() {} };\n');
+        writeFileSync(path.join(dir, 'other.js'), 'export default { run() {} };\n');
+        for (const [name, text] of Object.entries(files)) {
+          writeFileSync(path.join(dir, name), text);
+        }
+        return dir;
+      }
+
+      const refuses = (files: Record<string, string>, message: string | RegExp) =>
+        expect(parse({ argv: [], schema: { commands: app(files) } })).rejects.toThrow(message);
+
+      it('should refuse a file that is not JSON, naming it', async () => {
+        await refuses({ 'commands.json': '{ "build": ' }, /Failed to parse .*commands\.json/);
+      });
+
+      it('should refuse both spellings in one directory', async () => {
+        // the two-routes-one-name error rather than a preference order
+        await refuses(
+          { 'commands.json': '{}', 'commands.jsonc': '{}' },
+          /has more than one commands manifest: "commands\.json", "commands\.jsonc"/
+        );
+      });
+
+      it('should refuse a file that is not an object of objects', async () => {
+        await refuses({ 'commands.json': '[]' }, /commands\.json to be an object of commands/);
+        await refuses({ 'commands.json': '{ "build": "x" }' }, /"build" in .*commands\.json/);
+      });
+
+      it.each([
+        ['desc', '42', 'a string'],
+        ['hidden', '"yes"', 'a boolean'],
+        ['default', '1', 'a boolean'],
+        ['alias', '42', 'a string or list of strings'],
+        ['alias', '["b", 42]', 'a string or list of strings'],
+      ])('should refuse a %s of %s, naming the file', async (property, value, expected) => {
+        const dir = app({ 'commands.json': `{ "build": { "${property}": ${value} } }` });
+
+        await expect(parse({ argv: [], schema: { commands: dir } })).rejects.toThrow(
+          `Expected ${property} for "build" in ${path.join(dir, 'commands.json')} to be ${expected}`
+        );
+      });
+
+      it('should refuse name-string syntax in an alias', async () => {
+        await refuses(
+          { 'commands.json': '{ "build": { "alias": "!b" } }' },
+          /Invalid alias "!b" for "build" in .*commands\.json/
+        );
+      });
+
+      it('should refuse two entries that are both default', async () => {
+        await refuses(
+          {
+            'commands.json': '{ "other": { "default": true }, "build": { "default": true } }',
+          },
+          /Only one default command is allowed: "build" and "other" are both default in .*commands\.json/
+        );
+      });
+
+      it('should ignore a property it does not know', async () => {
+        // ignored rather than refused, for the reason a stale entry is: the
+        // app runs as it would without it, and `sigil check` says so
+        const dir = app({ 'commands.json': '{ "build": { "aliases": ["b"], "desc": "d" } }' });
+        const result = await parse({ argv: [], schema: { commands: dir } });
+
+        expect(result.contexts[0][Internal].commands.get('build')?.desc).to.equal('d');
+        await expect(parse({ argv: ['b'], schema: { commands: dir } })).rejects.toThrow(
+          'Unexpected argument "b"'
+        );
+      });
     });
   });
 

@@ -1,6 +1,8 @@
 import { createSinkCanvas } from '../../src/canvas/index.js';
+import { keyHelpEntries } from '../../src/components/index.js';
 import { Pane, paneControl } from '../../src/components/pane.js';
 import { box, type Element, text } from '../../src/element/index.js';
+import { type Catalog, loadCatalog } from '../../src/i18n/index.js';
 import { type App, AppContext, runApp, useApp } from '../../src/renderer/app.js';
 import { createEffect, onCleanup, onMount, useContext } from '../../src/renderer/index.js';
 import { State } from '../../src/signals/index.js';
@@ -72,7 +74,10 @@ describe('runApp()', () => {
     const list = text('list', { focusable: true });
     const editor = text('editor', { focusable: true });
     const side = Pane({ ascii: false, collapsible: true, size: 8 }, list);
-    const { app } = start(() => box({ 'flex-direction': 'row' }, side, editor));
+    // no quitKey, whose `quit` is a binding of its own and is not what moves here
+    const { app } = start(() => box({ 'flex-direction': 'row' }, side, editor), {
+      quitKey: false,
+    });
     app.view.frame();
     app.input?.describe('down', { description: 'next file', scope: list });
     app.input?.focus.focus(list);
@@ -164,6 +169,178 @@ describe('runApp()', () => {
     await term.press('q');
     await app.exited;
     expect(app.running).toBe(false);
+  });
+
+  it('should end with 0 on q, which is the app choosing to go and not an interrupt', async () => {
+    const { app, term } = start(() => text('x'));
+    app.view.frame();
+    expect(app.input?.focus.current.get()).toBeUndefined();
+
+    // nothing focused: the one case the focus walk cannot serve
+    await term.press('q');
+
+    expect(await app.exited).toBe(0);
+    expect(term.screen.alternate).toBe(false);
+    expect(term.stdin.rawMode).toBe(false);
+    expect(term.stdin.listenerCount('data')).toBe(0);
+  });
+
+  it('should leave q to a focused text field, and quit on it from anywhere else', async () => {
+    const typed: string[] = [];
+    const field = text('field', { focusable: true });
+    field.onKey = (event) => {
+      typed.push(event.key.name);
+      event.stop();
+    };
+    const other = text('other', { focusable: true });
+    const { app, term } = start(() => box({}, field, other));
+
+    app.input?.focus.focus(field);
+    await term.press('q');
+    await tick();
+    expect(typed).toEqual(['q']);
+    expect(app.running).toBe(true);
+
+    app.input?.focus.focus(other);
+    await term.press('q');
+    expect(await app.exited).toBe(0);
+  });
+
+  it('should quit on Ctrl-C with 130 whatever quitKey says', async () => {
+    const { app, term } = start(() => text('x'), { quitKey: false });
+    await term.press(ctrl('c'));
+    expect(await app.exited).toBe(130);
+  });
+
+  it('should leave q alone when quitKey is false', async () => {
+    const { app, term } = start(() => text('x'), { quitKey: false });
+    await term.press('q');
+    await tick();
+    expect(app.running).toBe(true);
+    expect(app.input?.bindings()).toEqual([]);
+  });
+
+  it('should quit on the key quitKey names, and not on q', async () => {
+    const { app, term } = start(() => text('x'), { quitKey: 'ctrl+x' });
+    await term.press('q');
+    await tick();
+    expect(app.running).toBe(true);
+
+    await term.press('\u0018');
+    expect(await app.exited).toBe(0);
+  });
+
+  it('should refuse a quitKey of two keys, with the terminal given back', () => {
+    const term = createTestTerminal({ columns: 30, rows: 6 });
+
+    expect(() =>
+      runApp(() => text('x'), { detect: false, quitKey: 'g g', terminal: term.terminal })
+    ).toThrow(/one key/);
+
+    expect(term.stdin.rawMode).toBe(false);
+    expect(term.stdin.listenerCount('data')).toBe(0);
+    expect(term.screen.alternate).toBe(false);
+  });
+
+  it('should list q as quit, so a key-help footer shows it without the app writing the line', () => {
+    const { app } = start(() => text('x'));
+
+    expect(app.input?.bindings().map((b) => [b.keys, b.description])).toEqual([['q', 'quit']]);
+  });
+
+  it('should list q through the catalog, so a translated app does not get an English word', async () => {
+    const catalog: Catalog = { quit: 'beenden' };
+    await loadCatalog({ de: async () => catalog }, {}, 'de');
+    try {
+      const { app } = start(() => text('x'));
+      expect(app.input?.bindings().map((b) => b.description)).toEqual(['beenden']);
+    } finally {
+      await loadCatalog(undefined, {});
+    }
+  });
+
+  it("should merge with an app's own `q` described as quit, which is one line and not two", () => {
+    const { app } = start(() => {
+      useApp().input?.bind('q', () => {}, { description: 'quit', priority: 9 });
+      return text('x');
+    });
+
+    const infos = app.input?.bindings() ?? [];
+    expect(infos.map((b) => [b.keys, b.description])).toEqual([
+      ['q', 'quit'],
+      ['q', 'quit'],
+    ]);
+    expect(keyHelpEntries(infos).map((e) => [e.label, e.description])).toEqual([['q', 'quit']]);
+  });
+
+  it.each([true, null, 3, {}, ['q']])(
+    'should refuse a quitKey that is neither a string nor false: %j',
+    (quitKey) => {
+      const term = createTestTerminal({ columns: 30, rows: 6 });
+
+      expect(() =>
+        runApp(() => text('x'), {
+          detect: false,
+          quitKey: quitKey as never,
+          terminal: term.terminal,
+        })
+      ).toThrow(/quitKey is a key spec or false/);
+
+      // and before anything was taken
+      expect(term.stdin.rawMode).toBe(false);
+      expect(term.stdin.listenerCount('data')).toBe(0);
+      expect(term.screen.alternate).toBe(false);
+    }
+  );
+
+  it.each(['g g', ''])(
+    'should refuse a quitKey that is not one key, %j, even where it would refuse to start',
+    (quitKey) => {
+      // no terminal on the output: the refusal that never builds a router or
+      // calls the component, which is where a piped run used to pass what a
+      // terminal threw on
+      const term = createTestTerminal({ columns: 30, rows: 6, isTTY: false });
+
+      expect(() =>
+        runApp(() => text('x'), {
+          detect: false,
+          onError: () => {},
+          quitKey,
+          terminal: term.terminal,
+        })
+      ).toThrow(quitKey === '' ? /names no key/ : /A fallback is one key/);
+    }
+  );
+
+  it('should read an undefined quitKey as the default, and only that', async () => {
+    const { app, term } = start(() => text('x'), { quitKey: undefined });
+    await term.press('q');
+    expect(await app.exited).toBe(0);
+  });
+
+  it("should give an app's own binding on q the key first, and its own exit code", async () => {
+    const { app, term } = start(() => {
+      const mine = useApp();
+      mine.input?.bind('q', () => mine.exit(7));
+      return text('x');
+    });
+    await term.press('q');
+    expect(await app.exited).toBe(7);
+  });
+
+  it('should leave q to the root for an app that opts out, which is what a fallback of its own is for', async () => {
+    const seen: string[] = [];
+    const { app, term } = start(
+      () => {
+        useApp().input?.fallback('q', () => seen.push('mine'));
+        return text('x');
+      },
+      { quitKey: false }
+    );
+    await term.press('q');
+    await tick();
+    expect(seen).toEqual(['mine']);
+    expect(app.running).toBe(true);
   });
 
   it('should end when the renderer is disposed from a handler', async () => {

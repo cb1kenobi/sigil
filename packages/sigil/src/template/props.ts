@@ -35,6 +35,7 @@
  * misspelled *name*, which is the whole of what was missing.
  */
 
+import type { Element } from '../element/index.js';
 import type { AliasName, Length, ShorthandName, Style, StyleState } from '../style/index.js';
 
 /** A prop may be a value or a thunk, and a thunk is what makes it reactive. */
@@ -125,11 +126,18 @@ type ShorthandProps = {
 };
 
 /**
- * The six props that are not style properties.
+ * The props that are not style properties.
  *
- * Exactly what `Element.#apply()` branches on before it hands the rest to the
- * cascade, which is what makes this list the same list rather than one more of
- * them.
+ * The names `Element`'s `RESERVED` set holds, which `setProp()` routes to
+ * `#apply()` instead of the cascade -- the same list rather than one more of
+ * them, and `test/template/props.test.ts` asserts it name by name. One thing
+ * `#apply()` branches on is not here: `href`, a `text`'s link, which `RESERVED`
+ * does not name and this interface does not offer. The seven hooks are on it, typed as the `Element` fields they set
+ * (`Element['onKey']`) rather than listed by hand, so a handler with the wrong
+ * signature is a type error and a hook the class gains is one line here. Not
+ * `Reactive<>`: a handler is assigned once, and a function under one of these
+ * names is the handler and never a thunk -- swapping one through a signal is not
+ * supported, so a handler reads the state it needs when it runs.
  */
 export interface ReservedProps {
   class?: Reactive<readonly string[] | string>;
@@ -141,6 +149,20 @@ export interface ReservedProps {
   id?: Reactive<string>;
   /** Identity across renders, which is what a keyed list diff matches on. */
   key?: number | string;
+  /** What this element does with a key that reaches it. */
+  onKey?: Element['onKey'];
+  /** What this element does with a mouse event that reaches it. */
+  onMouse?: Element['onMouse'];
+  /** What this element does with pasted text that reaches it. */
+  onPaste?: Element['onPaste'];
+  /** Told when this element gains or loses the focus. */
+  onFocusChange?: Element['onFocusChange'];
+  /** Told when this element's scroll offset moved. */
+  onScroll?: Element['onScroll'];
+  /** Told when the layout gave this element a size it had not been told about. */
+  onResize?: Element['onResize'];
+  /** Called after a layout that reached this element. */
+  onLayout?: Element['onLayout'];
   /** Whether this element's content may be selected and copied. Inherits. */
   selectable?: Reactive<boolean>;
   /**
@@ -150,11 +172,28 @@ export interface ReservedProps {
   tabindex?: Reactive<number>;
 }
 
+/**
+ * The one prop that is the template's rather than the element's.
+ *
+ * A callback and nothing else -- `ref={(el) => node.set(el)}` is how a `State`
+ * holds the element. Called once, after the element's props and children are
+ * built and before it is attached to its parent, so layout has not run (the
+ * element has no `box` yet; `onLayout` is the hook for sizes). Not called again
+ * on removal: cleanup goes through the owner. Never a thunk, so the function is
+ * called *with the element* rather than to produce a value.
+ *
+ * Not in `ReservedProps` because `Element.#apply()` does not branch on it: an
+ * element has no `ref`, and only a template builds one.
+ */
+export interface RefProps {
+  ref?: (element: Element) => void;
+}
+
 /** The style half of what a host element takes, in both spellings. */
 export type StyleProps = KebabProps & LonghandProps & ShorthandProps;
 
 /** Everything a host element accepts, and nothing else. */
-export type HostProps = ReservedProps & StyleProps;
+export type HostProps = RefProps & ReservedProps & StyleProps;
 
 /**
  * A state a selector can match, for the tests that walk them.

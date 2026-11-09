@@ -462,3 +462,15 @@ export function loaderSpecifier(node: Expression): string | undefined {
 
   return body.type === 'ImportExpression' ? literalString(body.source) : undefined;
 }
+
+/**
+ * Whether a node is `undefined`, which the runtime reads as not declared:
+ * the identifier, or `void` over anything, which is how a minifier spells it.
+ */
+export function isUndefined(node: Expression): boolean {
+  const value = unwrapShallow(node);
+  return (
+    (value.type === 'Identifier' && value.name === 'undefined') ||
+    (value.type === 'UnaryExpression' && value.operator === 'void')
+  );
+}

@@ -20,11 +20,13 @@
  * until it is built.
  *
  * Nothing here builds a command or imports a module. Every answer is a
- * `readdir`, a `stat`, and at most one `package.json` read, which is what lets
- * the build ask about a tree it is compiling and the runtime ask about a level
- * it is about to match.
+ * `readdir`, a `stat`, a `package.json` read per subdirectory that has one,
+ * and at most one `commands.json` read per level, which is what lets the build
+ * ask about a tree it is compiling and the runtime ask about a level it is
+ * about to match.
  */
 
+import { parseJsonc } from '../../config/jsonc.js';
 import { byCodeUnit } from '../../util/by-code-unit.js';
 import { type Dirent, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, parse } from 'node:path';
@@ -52,20 +54,77 @@ const tsTypeRegExp = /^\.[cm]?ts$/;
  */
 export const INDEX_NAME = 'index';
 
+/**
+ * The file a directory of commands is described in, as `commands.json` or as
+ * `commands.jsonc`.
+ *
+ * One list, read by both walks, so that the runtime and `sigil build` cannot
+ * come to disagree about what the file is called. Either name is read as
+ * JSONC, which is the rule `sigil.json` already follows: the extension is a
+ * preference rather than a statement about the bytes. Both in one directory is
+ * refused rather than one of them winning, for the reason two `index` modules
+ * are -- whichever one is not read is a file somebody edits to no effect.
+ *
+ * Neither is a route, because `.json` is not one of the six route extensions.
+ */
+export const MANIFEST_FILES = ['commands.json', 'commands.jsonc'] as const;
+
+/**
+ * What a `commands.json` says about one route: the four properties a
+ * placeholder already takes, meaning what they mean there.
+ */
+export interface RouteEntry {
+  /** Extra spellings that route to the command, and stay out of help. */
+  readonly alias?: readonly string[];
+  /** Whether it runs when argv names none of its siblings. */
+  readonly default?: boolean;
+  /** What help shows before the module loads. */
+  readonly desc?: string;
+  /** Whether help leaves it out. */
+  readonly hidden?: boolean;
+}
+
+/** A `commands.json`, read and checked. */
+export interface RouteManifest {
+  /** What it says, keyed by route name. */
+  readonly entries: ReadonlyMap<string, RouteEntry>;
+  /** Where it is, for a message. */
+  readonly file: string;
+  /**
+   * A property an entry carries that is none of the four, which is ignored.
+   *
+   * Ignored rather than refused, which is the rule for an entry naming no
+   * route: an app runs exactly as it would without it, and it is `sigil check`
+   * and `sigil build` that say so -- a misspelt `"aliases"` is a spelling that
+   * does not route, and that must not be silent.
+   */
+  readonly unknown: readonly { readonly name: string; readonly property: string }[];
+}
+
+/** The properties an entry may carry, so the set is one list. */
+const ENTRY_PROPERTIES: ReadonlySet<string> = new Set(['alias', 'default', 'desc', 'hidden']);
+
 /** What kind of thing a route is, which is what says how to load it. */
 export type RouteKind = 'directory' | 'module' | 'package';
 
 /** One route in a command directory. */
 export interface Route {
+  /** Extra spellings, from the directory's `commands.json`. */
+  readonly alias?: readonly string[];
+  /** Whether it is the default, from the directory's `commands.json`. */
+  readonly default?: boolean;
   /**
-   * What the route says it does, which only a package can answer here.
+   * What the route says it does, which only a file read can answer here.
    *
-   * A package describes itself in its `package.json`, so its description is a
-   * file read rather than an import. Every other kind keeps its description
-   * inside the module, which is why it is `undefined` here and why the build
-   * has to lift it statically.
+   * A package describes itself in its `package.json`, and any route may be
+   * described by the `commands.json` beside it. Every other description is
+   * inside the module, which is why it is `undefined` without one and why the
+   * build lifts it statically. A package's manifest beats an entry, because
+   * that read is free and cannot go stale.
    */
   readonly desc?: string;
+  /** Whether it is hidden, from the directory's `commands.json`. */
+  readonly hidden?: boolean;
   /** Which of the three things this route is. */
   readonly kind: RouteKind;
   /** The command name, after a package has had its say. */
@@ -87,8 +146,15 @@ export interface DirectoryRoutes {
    * inside it.
    */
   readonly index?: string;
+  /** The directory's `commands.json`, already applied to `routes`. */
+  readonly manifest?: RouteManifest;
   /** Every route inside, sorted, with no two claiming one name. */
   readonly routes: readonly Route[];
+  /**
+   * The entries of `manifest` that name no route, which the runtime ignores:
+   * an entry describes and aliases a command and never creates one.
+   */
+  readonly stale: readonly string[];
 }
 
 /** What a package says about itself, read rather than imported. */
@@ -369,6 +435,158 @@ export function readPackage(dir: string): PackageRoute | undefined {
 }
 
 /**
+ * Reads a directory's `commands.json`, if its listing holds one.
+ *
+ * Asked of the listing the walk already has, so a directory without one costs
+ * nothing at all, and one with it costs one file read -- the same as the
+ * `package.json` a package subdirectory already costs. No module is read.
+ *
+ * What it checks is the file's own shape: an object of objects, each property
+ * the type a placeholder's is. A wrong one throws naming the file, as an invalid
+ * placeholder declaration throws, and `sigil build` fails with the same message
+ * because it reads the file through this. What it does not check is whether a
+ * key names a route, which is the caller's to compare against the routes it
+ * found, and a property it does not know, which it reports and ignores -- see
+ * `RouteManifest.unknown`.
+ *
+ * @param dir - The directory.
+ * @param entries - Its listing.
+ * @returns What the file says, or `undefined` when there is none.
+ * @throws If both spellings are there, if it is not JSON or JSONC, if it is not
+ *   an object of objects, if a property is the wrong type, or if two entries are
+ *   both `default`.
+ */
+export function readRouteManifest(dir: string, entries: Dirent[]): RouteManifest | undefined {
+  const found = entries
+    .filter(
+      (entry) =>
+        (MANIFEST_FILES as readonly string[]).includes(entry.name) && !isDirectoryEntry(entry, dir)
+    )
+    .map((entry) => entry.name)
+    .sort();
+
+  if (!found.length) {
+    return undefined;
+  }
+
+  // two answers to one question, which is what two routes claiming one name and
+  // two `index` modules already are
+  if (found.length > 1) {
+    throw new Error(
+      `Directory "${dir}" has more than one commands manifest: ${found.map((name) => `"${name}"`).join(', ')}`
+    );
+  }
+
+  const file = join(dir, found[0]!);
+  const { value } = parseJsonc(readFileSync(file, 'utf-8'), file);
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(`Expected ${file} to be an object of commands, keyed by route name`);
+  }
+
+  const parsed = new Map<string, RouteEntry>();
+  const unknown: { name: string; property: string }[] = [];
+  let fallback: string | undefined;
+
+  for (const [name, declared] of Object.entries(value as Record<string, unknown>)) {
+    if (!declared || typeof declared !== 'object' || Array.isArray(declared)) {
+      throw new TypeError(`Expected "${name}" in ${file} to be an object`);
+    }
+
+    const { alias, default: isDefault, desc, hidden } = declared as Record<string, unknown>;
+
+    for (const property of Object.keys(declared)) {
+      if (!ENTRY_PROPERTIES.has(property)) {
+        unknown.push({ name, property });
+      }
+    }
+
+    if (desc !== undefined && typeof desc !== 'string') {
+      throw new TypeError(`Expected desc for "${name}" in ${file} to be a string`);
+    }
+
+    if (hidden !== undefined && typeof hidden !== 'boolean') {
+      throw new TypeError(`Expected hidden for "${name}" in ${file} to be a boolean`);
+    }
+
+    if (isDefault !== undefined && typeof isDefault !== 'boolean') {
+      throw new TypeError(`Expected default for "${name}" in ${file} to be a boolean`);
+    }
+
+    const aliases = typeof alias === 'string' ? [alias] : alias;
+    if (
+      aliases !== undefined &&
+      (!Array.isArray(aliases) || aliases.some((each) => typeof each !== 'string'))
+    ) {
+      throw new TypeError(
+        `Expected alias for "${name}" in ${file} to be a string or list of strings`
+      );
+    }
+
+    // the placeholder this becomes would refuse it too, but naming no file --
+    // and after a build it would be refused by the built app on every start
+    // rather than by the build, which is the one place it can still be fixed
+    for (const each of (aliases ?? []) as string[]) {
+      if (each[0] === '!' || each[0] === '@') {
+        throw new Error(
+          `Invalid alias "${each}" for "${name}" in ${file}: "${each[0]}" is name-string syntax and an alias is a plain name`
+        );
+      }
+    }
+
+    // two siblings both default is refused by the registry when they are
+    // registered; asked here as well so that it is refused naming the file,
+    // and whether or not both entries name a route
+    if (isDefault === true) {
+      if (fallback !== undefined) {
+        const [a, b] = [fallback, name].sort(byCodeUnit);
+        throw new Error(
+          `Only one default command is allowed: "${a}" and "${b}" are both default in ${file}`
+        );
+      }
+      fallback = name;
+    }
+
+    parsed.set(name, {
+      ...(aliases === undefined ? {} : { alias: [...(aliases as string[])] }),
+      ...(isDefault === undefined ? {} : { default: isDefault }),
+      ...(desc === undefined ? {} : { desc }),
+      ...(hidden === undefined ? {} : { hidden }),
+    });
+  }
+
+  return { entries: parsed, file, unknown };
+}
+
+/**
+ * A route with what the directory's `commands.json` says about it applied.
+ *
+ * `route.desc` first, which is the one precedence rule this has: a package's
+ * own manifest is a free read that cannot go stale, so an entry fills only
+ * what the walk could not say. Everything else a route has no answer of its
+ * own for.
+ *
+ * @param route - The route.
+ * @param entry - What the file says about it.
+ * @returns The route, described.
+ */
+function describeRoute(route: Route, entry: RouteEntry | undefined): Route {
+  if (!entry) {
+    return route;
+  }
+
+  const desc = route.desc ?? entry.desc;
+
+  return {
+    ...route,
+    ...(entry.alias === undefined ? {} : { alias: entry.alias }),
+    ...(entry.default === undefined ? {} : { default: entry.default }),
+    ...(desc === undefined ? {} : { desc }),
+    ...(entry.hidden === undefined ? {} : { hidden: entry.hidden }),
+  };
+}
+
+/**
  * The route one directory entry is, or `undefined` when it is not one.
  *
  * @param dir - The directory the entry came from.
@@ -416,9 +634,16 @@ function entryRoute(dir: string, entry: Dirent): Route | undefined {
  *
  * @param dir - The directory the entries came from.
  * @param entries - Its listing.
- * @returns One route per entry that is one, sorted, names unique.
+ * @param manifest - Its `commands.json`, read from the listing unless the
+ *   caller already has it.
+ * @returns One route per entry that is one, sorted, names unique, each with
+ *   what the `commands.json` says about it.
  */
-export function resolveRoutes(dir: string, entries: Dirent[]): readonly Route[] {
+export function resolveRoutes(
+  dir: string,
+  entries: Dirent[],
+  manifest: RouteManifest | undefined = readRouteManifest(dir, entries)
+): readonly Route[] {
   const claimed = new Map<string, string>();
   const routes: Route[] = [];
 
@@ -448,7 +673,9 @@ export function resolveRoutes(dir: string, entries: Dirent[]): readonly Route[] 
     }
     claimed.set(route.name, entry.name);
 
-    routes.push(route);
+    // keyed by the route's name rather than the entry's, for the reason the
+    // collision is: a package names itself, and `pkg` is then not a command
+    routes.push(describeRoute(route, manifest?.entries.get(route.name)));
   }
 
   return routes;
@@ -464,8 +691,8 @@ export function resolveRoutes(dir: string, entries: Dirent[]): readonly Route[] 
  * exactly what it asked for.
  *
  * @param dir - The directory.
- * @returns Its routes and its own `index` module, or `undefined` when the path
- *   is not a directory at all.
+ * @returns Its routes, its own `index` module and its `commands.json`, or
+ *   `undefined` when the path is not a directory at all.
  */
 export function readRoutes(dir: string): DirectoryRoutes | undefined {
   const entries = readDirectory(dir);
@@ -473,5 +700,14 @@ export function readRoutes(dir: string): DirectoryRoutes | undefined {
     return undefined;
   }
 
-  return { index: indexEntry(dir, entries), routes: resolveRoutes(dir, entries) };
+  const manifest = readRouteManifest(dir, entries);
+  const routes = resolveRoutes(dir, entries, manifest);
+  const named = new Set(routes.map((route) => route.name));
+
+  return {
+    index: indexEntry(dir, entries),
+    ...(manifest ? { manifest } : {}),
+    routes,
+    stale: manifest ? [...manifest.entries.keys()].filter((name) => !named.has(name)) : [],
+  };
 }

@@ -152,31 +152,32 @@ const schema = {
 //   ship, go
 ```
 
-Which command owns a spelling is read when the listing is drawn, so it follows
-a lazily loaded module: a module that brings `'ship, go'` as its own name string
-takes `go` from an earlier `build` once it has loaded, and from then on `build`
-is listed without it. Until it loads, `go` still runs `build`, and help says so.
+Which command owns a spelling is read when the listing is drawn. A lazily
+loaded module's own name string is not published, because it routes nothing (see
+[A module's own name does not route](#a-modules-own-name-does-not-route)): a
+module that brings `'ship, go'` takes `go` from an earlier `build` in the process
+that loaded it, and from then on `build` is listed without it, but `ship` does
+not list it either. Until it loads, `go` still runs `build`, and help says so.
 
 Inline arguments cannot be combined with an `args` array on the same command;
 declaring both throws.
 
 ### Command properties
 
-| Property    | Type                     | Notes                                                          |
-| ----------- | ------------------------ | -------------------------------------------------------------- |
-| `alias`     | `string \| string[]`     | Additional names, left out of help                             |
-| `args`      | `(string \| Argument)[]` | Positional arguments                                           |
-| `commands`  | `object \| string`       | Subcommands, or a path to load them from                       |
-| `default`   | `boolean`                | Runs when argv named no command — see below                    |
-| `desc`      | `string`                 | Description for help                                           |
-| `format`    | `boolean \| string[]`    | Output formats this command presents — see below               |
-| `hidden`    | `boolean`                | Omit from help; a `!` name prefix sets it too                  |
-| `hooks`     | `object`                 | `init`, `parse`, `help`, `afterRun`, `beforeError` — see below |
-| `load`      | `() => Promise<unknown>` | The module as a function, for a bundled app                    |
-| `options`   | `object`                 | Options scoped to this command and its children                |
-| `path`      | `string`                 | A module to load the command from                              |
-| `routeInfo` | `object`                 | Descriptions a build lifted out of a command tree              |
-| `run`       | `(state) => unknown`     | Handler invoked by `main()` when this command wins             |
+| Property   | Type                     | Notes                                                          |
+| ---------- | ------------------------ | -------------------------------------------------------------- |
+| `alias`    | `string \| string[]`     | Additional names, left out of help                             |
+| `args`     | `(string \| Argument)[]` | Positional arguments                                           |
+| `commands` | `object \| string`       | Subcommands, or a path to load them from                       |
+| `default`  | `boolean`                | Runs when argv named no command — see below                    |
+| `desc`     | `string`                 | Description for help                                           |
+| `format`   | `boolean \| string[]`    | Output formats this command presents — see below               |
+| `hidden`   | `boolean`                | Omit from help; a `!` name prefix sets it too                  |
+| `hooks`    | `object`                 | `init`, `parse`, `help`, `afterRun`, `beforeError` — see below |
+| `load`     | `() => Promise<unknown>` | The module as a function, for a bundled app                    |
+| `options`  | `object`                 | Options scoped to this command and its children                |
+| `path`     | `string`                 | A module to load the command from                              |
+| `run`      | `(state) => unknown`     | Handler invoked by `main()` when this command wins             |
 
 A command is hidden if its name carries a `!` prefix **or** it declares
 `hidden: true`. The two are additive: either one alone is enough, and an
@@ -480,10 +481,54 @@ A directory is read when its command is matched or when help describes it, and
 not before. `mycli db migrate up` reads `commands/`, then `commands/db/`, then
 `commands/db/migrate/`, and nothing else — plus the `package.json` of any
 subdirectory that has one, which is what lets a package keep its own name
-without being imported — so a tree of sixty commands costs one
-`readdir` per level argv actually names, and one `import`. A subdirectory lists
-by name alone in its parent's help until it has been read, which is the rule a
-lazily loaded module already follows.
+without being imported, and the level's own `commands.json` if it has one — so a
+tree of sixty commands costs one `readdir` per level argv actually names, and one
+`import`. A subdirectory lists by name alone in its parent's help until it has
+been read, which is the rule a lazily loaded module already follows, unless the
+parent's `commands.json` describes it.
+
+#### A `commands.json`
+
+A routed directory may hold a `commands.json`, which describes and aliases the
+commands in it **without loading any module**:
+
+```json
+{
+  "list": { "desc": "List the things", "alias": ["ls"] },
+  "db": { "desc": "Database commands" },
+  "debug": { "hidden": true },
+  "open": { "default": true }
+}
+```
+
+A key is a route's name: a file name without its extension, a subdirectory's
+name, or the name a package's `package.json` gives it. An entry takes `desc`,
+`hidden`, `alias` (a string or a list of strings) and `default`, and they mean
+what they mean on a placeholder declared by hand:
+
+- `desc` is what help shows until the module loads, and the module's own `desc`
+  wins once it has. A package's `package.json` description beats it.
+- `hidden` hides the command; the module cannot un-hide it.
+- `alias` routes — `mycli ls` runs `list` from source and after `sigil build` —
+  and stays out of help, as the `alias` property does.
+- `default: true` runs the command when argv names none of its siblings, and it
+  still routes and lists under its own name. Two entries both `default` throw.
+
+A directory command is described in its parent's `commands.json`, under its own
+name, and what is inside it in its own. Each level's file is read when that level
+is walked, and costs one file read.
+
+The walk still decides what exists. A route with no entry is a command listed by
+name alone, and an entry naming no route is ignored — as is a property that is
+none of the four — so `sigil check` and `sigil build` warn about both. The file
+may be called `commands.jsonc` instead, and either name is read as JSONC; a
+directory holding both throws. So does a file that does not parse or a property
+of the wrong type, naming the file, from source and from `sigil build` alike.
+Neither name is a route, since `.json` is not a route extension.
+
+`routeInfo` on the schema was the older way to describe a walked tree, and it has
+been removed: a leftover one is ignored. A `commands.json` says what it said and
+can also say `alias` and `default`.
 
 A path is relative to the file that declared it, the same as an `import` in
 that file: a command module exporting `commands: { all: './all.js' }` is
@@ -493,17 +538,69 @@ file to be relative to — a path there resolves from the working directory, so
 pass an absolute one, built from `import.meta.url`.
 
 Only the placeholder sees the name string, so the aliases and help label parsed
-from it are carried onto the loaded command; a module that declares its own
-`name` string brings its own label instead. An `alias` the module declares is
-merged in, but it cannot resolve the command — the parser has to match the
-command before it can load the module that declares the alias, so a name a user
-is expected to type belongs on the placeholder. One that is a sibling's name
+from it are carried onto the loaded command, and they are the only ones help
+publishes: see below. An `alias` the module declares is merged in, but it cannot
+resolve the command. One that is a sibling's name
 throws when the module loads, with the error a placeholder declaring it would
 have raised while the schema was built. Otherwise, once the module has loaded,
 the command takes the placeholder's place among its siblings: the same position,
 every spelling the placeholder answered to, and an alias the module adds is
 settled by declaration order like any other, so a sibling declared later keeps
 a spelling it shares.
+
+#### A module's own name does not route
+
+A module is loaded only after argv has matched the name its **route** is known
+by: the file or directory name of a walked route, the key of a `commands` entry,
+or the `name` and `alias` of the placeholder that points at it. So a `name`
+string, an `alias` or `default: true` written _inside_ the module comes too late
+to route anything. `commands/list.ts` saying
+
+```js
+export default { name: 'list, ls', run() {} };
+```
+
+answers to `list` and to nothing else: `mycli ls` is `Unexpected argument "ls"`,
+in a directory walk, behind a `path`, behind a `load` and in a directory's
+`index` module alike, from source and after `sigil build`. A module's `default`
+is read after the module loads, by which time the command was already matched
+by name, so `default: true` there does nothing either. The exception is a
+**package** a key's value is the path of (`foo: './pkg'`, and not `foo: { path: './pkg' }`): it is imported when the schema is
+built and names itself, so from source its own `name` and `alias` do route.
+
+Help only publishes what routes, so the `Alias:` block, the `Commands:` list,
+the completion menu and the markdown reference leave out a spelling that exists
+only inside a module. Two things still print a name that does not route, and
+neither is changed here: a `subcommandLoaded` hook's replacement brings its own
+label, because it is the parent's code and not a module, and a module that
+renames the command (`name: 'show'` under the key `list`) lists the placeholder's
+spellings but its usage line still names `show`.
+
+`sigil check` and `sigil build` warn about a name, an alias or a `default: true`
+a module declares that its route does not already say, naming the file. They
+read the modules of a directory walk and the ones a schema points at by `path`
+or `load`; they do not read a package a walk finds, or the routes under a
+directory a schema points at by key. Declare the spelling where the route is
+declared. For a walked route that is the directory's
+[`commands.json`](#a-commandsjson), and the warning names the entry:
+
+```json
+{ "list": { "alias": ["ls"] }, "open": { "default": true } }
+```
+
+An alias there routes and stays out of help. For a spelling help shows too, or a
+command a schema points at, it is the schema key:
+
+```js
+const schema = {
+  commands: {
+    // `ls` runs `list`, and help shows both
+    'list, ls': './commands/list.ts',
+    // `default: true` belongs here too
+    open: { default: true, path: './commands/open.ts' },
+  },
+};
+```
 
 #### A module as a function
 

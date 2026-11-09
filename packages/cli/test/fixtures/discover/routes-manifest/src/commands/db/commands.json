@@ -1,0 +1,4 @@
+{
+  "migrate": { "desc": "Run migrations", "alias": "m" },
+  "seed": { "desc": "A command nobody wrote" }
+}

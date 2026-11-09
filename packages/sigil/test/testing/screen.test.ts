@@ -343,6 +343,55 @@ describe('the screen model as it was', () => {
     expect(() => new Screen(4, 1).write(`${ESC}[5Z`)).toThrow(/unmodelled sequence/);
   });
 
+  it.each([
+    ['device attributes', `${ESC}[c`],
+    ['secondary device attributes', `${ESC}[>c`],
+    ['the terminal version', `${ESC}[>q`],
+    ['a mode report request', `${ESC}[?2026$p`],
+    ['a text area size request', `${ESC}[14t`],
+    ['a cursor position request', `${ESC}[6n`],
+    ['a cursor style', `${ESC}[2 q`],
+    ['tertiary device attributes', `${ESC}[=c`],
+    ['an ANSI mode report request', `${ESC}[4$p`],
+    ['a kitty keyboard push', `${ESC}[>1u`],
+    ['a kitty keyboard pop', `${ESC}[<u`],
+    ['a kitty keyboard set', `${ESC}[=1;1u`],
+  ])('should take %s as a question that draws nothing', (_what, query) => {
+    // a program asks what the terminal is before its first frame, so output
+    // replayed as it arrives meets these first. The answer comes back on stdin,
+    // which is the far end's to give; nothing here moves
+    const screen = new Screen(8, 2);
+
+    screen.write(`ab${query}cd`);
+
+    expect(screen.viewport[0]).toBe('abcd');
+    expect(screen.column).toBe(4);
+  });
+
+  it.each([
+    ['DECERA, which erases a rectangle', `${ESC}[1;1;1;8$z`],
+    ['DECFRA, which fills one', `${ESC}[88;1;1;1;8$x`],
+    ['DECCARA, whose final byte is the window operation `t`', `${ESC}[1;1;1;8;7$r`],
+    ['DECRARA, whose final byte is `t`', `${ESC}[1;1;1;8;7$t`],
+    ['SL, which shifts columns left', `${ESC}[2 @`],
+    ['DECIC, which inserts columns', `${ESC}[2'}`],
+    ['DECSTR, which resets the terminal', `${ESC}[!p`],
+  ])('should still refuse %s, which changes cells where a question does not', (_what, sequence) => {
+    // a marker or an intermediate is where the sequences that DO change a cell
+    // live, so a blanket pass for either would leave a screen that quietly
+    // disagreed with the terminal. Only the questions are let through
+    expect(() => new Screen(8, 2).write(`abcdefgh${sequence}`)).toThrow(/unmodelled sequence/);
+  });
+
+  it('should hold a question cut off by the end of a chunk', () => {
+    const screen = new Screen(8, 2);
+
+    screen.write(`ab${ESC}[>`);
+    screen.write(`qcd`);
+
+    expect(screen.viewport[0]).toBe('abcd');
+  });
+
   it('should leave the deferred wrap alone for a mode change', () => {
     const screen = new Screen(3, 2);
 

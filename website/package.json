@@ -19,13 +19,13 @@
   "dependencies": {
     "@ttylabs/sigil": "workspace:*",
     "next": "16.4.5",
-    "posthog-js": "1.446.0",
+    "posthog-js": "1.447.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1",
     "remark-parse": "11.0.0",
-    "shiki": "4.5.0",
+    "shiki": "4.6.0",
     "unified": "11.0.5"
   },
   "devDependencies": {
@@ -37,7 +37,7 @@
     "@types/react-dom": "19.3.0",
     "babel-plugin-react-compiler": "1.0.0",
     "oxc-parser": "0.157.0",
-    "pagefind": "1.5.2",
+    "pagefind": "1.6.0",
     "tailwindcss": "4.3.4",
     "typescript": "7.0.2"
   }

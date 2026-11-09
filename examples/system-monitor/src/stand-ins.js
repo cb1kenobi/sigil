@@ -2,17 +2,18 @@
  * Stand-ins for components sigil does not have yet.
  *
  * Each one is the least that makes the monitor work, kept here rather than in
- * the package so that it can be deleted the day the real component lands. They
- * are written imperatively, with `box()` and `text()`, because they put handlers
- * on nodes inside themselves -- the table body's `onResize` and `onMouse` -- and a
- * template has no way to reach one: handlers are not template props, and there is
- * no `ref`. The README has the details, under "What is a stand-in".
+ * the package so that it can be deleted the day the real component lands. The
+ * two that put handlers on nodes inside themselves -- `LiveChart`'s `onResize`,
+ * and the table body's `onResize` and `onMouse` -- are written in the `ui` tag
+ * with those handlers as props, and `ref` where the component has to hold a node
+ * it built. The README has the details, under "What is a stand-in".
  */
 
 import { SORTS, scrollTop } from './data.js';
-import { box, text } from '@ttylabs/sigil/element';
+import { text } from '@ttylabs/sigil/element';
 import { createEffect } from '@ttylabs/sigil/renderer';
 import { State } from '@ttylabs/sigil/signals';
+import { ui } from '@ttylabs/sigil/template';
 
 /**
  * A chart that redraws when its data changes and when the layout resizes it.
@@ -29,7 +30,6 @@ import { State } from '@ttylabs/sigil/signals';
  * @returns {import('@ttylabs/sigil/element').Element} The chart's host.
  */
 export function LiveChart(props) {
-  const host = box({ class: ['live-chart', props.class ?? ''].join(' ').trim() });
   let size = { height: 0, width: 0 };
   let data = props.data();
 
@@ -45,7 +45,7 @@ export function LiveChart(props) {
     }
   };
 
-  host.onResize = (el) => {
+  const resize = (el) => {
     const width = el.box?.width ?? 0;
     const height = el.box?.height ?? 0;
     if (width === size.width && height === size.height) {
@@ -55,6 +55,9 @@ export function LiveChart(props) {
     redraw();
     return true;
   };
+
+  // the handler is a prop, so it is on the host before the first layout asks
+  const host = ui`<box class=${['live-chart', props.class ?? ''].join(' ').trim()} onResize=${resize} />`;
 
   createEffect(() => {
     data = props.data();
@@ -92,10 +95,6 @@ const COLUMNS = Object.freeze([
  *   The table, and the moves its keys make.
  */
 export function ProcessTable(props) {
-  const header = text('', { class: 'table-header' });
-  const body = box({ class: 'table-body' });
-  const element = box({ class: 'table', focusable: true }, header, body);
-
   /** The first visible row. Kept across ticks, so the view does not jump. */
   let top = 0;
   let width = 0;
@@ -134,7 +133,7 @@ export function ProcessTable(props) {
     });
   };
 
-  body.onResize = (el) => {
+  const resizeBody = (el) => {
     const h = el.box?.height ?? 0;
     const w = el.box?.width ?? 0;
     if (h === pool.length && w === width) {
@@ -153,11 +152,6 @@ export function ProcessTable(props) {
     return true;
   };
 
-  createEffect(() => {
-    height.get();
-    draw();
-  });
-
   const go = (to) => {
     const rows = props.rows();
     if (rows.length === 0) {
@@ -170,7 +164,7 @@ export function ProcessTable(props) {
 
   // a click picks the row under it, which is the one place the pool's position
   // has to be turned back into a process
-  body.onMouse = (event) => {
+  const clickBody = (event) => {
     if (event.kind !== 'click' || event.button !== 'left') {
       return;
     }
@@ -181,6 +175,28 @@ export function ProcessTable(props) {
       event.stop();
     }
   };
+
+  // the header and the body are held through `ref`. `draw` and the handlers above
+  // reach them, and none of those runs before this template has been built: the
+  // effect below is the first, and the layout is the rest
+  /** @type {import('@ttylabs/sigil/element').Element} */
+  let header;
+  /** @type {import('@ttylabs/sigil/element').Element} */
+  let body;
+  const element = ui`<box class="table" focusable>
+    <text class="table-header" ref=${(el) => (header = el)}></text>
+    <box
+      class="table-body"
+      onMouse=${clickBody}
+      onResize=${resizeBody}
+      ref=${(el) => (body = el)}
+    />
+  </box>`;
+
+  createEffect(() => {
+    height.get();
+    draw();
+  });
 
   return {
     element,

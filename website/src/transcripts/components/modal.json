@@ -53,7 +53,7 @@
         "description": "The panel's own props: a margin, a class. Geometry only, never a colour.",
         "name": "props",
         "optional": true,
-        "type": "ElementProps"
+        "type": "ElementPropsWithout<\"onPaste\">"
       },
       {
         "description": "The heading.",

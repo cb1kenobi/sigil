@@ -35,8 +35,13 @@
  * `emit()` decides the *shape* of a tree and then hands every leaf decision --
  * is this prop reactive, what does this text come to, what does a slot append
  * -- to `applyProp()`, `applyText()`, `appendValue()`, `rawElement()` and
- * `rootElement()`. The build emitter in `@ttylabs/cli` calls the same five, and
- * calls nothing else from this module. So the two emitters cannot
+ * `rootElement()`, and to `applyRef()` for the one prop that runs after the
+ * children. The code the build emitter in `@ttylabs/cli` *generates* calls those
+ * same six and nothing else from this module. The compiler itself also reads
+ * `componentChildren()`, `rawParts()`, `splitRefs()`, `textPart()`,
+ * `refuseHandlerName()` and `templateError()` while it prints -- the rules about
+ * which children, props and names exist, which are not to be written twice and
+ * which never reach an app's bundle. So the two emitters cannot
  * come to disagree about what a prop or a child *means*; they can only disagree
  * about which of them was decided ahead of time, and that is exactly what the
  * differential test is pointed at.
@@ -53,12 +58,15 @@ import {
   box,
   Element,
   type ElementProps,
+  HANDLER_PROPS,
+  isHandlerProp,
   type PropValue,
   raw,
   type RawOptions,
   text,
 } from '../element/index.js';
 import { createEffect } from '../renderer/index.js';
+import { untrack } from '../signals/index.js';
 
 /**
  * Where in the source a node was written.
@@ -249,12 +257,43 @@ export function rootElement(value: unknown, loc?: SourceLocation): Element {
  * should run the write it feeds and no others, which is the whole reason the
  * renderer has no re-render.
  *
+ * **Except for the seven hooks.** A function under `onKey` and its six siblings
+ * is the handler and never a thunk: the thunk rule would call it with no
+ * arguments while the template builds and set what it returned, so a handler is
+ * assigned once, as written. Swapping one through a signal is not supported --
+ * a handler reads the state it needs when it runs. A value that is not a
+ * function is a template error, since `onKey="x"` could only ever have been a
+ * mistake.
+ *
  * @param element - What to write to.
  * @param name - The prop.
  * @param value - Its value: a thunk is reactive, anything else is static.
+ * @param loc - Where it was written, for the error a handler can raise.
  */
-export function applyProp(element: Element, name: string, value: unknown): void {
-  refuseExpr(value, undefined);
+export function applyProp(
+  element: Element,
+  name: string,
+  value: unknown,
+  loc?: SourceLocation
+): void {
+  refuseExpr(value, loc);
+
+  if (name === 'ref') {
+    // a ref is called after the children are built, which only the emitter
+    // that holds the children can arrange -- applying it here would run it
+    // early and say nothing
+    throw templateError('A ref is applied by applyRef(), after the element is built', loc);
+  }
+
+  refuseHandlerName(name, value, loc);
+
+  if (isHandlerProp(name)) {
+    if (value !== undefined && typeof value !== 'function') {
+      throw templateError(`\`${name}\` takes a function, and was given ${describe(value)}`, loc);
+    }
+    element.setProp(name, value as PropValue);
+    return;
+  }
 
   if (typeof value === 'function') {
     const read = value as () => PropValue;
@@ -272,14 +311,136 @@ export function applyProp(element: Element, name: string, value: unknown): void 
 }
 
 /**
+ * Refuses a name that is a near miss for a handler, or an event no element has.
+ *
+ * The thunk rule is what makes this necessary: `on-key=${fn}`, `onkey=${fn}` and
+ * `onClick=${fn}` are not handler names, so they fall to the rule that calls a
+ * function with no arguments while the template builds -- the exact failure the
+ * hooks-as-props change exists to end, left standing for every spelling but one.
+ * No style property starts with `on` (`test/template/props.test.ts` pins it), so
+ * nothing legitimate is lost.
+ *
+ * - **A spelling of one of the seven** -- kebab or lower case -- is refused
+ *   whatever its value, pointing at the right name. There is one spelling.
+ * - **Any other `on`-prefixed name given a function** is refused as an event this
+ *   element does not have. Given anything else it reaches the cascade, which
+ *   already refuses an unknown property; a function is the only value that would
+ *   have been called instead.
+ *
+ * Both emitters ask it: the interpreter at build time of the element, the
+ * compiler with no value (an interpolation's type is not known until it runs),
+ * so the first half is a compile error and the second is the interpreter's own.
+ *
+ * @param name - The prop.
+ * @param value - Its value, or `undefined` where the caller cannot know it.
+ * @param loc - Where it was written.
+ * @throws If the name is one of those.
+ */
+export function refuseHandlerName(name: string, value: unknown, loc?: SourceLocation): void {
+  if (isHandlerProp(name)) {
+    return;
+  }
+  const folded = name.replaceAll('-', '').toLowerCase();
+  const right = HANDLER_PROPS.find((hook) => hook.toLowerCase() === folded);
+  if (right !== undefined) {
+    throw templateError(
+      `\`${name}\` is not a handler name: write \`${right}\`. There is one spelling, ` +
+        'and it is the camelCase one in both frontends',
+      loc
+    );
+  }
+  if (typeof value === 'function' && name.startsWith('on')) {
+    throw templateError(
+      `\`${name}\` is not an event this element has. The handlers are ` +
+        `${HANDLER_PROPS.join(', ')}`,
+      loc
+    );
+  }
+}
+
+/**
+ * Calls a template's `ref` with the element it was written on.
+ *
+ * Called once, after the element's props and children are built and before it
+ * is attached to its parent -- so the element has no box yet, and a ref that
+ * wants a size asks for `onLayout`. Not called again on removal: cleanup goes
+ * through the owner (`onCleanup()`), which is where everything else the template
+ * made is torn down. A function under `ref` is never a thunk, for the reason a
+ * handler is not: it is called *with* the element rather than to produce a value.
+ *
+ * Untracked, because the template can be built inside an effect (a `For` row
+ * is) and a ref that reads a signal would otherwise subscribe that effect to
+ * it -- a ref is not reactive and must not become so by where it was called.
+ *
+ * @param element - The element the ref was written on.
+ * @param value - What the template gave `ref`.
+ * @param loc - Where it was written.
+ * @throws If the value is not a function.
+ */
+export function applyRef(element: Element, value: unknown, loc?: SourceLocation): void {
+  refuseExpr(value, loc);
+
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== 'function') {
+    throw templateError(`\`ref\` takes a function, and was given ${describe(value)}`, loc);
+  }
+  untrack(() => (value as (element: Element) => void)(element));
+}
+
+/** Calls each ref in the order it was written. */
+function applyRefs(element: Element, refs: readonly IRProp[], loc?: SourceLocation): void {
+  for (const { value } of refs) {
+    applyRef(element, value, loc);
+  }
+}
+
+/**
+ * Splits a host element's `ref` props from the rest.
+ *
+ * Both emitters ask it, for the reason `rawParts()` exists: a ref is the one
+ * prop that runs *after* the children, so which props are refs is a fact about
+ * the ordering and is not to be written twice.
+ *
+ * @param props - Every prop the element was written with.
+ * @returns The props to write before the children, and the refs to call after.
+ */
+export function splitRefs(props: readonly IRProp[]): {
+  readonly props: readonly IRProp[];
+  readonly refs: readonly IRProp[];
+} {
+  return {
+    props: props.filter((prop) => prop.name !== 'ref'),
+    refs: props.filter((prop) => prop.name === 'ref'),
+  };
+}
+
+/** What a value that was refused reads as in the message. */
+function describe(value: unknown): string {
+  if (typeof value === 'string') {
+    return JSON.stringify(value);
+  }
+  // `String()` throws for an object with no prototype, and for one whose
+  // `toString` does -- and this is the message for a value that is already wrong,
+  // which must not be replaced by a different error about printing it
+  try {
+    return String(value);
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
+/**
  * Writes every prop of one element, in the order they were written.
  *
  * @param element - What to write to.
  * @param props - The props the frontend read.
+ * @param loc - Where the element was written.
  */
-export function applyProps(element: Element, props: readonly IRProp[]): void {
+export function applyProps(element: Element, props: readonly IRProp[], loc?: SourceLocation): void {
   for (const { name, value } of props) {
-    applyProp(element, name, value);
+    applyProp(element, name, value, loc);
   }
 }
 
@@ -425,12 +586,14 @@ export function textValue(value: unknown): string {
  */
 function emitBox(node: IRElement): Element {
   const element = box();
-  applyProps(element, node.props);
+  const { props, refs } = splitRefs(node.props);
+  applyProps(element, props, node.loc);
 
   for (const child of node.children) {
     appendChild(element, child);
   }
 
+  applyRefs(element, refs, node.loc);
   return element;
 }
 
@@ -442,12 +605,14 @@ function emitBox(node: IRElement): Element {
  */
 function emitText(node: IRElement): Element {
   const element = text('');
-  applyProps(element, node.props);
+  const { props, refs } = splitRefs(node.props);
+  applyProps(element, props, node.loc);
 
   if (node.children.length > 0) {
     applyText(element, node.children.map(textPart), node.loc);
   }
 
+  applyRefs(element, refs, node.loc);
   return element;
 }
 
@@ -521,9 +686,11 @@ export function rawParts(node: IRElement): {
  * @returns The raw element.
  */
 function emitRaw(node: IRElement): Element {
-  const { measure, paint, props } = rawParts(node);
+  const { measure, paint, props: all } = rawParts(node);
+  const { props, refs } = splitRefs(all);
   const element = rawElement(measure, paint, node.loc);
-  applyProps(element, props);
+  applyProps(element, props, node.loc);
+  applyRefs(element, refs, node.loc);
   return element;
 }
 

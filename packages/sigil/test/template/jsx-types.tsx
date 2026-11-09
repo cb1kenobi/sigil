@@ -22,7 +22,10 @@
  * fail loudly.
  */
 
+import { type Element, HANDLER_PROPS, type HandlerProp } from '../../src/element/index.js';
 import { For, Show } from '../../src/renderer/index.js';
+import { State } from '../../src/signals/index.js';
+import type { ReservedProps } from '../../src/template/props.js';
 import type { HostProps } from '../../src/template/runtime.js';
 
 // --- the host element vocabulary ---
@@ -71,6 +74,60 @@ const lengths = <box width={10} max-width="50%" />;
 const shorthandsKebab = <box flex-flow="column" font-weight="bold" text-decoration="underline" />;
 const shorthandsCamel = <box flexFlow="column" fontWeight="bold" textDecoration="underline" />;
 
+// --- the seven hooks are props, typed by the fields they set ---
+
+// every hook has a prop, and its type is the field's: a hook `Element` gains and
+// `ReservedProps` does not fails here as a missing key. `HANDLER_PROPS` is read
+// so that the list this checks is the list the runtime branches on
+type EveryHookIsAProp = { [K in HandlerProp]: HostProps[K] };
+const hookNames: readonly HandlerProp[] = HANDLER_PROPS;
+
+// and `ReservedProps` carries these names and no others -- written out because an
+// interface cannot be enumerated at run time, and checked against `RESERVED` by
+// `props.test.ts`, which routes each of them through `setProp()`. Mutual
+// assignability, so a name added to either side fails here
+type ReservedNames = 'class' | 'focusable' | 'id' | 'key' | 'selectable' | 'tabindex' | HandlerProp;
+type ReservedIsExactlyThose = [keyof ReservedProps] extends [ReservedNames]
+  ? [ReservedNames] extends [keyof ReservedProps]
+    ? true
+    : never
+  : never;
+export const reservedIsExactlyThose: ReservedIsExactlyThose = true;
+
+const keyed = <box onKey={(event) => event.stop()} focusable />;
+const hooked = (
+  <box
+    onMouse={(event) => event.stop()}
+    onPaste={(event) => void event.text}
+    onFocusChange={(element, focused) => void (element.type + String(focused))}
+    onScroll={(viewport) => void viewport.type}
+    onResize={(element) => element.box === undefined}
+    onLayout={() => false}
+  />
+);
+const clearedHook = <box onKey={undefined} />;
+
+// @ts-expect-error -- a wrong signature is a type error rather than a silent no-op
+const wrongKeySignature = <box onKey={(count: number) => count} />;
+
+// @ts-expect-error -- onResize answers whether it changed the tree
+const wrongResizeReturn = <box onResize={() => 'changed'} />;
+
+// @ts-expect-error -- a static value could only ever be a mistake
+const staticHandler = <box onKey="x" />;
+
+// --- a ref is a callback and nothing else ---
+
+const held = new State<Element | undefined>(undefined);
+const refCallback = <box ref={(el) => el.addClass('row')} />;
+const refToState = <text ref={(el) => held.set(el)}>x</text>;
+
+// @ts-expect-error -- a State is `ref={(el) => node.set(el)}`, not the State itself
+const refState = <box ref={held} />;
+
+// @ts-expect-error -- a value is not a callback
+const refValue = <box ref="x" />;
+
 export type Checked = typeof unknownElement &
   typeof misspelledLonghand &
   typeof misspelledShorthand &
@@ -86,4 +143,16 @@ export type Checked = typeof unknownElement &
   typeof numericProp &
   typeof lengths &
   typeof shorthandsKebab &
-  typeof shorthandsCamel;
+  typeof shorthandsCamel &
+  typeof keyed &
+  typeof hooked &
+  typeof clearedHook &
+  typeof wrongKeySignature &
+  typeof wrongResizeReturn &
+  typeof staticHandler &
+  typeof refCallback &
+  typeof refToState &
+  typeof refState &
+  typeof refValue &
+  EveryHookIsAProp &
+  typeof hookNames;

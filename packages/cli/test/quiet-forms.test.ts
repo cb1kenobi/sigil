@@ -12,6 +12,7 @@
  */
 
 import { tempDir } from './temp.js';
+import { runOnTerminal } from '@ttylabs/sigil/testing';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -43,8 +44,6 @@ interface Ran {
 interface Answered extends Ran {
   /** What was on screen when the answer was written. */
   asked: string;
-  /** How many times the answer was written. */
-  writes: number;
 }
 
 /**
@@ -95,99 +94,54 @@ function sigil(argv: readonly string[]): Promise<Ran> {
 }
 
 /**
- * The same binary with both streams claiming to be terminals, and a key written
- * to its stdin once it has had time to ask.
+ * The same binary with stdin and stdout claiming to be terminals, and a key
+ * written to its stdin once the question is on screen.
  *
- * `runOnTerminal()` is the shipped way to fake a terminal and deliberately
- * writes nothing to the child's stdin -- "a prompt is not what to spawn" -- so a
- * test of a path behind a confirm has to do both halves itself. `isTTY` is what
- * makes the router agree to exist and `setRawMode` is absent on a pipe, which
- * the router calls optionally, so the keys arrive as themselves.
+ * `runOnTerminal({ stdin: true })` is the whole of it: `isTTY` is what makes the
+ * router agree to exist, and `waitFor()` is the wait for the question's own text
+ * rather than a shape. That last was found by review when this was written by
+ * hand: a `?` is in `ESC [ ? 25 l`, which `mountLive()` writes inside the **first
+ * paint** -- before `createInput()` has attached its stdin listener -- so a
+ * condition that looked for one wrote the key at a moment nothing was reading.
+ * It worked, because a pipe holds what nobody has read yet; what it did not do
+ * is mean what it said. `waitFor()` reads the replayed **screen**, and the
+ * sequence draws nothing, so there is no `?` for it to find.
  *
- * `ready` is the question's own text rather than a shape, and it is latched.
- * Found by review: a `?` is in `ESC [ ? 25 l`, which `mountLive()` writes inside
- * the **first paint** -- before `createInput()` has attached its stdin listener
- * -- so a condition that looked for one wrote the key at a moment nothing was
- * reading, and then again on every later chunk. It worked, because a pipe holds
- * what nobody has read yet; what it did not do is mean what it said. A stdin
- * already flowing would have dropped that key and the test would have waited out
- * the kill.
- *
- * @param argv - The arguments.
- * @param answer - What to type once the question is up.
- * @param cwd - Where to run it.
- * It reports **when** and **how often** it answered, because nothing outside the
- * child can see either: a pipe holds what nobody has read yet, so an early key
- * and a repeated one both work and neither can be told from a correct one by
- * reading the output. So the helper's own claim is the thing asserted.
+ * Stderr is left a pipe, as it was: the question and the plan are stdout's.
  *
  * @param argv - The arguments.
  * @param answer - What to type once the question is up.
  * @param cwd - Where to run it.
  * @param ready - The question's own text, which is what says it is up.
- * @returns What it wrote, how it exited, and when it answered.
+ * @returns What it wrote, how it exited, and what was on screen when it answered.
  */
-function prompted(
+async function prompted(
   argv: readonly string[],
   answer: string,
   cwd: string,
   ready: string
 ): Promise<Answered> {
-  const env: Record<string, string | undefined> = { ...process.env };
-  for (const name of COLOUR_ENV) {
-    for (const key of Object.keys(env)) {
-      if (key.toLowerCase() === name.toLowerCase()) {
-        delete env[key];
-      }
-    }
-  }
-  env.COLUMNS = '100';
-  env.TERM = 'xterm-256color';
-
-  const fake = [
-    "for (const n of ['stdin', 'stdout']) {",
-    "  Object.defineProperty(process[n], 'isTTY', { configurable: true, value: true });",
-    '}',
-    "Object.defineProperty(process.stdout, 'columns', { configurable: true, value: 100 });",
-  ].join('\n');
-
-  return new Promise<Answered>((settle, fail) => {
-    const child = spawn(
-      process.execPath,
-      ['--import', `data:text/javascript,${encodeURIComponent(fake)}`, bin, ...argv],
-      { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] }
-    );
-    let asked = '';
-    let err = '';
-    let out = '';
-    let writes = 0;
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      fail(new Error(`timed out: sigil ${argv.join(' ')}`));
-    }, 120_000);
-    timer.unref?.();
-
-    child.stderr.setEncoding('utf8');
-    child.stdout.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => {
-      err += chunk;
-    });
-    child.stdout.on('data', (chunk: string) => {
-      out += chunk;
-      // the question itself is on screen, so a key is one it is waiting for --
-      // and once, because the confirm reads one and settles
-      if (writes === 0 && out.includes(ready) && child.stdin.writable) {
-        asked = out;
-        writes += 1;
-        child.stdin.write(answer);
-      }
-    });
-    child.on('error', fail);
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      settle({ asked, code, err, out, writes });
-    });
+  const run = runOnTerminal({
+    argv,
+    columns: 100,
+    cwd,
+    run: bin,
+    stdin: true,
+    timeout: 120_000,
+    tty: ['stdout'],
   });
+
+  try {
+    await run.waitFor(ready, { timeout: 120_000 });
+    const asked = [...run.viewport, ...run.lines].join('\n');
+    await run.press(answer);
+
+    return { asked, ...(await run) };
+  } finally {
+    // a wait that failed leaves the binary running until the run's own timeout,
+    // two minutes of a process nobody is reading. Safe after it has exited
+    run.kill();
+  }
 }
 
 /**
@@ -366,26 +320,22 @@ describe('a declined add', () => {
   });
 
   /**
-   * The helper's own claim, asserted rather than commented. Found by a sabotage
-   * pass: taking the latch off and looking for any `?` both left every other
-   * assertion green, because a pipe holds what nobody has read yet -- so an early
-   * key and a repeated one are invisible from outside the child, and the test
-   * above passed for a reason other than its name.
-   *
-   * `ESC [ ? 25 l` is the input that makes it matter: `mountLive()` writes it
-   * inside the **first paint**, before `createInput()` has attached its stdin
-   * listener, so a condition looking for a `?` fires at a moment nothing is
-   * reading.
+   * What the helper now guarantees by construction -- it writes the key only
+   * after the question is on the replayed screen, and writes it once -- is no
+   * longer something a test can fail, so this asserts what is left: the question
+   * is on the screen when the answer goes in, and the outcome is not. A command
+   * that decided without asking (a default taken, a flag read the wrong way) has
+   * its outcome on screen already, and fails here.
    */
-  it('should answer once, and only once the question is on screen', async () => {
+  it('should show the question, and hold the outcome back until it is answered', async () => {
     const ask = 'Write these files?';
     const ran = await prompted(['add', 'spinner'], 'n', appFor(), ask);
     expect(ran.code).toBe(0);
-    expect(ran.writes).toBe(1);
     expect(ran.asked).toContain(ask);
-    // the cursor sequence really is there and really does hold a `?`, which is
-    // what a laxer condition would have fired on
-    expect(ran.out).toContain('\u001b[?25l');
+    expect(ran.asked, 'the outcome was on screen before the answer').not.toContain(
+      'Nothing written.'
+    );
+    expect(ran.out).toContain('Nothing written.');
   });
 });
 

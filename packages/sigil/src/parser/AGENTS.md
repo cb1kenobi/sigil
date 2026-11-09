@@ -1263,7 +1263,9 @@ resolution.
   the answer moves: a module that loads may bring a name string of its own,
   and `replace()` settles what it shares with a sibling by declaration order.
   So before `ship`'s module is read `build, go` is true and is what help
-  prints, and after it has loaded in the same tree `build` is. That is also
+  prints, and after it has loaded in the same tree `build` is -- and `ship` is
+  not `ship, go`, since SIG-316: a module's own name string registers but is
+  never published, because nothing routes by it (`src/help/AGENTS.md`). That is also
   why the check is in the listing and not in `CommandRegistry` -- nothing
   there changed, and `assertReachable()` still refuses only a name. Both
   listings on a help screen ask: the `Commands:` rows and the described
@@ -1341,6 +1343,96 @@ resolution.
   Pinned in `a loaded command moved to the end of its parent's registry` in
   `test/parser/regressions.test.ts`; every collision there is between two
   aliases.
+
+### A `commands.json` in a routed directory
+
+SIG-324. A routed `commands/` directory knows only file names until a module
+loads, which from source cost two things: `--help` listed every routed command by
+name alone, and a `name` or `alias` written in a module could never route
+(SIG-316). A `commands.json` in the directory says both without loading anything.
+
+```json
+{
+  "list": { "desc": "List the things", "alias": ["ls"] },
+  "db": { "desc": "Database commands" },
+  "debug": { "hidden": true }
+}
+```
+
+- **It is a placeholder declared in a file, so there is no new precedence rule.**
+  An entry takes `desc`, `hidden`, `alias` (a string or a list) and `default`,
+  which are the four a placeholder takes, and `routeDeclaration()` in
+  `init-command.ts` hands them to `initCommand()` as a hand-declared placeholder
+  would be handed them. So the entry's `desc` is what help shows before the module
+  loads and the module's own wins after; `hidden` is additive; and `alias` and
+  `default` route, because they are read when the command is registered, which is
+  before any module could be. An alias there stays out of help for the reason the
+  `alias` property does (SIG-225).
+- **Keys are route names, and a directory is described by its parent.** A key is a
+  file name without its extension or a subdirectory's name -- and a package's own
+  name where its manifest renames it, since that is the route's name and the
+  directory's is then not a command. `db` is described in `commands/commands.json`,
+  under `db`, and what is inside `db/` in `commands/db/commands.json`. A
+  directory's `index` is the directory's own command, so an `index` key names no
+  route.
+- **The walk still decides what exists.** An entry can describe and alias a route
+  and never creates or removes one: a route with no entry is a command listed by
+  name alone, and an entry naming no route is ignored at runtime. That is the
+  property `routeInfo` had and the reason it was a cache rather than a manifest --
+  a command dropped into an installed app is never invisible. What goes stale is a
+  sentence or a spelling, and since a stale alias is a spelling that does not
+  route, `sigil check` and `sigil build` warn about it (`DirectoryRoutes.stale`).
+  A property that is none of the four is the same case -- ignored, and warned
+  about (`RouteManifest.unknown`) -- because a misspelt `"aliases"` is a spelling
+  that does not route either. Refusing it would be the stricter answer and was not
+  taken: an app runs exactly as it would without the property.
+- **A package's own `package.json` beats an entry**, for `desc` only: that read is
+  free and cannot go stale. Settled once, in `describeRoute()` in `routes.ts`, so
+  the build cannot settle it differently.
+- **One reader, in the shared route rules.** `readRouteManifest()` is beside
+  `readRoutes()` in `routes.ts` and the file names are one constant,
+  `MANIFEST_FILES`, so the runtime walk and `sigil build` cannot disagree about
+  the file, its shape, or what it says -- `readRoutes()` applies each entry to its
+  `Route`, and both walks read the result. It reads the listing the walk already
+  made, so a level without the file costs nothing and a level with it costs one
+  file read, which is what a package subdirectory's `package.json` already costs.
+  No `.js` or `.ts` file is read. Each level reads its own file when it is walked:
+  nothing is carried down from the level above, which is what the internal
+  `routeInfo` map used to do and why it went.
+- **`commands.json` and `commands.jsonc` are both read, as JSONC, and both at once
+  is refused.** The `sigil.json` rule: the extension is a preference, not a
+  statement about the bytes. Two files is the two-routes-one-name error rather
+  than a preference order, for the reason two `index` modules are -- whichever is
+  not read is a file somebody edits to no effect. Neither is a route, because
+  `.json` is not one of the six route extensions.
+- **What is wrong with the file throws, naming it.** Not JSONC (`parseJsonc()`'s
+  `Failed to parse <file>`), not an object of objects, a property of the wrong
+  type, an alias starting `!` or `@`, or two entries both `default: true` -- the
+  last whether or not both name a route, so it is said naming the file rather
+  than by the registry naming neither. It throws when the level is walked, as an
+  invalid placeholder declaration throws when it is built, and the build fails
+  with the same message because it is the same function.
+- **`default` marks a named child as the implied one.** A routed module's own
+  `default: true` cannot work -- it is read after argv matched the module by name --
+  and `index` is the directory's own command rather than a default child. An
+  entry's `default` is the only way a walk can say it, and it is the one thing a
+  directory route can be given here that a schema key cannot give it, since a
+  key's string value cannot carry `default` and an object's `path` cannot name a
+  directory.
+- **It cost a chunk boundary, not a module.** The JSONC reader is the config
+  module's, so `routes.mjs` now reaches `jsonc`, `i18n` and `debug` -- 10,979 B
+  over five as of this change, from 2,604 B over two -- and `config.mjs` splits
+  `jsonc` out as a shared chunk, ten modules where it was nine. The root entry
+  did not move: it reaches the parser through a dynamic import.
+
+`Schema.routeInfo`, `Command.routeInfo`, `InternalCommandBase.routeInfo` and
+`RouteInfo` were removed with it. Nothing produced one -- the scaffold and the
+toolchain left it unset, `sigil build` bakes a `commands` literal, and the
+runtime does not read it on a baked tree -- and a file that both walks read, and
+that can say `alias` and `default`, covers its use. Two sources for one fact is
+the thing this file keeps refusing. A leftover `routeInfo` is custom data and is
+ignored, with no compatibility read and no warning. Pinned by `a commands.json`
+in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md`.
 
 ### Two options in one command may not share a spelling
 

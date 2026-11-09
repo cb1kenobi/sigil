@@ -39,8 +39,11 @@ the `ui` tag run by plain `node`.
   | `test/`                 | Tests of the example's own, which vitest picks up as a project named after the package                                                                                                 |
 
   `App` reaches the app it runs under through `useApp()`: `input` for the router
-  and `exit()` to end it. Every example quits with `0` on `q` through
-  `useApp().exit()`, and Ctrl-C is `runApp()`'s own quit key, with `130`. Piped,
+  and `exit()` to end it. Every example quits with `0` on `q` and with `130` on
+  Ctrl-C, and both are `runApp()`'s own: `quitKey` is a fallback, so a text field
+  that takes `q` keeps it (SIG-308). `hello` still binds `q` itself, which is
+  redundant now and runs first; an example that needs `q` for something else
+  passes `quitKey: false` where it calls `runApp()`. Piped,
   with no terminal on both ends, an entry is refused the way `runApp()` refuses:
   exit `1`, nothing on stdout, one line on stderr. There is no `src/start.*`,
   and the contract test fails if one comes back. `examples/system-monitor`
@@ -126,35 +129,97 @@ the `ui` tag run by plain `node`.
   package's script was not given a build of its own: it runs inside root
   `pnpm test` too, after the build the root filter already did.
 
-- **The smoke test runs in-process for behaviour and spawned for the entries.**
-  `runOnTerminal()` fakes `isTTY` on a child's output but never writes to its
-  stdin, and `createInput()` refuses a stdin that is not a terminal, so a spawned
-  child cannot be driven with keys. In-process over `createTestTerminal()` it
-  can: each root is mounted, walked with Tab, quit with `q` and with Ctrl-C, and
-  has to leave the alternate screen, show the cursor and put raw mode back. Where
-  an example has more than one root, all of them have to draw the same first
+- **The smoke test runs in-process for behaviour and spawned for the entries,
+  and the entries are driven with keys.** `runOnTerminal({ stdin: true })`
+  (SIG-309) makes a child's stdin a terminal as its stdout already was, so a
+  spawned entry can be typed at; before it, `runOnTerminal()` faked `isTTY` on a
+  child's output and never wrote to its stdin, and `createInput()` refuses a stdin
+  that is not a terminal, so the harness could only mount a root in-process. That
+  half is still the one that walks the whole app: each root is mounted over
+  `createTestTerminal()`, walked with Tab, quit with `q` and with Ctrl-C, and has to
+  leave the alternate screen, show the cursor and put raw mode back -- raw mode
+  being the one thing a spawned child cannot report, which is why it stays here.
+  Where an example has more than one root, all of them have to draw the same first
   screen -- the claim the two syntaxes rest on, one IR behind both, checked on a
   real app. Each root is run with `runApp(App, { detect: false, sheets, terminal })`
   -- the runner the entries use, so the harness mounts nothing its own way --
   and the codes asserted are the ones `exited` resolves. The entries are what
   the in-process half cannot see, so the built `bin` and `src/ui.*` are each
-  spawned piped and have to show `runApp()`'s refusal exactly: exit `1`, nothing
-  on stdout, the refusal's own line on stderr (matched by its wording, so an
-  entry dying of something else with a `1` is not mistaken for it), and no stack.
-  An entry that exits `0` piped has stopped refusing, and fails. The built one is
+  spawned twice. Piped, they have to show `runApp()`'s refusal exactly: exit `1`,
+  nothing on stdout, the refusal's own line on stderr (matched by its wording, so
+  an entry dying of something else with a `1` is not mistaken for it), and no
+  stack. And with a terminal on stdin and stdout, `waitFor()` the first frame,
+  press `q`, and the process has to exit `0` with nothing on stderr, no stack, and
+  the alternate screen and the cursor given back -- the real `main()`, the
+  schema, and the capability queries going out unanswered, none of which the
+  in-process half runs. An entry that exits `0` piped has stopped refusing, and
+  fails. The built one is
   the only check that `sigil build` produced a bundle that loads. The spawn helper and `STACK` moved out of
   `demos.test.ts` into `packages/cli/test/spawned.ts`, one definition for both.
   It lives in `packages/cli` for `demos.test.ts`'s reason: it needs `dist/`.
 
-- **The in-process JSX twin is compiled by vite, and vite does not follow the
-  example's `tsconfig.json` for it.** Measured three ways: with
-  `jsxImportSource` set to `react`, to a package that does not exist, and with
-  the file deleted, `root.tsx` still compiled against sigil's `jsxDEV` and every
-  test passed. How vite arrives at that was not run down. What it means is that
-  the tsconfig's JSX lines are checked by `sigil build`, not by vitest: set to
-  `react`, the build fails with `TS2875`, and `pnpm test` builds before it tests.
-  The same-screen assertion is what proves the in-process twin produced sigil
-  elements at all.
+- **Vite does follow an example's `tsconfig.json`; vitest's module cache is what
+  made it look as though it did not (SIG-312).** The first version of this entry
+  said vite ignored the tsconfig: with `jsxImportSource` set to `react`, to a
+  package that does not exist, and with the file deleted, `root.tsx` still
+  compiled against sigil and every test passed. That was measured and it was
+  true, and the cause it was put down to was wrong. Vite 8.2.2 hands the file to
+  rolldown's `transformSync` along with a tsconfig resolution cache, which finds
+  the nearest `tsconfig.json` above **each file** and reads its `jsx` and
+  `jsxImportSource`; `vitest@5.1.0` adds nothing of its own, and neither the root
+  config, the package's config, a plugin nor `projects` sets an import source.
+  Measured with vite alone, `createServer().transformRequest()` over
+  `examples/hello/src/root.tsx` fails with `Failed to resolve import
+  "react/jsx-dev-runtime"` once the tsconfig says `react`, and a scratch
+  directory with `jsxImportSource: "from-tsconfig"` compiles to
+  `from-tsconfig/jsx-dev-runtime`.
+
+  What hid it is `fsModuleCache`, on by default since vitest 5 and stored in
+  `node_modules/.vitest-cache`. A transform is cached under a key made of the
+  module's id, **its content**, and the config (plugins, resolve, the config
+  files' own text); the tsconfig is in none of those, so editing the tsconfig
+  alone leaves `root.tsx` byte for byte what it was and the cached output, built
+  against whatever the tsconfig said when the cache was written, is served. Same
+  tree, `--fsModuleCachePath` pointed at a fresh directory each time: the original
+  tsconfig passes; `react` fails with `Cannot find package 'react/jsx-dev-runtime'`;
+  `no-such-pkg` fails the same way; **no tsconfig at all** fails too, because
+  without one the default import source is `react`. Pointed at a **warm** cache,
+  `react` passes against the original's output, and the reverse holds: restoring
+  the tsconfig over a cache written while it said `react` keeps failing, which is
+  the same hole read from the other side. A cold cache, as on a fresh clone or
+  CI, therefore checks the line, and a warm one checks it only when `root.tsx`
+  itself changed.
+
+  The decision is that the harness keeps what vite does and does **not** override
+  the import source, and the line is guarded by a read that no cache can answer
+  for. Pinning `oxc.jsx.importSource` in a vitest config would make the
+  in-process twin agree with the build by construction, and would make a wrong
+  tsconfig invisible to it for good, which is the opposite of the ticket. The
+  build overrides the line on purpose (`packages/cli/AGENTS.md`, "JSX compiles
+  against `@ttylabs/sigil`"), so what it checks is not the line but the type
+  gate: set to `react`, `sigil build` fails with `TS2875`, and `pnpm test` builds
+  first. That gate does not catch every wrong source, though: a package that
+  resolves but whose JSX runtime has no types passes `tsc` silently, because
+  `tsconfig.base.json` sets `noImplicitAny: false`, which turns off TS7016 and
+  TS7026, and the build overrides the import source so it builds too (reviewed
+  with a stub `untyped-jsx` package). Only the tsconfig read below catches that
+  case. So three things guard it, each from a different side: that gate, a cold
+  vitest cache, and `should name sigil as its JSX import source` in
+  `examples.test.ts`, which reads each JSX example's `tsconfig.json` (following a
+  relative `extends`) and asks for `jsxImportSource` of `@ttylabs/sigil` and a
+  `jsx` of `react-jsx` or `react-jsxdev`. That read is the one with no cache in
+  front of it. Sabotaged: `react`, no tsconfig, and `jsx: "preserve"` each fail
+  it. `guides.test.ts` also fails for `examples/hello` when the line changes,
+  because the guide quotes `compilerOptions` whole, but only for that example.
+
+  Not done, and the option that is left: a `defineCacheKeyGenerator` in a plugin
+  (the `configureVitest` hook) that adds the nearest tsconfig's text to the key
+  of a `.tsx`, which would make the in-process mount itself honest on a warm
+  cache. It is not taken here because the hole is vitest's rather than this
+  harness's -- every tsconfig setting is invisible to the cache the same way, for
+  every project in the workspace -- and a key that follows an `extends` chain
+  halfway is worse than a documented gap. When a transform seems to ignore a
+  tsconfig, `rm -rf node_modules/.vitest-cache` first (or `vitest --clearCache`).
 
 - **`runApp()` runs every example, and `start()` is gone.** Until SIG-276
   landed, each example carried a hand-wired `start()` shaped like the runner,
@@ -167,30 +232,22 @@ the `ui` tag run by plain `node`.
   nothing happened. And an entry sets `process.exitCode` itself, because
   `runApp()` resolves a code and leaves the process's alone.
 
-- **The harness and the guide wait on timers for frames, which is SIG-309.** A
-  frame is drawn on the renderer's clock rather than once per key, and nothing
-  yet says when the next has landed, so the harness polls the screen until it
-  stops changing and the example's own test waits 50ms. Both comments name
-  SIG-309, which is the call that would replace them. "Stops changing" is two
-  frame periods by the clock (`QUIET_MS`), never a count of polls: the first
-  version counted three equal reads 10ms apart, which returned in about 30ms,
-  inside one 33ms frame, under a comment saying it had waited one out. And the
-  clock only counts while the loop runs (review round 2, probed): node fires
-  due timers in the order they fell due, the 10ms poll is armed before a frame
-  a change scheduled, so after a stall longer than the window the poll ran
-  first and returned the screen from before a frame already due. Two guards: a
-  poll arriving more than a frame period after the last restarts the window,
-  and a window that looks finished yields past the timers phase
-  (`setImmediate`) and reads again. Three tests: changes at 45ms and 95ms with
-  a literal floor of 155ms, so a smaller `QUIET_MS` fails, and so does a fixed
-  sleep shorter than the floor -- one of 155ms or more passes all three, since
-  it outlasts every timer they arm, and no finite set of timings can refuse
-  every sleep without an upper bound that would flake under load; a synchronous stall with a change already due, which fails with both
-  guards removed; and a stall whose frame is armed by a timer the stall
-  delayed, which only the restart sees. Either guard alone passes the second,
-  and no deterministic test separates the yield from the restart: the case it
-  alone covers is a sub-frame stall where the poll and a frame fall due in one
-  tick, which a test can only hit by luck.
+- **The harness and the guide wait for frames with `frame(app)`, and the polling
+  is gone (SIG-309).** A frame is drawn on the renderer's clock rather than once
+  per key, and `settled()` -- poll the screen until it stops changing for two frame
+  periods -- was the harness's answer while nothing said when the next had
+  landed. It cost about 70ms a mount, had three tests of its own for the stalls it
+  had to survive (a poll that ran before a frame already due, a window restarted
+  after a stall), and was a guess about a clock the renderer owns. `frame(app)`
+  from `@ttylabs/sigil/testing` paints one now, so there is nothing to wait for
+  and nothing to guard; the helper, its tests and the reasoning are under
+  "Typing into a spawned program" in `packages/sigil/src/testing/AGENTS.md`, and
+  `QUIET_MS`, `FRAME_MS`, `until()` and the three `settled()` tests went with it.
+  `mount()` still calls it once, so a first screen that includes what an
+  `onMount` wrote is the one the twins are compared on; that call is not load
+  bearing for either example today (removing it fails nothing, since both set
+  only a focus, which is a background colour and invisible at level 0), and it is
+  there for the first example whose mount draws something.
 
 - **The guide quotes the example rather than being replayed.**
   `packages/sigil/docs/full-screen-apps.md` sits beside `getting-started.md`,
@@ -209,12 +266,16 @@ the `ui` tag run by plain `node`.
   fence trailing commas `JSON.parse()` refuses. The testing snippet used to be
   a loose fragment nothing ran, so it is `examples/hello/test/hello.test.ts`
   now, quoted whole, and the suite runs it as the example's own project. The
-  example's tests are what make the quoted code code that runs. That test waits
-  a frame before the first key, measured: the first row takes the focus in
-  `onMount`, after the first frame, so keys pressed before it reach no row, and
-  the screen lags a key by one frame tick. Thirty copies run ten at a time did
-  not flake: a frame a key scheduled falls due before the 50ms timer set after
-  it, and node fires timers in that order however late.
+  example's tests are what make the quoted code code that runs. That test pressed
+  after a 50ms wait for the first frame and read after another, on the claim that
+  the first row takes the focus in `onMount`, after the first frame, so keys
+  pressed before it reach no row. **Re-measured under SIG-309, and that half does
+  not hold:** `onMount` runs synchronously at the end of `render()`, `hello`'s
+  focus exists before any frame, and a key pressed straight after `runApp()`
+  counts. What does lag is the screen, by one frame tick -- so the test now has
+  one `frame(app)`, after the keys, and none before. The first one it used to
+  have was removed rather than kept as a ritual, and the sabotage that puts it
+  back fails nothing, which is the evidence it was never load bearing.
 
 - **`'!examples/*.md'` in the root vitest `projects`.** A projects glob that
   matches a file reads it as a config file, and vitest refuses
@@ -255,6 +316,29 @@ the `ui` tag run by plain `node`.
   the restart (the delayed-arming test); the guide's `tsconfig` as `{}`,
   without `jsxImportSource`, and naming `react`; and `src/ui.ts` reading
   `package.json` from the working directory.
+
+- **The system monitor's keys are fallbacks, and that is what SIG-308 was
+  built to prove (SIG-308).** The monitor put its keys on the root's `onKey` --
+  reached only by bubbling from a focused element, and under a text field, which
+  is the one place `q` has to be a letter -- and so it focused the process table
+  on mount, again after the filter, and again after the kill dialog, so that
+  _something_ was focused. Those three `focus()` calls are gone: the keys are
+  `input.fallback()`, which a focused field outranks and which runs with nothing
+  focused, and `q` is not the monitor's at all but `runApp()`'s `quitKey`. The
+  filter hands the focus to nothing on Enter and on Escape. `Escape` stays an
+  `onKey` on the root because it is the field's own key (abandon the filter), and
+  it is only meaningful while the field is focused. One behaviour moved, and it is
+  better: with the filter focused, Up, Down, PageUp and PageDown now reach
+  the table, because the field does not take them (it does take Home and End, as
+  cursor motion), where the old handler returned early for everything but Escape.
+
+  The footer's `q quit` is the runner's -- lower case and through `__`, like every
+  description the framework lists, so it is the line the monitor wrote and now
+  translates -- and it is last because the runner registers it after the body. Removing the focus-first workaround also removed a side effect nobody had
+  named: the footer sized itself from the root's laid-out width, which does not
+  exist at the first draw, and was cut to a guess of 80 until the focus moved --
+  the mount-time `focus()` was what moved it. It reads `app.terminal.width` now,
+  which is there at the first draw. Still not re-asked on a resize.
 
 - **Not done:** the focus highlight is a background colour, so at colour level 0
   (a pipe, `NO_COLOR`) nothing on screen says which row has the focus -- what a

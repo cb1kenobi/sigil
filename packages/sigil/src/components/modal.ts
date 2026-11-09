@@ -32,6 +32,7 @@ import {
   cellStyle,
   Element,
   type ElementProps,
+  type ElementPropsWithout,
   raw,
   text as textNode,
 } from '../element/index.js';
@@ -40,6 +41,7 @@ import type { InputRouter, KeyEvent, MouseEvent, PasteEvent } from '../input/ind
 import { createEffect } from '../renderer/index.js';
 import { decodeKeys, isAbort, type Key } from './keys.js';
 import { unicodeSupported } from './note.js';
+import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** One button along the bottom of the dialog. */
 export interface ModalAction<T = unknown> {
@@ -100,7 +102,7 @@ export interface ModalOptions<T = undefined> {
   /** The router the keys come from, which is also where the focus lives. */
   input: InputRouter;
   /** The panel's own props: a margin, a class. Geometry only, never a colour. */
-  props?: ElementProps;
+  props?: ElementPropsWithout<'onPaste'>;
   /** The heading. */
   title?: string;
   /** How wide the panel is, in cells. It never exceeds the screen. Defaults to 50. */
@@ -174,6 +176,7 @@ function buttonText(label: string, focused: boolean): string {
  * @returns The handle.
  */
 export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>): ModalHandle<T> {
+  refuseOwnedHooks('openModal', opts?.props, ['onPaste']);
   const root = host instanceof Element ? host : host?.root;
   if (!(root instanceof Element)) {
     throw new TypeError(__`Expected a modal host to be an element or a renderer`);

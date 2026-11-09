@@ -418,6 +418,61 @@ describe('sigil build', () => {
     expect(existsSync(join(out, 'fixture-app.mjs'))).toBe(true);
   }, 60_000);
 
+  it("should warn about a routed module's alias and leave it out of the built app's help", async () => {
+    // SIG-316. The module is read after argv matched `list`, so `ls` never
+    // routed, and a built app is no different: the warning is the build saying
+    // so, and the built help must not print what the warning says is ignored
+    const { err } = await sigil(
+      'build',
+      join(fixtures, 'discover', 'module-routing'),
+      '--out',
+      out
+    );
+
+    expect(err).toContain('src/commands/list.ts:1:18: warning: "name" declares "ls"');
+    expect(process.exitCode).toBeFalsy();
+
+    const exe = join(out, 'module-routing.mjs');
+    const help = spawnSync(process.execPath, [exe, 'help', 'list'], { encoding: 'utf-8' });
+    expect(help.stdout).toContain('List things');
+    expect(help.stdout).not.toContain('Alias');
+
+    const routed = spawnSync(process.execPath, [exe, 'ls'], { encoding: 'utf-8' });
+    expect(routed.status).toBe(1);
+    expect(routed.stderr).toContain('Unexpected argument "ls"');
+  }, 60_000);
+
+  it("should route a commands.json's alias and default after a build, as from source", async () => {
+    // SIG-324. The build reads the file through the runtime's own reader and
+    // bakes what it says, so a built app answers to the same spellings
+    const { err } = await sigil(
+      'build',
+      join(fixtures, 'discover', 'routes-manifest'),
+      '--out',
+      out
+    );
+
+    expect(err).toContain('"gone" names no command');
+    expect(process.exitCode).toBeFalsy();
+
+    const exe = join(out, 'routes-manifest.mjs');
+    const run = (...argv: string[]) =>
+      spawnSync(process.execPath, [exe, ...argv], { encoding: 'utf-8' });
+
+    expect(run('ls').stdout).toBe('listed\n');
+    expect(run().stdout).toBe('opened\n');
+    expect(run('database', 'm').stdout).toBe('migrated\n');
+
+    const help = run('--help').stdout;
+    expect(help).toMatch(/list\s+List the things/);
+    expect(help).toMatch(/db\s+Database things/);
+    expect(help).not.toContain('open');
+
+    const stale = run('g');
+    expect(stale.status).toBe(1);
+    expect(stale.stderr).toContain('Unexpected argument "g"');
+  }, 60_000);
+
   it('should refuse an alias of the wrong type, as the app does from source', async () => {
     // `alias: 42` throws on every run from source. A build that warned and
     // carried on would write an app that starts, which is a worse answer than

@@ -37,7 +37,7 @@
         "description": "The host box's own props: a class, a margin, a `flex-grow`. Geometry only, never a colour.",
         "name": "props",
         "optional": true,
-        "type": "ElementProps"
+        "type": "ElementPropsWithout<\"onFocusChange\" | \"onKey\" | \"onPaste\" | \"onResize\">"
       },
       {
         "description": "The value.",

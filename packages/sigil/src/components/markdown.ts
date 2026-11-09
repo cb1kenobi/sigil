@@ -15,7 +15,7 @@
  * arithmetic of its own, and every colour in it is a theme's.
  */
 
-import { ansi as defaultAnsi, supportsHyperlinks } from '../ansi/index.js';
+import { supportsHyperlinks } from '../ansi/index.js';
 import {
   box,
   cellStyle,
@@ -28,6 +28,7 @@ import { __ } from '../i18n/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { graphemes, graphemeWidth, stringWidth } from '../width/index.js';
 import { terminalWidth } from '../wrap/index.js';
+import { colorLevelOf } from './color-level.js';
 import {
   type MarkdownAlign,
   type MarkdownBlock,
@@ -149,7 +150,7 @@ export function markdownView(
     MIN_WIDTH,
     asked > 0 ? asked : terminalWidth({ env: opts.env, stream: opts.stream })
   );
-  const level = opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level;
+  const level = colorLevelOf(opts);
 
   const ctx: Context = {
     baseUrl: opts.baseUrl,
@@ -196,7 +197,7 @@ export function markdown(
 
   return renderToString(element, {
     cascade: themedCascade(opts),
-    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    colorLevel: colorLevelOf(opts),
     colorScheme: opts.colorScheme,
     width,
   });

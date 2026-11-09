@@ -1,8 +1,8 @@
-import { ansi as defaultAnsi } from '../ansi/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
 import { terminalWidth, truncate } from '../wrap/index.js';
+import { colorLevelOf } from './color-level.js';
 import { labelLine, unicodeSupported } from './note.js';
 
 /** Where the label sits along the line. */
@@ -152,7 +152,7 @@ export function rule(opts: RuleOptions = {}): string {
 
   return renderToString(element, {
     cascade: themedCascade(opts),
-    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    colorLevel: colorLevelOf(opts),
     colorScheme: opts.colorScheme,
     width,
   });

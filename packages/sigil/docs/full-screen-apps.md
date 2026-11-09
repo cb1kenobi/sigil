@@ -111,7 +111,10 @@ Five things in there are worth reading twice:
   `App` at all.
 - **JSX makes elements, not descriptions of them.** `<box>` returns a real
   element, so `row.onKey = ...` on the next line sets a handler on the row that
-  will be drawn. There is no virtual DOM.
+  will be drawn. There is no virtual DOM. A handler can also be written where
+  the element is, as a prop: `<box onKey={(event) => ...}>` -- one of seven
+  `on*` hooks, in JSX and in the `ui` tag alike -- and `ref={(el) => ...}` is
+  how a template hands back an element it built.
 - **`{() => String(count.get())}` is the reactive part.** A function child is
   called again whenever a signal it read changes, and only that text is
   updated. `{count.get()}` would be read once, and the number would never move.
@@ -120,7 +123,9 @@ Five things in there are worth reading twice:
   through its ancestors, so a row handles its own Enter.
 - **`app.input?.bind('q', ...)` is an app-wide binding.** It fires wherever
   the focus is. `app.exit()` ends the app with exit code `0`. Ctrl-C needs no
-  binding: the runner ends the app on it, with `130`.
+  binding: the runner ends the app on it, with `130`. Nor does a bare `q`, which
+  the runner's `quitKey` ends it on with `0` -- as a fallback, so a text field
+  that takes `q` keeps it; this example binds it itself, ahead of that.
 
 The rest of the component is the screen itself:
 
@@ -186,6 +191,16 @@ answer.
 Without a terminal on both ends, piped into `cat` for example, `runApp()`
 refuses: it draws nothing, writes one line to stderr, and resolves `1`.
 
+While the app runs, `console.log()` is captured rather than written into the
+screen, so a stray log line from your code or a library cannot leave garbage in
+a frame. The lines are kept in `app.logs`. If the app fails -- a throw or a
+failed frame, an uncaught error or `process.exit(n)`, or an exit code other than
+`0` and `130` -- they are written to the main screen once it is back, ahead of
+the error: `log`, `info` and `debug` to stdout, `warn` and `error` to stderr. A
+clean exit throws them away, and so does Ctrl-C, which exits `130`. Pass `console:
+false` to leave the console alone. A bare `process.stdout.write()` and a child
+process's stderr are not the console and still write straight to the screen.
+
 With `"bin": { "hello": "./dist/hello.mjs" }` in `package.json`, `sigil build`
 type-checks the app, compiles the JSX, and writes the bundle:
 
@@ -242,32 +257,37 @@ devDependency:
 // test/hello.test.ts
 import { App, stylesheet } from '../src/root.tsx';
 import { runApp } from '@ttylabs/sigil/app';
-import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
+import { createTestTerminal, frame, KEYS } from '@ttylabs/sigil/testing';
 import { expect, it } from 'vitest';
-
-// frames are drawn on a clock, about 30 a second, rather than once per key.
-// SIG-309 is a helper that waits for the next one; until then, a timer
-const frame = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 it('should count what Enter presses and quit on q', async () => {
   const term = createTestTerminal({ columns: 60, rows: 16 });
-  const done = runApp(App, { detect: false, sheets: [stylesheet], terminal: term.terminal }).exited;
-  await frame();
+  const app = runApp(App, { detect: false, sheets: [stylesheet], terminal: term.terminal });
 
   await term.press(KEYS.enter, KEYS.down, KEYS.enter);
-  await frame();
+  // frames are drawn on a clock, about 30 a second, rather than once per key:
+  // frame() paints the next one now instead of waiting for it
+  await frame(app);
   // the screen row by row; the last is the bottom border
   expect(term.viewport.at(-2)).toMatch(/^│ 2 presses +│$/);
 
   await term.press('q');
-  expect(await done).toBe(0);
+  expect(await app.exited).toBe(0);
   expect(term.screen.alternate).toBe(false);
 });
 ```
 
 That is the example's whole test file, and the repository's suite runs it.
-The first `frame()` matters: the first row takes the focus once the first frame
-has drawn, so a key pressed before then has no row to go to. `detect: false`
-skips asking the terminal what it is, which a test terminal cannot answer.
+The renderer draws on its own clock, about thirty frames a second, and not once
+per key — so a key leaves the screen as it was until the next tick, and a test
+that read it straight away would see the old count. `frame(app)` paints the next
+frame now instead of waiting for it, so the screen is read as the keys left it
+and not after a timer sized by guessing. `detect: false` skips asking the
+terminal what it is, which a test terminal cannot answer.
+
+To drive the whole process instead — its own `main()`, its schema, a real stdin —
+`runOnTerminal({ run, stdin: true })` spawns it with a terminal on all three
+streams and hands back `press()` and `waitFor()`; the
+[testing section of the README](../README.md#testing) has it.
 
 The [examples](../../../examples) are complete apps built this way.
