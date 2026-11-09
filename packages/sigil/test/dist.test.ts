@@ -744,6 +744,21 @@ describe('what importing the package costs', () => {
     }
   );
 
+  // The runner captures the console by default (SIG-310), so it needs the ring and
+  // the patch -- which live in a module of their own so that it does not need the
+  // overlay's pane, scroll box and stats line with them. A string the pane draws,
+  // absent from the runner's graph and present in the components one, and the
+  // patch's own presence in the runner's, so the split cannot pass by a rename
+  it('should not load the debug pane to import the app runner', () => {
+    expect(carriers(staticGraph('app.mjs'), 'stats off')).toEqual([]);
+    expect(carriers(staticGraph('components.mjs'), 'stats off')).not.toEqual([]);
+  });
+
+  it('should load the console patch to import the app runner', () => {
+    // `node:util` is asked for by the capture and by nothing else on this graph
+    expect(asks(staticGraph('app.mjs'), 'node:util')).not.toEqual([]);
+  });
+
   it.each(['mouseenter', '.sigil-text-field', 'outside runApp()'])(
     'should load %s to import the app runner',
     (symbol) => {

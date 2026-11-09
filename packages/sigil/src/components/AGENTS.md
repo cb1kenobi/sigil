@@ -1139,9 +1139,18 @@ patch, a pane, and three additions to the renderer that the pane needs.
   exists for, and forwarding past it to the raw stream would write into the
   alternate screen the renderer is diffing. The ring is the destination.
 
-- **`trace` is left alone.** It prints a stack rather than a line, and replacing
-  it with a formatted line would throw the stack away -- which is the whole of
-  what anybody calls it for. Five methods: `debug`, `error`, `info`, `log`, `warn`.
+- **`trace` is not patched, and it is captured anyway (corrected in SIG-310).** This
+  entry said it was left alone because replacing it with a formatted line would
+  throw the stack away. Measured with a spy on `process.stderr.write`: Node's
+  `trace()` builds the stack and hands it to `this.error()`, so with `error`
+  patched it arrives as `error` lines, one per frame, and is not left alone at all.
+  Seven methods are patched: `debug`, `dir`, `dirxml`, `error`, `info`, `log`,
+  `warn`. `dir` and `dirxml` were not on the list and are the two that wrote into
+  the alternate screen past it, because Node writes them through its own writer
+  rather than the public methods; they are stored as `log`, `dir` through
+  `inspect()` with `customInspect: false` and the caller's options, as Node does,
+  and `dirxml` through `format()`. `table`, `group`, `time*`, `count` and `assert`
+  end in `log` or `warn` and were always captured.
 
 - **The console patch follows "put back what you attached", and reports whether
   this call was the one that changed it.** The rule `hideCursor()`,
@@ -1500,6 +1509,20 @@ patch, a pane, and three additions to the renderer that the pane needs.
   two renderers has one console, and an overlay that installed one would be an
   overlay whose teardown order decides whether `console.log` still works. The app
   owns the pairing, which is what makes `installed` a statement it can act on.
+
+  **Under `runApp()` the runner is the app, and it makes the call (SIG-310).** It
+  captures the console by default into a ring it owns and exposes it as
+  `app.logs`, so the pairing is one line in the app --
+  `enableDebugOverlay(app.view, { input: app.input, log: app.logs })` -- and the
+  overlay still installs nothing. `log` is `undefined` when the runner captured
+  nothing (`console: false`, or a capture the app installed first), and an
+  overlay given `undefined` makes a ring of its own that nothing fills: pass the
+  ring that was passed to your own `captureConsole()`. The ring and the patch
+  moved to `console-capture.ts`, re-exported from here, so that the runner can
+  have them without the pane; the full decision is under "Running an app" in
+  `src/renderer/AGENTS.md`. `createLogRing()` gained `onPush`, called per line
+  after it is stored, which is what lets an inline app echo each captured line
+  above its region while the ring still keeps it.
 
 - **The pane holds its ring as ordinary children rather than as `rows`, and the
   reason is no longer a missing mechanism.** It was: "a list that has to grow

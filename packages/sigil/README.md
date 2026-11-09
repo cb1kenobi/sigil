@@ -5693,10 +5693,34 @@ input.stop(); // puts back only what it turned on
 ```
 
 A key reaches the bindings, then the focused element, then its ancestors, then
-the default action. Bindings come first so that quitting always works — an app
-that cannot be quit because a focused text input swallowed Ctrl-C is the failure
-that ordering prevents. **Tab is last**, so a component that wants Tab keeps it
-by stopping the event rather than by asking to be left out of the focus ring.
+the fallbacks, then the default action. Bindings come first so that quitting
+always works — an app that cannot be quit because a focused text input swallowed
+Ctrl-C is the failure that ordering prevents. **Tab is last**, so a component that
+wants Tab keeps it by stopping the event rather than by asking to be left out of
+the focus ring.
+
+The layer between is for an app-wide key that a focused field outranks:
+
+```js
+input.fallback('/', () => input.focus.focus(filter), { description: 'filter' });
+input.fallback('s', () => sortNext(), { description: 'sort' });
+```
+
+A `bind('q', fn)` is consulted before the focused element, so it quits while
+somebody types a word into a field, and an `onKey` on the root is reached only by
+bubbling up from a focused element, so with nothing focused no key reaches it. A
+fallback is after the focused element and its ancestors: a field that takes `q`
+stops the event and the fallback never sees it, anywhere else `q` falls through
+to it — and with **nothing focused** it is the one layer that still runs. It is
+one key, modifiers allowed (`'ctrl+r'`); a spec naming two throws, and a sequence
+stays with `bind()`. A key a fallback matches is claimed, so the Tab default does
+not also see it; a pasted key never reaches one. `fallback()` returns the function
+that removes it.
+
+[`runApp()`](#sigilapp) already registers one for `q` (its `quitKey`), described as
+`quit`, so an app does not write that one. An app's own `fallback('q', …)` runs
+**as well as** the runner's -- every fallback on a key runs -- unless it passes
+`quitKey: false`.
 
 A bracketed paste goes the other way round, which is the mouse's order: the
 focused element's `onPaste` and then each ancestor's are offered it first, the
@@ -5727,7 +5751,10 @@ input.bindings(); // what applies to the focus right now, in dispatch order
 A description is read by a listing and by nothing in dispatch: a binding without
 one behaves as it always did and is simply not listed. `bindings()` returns
 app-wide entries first, then the scoped ones from the focused element outwards,
-and subscribes whatever effect reads it to the focus and to the set changing.
+then the `fallback()` ones, and subscribes whatever effect reads it to the focus
+and to the set changing. A fallback is listed wherever the focus is: the router
+cannot know whether the focused field will take the key, so with a text field
+focused a footer still shows `q  quit` and pressing `q` there types it.
 `describe()` is for a key an element's `onKey` handles, which the router cannot
 read; `scope` is the element whose focus -- or whose descendants' -- makes it
 apply. [`keyHelp()`](#a-key-help-footer) is the footer built on it.
@@ -5875,20 +5902,22 @@ function App() {
 process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] }).exited;
 ```
 
-| Option                         | Default       | What it does                                                                                       |
-| ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------- |
-| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                    |
-| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                      |
-| `theme`                        | none          | A theme sheet                                                                                      |
-| `cascade`                      | themed        | The whole cascade, in place of the themed one                                                      |
-| `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing |
-| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                         |
-| `detect`                       | `true`        | Asks the terminal for its background and colour depth once the app is up                           |
-| `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                      |
-| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                      |
+| Option                         | Default       | What it does                                                                                                   |
+| ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------------------- |
+| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                                |
+| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                                  |
+| `theme`                        | none          | A theme sheet                                                                                                  |
+| `cascade`                      | themed        | The whole cascade, in place of the themed one                                                                  |
+| `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing             |
+| `quitKey`                      | `'q'`         | The key that ends it with 0, as a `fallback()`: a focused field that takes `q` keeps it. `false` binds nothing |
+| `console`                      | `true`        | Captures `console.*` while it runs, into `app.logs`; `false` leaves the console alone                          |
+| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                                     |
+| `detect`                       | `true`        | Asks the terminal for its background and colour depth once the app is up                                       |
+| `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                                  |
+| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                                  |
 
 `runApp()` returns an `App`: `exit(code = 0)`, `exited`, `input`, `view` (the
-`Renderer`), `terminal`, `interactive` and `running`.
+`Renderer`), `logs`, `terminal`, `interactive` and `running`.
 
 **`exited` is the exit code, and setting the process's is yours.**
 
@@ -5896,6 +5925,7 @@ process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] 
 | ---------------------------------------------- | ---------------------------------------------- |
 | `exit(code)`, or `exit()`                      | `code`, or `0`                                 |
 | The quit key (Ctrl-C, Ctrl-D)                  | `130`, what a shell reports for Ctrl-C         |
+| `quitKey` (`q`)                                | `0`, the app choosing to go                    |
 | A failed frame, after `onError` has written it | `1`                                            |
 | A throw from the component's body              | `1`, and the throw propagates from `runApp()`  |
 | No terminal on both ends -- a refusal          | `1`                                            |
@@ -5936,6 +5966,43 @@ command({
   from the component's body propagates from `runApp()` with the terminal already
   restored, as it does from `render()`. A signal is the terminal's own business,
   as it always was.
+- **The console is captured while the app runs.** A `console.log()` from your code
+  or a library it calls would write into the alternate screen, where the next frame
+  does not know those cells changed and the line stays as garbage until something
+  repaints over it. So `runApp()` patches `console.debug`, `error`, `info`, `log`
+  and `warn` into a ring of the last 1,000 lines, `app.logs` (also on `useApp()`),
+  along with `dir` and `dirxml`, and nothing reaches the screen. `trace`, `table`,
+  `group`, `time`, `count` and `assert` are captured through those, so a trace
+  arrives as `error` lines, one per stack frame:
+
+  - **Full screen** writes nothing while the app runs. **When the app fails** -- a
+    throw from the component's body, a failed frame, the process ending under the
+    app (an uncaught throw, an unhandled rejection, `process.exit(n)`), or an exit
+    code other than `0` and `130` -- the ring is written to the main screen once it
+    is back, in order, _before_ the error report: `log`, `info` and `debug` to
+    stdout, `warn` and `error` to stderr, as `console` would have printed them, with
+    no prefix. If the ring dropped lines, a note on stderr says how many first.
+    **A clean exit (`0`) discards the ring, and so does `130`:** Ctrl-C is the
+    habitual way out of a healthy app, and an app that hangs never reaches its quit
+    binding. `129` (the terminal hung up) replays. A **signal** (`SIGTERM`,
+    `SIGHUP`) ends the process without an `exit` event, so it loses the ring.
+  - **What a custom `onError` logs through `console`** is never discarded and never
+    drawn into the screen: it is written to the main screen after the replay, on
+    any exit code.
+  - **Inline** (`fullscreen: false`) writes each line above the live region as it
+    arrives, to the same two streams, and holds nothing.
+  - `console: false` leaves the console alone. So does a `captureConsole()` you
+    installed before `runApp()`: the patch is global and only one can be live, so
+    the runner does not take yours over and `app.logs` is `undefined`. The same goes
+    for a second app that starts while the first holds the capture: its `logs` is
+    `undefined`, and once the first exits its lines reach its screen.
+  - Not the console, and still written straight to the screen: a bare
+    `process.stdout.write()`, and a child process's stderr.
+
+  To watch the lines live, hand the overlay the same ring:
+  `enableDebugOverlay(app.view, { input: app.input, log: app.logs })`. The overlay
+  never installs a capture of its own.
+
 - **No terminal means a refusal.** Where stdin or the output is not a terminal,
   inline or full screen, `runApp()` builds and draws nothing, writes one line to
   stderr and settles `exited` with `1`. A frame of a full-screen app in a pipe is
@@ -5953,7 +6020,8 @@ command({
   ```
 
 The debug overlay is one line on top, rather than an option, so that an app that
-never opens it does not load it: `enableDebugOverlay(app.view, { input: app.input })`.
+never opens it does not load it:
+`enableDebugOverlay(app.view, { input: app.input, log: app.logs })`.
 
 ### `sigil/style`
 

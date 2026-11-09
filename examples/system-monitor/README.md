@@ -113,9 +113,12 @@ inside it and had no `ref`; SIG-305 gave a host element the seven `on*` hooks
 and a callback `ref`. `Panel` is still `box()` and `text()`, because another
 ticket replaces it outright (SIG-277).
 
-The app's own keys are the `onKey` prop on `App`'s root rather than router bindings: a
+The app's own keys are `input.fallback()`s rather than router bindings: a
 binding sees every key before a focused field does, so `q` typed into the
-filter would quit. A layer of app keys a focused field outranks is SIG-308.
+filter would quit. A fallback comes after the focused element, so a field keeps
+the letters it is typed, and it runs with nothing focused, which is how the
+monitor starts. `q` is `runApp()`'s own `quitKey`, a fallback too. Escape, which
+belongs to the filter rather than the app, is the `onKey` prop on `App`'s root.
 
 ## Not yet
 

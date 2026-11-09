@@ -39,8 +39,11 @@ the `ui` tag run by plain `node`.
   | `test/`                 | Tests of the example's own, which vitest picks up as a project named after the package                                                                                                 |
 
   `App` reaches the app it runs under through `useApp()`: `input` for the router
-  and `exit()` to end it. Every example quits with `0` on `q` through
-  `useApp().exit()`, and Ctrl-C is `runApp()`'s own quit key, with `130`. Piped,
+  and `exit()` to end it. Every example quits with `0` on `q` and with `130` on
+  Ctrl-C, and both are `runApp()`'s own: `quitKey` is a fallback, so a text field
+  that takes `q` keeps it (SIG-308). `hello` still binds `q` itself, which is
+  redundant now and runs first; an example that needs `q` for something else
+  passes `quitKey: false` where it calls `runApp()`. Piped,
   with no terminal on both ends, an entry is refused the way `runApp()` refuses:
   exit `1`, nothing on stdout, one line on stderr. There is no `src/start.*`,
   and the contract test fails if one comes back. `examples/system-monitor`
@@ -146,15 +149,68 @@ the `ui` tag run by plain `node`.
   `demos.test.ts` into `packages/cli/test/spawned.ts`, one definition for both.
   It lives in `packages/cli` for `demos.test.ts`'s reason: it needs `dist/`.
 
-- **The in-process JSX twin is compiled by vite, and vite does not follow the
-  example's `tsconfig.json` for it.** Measured three ways: with
-  `jsxImportSource` set to `react`, to a package that does not exist, and with
-  the file deleted, `root.tsx` still compiled against sigil's `jsxDEV` and every
-  test passed. How vite arrives at that was not run down. What it means is that
-  the tsconfig's JSX lines are checked by `sigil build`, not by vitest: set to
-  `react`, the build fails with `TS2875`, and `pnpm test` builds before it tests.
-  The same-screen assertion is what proves the in-process twin produced sigil
-  elements at all.
+- **Vite does follow an example's `tsconfig.json`; vitest's module cache is what
+  made it look as though it did not (SIG-312).** The first version of this entry
+  said vite ignored the tsconfig: with `jsxImportSource` set to `react`, to a
+  package that does not exist, and with the file deleted, `root.tsx` still
+  compiled against sigil and every test passed. That was measured and it was
+  true, and the cause it was put down to was wrong. Vite 8.2.2 hands the file to
+  rolldown's `transformSync` along with a tsconfig resolution cache, which finds
+  the nearest `tsconfig.json` above **each file** and reads its `jsx` and
+  `jsxImportSource`; `vitest@5.1.0` adds nothing of its own, and neither the root
+  config, the package's config, a plugin nor `projects` sets an import source.
+  Measured with vite alone, `createServer().transformRequest()` over
+  `examples/hello/src/root.tsx` fails with `Failed to resolve import
+  "react/jsx-dev-runtime"` once the tsconfig says `react`, and a scratch
+  directory with `jsxImportSource: "from-tsconfig"` compiles to
+  `from-tsconfig/jsx-dev-runtime`.
+
+  What hid it is `fsModuleCache`, on by default since vitest 5 and stored in
+  `node_modules/.vitest-cache`. A transform is cached under a key made of the
+  module's id, **its content**, and the config (plugins, resolve, the config
+  files' own text); the tsconfig is in none of those, so editing the tsconfig
+  alone leaves `root.tsx` byte for byte what it was and the cached output, built
+  against whatever the tsconfig said when the cache was written, is served. Same
+  tree, `--fsModuleCachePath` pointed at a fresh directory each time: the original
+  tsconfig passes; `react` fails with `Cannot find package 'react/jsx-dev-runtime'`;
+  `no-such-pkg` fails the same way; **no tsconfig at all** fails too, because
+  without one the default import source is `react`. Pointed at a **warm** cache,
+  `react` passes against the original's output, and the reverse holds: restoring
+  the tsconfig over a cache written while it said `react` keeps failing, which is
+  the same hole read from the other side. A cold cache, as on a fresh clone or
+  CI, therefore checks the line, and a warm one checks it only when `root.tsx`
+  itself changed.
+
+  The decision is that the harness keeps what vite does and does **not** override
+  the import source, and the line is guarded by a read that no cache can answer
+  for. Pinning `oxc.jsx.importSource` in a vitest config would make the
+  in-process twin agree with the build by construction, and would make a wrong
+  tsconfig invisible to it for good, which is the opposite of the ticket. The
+  build overrides the line on purpose (`packages/cli/AGENTS.md`, "JSX compiles
+  against `@ttylabs/sigil`"), so what it checks is not the line but the type
+  gate: set to `react`, `sigil build` fails with `TS2875`, and `pnpm test` builds
+  first. That gate does not catch every wrong source, though: a package that
+  resolves but whose JSX runtime has no types passes `tsc` silently, because
+  `tsconfig.base.json` sets `noImplicitAny: false`, which turns off TS7016 and
+  TS7026, and the build overrides the import source so it builds too (reviewed
+  with a stub `untyped-jsx` package). Only the tsconfig read below catches that
+  case. So three things guard it, each from a different side: that gate, a cold
+  vitest cache, and `should name sigil as its JSX import source` in
+  `examples.test.ts`, which reads each JSX example's `tsconfig.json` (following a
+  relative `extends`) and asks for `jsxImportSource` of `@ttylabs/sigil` and a
+  `jsx` of `react-jsx` or `react-jsxdev`. That read is the one with no cache in
+  front of it. Sabotaged: `react`, no tsconfig, and `jsx: "preserve"` each fail
+  it. `guides.test.ts` also fails for `examples/hello` when the line changes,
+  because the guide quotes `compilerOptions` whole, but only for that example.
+
+  Not done, and the option that is left: a `defineCacheKeyGenerator` in a plugin
+  (the `configureVitest` hook) that adds the nearest tsconfig's text to the key
+  of a `.tsx`, which would make the in-process mount itself honest on a warm
+  cache. It is not taken here because the hole is vitest's rather than this
+  harness's -- every tsconfig setting is invisible to the cache the same way, for
+  every project in the workspace -- and a key that follows an `extends` chain
+  halfway is worse than a documented gap. When a transform seems to ignore a
+  tsconfig, `rm -rf node_modules/.vitest-cache` first (or `vitest --clearCache`).
 
 - **`runApp()` runs every example, and `start()` is gone.** Until SIG-276
   landed, each example carried a hand-wired `start()` shaped like the runner,
@@ -255,6 +311,29 @@ the `ui` tag run by plain `node`.
   the restart (the delayed-arming test); the guide's `tsconfig` as `{}`,
   without `jsxImportSource`, and naming `react`; and `src/ui.ts` reading
   `package.json` from the working directory.
+
+- **The system monitor's keys are fallbacks, and that is what SIG-308 was
+  built to prove (SIG-308).** The monitor put its keys on the root's `onKey` --
+  reached only by bubbling from a focused element, and under a text field, which
+  is the one place `q` has to be a letter -- and so it focused the process table
+  on mount, again after the filter, and again after the kill dialog, so that
+  _something_ was focused. Those three `focus()` calls are gone: the keys are
+  `input.fallback()`, which a focused field outranks and which runs with nothing
+  focused, and `q` is not the monitor's at all but `runApp()`'s `quitKey`. The
+  filter hands the focus to nothing on Enter and on Escape. `Escape` stays an
+  `onKey` on the root because it is the field's own key (abandon the filter), and
+  it is only meaningful while the field is focused. One behaviour moved, and it is
+  better: with the filter focused, Up, Down, PageUp and PageDown now reach
+  the table, because the field does not take them (it does take Home and End, as
+  cursor motion), where the old handler returned early for everything but Escape.
+
+  The footer's `q quit` is the runner's -- lower case and through `__`, like every
+  description the framework lists, so it is the line the monitor wrote and now
+  translates -- and it is last because the runner registers it after the body. Removing the focus-first workaround also removed a side effect nobody had
+  named: the footer sized itself from the root's laid-out width, which does not
+  exist at the first draw, and was cut to a guess of 80 until the focus moved --
+  the mount-time `focus()` was what moved it. It reads `app.terminal.width` now,
+  which is there at the first draw. Still not re-asked on a resize.
 
 - **Not done:** the focus highlight is a background colour, so at colour level 0
   (a pipe, `NO_COLOR`) nothing on screen says which row has the focus -- what a
