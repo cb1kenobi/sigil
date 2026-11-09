@@ -34,6 +34,7 @@ import {
   cellStyle,
   type Element,
   type ElementProps,
+  type ElementPropsWithout,
   raw,
   text as textNode,
 } from '../element/index.js';
@@ -43,6 +44,7 @@ import type { Box } from '../layout/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { resolveOutput } from '../style/index.js';
 import { unicodeSupported } from './note.js';
+import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** Which side of the anchor the bubble goes on. */
 export type TooltipSide = 'bottom' | 'left' | 'right' | 'top';
@@ -67,7 +69,7 @@ export interface TooltipOptions {
   /** The widest the bubble may be, border included, in cells. Defaults to 40. */
   maxWidth?: number;
   /** The bubble's own props: a class. Geometry is the tooltip's, and is overwritten. */
-  props?: ElementProps;
+  props?: ElementPropsWithout<'onLayout'>;
   /**
    * Whether `--quiet` hides it. Defaults to following the process-wide request.
    *
@@ -278,6 +280,7 @@ function samePlaced(a: Placed, b: Placed): boolean {
  * @returns The handle.
  */
 export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHandle {
+  refuseOwnedHooks('attachTooltip', opts?.props, ['onLayout']);
   if (typeof anchor?.contains !== 'function' || typeof anchor.setState !== 'function') {
     throw new TypeError(__`Expected a tooltip anchor to be an element`);
   }

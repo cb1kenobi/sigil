@@ -30,7 +30,7 @@
  */
 
 import type { Diagnostic } from './diagnostic.ts';
-import { factsOf, type CommandFacts } from './extract.ts';
+import { factsOf, type CommandFacts, type RoutedBy } from './extract.ts';
 import { parseModule } from './parse-module.ts';
 import { readPackage, readRoutes, type Route, type RouteKind } from '@ttylabs/sigil/routes';
 import { readFileSync } from 'node:fs';
@@ -184,7 +184,9 @@ function resolve(route: Route, diagnostics: Diagnostic[], facts: boolean): Resol
 
     return {
       commands: inside.routes.map((child) => resolve(child, diagnostics, facts)),
-      ...(inside.index ? read(inside.index, diagnostics, facts) : {}),
+      ...(inside.index
+        ? read(inside.index, { index: true, name: route.name }, diagnostics, facts)
+        : {}),
       kind: route.kind,
       module: inside.index,
       name: route.name,
@@ -208,7 +210,7 @@ function resolve(route: Route, diagnostics: Diagnostic[], facts: boolean): Resol
 
   return {
     commands: [],
-    ...read(route.path, diagnostics, facts),
+    ...read(route.path, { name: route.name }, diagnostics, facts),
     kind: route.kind,
     module: route.path,
     name: route.name,
@@ -219,19 +221,27 @@ function resolve(route: Route, diagnostics: Diagnostic[], facts: boolean): Resol
  * Reads one module for what it says about itself.
  *
  * @param file - The module.
+ * @param routedBy - The name it is routed by: its file's, or its directory's for
+ *   an `index`. What a declaration inside the module is compared with, because
+ *   that is the one name argv matches before the module is read.
  * @param diagnostics - Where to report.
  * @param facts - Whether to read it at all.
  * @returns Its facts, or nothing when reading is off.
  */
-function read(file: string, diagnostics: Diagnostic[], facts: boolean): CommandFacts {
+function read(
+  file: string,
+  routedBy: RoutedBy,
+  diagnostics: Diagnostic[],
+  facts: boolean
+): CommandFacts {
   if (!facts) {
     return {};
   }
 
   const parsed = parseModule(file, readFileSync(file, 'utf-8'));
-  const extracted = factsOf(parsed);
+  const extracted = factsOf(parsed, routedBy);
 
-  diagnostics.push(...extracted.diagnostics);
+  diagnostics.push(...extracted.diagnostics, ...extracted.routing);
 
   return extracted.facts;
 }

@@ -293,3 +293,42 @@ the entry it belongs to.
   a module that loads and takes a spelling. Why this is a listing rule and not
   a refusal is under "What is not refused, and the case for it" in
   `src/parser/AGENTS.md`.
+
+  **And what it lists is what routes, which a lazily loaded module's own name
+  string does not.** SIG-316. A routed module is loaded because argv matched the
+  name the _registry_ knows it by -- a file name, a `commands` key, a
+  placeholder's name and `alias` -- so `name: 'list, ls'` inside `list.ts` could
+  never route `ls`, and `loadCommand()` carried the module's label over the
+  placeholder's whenever the module renamed the command. `mycli help list` then
+  printed `Alias: ls` beside a command `mycli ls` refused with `Unexpected
+  argument`. Reproduced over every arrival -- a directory walk, a route one level
+  down, a directory's `index`, a declared `path` and a `load` -- and all five
+  published the module's spelling; completion and the markdown reference did not,
+  because they walk without writing back and so read the placeholder the registry
+  still holds. Help is the only reader of the _loaded_ command, which is why it
+  was the only listing that disagreed.
+
+  So `loadCommand()` keeps the placeholder's label whether or not the module
+  renamed, which is one assignment where it was a condition. The module's
+  spellings still register, and still settle a shared one by declaration order and
+  still refuse one that is a sibling's name -- those rules are about what the
+  registry holds, and are untouched -- they are simply not advertised. The
+  decision was to leave help alone from routing rather than teach routing to read
+  a module: a level's walk would have to import every module to learn its names,
+  which is what the deferral exists to avoid. `sigil check` and `sigil build` warn
+  about the declaration instead (`packages/cli/AGENTS.md`, the entry that begins
+  "...and a module that declares one is warned about"), and SIG-324 is the real fix.
+
+  Three consequences, none of them new defects. A module that renames the command
+  to something else (`name: 'show'` under the key `list`) lists the placeholder's
+  spellings as its aliases and still names `show` on the usage line, which is a
+  name that does not route and was before this; the rename is the unroutable part
+  and the warning names it. A module that brings a spelling a sibling published
+  takes it in the registry of the process that loaded it, so that sibling stops
+  listing it there while a fresh process would -- an omission rather than a false
+  claim, and `labelNames()` asks the registry on purpose. And a `subcommandLoaded`
+  hook's replacement still brings its own label: it is the parent's own code
+  rather than a module, SIG-239 pinned it, and the ticket was about modules.
+  Pinned by `help showed a routed module's name alias, but the alias did not
+  run` in `test/parser/regressions.test.ts`, with the two SIG-239 cases that
+  asserted the opposite rewritten rather than deleted.

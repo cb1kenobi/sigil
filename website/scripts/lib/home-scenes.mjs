@@ -1,3 +1,4 @@
+import { ansi } from '@ttylabs/sigil/ansi';
 import { groupMultiselect, multiselect, select } from '@ttylabs/sigil/components';
 import { createTestTerminal, KEYS, tick } from '@ttylabs/sigil/testing';
 
@@ -6,9 +7,10 @@ import { createTestTerminal, KEYS, tick } from '@ttylabs/sigil/testing';
  * real. The component cards are not here: they are each component's own
  * example, captured by `component-capture.ts` for the components index.
  *
- * Run as a child by `home-capture.ts` with colour forced, because the prompts
- * decide their colour from the process they are in -- a terminal handed to
- * `createTestTerminal()` is not asked. It prints one JSON object on stdout:
+ * Run as a child by `home-capture.ts` with colour forced, and the level the
+ * process came to is the one each scene's terminal is built at: the colour level
+ * is the terminal's, so a test terminal left at its default of 0 draws no colour
+ * whatever the process says, and these screens are captured to show it. It prints one JSON object on stdout:
  * `{ [scene]: { columns, kind, output } }`, where a `screen` is the bytes a
  * prompt wrote, to be replayed into a screen, and a `text` is a string a
  * component returned.
@@ -23,7 +25,7 @@ const scenes = {};
 
 /** The terminal a scene draws on. Taller than any scene, because a screen that scrolls is refused. */
 function terminal(columns) {
-  return createTestTerminal({ columns, rows: 30 });
+  return createTestTerminal({ colorLevel: ansi.level, columns, rows: 30 });
 }
 
 /** Records what a prompt scene left on the screen. */

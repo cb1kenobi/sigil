@@ -66,13 +66,49 @@ const BLANK = ' ';
  * chunk: a bare `ESC`, a CSI with no final byte yet, or an unterminated control
  * string. Anchored, because what is being asked is about the end of a chunk.
  */
-const PARTIAL = new RegExp(`^${ESC}(?:\\[[\\d;:?]*|[\\]P][^${ESC}\\u0007]*(?:${ESC})?)?$`);
+const PARTIAL = new RegExp(
+  `^${ESC}(?:\\[[<=>?]?[\\d;:]*[ -/]*|[\\]P][^${ESC}\\u0007]*(?:${ESC})?)?$`
+);
 
-/** A CSI sequence: the parameters, any private marker, and the final byte. */
-const CSI = new RegExp(`^${ESC}\\[(\\??)([\\d;:]*)([A-Za-z])`);
+/**
+ * A CSI sequence: any private marker, the parameters, any intermediates, and the
+ * final byte.
+ *
+ * The marker is any of the four ECMA-48 allows and not only `?`, and the
+ * intermediates are read so that a sequence is told apart from the plain final
+ * byte it shares: `ESC[>q` is not `ESC[q`, and `ESC[1;1;1;8$z` erases a rectangle
+ * where `ESC[z` would be nothing. Which of them are known to draw nothing is
+ * `QUESTIONS`; the rest throw.
+ */
+const CSI = new RegExp(`^${ESC}\\[([<=>?]?)([\\d;:]*)([ -/]*)([@-~])`);
 
 /** SGR and anything else that only changes how text looks, which this ignores. */
 const OSC = new RegExp(`^${ESC}\\]([^${ESC}\\u0007]*)(?:${ESC}\\\\|\\u0007)`);
+
+/**
+ * The sequences with a marker or an intermediate that ask a question or set
+ * something with no cell to show it, spelled marker, intermediates, final.
+ *
+ * A program asks what the terminal is before its first frame -- `CSI > c` and
+ * `CSI = c` (device attributes), `CSI > q` (the version), `CSI ? Pd $ p` and
+ * `CSI Pd $ p` (a mode report) -- and the answer comes back on the *input*
+ * stream, which is the far end's to give. The rest are settings the model has no
+ * cell for: the cursor's shape (`CSI Ps SP q`) and the kitty keyboard protocol's
+ * push, pop and set (`CSI > u`, `CSI < u`, `CSI = u`). The first four are what
+ * sigil sends; the others are what any program might, and none of them moves a
+ * cell. The plain `c`, `t` and `n` are in the switch.
+ */
+const QUESTIONS: ReadonlySet<string> = new Set([
+  '>c',
+  '=c',
+  '>q',
+  '$p',
+  '?$p',
+  ' q',
+  '>u',
+  '<u',
+  '=u',
+]);
 
 interface Buffer {
   /** Rows that have scrolled off the top. The main buffer's only. */
@@ -484,9 +520,24 @@ export class Screen {
           throw new Error(`unparsed escape at ${i}: ${JSON.stringify(output.slice(i, i + 12))}`);
         }
 
-        const [match, priv, params, final] = csi;
+        const [match, priv, params, intermediates, final] = csi;
         const n = Number.parseInt(params, 10) || 1;
         i += match.length;
+
+        // a marker or an intermediate makes a sequence a different one from the
+        // plain final byte, and only the ones in `QUESTIONS` are known to change
+        // no cell. Everything else with either is refused, because the marker and
+        // the intermediate are exactly where the sequences that DO change cells
+        // live -- `$z` erases a rectangle, `$x` fills one, ` @` shifts columns,
+        // `!p` resets the terminal -- and a blanket pass left a screen that
+        // quietly disagreed with the terminal. `?` alone is the private-mode
+        // family below, whose unknown members have always been ignored
+        if ((priv !== '' && priv !== '?') || intermediates !== '') {
+          if (QUESTIONS.has(`${priv}${intermediates}${final}`)) {
+            continue;
+          }
+          throw new Error(`unmodelled sequence: ${priv}${intermediates}${final}`);
+        }
 
         if (priv === '?') {
           // the private modes this models: the cursor and the alternate screen
@@ -633,13 +684,16 @@ export class Screen {
             }
             break;
           }
+          case 'c':
+          case 't':
           case 'n': {
-            // a device status request -- `CSI 6 n` is "where is the cursor". It
-            // changes nothing on screen, and the answer comes back on the *input*
-            // stream, which a test supplies by feeding bytes rather than something
-            // this could write. Modelled as nothing rather than left to the
-            // `default` below, which threw and was swallowed by the one caller
-            // that cannot report anything
+            // device attributes (`CSI c`), a window operation (`CSI 14 t`, the text
+            // area in pixels) and a device status request (`CSI 6 n`, "where is
+            // the cursor"). They ask and none draws, and the answer comes back on
+            // the *input* stream, which a test supplies by feeding bytes rather
+            // than something this could write. Modelled as nothing rather than
+            // left to the `default` below, which threw and was swallowed by the
+            // one caller that cannot report anything
             break;
           }
           default: {

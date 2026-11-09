@@ -168,10 +168,10 @@
  * `table()` and `largeText()` are.
  */
 
-import { ansi as defaultAnsi } from '../ansi/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
 import { type ColorScheme, DEFAULT_MEDIA, schemeFromEnv } from '../style/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
+import { colorLevelOf } from './color-level.js';
 
 /** How much of a symbol may be lost and still read: about 7, 15, 25 and 30 per cent. */
 export type QrEcc = 'L' | 'M' | 'Q' | 'H';
@@ -1453,7 +1453,7 @@ function polarity(opts: QrViewOptions): boolean {
   // terminal's two, so the drawn modules have to be the ones whose colour the
   // foreground already is
   if (opts.paint === true) {
-    const level = opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level;
+    const level = colorLevelOf(opts);
     if (level > 0) {
       return false;
     }
@@ -1530,7 +1530,7 @@ export function qrcode(value: string, opts: QrcodeOptions = {}): string {
 
   return renderToString(element, {
     cascade: themedCascade(opts),
-    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    colorLevel: colorLevelOf(opts),
     colorScheme: opts.colorScheme,
     width,
   });

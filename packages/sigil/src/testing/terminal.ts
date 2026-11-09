@@ -123,6 +123,10 @@ export interface TestTerminalOptions {
    * Raising it changes what a component *writes* and not what `Screen` can be
    * asked: the model keeps characters. It is here for a test that reads
    * `output` for a sequence.
+   *
+   * It is the terminal's own level, so `render()` and `runApp()` read it from the
+   * `terminal` they are given and a test says it once; a `colorLevel` named on
+   * either still wins.
    */
   readonly colorLevel?: 0 | 1 | 2 | 3;
   /** Columns. Defaults to 40, which is narrow enough to see wrapping. */
@@ -247,6 +251,45 @@ export function alt(key: string): string {
 }
 
 /**
+ * Refuses a `press()` argument that is not text, naming the method.
+ *
+ * Shared with the spawned handle's `press()` so that the two say the same thing:
+ * a test that moves between them should meet the same message. Not exported from
+ * the subpath.
+ *
+ * @param chunks - What was passed.
+ * @throws If any is not a string.
+ */
+export function checkChunks(chunks: readonly unknown[]): void {
+  for (const chunk of chunks) {
+    if (typeof chunk !== 'string') {
+      throw new Error(`press() takes the reads to send, not ${JSON.stringify(chunk)}`);
+    }
+  }
+}
+
+/**
+ * The bytes of a bracketed paste, refusing anything that is not text.
+ *
+ * Shared with the spawned handle for the reason `checkChunks()` is. Not exported
+ * from the subpath.
+ *
+ * @param text - What was pasted.
+ * @returns The text between the markers a terminal writes.
+ * @throws If it is not a string.
+ */
+export function bracketed(text: unknown): string {
+  // refused rather than interpolated, for `alt()`'s reason: a
+  // `paste(undefined)` pastes the word. Found by review
+  if (typeof text !== 'string') {
+    throw new Error(`paste() takes the text that was pasted, not ${JSON.stringify(text)}`);
+  }
+  // the markers the router reads. A paste that arrives in one read is the
+  // realistic shape and is also the one that cannot be mistaken for typing
+  return `${ESC}[200~${text}${ESC}[201~`;
+}
+
+/**
  * Lets pending work settle, so what was sent has been acted on.
  *
  * `setImmediate` rather than a chain of resolved promises, and the difference is
@@ -314,7 +357,11 @@ export function createTestTerminal(opts: TestTerminalOptions = {}): TestTerminal
     removeListener: (): void => {},
   };
 
+  const level = opts.colorLevel ?? 0;
   const terminal = createTerminal({
+    // the terminal's own, so `render()` and `runApp()` read it from the terminal
+    // they are handed and the level is said once
+    colorLevel: level,
     env: opts.env ?? {},
     isTTY: opts.isTTY ?? true,
     proc,
@@ -326,7 +373,7 @@ export function createTestTerminal(opts: TestTerminalOptions = {}): TestTerminal
   });
 
   return {
-    ansi: createAnsi({ level: opts.colorLevel ?? 0 }),
+    ansi: createAnsi({ level }),
 
     get lines(): string[] {
       return screen.written;
@@ -337,14 +384,7 @@ export function createTestTerminal(opts: TestTerminalOptions = {}): TestTerminal
     },
 
     async paste(text: string): Promise<void> {
-      // refused rather than interpolated, for `alt()`'s reason: a
-      // `paste(undefined)` pastes the word. Found by review
-      if (typeof text !== 'string') {
-        throw new Error(`paste() takes the text that was pasted, not ${JSON.stringify(text)}`);
-      }
-      // the markers the router reads. A paste that arrives in one read is the
-      // realistic shape and is also the one that cannot be mistaken for typing
-      stdin.write(`${ESC}[200~${text}${ESC}[201~`);
+      stdin.write(bracketed(text));
       await tick();
     },
 
@@ -353,11 +393,7 @@ export function createTestTerminal(opts: TestTerminalOptions = {}): TestTerminal
       // `ERR_INVALID_ARG_TYPE` for a non-string, which is loud by accident
       // rather than by design, and an API where one of the two methods names
       // the mistake is worse than one where both do
-      for (const chunk of chunks) {
-        if (typeof chunk !== 'string') {
-          throw new Error(`press() takes the reads to send, not ${JSON.stringify(chunk)}`);
-        }
-      }
+      checkChunks(chunks);
       // one write per argument, which is what "one argument is one read" means
       // -- and it is a statement about what this does rather than a claim
       // about what it buys: joining them changes no answer for any prompt

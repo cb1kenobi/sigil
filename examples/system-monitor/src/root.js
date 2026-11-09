@@ -27,7 +27,7 @@ import {
   sparklineView,
   TextField,
 } from '@ttylabs/sigil/components';
-import { createEffect, For, onCleanup, onMount, useContext } from '@ttylabs/sigil/renderer';
+import { createEffect, For, onCleanup, useContext } from '@ttylabs/sigil/renderer';
 import { Computed, State, untrack } from '@ttylabs/sigil/signals';
 import { ui } from '@ttylabs/sigil/template';
 import { AMBER, MONO, NEON, PHOSPHOR, VIOLET } from '@ttylabs/sigil/themes';
@@ -291,7 +291,7 @@ export function App() {
   // the panel's edge and a long filter scrolls inside it. Without it the field
   // is as wide as what it holds, which also works (SIG-318)
   const field = TextField({
-    onSubmit: () => input.focus.focus(table.element),
+    onSubmit: () => input.focus.focus(undefined),
     placeholder: 'press / to filter',
     props: { 'flex-grow': 1 },
     value: filter,
@@ -308,25 +308,6 @@ export function App() {
     </box>`,
     table.element
   );
-
-  // -- the footer -------------------------------------------------------------
-  // the footer asks for a width before the root exists, and is not told when the
-  // layout changes it: it asks again only when the bindings or the focus move
-  /** @type {import('@ttylabs/sigil/element').Element | undefined} */
-  let root;
-  const footer = keyHelp(input, { width: () => Math.max(20, (root?.box?.width ?? 80) - 24) });
-
-  root = ui`<box class="app">
-    <box class="top">
-      ${cpu}
-      <box class="side">${mem}${network}</box>
-    </box>
-    ${procs}
-    <box class="row footer">
-      ${footer}
-      <text class="sigil-accent">${() => status.get()}</text>
-    </box>
-  </box>`;
 
   // -- keys -------------------------------------------------------------------
   const cycleTheme = () => {
@@ -370,7 +351,6 @@ export function App() {
       message: `Send SIGTERM to ${p.name} (pid ${p.pid})?`,
       title: 'Kill process',
     });
-    input.focus.focus(table.element);
     if (!yes) {
       return;
     }
@@ -408,95 +388,74 @@ export function App() {
     }
   };
 
-  // the app's keys are the root's, reached by bubbling from whatever has the
-  // focus, rather than router bindings: a binding sees every key before the
-  // focused element, so `q` typed into the filter would quit. A layer of app
-  // keys that a focused text field outranks is SIG-308
-  root.onKey = (event) => {
-    const { key } = event;
-    if (input.focus.current.get() === field) {
-      // Escape abandons the filter, where Enter keeps it
-      if (key.name === 'escape') {
-        event.stop();
-        filter.set('');
-        input.focus.focus(table.element);
-      }
-      return;
-    }
-    const handled = () => event.stop();
-    switch (key.name) {
-      case 'q':
-        handled();
-        app.exit();
-        return;
-      case 'up':
-      case 'k':
-        handled();
-        table.move(-1);
-        return;
-      case 'down':
-      case 'j':
-        handled();
-        table.move(1);
-        return;
-      case 'pageup':
-        handled();
-        table.page(-1);
-        return;
-      case 'pagedown':
-        handled();
-        table.page(1);
-        return;
-      case 'home':
-        handled();
-        table.home();
-        return;
-      case 'end':
-        handled();
-        table.end();
-        return;
-      case 's': {
-        handled();
-        const next = SORT_ORDER[(SORT_ORDER.indexOf(sort.get()) + 1) % SORT_ORDER.length];
-        sort.set(next);
-        status.set(`sorted by ${next}`);
-        return;
-      }
-      case 't':
-        handled();
-        cycleTheme();
-        return;
-      case 'x':
-        handled();
-        void askKill();
-        return;
-      default:
-        if (key.sequence === '/') {
-          handled();
-          input.focus.focus(field);
-        }
+  // the app's keys are fallbacks: they come after the focused element, so `s`
+  // typed into the filter is a letter in the filter and not a sort, and they run
+  // with nothing focused too, which a key bubbling up from the focused element
+  // cannot. `q` is not here: `runApp()` binds it the same way (`quitKey`)
+  /** @type {(() => void)[]} */
+  const undo = [];
+  const key = (/** @type {string} */ spec, /** @type {() => void} */ run, help) =>
+    undo.push(input.fallback(spec, run, help));
+
+  key('up', () => table.move(-1), { description: 'select', priority: 3 });
+  key('down', () => table.move(1), { description: 'select', priority: 3 });
+  // the same two, for hands on the home row, and not listed twice
+  key('k', () => table.move(-1));
+  key('j', () => table.move(1));
+  key('pageup', () => table.page(-1));
+  key('pagedown', () => table.page(1));
+  key('home', () => table.home());
+  key('end', () => table.end());
+  key(
+    's',
+    () => {
+      const next = SORT_ORDER[(SORT_ORDER.indexOf(sort.get()) + 1) % SORT_ORDER.length];
+      sort.set(next);
+      status.set(`sorted by ${next}`);
+    },
+    { description: 'sort', priority: 2 }
+  );
+  key('/', () => input.focus.focus(field), { description: 'filter', priority: 2 });
+  key('x', () => void askKill(), { description: 'kill', priority: 2 });
+  key('t', cycleTheme, { description: 'theme', priority: 1 });
+
+  // the one key that belongs to the field rather than the app: Escape abandons the
+  // filter, where Enter keeps it. The field does not take Escape, so it bubbles
+  // to the root from there, where it is the `onKey` prop below
+  const onKey = (event) => {
+    if (event.key.name === 'escape' && input.focus.current.get() === field) {
+      event.stop();
+      filter.set('');
+      input.focus.focus(undefined);
     }
   };
 
-  // what the footer lists, and unlisted with the component
-  const undo = [
-    input.describe('up', { description: 'select', priority: 3 }),
-    input.describe('down', { description: 'select', priority: 3 }),
-    input.describe('s', { description: 'sort', priority: 2 }),
-    input.describe('/', { description: 'filter', priority: 2 }),
-    input.describe('x', { description: 'kill', priority: 2 }),
-    input.describe('t', { description: 'theme', priority: 1 }),
-    input.describe('q', { description: 'quit', priority: 3 }),
-  ];
+  // -- the footer -------------------------------------------------------------
+  // the terminal's width less the status beside it, read when the footer builds
+  // its line and again whenever the bindings or the focus move. It was the root's
+  // laid-out width, which does not exist yet at the first draw: the line was cut to
+  // a guess of 80 until something moved the focus, and the table taking it on
+  // mount was what happened to do that
+  const footer = keyHelp(input, { width: () => Math.max(20, app.terminal.width - 24) });
+
+  const root = ui`<box class="app" onKey=${onKey}>
+    <box class="top">
+      ${cpu}
+      <box class="side">${mem}${network}</box>
+    </box>
+    ${procs}
+    <box class="row footer">
+      ${footer}
+      <text class="sigil-accent">${() => status.get()}</text>
+    </box>
+  </box>`;
+
+  // and unlisted with the component
   onCleanup(() => {
     for (const fn of undo) {
       fn();
     }
   });
-
-  // nothing focused means the keys reach the router's bindings and nothing else,
-  // so the table takes the focus once it is in the tree
-  onMount(() => input.focus.focus(table.element));
 
   return root;
 }

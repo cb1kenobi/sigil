@@ -323,9 +323,33 @@ the entry it belongs to.
 
   Not every write method needed it: measured on the unfixed code, a single bar's
   `write()`, `stop()` and `text`, a group's own `done()`, `write()` and `stop()`,
-  and a task log's `message()` leave their caller subscribed to nothing, and were
-  left alone. A handler is not an effect, which is the only reason
+  and a task log's `message()` leave their caller re-run by nothing, and were
+  left alone. That is what `runsOf()` measures, and SIG-321 found it is not the
+  same claim: a bar's `text` and a task log's `message()` did leave an edge, to
+  the renderer's own effect that their frame drained -- the entry below, and the
+  renderer's, not the methods'. A handler is not an effect, which is the only reason
   `collapsible.ts`'s toggle is safe as it stands. Nor does a later read in the same
   run "settle" a write: that a read after the write happened not to loop is an
   accident of `track()` overwriting the version it recorded, and the subscription
   is made all the same.
+
+- **A flush reads the effects it drains untracked, for the reason an effect's
+  first run already was.** A flush runs wherever somebody calls it, and a
+  renderer's `frame()` called from an effect -- a spinner's `start()` or
+  `text = ...` from one -- is another scope draining while the caller's body is
+  the one tracking. Each `computed.get()` in the drain made the caller a sink of
+  that effect. Nothing on screen showed it, which is why SIG-306's audit passed it:
+  an effect returns `undefined`, so a caller re-validating one finds it unchanged
+  and does not re-run. It still holds the edge, and its own scope's next flush runs
+  the other scope's effect for it -- outside any frame, whether or not that scope
+  was ever asked. `effect()` already said this about the run made where it is
+  created; the drain is the same read made later. Covered by `a flush called from
+  inside another scope's effect` in `test/signals/effect.test.ts`.
+
+  So a test of the SIG-306 rule asks two questions, and `test/runs-of.ts` has one
+  helper for each. `runsOf()` counts what the caller sees; `sourcesOf()` asks the
+  graph how many signals the caller was left reading, which is the only way to
+  see an edge to an effect. **Exactly zero**, for the reason the count is exact.
+  The fix for a component's method is usually not in the method: SIG-321's three
+  leaks were in the renderer and in this drain, and the renderer's half is under
+  "A root and a frame run untracked" in `src/renderer/AGENTS.md`.

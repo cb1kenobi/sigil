@@ -18,12 +18,13 @@ import {
   Show,
   useContext,
 } from '../../src/renderer/index.js';
-import { createEffects, sinkCount } from '../../src/signals/index.js';
+import { createEffects, effect, flush, sinkCount } from '../../src/signals/index.js';
 import { State } from '../../src/signals/index.js';
 import { Cascade, parseStylesheet } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { Screen, screenStream } from '../../src/testing/screen.js';
 import { setup } from '../components/helpers.js';
+import { runsOf } from '../runs-of.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -2999,5 +3000,103 @@ describe('a cascade that changes under a mounted tree', () => {
     expect(vi.getTimerCount()).toBe(timers);
     vi.advanceTimersByTime(50);
     expect(field.style.color).toBe(1);
+  });
+});
+
+describe('a renderer started from an effect', () => {
+  // SIG-321. A spinner's `start()` mounts one, and an app calls that from an
+  // effect as readily as from anywhere else: nothing the renderer reads on the
+  // way is something that effect asked to depend on
+  it('should not subscribe the effect to what the component body read', () => {
+    const h = harness();
+    const label = new State('a');
+    let view: ReturnType<typeof render> | undefined;
+
+    expect(
+      runsOf(
+        () => {
+          view = render(() => text(label.get()), {
+            backend: h.backend,
+            effects,
+            terminal: h.terminal,
+          });
+        },
+        () => label.set('b')
+      )
+    ).toBe(2);
+    view?.dispose();
+  });
+
+  it('should not subscribe the effect to what an onMount read on the first frame', () => {
+    // `render()` paints the first frame before it returns, and the mount
+    // callbacks are drained in it
+    const h = harness();
+    const label = new State('a');
+    let view: ReturnType<typeof render> | undefined;
+
+    expect(
+      runsOf(
+        () => {
+          view = render(
+            () => {
+              onMount(() => label.get());
+              return text('x');
+            },
+            { backend: h.backend, effects, terminal: h.terminal }
+          );
+        },
+        () => label.set('b')
+      )
+    ).toBe(2);
+    view?.dispose();
+  });
+
+  it('should not subscribe an effect that called frame() to what a frame handler read', () => {
+    const h = harness();
+    const label = new State('a');
+    const view = render(() => text('x'), { backend: h.backend, effects, terminal: h.terminal });
+    view.onFrame(() => label.get());
+
+    expect(
+      runsOf(
+        () => view.frame(),
+        () => label.set('b')
+      )
+    ).toBe(2);
+    view.dispose();
+  });
+
+  it('should keep its effects when the effect that started it runs again', () => {
+    // the other half of the ticket: an effect created while another's body runs
+    // is that body's child and dies when it re-runs, unless something says
+    // otherwise. The root says otherwise, so a spinner started from an effect
+    // goes on following its own state after that effect has run again
+    const h = harness();
+    const pass = new State(0);
+    const count = new State(0);
+    const seen: number[] = [];
+    let view: ReturnType<typeof render> | undefined;
+
+    const stop = effect(() => {
+      pass.get();
+      view ??= render(
+        () => {
+          createEffect(() => {
+            seen.push(count.get());
+          });
+          return text('x');
+        },
+        { backend: h.backend, effects, terminal: h.terminal }
+      );
+    });
+    pass.set(1);
+    flush();
+
+    count.set(1);
+    view?.frame();
+
+    expect(seen).to.deep.equal([0, 1]);
+    stop();
+    view?.dispose();
   });
 });

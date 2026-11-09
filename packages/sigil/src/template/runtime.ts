@@ -26,9 +26,9 @@
 import type { Element as SigilElement } from '../element/index.js';
 import type { Measurement } from '../layout/index.js';
 import { type ComponentRef, emit, type IRNode, type IRProp, type SourceLocation } from './ir.js';
-import type { HostProps as StyleHostProps, Reactive } from './props.js';
+import type { HostProps as StyleHostProps, Reactive, RefProps } from './props.js';
 
-export type { Reactive };
+export type { Reactive, RefProps };
 
 /** What may appear as a child. A function child is reactive text. */
 export type Children =

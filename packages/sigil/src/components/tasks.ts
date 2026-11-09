@@ -1,4 +1,4 @@
-import { ansi as defaultAnsi, strip } from '../ansi/index.js';
+import { strip } from '../ansi/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
 import { __, __n } from '../i18n/index.js';
 import { createEffect, createRoot, For, onCleanup } from '../renderer/index.js';
@@ -6,6 +6,7 @@ import { State, untrack } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
+import { colorLevelOf } from './color-level.js';
 import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
 import {
   createSpinner,
@@ -713,7 +714,7 @@ function createRun(opts: TasksOptions): Run {
   const interval =
     opts.interval && opts.interval > 0 ? opts.interval : frames.interval > 0 ? frames.interval : 80;
   const cascade = themedCascade(base);
-  const colorLevel = opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level;
+  const colorLevel = colorLevelOf(opts, opts.terminal);
 
   /** Top-level tasks still in the frame, in the order they started. */
   const top: TaskNode[] = [];

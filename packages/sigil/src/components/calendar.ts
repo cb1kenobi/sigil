@@ -8,7 +8,6 @@
  * See "A calendar" in this directory's AGENTS.md.
  */
 
-import { ansi as defaultAnsi } from '../ansi/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
 import { __, locale as i18nLocale } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
@@ -16,6 +15,7 @@ import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { transformValue } from '../util/coerce.js';
 import { daysInMonth } from '../util/transform.js';
 import { truncate } from '../wrap/index.js';
+import { colorLevelOf } from './color-level.js';
 import {
   type AccessibleOptions,
   promptAnswered,
@@ -434,7 +434,7 @@ export function calendar(opts: CalendarOptions = {}): string {
 
   return renderToString(element, {
     cascade: themedCascade(opts),
-    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    colorLevel: colorLevelOf(opts),
     colorScheme: opts.colorScheme,
     width,
   });

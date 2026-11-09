@@ -1139,9 +1139,18 @@ patch, a pane, and three additions to the renderer that the pane needs.
   exists for, and forwarding past it to the raw stream would write into the
   alternate screen the renderer is diffing. The ring is the destination.
 
-- **`trace` is left alone.** It prints a stack rather than a line, and replacing
-  it with a formatted line would throw the stack away -- which is the whole of
-  what anybody calls it for. Five methods: `debug`, `error`, `info`, `log`, `warn`.
+- **`trace` is not patched, and it is captured anyway (corrected in SIG-310).** This
+  entry said it was left alone because replacing it with a formatted line would
+  throw the stack away. Measured with a spy on `process.stderr.write`: Node's
+  `trace()` builds the stack and hands it to `this.error()`, so with `error`
+  patched it arrives as `error` lines, one per frame, and is not left alone at all.
+  Seven methods are patched: `debug`, `dir`, `dirxml`, `error`, `info`, `log`,
+  `warn`. `dir` and `dirxml` were not on the list and are the two that wrote into
+  the alternate screen past it, because Node writes them through its own writer
+  rather than the public methods; they are stored as `log`, `dir` through
+  `inspect()` with `customInspect: false` and the caller's options, as Node does,
+  and `dirxml` through `format()`. `table`, `group`, `time*`, `count` and `assert`
+  end in `log` or `warn` and were always captured.
 
 - **The console patch follows "put back what you attached", and reports whether
   this call was the one that changed it.** The rule `hideCursor()`,
@@ -1500,6 +1509,20 @@ patch, a pane, and three additions to the renderer that the pane needs.
   two renderers has one console, and an overlay that installed one would be an
   overlay whose teardown order decides whether `console.log` still works. The app
   owns the pairing, which is what makes `installed` a statement it can act on.
+
+  **Under `runApp()` the runner is the app, and it makes the call (SIG-310).** It
+  captures the console by default into a ring it owns and exposes it as
+  `app.logs`, so the pairing is one line in the app --
+  `enableDebugOverlay(app.view, { input: app.input, log: app.logs })` -- and the
+  overlay still installs nothing. `log` is `undefined` when the runner captured
+  nothing (`console: false`, or a capture the app installed first), and an
+  overlay given `undefined` makes a ring of its own that nothing fills: pass the
+  ring that was passed to your own `captureConsole()`. The ring and the patch
+  moved to `console-capture.ts`, re-exported from here, so that the runner can
+  have them without the pane; the full decision is under "Running an app" in
+  `src/renderer/AGENTS.md`. `createLogRing()` gained `onPush`, called per line
+  after it is stored, which is what lets an inline app echo each captured line
+  above its region while the ring still keeps it.
 
 - **The pane holds its ring as ordinary children rather than as `rows`, and the
   reason is no longer a missing mechanism.** It was: "a list that has to grow
@@ -9930,3 +9953,60 @@ exception per widget. This is the one answer, and every widget below follows it.
   replaces its inline buttons; level-0 markers for the three existing controls,
   which have no blank to put one in; and `:focus-within`, which would not solve
   this, as above, and which nothing has asked for for any other reason.
+
+### Components that take `props`
+
+- **A component's `props` may not carry a hook it owns (SIG-305, review round 1).**
+  `ElementProps` takes the seven hooks so that `box({ onKey })` and a template are
+  one path, and eight components spread their caller's `props` into a host and
+  then assign a hook of their own: `TextField({ props: { onKey: mine } })`
+  type-checked, built, and did nothing -- the silent no-op hooks-as-props set out
+  to remove, one level up (on main it threw `Unknown property "onKey"`, which was
+  a better answer). So a component refuses, at the top of its validation, exactly
+  the hooks it assigns on the element those props go to, with a `TypeError`
+  naming the component and the hook; and its `props` is typed
+  `ElementPropsWithout<...>`, which pins those keys to `undefined` (an `Omit`
+  would not: the index signature already admits a hook). `refuseOwnedHooks()` in
+  `owned-hooks.ts` is the one definition. `undefined` is let through, since an
+  optional prop a caller passed along is not a handler.
+
+  **The type break, accepted.** A value typed `ElementProps` no longer fits these
+  components' `props`: `function MyField(p: { props?: ElementProps }) { return
+  TextField({ props: p.props }) }`, or a shared `const style: ElementProps`, fails
+  with TS2322 where it compiled before hooks were props. Accepted because the
+  error is true -- such a value may carry a handler the component would replace
+  -- and a forwarder types its own `props` as `ElementPropsWithout<...>` with the
+  same hooks. `owned-hooks.test.ts` pins that spelling compiling and the other
+  not.
+
+  | component       | hooks it owns on the host its `props` go to     |
+  | --------------- | ----------------------------------------------- |
+  | `TextField`     | `onKey`, `onPaste`, `onFocusChange`, `onResize` |
+  | `ScrollBox`     | `onKey`, `onMouse`                              |
+  | `createPager`   | `onKey`                                         |
+  | `tabRowView`    | `onKey`, `onFocusChange`, `onResize`            |
+  | `openModal`     | `onPaste` (on the panel)                        |
+  | `showToast`     | `onMouse` (on the panel)                        |
+  | `attachTooltip` | `onLayout` (on the bubble)                      |
+
+  `Collapsible`, `Tabs` and `Show`/`For` assign none on the element their `props`
+  reach (a `Collapsible`'s hooks are on its title, `Tabs`' on its row), so they
+  keep accepting all seven. `openModal` and `showToast` are not on that list
+  although the review brief expected them to be: the modal's panel gets
+  `onPaste` and the toast's `onMouse` (a click dismisses it), both assigned after
+  the caller's `props` are spread, and `attachTooltip`'s bubble gets `onLayout`.
+  Found by the sweep, and in the table.
+
+  **Refused rather than composed.** `ScrollBox` runs its own `onScroll`/`onResize`
+  and then the caller's, but those are options of the component with a documented
+  order; a hook in `props` has no such contract, and composing would make the
+  order whatever the spread happened to be. An app that wants a key before the
+  component's puts the handler on the element around it, where a key bubbles to
+  it. **Not generalised past `props`:** a component's own callbacks (`onChange`,
+  `onSubmit`, `onQuit`) are not element hooks and are untouched.
+
+  `test/components/owned-hooks.test.ts` builds every component with no props and
+  reads which hooks it left on the host, so the table above is checked against
+  the code: a component that starts assigning another hook fails until it refuses
+  that one too. It also asserts the refusal names both, the `undefined` pass, and
+  that every hook it does not own is kept.
