@@ -1,4 +1,5 @@
-import { log, select } from '@ttylabs/sigil/components';
+import { log } from '@ttylabs/sigil/components/log';
+import { select } from '@ttylabs/sigil/components/prompt';
 
 const region = await select({
   message: 'Region',

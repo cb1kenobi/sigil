@@ -79,7 +79,14 @@
         "type": "readonly [string, string]"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function lineChart(values: readonly number[], opts?: LineChartOptions): string"
   },
   "registryDescription": "Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge",

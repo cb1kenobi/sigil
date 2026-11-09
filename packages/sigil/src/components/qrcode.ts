@@ -8,7 +8,7 @@
  * below, and `scripts/terminal-probe.mjs --qrcode`.
  *
  * ```js
- * import { qrcode } from '@ttylabs/sigil/components';
+ * import { qrcode } from '@ttylabs/sigil/components/qrcode';
  *
  * console.log(qrcode('https://example.com'));
  * console.log(qrcode('https://example.com', { form: 'large' }));

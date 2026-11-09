@@ -1,8 +1,13 @@
-import { componentCapture, describeComponent, takesSignal } from '../src/lib/component-data.ts';
+import {
+  componentCapture,
+  componentSubpath,
+  describeComponent,
+  takesSignal,
+} from '../src/lib/component-data.ts';
 import { COMPONENTS, FAMILIES, HELPERS, componentsOf } from '../src/lib/components.ts';
 import * as barrel from '@ttylabs/sigil/components';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -120,6 +125,36 @@ describe('the components list', () => {
     for (const entry of COMPONENTS.filter((it) => it.example?.accessibleSteps)) {
       assert.ok(componentCapture(entry.slug).views.accessible, entry.slug);
     }
+  });
+
+  it('should name a subpath for every page that exports what the page lists', async () => {
+    // the page says "from `@ttylabs/sigil/components/<module>`", read off the
+    // module that declares the component, so it is asked of the built subpath
+    for (const entry of COMPONENTS) {
+      const subpath = componentSubpath(entry.slug);
+      const exports = (await import(subpath)) as Record<string, unknown>;
+      for (const name of entry.exports) {
+        assert.ok(name in exports, `${name} is not exported by ${subpath}`);
+      }
+    }
+  });
+
+  it('should import every example from a subpath, as the README recommends, and none from the barrel', () => {
+    // SIG-330: an example is what somebody copies, so it teaches the import
+    const barrel = /from '@ttylabs\/sigil\/components'/;
+    const files = readdirSync(EXAMPLES).filter((file) => file.endsWith('.mjs'));
+    const offenders = files.filter((file) =>
+      barrel.test(readFileSync(join(EXAMPLES, file), 'utf-8'))
+    );
+
+    assert.ok(
+      files.some((file) =>
+        /from '@ttylabs\/sigil\/components\/[a-z-]+'/.test(
+          readFileSync(join(EXAMPLES, file), 'utf-8')
+        )
+      )
+    );
+    assert.deepEqual(offenders, []);
   });
 
   it('should have a file for every recipe and a page for every related component', () => {

@@ -1,5 +1,5 @@
 import { runApp } from '@ttylabs/sigil/app';
-import { Collapsible } from '@ttylabs/sigil/components';
+import { Collapsible } from '@ttylabs/sigil/components/collapsible';
 import { box, text } from '@ttylabs/sigil/element';
 
 const app = runApp(() =>

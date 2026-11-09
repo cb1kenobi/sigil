@@ -93,11 +93,17 @@
       }
     ],
     "shared": [
+      "ansi",
       "backend",
+      "colorLevel",
+      "colorScheme",
       "frameMs",
       "onError",
       "quiet",
-      "terminal"
+      "reducedMotion",
+      "sheets",
+      "terminal",
+      "theme"
     ],
     "signature": "function date(opts: DateOptions): Promise<Date>"
   },

@@ -44,7 +44,14 @@
         "type": "number"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function calendar(opts?: CalendarOptions): string"
   },
   "source": "packages/sigil/src/components/calendar.ts",

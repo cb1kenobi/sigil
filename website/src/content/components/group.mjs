@@ -1,4 +1,5 @@
-import { group, intro, outro, select, text } from '@ttylabs/sigil/components';
+import { group, intro, outro } from '@ttylabs/sigil/components/group';
+import { select, text } from '@ttylabs/sigil/components/prompt';
 
 intro('create-app');
 

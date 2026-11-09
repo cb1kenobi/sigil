@@ -1,4 +1,4 @@
-import { diff } from '@ttylabs/sigil/components';
+import { diff } from '@ttylabs/sigil/components/diff';
 
 console.log(
   diff({

@@ -1,5 +1,5 @@
 import { main } from '@ttylabs/sigil';
-import { text } from '@ttylabs/sigil/components';
+import { text } from '@ttylabs/sigil/components/prompt';
 
 await main({
   schema: {

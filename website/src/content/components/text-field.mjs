@@ -1,5 +1,5 @@
 import { runApp } from '@ttylabs/sigil/app';
-import { TextField } from '@ttylabs/sigil/components';
+import { TextField } from '@ttylabs/sigil/components/text-field';
 import { box, text } from '@ttylabs/sigil/element';
 
 const app = runApp(() =>

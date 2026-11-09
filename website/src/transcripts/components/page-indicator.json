@@ -59,7 +59,14 @@
         "type": "PageIndicatorStyle"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function pageIndicator(page: number, pages: number, opts?: PageIndicatorOptions): string"
   },
   "source": "packages/sigil/src/components/paginator.ts",

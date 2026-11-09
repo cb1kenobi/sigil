@@ -51,7 +51,14 @@
         "type": "number"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function rule(opts?: RuleOptions): string"
   },
   "registryDescription": "A horizontal divider across the terminal, with an optional label set into it",

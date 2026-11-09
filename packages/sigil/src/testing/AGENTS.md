@@ -871,7 +871,10 @@ changes. The full before-and-after, the A/B runs and the sabotage passes are in
   sabotage type-checked and failed the tests it should.
 
 - **Recommended rather than done, because each changes a public API.** Per-
-  component subpaths: in a scratch build with a spinner as an entry of its own,
+  component subpaths -- done since, by SIG-330, under "A subpath per component"
+  in `src/components/AGENTS.md`, which also taught `staticGraph()` to follow a
+  `../` specifier out of `dist/components/` and added `shippedModules()` for the
+  checks over every shipped file: in a scratch build with a spinner as an entry of its own,
   that entry was 194,707 B over 29 modules and 8.4 ms to import, against 475,138
   over 41 and 15.4 ms for the barrel in the same build, so an unbundled one-spinner app would pay about half -- but that is new
   public surface on the package every app depends on, and the split would have to

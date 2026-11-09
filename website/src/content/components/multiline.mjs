@@ -1,4 +1,4 @@
-import { multiline } from '@ttylabs/sigil/components';
+import { multiline } from '@ttylabs/sigil/components/prompt';
 
 const message = await multiline({ message: 'Commit message' });
 

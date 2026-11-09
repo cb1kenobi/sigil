@@ -1,4 +1,4 @@
-import { createPaginator } from '@ttylabs/sigil/components';
+import { createPaginator } from '@ttylabs/sigil/components/paginator';
 
 const results = Array.from({ length: 23 }, (_, i) => `result-${i + 1}.log`);
 const pages = createPaginator({ perPage: 5, total: results.length });

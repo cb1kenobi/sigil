@@ -101,11 +101,17 @@
       }
     ],
     "shared": [
+      "ansi",
       "backend",
+      "colorLevel",
+      "colorScheme",
       "frameMs",
       "onError",
       "quiet",
-      "terminal"
+      "reducedMotion",
+      "sheets",
+      "terminal",
+      "theme"
     ],
     "signature": "function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>): Promise<R>"
   },

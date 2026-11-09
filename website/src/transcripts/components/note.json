@@ -58,7 +58,14 @@
         "type": "number"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function note(message: string, opts?: NoteOptions): string"
   },
   "registryDescription": "A titled, bordered block that shrinks to its message, in a state role colour",

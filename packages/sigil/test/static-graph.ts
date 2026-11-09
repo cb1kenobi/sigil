@@ -1,6 +1,6 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { isBuiltin } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname, join, posix, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -17,6 +17,25 @@ import { fileURLToPath } from 'node:url';
 
 /** The built package, which everything here reads. */
 export const dist: string = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+
+/**
+ * Every bundle in `dir`, by its path relative to it, subdirectories included.
+ *
+ * Recursive because the component subpaths are built into `dist/components/`
+ * (SIG-330): a scan of the top level alone would pass a check over every
+ * shipped file -- raw control characters, a marker that must be nowhere --
+ * while skipping fifty-odd of them.
+ *
+ * @param dir - Where the bundles are.
+ * @returns Their paths, `/`-separated whatever the platform, so that they read
+ * the way `staticGraph()` names the same files.
+ */
+export function shippedModules(dir: string = dist): string[] {
+  return readdirSync(dir, { recursive: true, encoding: 'utf8' })
+    .filter((name) => name.endsWith('.mjs'))
+    .map((name) => name.split(sep).join('/'))
+    .sort();
+}
 
 /**
  * Every module a static `import` of `entry` would load, and nothing else.
@@ -45,13 +64,15 @@ export function staticGraph(entry: string, dir: string = dist): Set<string> {
     seen.add(name);
 
     const source = readFileSync(join(dir, name), 'utf8');
-    for (const re of [/\bfrom\s*["'](\.\/[^"']+)["']/g, /\bimport\s*["'](\.\/[^"']+)["']/g]) {
+    for (const re of [/\bfrom\s*["'](\.\.?\/[^"']+)["']/g, /\bimport\s*["'](\.\.?\/[^"']+)["']/g]) {
       for (const [, spec] of source.matchAll(re)) {
-        // relative to the importer, which in `dist/` is always the same
-        // directory and in an app's output is not: the entry sits above
+        // relative to the importer, which is not always the same directory: a
+        // component subpath sits in `dist/components/` and reaches the chunks
+        // above it as `../x.mjs`, and in an app's output the entry sits above
         // `chunks/`, so its `./chunks/x.mjs` and a chunk's `./y.mjs` name two
-        // different directories' files
-        queue.push(join(dirname(name), spec as string));
+        // different directories' files. Joined as a URL path is, `/` on every
+        // platform, so that one bundle is one name however it was reached
+        queue.push(posix.join(posix.dirname(name), spec as string));
       }
     }
   }

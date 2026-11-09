@@ -16,7 +16,14 @@
         "type": "FigLayoutMode"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function largeText(value: string, opts: LargeTextOptions): string"
   },
   "registryDescription": "Banner text: a FIGlet renderer and the .flf format",

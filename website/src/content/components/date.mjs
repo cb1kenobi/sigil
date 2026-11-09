@@ -1,4 +1,4 @@
-import { date } from '@ttylabs/sigil/components';
+import { date } from '@ttylabs/sigil/components/date';
 
 const release = await date({ message: 'Release date' });
 

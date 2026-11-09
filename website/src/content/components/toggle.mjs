@@ -1,4 +1,4 @@
-import { toggle } from '@ttylabs/sigil/components';
+import { toggle } from '@ttylabs/sigil/components/toggle';
 
 const telemetry = await toggle({ message: 'Telemetry', active: 'on', inactive: 'off' });
 

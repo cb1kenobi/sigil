@@ -1541,6 +1541,181 @@ patch, a pane, and three additions to the renderer that the pane needs.
   their own. The day somebody wants a ten-thousand-line ring is still the day to
   pass `rows` -- it is now a refactor of this file, not a feature of another one.
 
+### A subpath per component (SIG-330)
+
+`@ttylabs/sigil/components/<name>` for every component, beside
+`@ttylabs/sigil/components`, whose exports did not change. Every subpath is a
+name an app can import and so can never quietly change, so what follows was
+decided once, for all of them. The runs and the sabotage passes are in
+[docs/history/a-subpath-per-component.md](../../../../docs/history/a-subpath-per-component.md).
+
+- **Which modules: every one the barrel already exported from, which is every
+  module but `spinner-frames`.** Fifty-five. A rule rather than a curated set,
+  for three reasons. It is mechanical, so a test can hold the directory to it.
+  The helpers it sweeps in -- `keys`, `mount`, `editing`, `fuzzy`, `catalog`,
+  `key-help`, `markdown-parse`, `log-stream` -- were already public through the
+  barrel, so their subpath adds a path rather than a name, and without one an app
+  that uses `decodeKeys()` would keep importing the barrel for one function and
+  pay for every component. And the registry, below, needs every sibling a
+  component imports to have a subpath of its own. `spinner-frames` stays out:
+  it is the long tail of spinner sets, shipped in the registry and imported by
+  nothing in `src/`, so that no app pays for it (SIG-183), and a subpath would
+  publish it. `INTERNAL` in `test/component-subpaths.test.ts` is where an
+  exception is written, with its reason, so that the next one is a decision.
+
+  `color-level` is the second, for the same reason: SIG-309 put the one rule for
+  a component's colour level in its own module and called it from 23 component
+  sites, so most ejected components import it as a sibling. It was already in
+  the barrel, so its subpath adds a path rather than a name. `owned-hooks` is
+  the third, by the same rule: SIG-305's `refuseOwnedHooks()` is called by
+  seven components (modal, toast, tooltip, pager, text field, scroll box, tabs)
+  and was already in the barrel.
+
+  `console-capture` is the first module the rule met after it was written, and
+  it is a subpath for the registry's reason, not an exception. SIG-310 moved the
+  log ring and the console patch out of `debug-overlay.ts` so that `runApp()`
+  could own them without loading a pane, and the overlay now imports them as a
+  sibling. So an ejected overlay has to import `./console-capture.js` from its
+  own subpath. `INTERNAL` would have satisfied the drift test and left the
+  registry generator refusing the overlay. Its names are in both facades:
+  `debug-overlay.ts` re-exports them on purpose ("they are this module's exports
+  still", SIG-310), and the overlay's component page documents them under that
+  subpath. Both facades export the same bindings, so the barrel's two
+  `export *` lines name one thing each, not two, and the union stays exact.
+  Moving the names out of the overlay's facade was tried first and failed the
+  website's check that a page's subpath exports what the page lists.
+
+- **Named after the file, not the export, with no exceptions.**
+  `group-multiselect` rather than `groupMultiselect`. A module exports several
+  things -- `prompt.ts` the six prompts and the plumbing under them, `chart.ts`
+  five charts, `clock.ts` a stopwatch and a timer -- so naming by export is
+  either one name per module picked by taste, which is not a rule, or a subpath
+  per export, which means splitting the source and is the refactor the
+  registry's "An entry is one file, not one export" already refused. Kebab case
+  is every other subpath's spelling (`error-handler`, `jsx-runtime`), and a
+  registry entry is named after the same file, so `sigil add spinner` and
+  `@ttylabs/sigil/components/spinner` name one thing.
+
+- **A subpath exports what the barrel exports from its module and nothing more,
+  which takes a facade.** The obvious build -- the module itself as the entry --
+  publishes every `export` in it, and a module exports what its siblings share:
+  19 values beyond the barrel's 260, measured off the first build, among them
+  `addDays()` for the date prompt, the path prompt's six segment helpers, and
+  eight of the prompts' layout functions, with their types. Published, each is a
+  name that can never be renamed. So `src/components/subpaths/<name>.ts` is one
+  `export { ... } from '../<name>.js'` -- the barrel's list for that module,
+  moved rather than copied -- and `index.ts` is `export *` over the facades, plus
+  the theme. The list is written once, and a name two facades both export is
+  TS2308 in the barrel rather than a name `export *` silently drops.
+
+- **The list is kept honest by the manifest and a test rather than a
+  generator.** `exports` has to be literal JSON, so the manifest names every
+  subpath; `tsdown.config.ts` reads its component entries off the manifest
+  (`componentEntries()`), so those two cannot drift; and
+  `test/component-subpaths.test.ts` holds the manifest to the directory -- every
+  module has a subpath unless it is `INTERNAL`, every subpath has a module and a
+  facade over exactly that module, the barrel is `export *` over exactly those
+  facades, and each points at `dist/components/<name>.mjs` and `.d.mts`. Built,
+  it asks that every name a subpath exports is the very binding the barrel
+  exports, which is what "shared, not copied" means to an app: one module
+  instance behind both spellings, so a `PromptError` from a prompt imported one
+  way is `instanceof` the class imported the other, and a live region mounted
+  through a subpath is one the barrel's components evict. A generator writing the
+  manifest was refused, because it is a build editing a committed file that turbo
+  hashes as one of that build's inputs.
+
+- **Shared code is in shared chunks, and the barrel is what pays for it.**
+  rolldown splits by which entries reach a module, so the stack every component
+  is drawn with sits in chunks every subpath reaches and nothing is copied: the
+  element tree's and the signal graph's own error messages are each in one
+  shipped file, reached from the spinner, the prompts and the progress bar alike.
+  All of `dist/`'s `.mjs` went from 646,774 to 672,937 B, and the difference is
+  the import and export statements between chunks. What moved is the barrel's
+  shape: its component code was one 218 kB file and is now 55 chunks it imports,
+  so it went from 473,873 B over 38 modules to 496,422 over 110, and from 15.0 to
+  22.4 ms of a fresh node's import. That is inherent rather than a setting: a
+  component's code is in one file, and a file that only its subpath loads is one
+  the barrel has to load on its own. Building the barrel separately, as one file
+  again, was refused -- it is a second copy of every component, so an app that
+  used both spellings, which is any app halfway through moving and any app with
+  a library that chose the other one, would get two `PromptError` classes and
+  two live-region registries. So the barrel is the slow path now, which is the
+  reason the README recommends the subpath; an app `sigil build` bundles pays
+  nothing for it.
+
+- **Measured, as of SIG-330, on node 26.10 on arm64 macOS.** Medians of 61
+  interleaved fresh-process imports, at a load average of about 12 from other
+  work, so the milliseconds are relative to each other rather than absolute; the
+  root entry is the control. Built is `sigil build` of the `shake-spinner`
+  fixture and its `-subpath` twin, the same app importing `createSpinner` the two
+  ways: the static graph of what it wrote, and the wall clock of running it,
+  medians of 41.
+
+  | one-spinner app                            | modules |   bytes |   ms |
+  | ------------------------------------------ | ------: | ------: | ---: |
+  | unbundled, barrel, before                  |      38 | 473,873 | 15.0 |
+  | unbundled, barrel, after                   |     110 | 496,422 | 22.4 |
+  | unbundled, `components/spinner`            |      30 | 194,847 |  8.8 |
+  | unbundled, spinner + table + prompt        |      38 | 247,076 | 10.6 |
+  | built, barrel, before                      |       7 | 192,671 | 37.0 |
+  | built, barrel, after                       |       7 | 192,669 | 36.9 |
+  | built, `components/spinner`                |       7 | 158,414 | 36.2 |
+  | `@ttylabs/sigil`, before → after (control) |       8 |  12,326 |  3.3 |
+
+  The ticket's baseline, from a scratch build, was 475 KB over 41 modules and
+  about 15 ms for the barrel against 195 KB over 29 and about 8 ms for a spinner;
+  the subpath lands on it, at one module more for its facade. The built row is the surprise: shaken, the barrel's
+  app still loads a 43 kB chunk of prompt code at startup, shared with the lazy
+  palette path behind `main()`, and through the subpath that code stays behind
+  the palette's `import()` -- 18% less to load, for a millisecond. Every subpath
+  has a ceiling at about 2x in `dist.test.ts`'s `CEILINGS`; the barrel kept its
+  640 KiB, now 1.32x.
+
+- **An ejected component imports each sibling from its own subpath.** It was
+  the barrel, and an ejected spinner importing the barrel loads every component
+  to draw itself -- more than the built-in spinner it replaced. Nothing else
+  about the rewrite moved: it still happens at build time because it does not
+  depend on where the file lands, a sibling is still never copied, and
+  `generate-registry.mjs` now refuses a sibling with no subpath of its own. "The
+  registry" in `packages/cli/AGENTS.md` carries the same change.
+
+- **A `.d.mts` per subpath, with the shared declarations in shared chunks.** The
+  declaration build chunks the way the code does: `components/spinner.d.mts` is
+  one import and one export list, and `MountOptions`, `StyledOptions`, `Key` and
+  `PromptOptions` are each declared in exactly one file, which a test asserts. All
+  the declarations went from 1,060,768 B over 50 files to 1,111,755 over 161, and
+  `components.d.mts` from 363,536 B to a 21 kB list of re-exports. The website's
+  options reader read that one file, so it follows a name across chunks now --
+  and found on the way that `StyledOptions`, declared in the theme's chunk all
+  along, had never been read: 51 component pages' list of shared options gained
+  the six it brings.
+
+- **`dist/components/` is a directory, so the readers of `dist/` recurse.** The
+  subpath `./components/spinner` builds to `dist/components/spinner.mjs`, which
+  is what `test/exports.test.ts` already derived from a subpath's name, and which
+  reaches the chunks above it as `../x.mjs`. `staticGraph()` followed `./` only
+  and would have reported a subpath as one module; it follows both now, and names
+  a bundle with `/` however it was reached. `shippedModules()` beside it is every
+  bundle, subdirectories included, for the checks over every shipped file -- the
+  raw control characters among them, which a top-level read would have passed
+  while skipping fifty-five files.
+
+- **What this supersedes.** "The components barrel is not split per component"
+  below measured a subpath per component at about 15 kB of 124 when the set was
+  five components; at fifty-five, an unbundled one-spinner app pays 41% of the
+  barrel's bytes through the subpath. The refusals of a `@ttylabs/sigil/qrcode`
+  and a `@ttylabs/sigil/palette` subpath stand as they were written: those are
+  top-level names for one component, and `components/qrcode` and
+  `components/palette` are those modules' places under this rule, which add no
+  name the barrel did not already export.
+
+- **Not done.** The demos and the examples still import the barrel: the README,
+  the website, `sigil new`'s scaffold and the agents block teach the subpath, and
+  the toolchain's own source uses it, but a demo is about its subject rather than
+  its import, and the barrel is what they were written against. Narrowing the
+  barrel's module count back down -- grouping its chunks -- would move bytes onto
+  every subpath, and is a measurement of its own.
+
 ### The built-in components
 
 - **Importing `@ttylabs/sigil` loads no component, and that is now pinned rather
@@ -1573,8 +1748,9 @@ patch, a pane, and three additions to the renderer that the pane needs.
   _implementation_ per component, and the barrel exports the state builders, the view
   functions and the types beside them, so a derived list would be asserting that
   `typewriterState` is not on the root entry -- true, and not the claim.
-- **The components barrel is not split per component, because the components are
-  not what it costs.** Reaching for one is 124 KB, of which the component
+- **Superseded by SIG-330, under "A subpath per component" above; kept for the
+  measurement it was.** **The components barrel is not split per component,
+  because the components are not what it costs.** Reaching for one is 124 KB, of which the component
   implementations are 13.4 KB and the other 111 KB is the stack any single one
   needs -- `style` alone is 41 KB, then layout, canvas, element, signals,
   renderer, ansi, wrap, terminal, width. So a subpath per component saves an

@@ -11,7 +11,7 @@
  *
  * ```js
  * import { runApp } from '@ttylabs/sigil/app';
- * import { enableDebugOverlay } from '@ttylabs/sigil/components';
+ * import { enableDebugOverlay } from '@ttylabs/sigil/components/debug-overlay';
  *
  * const app = runApp(App, { gatherStats: true });
  * enableDebugOverlay(app.view, {

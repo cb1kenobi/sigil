@@ -1,4 +1,4 @@
-import { list } from '@ttylabs/sigil/components';
+import { list } from '@ttylabs/sigil/components/list';
 
 const tags = await list({ message: 'Tags' });
 
