@@ -5656,10 +5656,49 @@ field.
 - **The footer does not claim a key.** `?`, and whether the footer is expanded, are
   the app's: `expanded` is a boolean or a `State<boolean>` and the demo binds `?`
   to it, for the reason the palette does not bind a key to open itself.
-- **The width is an option because the footer cannot know its box.** It defaults
-  to `terminal.width` at each run and accepts `() => n` for an app that resizes;
-  reading the laid-out width of the element would need a layout pass inside an
-  effect that is itself rebuilding the children.
+- **The width is the layout's, learned through `onResize`, the way the tabs row
+  and `TextField` learn theirs (SIG-311).** This entry used to say the footer
+  could not know its box, so `width` defaulted to `terminal.width` read inside the
+  effect, and that effect re-ran only when the bindings or the focus moved -- so a
+  resize left the line fitted to the old width until an unrelated key moved the
+  focus. The premise was wrong: nothing has to be laid out inside the effect,
+  because a frame dispatches `onResize` after its layout and before its paint, so
+  the footer records the room, refits, answers whether that changed the tree, and
+  the first frame is already drawn at the right width. `terminal.width` is now only
+  the guess the effect fits to before any layout has said, which nothing on the
+  screen is drawn from. The system monitor (SIG-291) and the demo both passed a
+  width function fed by `input.onResize()` to get round it; neither does now.
+- **The short form asks for every line, whatever it kept: `width` the natural
+  width of all of them, `max-width: 100%`, `min-width: 0`.** The same loop
+  SIG-318 found in `TextField`, met before it could ship. A row is the default
+  direction and sizes a child to its content, so a footer that asked for what it
+  kept was laid out at the width of its last fit: squeezed once, it dropped a
+  binding, was laid out narrower, and was never offered the room back however
+  wide the terminal grew. Asking for all of it makes the box independent of what
+  was drawn in it. Each declaration has a sabotage of its own in
+  `in a running app, sized by its box`: no `onResize` fails both cases, no `width`
+  fails the row growing back, no `max-width` fails the column -- a declared width
+  is not stretched, and is not clamped to the column either -- and no `min-width`
+  fails the row being squeezed at all, since a box's automatic minimum is its
+  content's. Three costs are taken knowingly. In a column the box is the natural
+  width rather than stretched, which only a background on `.sigil-key-help` would
+  show. Between the `…` and whatever follows the footer in a row there is up to
+  one dropped line's worth of blank, because the box is the room it was given and
+  it shows whole lines. And beside a status, both shrink in proportion unless the
+  status says otherwise -- the monitor gives its status `flex-shrink: 0`, since
+  what just happened is the line worth keeping whole.
+- **An explicit `width` is the app's answer and the layout is not asked.** No
+  `onResize` and no declared width, so `width: 60` and `width: () => n` behave
+  exactly as they did -- which is what `prompt.ts` passes, fitting its footer to
+  the columns it already computed. The long form declares nothing either way: its
+  descriptions are cut by the layout's own ellipsis, so it has no room to fit to,
+  and holding it to the short form's width would cut a group heading wider than
+  the line under it (`should not hold the long form to the width the short form
+  asked for`). A draw that would change nothing -- the same lines, the same
+  form, the same width asked for -- does nothing and answers `false`, so a resize
+  that keeps every line costs no rebuild and a frame no second layout -- `should
+  answer a resize that changes no line as no change` asks the hook directly,
+  since a frame that lays out once more converges either way and cannot see it.
 
 #### What is deliberately out
 

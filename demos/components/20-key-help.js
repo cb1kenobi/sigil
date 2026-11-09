@@ -8,8 +8,9 @@
  * binding carries its own description, and the footer is `router.bindings()`
  * read inside an effect: it follows the focus, follows a binding being added or
  * removed, and drops the lowest-priority keys first when the line is wider than
- * the terminal. `?` is the app's own binding -- the component does not claim a
- * key -- and it flips the signal that expands the footer into groups.
+ * the box it is laid out in -- which it learns from the layout, so a resize refits
+ * it with nothing passed in. `?` is the app's own binding -- the component does not
+ * claim a key -- and it flips the signal that expands the footer into groups.
  *
  * Two kinds of key are described, and the difference is the honest part. A key
  * bound with `bind()` is described *there*, so the description and the handler
@@ -93,28 +94,29 @@ if (live) {
   const view = render(() => ui.container, { cascade: new Cascade([sheet]) });
   const input = createInput({ root: view.root });
   const expanded = new State(false);
-  const width = new State(process.stdout.columns ?? 80);
-  input.onResize((size) => width.set(size.width));
 
   wire(input, ui, expanded, () => {
     view.dispose();
     input.stop();
     process.exit(0);
   });
-  ui.container.append(keyHelp(input, { expanded, width: () => width.get() }));
+  // no width: it is fitted to the box it is laid out in, inside the border
+  ui.container.append(keyHelp(input, { expanded }));
   input.focus.focus(ui.files);
 } else {
   const term = createTestTerminal({ columns: 46 });
   const ui = scene();
   const input = createInput({ root: ui.container, terminal: term.terminal });
   const expanded = new State(false);
-  const width = new State(46);
+  let width = 46;
 
   wire(input, ui, expanded, () => {});
-  const footer = keyHelp(input, { expanded, width: () => width.get() });
+  // no width here either: each render lays it out at the width it is given, and
+  // the footer refits to that before it is painted
+  const footer = keyHelp(input, { expanded });
   const cascade = themedCascade();
   const show = (label) => {
-    const lines = renderToString(footer, { cascade, colorLevel: 0, width: width.get() });
+    const lines = renderToString(footer, { cascade, colorLevel: 0, width });
     console.log(`${label}\n${lines.replace(/^/gm, '  ')}\n`);
   };
 
@@ -134,11 +136,10 @@ if (live) {
 
   await term.press(KEYS.tab);
   await settle();
-  width.set(24);
-  await settle();
+  width = 24;
   show('back on files, 24 columns: lowest priority goes first, then an ellipsis');
 
-  width.set(46);
+  width = 46;
   await term.press('?');
   await settle();
   show('? -> expanded: every binding, under its group');

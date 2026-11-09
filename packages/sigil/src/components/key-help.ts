@@ -25,15 +25,21 @@ export interface KeyHelpOptions {
    * follows. A plain boolean is a footer that never changes shape.
    */
   expanded?: boolean | State<boolean>;
-  /** The terminal whose width is the default. */
+  /**
+   * The terminal whose width the short form is fitted to before the layout has
+   * said how wide its box is. A frame tells the footer after its layout and before
+   * it paints, so this is a guess no frame draws.
+   */
   terminal?: { readonly width: number };
   /**
-   * How many columns the short form may use.
+   * How many columns the short form may use, where the app would rather say than
+   * let the layout decide.
    *
-   * A function because the footer cannot know how wide the box it was put in
-   * turned out: an app that resizes passes one that reads its own size, and the
-   * footer asks again whenever the bindings or the focus change. Defaults to the
-   * terminal's width.
+   * Left out, the footer is fitted to the box the layout gives it and fitted again
+   * whenever that box changes size, which is a terminal resize as much as anything.
+   * Given, the layout is not asked: a number is that many columns for good, and a
+   * function is asked again whenever the bindings or the focus change -- and not
+   * on a resize unless it reads a signal the resize writes.
    */
   width?: number | (() => number);
 }
@@ -365,6 +371,14 @@ function longRows(entries: readonly KeyHelpEntry[]): Element[] {
   return out;
 }
 
+/** Columns the short form asks for: every line, and the separators between them. */
+function naturalWidth(entries: readonly KeyHelpEntry[]): number {
+  return (
+    entries.reduce((sum, entry) => sum + lineWidth(entry), 0) +
+    SEPARATOR_WIDTH * Math.max(0, entries.length - 1)
+  );
+}
+
 /**
  * A footer listing the keys that are live, read from the bindings themselves.
  *
@@ -378,6 +392,14 @@ function longRows(entries: readonly KeyHelpEntry[]): Element[] {
  * priority first, and the row ends in `…`. The long form lists every binding
  * under its group.
  *
+ * The room the short form fits into is the width the layout gives the footer,
+ * learned through `onResize` the way `TextField` and the tabs row learn theirs, so
+ * a resize refits it. It asks the layout for the width of every line rather than
+ * of the ones it kept -- with a `max-width` of its container and no minimum -- so
+ * the box it is given never depends on what it last chose to show: a footer in a
+ * row is squeezed by what is beside it and offered the room back when there is
+ * some, and one in a column is never wider than the column.
+ *
  * @param router - Where the bindings come from.
  * @param opts - Which form, and how wide.
  * @returns The footer.
@@ -385,12 +407,43 @@ function longRows(entries: readonly KeyHelpEntry[]): Element[] {
 export function keyHelp(router: KeyHelpSource, opts: KeyHelpOptions = {}): Element {
   const terminal = opts.terminal ?? defaultTerminal;
   const root = box({ class: 'sigil-key-help' });
+  /** Whether the layout decides the width, which it does unless the app said. */
+  const laidOut = opts.width === undefined;
 
-  createEffect(() => {
+  /** The columns the layout gave the footer, once it has. */
+  let room: number | undefined;
+  /** What was drawn last, so that a draw that would change nothing does nothing. */
+  let drawn: string | undefined;
+
+  /**
+   * Fits the bindings to the room, and rebuilds the children if that changed them.
+   *
+   * @returns Whether the tree changed, which is what `onResize` owes a frame.
+   */
+  const draw = (): boolean => {
     const entries = keyHelpEntries(router.bindings());
     const expanded = isExpanded(opts.expanded);
-    const columns =
-      typeof opts.width === 'function' ? opts.width() : (opts.width ?? terminal.width);
+    const columns = Math.max(
+      0,
+      typeof opts.width === 'function' ? opts.width() : (opts.width ?? room ?? terminal.width)
+    );
+
+    // the long form has no width to fit to: its descriptions are cut by the
+    // layout's own ellipsis, so it is the same tree at any room
+    const natural = laidOut && !expanded ? naturalWidth(entries) : undefined;
+    const fitted = expanded ? undefined : fitKeyHelp(entries, columns);
+    const signature = JSON.stringify([
+      expanded,
+      natural,
+      expanded ? entries : fitted?.shown,
+      fitted?.truncated,
+      // the mark alone is drawn only where there is a column for it
+      !expanded && columns >= 1,
+    ]);
+    if (signature === drawn) {
+      return false;
+    }
+    drawn = signature;
 
     // a copy, because `removeChild` edits the array being walked
     // eslint-disable-next-line unicorn/no-useless-spread
@@ -400,8 +453,30 @@ export function keyHelp(router: KeyHelpSource, opts: KeyHelpOptions = {}): Eleme
     root.setProps({
       class: expanded ? 'sigil-key-help is-expanded' : 'sigil-key-help',
       'flex-direction': expanded ? 'column' : 'row',
+      // what it asks for is every line, whatever it kept, and what it is given is
+      // what it fits to: asking for what it kept would size the box by the last
+      // fit, and a footer that once dropped a binding would never be offered the
+      // room to show it again
+      ...(laidOut && {
+        'max-width': natural === undefined ? undefined : '100%',
+        'min-width': 0,
+        width: natural,
+      }),
     });
-    root.append(...(expanded ? longRows(entries) : shortRows(entries, Math.max(0, columns))));
+    root.append(...(expanded ? longRows(entries) : shortRows(entries, columns)));
+    return true;
+  };
+
+  if (laidOut) {
+    root.onResize = (element): boolean => {
+      const size = element.content ?? element.box;
+      room = size?.width;
+      return draw();
+    };
+  }
+
+  createEffect(() => {
+    draw();
   });
 
   return root;
