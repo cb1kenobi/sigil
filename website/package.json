@@ -37,7 +37,7 @@
     "@types/react-dom": "19.3.0",
     "babel-plugin-react-compiler": "1.0.0",
     "oxc-parser": "0.157.0",
-    "pagefind": "1.5.2",
+    "pagefind": "1.6.0",
     "tailwindcss": "4.3.4",
     "typescript": "7.0.2"
   }
