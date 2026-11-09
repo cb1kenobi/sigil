@@ -56,13 +56,12 @@ function toolchainManifest(): { devDependencies: Record<string, string>; version
 }
 
 /**
- * What each choice question's answer is when it is not asked, written once.
+ * What each choice question's answer is when `--yes` takes it, written once.
  *
- * `--yes` and `--defaults` both mean "take these", so there is one list for them to
- * read and they cannot disagree about what a default is. The menus preselect the
- * same entries: `initial` is looked up from here rather than being the first row of
- * a list, so moving a default moves the highlight with it. The package manager is
- * the one default that is not a constant -- it is whichever of the installed ones
+ * The menus preselect the same entries: `initial` is looked up from here rather than
+ * being the first row of a list, so the highlighted entry and the value `--yes` takes
+ * cannot drift apart, and moving a default moves both. The package manager is the one
+ * default that is not a constant -- it is whichever of the installed ones
  * `askManager()` prefers -- and is defined there.
  */
 const DEFAULTS = {
@@ -71,24 +70,6 @@ const DEFAULTS = {
   linter: 'oxlint',
   syntax: 'jsx',
 } as const satisfies { language: Language; layout: Layout; linter: Linter; syntax: Syntax };
-
-/**
- * Whether a question is answered by its default rather than asked.
- *
- * The one place that says which flag covers which question. `--yes` covers every
- * question. `--defaults` covers the **choices** -- language, layout, template syntax,
- * linter and package manager, each of which has a default worth taking -- and not the
- * name, whether to include a full-screen app, where to launch it or what to call its
- * command, which have none. An explicit option beats both, and is checked before this
- * is asked.
- *
- * @param argv - The parsed options.
- * @param kind - `choice` for a question with a default, `open` for one without.
- * @returns Whether to take the default.
- */
-function takesDefault(argv: Record<string, unknown>, kind: 'choice' | 'open'): boolean {
-  return Boolean(argv.yes) || (kind === 'choice' && Boolean(argv.defaults));
-}
 
 /**
  * Which package manager to use, asked only when there is something to ask.
@@ -107,9 +88,10 @@ function takesDefault(argv: Record<string, unknown>, kind: 'choice' | 'open'): b
  * is the one somebody went and installed on purpose.
  *
  * @param argv - The parsed options.
+ * @param yes - Whether to take the default rather than asking.
  * @returns The manager to use.
  */
-async function askManager(argv: Record<string, unknown>): Promise<Manager> {
+async function askManager(argv: Record<string, unknown>, yes: boolean): Promise<Manager> {
   if (typeof argv.pm === 'string') {
     return argv.pm as Manager;
   }
@@ -131,7 +113,7 @@ async function askManager(argv: Record<string, unknown>): Promise<Manager> {
 
   const preferred: Manager = installed.includes('pnpm') ? 'pnpm' : 'npm';
 
-  if (takesDefault(argv, 'choice')) {
+  if (yes) {
     return preferred;
   }
 
@@ -202,24 +184,22 @@ const newApp: AnyCommand = command({
     '--tui-command [name]': {
       desc: 'Include a full-screen app, launched from a command of this name',
     },
-    '--defaults': {
-      desc: 'Take the default for each choice (language, layout, syntax, linter, package manager) and still ask the rest',
-      type: 'bool',
-    },
     '-y, --yes': { desc: 'Take the defaults for anything not passed', type: 'bool' },
   },
 
   async run({ argv }) {
+    const yes = Boolean(argv.yes);
+
     // first, before the name is asked for: a flag that cannot work is refused
     // before any question, so nothing has been answered when it is
-    checkTuiFlags(argv);
+    checkTuiFlags(argv, yes);
 
     const parent = parentDir(argv.cwd as string | undefined);
     const blocked = parentProblem(parent);
     if (blocked) {
       throw new Error(blocked);
     }
-    const name = await askName(argv, parent);
+    const name = await askName(argv.projectName as string | undefined, yes, parent);
     // asked again of a name that came from the argument, which the prompt never
     // saw; for one that was typed it is the check the prompt already passed
     const problem = nameProblem(name);
@@ -233,12 +213,12 @@ const newApp: AnyCommand = command({
       throw new Error(taken);
     }
 
-    const language = await askLanguage(argv);
-    const layout = await askLayout(argv);
-    const tui = await askTui(argv, layout, name);
-    const syntax = await askSyntax(argv, tui);
-    const linter = await askLinter(argv);
-    const pm = await askManager(argv);
+    const language = await askLanguage(argv, yes);
+    const layout = await askLayout(argv, yes);
+    const tui = await askTui(argv, yes, layout, name);
+    const syntax = await askSyntax(argv, yes, tui);
+    const linter = await askLinter(argv, yes);
+    const pm = await askManager(argv, yes);
 
     const own = toolchainManifest();
     const files = scaffold({
@@ -373,12 +353,11 @@ function typedNameProblem(value: string, parent: string): string | undefined {
  * the field and waits. Empty is one of them, so there is no placeholder to
  * suggest a name nobody chose.
  */
-async function askName(argv: Record<string, unknown>, parent: string): Promise<string> {
-  const given = argv.projectName as string | undefined;
+async function askName(given: string | undefined, yes: boolean, parent: string): Promise<string> {
   if (given !== undefined) {
     return given;
   }
-  if (takesDefault(argv, 'open')) {
+  if (yes) {
     throw new Error(
       'A project name is required. Pass it as an argument, or drop --yes to be asked.'
     );
@@ -399,11 +378,11 @@ async function askName(argv: Record<string, unknown>, parent: string): Promise<s
  * and `--syntax` are, because a flag is `false` when it is absent: "not passed" and
  * "TypeScript, please" were the same value, so only `--yes` could skip the question.
  */
-async function askLanguage(argv: Record<string, unknown>): Promise<Language> {
+async function askLanguage(argv: Record<string, unknown>, yes: boolean): Promise<Language> {
   if (typeof argv.lang === 'string') {
     return argv.lang as Language;
   }
-  if (takesDefault(argv, 'choice')) {
+  if (yes) {
     return DEFAULTS.language;
   }
 
@@ -416,15 +395,18 @@ async function askLanguage(argv: Record<string, unknown>): Promise<Language> {
 }
 
 /** Asks whether there are subcommands, defaulting to yes. */
-async function askLayout(argv: Record<string, unknown>): Promise<Layout> {
+async function askLayout(argv: Record<string, unknown>, yes: boolean): Promise<Layout> {
   if (argv.single) {
     return 'single';
   }
   // a command to launch the app from is a command, so the question has been
   // answered: asking it anyway let somebody say "no, a single command" and then
   // fail with a guard from the scaffold after every question was answered
-  if (takesDefault(argv, 'choice') || typeof argv.tuiCommand === 'string') {
-    return typeof argv.tuiCommand === 'string' ? 'multi' : DEFAULTS.layout;
+  if (typeof argv.tuiCommand === 'string') {
+    return 'multi';
+  }
+  if (yes) {
+    return DEFAULTS.layout;
   }
 
   const choices = [
@@ -464,9 +446,9 @@ async function askLayout(argv: Record<string, unknown>): Promise<Layout> {
  *   the question that follows may yet be yes.
  *
  * @param argv - The parsed options.
+ * @param yes - Whether defaults are being taken.
  */
-function checkTuiFlags(argv: Record<string, unknown>): void {
-  const yes = takesDefault(argv, 'open');
+function checkTuiFlags(argv: Record<string, unknown>, yes: boolean): void {
   const command = argv.tuiCommand;
   const named = typeof command === 'string';
 
@@ -510,12 +492,14 @@ function checkTuiFlags(argv: Record<string, unknown>): void {
  * single command has nowhere but itself.
  *
  * @param argv - The parsed options.
+ * @param yes - Whether to take the default rather than asking.
  * @param layout - How the commands are arranged.
  * @param app - The app's name, which the question names.
  * @returns Where it is launched from, or `undefined` for none.
  */
 async function askTui(
   argv: Record<string, unknown>,
+  yes: boolean,
   layout: Layout,
   app: string
 ): Promise<Tui | undefined> {
@@ -526,7 +510,7 @@ async function askTui(
     return { at: 'root' };
   }
   // `--no-tui` is how a script that passes every flag but `--yes` says so
-  if (takesDefault(argv, 'open') || argv.noTui) {
+  if (yes || argv.noTui) {
     return undefined;
   }
 
@@ -565,11 +549,13 @@ async function askTui(
  * Asks which template syntax, JSX by default, and only when there is an app to write.
  *
  * @param argv - The parsed options.
+ * @param yes - Whether to take the default rather than asking.
  * @param tui - What `askTui()` answered.
  * @returns The syntax, or `undefined` when there is no full-screen app.
  */
 async function askSyntax(
   argv: Record<string, unknown>,
+  yes: boolean,
   tui: Tui | undefined
 ): Promise<Syntax | undefined> {
   if (tui === undefined) {
@@ -582,7 +568,7 @@ async function askSyntax(
   if (typeof argv.syntax === 'string') {
     return argv.syntax as Syntax;
   }
-  if (takesDefault(argv, 'choice')) {
+  if (yes) {
     return DEFAULTS.syntax;
   }
 
@@ -599,11 +585,11 @@ async function askSyntax(
 }
 
 /** Asks which linter, defaulting to oxlint. */
-async function askLinter(argv: Record<string, unknown>): Promise<Linter> {
+async function askLinter(argv: Record<string, unknown>, yes: boolean): Promise<Linter> {
   if (typeof argv.linter === 'string') {
     return argv.linter as Linter;
   }
-  if (takesDefault(argv, 'choice')) {
+  if (yes) {
     return DEFAULTS.linter;
   }
 

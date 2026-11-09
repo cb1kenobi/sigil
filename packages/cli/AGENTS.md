@@ -3037,31 +3037,24 @@ people's software and will move.
   message, and it is the alias that was asked not to exist, in a form that cannot
   be used). Neither is done.
 
-- **`--lint` is `--linter`, and `--defaults` takes each choice's default but not
-  the open questions.** `--lint` was renamed for the noun, outright and with no
-  alias, as `--js` was, and it has the same trap: an undeclared `--lint none` is
-  taken as a value and ignored, so a script that still says it gets oxlint with
-  exit 0 and nothing said (pinned by a characterization test, beside `--js`'s). The
-  recommendation made for `--js` -- `allowUnknownOptions: false` for the
-  toolchain, or a hidden flag that throws -- is applied to neither, and covers both.
-  A second finding from the same change: because an undeclared option lands on
-  `argv.<name>`, `--linter eslint` works even where the option is not declared, so
-  a test that only passes the flag proves nothing about the declaration; the
-  `choices` refusal and the `--help` text are what do.
+- **`--lint` is `--linter`, and each choice's default is defined once.** `--lint`
+  was renamed for the noun, outright and with no alias, as `--js` was, and it has
+  the same trap: an undeclared `--lint none` is taken as a value and ignored, so a
+  script that still says it gets oxlint with exit 0 and nothing said (pinned by a
+  characterization test, beside `--js`'s). The recommendation made for `--js` --
+  `allowUnknownOptions: false` for the toolchain, or a hidden flag that throws --
+  is applied to neither, and covers both. A second finding from the same change:
+  because an undeclared option lands on `argv.<name>`, `--linter eslint` works even
+  where the option is not declared, so a test that only passes the flag proves
+  nothing about the declaration; the `choices` refusal and the `--help` text are
+  what do.
 
-  `--defaults` fills the **choices** -- language, layout, template syntax, linter
-  and package manager -- and still asks the name, whether to include a full-screen
-  app, where to launch it and what to call its command, none of which has a default
-  worth taking. An explicit option beats it. `--yes` is unchanged, covers
-  everything, and `--yes --defaults` is `--yes` since `--defaults` is already
-  inside it. **Defined once:** `DEFAULTS` in `new.ts` is the one list of what a
-  default is, `takesDefault(argv, 'choice' | 'open')` is the one place that says
-  which flag covers which kind of question, and every `ask*()` reads both. The
-  menus preselect by looking the default up in `DEFAULTS`, and the package manager
-  -- the one default that is not a constant -- is `askManager()`'s `preferred`, the
-  rule `--yes` has always used. The `yes` boolean that used to be threaded through
-  each `ask*()` is gone, so there is no second spelling for the two flags to
-  disagree about.
+  `DEFAULTS` in `new.ts` is the one list of what `--yes` takes for language,
+  layout, linter and template syntax, and the menus preselect by looking the
+  default up in it rather than being the first row of a list, so the highlighted
+  entry and the value `--yes` takes cannot drift apart. The package manager is the
+  one default that is not a constant -- it is whichever installed manager
+  `askManager()` prefers -- and is defined there.
 
 ### The registry: what `sigil add` copies
 

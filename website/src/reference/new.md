@@ -35,5 +35,4 @@ sigil new [options] [project-name]
 | `--no-tui` | `bool` | Do not include a full-screen app, and do not ask |
 | `--tui` | `bool` | Include a full-screen app, launched from the app itself |
 | `--tui-command [name]` | `string` | Include a full-screen app, launched from a command of this name |
-| `--defaults` | `bool` | Take the default for each choice (language, layout, syntax, linter, package manager) and still ask the rest |
 | `-y, --yes` | `bool` | Take the defaults for anything not passed |
