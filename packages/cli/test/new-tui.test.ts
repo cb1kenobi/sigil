@@ -788,13 +788,14 @@ describe('every variant, scaffolded and run', () => {
     180_000
   );
 
-  it.concurrent('should not load the renderer for a command that is not the app', async () => {
+  it.concurrent('should not load the renderer for a command that is not the app, though the root opens it', async () => {
     // the lazy tree is the reason for the dynamic import, so it is measured
     // rather than read off the source: a hook watches for the one subpath that
-    // is the renderer, and `hello` is run beside an app command. The `ui` tag
+    // is the renderer, and `hello` is run beside an app that opens from the root.
+    // The `ui` tag
     // only, because a built bundle has no specifier left to watch -- the build
     // has already turned each `import()` into a chunk that loads when asked
-    const app = materialize({ syntax: 'ui', tui: { at: 'command', command: 'ops' } });
+    const app = materialize({ syntax: 'ui', tui: { at: 'root' } });
     writeFileSync(
       join(app, 'probe.mjs'),
       "import { register } from 'node:module';\nregister('./probe-hooks.mjs', import.meta.url);\n"
@@ -810,7 +811,7 @@ describe('every variant, scaffolded and run', () => {
     expect(hello.out).not.toContain('RENDERER LOADED');
 
     // and the probe is shown to work, or a silent hook would pass for a lazy tree
-    const ops = await node(app, '--import', './probe.mjs', 'dev.ts', 'ops');
+    const ops = await node(app, '--import', './probe.mjs', 'dev.ts');
     expect(ops.out).toContain('RENDERER LOADED');
   }, 120_000);
 
