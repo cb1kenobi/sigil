@@ -10,10 +10,13 @@
  * - `runOnTerminal()` runs a whole program in a child whose streams claim to be
  *   a terminal, because **a test runner's streams are pipes** -- so a suite that
  *   never spawns one is green and silent about everything a terminal changes.
+ *   With `stdin: true` the handle it returns types into the child (`press()`,
+ *   `paste()`) and waits for its screen (`waitFor()`).
  * - `createTestTerminal()` is a terminal and a keyboard in-process, which is how
  *   a prompt is driven with no pty, and `Screen` is the model its frames are
  *   replayed against, because a canvas frame is a diff and the bytes alone say
- *   nothing about what is on screen.
+ *   nothing about what is on screen. `frame()` is its clock: it paints the
+ *   frame an app owes now, instead of the test waiting for it.
  *
  * It is a subpath of the runtime rather than a package of its own, and the
  * reason is the one `sigil add` already records: an app depends on
@@ -28,11 +31,13 @@
  */
 
 export { runCommand, type RanCommand } from './command.js';
+export { frame, type Framed } from './frame.js';
 export { Screen, screenStream, type ScreenStream } from './screen.js';
 export {
   runOnTerminal,
   type FakeableStream,
   type RanOnTerminal,
+  type TerminalRun,
   type TerminalRunOptions,
 } from './spawn.js';
 export {

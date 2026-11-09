@@ -8,12 +8,12 @@
  * rebuilds, and `chartView()`'s trees are what it puts inside its own.
  */
 
-import { ansi as defaultAnsi } from '../ansi/index.js';
 import { Dots } from '../canvas/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
 import { terminalWidth, truncate } from '../wrap/index.js';
+import { colorLevelOf } from './color-level.js';
 import { labelLine, unicodeSupported } from './note.js';
 import { renderBar } from './progress.js';
 
@@ -340,7 +340,7 @@ function print(drawing: Drawing, opts: ChartOptions): string {
 
   return renderToString(element, {
     cascade: themedCascade(opts),
-    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    colorLevel: colorLevelOf(opts),
     colorScheme: opts.colorScheme,
     width,
   });

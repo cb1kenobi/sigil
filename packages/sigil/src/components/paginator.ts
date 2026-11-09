@@ -10,12 +10,12 @@
  * lying about what it is.
  */
 
-import { ansi as defaultAnsi } from '../ansi/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
+import { colorLevelOf } from './color-level.js';
 import { unicodeSupported } from './note.js';
 
 /** How the position is written: one dot per page, `2/5`, or both. */
@@ -449,7 +449,7 @@ export function pageIndicator(
 
   return renderToString(element, {
     cascade: themedCascade(opts),
-    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    colorLevel: colorLevelOf(opts),
     colorScheme: opts.colorScheme,
     width,
   });

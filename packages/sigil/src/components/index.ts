@@ -42,6 +42,7 @@ export {
   pickDate,
   type PickDateOptions,
 } from './calendar.js';
+export { colorLevelOf } from './color-level.js';
 export { date, type DateOptions } from './date.js';
 export { editor, type EditorOptions, resolveEditor } from './editor.js';
 export {
