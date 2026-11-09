@@ -7,22 +7,28 @@ import {
   DEFAULTS,
 } from '../src/commands/new.ts';
 import { confirm, select } from '@ttylabs/sigil/components/prompt';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Each question reads its default from `DEFAULTS`, which `--yes` reads too.
  *
  * The prompts are stubbed to hand back what they were given as the answer to start
- * from, so what is asserted is what `sigil new` *asked for*: a menu handed
- * `value: DEFAULTS.x` and a confirmation handed `default: DEFAULTS.x`. That is the
- * claim that the highlighted entry and the value `--yes` takes are one definition.
+ * from, so what is asserted is what `sigil new` *asked for*: a menu handed `value`
+ * and a confirmation handed `default`.
  *
- * What it proves, and what it cannot. Passing `value` is `select()`'s contract for
- * "this one starts highlighted, and beats `initial`", and `prompt-value.test.ts` in
- * `@ttylabs/sigil` pins that on a choice that is not the first row. No default here
- * is a non-first row -- the defaults are what they are because they are first -- so
- * no end-to-end test through a real menu can tell `value` from nothing at all: the
- * highlight is row 0 either way. The stub is what can tell them apart.
+ * **What it proves.** `DEFAULTS` is moved here to values that are not the real
+ * ones, none of them the first row of its menu, and each menu and confirmation has to
+ * follow: a menu handed the literal `'oxlint'` instead of `DEFAULTS.linter` passes
+ * with the real defaults, because they are the same string, and fails with these. The
+ * stub returning what it was handed is circular on its own and is not the claim; the
+ * claim is that what it was handed moved when the constant did, and that `--yes`
+ * returns the moved values too.
+ *
+ * **What it cannot.** That a real menu *highlights* the entry it was handed. That is
+ * `select()`'s contract -- `value` starts highlighted and beats `initial` -- and
+ * `prompt-value.test.ts` in `@ttylabs/sigil` pins it on a choice that is not the first
+ * row. No real default is a non-first row, so nothing end to end through a real menu
+ * can tell `value` from nothing.
  */
 
 vi.mock('@ttylabs/sigil/components/prompt', () => ({
@@ -31,9 +37,25 @@ vi.mock('@ttylabs/sigil/components/prompt', () => ({
   text: vi.fn(async () => ''),
 }));
 
+const REAL = { ...DEFAULTS };
+
+/** Values that are not the real ones, and not the first row of any menu. */
+const MOVED = {
+  language: 'js',
+  layout: 'single',
+  linter: 'biome',
+  syntax: 'ui',
+  tui: true,
+} as const;
+
 beforeEach(() => {
   vi.mocked(select).mockClear();
   vi.mocked(confirm).mockClear();
+});
+
+afterEach(() => {
+  // `DEFAULTS` is a plain object, so a test that moves it has to put it back
+  Object.assign(DEFAULTS, REAL);
 });
 
 /** The options a stubbed menu was last called with. */
@@ -41,51 +63,72 @@ function menu(): { value?: unknown } {
   return vi.mocked(select).mock.calls.at(-1)?.[0] as { value?: unknown };
 }
 
+/** The options a stubbed confirmation was last called with. */
+function confirmation(): { default?: boolean } {
+  return vi.mocked(confirm).mock.calls.at(-1)?.[0] as { default?: boolean };
+}
+
 describe('the defaults, as the questions read them', () => {
-  it('should hand the layout menu its default as the entry to start on', async () => {
-    expect(await askLayout({}, false)).toBe(DEFAULTS.layout);
-    expect(menu().value).toBe(DEFAULTS.layout);
-  });
-
-  it('should hand the syntax menu its default as the entry to start on', async () => {
-    expect(await askSyntax({}, false, { at: 'root' })).toBe(DEFAULTS.syntax);
-    expect(menu().value).toBe(DEFAULTS.syntax);
-  });
-
-  it('should hand the linter menu its default as the entry to start on', async () => {
-    expect(await askLinter({}, false)).toBe(DEFAULTS.linter);
-    expect(menu().value).toBe(DEFAULTS.linter);
-  });
-
-  it('should hand the language confirmation its default', async () => {
-    expect(await askLanguage({}, false)).toBe(DEFAULTS.language);
-    expect(vi.mocked(confirm).mock.calls.at(-1)?.[0]).toMatchObject({
-      default: DEFAULTS.language === 'ts',
-    });
-  });
-
-  it('should hand the full-screen confirmation its default', async () => {
-    // the answer is "no", which is the default and what the stub gives back
+  it('should be what the real defaults are, when nothing has moved them', async () => {
+    expect(await askLayout({}, false)).toBe(REAL.layout);
+    expect(await askSyntax({}, false, { at: 'root' })).toBe(REAL.syntax);
+    expect(await askLinter({}, false)).toBe(REAL.linter);
+    expect(await askLanguage({}, false)).toBe(REAL.language);
     expect(await askTui({}, false, 'multi', 'demo')).toBeUndefined();
-    expect(vi.mocked(confirm).mock.calls.at(-1)?.[0]).toMatchObject({ default: DEFAULTS.tui });
   });
 
-  it('should answer every one of them from the same list under --yes, asking nothing', async () => {
-    expect(await askLayout({}, true)).toBe(DEFAULTS.layout);
-    expect(await askSyntax({}, true, { at: 'root' })).toBe(DEFAULTS.syntax);
-    expect(await askLinter({}, true)).toBe(DEFAULTS.linter);
-    expect(await askLanguage({}, true)).toBe(DEFAULTS.language);
-    expect(await askTui({}, true, 'multi', 'demo')).toBeUndefined();
-    expect(select).not.toHaveBeenCalled();
-    expect(confirm).not.toHaveBeenCalled();
-  });
+  describe('moved to values that are not the real ones', () => {
+    beforeEach(() => {
+      Object.assign(DEFAULTS, MOVED);
+    });
 
-  it('should let --tui-command say multi, whatever the default is', async () => {
-    expect(await askLayout({ tuiCommand: 'ops' }, true)).toBe('multi');
-  });
+    it('should hand the layout menu the moved default to start on', async () => {
+      await askLayout({}, false);
+      expect(menu().value).toBe(MOVED.layout);
+    });
 
-  it('should let --layout answer before the default is asked', async () => {
-    expect(await askLayout({ layout: 'single' }, true)).toBe('single');
-    expect(select).not.toHaveBeenCalled();
+    it('should hand the syntax menu the moved default to start on', async () => {
+      await askSyntax({}, false, { at: 'root' });
+      expect(menu().value).toBe(MOVED.syntax);
+    });
+
+    it('should hand the linter menu the moved default to start on', async () => {
+      await askLinter({}, false);
+      expect(menu().value).toBe(MOVED.linter);
+    });
+
+    it('should hand the language confirmation the moved default', async () => {
+      await askLanguage({}, false);
+      expect(confirmation().default).toBe(false);
+    });
+
+    it('should hand the full-screen confirmation the moved default', async () => {
+      await askTui({}, false, 'multi', 'demo');
+      expect(confirmation().default).toBe(true);
+    });
+
+    it('should return the moved values under --yes, asking nothing', async () => {
+      expect(await askLayout({}, true)).toBe(MOVED.layout);
+      expect(await askSyntax({}, true, { at: 'root' })).toBe(MOVED.syntax);
+      expect(await askLinter({}, true)).toBe(MOVED.linter);
+      expect(await askLanguage({}, true)).toBe(MOVED.language);
+      // the default is to include one, so it is the app itself and no further question
+      expect(await askTui({}, true, 'multi', 'demo')).toEqual({ at: 'root' });
+      expect(select).not.toHaveBeenCalled();
+      expect(confirm).not.toHaveBeenCalled();
+    });
+
+    it('should let --tui-command say multi, without asking and whatever the default is', async () => {
+      // not under --yes, where the answer is the default and `multi` would be it
+      // anyway: asked, and with the default moved to `single`
+      expect(await askLayout({ tuiCommand: 'ops' }, false)).toBe('multi');
+      expect(select).not.toHaveBeenCalled();
+    });
+
+    it('should let --layout answer before the default is asked', async () => {
+      expect(await askLayout({ layout: 'multi' }, true)).toBe('multi');
+      expect(await askLayout({ layout: 'multi' }, false)).toBe('multi');
+      expect(select).not.toHaveBeenCalled();
+    });
   });
 });

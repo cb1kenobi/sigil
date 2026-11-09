@@ -776,7 +776,7 @@ These look like bugs and are not. Each is intentional and covered by tests.
   with everything else, so the root has always _been_ a command carrying the
   schema's `run`, its `args` and its `options` -- and `main()` dispatched only
   the command that **matched**, which the root never is. So that `run` was
-  unreachable: a single-command app, which is what `sigil new --single`
+  unreachable: a single-command app, which is what `sigil new --layout single`
   scaffolds, parsed argv and then did nothing at all, exit zero, nothing said.
   Removing that is one `?? state.contexts.at(-1)`, and what makes it a fix
   rather than a change to what `main()` promises every app is that **nothing can

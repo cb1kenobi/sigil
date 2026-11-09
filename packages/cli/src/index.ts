@@ -59,7 +59,10 @@ export function schema(): Schema {
     // unknown options" in AGENTS.md
     hooks: {
       beforeParse(state) {
-        state.settings.allowUnknownOptions = false;
+        // a copy: `parse()` keeps the caller's own settings object, so writing the
+        // flag onto it would leave it set for every later `main()` that reused the
+        // object, whatever schema that one has
+        state.settings = { ...state.settings, allowUnknownOptions: false };
       },
     },
   };

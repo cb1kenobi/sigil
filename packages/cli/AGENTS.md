@@ -3058,7 +3058,9 @@ people's software and will move.
   completion script is static, so it calls nothing back. No command passes argv
   through to another tool, and the repository's own invocations (package scripts,
   the scaffold's, the release workflow) use only declared options. The suite agreed:
-  flipping it failed two tests, the snapshot and the reference, which were regenerated.
+  flipping it failed no existing test. The committed command surface and the reference
+  were regenerated for the `--layout` rename, which is what changed them, and not for
+  this.
 
   **Where it is set matters, and it took a measurement to find out.** `allowUnknownOptions`
   is a setting of `main()`, a schema has no place for one, and the built toolchain's
@@ -3087,12 +3089,18 @@ people's software and will move.
   and every menu and confirmation is handed its entry from it: `value:
   DEFAULTS.layout` on the menu, `default: DEFAULTS.tui` on the confirmation, so the
   highlighted entry and the value `--yes` takes are one definition. **What the test
-  proves and what it cannot:** `new-defaults.test.ts` stubs the prompts and asserts
-  each was handed the default, and `select()`'s own contract -- `value` starts
-  highlighted and beats `initial` -- is pinned on a non-first row in
-  `@ttylabs/sigil`'s `prompt-value.test.ts`. No default here is a non-first row, so
-  nothing end to end can tell `value` from nothing at all: the highlight is row 0
-  either way. The package manager is the one default that is not a constant -- it is
+  proves and what it cannot:** `new-defaults.test.ts` moves `DEFAULTS` -- it is a plain
+  object -- to values that are not the real ones, none of them a first row, and
+  asserts every menu and confirmation was handed the moved value and that `--yes`
+  returns it. That is what tells the constant from a literal: `value: 'oxlint'`
+  passes with the real defaults, because it is the same string, and fails with these.
+  It cannot show that a real menu _highlights_ what it is handed; that is `select()`'s
+  contract -- `value` starts highlighted and beats `initial` -- pinned on a non-first
+  row in `@ttylabs/sigil`'s `prompt-value.test.ts`, and no real default is a
+  non-first row, so nothing end to end can tell `value` from nothing at all.
+  The hook also writes a copy of `state.settings` and not the caller's object, which
+  `parse()` keeps: written in place it leaked `allowUnknownOptions: false` into every
+  later `main()` that reused the object (`unknown-options.test.ts`). The package manager is the one default that is not a constant -- it is
   whichever installed manager `askManager()` prefers -- and is defined there.
 
 ### The registry: what `sigil add` copies

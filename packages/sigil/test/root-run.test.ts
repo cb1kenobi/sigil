@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
  *
  * The schema *is* the root command -- `parse()` builds `contexts[0]` from it --
  * and `main()` used to dispatch only the command that **matched**, so a root
- * `run` was unreachable: the app `sigil new --single` scaffolds parsed argv and
+ * `run` was unreachable: the app `sigil new --layout single` scaffolds parsed argv and
  * then did nothing at all, exit zero, nothing said. Fixed in SIG-150.
  *
  * Driven through `runCommand()` rather than `main()` with spies, because every
@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 /**
- * The schema `sigil new --single` scaffolds, which is the app this exists for.
+ * The schema `sigil new --layout single` scaffolds, which is the app this exists for.
  *
  * @param over - What to change about it.
  * @returns The schema.

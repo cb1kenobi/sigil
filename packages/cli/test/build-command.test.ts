@@ -93,7 +93,7 @@ describe('sigil build', () => {
   }, 60_000);
 
   it('should build a single-command app, whose schema is the command', async () => {
-    // the `--single` layout. It was refused outright with `no "commands" found`,
+    // the `--layout single` layout. It was refused outright with `no "commands" found`,
     // so it ran from source and could not be built -- the works-unbundled,
     // fails-built divergence the shared route rules exist to prevent, arriving
     // through the schema rather than through a route.

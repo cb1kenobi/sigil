@@ -152,8 +152,8 @@ describe('sigil check', () => {
     });
 
     it('should take a schema that is itself the command', async () => {
-      // a `run` and no `commands` is a single-command app -- the `--single`
-      // layout -- where `main()` dispatches the root. It used to be refused
+      // a `run` and no `commands` is a single-command app -- the
+      // `--layout single` layout -- where `main()` dispatches the root. It used to be refused
       // outright, so that layout scaffolded an app which ran from source and
       // could not be built
       const { err } = await sigil('check', join(fixtures, 'discover', 'single-app'));

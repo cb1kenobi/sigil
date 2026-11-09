@@ -534,12 +534,20 @@ describe('the flags', () => {
   });
 
   it.each([
-    { flag: ['--js'], said: 'Unknown option "--js"' },
-    { flag: ['--js=true'], said: 'Unknown option "--js"' },
-    { flag: ['--lint', 'eslint'], said: 'Unknown option "--lint". Did you mean "--linter"?' },
-    { flag: ['--lint=eslint'], said: 'Unknown option "--lint". Did you mean "--linter"?' },
-    { flag: ['--single'], said: 'Unknown option "--single"' },
-  ])('should refuse the removed $flag, naming it', ({ flag, said }) => {
+    { flag: ['--js'], what: '--js', said: 'Unknown option "--js"' },
+    { flag: ['--js=true'], what: '--js=true', said: 'Unknown option "--js"' },
+    {
+      flag: ['--lint', 'eslint'],
+      what: '--lint eslint',
+      said: 'Unknown option "--lint". Did you mean "--linter"?',
+    },
+    {
+      flag: ['--lint=eslint'],
+      what: '--lint=eslint',
+      said: 'Unknown option "--lint". Did you mean "--linter"?',
+    },
+    { flag: ['--single'], what: '--single', said: 'Unknown option "--single"' },
+  ])('should refuse the removed $what, naming it', ({ flag, said }) => {
     // `--js`, `--lint` and `--single` were renamed, and for as long as the toolchain
     // took an undeclared option as a value a script that still said one got the
     // default: exit 0, an app, and nothing said. Now it is refused, with nothing
@@ -933,8 +941,14 @@ describe('the flags', () => {
       'npm',
     ];
 
+    /** What the first app printed, made once for the variant and shared by its tests. */
+    let made: { args: string[]; parent: string } | undefined;
+
     /** The command the first app's README prints, as arguments after `sigil new <name>`. */
     function printed(): { args: string[]; parent: string } {
+      if (made) {
+        return made;
+      }
       const parent = tempDir('sigil-new-tui-');
       const first = run(parent, 'first', '--yes', ...flags);
       expect(first.status, first.stderr).toBe(0);
@@ -942,7 +956,8 @@ describe('the flags', () => {
         readFileSync(join(parent, 'first', 'README.md'), 'utf-8')
       )?.[0];
       expect(line).toBeDefined();
-      return { args: (line as string).split(' ').slice(3), parent };
+      made = { args: (line as string).split(' ').slice(3), parent };
+      return made;
     }
 
     it('should name the layout, the language and the placement, and the other syntax', () => {

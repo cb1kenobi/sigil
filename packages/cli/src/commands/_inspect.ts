@@ -178,7 +178,7 @@ function findCommands(
     // `main()` dispatches the root, so there is nothing missing. Both halves
     // are needed -- without the `run` test an app that simply forgot its
     // `commands` builds in silence, and without this one the layout
-    // `sigil new --single` scaffolds cannot be built at all.
+    // `sigil new --layout single` scaffolds cannot be built at all.
     if (!declared.found && !declared.root) {
       diagnostics.push({
         file: app.entry,
