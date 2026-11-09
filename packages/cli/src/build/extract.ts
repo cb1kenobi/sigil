@@ -107,6 +107,14 @@ export interface Extracted {
   readonly diagnostics: readonly Diagnostic[];
   readonly facts: CommandFacts;
   /**
+   * The command literal the module default-exports, when there is one to read.
+   *
+   * For a caller with a question of its own about it: a package a schema key
+   * points at names itself, so `discover.ts` reads its `name` and `alias` off
+   * this rather than finding the export a second time.
+   */
+  readonly object?: ObjectExpression;
+  /**
    * What the module declares that cannot route it, when `factsOf()` was told
    * what routes to it.
    *
@@ -277,6 +285,7 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
   return {
     diagnostics,
     facts,
+    object,
     routing: routedBy === undefined ? [] : unroutable(parsed, object, routedBy),
   };
 }

@@ -1,0 +1,7 @@
+{
+  "name": "keyed-package",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

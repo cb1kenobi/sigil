@@ -1,0 +1,5 @@
+{
+  "name": "listed-pkg",
+  "type": "module",
+  "exports": "./index.js"
+}
