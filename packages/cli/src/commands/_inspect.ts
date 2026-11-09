@@ -39,7 +39,7 @@ import {
   type TypeCheckResult,
 } from '../build/index.ts';
 import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
-import { table } from '@ttylabs/sigil/components';
+import { table } from '@ttylabs/sigil/components/table';
 import type { TextRun } from '@ttylabs/sigil/element';
 import { SIGIL_KEYS } from '@ttylabs/sigil/i18n-keys';
 import { existsSync, rmSync } from 'node:fs';

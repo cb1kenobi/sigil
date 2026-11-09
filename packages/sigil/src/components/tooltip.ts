@@ -3,7 +3,7 @@
  * over it or the keyboard is on it.
  *
  * ```js
- * import { attachTooltip } from '@ttylabs/sigil/components';
+ * import { attachTooltip } from '@ttylabs/sigil/components/tooltip';
  *
  * const tip = attachTooltip(saveButton, { input, text: 'Writes the file to disk' });
  * // ...

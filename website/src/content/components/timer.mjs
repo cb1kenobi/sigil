@@ -1,4 +1,5 @@
-import { mountLive, timer } from '@ttylabs/sigil/components';
+import { timer } from '@ttylabs/sigil/components/clock';
+import { mountLive } from '@ttylabs/sigil/components/mount';
 import { box, text } from '@ttylabs/sigil/element';
 
 const countdown = timer(3_000, { format: 'clock' }).start();

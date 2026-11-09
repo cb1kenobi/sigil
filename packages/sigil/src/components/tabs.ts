@@ -7,7 +7,7 @@
  * tabRowView} is the row alone, for an app that draws the panels itself.
  *
  * ```js
- * import { Tabs } from '@ttylabs/sigil/components';
+ * import { Tabs } from '@ttylabs/sigil/components/tabs';
  * import { text } from '@ttylabs/sigil/element';
  *
  * const tabs = Tabs({

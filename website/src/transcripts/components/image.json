@@ -23,7 +23,14 @@
         "type": "number"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function image(source: ImageSource, opts?: ImageOptions): string"
   },
   "registryDescription": "An image: a picture resampled to the box layout gave it and drawn in half blocks, alpha mixed over what is under it",

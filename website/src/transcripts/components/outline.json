@@ -51,7 +51,14 @@
         "type": "number"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function outline(items: readonly OutlineItem[], opts?: OutlineOptions): string"
   },
   "registryDescription": "Bulleted, numbered and nested lists, with a function for an enumerator and a hanging indent",

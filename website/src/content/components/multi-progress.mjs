@@ -1,4 +1,4 @@
-import { createMultiProgress } from '@ttylabs/sigil/components';
+import { createMultiProgress } from '@ttylabs/sigil/components/multi-progress';
 
 const downloads = [
   { name: 'react', size: 120, speed: 6 },

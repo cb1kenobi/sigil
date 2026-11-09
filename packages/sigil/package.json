@@ -46,6 +46,250 @@
       "types": "./dist/components.d.mts",
       "default": "./dist/components.mjs"
     },
+    "./components/autocomplete": {
+      "types": "./dist/components/autocomplete.d.mts",
+      "default": "./dist/components/autocomplete.mjs"
+    },
+    "./components/badge": {
+      "types": "./dist/components/badge.d.mts",
+      "default": "./dist/components/badge.mjs"
+    },
+    "./components/border-label": {
+      "types": "./dist/components/border-label.d.mts",
+      "default": "./dist/components/border-label.mjs"
+    },
+    "./components/calendar": {
+      "types": "./dist/components/calendar.d.mts",
+      "default": "./dist/components/calendar.mjs"
+    },
+    "./components/catalog": {
+      "types": "./dist/components/catalog.d.mts",
+      "default": "./dist/components/catalog.mjs"
+    },
+    "./components/chart": {
+      "types": "./dist/components/chart.d.mts",
+      "default": "./dist/components/chart.mjs"
+    },
+    "./components/clock": {
+      "types": "./dist/components/clock.d.mts",
+      "default": "./dist/components/clock.mjs"
+    },
+    "./components/collapsible": {
+      "types": "./dist/components/collapsible.d.mts",
+      "default": "./dist/components/collapsible.mjs"
+    },
+    "./components/color-level": {
+      "types": "./dist/components/color-level.d.mts",
+      "default": "./dist/components/color-level.mjs"
+    },
+    "./components/console-capture": {
+      "types": "./dist/components/console-capture.d.mts",
+      "default": "./dist/components/console-capture.mjs"
+    },
+    "./components/date": {
+      "types": "./dist/components/date.d.mts",
+      "default": "./dist/components/date.mjs"
+    },
+    "./components/debug-overlay": {
+      "types": "./dist/components/debug-overlay.d.mts",
+      "default": "./dist/components/debug-overlay.mjs"
+    },
+    "./components/decrypt": {
+      "types": "./dist/components/decrypt.d.mts",
+      "default": "./dist/components/decrypt.mjs"
+    },
+    "./components/diff": {
+      "types": "./dist/components/diff.d.mts",
+      "default": "./dist/components/diff.mjs"
+    },
+    "./components/editing": {
+      "types": "./dist/components/editing.d.mts",
+      "default": "./dist/components/editing.mjs"
+    },
+    "./components/editor": {
+      "types": "./dist/components/editor.d.mts",
+      "default": "./dist/components/editor.mjs"
+    },
+    "./components/file-picker": {
+      "types": "./dist/components/file-picker.d.mts",
+      "default": "./dist/components/file-picker.mjs"
+    },
+    "./components/fuzzy": {
+      "types": "./dist/components/fuzzy.d.mts",
+      "default": "./dist/components/fuzzy.mjs"
+    },
+    "./components/group": {
+      "types": "./dist/components/group.d.mts",
+      "default": "./dist/components/group.mjs"
+    },
+    "./components/group-multiselect": {
+      "types": "./dist/components/group-multiselect.d.mts",
+      "default": "./dist/components/group-multiselect.mjs"
+    },
+    "./components/image": {
+      "types": "./dist/components/image.d.mts",
+      "default": "./dist/components/image.mjs"
+    },
+    "./components/key-help": {
+      "types": "./dist/components/key-help.d.mts",
+      "default": "./dist/components/key-help.mjs"
+    },
+    "./components/keys": {
+      "types": "./dist/components/keys.d.mts",
+      "default": "./dist/components/keys.mjs"
+    },
+    "./components/large-text": {
+      "types": "./dist/components/large-text.d.mts",
+      "default": "./dist/components/large-text.mjs"
+    },
+    "./components/list": {
+      "types": "./dist/components/list.d.mts",
+      "default": "./dist/components/list.mjs"
+    },
+    "./components/log": {
+      "types": "./dist/components/log.d.mts",
+      "default": "./dist/components/log.mjs"
+    },
+    "./components/log-stream": {
+      "types": "./dist/components/log-stream.d.mts",
+      "default": "./dist/components/log-stream.mjs"
+    },
+    "./components/markdown": {
+      "types": "./dist/components/markdown.d.mts",
+      "default": "./dist/components/markdown.mjs"
+    },
+    "./components/markdown-parse": {
+      "types": "./dist/components/markdown-parse.d.mts",
+      "default": "./dist/components/markdown-parse.mjs"
+    },
+    "./components/masked-text": {
+      "types": "./dist/components/masked-text.d.mts",
+      "default": "./dist/components/masked-text.mjs"
+    },
+    "./components/modal": {
+      "types": "./dist/components/modal.d.mts",
+      "default": "./dist/components/modal.mjs"
+    },
+    "./components/mount": {
+      "types": "./dist/components/mount.d.mts",
+      "default": "./dist/components/mount.mjs"
+    },
+    "./components/multi-progress": {
+      "types": "./dist/components/multi-progress.d.mts",
+      "default": "./dist/components/multi-progress.mjs"
+    },
+    "./components/note": {
+      "types": "./dist/components/note.d.mts",
+      "default": "./dist/components/note.mjs"
+    },
+    "./components/number": {
+      "types": "./dist/components/number.d.mts",
+      "default": "./dist/components/number.mjs"
+    },
+    "./components/outline": {
+      "types": "./dist/components/outline.d.mts",
+      "default": "./dist/components/outline.mjs"
+    },
+    "./components/owned-hooks": {
+      "types": "./dist/components/owned-hooks.d.mts",
+      "default": "./dist/components/owned-hooks.mjs"
+    },
+    "./components/pager": {
+      "types": "./dist/components/pager.d.mts",
+      "default": "./dist/components/pager.mjs"
+    },
+    "./components/paginator": {
+      "types": "./dist/components/paginator.d.mts",
+      "default": "./dist/components/paginator.mjs"
+    },
+    "./components/palette": {
+      "types": "./dist/components/palette.d.mts",
+      "default": "./dist/components/palette.mjs"
+    },
+    "./components/pane": {
+      "types": "./dist/components/pane.d.mts",
+      "default": "./dist/components/pane.mjs"
+    },
+    "./components/panel": {
+      "types": "./dist/components/panel.d.mts",
+      "default": "./dist/components/panel.mjs"
+    },
+    "./components/path": {
+      "types": "./dist/components/path.d.mts",
+      "default": "./dist/components/path.mjs"
+    },
+    "./components/progress": {
+      "types": "./dist/components/progress.d.mts",
+      "default": "./dist/components/progress.mjs"
+    },
+    "./components/prompt": {
+      "types": "./dist/components/prompt.d.mts",
+      "default": "./dist/components/prompt.mjs"
+    },
+    "./components/qrcode": {
+      "types": "./dist/components/qrcode.d.mts",
+      "default": "./dist/components/qrcode.mjs"
+    },
+    "./components/rule": {
+      "types": "./dist/components/rule.d.mts",
+      "default": "./dist/components/rule.mjs"
+    },
+    "./components/scroll-box": {
+      "types": "./dist/components/scroll-box.d.mts",
+      "default": "./dist/components/scroll-box.mjs"
+    },
+    "./components/select-key": {
+      "types": "./dist/components/select-key.d.mts",
+      "default": "./dist/components/select-key.mjs"
+    },
+    "./components/select-row": {
+      "types": "./dist/components/select-row.d.mts",
+      "default": "./dist/components/select-row.mjs"
+    },
+    "./components/sort": {
+      "types": "./dist/components/sort.d.mts",
+      "default": "./dist/components/sort.mjs"
+    },
+    "./components/spinner": {
+      "types": "./dist/components/spinner.d.mts",
+      "default": "./dist/components/spinner.mjs"
+    },
+    "./components/table": {
+      "types": "./dist/components/table.d.mts",
+      "default": "./dist/components/table.mjs"
+    },
+    "./components/tabs": {
+      "types": "./dist/components/tabs.d.mts",
+      "default": "./dist/components/tabs.mjs"
+    },
+    "./components/tasks": {
+      "types": "./dist/components/tasks.d.mts",
+      "default": "./dist/components/tasks.mjs"
+    },
+    "./components/text-field": {
+      "types": "./dist/components/text-field.d.mts",
+      "default": "./dist/components/text-field.mjs"
+    },
+    "./components/toast": {
+      "types": "./dist/components/toast.d.mts",
+      "default": "./dist/components/toast.mjs"
+    },
+    "./components/toggle": {
+      "types": "./dist/components/toggle.d.mts",
+      "default": "./dist/components/toggle.mjs"
+    },
+    "./components/tooltip": {
+      "types": "./dist/components/tooltip.d.mts",
+      "default": "./dist/components/tooltip.mjs"
+    },
+    "./components/tree": {
+      "types": "./dist/components/tree.d.mts",
+      "default": "./dist/components/tree.mjs"
+    },
+    "./components/typewriter": {
+      "types": "./dist/components/typewriter.d.mts",
+      "default": "./dist/components/typewriter.mjs"
+    },
     "./config": {
       "types": "./dist/config.d.mts",
       "default": "./dist/config.mjs"

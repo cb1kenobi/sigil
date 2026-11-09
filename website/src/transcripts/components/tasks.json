@@ -53,11 +53,17 @@
       }
     ],
     "shared": [
+      "ansi",
       "backend",
+      "colorLevel",
+      "colorScheme",
       "frameMs",
       "onError",
       "quiet",
-      "terminal"
+      "reducedMotion",
+      "sheets",
+      "terminal",
+      "theme"
     ],
     "signature": "function tasks(list: readonly Task[], opts?: TasksOptions): Promise<TaskOutcome[]>"
   },

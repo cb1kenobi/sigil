@@ -1,4 +1,4 @@
-import { tree } from '@ttylabs/sigil/components';
+import { tree } from '@ttylabs/sigil/components/tree';
 
 console.log(
   tree({

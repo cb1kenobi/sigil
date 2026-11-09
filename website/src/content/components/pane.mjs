@@ -1,5 +1,6 @@
 import { runApp } from '@ttylabs/sigil/app';
-import { Pane, Panel } from '@ttylabs/sigil/components';
+import { Pane } from '@ttylabs/sigil/components/pane';
+import { Panel } from '@ttylabs/sigil/components/panel';
 import { box, text } from '@ttylabs/sigil/element';
 
 const app = runApp(() =>

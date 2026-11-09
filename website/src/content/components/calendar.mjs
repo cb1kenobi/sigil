@@ -1,4 +1,4 @@
-import { calendar } from '@ttylabs/sigil/components';
+import { calendar } from '@ttylabs/sigil/components/calendar';
 
 console.log(
   calendar({

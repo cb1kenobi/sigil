@@ -35,11 +35,17 @@
       }
     ],
     "shared": [
+      "ansi",
       "backend",
+      "colorLevel",
+      "colorScheme",
       "frameMs",
       "onError",
       "quiet",
-      "terminal"
+      "reducedMotion",
+      "sheets",
+      "terminal",
+      "theme"
     ],
     "signature": "function createTypewriter(opts?: TypewriterOptions): Typewriter"
   },

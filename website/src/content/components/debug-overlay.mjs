@@ -1,5 +1,5 @@
 import { runApp } from '@ttylabs/sigil/app';
-import { enableDebugOverlay } from '@ttylabs/sigil/components';
+import { enableDebugOverlay } from '@ttylabs/sigil/components/debug-overlay';
 import { box } from '@ttylabs/sigil/element';
 
 // runApp() captures the console into app.logs, so what console.log writes goes

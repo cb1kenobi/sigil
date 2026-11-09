@@ -1,0 +1,15 @@
+export {
+  clampPage,
+  createPaginator,
+  pageBounds,
+  pageCount,
+  pageIndicator,
+  type PageIndicatorOptions,
+  type PageIndicatorStyle,
+  pageIndicatorView,
+  type Paginator,
+  type PaginatorOptions,
+  type PaginatorState,
+  paginatorState,
+  paginatorView,
+} from '../paginator.js';

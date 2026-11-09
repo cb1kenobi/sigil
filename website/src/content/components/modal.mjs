@@ -1,5 +1,5 @@
 import { runApp } from '@ttylabs/sigil/app';
-import { confirmModal } from '@ttylabs/sigil/components';
+import { confirmModal } from '@ttylabs/sigil/components/modal';
 import { box, text } from '@ttylabs/sigil/element';
 
 const root = box(

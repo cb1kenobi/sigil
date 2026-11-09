@@ -919,8 +919,10 @@ classes and each theme sets exactly seven things.
 
 On a terminal, `1`-`6` swap the theme under a live frame and `q` quits — the
 panel prints its own key map, derived from the theme list so it cannot name five
-of six. A switch is a sheet added to the cascade and a `touchSheets()` to say
-every rule it matched is stale. Piped, it
+of six. A switch is one `cascade.replace(old, next)` on the theme sheet, and
+nothing tells the renderer: it subscribed to the cascade, so the change restyles
+on its own. `sigil` is no sheet at all, so going back to it is
+`cascade.remove(sheet)`. Piped, it
 renders each theme one after another instead, including a real `table()`, which
 is what shows the roles reaching a built-in rather than only the hand-built panel.
 
@@ -931,22 +933,23 @@ SIGIL_COLOR_SCHEME=light node demos/style/04-theme-switcher.js
 NO_COLOR=1 node demos/style/04-theme-switcher.js
 ```
 
-Three things in it are worth more than the colours. Switching **adds** a sheet
-rather than replacing one, because a cascade has no way to take one away — so
-every theme gives every role a colour, and a role one of them left out would keep
-the previous theme's. A theme overrides per _property_, so a theme that sets only
-a colour on `.sigil-muted` inherits the framework's `dim: true` and comes out dim
-**and** coloured; `dim: false` is the fix and `color: initial` is how a theme says
-"nothing here". And every theme here carries a light half, which is what
+Three things in it are worth more than the colours. A switch **replaces** the
+theme sheet rather than layering another over it, so a property a theme does not
+mention is back at the framework's default and nothing is reset or restated. That
+is not the same as a theme owing a role a declaration: a theme overrides per
+_property_, so a theme that sets only a colour on `.sigil-muted` inherits the
+framework's `dim: true` and comes out dim **and** coloured; `dim: false` is the
+fix and `color: initial` is how a theme says "nothing here". And every theme here
+carries a light half, which is what
 `SIGIL_COLOR_SCHEME=light` is there to show — but they are two different halves,
-and that is the part worth seeing. `sigil` and `MONO` de-emphasise with `dim`, so
-their light half moves that one declaration onto `gray`; the four colour themes
-have no `dim` to fix and instead carry a second _palette_ for white, inside
+and that is the part worth seeing. `MONO` de-emphasises with `dim`, so its light
+half moves that one declaration onto `gray`; the four colour themes have no `dim`
+to fix and instead carry a second _palette_ for white, inside
 `@media (min-color-level: 2) and (prefers-color-scheme: light)`. So the light run
 changes one role under `mono` and all seven under `violet`. `sigil` is named for
 what ships rather than `framework`, because that name is taken: `framework` is the
-_origin_ the real defaults sit at, while this is an ordinary theme at origin
-`theme` like the other five.
+_origin_ the real defaults sit at, and `sigil` is those defaults with no theme
+over them.
 
 The last row of the panel is a real hyperlink, and it is the one row a `text`
 could not be: `link` is a **canvas** style property rather than a cascade one, so

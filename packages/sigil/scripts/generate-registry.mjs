@@ -30,10 +30,13 @@
  *
  * The rewrite does **not** depend on where the file lands, which is the
  * property that lets it happen at build time rather than inside `sigil add`. A
- * sibling import goes to `@ttylabs/sigil/components` rather than to a copy of
- * the sibling, so ejecting a spinner does not drag `mount.ts` along: what those
- * siblings export is public API, and the whole point of ejecting is to own the
- * *component*, not the plumbing under it.
+ * sibling import goes to that sibling's own subpath -- `./mount.js` is
+ * `@ttylabs/sigil/components/mount` -- rather than to a copy of the sibling, so
+ * ejecting a spinner does not drag `mount.ts` along: what those siblings export
+ * is public API, and the whole point of ejecting is to own the *component*, not
+ * the plumbing under it. Its own subpath rather than the barrel since SIG-330,
+ * because an ejected spinner that imported the barrel would load every other
+ * component to draw itself -- more than the built-in spinner it replaced.
  *
  * So what ships is exactly what lands in the app, byte for byte, and `add` is a
  * copy anybody can audit rather than a transform they have to trust.
@@ -323,9 +326,16 @@ function rewrite(spec) {
   }
 
   // a sibling: `./mount.js` is `src/components/mount.ts`, and what it exports
-  // is reached through the components subpath
+  // is reached through its own subpath, `@ttylabs/sigil/components/mount`
   if (spec.startsWith('./')) {
-    return `${manifest.name}/components`;
+    const sibling = `components/${spec.slice(2).replace(/\.js$/, '')}`;
+    if (!(`./${sibling}` in manifest.exports)) {
+      throw new Error(
+        `"${spec}" is a sibling with no subpath of its own. ` +
+          `A registry component may only import what the package exports.`
+      );
+    }
+    return `${manifest.name}/${sibling}`;
   }
 
   // `../element/index.js` -> `src/element/index.ts`

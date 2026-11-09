@@ -1,4 +1,4 @@
-import { text } from '@ttylabs/sigil/components';
+import { text } from '@ttylabs/sigil/components/prompt';
 
 const name = await text({
   message: 'Project name',

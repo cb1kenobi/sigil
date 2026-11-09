@@ -72,7 +72,7 @@ import {
 } from '../input/index.js';
 import { type Cascade, parseStylesheet, type Stylesheet } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
-import { themedCascade } from '../theme/index.js';
+import { parseTheme, themedCascade } from '../theme/index.js';
 import { render, type Renderer, type RenderOptions } from './index.js';
 import { type Context, createContext, provideContext, useContext } from './owner.js';
 
@@ -103,6 +103,10 @@ export interface AppOptions extends Pick<
    * built-in component is styled for. A cascade passed here is used as it is,
    * framework sheet or not -- and without the runner's `.sigil-app > *` rule, so
    * a column root taller than the screen wants `min-height: 0` of its own.
+   *
+   * Also without `setTheme()`, which throws: the runner cannot know which of the
+   * sheets in a cascade it did not build is the theme. Swap one yourself with
+   * `cascade.replace()`, which restyles on its own.
    */
   cascade?: Cascade;
   /**
@@ -209,6 +213,10 @@ export interface AppOptions extends Pick<
   /**
    * A theme, over the framework's defaults and under `sheets`.
    *
+   * Source text is parsed as a theme. A `Stylesheet` must already be one -- made by
+   * `parseTheme()`, at origin `theme` -- and anything else throws; so does the same
+   * sheet as both the theme and one of `sheets`. `app.setTheme()` swaps it later.
+   *
    * Ignored where `cascade` is given.
    */
   theme?: Stylesheet | string;
@@ -216,6 +224,17 @@ export interface AppOptions extends Pick<
 
 /** A running app, and the way to end it. */
 export interface App {
+  /**
+   * The cascade the app draws through: the one passed as `cascade`, or the one
+   * the runner built.
+   *
+   * Changing it restyles the app on its own -- `add()`, `remove()` and `replace()`
+   * each tell the renderer, which marks everything stale and asks for a frame --
+   * so nothing here reaches into `view.restyler`. Already there while the
+   * component's body runs, unlike `view`. An app that refused to start has none,
+   * and reading it throws.
+   */
+  readonly cascade: Cascade;
   /**
    * Ends the app: unmounts the tree, gives the keys and the screen back, and
    * settles `exited` with `code`.
@@ -291,6 +310,37 @@ export interface App {
   readonly logs: LogRing | undefined;
   /** `true` until the app has finished going. `false` from the start for a refusal. */
   readonly running: boolean;
+  /**
+   * Swaps the theme under the running app, and the screen follows.
+   *
+   * Takes source text -- parsed as a theme, as the `theme` option reads it -- a
+   * stylesheet already at origin `theme`, which is what `parseTheme()` makes, or
+   * `undefined` for the framework's own defaults. A sheet at any other origin
+   * throws, since the origin is what places it and the same call would otherwise
+   * land in different places depending on whether there was a theme already.
+   *
+   * The theme sheet the runner holds is replaced in place, so what the old one set
+   * and the new one does not is gone rather than left standing, which is why a
+   * switcher needs no reset sheet and no restatement of the defaults. With no theme
+   * sheet yet, setting one adds it, and the origin puts it between the framework's
+   * and the app's wherever it arrives; `undefined` takes it out. Setting the sheet
+   * that is already the theme does nothing.
+   *
+   * The runner owns the one sheet it set. If the app took it out of
+   * `app.cascade`, or swapped it for another, a later call adds a new one and
+   * leaves whatever the app put there alone.
+   *
+   * A source that does not parse throws before anything is swapped, so the old
+   * theme stays on screen.
+   *
+   * @param theme - The new theme, or `undefined` for none.
+   * @throws For an app that refused to start, which has no cascade. For a
+   *   stylesheet not at origin `theme`, or one the cascade already holds as
+   *   another sheet. And if the app was given its own `cascade`, because the runner
+   *   did not build it and cannot know which of its sheets is the theme: use
+   *   `app.cascade.replace()` there.
+   */
+  setTheme(theme: Stylesheet | string | undefined): void;
   /** The terminal the app is drawing on. */
   readonly terminal: Terminal;
   /**
@@ -310,6 +360,32 @@ export interface App {
  * into a key, so the code the shell would have reported is the one handed back.
  */
 const EXIT_INTERRUPTED = 130;
+
+/**
+ * Reads a theme the way `runApp()` and `setTheme()` both do.
+ *
+ * Source text is `parseTheme()`'s. A parsed sheet must already be a theme, which
+ * is its *origin* being `theme`: the origin is what puts it between the
+ * framework's sheet and the app's, so a sheet parsed at another one would sit
+ * somewhere else depending on whether an app happened to have a theme already --
+ * after the app's sheets when it was added, in the theme's slot when it replaced
+ * one. Refused rather than guessed at, naming the function that makes one.
+ *
+ * @param theme - What the caller gave.
+ * @returns The theme sheet, or `undefined` for none.
+ * @throws For a sheet whose origin is not `theme`.
+ */
+function readTheme(theme: Stylesheet | string | undefined): Stylesheet | undefined {
+  if (typeof theme === 'string') {
+    return parseTheme(theme);
+  }
+  if (theme !== undefined && theme.origin !== 'theme') {
+    throw new Error(
+      `A theme must be a stylesheet at origin "theme", and this one is at "${theme.origin}": make it with parseTheme(css), or hand over the source text`
+    );
+  }
+  return theme;
+}
 
 /** The exit code for stdin ending: 128 plus `SIGHUP`'s 1, a terminal hanging up. */
 const EXIT_HUNG_UP = 129;
@@ -495,6 +571,10 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
 
   let view: Renderer | undefined;
   let input: InputRouter | undefined;
+  /** The cascade the app draws through, once it has been built or taken. */
+  let cascade: Cascade | undefined;
+  /** The theme sheet the runner put in that cascade, which `setTheme()` replaces. */
+  let themeSheet: Stylesheet | undefined;
   let running = interactive;
   let exiting = false;
   /** Whether `render()` is on the stack, which is when a report has nowhere to go yet. */
@@ -825,6 +905,16 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   }
 
   const app: App = {
+    get cascade(): Cascade {
+      if (cascade === undefined) {
+        throw new Error(
+          interactive
+            ? 'App.cascade is not there before the app has built it'
+            : 'App.cascade is not there because runApp() refused to start without a terminal'
+        );
+      }
+      return cascade;
+    },
     exit(next = 0): void {
       if (exiting) {
         return;
@@ -846,6 +936,41 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     },
     get running() {
       return running;
+    },
+    setTheme(next: Stylesheet | string | undefined): void {
+      // the refusal first: an app that never started has no cascade whatever it
+      // was given, and that is the answer, not a complaint about the option
+      const sheets = app.cascade;
+      if (opts.cascade !== undefined) {
+        throw new Error(
+          'App.setTheme() cannot swap the theme of a cascade passed as the cascade option: the app did not build it and cannot know which of its sheets is the theme. Use app.cascade.replace(old, next) instead'
+        );
+      }
+      // read before anything moves, so a source that fails -- or a sheet that is
+      // not a theme -- leaves the old theme on screen
+      const sheet = readTheme(next);
+      // the sheet this app set, if it is still in there. `setTheme()` owns that
+      // one sheet; an app that edited the cascade itself has taken it back, and
+      // then there is nothing here to replace or remove
+      const held = themeSheet !== undefined && sheets.sheets.includes(themeSheet);
+      if (held && sheet === themeSheet) {
+        return;
+      }
+      if (sheet !== undefined && sheets.sheets.includes(sheet)) {
+        throw new Error(
+          'App.setTheme() was given a stylesheet the cascade already holds as another sheet: a sheet is one theme or one app sheet, because the cascade finds it by identity and would swap both'
+        );
+      }
+      if (!held) {
+        if (sheet !== undefined) {
+          sheets.add(sheet);
+        }
+      } else if (sheet === undefined) {
+        sheets.remove(themeSheet as Stylesheet);
+      } else {
+        sheets.replace(themeSheet as Stylesheet, sheet);
+      }
+      themeSheet = sheet;
     },
     terminal,
     get view(): Renderer {
@@ -946,17 +1071,30 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     // a full-screen canvas subscribes to resizes the moment it is built, which
     // only its `stop()` undoes -- so a bad sheet has to throw while there is
     // still no canvas to leak, leaving nothing behind but the router
-    const cascade =
-      opts.cascade ??
-      themedCascade({
+    if (opts.cascade === undefined) {
+      // parsed here rather than inside `themedCascade()`, which would parse the
+      // same text to the same sheet, because `setTheme()` has to be able to hand
+      // that very sheet to `replace()` -- a cascade finds a sheet by identity
+      themeSheet = readTheme(opts.theme);
+      // one sheet, one job: a cascade finds a sheet by identity, so the same
+      // object as the theme and as an app sheet would be swapped out of both
+      if (themeSheet !== undefined && opts.sheets?.includes(themeSheet)) {
+        throw new Error(
+          'runApp() was given the same stylesheet as the theme and as one of sheets: a sheet is one or the other, because setTheme() swaps it by identity'
+        );
+      }
+      cascade = themedCascade({
         colorScheme: opts.colorScheme,
         reducedMotion: opts.reducedMotion,
         sheets: [
           (hostSheet ??= parseStylesheet('.sigil-app > * { min-height: 0 }')),
           ...(opts.sheets ?? []),
         ],
-        theme: opts.theme,
+        theme: themeSheet,
       });
+    } else {
+      cascade = opts.cascade;
+    }
     view = render(
       () =>
         provideContext(AppContext, app, () => {

@@ -6,7 +6,7 @@
  * several of them in one {@link collapsibleGroup}, with one open at a time.
  *
  * ```js
- * import { Collapsible, collapsibleGroup } from '@ttylabs/sigil/components';
+ * import { Collapsible, collapsibleGroup } from '@ttylabs/sigil/components/collapsible';
  * import { text } from '@ttylabs/sigil/element';
  *
  * const details = Collapsible({

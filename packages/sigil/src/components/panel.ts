@@ -6,7 +6,7 @@
  * do the same along the bottom:
  *
  * ```js
- * import { Panel } from '@ttylabs/sigil/components';
+ * import { Panel } from '@ttylabs/sigil/components/panel';
  *
  * Panel(
  *   {

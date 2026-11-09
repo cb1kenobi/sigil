@@ -1,4 +1,4 @@
-import { outline } from '@ttylabs/sigil/components';
+import { outline } from '@ttylabs/sigil/components/outline';
 
 console.log(
   outline(

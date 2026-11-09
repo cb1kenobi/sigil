@@ -8,7 +8,7 @@
  * matches are drawn where they are.
  *
  * ```js
- * import { createPager, page } from '@ttylabs/sigil/components';
+ * import { createPager, page } from '@ttylabs/sigil/components/pager';
  *
  * // the whole screen, until `q`
  * await page(readFileSync('CHANGELOG.md', 'utf8'), { lineNumbers: true });

@@ -61,48 +61,13 @@ import { stringWidth } from '@ttylabs/sigil/width';
  */
 const REPO = 'https://github.com/cb1kenobi/sigil.git';
 
-/** The seven roles, which is the whole of what a theme is a value for. */
-const ROLES = ['accent', 'muted', 'heading', 'success', 'error', 'warn', 'info'];
-
 /**
- * Every property any theme here sets, turned off for every role.
- *
- * A switcher needs this and an app does not, which is the distinction worth
- * drawing: an app picks one theme at startup and never switches, while switching
- * **adds** a sheet over the last one because a `Cascade` has `add` and no `remove`.
- * So a property the new theme does not mention keeps whatever the old one said --
- * measured, going from `MONO` to `VIOLET` left MONO's `underline` on the heading,
- * its `inverse` on the error and its `italic` on the info line, because a colour
- * theme has no reason to mention any of them.
- *
- * Prepending this makes each switch complete whatever came before it. It is also
- * why `sigil` below has to restate the defaults rather than being the absence of a
- * sheet: there is nothing to remove, so going back means saying them again.
+ * What a number key selects. `sigil` first, because it is what you start on, and
+ * it is no sheet at all: the framework's own defaults are what is left when the
+ * theme sheet is taken out.
  */
-const RESET = ROLES.map(
-  (role) =>
-    `.sigil-${role} { color: initial; dim: false; font-weight: normal; ` +
-    `text-decoration: none; inverse: false; italic: false }`
-).join('\n');
-
-/** The framework's own defaults, restated so that the switcher can return to them. */
-const SIGIL = `
-.sigil-accent { color: cyan }
-.sigil-muted { dim: true }
-.sigil-heading { font-weight: bold }
-.sigil-success { color: green }
-.sigil-error { color: red }
-.sigil-warn { color: yellow }
-.sigil-info { color: blue }
-
-@media (prefers-color-scheme: light) {
-  .sigil-muted { color: gray; dim: false }
-}
-`;
-
-/** What a number key selects. `sigil` first, because it is what you start on. */
 const THEMES = [
-  ['sigil', SIGIL],
+  ['sigil', undefined],
   ['mono', MONO],
   ['violet', VIOLET],
   ['phosphor', PHOSPHOR],
@@ -132,17 +97,10 @@ const layout = parseStylesheet(`
 
   /*
    * Underline is what says "link" where the colour is the theme's to decide, and
-   * it has to be said at origin app rather than in a theme. RESET below turns
-   * text-decoration off on every role so that a switch cannot leak one, and the
-   * link row wears .sigil-accent -- so the two are a real contest at equal
-   * specificity, and app is the later origin.
-   *
-   * Which is not the same as source order, and the live branch is what says so:
-   * it adds each theme to the cascade this sheet is already in, so within one
-   * origin the reset arrives last and takes the underline with it. Measured --
-   * the same sheet parsed at origin theme comes out underlined piped, where the
-   * layout sheet is pushed after the theme, and plain the moment a key is
-   * pressed. An origin cannot be reordered by who added a sheet when.
+   * it is in this sheet rather than in a theme so that it survives every switch:
+   * a theme is swapped out whole, and this one never is. It is at origin app, the
+   * later origin, so it also beats a theme that gives the accent an attribute of
+   * its own.
    *
    * A stylesheet is a template literal here, so it holds no backtick: one ends
    * the sheet, and what tsc then reports is a syntax error a long way below the
@@ -150,9 +108,6 @@ const layout = parseStylesheet(`
    */
   .link { text-decoration: underline }
 `);
-
-/** A theme as the switcher applies it: complete, whatever was applied before it. */
-const sheetFor = (css) => parseTheme(`${RESET}\n${css}`);
 
 /**
  * A hyperlinked label, which is the one row in the panel a `text` cannot be.
@@ -403,14 +358,9 @@ function piped() {
     stream: { columns: 80, isTTY: true },
   });
 
-  // the theme on its own rather than through `sheetFor()`, because this branch
-  // builds a *fresh* cascade per theme and so has nothing to reset -- which is the
-  // point: what an app gets is one theme at startup, and that is what should be on
-  // screen here. Prepending RESET made the two renders below disagree, and
-  // measurably: VIOLET sets only `color` on `.sigil-heading`, so RESET's
-  // `font-weight: normal` reached the panel's table head while the `table()` under
-  // it kept the framework's bold -- one theme printed two ways, under a header
-  // calling them the same
+  // a fresh cascade per theme, which is what an app gets: one theme at startup.
+  // `sigil` is the absence of one, so `theme: undefined` is the framework's own
+  // defaults here exactly as `setTheme(undefined)` is below
   for (const [name, css] of THEMES) {
     const cascade = themedCascade({ sheets: [layout], theme: css });
 
@@ -422,15 +372,17 @@ function piped() {
   console.log(`On a terminal this is one panel instead, with ${keyHint().join('  ')}.`);
 }
 
-/** One tree, one renderer, and a number key swaps the sheet under it. */
+/** One tree, one renderer, and a number key swaps the theme sheet under it. */
 function live() {
   let at = 0;
 
-  // the cascade is kept, because switching is a sheet added to *this* one and a
-  // `touchSheets()` to say every rule it matched is stale. That is the one thing
-  // only the owner of a restyler can do, which is why the handle exposes it
+  // the theme sheet the cascade holds, or nothing for the framework's defaults.
+  // Switching is one swap of it: `replace()` puts the new sheet in the old one's
+  // place, so what the old theme set and the new one does not is simply gone --
+  // there is no reset to prepend and no defaults to restate -- and the renderer
+  // subscribed to the cascade, so nobody tells it to restyle
   const cascade = themedCascade({ sheets: [layout] });
-  cascade.add(sheetFor(SIGIL));
+  let sheet;
 
   let heading;
 
@@ -459,13 +411,20 @@ function live() {
       event.stop();
       at = n - 1;
       const [name, css] = THEMES[at];
+      const next = css === undefined ? undefined : parseTheme(css);
 
-      cascade.add(sheetFor(css));
+      if (sheet && next) {
+        cascade.replace(sheet, next);
+      } else if (sheet) {
+        cascade.remove(sheet);
+      } else if (next) {
+        cascade.add(next);
+      }
+      sheet = next;
+
       // the heading names the theme, so it is the one thing the switch has to
       // write rather than restyle
       heading.setText(`theme: ${name}`);
-      view.restyler.touchSheets();
-      view.frame();
     }
   });
 }

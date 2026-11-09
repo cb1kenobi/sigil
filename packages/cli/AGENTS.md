@@ -2822,10 +2822,15 @@ people's software and will move.
   lets it happen at build time.** `../element/index.js` becomes
   `@ttylabs/sigil/element`, read off the tsdown entry map -- the mapping this
   package already writes down twice and `test/exports.test.ts` already keeps in
-  agreement. A _sibling_ import goes to `@ttylabs/sigil/components` rather than
-  to a copy of the sibling, so ejecting a spinner does not drag `mount.ts` along:
-  what those siblings export is public API, and the point of ejecting is to own
-  the component rather than the plumbing under it. Both halves together mean
+  agreement. A _sibling_ import goes to that sibling's own subpath --
+  `./mount.js` is `@ttylabs/sigil/components/mount` -- rather than to a copy of
+  the sibling, so ejecting a spinner does not drag `mount.ts` along: what those
+  siblings export is public API, and the point of ejecting is to own the
+  component rather than the plumbing under it. It was `@ttylabs/sigil/components`
+  until SIG-330 gave every component a subpath, and an ejected spinner importing
+  the barrel loads every other component to draw itself, which is more than the
+  built-in spinner it replaced; "A subpath per component" in
+  `packages/sigil/src/components/AGENTS.md` has the figures. Both halves together mean
   what ships is byte for byte what lands in the app, so **`add` is a copy anybody
   can audit rather than a transform they have to trust** -- and the generator
   fails the build if a relative specifier survives or an entry imports something

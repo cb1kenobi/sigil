@@ -1,4 +1,4 @@
-import { tasks } from '@ttylabs/sigil/components';
+import { tasks } from '@ttylabs/sigil/components/tasks';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

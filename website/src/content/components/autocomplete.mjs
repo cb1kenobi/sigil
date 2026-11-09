@@ -1,4 +1,4 @@
-import { autocomplete } from '@ttylabs/sigil/components';
+import { autocomplete } from '@ttylabs/sigil/components/autocomplete';
 
 const region = await autocomplete({
   message: 'Region',

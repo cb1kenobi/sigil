@@ -1,4 +1,4 @@
-import { selectTree } from '@ttylabs/sigil/components';
+import { selectTree } from '@ttylabs/sigil/components/tree';
 
 const region = await selectTree({
   message: 'Region',

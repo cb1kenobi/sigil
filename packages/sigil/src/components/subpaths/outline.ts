@@ -1,0 +1,15 @@
+export {
+  createOutline,
+  outline,
+  type Outline,
+  type OutlineEntry,
+  outlineEntries,
+  type OutlineEnumerator,
+  type OutlineItem,
+  type OutlineMarkerInfo,
+  type OutlineMarkerOptions,
+  outlineMarkers,
+  type OutlineOptions,
+  type OutlineStyle,
+  outlineView,
+} from '../outline.js';

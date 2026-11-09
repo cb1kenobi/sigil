@@ -81,13 +81,12 @@ and asserts the code it exits with.
 
 ## Themes
 
-`t` moves a class on the app's host. Every theme is in `stylesheet` from the
-start, each scoped under its own class (`.theme-mono .sigil-accent ...`), the
-way a web app puts `.dark` on `<html>`. The class goes on the host rather than
-on `App`'s root so that a dialog, which is appended beside the root, follows
-the theme too. Switching by adding the theme's sheet to the cascade instead
-would mean restating every role so the last theme cannot leak through, because
-a cascade has no way to take a sheet back out: SIG-307.
+`t` calls `app.setTheme()` with the next theme `@ttylabs/sigil/themes` ships, and
+`sigil` -- the framework's own colours -- is `setTheme(undefined)`. The runner
+replaces its theme sheet in place and the screen follows, so a dialog, which is
+appended beside the root, takes the theme too, and nothing is scoped under a
+class or restated to keep the last theme from leaking through: what the old theme
+set and the new one does not is gone with its sheet.
 
 ## What is a stand-in
 

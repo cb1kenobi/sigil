@@ -5,7 +5,8 @@
  * from, and there is no container to put them in:
  *
  * ```js
- * import { Pane, Panel } from '@ttylabs/sigil/components';
+ * import { Pane } from '@ttylabs/sigil/components/pane';
+ * import { Panel } from '@ttylabs/sigil/components/panel';
  * import { box } from '@ttylabs/sigil/element';
  *
  * box(

@@ -65,7 +65,14 @@
         "type": "boolean"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function page(content: string | readonly string[], opts?: PageOptions): Promise<void>"
   },
   "keys": [
