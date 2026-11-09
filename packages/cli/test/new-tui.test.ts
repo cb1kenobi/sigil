@@ -17,6 +17,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -359,6 +360,21 @@ describe('a scaffold with a full-screen app', () => {
       );
     });
 
+    it.each(['pnpm', 'npm', 'vlt'] as const)(
+      'should say how to build with the manager the app was set up with, %s',
+      (manager) => {
+        // it said `npm run build` under every manager, in the one file that tells a
+        // reader which manager to use
+        const readme = file(files({ manager }), 'README.md');
+
+        expect(readme).toContain(`\`${manager} run build\` bundles it into`);
+        // `pnpm run build` holds `npm run build`, hence the look-behind
+        expect(readme).not.toMatch(
+          manager === 'npm' ? /pnpm run build|vlt run build/ : /(?<!p)npm run build/
+        );
+      }
+    );
+
     it('should name only files the scaffold writes', () => {
       for (const syntax of SYNTAXES) {
         const map = files({ syntax, tui: { at: 'root' } });
@@ -595,11 +611,35 @@ describe('the flags', () => {
   });
 
   it.each([
-    ['pnpm', ['--tui-command', 'ops'], '  pnpm run dev ops\n', '  pnpm run dev --help\n'],
-    ['npm', ['--tui-command', 'ops'], '  npm run dev -- ops\n', '  npm run dev -- --help\n'],
-    ['vlt', ['--tui'], '  vlt run dev\n', '  vlt run dev -- --help\n'],
-    ['pnpm', [], undefined, '  pnpm run dev --help\n'],
-  ] as const)('should print the steps the way %s takes arguments', (pm, flags, launch, help) => {
+    {
+      help: '  pnpm run dev --help\n',
+      launch: '  pnpm run dev ops\n',
+      pm: 'pnpm',
+      title: 'for pnpm, which takes a command with no `--`',
+      flags: ['--tui-command', 'ops'],
+    },
+    {
+      help: '  npm run dev -- --help\n',
+      launch: '  npm run dev -- ops\n',
+      pm: 'npm',
+      title: 'for npm, which needs the `--`',
+      flags: ['--tui-command', 'ops'],
+    },
+    {
+      help: '  vlt run dev -- --help\n',
+      launch: '  vlt run dev\n',
+      pm: 'vlt',
+      title: 'for vlt, with the app on the root',
+      flags: ['--tui'],
+    },
+    {
+      help: '  pnpm run dev --help\n',
+      launch: undefined,
+      pm: 'pnpm',
+      title: 'for pnpm with no app, which has only the help line',
+      flags: [],
+    },
+  ])('should print the steps $title', ({ flags, help, launch, pm }) => {
     // pnpm passes a `--` through to the script, so `pnpm run dev -- ops` starts
     // the app with `-- ops` and the parser refuses `ops`; npm and vlt need it
     const ran = run(tempDir('sigil-new-tui-'), 'demo', '--yes', ...flags, '--pm', pm);
@@ -611,33 +651,90 @@ describe('the flags', () => {
     expect(ran.stdout).toContain(help);
   });
 
-  it('should print the other syntax as a command that runs as it is written', () => {
+  // what was asked for, what the summary must then print, and what the second app
+  // must be. The printed command is compared with the flags it was built from and
+  // not with itself: reading the answer off the output is how a dropped flag hid
+  it.each([
+    {
+      flags: ['--tui', '--pm', 'pnpm', '--lint', 'none'],
+      printed: 'sigil new <name> --pm pnpm --lint none --tui --syntax ui',
+      second: (app: string) => {
+        expect(existsSync(join(app, 'src', 'ui', 'app.ts'))).toBe(true);
+        expect(existsSync(join(app, 'src', 'commands', 'hello.ts'))).toBe(true);
+        expect(readFileSync(join(app, '.github', 'workflows', 'release.yml'), 'utf-8')).toContain(
+          'pnpm install --frozen-lockfile'
+        );
+        expect(existsSync(join(app, '.oxlintrc.json'))).toBe(false);
+      },
+    },
+    {
+      flags: ['--tui-command', 'ops', '--pm', 'npm', '--lint', 'biome'],
+      printed: 'sigil new <name> --pm npm --lint biome --tui-command ops --syntax ui',
+      second: (app: string) => {
+        expect(existsSync(join(app, 'src', 'commands', 'ops.ts'))).toBe(true);
+        expect(existsSync(join(app, 'biome.json'))).toBe(true);
+      },
+    },
+    {
+      flags: ['--single', '--tui', '--js', '--pm', 'vlt', '--lint', 'eslint'],
+      printed: 'sigil new <name> --pm vlt --lint eslint --js --single --tui --syntax ui',
+      second: (app: string) => {
+        // `--js`: the file is `.js`, and there is no tsconfig. `--single`: no commands
+        expect(existsSync(join(app, 'src', 'ui', 'app.js'))).toBe(true);
+        expect(existsSync(join(app, 'tsconfig.json'))).toBe(false);
+        expect(existsSync(join(app, 'src', 'commands'))).toBe(false);
+        expect(existsSync(join(app, 'eslint.config.js'))).toBe(true);
+        expect(readFileSync(join(app, '.github', 'workflows', 'release.yml'), 'utf-8')).toContain(
+          'vlt install --frozen-lockfile'
+        );
+      },
+    },
+  ])('should print the other syntax for $flags as the command that makes it', (row) => {
     // `--syntax` alone is refused under --yes and asks the TUI question again
-    // interactively, so a hint that said only that was not runnable. Each form is
-    // read back out of what was printed and run, rather than compared with itself
-    for (const flags of [['--tui'], ['--tui-command', 'ops'], ['--single', '--tui', '--js']]) {
-      const first = run(tempDir('sigil-new-tui-'), 'app1', '--yes', ...flags);
-      const printed = /`(sigil new [^`]+)`/.exec(first.stdout)?.[1];
+    // interactively, so a hint that said only that was not runnable
+    const parent = tempDir('sigil-new-tui-');
+    const first = run(parent, 'app1', '--yes', ...row.flags);
+    const printed = /`(sigil new [^`]+)`/.exec(first.stdout)?.[1];
 
-      expect(printed, first.stdout).toBeDefined();
-      const [, , name, ...args] = (printed as string).split(' ') as [
-        string,
-        string,
-        string,
-        ...string[],
-      ];
-      expect(name).toBe('app1');
-      expect(args).toContain('--syntax');
-      expect(args.at(-1)).toBe('ui');
+    expect(first.status, first.stderr).toBe(0);
+    expect(printed).toBe(row.printed);
 
-      const dir = tempDir('sigil-new-tui-');
-      const again = run(dir, 'app2', '--yes', ...args);
+    // run from where it was printed, which is beside `app1` and inside it: a real
+    // name there collides in the first place and nests in the second, so the name
+    // is a placeholder and the second app needs one of its own
+    const args = (printed as string).split(' ').slice(2);
+    expect(args[0]).toBe('<name>');
+    expect(readFileSync(join(parent, 'app1', 'README.md'), 'utf-8')).toContain(row.printed);
+
+    for (const from of [parent, join(parent, 'app1')]) {
+      const dir = from === parent ? parent : join(parent, 'app1');
+      const again = run(dir, 'app2', '--yes', ...args.slice(1));
       expect(again.status, again.stderr).toBe(0);
-      // and it is the same app, in the other syntax
-      expect(
-        existsSync(join(dir, 'app2', 'src', 'ui', args.includes('--js') ? 'app.js' : 'app.ts'))
-      ).toBe(true);
+      row.second(join(dir, 'app2'));
+      rmSync(join(dir, 'app2'), { force: true, recursive: true });
     }
+  });
+
+  it('should show the dev script the scaffold writes, in the docs and the README', () => {
+    // two prose copies of a script drifted from it once already: they said
+    // `sigil build &&` after the script gained `--quiet`. Compared with what the
+    // manifest holds, with the line breaks the docs wrap at taken out
+    const dev = (
+      JSON.parse(file(files({ name: 'myapp', tui: { at: 'root' } }), 'package.json')) as {
+        scripts: Record<string, string>;
+      }
+    ).scripts.dev as string;
+    const unwrapped = (path: string): string =>
+      readFileSync(resolve(here, path), 'utf-8').replace(/\s+/g, ' ');
+
+    expect(unwrapped('../../sigil/docs/full-screen-apps.md')).toContain(dev);
+    expect(unwrapped('../README.md')).toContain(dev.replace('myapp', '<name>'));
+  });
+
+  it('should print the JSX command for an app that is written in the ui tag', () => {
+    const readme = file(files({ syntax: 'ui', tui: { at: 'root' } }), 'README.md');
+
+    expect(readme).toContain('sigil new <name> --pm pnpm --lint none --tui --syntax jsx');
   });
 
   it('should leave the other-syntax hint on one line, since the terminal wraps and a break at 88 does not', () => {
@@ -645,7 +742,7 @@ describe('the flags', () => {
     const note = ran.stdout.split('\n').find((line) => line.startsWith('The app is in JSX'));
 
     expect(note).toBeDefined();
-    expect(note).toContain('build-free alternative: `sigil new demo --tui --syntax ui`');
+    expect(note).toContain('build-free alternative: `sigil new <name> --pm');
   });
 });
 
@@ -683,16 +780,17 @@ describe('a script that runs with arguments', () => {
           'console.log("ARGS" + JSON.stringify(process.argv.slice(2)));\n'
         );
 
-        const [cmd, ...argv] = runScript(manager, 'dev', ...args).split(' ') as [
-          string,
-          ...string[],
-        ];
-        const ran = spawnSync(cmd, argv, {
-          cwd: dir,
-          encoding: 'utf-8',
-          shell: process.platform === 'win32',
-        });
+        // one command string for the shell that Windows needs, since an arguments
+        // array with `shell: true` is DEP0190 on Node 24 and later. The arguments
+        // are plain words, so there is nothing to quote
+        const command = runScript(manager, 'dev', ...args);
+        const [cmd, ...argv] = command.split(' ') as [string, ...string[]];
+        const ran =
+          process.platform === 'win32'
+            ? spawnSync(command, { cwd: dir, encoding: 'utf-8', shell: true })
+            : spawnSync(cmd, argv, { cwd: dir, encoding: 'utf-8' });
 
+        expect(ran.stderr).not.toContain('DEP0190');
         expect(/^ARGS(.*)$/m.exec(ran.stdout)?.[1], ran.stdout + ran.stderr).toBe(
           JSON.stringify(args)
         );
@@ -1077,6 +1175,37 @@ describe('every variant, scaffolded and run', () => {
     );
     expect(ran.status).toBe(0);
   });
+
+  it.concurrent('should size the footer by columns and not by characters, for an item with wide ones', async () => {
+    // a copied template gets its own item names, and one in a script that takes
+    // two columns a character is the case `.length` gets wrong: the status is
+    // measured short, the footer is given too much, and the status is pushed off
+    // the row. `stringWidth()` is what the component asks
+    const app = materialize({ syntax: 'ui', tui: { at: 'root' } });
+    for (const path of [join('src', 'ui', 'app.ts'), join('test', 'tui.test.ts')]) {
+      writeFileSync(
+        join(app, path),
+        readFileSync(join(app, path), 'utf-8').replaceAll('Settings', '設定設定設定')
+      );
+    }
+    const vitest = JSON.parse(
+      readFileSync(join(app, 'node_modules', 'vitest', 'package.json'), 'utf-8')
+    ) as { bin: { vitest: string } };
+
+    // the narrow-terminal test alone: the resize test goes down to 22 columns,
+    // which a status this wide does not fit in whatever measures it
+    const ran = await node(
+      app,
+      join('node_modules', 'vitest', vitest.bin.vitest),
+      'run',
+      '--reporter=default',
+      '-t',
+      'in a narrow terminal'
+    );
+
+    expect(ran.code, ran.out).toBe(0);
+    expect(ran.out).toMatch(/Tests\s+1 passed/);
+  }, 120_000);
 
   it.concurrent('should still say what is wrong when the dev script builds quietly', async () => {
     // `dev` is `sigil build --quiet && node ...`, so a build that failed has to

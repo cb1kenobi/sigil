@@ -231,7 +231,7 @@ const newApp: AnyCommand = command({
         // it is not wrapped, since the terminal does that and a hard break at
         // 88 columns is wrong at every other width
         (tui && syntax === 'jsx'
-          ? `\nThe app is in JSX, so \`dev\` builds it before it runs. The \`ui\` tag is the build-free alternative: \`${otherSyntaxCommand({ language, layout, name, syntax, tui })}\`\n`
+          ? `\nThe app is in JSX, so \`dev\` builds it before it runs. The \`ui\` tag is the build-free alternative: \`${otherSyntaxCommand({ language, layout, linter, manager: pm, name, syntax, tui })}\`\n`
           : '')
     );
   },

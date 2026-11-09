@@ -24,7 +24,7 @@
  * right for one.
  */
 
-import type { Language, Layout } from './index.ts';
+import type { Language, Layout, Linter, Manager } from './index.ts';
 
 /** The template syntax the component is written in. */
 export type Syntax = 'jsx' | 'ui';
@@ -145,6 +145,10 @@ export interface TuiApp {
   readonly language: Language;
   /** The layout, which `--single` is. */
   readonly layout: Layout;
+  /** The linter it was set up with, which the other-syntax command carries over. */
+  readonly linter: Linter;
+  /** The package manager it was set up with, likewise. */
+  readonly manager: Manager;
   /** The app's name. */
   readonly name: string;
   /** The syntax it was written in. */
@@ -159,20 +163,31 @@ export interface TuiApp {
  * Runnable as written, which is the whole of why it is built from the flags
  * rather than from prose: `--syntax` alone is refused under `--yes` and asks the
  * TUI question again interactively, so the hint has to carry the TUI flag, and
- * the command form when the app was launched from one.
+ * the command form when the app was launched from one. It carries `--pm`,
+ * `--lint`, `--js` and `--single` too, since a second app that took the defaults
+ * for those would be a different app and not the same one in another syntax.
+ *
+ * The name is a **placeholder**. It is printed where somebody is standing next
+ * to the app it describes -- the summary, the README in the app's own directory,
+ * the header of a file inside it -- and the app's real name is a directory that
+ * already exists there, so it would collide from the parent and nest from inside.
  *
  * @param app - The app that was written.
  * @returns The command line, for a person to run.
  */
 export function otherSyntaxCommand(app: TuiApp): string {
   const flags = [
+    '--pm',
+    app.manager,
+    '--lint',
+    app.linter,
     ...(app.language === 'js' ? ['--js'] : []),
     ...(app.layout === 'single' ? ['--single'] : []),
     ...(app.tui.at === 'command' ? ['--tui-command', app.tui.command] : ['--tui']),
     '--syntax',
     app.syntax === 'jsx' ? 'ui' : 'jsx',
   ];
-  return `sigil new ${app.name} ${flags.join(' ')}`;
+  return `sigil new <name> ${flags.join(' ')}`;
 }
 
 /** The app's own sheet, over the framework's. */
@@ -183,7 +198,7 @@ const STYLESHEET = `  .app { flex-direction: column; flex-grow: 1 }
   .row:focus { background-color: blue; color: white }
   .status { flex-direction: row; padding: 0 1 }
   .keys { flex-grow: 1 }
-  .chosen { flex-shrink: 0; font-weight: bold; margin-left: 1; white-space: nowrap }`;
+  .chosen { font-weight: bold; margin-left: 1; white-space: nowrap }`;
 
 /**
  * The component, in whichever syntax was chosen.
@@ -210,6 +225,7 @@ export function component(app: TuiApp): string {
     "import { onMount } from '@ttylabs/sigil/renderer';",
     "import { State } from '@ttylabs/sigil/signals';",
     ...(jsx ? [] : ["import { ui } from '@ttylabs/sigil/template';"]),
+    "import { stringWidth } from '@ttylabs/sigil/width';",
   ].join('\n');
 
   const other = otherSyntaxCommand(app);
@@ -340,12 +356,21 @@ ${list}
   // so that it is read again when \`chosen\` changes
   const status = () => (chosen.get() === '' ? '' : \`selected: \${chosen.get()}\`);
 
+  // the terminal's width, as a signal. \`keyHelp()\` asks for its width inside an
+  // effect, which runs again only when something it read changes, so a plain
+  // \`app.terminal.width\` would be read once and the footer would keep the width
+  // it was drawn at after the window is resized
+  const size = new State(app.terminal.width);
+  input.onResize((next) => size.set(next.width));
+
   // the key-help footer, from the bindings below. It is told how wide it may be:
   // the terminal less what the status says now and the bar's own padding and margin,
-  // so the two share a row and neither wraps. Reading \`status()\` here is what makes
-  // it follow the choice
+  // so the two share a row and neither wraps. \`stringWidth()\` and not \`.length\`,
+  // since an item with a wide character in its name takes more columns than it has
+  // characters. Reading \`size\` and \`status()\` here is what makes the footer follow a
+  // resize and a choice
   const keys = keyHelp(input, {
-    width: () => Math.max(0, app.terminal.width - status().length - 3),
+    width: () => Math.max(0, size.get() - stringWidth(status()) - 3),
   });
 
   // up and down move the focus round the ring, and what they are described as is
@@ -467,6 +492,37 @@ describe('${name} full-screen app', () => {
     await frame(app);
 
     expect(term.viewport.some((line) => line.includes('selected: Settings'))).toBe(true);
+
+    await term.press('q');
+    await app.exited;
+  });
+
+  it('keeps it on one line after the terminal is resized', async () => {
+    // the footer's width follows the terminal through a signal, because it is read
+    // inside an effect that only runs again when something it read has changed
+    const { app, term } = open(60);
+
+    await term.press(KEYS.down, KEYS.down, KEYS.down, KEYS.enter);
+    await frame(app);
+    term.resize(22, 14);
+    await frame(app);
+
+    expect(term.viewport.some((line) => line.includes('selected: Settings'))).toBe(true);
+
+    await term.press('q');
+    await app.exited;
+  });
+
+  it('clips the status where there is no room for it, and does not wrap it', async () => {
+    // narrower than the status itself. A status that wrapped would put its second
+    // word on the row below and push the whole screen up by one, so the status
+    // bar has to still be the last row, with the status on it
+    const { app, term } = open(16);
+
+    await term.press(KEYS.down, KEYS.down, KEYS.down, KEYS.enter);
+    await frame(app);
+
+    expect(term.viewport.at(-1)).toContain('selected:');
 
     await term.press('q');
     await app.exited;

@@ -844,16 +844,19 @@ ${
 alternative that needs no build, and this writes the same app in it:
 
 \`\`\`sh
-${otherSyntaxCommand({ language, layout, name, syntax, tui })}
+${otherSyntaxCommand({ language, layout, linter: opts.linter, manager: opts.manager, name, syntax, tui })}
 \`\`\``
     : `It is written in the \`ui\` tag, which Node runs as it is, so there is nothing
 to build between an edit and the \`dev\` script. JSX is the alternative, whose props
 an editor checks and which is built to run, and this writes the same app in it:
 
 \`\`\`sh
-${otherSyntaxCommand({ language, layout, name, syntax, tui })}
+${otherSyntaxCommand({ language, layout, linter: opts.linter, manager: opts.manager, name, syntax, tui })}
 \`\`\``
 }
+
+\`<name>\` is a new directory, so give it a name of its own and run it from the folder that
+holds this app, not from inside it.
 
 \`test/tui.test.${e}\` runs it over a fake terminal, presses keys, and reads the
 screen back as text. It is the test to copy for the next screen.
@@ -870,7 +873,7 @@ A CLI built with [sigil](https://github.com/cb1kenobi/sigil).
 ${start}
 \`\`\`
 
-\`npm run build\` bundles it into \`dist/${name}.mjs\`, which depends on nothing.
+\`${run('build')}\` bundles it into \`dist/${name}.mjs\`, which depends on nothing.
 
 ## Layout
 
@@ -949,6 +952,8 @@ export function scaffold(opts: ScaffoldOptions): ScaffoldFile[] {
         contents: component({
           language: opts.language,
           layout: opts.layout,
+          linter: opts.linter,
+          manager: opts.manager,
           name: opts.name,
           syntax,
           tui: opts.tui,

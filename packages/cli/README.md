@@ -42,7 +42,7 @@ way of arranging them:
 The component is `src/ui/app.tsx` (or `.jsx`, `.ts`, `.js`), never a file under
 `commands/`, and whatever launches it imports it inside `run`, so no other
 command loads the renderer. A JSX app is built to run: its `dev` script is
-`sigil build && node dist/<name>.mjs`, and it has no `dev.ts`. The `ui` tag keeps
+`sigil build --quiet && node dist/<name>.mjs`, and it has no `dev.ts`. The `ui` tag keeps
 `node dev.ts`, with nothing to build. `test/tui.test.ts` runs the app over a
 fake terminal.
 

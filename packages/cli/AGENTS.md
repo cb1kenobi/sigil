@@ -2920,8 +2920,14 @@ people's software and will move.
   npm's help). Asked of the managers rather than recalled -- the test runs each
   installed one against a script that prints its `argv` -- since a manager
   changing what it does with `--` is what the spelling depends on. The summary and
-  the README both use it. `npm run build` in the README is left as it was: it
-  takes no arguments.
+  the README both use it, `npm run build` included: it takes no arguments and
+  would be right everywhere, but a README that says `npm` under a pnpm app is the
+  one place a reader is told which manager to use, so it says the app's own.
+  **vlt's spelling rests on a local measurement and CI skips the test that
+  re-measures it.** Measured on vlt 1.1.1 (and pnpm 12.18, npm 11.19); the
+  workflow installs node and pnpm only, so on all nine jobs the vlt cases are
+  skipped by `whichSync()` and pnpm and npm are the ones that run. The CI workflow
+  was deliberately left alone, so the gap is recorded here instead.
 - **The scaffolded test is the one a TUI author copies, so it asserts on text.**
   It runs the app over `createTestTerminal()`, presses a key, reads the screen,
   and asserts `q` exits `0` and Ctrl-C `130`, and that without a terminal it
@@ -2941,14 +2947,25 @@ people's software and will move.
   moves a comment with the import under it and a header comment above the
   packages would otherwise end up between two of them. `test/app.test.*` is the
   older file, has the other order, and is left alone.
-- **The footer is sized from what is beside it, and the status cannot wrap.** The
-  first version gave `keyHelp()` `terminal.width - 24`, a number that stood for
-  `selected: Settings` and its padding and was wrong at 30 columns, where the
-  status wrapped onto a second line. The width function now reads `status()`, so
-  it is the terminal less what the status says _now_ and the bar's padding and
-  margin, and reading the signal there is what makes the footer follow the
-  choice. `.chosen` is `flex-shrink: 0; white-space: nowrap`. The scaffolded test
-  presses to the longest item at 30 columns and asserts the status is on one line.
+- **The footer is sized from what is beside it, it follows a resize, and the
+  status cannot wrap.** The first version gave `keyHelp()` `terminal.width - 24`,
+  a number that stood for `selected: Settings` and its padding and was wrong at 30
+  columns, where the status wrapped onto a second line. The width function is now
+  the terminal less what the status says _now_ and the bar's padding and margin,
+  measured with `stringWidth()` and not `.length`, since an item named in a script
+  that takes two columns a character is measured short by the second and the
+  status is pushed off the row (a test swaps in such a name and runs the
+  scaffold's own test). **The width follows a resize** because it is read from a
+  signal: `keyHelp()` calls the function inside an effect that runs again only
+  when something it read changes, and `app.terminal.width` is a plain number, so
+  the first revision kept the width the first frame was drawn at -- 60 to 22
+  columns lost the status entirely. The size is a `State` fed by
+  `input.onResize()`, the pattern `keyHelp`'s own `width` documentation shows.
+  `.chosen` is `white-space: nowrap`: a status with no room is clipped and does
+  not take a second row, which a test provokes at 16 columns and which fails
+  without it. It once carried `flex-shrink: 0` too; nothing failed with that
+  removed, so it went rather than stay as a line nothing holds up. The scaffolded
+  test chooses the longest item at 30 columns, then at 60 and resized to 22.
 - **The scaffolded "refuses without a terminal" test pins `process.stdin.isTTY`
   rather than trusting the runner.** Its refusal comes from `runApp()` seeing no
   terminal, and a runner that hands its own down would open the real app and wait

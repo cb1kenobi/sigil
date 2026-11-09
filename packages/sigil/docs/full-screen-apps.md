@@ -306,7 +306,7 @@ renderer.
 
 The syntax is a question of its own, "Which template syntax?", and `--syntax
 jsx|ui` answers it. JSX is the default: it type-checks every prop, and what it
-costs is a build, which is why its `dev` script is `sigil build && node
+costs is a build, which is why its `dev` script is `sigil build --quiet && node
 dist/myapp.mjs`. `--syntax ui` writes the same app in the `ui` tag, whose `dev`
 is plain `node dev.ts` with nothing to build.
 
