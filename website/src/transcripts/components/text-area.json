@@ -1,0 +1,118 @@
+{
+  "api": {
+    "interface": "TextAreaProps",
+    "options": [
+      {
+        "description": "Whether the area refuses input.",
+        "default": "`false`",
+        "name": "disabled",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
+        "description": "A mark drawn at the start of every row, after the line number when there is one -- `'│ '` or `'> '`. Drawn muted, and never part of the value.",
+        "name": "gutter",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Says which stretches of the value are which tokens, for syntax highlighting.",
+        "name": "highlight",
+        "optional": true,
+        "type": "(value: string) => readonly HighlightSpan[]"
+      },
+      {
+        "description": "Numbers each line down the left. Two digits at the least, so the area does not move a column right at the tenth line; the caret's line is the one not muted.",
+        "name": "lineNumbers",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Called with the value after every edit that changed it. Not called for a write the app made.",
+        "name": "onChange",
+        "optional": true,
+        "type": "(value: string) => void"
+      },
+      {
+        "description": "Called with the selected text on a copy or a cut, which is where an app puts it on the clipboard -- `copyToClipboard(app.terminal, text)`.",
+        "name": "onCopy",
+        "optional": true,
+        "type": "(text: string) => void"
+      },
+      {
+        "description": "Shown, muted, while the value is empty.",
+        "name": "placeholder",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The host box's own props: a class, a margin, a `flex-grow`. Geometry only, never a colour.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementPropsWithout<\"onFocusChange\" | \"onKey\" | \"onMouse\" | \"onPaste\">"
+      },
+      {
+        "description": "The most rows the area asks for before it scrolls, growing into it as lines are added. Ten by default. A `flex-grow` or a `height` in `props` gives it more, and a column too short for it takes rows away.",
+        "name": "rows",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "What Tab types -- `' '`, or `'\\t'`, which draws as one column the way it does everywhere else in this library.",
+        "name": "tab",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The value.",
+        "default": "empty",
+        "name": "value",
+        "optional": true,
+        "type": "string | State<string>"
+      },
+      {
+        "description": "How many columns the area takes, gutter included. Defaults to what the layout gives it -- the whole width in a column, and forty columns of text in a row, shrinking to its share where the row is short.",
+        "default": "what the layout gives it -- the whole width in a column",
+        "name": "width",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "shared": [],
+    "signature": "function TextArea(props?: TextAreaProps): Element"
+  },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "left",
+        "home",
+        "pageUp",
+        "tab",
+        "shiftTab",
+        "space",
+        "backspace",
+        "enter"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
+  "registryDescription": "A text area: several editable lines as an element, scrolled both ways, with line numbers, a selection and a highlight seam",
+  "source": "packages/sigil/src/components/text-area.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[1mCommit message\u001b[0m\n\u001b[2m 1\u001b[0m Fix the parser\n\u001b[2m 2\u001b[0m\n 3 A value may start with -\u001b[7m \u001b[0m\n\u001b[2mShift-arrows select · Ctrl-C quits\u001b[0m"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[1mCommit message\u001b[0m\n\u001b[2m 1\u001b[0m Fix the parser\n\u001b[2m 2\u001b[0m\n 3 A value may start with -\u001b[7m \u001b[0m\n\u001b[2mShift-arrows select · Ctrl-C quits\u001b[0m"
+    }
+  }
+}

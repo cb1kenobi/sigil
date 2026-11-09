@@ -82,7 +82,7 @@ import {
   scrollBy,
   scrollRange,
 } from '../element/index.js';
-import type { KeyEvent, MouseEvent } from '../input/index.js';
+import type { KeyEvent, MouseEvent, WheelDirection } from '../input/index.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** Which axes a scroll box scrolls, and therefore which bars it draws. */
@@ -349,6 +349,37 @@ const WHEEL_WINDOW = 120;
 
 /** The most a flick is multiplied by, so a long log is crossed and not jumped. */
 const WHEEL_MAX = 4;
+
+/**
+ * How many lines each wheel notch is worth, as a function that remembers the
+ * flick it is part of.
+ *
+ * Three lines a notch, multiplied by how fast the notches are arriving: a flick
+ * crosses a ten-thousand-row log and a deliberate turn still moves three lines.
+ * The streak resets when the **direction** changes as well as when the window
+ * lapses, because reversing mid-flick otherwise launches the content the other
+ * way at full speed -- a scroll that overshoots in the direction you were trying
+ * to get back from.
+ *
+ * One per thing that scrolls, because the streak is that thing's. Exported for
+ * the text area (SIG-283), which scrolls a fifty-thousand-line buffer by the same
+ * wheel rather than by a second curve that would come to disagree with this one.
+ *
+ * @returns Called once per notch with the direction it turned, answering lines.
+ */
+export function wheelStep(): (direction: WheelDirection) => number {
+  let lastAt = 0;
+  let lastDir: WheelDirection | undefined;
+  let streak = 0;
+
+  return (direction) => {
+    const now = Date.now();
+    streak = now - lastAt <= WHEEL_WINDOW && direction === lastDir ? streak + 1 : 0;
+    lastAt = now;
+    lastDir = direction;
+    return WHEEL_LINES * Math.min(WHEEL_MAX, 1 + Math.floor(streak / 2));
+  };
+}
 
 /** What a bar draws: where the thumb starts along the track, and how long it is. */
 interface Thumb {
@@ -1138,25 +1169,14 @@ function wireKeys(host: Element, viewport: Element, axes: Axes): void {
 }
 
 /**
- * The wheel, with an acceleration curve.
- *
- * Three lines a notch, multiplied by how fast the notches are arriving: a flick
- * crosses a ten-thousand-row log and a deliberate turn still moves three lines.
- * Without it a long log is unusable, which is the only reason the curve is here
- * rather than a constant.
- *
- * The streak resets when the **direction** changes as well as when the window
- * lapses, because reversing mid-flick otherwise launches the content the other
- * way at full speed -- a scroll that overshoots in the direction you were trying
- * to get back from.
+ * The wheel, with an acceleration curve: `wheelStep()`'s. Without it a long log
+ * is unusable, which is the only reason the curve is here rather than a constant.
  *
  * Shift makes a vertical wheel scroll horizontally where there is a horizontal
  * axis, which is what a terminal's own reader and every browser do.
  */
 function wireWheel(host: Element, viewport: Element, axes: Axes): void {
-  let lastAt = 0;
-  let lastDir: string | undefined;
-  let streak = 0;
+  const step = wheelStep();
 
   host.onMouse = (event: MouseEvent): void => {
     if (event.kind !== 'wheel' || !event.wheel) {
@@ -1177,12 +1197,7 @@ function wireWheel(host: Element, viewport: Element, axes: Axes): void {
       return;
     }
 
-    const now = Date.now();
-    streak = now - lastAt <= WHEEL_WINDOW && event.wheel === lastDir ? streak + 1 : 0;
-    lastAt = now;
-    lastDir = event.wheel;
-
-    const lines = WHEEL_LINES * Math.min(WHEEL_MAX, 1 + Math.floor(streak / 2));
+    const lines = step(event.wheel);
     const by = back ? -lines : lines;
 
     scrollBy(viewport, sideways ? by : 0, sideways ? 0 : by);

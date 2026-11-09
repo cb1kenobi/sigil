@@ -10421,6 +10421,7 @@ exception per widget. This is the one answer, and every widget below follows it.
   | component       | hooks it owns on the host its `props` go to     |
   | --------------- | ----------------------------------------------- |
   | `TextField`     | `onKey`, `onPaste`, `onFocusChange`, `onResize` |
+  | `TextArea`      | `onKey`, `onMouse`, `onPaste`, `onFocusChange`  |
   | `ScrollBox`     | `onKey`, `onMouse`                              |
   | `createPager`   | `onKey`                                         |
   | `tabRowView`    | `onKey`, `onFocusChange`, `onResize`            |
@@ -10449,3 +10450,142 @@ exception per widget. This is the one answer, and every widget below follows it.
   the code: a component that starts assigning another hook fails until it refuses
   that one too. It also asserts the refusal names both, the `undefined` pass, and
   that every hook it does not own is kept.
+
+### A text area: the multiline prompt's editor in a tree (SIG-283)
+
+`src/components/text-area.ts`. `TextArea()` is several editable lines that a tree
+can hold -- a commit message box, a notes pane, the editor a full-screen app is
+built around -- and is to `multiline()` what `TextField()` is to `text()`. How it
+was reached, the measurements and the sabotage pass are in
+[docs/history/a-text-area-the-multiline-prompts-editor-in-a-tree.md](../../../../docs/history/a-text-area-the-multiline-prompts-editor-in-a-tree.md).
+
+- **The element first, built from the prompt's parts, and `multiline()` is not
+  moved onto it.** SIG-215's answer, and it holds for the same reason plus one.
+  Every edit is `editing.ts`, every line's cells are `layoutField()`, a vertical
+  move's column is `offsetIn()`, and colour is the prompt's `HighlightSpan`,
+  `TOKEN_ROLE` and `tokensOf()` -- so the rules are shared and only the shape is
+  new. The extra reason is that the shapes really differ: the prompt soft wraps,
+  because it is a few lines under a question, and the area scrolls sideways,
+  because it may hold fifty thousand (below). Mounting the prompt on the area would
+  change how every `multiline()` answer looks, which is a ticket of its own and
+  not one to take inside this one. `offsetIn()` joined the prompt subpath for it,
+  which is the `layoutField()` precedent: an ejected text area imports only what is
+  published.
+- **The value is an array of lines, not a rope, and only the lines on screen are
+  laid out and painted.** An edit joins just the lines it spans into the string an
+  `editing.ts` function reads and splits the answer back, so a backspace at the
+  start of a line, a word deleted over a break and a paste of forty lines are each
+  the shared rule and none is written twice for an array. What a rope would buy is
+  an edit inside one enormous string, and an array of lines never has one: the
+  longest string an edit touches is a line. The frame is worked out at paint, from
+  the box the layout gave the text layer, laying out `height` lines and no more,
+  and is memoised on a version so the layers that each ask pay once.
+  `text-area-window.test.ts` counts `layoutField()` calls over a 50,000-line value
+  rather than timing it. Measured on the built package, a PageDown and its frame:
+  **0.61ms over 100 lines and 0.65ms over 50,000**; a keystroke 0.56ms either way
+  with nothing reading the value.
+- **A line is one row: the area scrolls sideways rather than wrapping.** That is
+  the condition the window rests on. With soft wrap, which row a line starts on
+  depends on how every line above it wrapped, so scrolling to line 40,000 means
+  wrapping 39,999 lines first -- the prompt's `layoutField()` over the whole 50,000
+  takes **1.66 seconds**. Unwrapped, line `n` is row `n`. Editors default to it
+  for the same reason, and `wrap` is deferred rather than refused: it needs a
+  per-line row count kept up to date, which is a cache this ticket did not need.
+  A cluster either edge cuts is left out whole, since the grid carries a write on
+  half a wide cluster to the other half.
+- **What still costs as much as the value is long is paid only when something
+  reads it.** Joining the lines into a string -- 0.6ms over 2.7MB -- happens when a
+  `State` was handed in, `onChange` was given, or `highlight` asks; a bare area
+  never joins. A write the app makes is normalized and split, which took **188ms**
+  for that file through `pastedBlock()` and now takes about 4ms: `pastedBlock()`
+  dropped its control characters by segmenting first, and a control character is
+  always a cluster of its own, so the same rule is two passes of a pattern (the
+  fuzz is in the history file). `TextField()` and `multiline()` use the same
+  function and their tests are untouched.
+- **The highlight seam is `multiline()`'s, unchanged.** `(value) =>
+  HighlightSpan[]`, offsets into the whole value so a comment over several lines
+  is one span, a token a class and seven of them a role -- so a theme colours an
+  area, a prompt, a diff and a markdown code block with one sheet, which is what
+  SIG-220 asked of markdown and SIG-289 will ask of all four. Markdown's hook takes
+  a language as well because a fence says what it is; an area does not know, and
+  the app that does can close over it. Called whenever the value changes and never
+  when only the caret moves. The spans are filed under the lines they touch, so a
+  frame reads the spans of the lines it draws; a name is checked once, through
+  `tokensOf()` itself. Over 50,000 lines with a regex highlighter a keystroke costs
+  **about 20ms**, half of it the hook: a whole-value hook is O(value) by
+  definition, and an incremental one -- the lines that changed, and the state at
+  the start of them -- is SIG-289's to design, since it is the highlighter that
+  knows what state it carries.
+- **The keys: Enter is a newline, Tab is the ring's unless `tab` says what it
+  types, and Escape and Shift-Tab are never the area's.** A form needs Tab to
+  leave a field, and an editor needs it to indent, so the answer is the app's and
+  the default is the one that cannot trap anybody: an area that takes Tab can
+  still be left with Shift-Tab. A Tab inside a paste the terminal did not bracket
+  is content, never a move. Escape is `TextField`'s rule and a dialog's way out.
+  The editing keys are claimed even at an end, Up and Down included, which
+  `TextField` leaves alone because it has no lines. Ctrl-C is never the area's,
+  being the abort, and there is no submit key: a commit box binds its own, and a
+  binding runs ahead of the focused element.
+- **A selection of its own, over the value rather than over the cells.** The
+  screen selection is two cells of the grid, which is right for it and wrong
+  here: an area's selection has to survive scrolling and an edit above it, so it
+  is an anchor and the caret, both places in the value. Shift with any move
+  selects, a drag selects, a Shift-press extends; typing or deleting replaces it,
+  and an arrow collapses it onto the end it points at. It is **drawn the way the
+  screen selection is**, reverse video toggled by `selectedStyle()`, so the two
+  look alike and neither is a declaration in the framework sheet -- and not at
+  colour level 0, where it still copies. **The caret is not drawn while there is a
+  selection**: a block caret beside a reversed run reads as one cell more, and
+  inside one as one cell fewer, so with both the picture was a cell out whichever
+  way the selection ran.
+- **Ctrl-Y copies and Ctrl-X cuts, and only with `onCopy`.** An element has no
+  terminal, and a component that found one through the app's context would behave
+  one way in `runApp()` and another in a test -- the refusal "Focus on a control"
+  already made for a router. So the area hands the text to `onCopy` and the app
+  writes it, which with OSC 52 is `copyToClipboard(app.terminal, text)`. Without
+  `onCopy` neither key is the area's, which is `TextField`'s Enter-without-
+  `onSubmit` rule: a cut with nowhere to put the text would only delete it. The
+  keys themselves are the ones the screen selection's demo already chose -- Ctrl-Y,
+  vi's yank, heard on every layout -- and Ctrl-X, which nothing else in the
+  framework claims; `src/input` records why no copy chord is portable and Ctrl-C
+  can never be one.
+- **A press is not stopped**, because stopping it is how a component keeps the
+  focus where it was, and a press on an area should focus it. It therefore also
+  reaches `enableSelection()`'s driver, which clears a screen selection on a
+  press -- right here too. The drag's motion and the release are stopped, so the
+  driver draws nothing over the area's own selection. The wheel scrolls the view
+  without moving the caret, by `wheelStep()`, the scroll box's curve exported
+  rather than copied, and hands the turn on when the lines fit.
+- **Its size is asked for, not its content's.** The text layer asks for its lines
+  up to `rows`, ten by default and grown into as the prompt's field grows, and for
+  forty columns where nothing stretches it -- never for the widest line, which is a
+  walk over every line on every edit and a width that reflows a row of panes on
+  every key. Its measure's minimum of nothing on either axis is the one
+  declaration that lets the area take less; `min-width`, `min-height` and
+  `overflow` on the host and on the body were each written first and deleted for
+  surviving their sabotages.
+- **No background.** A field is a slot in a form and reads as one by its grey; an
+  area is a region, framed by what holds it, and a grey slab the size of an editor
+  is not what one looks like. Adding one would also have been a sheet exception.
+  `.sigil-text-area { background-color: gray }` is the text field's look for an app
+  that wants it.
+- **A write the app makes puts the caret at the end**, `TextField`'s and the
+  prompt's rule; the placeholder is muted with the caret's cell, for `TextField`'s
+  reason; `disabled` is `TextField`'s; the gutter draws no text, so a screen
+  selection never copies the numbers; and the focus is `.sigil-focus` on the caret,
+  which is what "Focus on a control" settled for this widget, with no caret at
+  colour level 0.
+- **Sabotage: forty-two on the area, thirty-four caught.** Every key rule, the
+  window, the follow, the selection layer's level-0 and `drawsText` answers, the
+  caret in a selection, the splice that overflowed the stack on a 500,000-line
+  paste, and the highlight's timing and its name check each fail a named test,
+  every sabotage type-checking. Of the eight survivors six were the size
+  declarations above and one a clip of a span to the value, all deleted -- a span
+  past either end marks only cells that exist -- and the eighth, the gutter leaving
+  the caret's line to the layer that paints over it, is declared rather than
+  claimed, the prompt's own case. Three more on `pastedBlock()`'s pattern -- a tab
+  dropped, a line break dropped, nothing dropped -- each fail the prompt's tests.
+- **Not done:** undo; soft wrap; `charLimit`; select-all, a double-click word and
+  a scroll bar; indenting a selection with Tab; an incremental highlight; a handle
+  for an app to move the caret or read the selection; and `multiline()` onto the
+  element.

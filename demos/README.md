@@ -383,6 +383,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/54-markdown.js`](components/54-markdown.js)                                 | A changelog entry from markdown at two widths, themed, and highlighted    |
 | [`components/55-image.js`](components/55-image.js)                                       | A photograph in half blocks: fitted three ways, and RGBA with a soft edge |
 | [`components/56-panels.js`](components/56-panels.js)                                     | Panels with words in the border, and panes with an edge to drag           |
+| [`components/59-text-area.js`](components/59-text-area.js)                               | A scratch editor: line numbers, a selection, a copy, and 50,000 lines     |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -644,6 +645,17 @@ collapse it, or press `b`. Piped, it draws the tree at two widths -- the narrow 
 shows an annotation going first and a title being cut -- and then moves the edge with
 real keys and with `resize()`, which is what a drag calls, up to a maximum, through a
 collapse and back.
+
+`59-text-area.js` is a scratch editor: a `Panel` holding a `TextArea` with line
+numbers, a small JavaScript highlighter the demo writes itself, and Tab typing two
+spaces. Shift with an arrow selects, and so does a drag; Ctrl-Y copies the
+selection to the clipboard with OSC 52 and Ctrl-X cuts it -- the area hands the
+text to `onCopy` and the app writes it, since an element has no terminal. Ctrl-G
+swaps in fifty thousand lines, and PageDown and Ctrl-End through them are as quick
+as through ten, because only the lines on screen are laid out. Esc quits, since
+Escape is never the area's. Piped, a scripted keyboard types, selects, copies, cuts
+and pastes, says in words what was copied -- a selection is reversed cells, which a
+pipe drops -- and times a page of the long buffer against a page of the short one.
 
 ### Try them without a terminal
 

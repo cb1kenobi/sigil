@@ -3,6 +3,7 @@ import { openModal } from '../../src/components/modal.js';
 import { createPager } from '../../src/components/pager.js';
 import { ScrollBox } from '../../src/components/scroll-box.js';
 import { tabRowView, Tabs } from '../../src/components/tabs.js';
+import { TextArea } from '../../src/components/text-area.js';
 import { TextField } from '../../src/components/text-field.js';
 import { showToast } from '../../src/components/toast.js';
 import { attachTooltip } from '../../src/components/tooltip.js';
@@ -79,6 +80,11 @@ const CASES: Case[] = [
     make: (props) => ({ element: TextField({ props: props as never }) }),
     name: 'TextField',
     owns: ['onKey', 'onPaste', 'onFocusChange', 'onResize'],
+  },
+  {
+    make: (props) => ({ element: TextArea({ props: props as never }) }),
+    name: 'TextArea',
+    owns: ['onKey', 'onMouse', 'onPaste', 'onFocusChange'],
   },
   {
     make: (props) => ({
