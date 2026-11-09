@@ -613,7 +613,8 @@ runner (the file `sigil new` writes, which a build never bundles) whose argument
 object literal with a `settings` key, naming the file and line and what a built app uses
 instead. A `main()` call inside the schema module is not warned about: that module is
 bundled, so a command composing another app keeps the settings it passes. A call
-elsewhere, or with `settings` behind a variable or a spread, is not seen.
+elsewhere, or one whose argument is a variable or a spread (`main(opts)`,
+`main({ ...opts })`), is not seen.
 
 When both are given the two are merged key by key, and the `main()` call wins: a
 flag beats the file. A key the call leaves out, or sets to `undefined`, is the

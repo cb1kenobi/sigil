@@ -151,16 +151,20 @@ describe('settings passed to main()', () => {
  * An app on disk with a schema module and, optionally, a `dev` runner.
  *
  * @param files - File name to source.
+ * @param entry - Which of them is the schema module.
  * @returns What `checkMainSettings()` is handed.
  */
-function appOf(files: Record<string, string>): Parameters<typeof checkMainSettings>[0] {
+function appOf(
+  files: Record<string, string>,
+  entry = 'index.ts'
+): Parameters<typeof checkMainSettings>[0] {
   const root = tempDir('sigil-main-settings-');
   for (const [name, source] of Object.entries(files)) {
     mkdirSync(join(root, name, '..'), { recursive: true });
     writeFileSync(join(root, name), source);
   }
   return {
-    entry: join(root, 'index.ts'),
+    entry: join(root, entry),
     manifest: { dependencies: ['@ttylabs/sigil'], path: join(root, 'package.json') },
     root,
   };
@@ -232,6 +236,28 @@ ${body}
     expect(found?.file).toBe(join(app.root, 'dev.ts'));
   });
 
+  it('should read dev.js, which is what sigil new --lang js writes', () => {
+    const app = appOf({
+      'dev.js': `${RUNTIME}await main({ schema, settings: { assertCwd: false } });\n`,
+      'index.js': "export default { name: 'a' };\n",
+    });
+
+    expect(checkMainSettings(app)).toHaveLength(1);
+  });
+
+  it('should not read a dev module that is itself the schema module', () => {
+    // it is bundled then, so its top-level call is the entry's own problem and not
+    // a runner's
+    const app = appOf(
+      {
+        'dev.ts': `${RUNTIME}export default { name: 'a' };\nawait main({ settings: { assertCwd: false } });\n`,
+      },
+      'dev.ts'
+    );
+
+    expect(checkMainSettings(app)).toEqual([]);
+  });
+
   it('should report a call inside a function in the dev runner too, since none of it is bundled', () => {
     const app = appOf({
       'dev.ts': `${RUNTIME}export async function go() { await main({ settings: { assertCwd: false } }); }\n`,
@@ -282,6 +308,54 @@ describe('what the built app uses instead', () => {
       expect(message).toContain('move them to `settings` on the schema');
       expect(message).not.toContain('A built app uses');
     }
+  });
+
+  it.each([
+    [
+      'assigned later',
+      "const schema = { name: 'a' };\nschema.settings = { errorHandler: false, allowUnknownOptions: false };\nexport default schema;\n",
+    ],
+    [
+      'replaced later',
+      "const schema = { name: 'a', settings: {} };\nschema.settings = { errorHandler: false };\nexport default schema;\n",
+    ],
+    [
+      'mutated later',
+      "const schema = { name: 'a', settings: {} };\nschema.settings.errorHandler = false;\nexport default schema;\n",
+    ],
+    [
+      'mutated by Object.assign',
+      "const schema = { name: 'a', settings: {} };\nObject.assign(schema.settings, { errorHandler: false });\nexport default schema;\n",
+    ],
+    [
+      'assigned later, exported as default by name',
+      "const schema = { name: 'a' };\nschema.settings = { errorHandler: false };\nexport { schema as default };\n",
+    ],
+    [
+      'under a computed key',
+      "const K = 'settings';\nexport default { name: 'a', [K]: { errorHandler: false } };\n",
+    ],
+    [
+      'a duplicate key, where the last wins',
+      "export default { name: 'a', settings: { errorHandler: false }, settings: { allowUnknownOptions: false } };\n",
+    ],
+  ])('should keep the general message when the schema is %s', (_, entry) => {
+    // a built app uses the schema's value for each of these, and the detail would
+    // say it uses the default -- so it is not said
+    const message = said({ 'dev.ts': dev, 'index.ts': entry });
+
+    expect(message).toContain('move them to `settings` on the schema');
+    expect(message).not.toContain('A built app uses');
+  });
+
+  it('should still say it for a binding that is only declared and exported', () => {
+    const message = said({
+      'dev.ts': dev,
+      'index.ts':
+        "const schema = { name: 'a', settings: { errorHandler: false } };\nexport { schema as default };\n",
+    });
+
+    expect(message).toContain("A built app uses the schema's `errorHandler`");
   });
 
   it('should keep the general message when the call has keys it cannot enumerate', () => {

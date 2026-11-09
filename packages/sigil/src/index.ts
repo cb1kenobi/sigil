@@ -3,7 +3,7 @@ import { errorHandler } from './error-handler.js';
 import { fireBeforeError, stateFromError } from './error-hooks.js';
 import { assertSerialized, formatFor } from './format.js';
 import { loadCatalog } from './i18n/index.js';
-import { resolveSettings } from './parser/settings.js';
+import { resolveSettings, salvagedErrorHandler } from './parser/settings.js';
 import { fireAfterRun } from './run-hooks.js';
 import {
   type AppOptions,
@@ -435,13 +435,14 @@ function errorHandlerSetting(opts: AppOptions): Settings['errorHandler'] {
   try {
     return resolveSettings(opts?.schema, opts?.settings).errorHandler;
   } catch {
-    // the merge failed -- the schema's `settings` is not an object, or a getter of
-    // the caller's threw -- but that says nothing about the call's own handler, and
-    // before `Schema.settings` existed it was read directly and honoured. So it
-    // still is: dropping it here would send an error the caller asked to handle
-    // (or to have rethrown) to the built-in renderer because of an unrelated fault
+    // the merge failed -- one half is not an object, or a getter of the caller's
+    // threw -- but that says nothing about the other half's handler, and each was
+    // honoured before `Schema.settings` existed. So whichever half can still be read
+    // is: the call's, then the schema's, then the built-in. Dropping them here would
+    // send an error the caller asked to have rethrown, or handled, to the built-in
+    // renderer because of an unrelated fault in the other half
     try {
-      return opts?.settings?.errorHandler;
+      return salvagedErrorHandler(appSchema(opts), opts?.settings);
     } catch {
       return undefined;
     }

@@ -51,3 +51,49 @@ export function resolveSettings(schema: Schema | undefined, call?: Settings): Se
 function isObject(value: unknown): value is object {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
+
+/**
+ * The error handler to use when the settings could not be merged.
+ *
+ * `resolveSettings()` throws when either half is not an object, or a getter of the
+ * caller's threw -- and the half that is fine still has an opinion. Order: the
+ * call's own handler, if its settings is an object and names one; then the
+ * schema's, if its `settings` is an object; then `undefined`, which is the built-in.
+ * Each is read in its own `try`, because this runs on the error path where a
+ * second error hiding the first is the only thing worse than a bad schema.
+ *
+ * Either bad half used to discard the other's handler: a bad schema dropped the
+ * call's, and a bad call (`settings: null`, now refused) dropped the schema's, so an
+ * app declaring `errorHandler: false` on its schema had its error rendered by the
+ * built-in instead of rethrown.
+ *
+ * @param schema - The schema.
+ * @param call - The settings the caller passed.
+ * @returns The handler setting, or `undefined` for the built-in.
+ */
+export function salvagedErrorHandler(
+  schema: Schema | undefined,
+  call?: Settings
+): Settings['errorHandler'] {
+  try {
+    if (isObject(call)) {
+      const handler = (call as Settings).errorHandler;
+      if (handler !== undefined) {
+        return handler;
+      }
+    }
+  } catch {
+    // an unreadable call handler is not a reason to ignore the schema's
+  }
+
+  try {
+    const declared = schema?.settings;
+    if (isObject(declared)) {
+      return (declared as Settings).errorHandler;
+    }
+  } catch {
+    // the built-in handler reports the original error
+  }
+
+  return undefined;
+}

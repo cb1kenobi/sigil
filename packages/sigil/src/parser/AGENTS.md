@@ -512,12 +512,17 @@ The sharpest question in the design, and the ticket did not name it.
   the result on. `parse()` merges again, which is a no-op -- laying a result over
   its own base is the result -- and is there for a caller of `parse()` with no
   `main()`. `errorHandlerSetting()` merges inside its own `try`, and when the merge fails --
-  a `settings` that is not an object, a getter that threw -- it falls back to **the
-  call's own handler, then the built-in**. The first version fell straight to the
-  built-in, which discarded a handler (or an `errorHandler: false`) the caller
-  passed because of a fault in the schema: before `Schema.settings` the call's
-  handler was read directly and honoured, so the fallback keeps that, and the error
-  reported is still the schema's rather than a second one hiding it.
+  either half is not an object, or a getter threw -- it falls back through
+  `salvagedErrorHandler()`: **the call's own handler if its settings is an object and
+  names one, then the schema's if its `settings` is an object, then the built-in**,
+  each read in its own `try`. A fault in one half used to discard the other's handler,
+  from both sides: a bad schema dropped the call's (fixed first), and a bad call
+  (`settings: null`, refused since this change) dropped the schema's, so an app with
+  `errorHandler: false` on its schema had the error rendered by the built-in instead
+  of rethrown -- which is where an app upgrading across the `null` refusal lands.
+  `beforeError` still fires exactly once, because the merge fails at the top of
+  `main()` and the error goes through `handleError()` like any other. The error
+  reported is still the settings fault, never a second one hiding it.
 - **The result is always a new object.** `parse()` used to keep the settings object
   its caller passed, so a hook writing `state.settings.allowUnknownOptions` wrote
   onto the caller's, and the toolchain carried a `beforeParse` hook that copied it

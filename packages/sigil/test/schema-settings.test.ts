@@ -333,6 +333,71 @@ describe('the settings main() reads itself', () => {
   });
 });
 
+describe("the schema's handler when the call's settings are the bad half", () => {
+  // the mirror of the case above: `settings: null` on the call is refused, and the
+  // handler the schema declared must not be thrown away with it
+  it.each([
+    ['null', null],
+    ['an array', []],
+  ])(
+    'should rethrow for a schema errorHandler of false and call settings of %s',
+    async (_, bad) => {
+      await expect(
+        runCommand({
+          argv: ['build'],
+          schema: app({ settings: { errorHandler: false } }),
+          settings: bad as unknown as Settings,
+        })
+      ).rejects.toThrow('Expected settings to be an object');
+    }
+  );
+
+  it('should call a schema errorHandler function for call settings of null', async () => {
+    const seen: string[] = [];
+    const ran = await runCommand({
+      argv: ['build'],
+      schema: app({
+        settings: {
+          errorHandler(err) {
+            seen.push((err as Error).message);
+          },
+        },
+      }),
+      settings: null as unknown as Settings,
+    });
+
+    expect(seen).toEqual(['Expected settings to be an object']);
+    expect(ran.err).toBe('');
+  });
+
+  it("should prefer the call's own handler when its settings are an object", async () => {
+    // the call's `settings` is an object here, so it is the *schema's* that is bad
+    // and the order is the call's first
+    const seen: string[] = [];
+    await main({
+      argv: [],
+      schema: app({ settings: 'bad' as unknown as Settings }),
+      settings: { errorHandler: () => void seen.push('call') },
+    });
+
+    expect(seen).toEqual(['call']);
+  });
+
+  it('should fire beforeError exactly once', async () => {
+    const fired: unknown[] = [];
+    await runCommand({
+      argv: ['build'],
+      schema: app({
+        hooks: { beforeError: (err) => void fired.push((err as Error).message) },
+        settings: { errorHandler: () => {} },
+      }),
+      settings: null as unknown as Settings,
+    });
+
+    expect(fired).toEqual(['Expected settings to be an object']);
+  });
+});
+
 describe('settings: null on the call', () => {
   // `main({ schema, settings: null })` worked when `parse()` read `opts.settings || {}`.
   // It is refused now, with the parser's rule that null is an error, and not read as

@@ -44,9 +44,10 @@
  * - **An empty `settings: {}` says nothing**, and neither does one whose every key
  *   is `undefined`, which the merge reads as not named.
  *
- * The shapes this misses are listed under "A built app loses the settings it
- * passes to `main()`" in AGENTS.md, and every one of them is silent: the app
- * builds as it did before this existed.
+ * The shapes this misses are listed in the paragraph of `packages/cli/AGENTS.md`
+ * that begins "Settings are no longer one of the divergences" (under "The build:
+ * reading an app off disk"), and every one of them is silent: the app builds as it
+ * did before this existed.
  */
 
 import { bindingName, importBindings, reachable, unwrap, type ImportBindings } from './bindings.ts';
@@ -169,11 +170,23 @@ function namedKeys(object: ObjectExpression): string[] | undefined {
  * The keys the app's schema sets in `settings`, when the module says so plainly.
  *
  * Read off the default-exported object literal -- followed to a module-scope
- * `const`, which is what `--isolatedDeclarations` makes an app write -- and
- * `undefined` for anything else: a schema built by a function, a spread, or a
- * `settings` that is not a literal. A caller then keeps the general message, since
- * "the built app uses the default" is a claim that needs the schema to be fully
- * read.
+ * `const`, which is what `--isolatedDeclarations` makes an app write. "The built
+ * app uses the default" is a claim that needs the schema to be **fully** known, so
+ * anything that could change what the literal says leaves it `undefined` and the
+ * caller keeps the general message:
+ *
+ * - a schema built by a function, or a `settings` that is not a literal;
+ * - a spread or a computed key at the top level, either of which can supply or
+ *   replace `settings`;
+ * - two `settings` keys, because JavaScript keeps the last and a reader that takes
+ *   the first says something false;
+ * - a binding referenced anywhere but its declaration and the `export default`:
+ *   `schema.settings = {...}`, `schema.settings.errorHandler = false` and
+ *   `Object.assign(schema.settings, ...)` all name it a third time, so one rule
+ *   covers assignment, mutation and anything else done to it later. Counted by
+ *   identifier name over the whole module, which over-reaches on purpose (a
+ *   property or a local that shares the name also counts) in the direction that
+ *   only costs the detail.
  *
  * @param app - The app.
  * @returns The keys, or `undefined` when the schema cannot be read that far.
@@ -187,14 +200,30 @@ function schemaSettingsKeys(app: DiscoveredApp): ReadonlySet<string> | undefined
   }
 
   const schema = defaultObject(parsed, []);
-  if (!schema || schema.properties.some((property) => property.type === 'SpreadElement')) {
+  if (!schema) {
     return undefined;
   }
 
-  const declared = schema.properties.find(
+  // a spread may carry `settings` and a computed key may be `settings`; neither is
+  // readable, and neither is an absence
+  if (
+    schema.properties.some((property) => property.type === 'SpreadElement' || property.computed)
+  ) {
+    return undefined;
+  }
+
+  const binding = defaultBinding(parsed);
+  if (binding !== undefined && mentions(parsed, binding) > 2) {
+    return undefined;
+  }
+
+  const declared = schema.properties.filter(
     (property) => property.type !== 'SpreadElement' && propertyKey(property) === 'settings'
   );
-  if (!declared) {
+  if (declared.length > 1) {
+    return undefined;
+  }
+  if (!declared.length) {
     return new Set();
   }
 
@@ -203,6 +232,57 @@ function schemaSettingsKeys(app: DiscoveredApp): ReadonlySet<string> | undefined
   const keys = value?.type === 'ObjectExpression' ? namedKeys(value) : undefined;
 
   return keys && new Set(keys);
+}
+
+/**
+ * The name the default export refers to, when it is a reference rather than a
+ * literal written in place.
+ *
+ * @param parsed - The module.
+ * @returns The binding, or `undefined` for a literal or anything else.
+ */
+function defaultBinding(parsed: ParsedModule): string | undefined {
+  for (const node of parsed.program.body) {
+    if (node.type === 'ExportDefaultDeclaration') {
+      return node.declaration.type === 'Identifier' ? node.declaration.name : undefined;
+    }
+  }
+
+  for (const node of parsed.program.body) {
+    if (node.type !== 'ExportNamedDeclaration') {
+      continue;
+    }
+    for (const spec of node.specifiers) {
+      if (spec.exported.type === 'Identifier' && spec.exported.name === 'default') {
+        return spec.local.type === 'Identifier' ? spec.local.name : undefined;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * How many identifiers in a module have this name.
+ *
+ * A binding that is only declared and default-exported is mentioned twice, so a
+ * third is something else being done with it.
+ *
+ * @param parsed - The module.
+ * @param name - The name.
+ * @returns The count.
+ */
+function mentions(parsed: ParsedModule, name: string): number {
+  let count = 0;
+
+  walk(parsed.program, (node) => {
+    if (node.type === 'Identifier' && node.name === name) {
+      count++;
+    }
+    return true;
+  });
+
+  return count;
 }
 
 /**

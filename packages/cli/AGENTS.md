@@ -478,10 +478,19 @@ makes it testable with a fixture directory and no bundler at all.
   `main({ schema: { settings } })` is the right place and is not either.
 
   **The message names each key and what a built app uses for it**, where the call's
-  `settings` is a literal with literal keys and the schema can be read that far
-  (a default-exported literal, followed to a module-scope `const`, with no spread
-  and a literal `settings`): `A built app uses the schema's `allowUnknownOptions`and the default`errorHandler`.` Otherwise it keeps the general sentence, because
-  "the default" is a claim that needs the whole schema read. This is for the
+  `settings` is a literal with literal keys and the schema can be read **fully**: a
+  default-exported literal, followed to a module-scope `const`. The sentence is
+  ``A built app uses the schema's `allowUnknownOptions` and the default `errorHandler`.``
+  Anything that could change what the literal says keeps the general sentence
+  instead, because "the default" is a claim that needs the whole schema known: a
+  spread or a computed key at the top level, two `settings` keys (JavaScript keeps
+  the last), a `settings` that is not a literal, a schema built by a function, and
+  a binding **mentioned anywhere but its declaration and the `export default`** --
+  one rule that covers `schema.settings = ...`, `schema.settings.errorHandler =
+  false` and `Object.assign(schema.settings, ...)`, each of which the first version
+  got wrong by saying the built app uses the default. Counted by identifier name over
+  the module, which over-reaches on purpose (a local that shares the name also
+  counts), in the direction that only costs the detail. This is for the
   deliberate dev-only override, which is real, measured: schema
   `allowUnknownOptions: false` with a call passing `true`, and `--typo` exits 0 from
   source and 1 built. **It stays a warning, and there is no opt-out.** A `main()`
@@ -490,11 +499,15 @@ makes it testable with a fixture directory and no bundler at all.
   silently; the message tells the author what the two now do, so they can decide
   that the difference is intended and live with a line of build output.
 
-  **Shapes this misses, all silent:** any `main()` in a file other than the schema
-  module and the root `dev.*` runner (a bin under `bin/`, a non-entry `src/cli.ts`,
-  a test), one reached through a re-export or a wrapper function, an argument that
-  is a variable (`main(opts)`) or a spread (`main({ ...opts })`), a computed key,
-  `main.call(...)`, and a top-level `main()` in the schema module (above). Those
+  **Shapes this misses, all silent:** any `main()` in a file other than the root
+  `dev.*` runner -- the schema module is not read (above), and neither are a bin
+  under `bin/`, a non-entry `src/cli.ts` or a test -- one reached through a
+  re-export or a wrapper function, a call whose **argument** is a variable
+  (`main(opts)`) or a spread (`main({ ...opts })`), a computed `settings` key
+  (`main({ ['settings']: ... })`), `main.call(...)`, and a top-level `main()` in the
+  schema module. A `settings` whose _value_ is a variable or has a spread inside it
+  (`settings: shared`, `settings: { ...shared }`) **is** reported, with the general
+  message. Those
   are reachable only by following the module graph from a bin, which is a much
   larger pass than a warning earns.
 
