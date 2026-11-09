@@ -6821,11 +6821,139 @@ to a string, each with a `*View()` returning `{ element, width }`, and the split
   heuristic.** Block elements and braille are no safer than box drawing, and a
   caller can say `ascii: true` outright. The line chart keeps its sub-cell grid
   and prints `*` for any cell with a dot in it, so the line is still connected.
-- **Several are not done on purpose:** more than one series in a line chart (a
-  braille cell has one foreground, so two series sharing a cell would need a rule
-  for who wins, and that is the design the first user of it should drive); axis
-  ticks between the top and the bottom label; a live form (the app rebuilds the
-  string or the tree); and negative bars below a zero baseline.
+- **Several are not done on purpose:** negative bars below a zero baseline. The
+  other three this list held -- more than one series in a line chart, axis ticks
+  between the top and the bottom label, and a live form -- are SIG-284's, the entry
+  below, and the system monitor was the first user that drove them.
+
+### Live charts: fed from signals, sized by the layout (SIG-284)
+
+`Sparkline`, `LineChart`, `BarChart` and `Gauge` in `src/components/chart.ts`, beside
+the printed charts, and `Series`, a ring buffer that is a signal. The ticket's five
+questions were settled as below. The sabotage runs are in
+[docs/history/live-charts-fed-from-signals-sized-by-the-layout.md](../../../../docs/history/live-charts-fed-from-signals-sized-by-the-layout.md).
+
+- **Data: anything with a `get()`, a function, or the values -- and `Series` for
+  the case a tick pushes a sample.** The ticket offered `State<readonly number[]>`
+  or a ring buffer, and it is both, because they answer different callers. A chart
+  reads its source inside an effect, so a `State`, a `Computed`, a function over
+  them, and a `Series` all redraw it, and a monitor whose history is derived from a
+  `State` of snapshots needs no second copy of it. What a `State` of an array costs
+  is a new array a tick and the app writing the slice; `Series(capacity)` writes
+  into a ring and moves its start, so a push allocates nothing and the oldest falls
+  off. Its `get()` is built once per change and frozen, so ten charts reading one
+  series build it once, and a version `State` inside it is what subscribes them.
+  `at(-1)` is the latest, which is what a figure beside a sparkline reads. It lives
+  in `chart.ts` rather than in `src/signals`, because it is the one shape a chart
+  is fed and nothing else in the library wants a ring of numbers.
+- **Size: from the layout, through `onResize`, and what a chart asks for is never
+  what it last drew.** The host is a box holding a `raw` that measures the size
+  the chart asks for -- `width` and `height`, or a default from its data -- and
+  paints nothing, with both minimums zero, and an absolutely placed body the rows
+  are drawn into. The rows take no space, so the size is the layout's: stretched
+  across a column, given what a row leaves with `flex: 1`, as tall as a panel with
+  `flex-grow`. Rows in flow were the obvious build and are SIG-318 again: the chart
+  would ask for the size it was last drawn at, so a row that squeezed it once would
+  keep it squeezed. `should grow back to what it asks for once a row that squeezed
+  it has room again` is the test, and a sabotage that measures the drawn size fails
+  it and nothing else. A `raw` that painted the chart itself was the other way to
+  get the size, and was refused for colour: a `raw` paints styles it resolves
+  itself, which is right for a photograph and wrong for a series whose colour is a
+  theme role -- a role is a class, and a class reaches a `text`.
+
+  Where the layout leaves the size to the chart, it asks: a `Sparkline` for a column
+  a sample of its `Series`' capacity, or of the samples there are; a `LineChart` for
+  40 columns and 8 plot rows plus its axis, x labels and legend; a horizontal
+  `BarChart` for 40 by a row a bar, a vertical one for its bars' own width and 8
+  rows plus its two label rows; a `Gauge` for a bar of 20 and its label and figure.
+  An ask that moves with the data -- a sparkline over an array that grows, bars
+  added -- re-measures the `raw`. **No growing by default, so no framework-sheet
+  rule**: a chart in a column already spans it, `flex: 1` is one prop, and a
+  default `flex-grow` would be the sixteenth declared exception to the role rule for
+  something the panel's fifteenth already shows the cost of.
+
+- **What a chart has: axes with ticks, a legend, several series in one chart, a role
+  per series, and a scale fixed or following what is shown.** The axis names a
+  value every four rows or so on a plot tall enough -- `tickRows()` -- so a printed
+  chart of the default eight rows is the picture it always was, and a panel thirty
+  rows tall has seven labels. Each label is the value at its own row, so a plot of
+  ten rows labels `44%` rather than a rounder number half a row away. Several series
+  are the line chart's alone: a sparkline's block has one foreground, and grouped
+  bars are a different chart. A bar takes a `role` of its own, which is the one
+  "series" a bar chart has.
+
+  **Who wins a shared braille cell: both lines' dots, in the colour of the series
+  listed later.** The rule the earlier entry left for the first user. Each series is
+  drawn into its own `Dots` and into one they share; the shared grid is the
+  character, so where two lines cross both are still there, and the colour is the
+  last series with a dot in that cell -- paint order, which is the order a reader
+  can predict from the call. Most-dots-wins was the alternative and was refused: it
+  makes the colour of a crossing depend on the slopes. `should draw both lines
+  through a cell they share, in the colour of the later one` pins both halves.
+
+  **A colour per series is a role, and no role was added.** A series names one of
+  the six `ChartRole`s; one that names none takes the chart's `role` if it is the
+  first and `warn`, `success`, `info`, `error` after that -- the colour roles in an
+  order that keeps neighbours apart in the framework's sheet, red last. That is
+  semantic roles standing in for a palette, which is a compromise: a `series-2`
+  role would be a ninth role and a `palette` question for every theme in
+  `src/theme`. What makes it bearable is the hook: every cell of series N carries
+  `.sigil-chart-series-N`, which a theme or an app restyles at a later origin than
+  the role's, so a dashboard that wants six blues writes six rules. The legend's
+  mark carries the same classes as the line, so the two cannot disagree. The
+  vocabulary comment names the series, legend, body and sizer classes; no rule was
+  added to the sheet.
+
+  The scale follows the data unless `min` and `max` say otherwise, and for a live
+  line chart "the data" is the window: what scrolled off the left is not scaled
+  over, which is the sparkline's rule from the entry above. The gutter is as wide
+  as the labels and the labels are the scale's, so `lineDrawing()` asks until the
+  gutter settles -- at once, unless a label gains a digit.
+
+- **Resolution is per chart, and not an option.** A sparkline is eighths of a
+  block, a line chart braille, bars eighths across or up, a gauge a block bar. A
+  braille sparkline is a `LineChart` with `axis: false`, and a block line chart is a
+  `Sparkline` more than one row tall -- which it now is: the live sparkline stacks
+  its eighths into an area as tall as its box, `rows * 8` heights, the block graph
+  btop draws, and on one row it is the eight heights it always was. So the choice
+  the ticket asked about is already the choice between two components, and an
+  option on each would be two ways to say it.
+- **The printed views stay, and both forms draw with one function per chart.**
+  `sparkline()`, `lineChart()`, `barChart()`, `gauge()` and their `*View()`s keep
+  their signatures and their pictures -- every test in `chart.test.ts` passes
+  unchanged -- and the live charts call the same `sparkRows()`, `lineDrawing()`,
+  `barDrawing()` and `gaugeDrawing()` at the size `onResize` reported. Moving the
+  views onto the components was refused: a printed chart has no layout to ask, and
+  `renderToString()` laying out a host, measuring a `raw` and dispatching a resize
+  to print one line is a lot of machinery for a string. Two things widened the
+  views additively: `lineChart()` takes several series as `[{ data, label, role }]`
+  and a `legend`, and `step`. `step` is the one default that differs between the
+  two forms -- `fit` printed, `1` live -- because a printed chart is a whole series
+  and a live one is a window onto one; `should be the picture lineChart() prints at
+  the same size with step fit` pins that the two are otherwise one drawing.
+- **A live line chart scrolls from the right.** The latest sample is at the right
+  edge and each one before it a dot column further left, so 40 columns hold the
+  last 80 samples and the line moves left as it is pushed to; one sample past the
+  left edge is still drawn to, so the line enters from the edge. Stretching a
+  growing series across the width, as `fit` does, would squash the whole history
+  every tick. A live sparkline is the same rule a column a sample, with the left
+  blank until history fills it; a printed one is as wide as its series.
+- **A gauge pads its percentage to four columns.** Live, a reading going from 9% to
+  10% moved the bar a cell. A `detail` the app writes is its own width, and is the
+  app's to pad.
+- **A row that did not change is left alone.** The host keeps each row's segments
+  and their classes as a signature and rebuilds only a row whose signature moved,
+  so a tick that scrolls the plot leaves the axis, the x labels and the legend as
+  they were. Simpler than diffing segments, and a chart's rows are few.
+- **The new messages are plain, not `__`.** They are programmer errors -- a
+  capacity, a step, a size that is not a whole number -- of the kind `chart.ts`
+  already threw as plain `RangeError`s, and the key set in `src/i18n/keys.ts` is a
+  generated file every parallel branch adding a key would conflict on.
+- **Not done:** grouped or stacked bars; a sparkline or bars with several series; a
+  time axis that labels more than its two ends; `selectable: false` on a live
+  chart's body, which the printed tree does not set either; and a mouse readout of
+  the value under the pointer, which is a tooltip's job and wants the samples'
+  positions, which a drawing does not keep.
 
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 

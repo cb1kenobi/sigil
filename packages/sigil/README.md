@@ -4699,10 +4699,11 @@ Memory ██████████░░░░░░░░░░ 512 MiB / 1 
 
 Four functions that take numbers and return a string, drawn as an element tree
 the way `note()` is, so the colour is a theme role and the caller does the
-writing. None has a live form -- a chart of a series that is changing is a chart
-the app builds again -- and, like `table()`, none of them is silenced by
-`--quiet`. `sparklineView()`, `barChartView()`, `lineChartView()` and
-`gaugeView()` are the trees behind them, for an app that wants one inside its own.
+writing. Like `table()`, none of them is silenced by `--quiet`.
+`sparklineView()`, `barChartView()`, `lineChartView()` and `gaugeView()` are the
+trees behind them at a size the caller names. A chart that changes, inside a
+full-screen app, is `Sparkline`, `LineChart`, `BarChart` or `Gauge` -- below -- and
+not a view built again every tick.
 
 - **`sparkline(values, { width, min, max })`** is one line of eight block heights,
   for a trend beside a command's name. A value that is not a finite number is a
@@ -4716,13 +4717,18 @@ the app builds again -- and, like `table()`, none of them is silenced by
   them. Bars grow from zero, or from the lowest value where some are negative; a
   value above the bottom is always at least an eighth of a cell, so a small number
   is not drawn as none.
-- **`lineChart(values, { width, height, min, max, axis, format, xLabels })`** is
-  one series in braille, two dots across and four down a cell, from the same
-  `Dots` grid the canvas draws with. The axis names the top and the bottom of the
-  scale and nothing between, and `xLabels: ['10:00', '10:10']` sets the first and
-  last points under it. A value that is not a finite number **breaks** the line
-  rather than being bridged. A braille cell carries one foreground, so there is
-  one series, in one role.
+- **`lineChart(values, { width, height, min, max, axis, format, xLabels, legend, step })`**
+  is braille, two dots across and four down a cell, from the same `Dots` grid the
+  canvas draws with. `values` is a list of numbers, or several series as
+  `[{ data, label, role }]`: they share the plot, each in its own role, a cell
+  two lines cross is drawn with both lines' dots in the colour of the one listed
+  **later**, and a series with a `label` is written in a legend under the axis.
+  The axis names the top and the bottom of the scale, and a value every four rows
+  or so between them on a plot tall enough to have room; `xLabels: ['10:00',
+  '10:10']` sets the first and last points under it. Every sample is spread
+  across the width unless `step` says how many dot columns apart they are, with
+  the latest at the right edge. A value that is not a finite number **breaks** the
+  line rather than being bridged.
 - **`gauge(value, { label, detail, width, style, thresholds, min, max })`** is a
   reading against its range. `value` is a ratio unless `max` says otherwise, so
   `gauge(0.63)` and `gauge(63, { max: 100 })` are the same line. `style: 'line'`
@@ -4735,7 +4741,75 @@ Every chart takes `role` (`accent` by default, `none` for the terminal's own
 foreground) and `ascii`. Unless `ascii` is given it follows `unicodeSupported()`,
 and the ASCII forms are `_.:-=+*#` for a sparkline, `#` bars, a `*` line and `#`
 and `-` in a gauge. `.sigil-chart-sparkline`, `-bar`, `-line` and `-gauge` are the
-theme hooks, each with `-row` and `-part` classes inside.
+theme hooks, each with `-row` and `-part` classes inside; a line chart's series are
+`.sigil-chart-series-1` and up, and its legend `.sigil-chart-legend`. A bar takes
+a `role` of its own in `{ label, value, role }`, over the chart's.
+
+##### Live charts
+
+```js
+import { Gauge, LineChart, Series, Sparkline } from '@ttylabs/sigil/components/chart';
+import { State } from '@ttylabs/sigil/signals';
+
+const rx = new Series(120);
+const tx = new Series(120);
+const memory = new State(0.4);
+setInterval(() => {
+  rx.push(sample.rx);
+  tx.push(sample.tx);
+  memory.set(sample.used / sample.total);
+}, 1000);
+
+Sparkline({ data: rx, min: 0, props: { flex: 1 } });
+LineChart({
+  props: { 'flex-grow': 1 },
+  series: [
+    { data: rx, label: 'rx', role: 'success' },
+    { data: tx, label: 'tx', role: 'warn' },
+  ],
+});
+Gauge({ label: 'mem', thresholds: { warn: 0.75, error: 0.9 }, value: memory });
+```
+
+The same four charts as elements, for a full-screen app. Each reads its data from
+a signal -- a `State`, a `Computed`, a `Series`, or a function that reads them --
+and redraws when it changes, and each is drawn at the size **the layout** gave it,
+learned through `onResize` the way `TextField` learns its width. They are the
+drawings the printed charts are made of, so at the same size the two are the same
+picture.
+
+- **A chart is the size of its box.** Where the layout leaves the size to it, it
+  asks for one -- `width` and `height`, or a default -- and where the layout
+  decides, that is what it draws at: stretched across a column, given what a row
+  leaves with `flex: 1`, as tall as a panel with `'flex-grow': 1`. Squeezed and then
+  given room again, it grows back, because what it asks for is not what it last
+  drew. `props` takes the rest of a box's props; `onResize` is the chart's own.
+- **`Series(capacity)` is a ring buffer that is also a signal.** `push()` adds
+  samples and drops the oldest past the capacity without building a new array,
+  `get()` is the samples oldest first, built once per change and frozen, and
+  `at(-1)` is the latest. A chart handed one redraws when it is pushed to. A
+  `State` holding an array works too, at the cost of a new array a tick.
+- **`Sparkline({ data, min, max, role, width, height })`** is a column a sample,
+  the latest at the right, and the left left blank until there is history to fill
+  it. Taller than a row, it stacks the eighths into an area, so three rows is
+  twenty-four heights. Where the layout leaves its width to it, it asks for a
+  column a sample of the series' capacity.
+- **`LineChart({ data | series, step, min, max, axis, format, xLabels, legend })`**
+  scrolls: the latest sample is at the right edge and each one before it a dot
+  column further left, two to a cell, so a 40-column plot holds the last 80.
+  `step: 3` spaces them three dots apart, and `step: 'fit'` spreads a whole
+  series across the width as `lineChart()` does. The rows the axis, the x labels
+  and the legend leave are the plot's.
+- **`BarChart({ data, direction, ... })`** gives horizontal bars the width the
+  labels and the values leave; vertical bars share the width out between them
+  and take the rows the values and the labels leave.
+- **`Gauge({ value, label, detail, thresholds, ... })`** gives the bar the width
+  its label and its figure leave, and pads the percentage to four columns so the
+  bar does not move a cell as the reading gains a digit. `label` and `detail`
+  may be functions or signals too.
+
+The scale follows what is shown unless `min` and `max` are given, which is how two
+charts are made to mean the same height.
 
 #### An image
 

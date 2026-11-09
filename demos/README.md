@@ -383,6 +383,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/54-markdown.js`](components/54-markdown.js)                                 | A changelog entry from markdown at two widths, themed, and highlighted    |
 | [`components/55-image.js`](components/55-image.js)                                       | A photograph in half blocks: fitted three ways, and RGBA with a soft edge |
 | [`components/56-panels.js`](components/56-panels.js)                                     | Panels with words in the border, and panes with an edge to drag           |
+| [`components/60-live-charts.js`](components/60-live-charts.js)                           | Live charts fed from a `Series` and sized by the layout: a small monitor  |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -644,6 +645,15 @@ collapse it, or press `b`. Piped, it draws the tree at two widths -- the narrow 
 shows an annotation going first and a title being cut -- and then moves the edge with
 real keys and with `resize()`, which is what a drag calls, up to a maximum, through a
 collapse and back.
+
+`60-live-charts.js` is a small monitor, and nothing in it builds a chart twice. Four
+cores are a `Series` each and a `Sparkline` beside their names; under them a
+`LineChart` draws two series in braille with a legend, scrolling left as samples are
+pushed, and a `BarChart` and a `Gauge` read a `State`. On a terminal it ticks ten
+times a second and every chart takes the size its panel has, so widening the window
+widens all of them. Piped, it ticks by hand and prints the tree twice at 72 columns
+-- the history filling in from the right, then full and scrolled -- and once at 52,
+where every chart is narrower and nothing else changed.
 
 ### Try them without a terminal
 
