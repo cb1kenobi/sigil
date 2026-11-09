@@ -434,6 +434,37 @@ makes it testable with a fixture directory and no bundler at all.
   with the fix. A spread or a computed key can carry any of them and is reported
   by nothing.
 
+  **Settings are no longer one of the divergences, and a warning covers what is
+  left of that one.** A built app used to lose every `settings` its own `main()`
+  call passed, because the generated entry calls `main({ schema })` and reads the
+  schema module alone (SIG-333). `Schema.settings` is the fix and the entry needed
+  nothing for it -- it spreads the schema, so `settings` comes along, a function
+  such as `errorHandler` included. `settings-build.test.ts` builds an app declaring
+  `allowUnknownOptions: false`, `helpExitCode: 3` and an `errorHandler`, then runs
+  it from source and built through one `describe.each`, so the two are asserted to
+  agree and neither is the reference. What cannot be fixed is an app that keeps
+  passing `settings` to `main()`: the build never sees that call. So `main-settings.ts`
+  warns about it, from `sigil check` and `sigil build` alike (both run
+  `inspect()`), naming the file, line and column of the `settings` key.
+
+  **A warning must never fire on correct code, so the match is a binding and an
+  object literal and nothing looser.** A test calls `main()` with settings
+  constantly and is right to. The callee must be the `main` imported from
+  `@ttylabs/sigil` -- named, aliased, default, or a member of a namespace import,
+  decided by `bindings.ts` like `ui` and `utilitySheet`, so a local `main` and one
+  the module binds again are not it -- and the first argument must be an object
+  literal with a literal `settings` key (shorthand counts: the key is written down).
+  `settings: {}` is not reported, having nothing to lose, and `main({ schema: {
+  settings } })` is the right place and is not either. Only two files are read:
+  the schema module the build already reads, and a `dev` module at the app root,
+  which is where `sigil new` puts the call. **Shapes this misses, all silent:** a
+  `main()` in any other file (a `src/cli.ts` that is not the entry, a test, a bin
+  under `bin/`), one reached through a re-export or a wrapper function, an argument
+  that is a variable (`main(opts)`) or a spread (`main({ ...opts })`), a computed
+  key, and `main.call(...)`. Those are reachable only by following the module graph
+  from a bin, which is a much larger pass than a warning earns; the first three are
+  the common ones, and an app that hits one is where it was before this existed.
+
 - **`export default cmd` is followed to the `const` it names, because that is
   the shape this repo's own rules force.** `--isolatedDeclarations` refuses to
   infer a default export, so an app that has it on _cannot_ write the literal
@@ -3063,25 +3094,27 @@ people's software and will move.
   this.
 
   **Where it is set matters, and it took a measurement to find out.**
-  `allowUnknownOptions` is a setting of `main()`, a schema has no place for one, and
-  the built toolchain's executable is generated -- it calls `main({ schema })` and
-  never reaches `run()` -- so a setting passed there refused in `node src/sigil.ts`
-  and **nowhere that ships** (measured: `dist/sigil.mjs build --outt x` ran on to
-  "No package.json"). The schema's own `beforeParse` hook rides into the bundle and
-  fires before argv is walked, which is where the setting is read, so it works from
-  source and built alike. It replaces `state.settings` with a copy carrying
-  `allowUnknownOptions: false` rather than writing the flag onto it, because
-  `parse()` keeps the settings object its caller passed: written in place, the flag
-  stayed set on that object, and a second `main()` reusing it with an unrelated
-  schema then refused an option it was entitled to
-  (`unknown-options.test.ts`). The shipped program never passes settings, so only a
-  caller of `schema()` that passes its own object could meet that; it is not a
-  shipped bug. A hook doing this is a workaround; `Schema.settings` would be the
-  honest home and is an addition to `@ttylabs/sigil`, left for a decision.
+  `allowUnknownOptions` passed to `main()` from `run()` refused in `node src/sigil.ts`
+  and **nowhere that ships**: the built toolchain's executable is generated -- it
+  calls `main({ schema })` and never reaches `run()` -- so a setting passed there
+  never arrived (measured: `dist/sigil.mjs build --outt x` ran on to "No
+  package.json"). It first rode the schema's own `beforeParse` hook, which fires
+  before argv is walked and replaced `state.settings` with a copy, because `parse()`
+  kept the settings object its caller passed and writing the flag onto it left it
+  set for a later `main()` that reused the object. That was a workaround for the
+  schema having no place for a setting, and SIG-333 gave it one: the toolchain's
+  schema now says `settings: { allowUnknownOptions: false }`, the hook and its copy
+  are gone, and `main()` merges into a new object, so the copy has nothing left to
+  protect. `unknown-options.test.ts` still pins the properties the hook was
+  written for -- the flag lands on the parse, the caller's object is untouched and a
+  later parse reusing it is not refused -- and the built-executable refusal in
+  `new-tui.test.ts` is the one that fails if the schema stops carrying it
+  (checked by deleting the line and rebuilding: eight tests fail, that one among them).
 
-  An app built with `sigil build` has no such hook to reach for unless it writes the
-  same one, and its generated entry carries no `settings`: refusing unknown options
-  is the toolchain's rule, not something `sigil build` gives every app.
+  Any app built with `sigil build` is in the same position and now has the same
+  door: `Schema.settings` is carried, a `main()` call's `settings` are not. The
+  toolchain's rule is still its own rather than something `sigil build` gives
+  every app -- an app opts in by declaring it.
 
 - **`--lint` is `--linter`, and each choice's default is defined once.** `--lint`
   was renamed for the noun, outright and with no alias, as `--js` was. A finding from

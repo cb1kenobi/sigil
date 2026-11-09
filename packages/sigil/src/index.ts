@@ -3,6 +3,7 @@ import { errorHandler } from './error-handler.js';
 import { fireBeforeError, stateFromError } from './error-hooks.js';
 import { assertSerialized, formatFor } from './format.js';
 import { loadCatalog } from './i18n/index.js';
+import { resolveSettings } from './parser/settings.js';
 import { fireAfterRun } from './run-hooks.js';
 import {
   type AppOptions,
@@ -52,7 +53,14 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
   let restoreQuiet: (() => void) | undefined;
 
   try {
-    if (opts?.settings?.assertCwd !== false) {
+    // the schema's settings and the call's, merged once and here: this function
+    // reads `assertCwd` and `errorHandler` itself and `parse()` reads the rest, and
+    // each of the three asking for its own would be how a schema's setting reached
+    // some of them. `parse()` merges again, which changes nothing -- laying a
+    // result over its own base is the result
+    const settings = resolveSettings(opts.schema, opts.settings);
+
+    if (settings.assertCwd !== false) {
       assertCwd();
     }
 
@@ -73,7 +81,7 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
       argv: opts.argv || process.argv.slice(2),
       env: process.env,
       schema: opts.schema,
-      settings: opts.settings,
+      settings,
     };
 
     try {
@@ -425,7 +433,7 @@ async function handleError(
  */
 function errorHandlerSetting(opts: AppOptions): Settings['errorHandler'] {
   try {
-    return opts?.settings?.errorHandler;
+    return resolveSettings(opts?.schema, opts?.settings).errorHandler;
   } catch {
     return undefined;
   }

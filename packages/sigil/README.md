@@ -593,9 +593,29 @@ that nothing but a load can supply.
 
 ## Settings
 
+Settings can live on the schema, or be passed to `main()`:
+
 ```js
+export default {
+  name: 'mycli',
+  settings: { allowUnknownOptions: false, helpExitCode: 2 },
+};
+
 await main({ schema, settings: { allowExtraArguments: true } });
 ```
+
+**If the app is built, they have to be on the schema.** `sigil build` generates the
+executable and calls `main({ schema })` itself, so it carries the schema across and
+never sees the settings your own `main()` call passed -- `allowUnknownOptions: false`
+refuses a typo from source and accepts it built, and a custom `errorHandler` goes
+missing. `sigil build` and `sigil check` warn about a `main()` call that passes
+`settings`, naming the file and line.
+
+When both are given the two are merged key by key, and the `main()` call wins: a
+flag beats the file. A key the call leaves out, or sets to `undefined`, is the
+schema's. Neither object is written to, and a nested `main()` inherits nothing from
+the one running it -- it has its own schema's settings and its own call's.
+`parse({ schema, settings })` follows the same rule.
 
 | Setting                    | Default  | Effect                                                |
 | -------------------------- | -------- | ----------------------------------------------------- |
