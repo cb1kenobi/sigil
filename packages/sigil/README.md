@@ -608,14 +608,23 @@ await main({ schema, settings: { allowExtraArguments: true } });
 executable and calls `main({ schema })` itself, so it carries the schema across and
 never sees the settings your own `main()` call passed -- `allowUnknownOptions: false`
 refuses a typo from source and accepts it built, and a custom `errorHandler` goes
-missing. `sigil build` and `sigil check` warn about a `main()` call that passes
-`settings`, naming the file and line.
+missing. `sigil build` and `sigil check` warn about a `main()` call in the root `dev.*`
+runner (the file `sigil new` writes, which a build never bundles) whose argument is an
+object literal with a `settings` key, naming the file and line and what a built app uses
+instead. A `main()` call inside the schema module is not warned about: that module is
+bundled, so a command composing another app keeps the settings it passes. A call
+elsewhere, or with `settings` behind a variable or a spread, is not seen.
 
 When both are given the two are merged key by key, and the `main()` call wins: a
 flag beats the file. A key the call leaves out, or sets to `undefined`, is the
 schema's. Neither object is written to, and a nested `main()` inherits nothing from
-the one running it -- it has its own schema's settings and its own call's.
-`parse({ schema, settings })` follows the same rule.
+the one running it -- it has its own schema's settings and its own call's. The
+pattern in [Running one command from another](#running-one-command-from-another)
+passes `schema: state.schema`, though, so that nested call picks up the outer schema's
+`settings` through the schema itself, `errorHandler` and `allowUnknownOptions`
+included; pass a different schema to get different settings. `settings: null` is an
+error, as `schema: null` is; leave the key out. `parse({ schema, settings })` follows
+the same rule.
 
 | Setting                    | Default  | Effect                                                |
 | -------------------------- | -------- | ----------------------------------------------------- |

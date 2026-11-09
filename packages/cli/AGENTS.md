@@ -445,25 +445,58 @@ makes it testable with a fixture directory and no bundler at all.
   agree and neither is the reference. What cannot be fixed is an app that keeps
   passing `settings` to `main()`: the build never sees that call. So `main-settings.ts`
   warns about it, from `sigil check` and `sigil build` alike (both run
-  `inspect()`), naming the file, line and column of the `settings` key.
+  `inspect()`), naming the file, line and column of the `settings` key, for a call in
+  the root `dev.*` runner.
 
-  **A warning must never fire on correct code, so the match is a binding and an
-  object literal and nothing looser.** A test calls `main()` with settings
-  constantly and is right to. The callee must be the `main` imported from
-  `@ttylabs/sigil` -- named, aliased, default, or a member of a namespace import,
-  decided by `bindings.ts` like `ui` and `utilitySheet`, so a local `main` and one
-  the module binds again are not it -- and the first argument must be an object
-  literal with a literal `settings` key (shorthand counts: the key is written down).
-  `settings: {}` is not reported, having nothing to lose, and `main({ schema: {
-  settings } })` is the right place and is not either. Only two files are read:
-  the schema module the build already reads, and a `dev` module at the app root,
-  which is where `sigil new` puts the call. **Shapes this misses, all silent:** a
-  `main()` in any other file (a `src/cli.ts` that is not the entry, a test, a bin
-  under `bin/`), one reached through a re-export or a wrapper function, an argument
-  that is a variable (`main(opts)`) or a spread (`main({ ...opts })`), a computed
-  key, and `main.call(...)`. Those are reachable only by following the module graph
-  from a bin, which is a much larger pass than a warning earns; the first three are
-  the common ones, and an app that hits one is where it was before this existed.
+  **A warning fires only where it is certain the settings are lost, which is the
+  one file the build never bundles.** The first version read the schema module as
+  well and was wrong in a way that would have done harm: the schema module _is_
+  bundled, so a function in it that composes another app -- the README's "Running
+  one command from another", `await main({ argv, schema: inner, settings: {
+  allowUnknownOptions: false, errorHandler: false } })` inside a `try` -- keeps
+  those settings built, behaving identically from source (`Error: step failed:
+  Unknown option "--typo"`, exit 1), and the warning's advice would have put
+  `errorHandler: false` on the **outer** app, turning every one of its errors into
+  an unhandled rejection. So the schema module is not read. A **top-level**
+  `main()` in it is a different problem and is deliberately not reported: it runs
+  in the built app in addition to the one `sigil build` generates (measured on a
+  built executable: `--typo` printed the refusal and then `root ran`), and its own
+  settings apply to that call, so the warning's claim -- settings lost -- is false
+  of it. That double run is not a settings fault, and a warning that says the wrong
+  thing about the right call is worse than silence; it stays in the list of what is
+  not reached. What is read is the root `dev.*` runner, where `sigil new` puts the
+  call and which nothing bundles, and **every** call in it is reported, nested or
+  not.
+
+  The match is a binding and an object literal and nothing looser. The callee must
+  be the `main` imported from `@ttylabs/sigil` -- named, aliased, default, or a
+  member of a namespace import, decided by `bindings.ts` like `ui` and
+  `utilitySheet`, so a local `main` and one the module binds again are not it -- and
+  the first argument must be an object literal with a literal `settings` key
+  (shorthand counts: the key is written down). `settings: {}`, or one whose every
+  key is `undefined` (which the merge reads as not named), is not reported, and
+  `main({ schema: { settings } })` is the right place and is not either.
+
+  **The message names each key and what a built app uses for it**, where the call's
+  `settings` is a literal with literal keys and the schema can be read that far
+  (a default-exported literal, followed to a module-scope `const`, with no spread
+  and a literal `settings`): `A built app uses the schema's `allowUnknownOptions`and the default`errorHandler`.` Otherwise it keeps the general sentence, because
+  "the default" is a claim that needs the whole schema read. This is for the
+  deliberate dev-only override, which is real, measured: schema
+  `allowUnknownOptions: false` with a call passing `true`, and `--typo` exits 0 from
+  source and 1 built. **It stays a warning, and there is no opt-out.** A `main()`
+  that disagrees with its schema is exactly the source-versus-built divergence the
+  warning exists to name, and a suppression comment would be a way to ship it
+  silently; the message tells the author what the two now do, so they can decide
+  that the difference is intended and live with a line of build output.
+
+  **Shapes this misses, all silent:** any `main()` in a file other than the schema
+  module and the root `dev.*` runner (a bin under `bin/`, a non-entry `src/cli.ts`,
+  a test), one reached through a re-export or a wrapper function, an argument that
+  is a variable (`main(opts)`) or a spread (`main({ ...opts })`), a computed key,
+  `main.call(...)`, and a top-level `main()` in the schema module (above). Those
+  are reachable only by following the module graph from a bin, which is a much
+  larger pass than a warning earns.
 
 - **`export default cmd` is followed to the `const` it names, because that is
   the shape this repo's own rules force.** `--isolatedDeclarations` refuses to

@@ -26,7 +26,8 @@ async function version(settings: Settings): Promise<ParseState> {
 describe("the toolchain's unknown-option setting", () => {
   it('should be on the schema, where a build carries it', () => {
     expect(schema().settings).toEqual({ allowUnknownOptions: false });
-    expect(schema().hooks).toBeUndefined();
+    // the hook this replaced, and not hooks in general: an unrelated one is fine
+    expect(schema().hooks?.beforeParse).toBeUndefined();
   });
 
   it('should set the flag on the parse it ran in', async () => {

@@ -435,7 +435,16 @@ function errorHandlerSetting(opts: AppOptions): Settings['errorHandler'] {
   try {
     return resolveSettings(opts?.schema, opts?.settings).errorHandler;
   } catch {
-    return undefined;
+    // the merge failed -- the schema's `settings` is not an object, or a getter of
+    // the caller's threw -- but that says nothing about the call's own handler, and
+    // before `Schema.settings` existed it was read directly and honoured. So it
+    // still is: dropping it here would send an error the caller asked to handle
+    // (or to have rethrown) to the built-in renderer because of an unrelated fault
+    try {
+      return opts?.settings?.errorHandler;
+    } catch {
+      return undefined;
+    }
   }
 }
 

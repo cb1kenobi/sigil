@@ -1,5 +1,8 @@
-import { mainSettingsIn } from '../../src/build/main-settings.js';
+import { checkMainSettings, mainSettingsIn } from '../../src/build/main-settings.js';
 import { parseModule } from '../../src/build/parse-module.js';
+import { tempDir } from '../temp.ts';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -141,5 +144,163 @@ describe('settings passed to main()', () => {
     it('should say nothing about a method called settings', () => {
       expect(found(`${RUNTIME}main({ settings() { return {}; } });`)).toEqual([]);
     });
+  });
+});
+
+/**
+ * An app on disk with a schema module and, optionally, a `dev` runner.
+ *
+ * @param files - File name to source.
+ * @returns What `checkMainSettings()` is handed.
+ */
+function appOf(files: Record<string, string>): Parameters<typeof checkMainSettings>[0] {
+  const root = tempDir('sigil-main-settings-');
+  for (const [name, source] of Object.entries(files)) {
+    mkdirSync(join(root, name, '..'), { recursive: true });
+    writeFileSync(join(root, name), source);
+  }
+  return {
+    entry: join(root, 'index.ts'),
+    manifest: { dependencies: ['@ttylabs/sigil'], path: join(root, 'package.json') },
+    root,
+  };
+}
+
+const NESTED = `${RUNTIME}export default {
+  name: 'outer',
+  async run() {
+    await main({ argv: ['--typo'], schema: inner, settings: { errorHandler: false } });
+  },
+};
+`;
+
+describe('which file the warning reads', () => {
+  it.each([
+    [
+      'a function',
+      `function step() { return main({ schema, settings: { errorHandler: false } }); }`,
+    ],
+    [
+      'an async arrow',
+      `export const step = async () => { await main({ schema, settings: { errorHandler: false } }); };`,
+    ],
+    [
+      'a method',
+      `export const app = { async step() { await main({ schema, settings: { errorHandler: false } }); } };`,
+    ],
+    [
+      'a class',
+      `class Step { run() { return main({ schema, settings: { errorHandler: false } }); } }`,
+    ],
+  ])('should say nothing about main({ settings }) inside %s in the schema module', (_, body) => {
+    // the schema module is bundled, so a function in it that composes another app
+    // keeps its settings when built -- and the advice to move them to the schema
+    // would turn every error of the *outer* app into an unhandled rejection
+    const app = appOf({
+      'index.ts': `${RUNTIME}export default { name: 'outer' };
+${body}
+`,
+    });
+
+    expect(checkMainSettings(app)).toEqual([]);
+  });
+
+  it('should say nothing about the README pattern in a command of the schema module', () => {
+    expect(checkMainSettings(appOf({ 'index.ts': NESTED }))).toEqual([]);
+  });
+
+  it('should say nothing about a top-level call in the schema module, which is a different problem', () => {
+    // it runs in the built app in addition to the generated entry's `main()`, and
+    // its own settings apply to that call. The double run is not a settings fault
+    const app = appOf({
+      'index.ts': `${RUNTIME}export default { name: 'outer' };\nawait main({ settings: { errorHandler: false } });\n`,
+    });
+
+    expect(checkMainSettings(app)).toEqual([]);
+  });
+
+  it('should report a call in the dev runner, which is never bundled', () => {
+    const app = appOf({
+      'dev.ts': `${RUNTIME}await main({ schema, settings: { assertCwd: false } });\n`,
+      'index.ts': "export default { name: 'a' };\n",
+    });
+
+    const [found, ...rest] = checkMainSettings(app);
+
+    expect(rest).toEqual([]);
+    expect(found).toMatchObject({ column: 22, line: 2, severity: 'warning' });
+    expect(found?.file).toBe(join(app.root, 'dev.ts'));
+  });
+
+  it('should report a call inside a function in the dev runner too, since none of it is bundled', () => {
+    const app = appOf({
+      'dev.ts': `${RUNTIME}export async function go() { await main({ settings: { assertCwd: false } }); }\n`,
+      'index.ts': "export default { name: 'a' };\n",
+    });
+
+    expect(checkMainSettings(app)).toHaveLength(1);
+  });
+});
+
+describe('what the built app uses instead', () => {
+  const dev = `${RUNTIME}await main({ schema, settings: { allowUnknownOptions: true, errorHandler: false } });\n`;
+
+  /** The one message a runner produced. */
+  function said(files: Record<string, string>): string {
+    return checkMainSettings(appOf(files))[0]!.message;
+  }
+
+  it("should name the schema's setting where the schema sets the key, and the default where it does not", () => {
+    const message = said({
+      'dev.ts': dev,
+      'index.ts':
+        "const schema = { name: 'a', settings: { allowUnknownOptions: false } };\nexport default schema;\n",
+    });
+
+    expect(message).toContain(
+      "A built app uses the schema's `allowUnknownOptions` and the default `errorHandler`."
+    );
+  });
+
+  it('should say the default for every key when the schema sets none', () => {
+    const message = said({ 'dev.ts': dev, 'index.ts': "export default { name: 'a' };\n" });
+
+    expect(message).toContain(
+      'A built app uses the default `allowUnknownOptions` and `errorHandler`.'
+    );
+  });
+
+  it('should keep the general message when the schema cannot be read that far', () => {
+    for (const entry of [
+      'export default makeSchema();\n',
+      "export default { ...base, name: 'a' };\n",
+      "export default { name: 'a', settings: shared };\n",
+      "export default { name: 'a', settings: { ...shared } };\n",
+    ]) {
+      const message = said({ 'dev.ts': dev, 'index.ts': entry });
+
+      expect(message).toContain('move them to `settings` on the schema');
+      expect(message).not.toContain('A built app uses');
+    }
+  });
+
+  it('should keep the general message when the call has keys it cannot enumerate', () => {
+    for (const settings of ['{ ...shared }', '{ [key]: 1 }', 'shared']) {
+      const message = said({
+        'dev.ts': `${RUNTIME}await main({ schema, settings: ${settings} });\n`,
+        'index.ts': "export default { name: 'a' };\n",
+      });
+
+      expect(message).not.toContain('A built app uses');
+    }
+  });
+
+  it('should not report a call whose every key is undefined, which the merge reads as not named', () => {
+    const app = appOf({
+      'dev.ts': `${RUNTIME}await main({ schema, settings: { errorHandler: undefined } });\n`,
+      'index.ts': "export default { name: 'a' };\n",
+    });
+
+    expect(checkMainSettings(app)).toEqual([]);
   });
 });

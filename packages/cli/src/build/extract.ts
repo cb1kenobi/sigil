@@ -467,7 +467,7 @@ function unroutable(
  * @param diagnostics - Where to report.
  * @returns The object expression.
  */
-function defaultObject(
+export function defaultObject(
   parsed: ParsedModule,
   diagnostics: Diagnostic[]
 ): ObjectExpression | undefined {

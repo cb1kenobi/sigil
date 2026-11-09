@@ -276,6 +276,83 @@ describe('the settings main() reads itself', () => {
     expect(ran.err).toContain('Expected schema settings to be an object');
     expect(ran.code).toBe(1);
   });
+
+  it("should still honor the call's errorHandler: false when the schema's settings are bad", async () => {
+    // before `Schema.settings` the call's handler was read directly, and a fault in
+    // the schema is no reason to send an error the caller asked to have rethrown to
+    // the built-in renderer
+    await expect(
+      runCommand({
+        argv: [],
+        schema: app({ settings: 'bad' as unknown as Settings }),
+        settings: { errorHandler: false },
+      })
+    ).rejects.toThrow('Expected schema settings to be an object');
+  });
+
+  it("should still call the call's errorHandler when reading the schema's settings throws", async () => {
+    const schema = app();
+    Object.defineProperty(schema, 'settings', {
+      enumerable: true,
+      get() {
+        throw new Error('settings getter blew up');
+      },
+    });
+    const seen: unknown[] = [];
+
+    // `main()` directly: `runCommand()` copies the schema it is given, which reads the getter
+    await main({
+      argv: ['build'],
+      schema,
+      settings: {
+        errorHandler(err) {
+          seen.push((err as Error).message);
+        },
+      },
+    });
+
+    expect(seen).toEqual(['settings getter blew up']);
+  });
+
+  it('should fall back to the built-in handler when the call handler cannot be read either', async () => {
+    const settings = {};
+    Object.defineProperty(settings, 'errorHandler', {
+      enumerable: true,
+      get() {
+        throw new Error('handler getter blew up');
+      },
+    });
+
+    const ran = await runCommand({
+      argv: [],
+      schema: app({ settings: 'bad' as unknown as Settings }),
+      settings,
+    });
+
+    expect(ran.err).toContain('Expected schema settings to be an object');
+  });
+});
+
+describe('settings: null on the call', () => {
+  // `main({ schema, settings: null })` worked when `parse()` read `opts.settings || {}`.
+  // It is refused now, with the parser's rule that null is an error, and not read as
+  // "no settings"
+  it('should be refused by main()', async () => {
+    const ran = await runCommand({
+      argv: ['build'],
+      schema: app(),
+      settings: null as unknown as Settings,
+    });
+
+    expect(ran.err).toContain('Expected settings to be an object');
+    expect(ran.code).toBe(1);
+  });
+
+  it('should be refused by parse()', async () => {
+    await expect(
+      parse({ argv: [], schema: app(), settings: null as unknown as Settings })
+    ).rejects.toThrow('Expected settings to be an object');
+  });
 });
 
 describe('a nested main()', () => {

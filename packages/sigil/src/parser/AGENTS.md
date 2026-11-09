@@ -511,9 +511,13 @@ The sharpest question in the design, and the ticket did not name it.
   `resolveSettings()` in `settings.ts`, and `main()` merges once up front and hands
   the result on. `parse()` merges again, which is a no-op -- laying a result over
   its own base is the result -- and is there for a caller of `parse()` with no
-  `main()`. `errorHandlerSetting()` merges inside its own `try`, so a schema whose
-  `settings` is not an object falls back to the built-in handler and the error
-  reported is that one, rather than a second error hiding it.
+  `main()`. `errorHandlerSetting()` merges inside its own `try`, and when the merge fails --
+  a `settings` that is not an object, a getter that threw -- it falls back to **the
+  call's own handler, then the built-in**. The first version fell straight to the
+  built-in, which discarded a handler (or an `errorHandler: false`) the caller
+  passed because of a fault in the schema: before `Schema.settings` the call's
+  handler was read directly and honoured, so the fallback keeps that, and the error
+  reported is still the schema's rather than a second one hiding it.
 - **The result is always a new object.** `parse()` used to keep the settings object
   its caller passed, so a hook writing `state.settings.allowUnknownOptions` wrote
   onto the caller's, and the toolchain carried a `beforeParse` hook that copied it
@@ -524,16 +528,28 @@ The sharpest question in the design, and the ticket did not name it.
   `main()` -- a command that composes another app -- runs under its own schema's
   settings and its own call's, not the outer call's. There is no ambient state to
   inherit from, and inventing some would make a nested app's behaviour depend on
-  who started it. A lazily loaded command module's `settings` is custom data and is
+  who started it. **But a schema carries its own**: the README's "Running one
+  command from another" passes `schema: state.schema`, so that nested call runs
+  under the outer schema's `settings` -- `errorHandler` and `allowUnknownOptions`
+  included -- through the schema itself, not through the call. Passing the same
+  schema is asking for its settings. A lazily loaded command module's `settings` is custom data and is
   not read: settings are about the run, and a run has one root.
 - **`Settings` has no `state` field, and the schema's type is `Settings` whole.**
   The ticket asked whether a per-call member such as a pre-built `ParseState`
   belonged in the schema's type. There is no such member -- `Settings` is the seven
   documented keys and nothing else -- so there is no subset type to exclude it from.
-- **A `settings` that is not an object is a `TypeError`**, `Expected schema
-  settings to be an object`, thrown before anything is
-  parsed, and it reaches the `beforeError` hooks like any other invalid schema. An array is refused as well,
+- **A `settings` that is not an object is a `TypeError`**, on the schema
+  (`Expected schema settings to be an object`) and on the call (`Expected settings
+  to be an object`), thrown before anything is parsed, and it reaches the
+  `beforeError` hooks like any other invalid schema. An array is refused as well,
   since it would spread as numeric keys and look like an empty object.
+
+  **`settings: null` on the call is a behaviour change.** `parse()` read
+  `opts.settings || {}`, so `main({ schema, settings: null })` worked; it throws now.
+  Kept, because it is the parser's rule everywhere else that `null` is an error and
+  `undefined` is absent (`schema` follows it), and a merge that quietly read `null`
+  as "none" would be the one place it did not. `undefined` is still fine.
+
 - **Pinned by sabotage, once each**, in `schema-settings.test.ts`: dropping the
   schema's settings from the merge fails eleven tests, reversing the precedence
   four, returning a source instead of a new object three, and `main()` reading only
