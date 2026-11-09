@@ -22,8 +22,10 @@ which provides the `sigil` command.
   `[value]` for an optional option that takes a value. A value is a string
   unless the option sets `type`, such as `'int'` or `'bool'`.
 - A command in `src/commands/` answers to its file name and nothing else: a
-  `name` or an `alias` inside the module does not route it, because the module
-  is only loaded once argv has matched the file. For a second spelling, list
+  `name`, an `alias` or `default: true` inside the module does not route it,
+  because the module is only loaded once argv has matched the file. Help leaves
+  such a spelling out, and `sigil check` and `sigil build` warn about it in the
+  modules they read. For a second spelling, list
   the commands in the schema instead of a directory:
   `commands: { 'hello, hi': './commands/hello.ts' }` runs `hi` and shows both
   spellings in help. To run `hi` without listing it, give the command an

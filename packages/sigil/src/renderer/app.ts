@@ -58,6 +58,7 @@ import {
 } from '../components/console-capture.js';
 import { box, type Element } from '../element/index.js';
 import { renderError } from '../error-handler.js';
+import { __ } from '../i18n/index.js';
 import type { DetectOptions } from '../input/capabilities.js';
 import {
   canReadKeys,
@@ -66,6 +67,7 @@ import {
   type InputStream,
   isAbort,
   type Key,
+  parseFallbackKey,
   type MouseSurface,
 } from '../input/index.js';
 import { type Cascade, parseStylesheet, type Stylesheet } from '../style/index.js';
@@ -176,6 +178,25 @@ export interface AppOptions extends Pick<
    */
   quit?: false | ((key: Key) => boolean);
   /**
+   * The key that ends the app cleanly, as a spec. Defaults to `'q'`.
+   *
+   * A **fallback**, `InputRouter.fallback()`: it comes after the focused element
+   * and its ancestors, so a text field that takes `q` keeps it and typing a word
+   * into a filter does not quit, while with nothing focused -- or focus anywhere
+   * that does not use the key -- `q` ends the app. It is listed as "quit" (translated) by
+   * `bindings()`, so a key-help footer shows it without the app writing the line.
+   * Ends it with `0` rather than the `130` of `quit`: a `q` is the app choosing to
+   * go, and it is not an interrupt.
+   *
+   * One key, modifiers allowed; a spec of two throws as `fallback()` does, with the
+   * terminal already given back. `false` binds nothing, for an app whose `q` means
+   * something else or that quits some other way -- the key it gives up is then
+   * free for the app's own fallback or `onKey`. An app that binds `q` itself with
+   * `bind('q', …)` or an element's `onKey` gets it first, and this is then only
+   * what is left. `quit` is unchanged and is checked first.
+   */
+  quitKey?: false | string;
+  /**
    * App stylesheets, over the theme. Source text is parsed.
    *
    * Ignored where `cascade` is given.
@@ -211,7 +232,8 @@ export interface App {
   /**
    * The exit code, once the app has gone and the terminal is back as it was.
    *
-   * What `exit()` was given; `130` for the quit key, which is what a shell
+   * What `exit()` was given; `0` for `quitKey`, which is a `q` and not an
+   * interrupt; `130` for the quit key, which is what a shell
    * reports for Ctrl-C; `1` for a failure that ended the app, after `onError`
    * has written it; `1` for a throw from the component's body, which also
    * propagates from `runApp()`; `1` for a refusal to start without a terminal;
@@ -430,6 +452,21 @@ export function useApp(): App {
  *   on the handle `useApp()` gave the body settles `1`.
  */
 export function runApp(component: () => Element, opts: AppOptions = {}): App {
+  // checked first, before a router is built and stdin is taken: from plain JS a
+  // `true` would reach the key grammar as `spec.split is not a function`, and a
+  // `null` would quietly mean `'q'`
+  const quitKey = opts.quitKey === undefined ? 'q' : opts.quitKey;
+  if (quitKey !== false && typeof quitKey !== 'string') {
+    throw new TypeError(
+      `quitKey is a key spec or false: got ${quitKey === null ? 'null' : typeof quitKey}`
+    );
+  }
+  // and that it is one key, here and not only where it is registered: that is
+  // inside the render callback, which a run that refuses to start never reaches --
+  // so a piped CI run would pass what a terminal throws on
+  if (quitKey !== false) {
+    parseFallbackKey(quitKey);
+  }
   const terminal = opts.terminal ?? defaultTerminal;
   const stdin = opts.stdin ?? (terminal.stdin as InputStream | undefined);
   const interactive = stdin !== undefined && canReadKeys({ stdin, terminal });
@@ -917,6 +954,13 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       () =>
         provideContext(AppContext, app, () => {
           host.append(component());
+          // after the body, so a key-help footer lists "quit" last, where an app
+          // puts it. In here rather than beside the router so that a spec which is
+          // not one key throws the way a body that throws does: `render()` gives
+          // the screen back, and the catch below the call stops the router
+          if (quitKey !== false) {
+            router.fallback(quitKey, () => app.exit(), { description: __`quit`, priority: 9 });
+          }
           return host;
         }),
       {

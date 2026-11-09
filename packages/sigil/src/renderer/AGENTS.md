@@ -262,6 +262,26 @@ the entry it belongs to.
   own state, while looking perfectly alive. Nothing leaks by opting out, because
   the caller opting out is the one that owns the branch and disposes it. See
   `test/signals/effect.test.ts`.
+- **A root and a frame run untracked, because nothing in either is the caller's
+  to depend on.** `runWithOwner()` puts the signals layer's _parentage_ aside and
+  never put the _consumer_ aside, so `createRoot()` ran a body tracked by whatever
+  effect was on the stack -- and `render()` is called from one whenever a
+  built-in mounts lazily: a spinner's `start()` from an effect. `spinnerView()`
+  reads its label to build the text node, so that effect became a sink of the
+  spinner's own label and ran again on every later `s.text = ...`, which is
+  SIG-321's 3 runs where 2 belong. A task log's title is the same spinner view.
+  The frame is the second half: `render()` paints its first one before it
+  returns, a component's methods call `frame()` from wherever they were called,
+  and a frame reads frame handlers, the scope's own flush, measures and `onMount`
+  callbacks, none of them the caller's. So `createRoot()` untracks and so does
+  `runFrame()`, whole, each pinned under `a renderer started from an effect` in
+  `test/renderer/renderer.test.ts`. The untracking stops at the root and the
+  frame: `runWithOwner()` itself is public and still tracks, because
+  `provideContext()` inside an effect body is a caller that may mean its reads to
+  be tracked, and `For` and
+  `Show` already say `untrack()` where they mean it. The inner effects were never
+  parented to the caller -- `unowned()` saw to that -- and a test now says so:
+  the renderer keeps its effects when the effect that started it runs again.
 - **`onMount` fires after a frame, not at the end of the body.** The useful thing
   to do there is read what the component came out as, and `element.box` has no
   answer until something has laid it out -- so a callback that ran at the end of
@@ -827,7 +847,41 @@ it.
   interrupted, and raw mode is the only reason this was a key instead. `q` is not in
   the default for the same reason it works: a function binding sees every key, so a
   default `q` would be a letter no text field could type. `quit` takes a predicate,
-  or `false` for an app that ends itself.
+  or `false` for an app that ends itself. **`q` is `quitKey`, a different option on a
+  different layer** -- see the next entry.
+- **`quitKey` is `q` by default, a fallback, and 0 (SIG-308).** The reason above
+  for keeping `q` out of `quit` was that no layer existed that a text field
+  outranked; `InputRouter.fallback()` is that layer, and the runner registers
+  `quitKey` on it, described as `quit` -- through `__` and in lower case, as every description the framework lists is, and `'quit'` is already in `src/i18n/keys.ts` -- with a priority of 9 so a narrow key-help
+  footer drops anything else first. So a field that takes `q` keeps it and every
+  other focus, nothing focused included, quits on it. It ends the app with `0`
+  rather than 130 because a `q` is the app choosing to go and not an interrupt.
+  `quit` is unchanged: it is checked
+  first, still 130, and a `quit` predicate that claims `q` wins (`should take a quit
+  key of the caller choosing` is still true). `quitKey: false` registers nothing
+  and frees the key; the option is one key, so a spec of two throws as `fallback()`
+  does.
+
+  Registered **inside the render callback, after the component's body**, for two
+  reasons that decide against the obvious place beside the router. A key-help
+  footer reads the fallbacks in registration order, and quit goes last where an
+  app puts it (the system monitor's footer is `... t theme · q quit`). And a spec
+  that cannot be a key throws there exactly as a body that throws does: `render()`
+  has given the screen back and the catch under it stops the router and settles
+  `exited` with 1, where a throw beside the router would have needed a copy of that
+  teardown. Pinned by `should refuse a quitKey of two keys, with the terminal given
+  back`.
+
+  **It changes what an existing app does, and every caller was read for it.** An
+  app that bound `q` itself -- `bind('q', ...)`, or a function binding -- gets the
+  key first and nothing moves: `demos/renderer/01-app.js`, `demos/element/06-panes.js`
+  and `examples/hello` all do and are left as they are, their binding now
+  redundant and harmless. An app whose elements take `q` as a character keeps it. An
+  app whose `q` meant something else and is not stopped anywhere would now quit; none
+  in the repository does, and `quitKey: false` is the opt-out. A prompt run over the
+  app's router swallows every key while it is up (its binding stops the event first),
+  so `q` typed into a prompt does not reach the fallback.
+
 - **`exited` is an exit code -- Chris's decision, and the reason is the design
   rather than the type.** `exit(code = 0)` settles it with `code`; the quit key with
   130; a failure that ended the app with 1, after `onError` has written it; the

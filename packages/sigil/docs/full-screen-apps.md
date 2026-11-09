@@ -120,7 +120,9 @@ Five things in there are worth reading twice:
   through its ancestors, so a row handles its own Enter.
 - **`app.input?.bind('q', ...)` is an app-wide binding.** It fires wherever
   the focus is. `app.exit()` ends the app with exit code `0`. Ctrl-C needs no
-  binding: the runner ends the app on it, with `130`.
+  binding: the runner ends the app on it, with `130`. Nor does a bare `q`, which
+  the runner's `quitKey` ends it on with `0` -- as a fallback, so a text field
+  that takes `q` keeps it; this example binds it itself, ahead of that.
 
 The rest of the component is the screen itself:
 

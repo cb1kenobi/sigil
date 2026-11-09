@@ -13,7 +13,7 @@ import { createRoot } from '../../src/renderer/index.js';
 import { createEffects, State } from '../../src/signals/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { graphemes } from '../../src/width/index.js';
-import { runsOf } from '../runs-of.js';
+import { runsOf, sourcesOf } from '../runs-of.js';
 import { screenSetup, setup } from './helpers.js';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -1536,6 +1536,17 @@ describe('createTypewriter() called from an effect', () => {
     ).toBe(2);
     expect(skips).to.equal(1);
     // appended after the skip, so it is typed rather than shown at once
+    expect(writer.revealed).to.equal('abc');
+  });
+
+  it('should leave the effect that finished it subscribed to nothing', () => {
+    // SIG-321: the frame `done()` paints drained the view's effect tracked, and
+    // an effect that returns nothing never re-runs its caller -- so the edge is
+    // what is asserted, not the count
+    const ui = screenSetup();
+    const writer = createTypewriter({ ansi: ui.ansi, terminal: ui.terminal, text: 'abc' }).start();
+
+    expect(sourcesOf(() => writer.done())).toBe(0);
     expect(writer.revealed).to.equal('abc');
   });
 });
