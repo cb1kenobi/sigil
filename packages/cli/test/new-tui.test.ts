@@ -1,5 +1,7 @@
 import {
   commandNameProblem,
+  otherSyntaxCommand,
+  runScript,
   scaffold,
   type Language,
   type Layout,
@@ -9,6 +11,7 @@ import {
 } from '../src/scaffold/index.ts';
 import { tempDir } from './temp.ts';
 import { TTY_PRELOAD, typeKeys } from './tty-child.ts';
+import { whichSync } from '@ttylabs/sigil/which';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   existsSync,
@@ -200,7 +203,8 @@ describe('a scaffold with a full-screen app', () => {
         file(files({ language, syntax: 'jsx', tui: { at: 'root' } }), 'package.json')
       ) as { scripts: Record<string, string> };
 
-      expect(manifest.scripts.dev).toBe('sigil build && node dist/demo.mjs');
+      // `--quiet` because the size tables are ~25 lines before every run of the app
+      expect(manifest.scripts.dev).toBe('sigil build --quiet && node dist/demo.mjs');
     });
 
     it.each(LANGUAGES)(
@@ -330,11 +334,15 @@ describe('a scaffold with a full-screen app', () => {
   describe('the README', () => {
     it('should say how to open it, and what builds it', () => {
       const root = file(files({ tui: { at: 'root' } }), 'README.md');
-      expect(root).toContain('npm run dev           # opens the full-screen app');
+      expect(root).toContain('pnpm run dev   # opens the full-screen app');
       expect(root).toContain('built');
 
       const command = file(files({ tui: { at: 'command', command: 'ops' } }), 'README.md');
-      expect(command).toContain('npm run dev -- ops');
+      // spelled the way the app's own manager takes arguments: pnpm has no `--`
+      expect(command).toContain('pnpm run dev ops   # opens');
+      expect(
+        file(files({ manager: 'npm', tui: { at: 'command', command: 'ops' } }), 'README.md')
+      ).toContain('npm run dev -- ops   # opens');
 
       expect(file(files({ syntax: 'ui', tui: { at: 'root' } }), 'README.md')).toContain(
         'there is nothing\nto build'
@@ -367,6 +375,8 @@ describe('a command name', () => {
     ['9lives', 'start with a letter'],
     ['hello', 'example command'],
     ['index', 'directory'],
+    ['help', 'describing its commands'],
+    ['completion', 'shell completion'],
     ['a/b', 'lowercase'],
   ])('should refuse %j', (name, because) => {
     expect(commandNameProblem(name)).toContain(because);
@@ -395,23 +405,23 @@ describe('the flags', () => {
 
   it('should put it on the root with --tui, in JSX', () => {
     const dir = tempDir('sigil-new-tui-');
-    const ran = run(dir, 'demo', '--yes', '--tui');
+    const ran = run(dir, 'demo', '--yes', '--tui', '--pm', 'npm');
 
     expect(ran.status).toBe(0);
     expect(existsSync(join(dir, 'demo', 'src', 'ui', 'app.tsx'))).toBe(true);
     expect(readFileSync(join(dir, 'demo', 'src', 'index.ts'), 'utf-8')).toContain('runApp');
-    expect(ran.stdout).toContain('npm run dev\n');
+    expect(ran.stdout).toContain('  npm run dev\n');
   });
 
   it('should put it on a command with --tui-command, and imply --tui', () => {
     const dir = tempDir('sigil-new-tui-');
-    const ran = run(dir, 'demo', '--yes', '--tui-command', 'ops');
+    const ran = run(dir, 'demo', '--yes', '--tui-command', 'ops', '--pm', 'npm');
 
     expect(ran.status).toBe(0);
     expect(existsSync(join(dir, 'demo', 'src', 'commands', 'ops.ts'))).toBe(true);
     // the root is the one that is not the app: it shows help
     expect(readFileSync(join(dir, 'demo', 'src', 'index.ts'), 'utf-8')).not.toContain('runApp');
-    expect(ran.stdout).toContain('run dev -- ops');
+    expect(ran.stdout).toContain('  npm run dev -- ops\n');
   });
 
   it('should write the ui tag with --syntax ui, and say nothing about the alternative', () => {
@@ -428,11 +438,11 @@ describe('the flags', () => {
 
   it('should say once, after the steps, that the ui tag is the build-free alternative', () => {
     const dir = tempDir('sigil-new-tui-');
-    const ran = run(dir, 'demo', '--yes', '--tui');
+    const ran = run(dir, 'demo', '--yes', '--tui', '--pm', 'npm');
 
     expect(ran.stdout.match(/build-free/g)).toHaveLength(1);
     expect(ran.stdout.indexOf('build-free')).toBeGreaterThan(
-      ran.stdout.indexOf('run dev -- --help')
+      ran.stdout.indexOf('npm run dev -- --help')
     );
     // and not when there is no app to have a syntax
     expect(run(tempDir('sigil-new-tui-'), 'demo', '--yes').stdout).not.toContain('build-free');
@@ -467,6 +477,8 @@ describe('the flags', () => {
     ['hello', 'example command'],
     ['Ops', 'lowercase'],
     ['index', 'directory'],
+    ['help', 'describing its commands'],
+    ['completion', 'shell completion'],
   ])('should refuse --tui-command %s', (name, because) => {
     const dir = tempDir('sigil-new-tui-');
     const ran = run(dir, 'demo', '--yes', '--tui-command', name);
@@ -509,12 +521,173 @@ describe('the flags', () => {
     }
   });
 
-  it('should list the three flags in its own help', () => {
+  it('should list the four flags in its own help', () => {
     const help = run(tempDir('sigil-new-tui-'), '--help').stdout;
 
     expect(help).toContain('--tui');
+    expect(help).toContain('--no-tui');
     expect(help).toContain('--tui-command');
     expect(help).toContain('--syntax');
+  });
+
+  it('should refuse --tui with --tui-command, which would otherwise be a flag that does nothing', () => {
+    // the command used to win silently, and an accepted flag that changes nothing
+    // is what every refusal in this command exists to prevent
+    const dir = tempDir('sigil-new-tui-');
+    const ran = run(dir, 'demo', '--yes', '--tui', '--tui-command', 'ops');
+
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toContain('--tui');
+    expect(ran.stderr).toContain('Pass one of them');
+    expect(existsSync(join(dir, 'demo'))).toBe(false);
+  });
+
+  it('should refuse a bad --tui-command before it asks for a name', () => {
+    // no name, no --yes, and no terminal: the name question would be refused with
+    // "Cannot prompt", so reaching the flag's own message is the proof the flags
+    // are checked first
+    const ran = run(tempDir('sigil-new-tui-'), '--tui-command', 'Ops');
+
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toContain('lowercase');
+    expect(ran.stderr).not.toContain('Cannot prompt');
+  });
+
+  it('should take --no-tui, which is how a script passes every flag but --yes', () => {
+    // this exact invocation worked before the question existed, and without a
+    // flag to answer it with, a script written then would have broken
+    const dir = tempDir('sigil-new-tui-');
+    const ran = run(dir, 'demo', '--js', '--single', '--lint', 'none', '--pm', 'npm', '--no-tui');
+
+    expect(ran.status, ran.stderr).toBe(0);
+    expect(existsSync(join(dir, 'demo', 'src', 'ui'))).toBe(false);
+  });
+
+  it('should leave --tui an ordinary flag beside --no-tui', () => {
+    // `--no-tui` is its own destination, so passing `--tui` alone still means it
+    const dir = tempDir('sigil-new-tui-');
+    expect(run(dir, 'demo', '--yes', '--tui', '--pm', 'npm').status).toBe(0);
+    expect(existsSync(join(dir, 'demo', 'src', 'ui'))).toBe(true);
+  });
+
+  it.each([
+    ['--tui', '--tui'],
+    ['--tui-command ops', '--tui-command'],
+    ['--syntax ui', '--syntax'],
+  ])('should refuse --no-tui with %s', (flags, named) => {
+    const dir = tempDir('sigil-new-tui-');
+    const ran = run(dir, 'demo', '--yes', ...flags.split(' '), '--no-tui');
+
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toContain('--no-tui');
+    expect(ran.stderr).toContain(named);
+    expect(existsSync(join(dir, 'demo'))).toBe(false);
+  });
+
+  it.each([
+    ['pnpm', ['--tui-command', 'ops'], '  pnpm run dev ops\n', '  pnpm run dev --help\n'],
+    ['npm', ['--tui-command', 'ops'], '  npm run dev -- ops\n', '  npm run dev -- --help\n'],
+    ['vlt', ['--tui'], '  vlt run dev\n', '  vlt run dev -- --help\n'],
+    ['pnpm', [], undefined, '  pnpm run dev --help\n'],
+  ] as const)('should print the steps the way %s takes arguments', (pm, flags, launch, help) => {
+    // pnpm passes a `--` through to the script, so `pnpm run dev -- ops` starts
+    // the app with `-- ops` and the parser refuses `ops`; npm and vlt need it
+    const ran = run(tempDir('sigil-new-tui-'), 'demo', '--yes', ...flags, '--pm', pm);
+
+    expect(ran.status, ran.stderr).toBe(0);
+    if (launch) {
+      expect(ran.stdout).toContain(launch);
+    }
+    expect(ran.stdout).toContain(help);
+  });
+
+  it('should print the other syntax as a command that runs as it is written', () => {
+    // `--syntax` alone is refused under --yes and asks the TUI question again
+    // interactively, so a hint that said only that was not runnable. Each form is
+    // read back out of what was printed and run, rather than compared with itself
+    for (const flags of [['--tui'], ['--tui-command', 'ops'], ['--single', '--tui', '--js']]) {
+      const first = run(tempDir('sigil-new-tui-'), 'app1', '--yes', ...flags);
+      const printed = /`(sigil new [^`]+)`/.exec(first.stdout)?.[1];
+
+      expect(printed, first.stdout).toBeDefined();
+      const [, , name, ...args] = (printed as string).split(' ') as [
+        string,
+        string,
+        string,
+        ...string[],
+      ];
+      expect(name).toBe('app1');
+      expect(args).toContain('--syntax');
+      expect(args.at(-1)).toBe('ui');
+
+      const dir = tempDir('sigil-new-tui-');
+      const again = run(dir, 'app2', '--yes', ...args);
+      expect(again.status, again.stderr).toBe(0);
+      // and it is the same app, in the other syntax
+      expect(
+        existsSync(join(dir, 'app2', 'src', 'ui', args.includes('--js') ? 'app.js' : 'app.ts'))
+      ).toBe(true);
+    }
+  });
+
+  it('should leave the other-syntax hint on one line, since the terminal wraps and a break at 88 does not', () => {
+    const ran = run(tempDir('sigil-new-tui-'), 'demo', '--yes', '--tui');
+    const note = ran.stdout.split('\n').find((line) => line.startsWith('The app is in JSX'));
+
+    expect(note).toBeDefined();
+    expect(note).toContain('build-free alternative: `sigil new demo --tui --syntax ui`');
+  });
+});
+
+describe('a script that runs with arguments', () => {
+  it.each([
+    ['pnpm', 'dev', ['ops'], 'pnpm run dev ops'],
+    ['npm', 'dev', ['ops'], 'npm run dev -- ops'],
+    ['vlt', 'dev', ['ops'], 'vlt run dev -- ops'],
+    ['pnpm', 'dev', ['--help'], 'pnpm run dev --help'],
+    ['npm', 'dev', ['--help'], 'npm run dev -- --help'],
+    ['vlt', 'dev', ['--help'], 'vlt run dev -- --help'],
+    ['pnpm', 'dev', [], 'pnpm run dev'],
+    ['npm', 'dev', [], 'npm run dev'],
+    ['vlt', 'dev', [], 'vlt run dev'],
+    ['npm', 'dev', ['hello', 'world'], 'npm run dev -- hello world'],
+  ] as const)('should spell %s %s %j as %s', (manager, script, args, expected) => {
+    expect(runScript(manager, script, ...args)).toBe(expected);
+  });
+
+  // measured rather than assumed, on every manager that is installed: the
+  // spelling is a claim about what the script receives, so it is asked of the
+  // script. A manager changing what it does with `--` is what this is for
+  describe.each(['npm', 'pnpm', 'vlt'] as const)('%s', (manager) => {
+    const installed = whichSync(manager) ? it : it.skip;
+    installed.each([[['ops']], [['--help']], [['ops', '--help']]] as const)(
+      'should hand %j to the script as given',
+      (args) => {
+        const dir = tempDir('sigil-run-script-');
+        writeFileSync(
+          join(dir, 'package.json'),
+          JSON.stringify({ name: 'probe', scripts: { dev: 'node args.js' }, version: '0.0.0' })
+        );
+        writeFileSync(
+          join(dir, 'args.js'),
+          'console.log("ARGS" + JSON.stringify(process.argv.slice(2)));\n'
+        );
+
+        const [cmd, ...argv] = runScript(manager, 'dev', ...args).split(' ') as [
+          string,
+          ...string[],
+        ];
+        const ran = spawnSync(cmd, argv, {
+          cwd: dir,
+          encoding: 'utf-8',
+          shell: process.platform === 'win32',
+        });
+
+        expect(/^ARGS(.*)$/m.exec(ran.stdout)?.[1], ran.stdout + ran.stderr).toBe(
+          JSON.stringify(args)
+        );
+      }
+    );
   });
 });
 
@@ -669,9 +842,40 @@ describe('the questions', () => {
     expect(existsSync(join(dir, 'demo'))).toBe(false);
   });
 
+  it('should not ask whether there are subcommands when --tui-command names one', async () => {
+    // a command to launch from is a command, so the question is answered. It used
+    // to be asked, and "No, a single command" then failed with a guard from the
+    // scaffold after every other question had been answered
+    const dir = tempDir('sigil-new-tui-');
+    const ran = await ask(dir, [ENTER], '--tui-command', 'dash', '--syntax', 'ui');
+
+    expect(ran.code, ran.out).toBe(0);
+    expect(ran.out).not.toContain('Will it have subcommands?');
+    expect(ran.out).not.toContain('no commands to launch');
+    expect(existsSync(join(dir, 'demo', 'src', 'commands', 'dash.ts'))).toBe(true);
+  });
+
+  it('should not ask about a full-screen app after --no-tui', async () => {
+    const dir = tempDir('sigil-new-tui-');
+    const ran = await ask(dir, [ENTER, ENTER], '--no-tui');
+
+    expect(ran.code, ran.out).toBe(0);
+    expect(ran.out).not.toContain('Include a full-screen app');
+    expect(existsSync(join(dir, 'demo', 'src', 'ui'))).toBe(false);
+  });
+
+  it('should describe the choices without a "today" a new app has never had', async () => {
+    const dir = tempDir('sigil-new-tui-');
+    const ran = await ask(dir, [ENTER, ENTER, 'y', ENTER, ENTER]);
+
+    expect(ran.out).toContain('demo on its own shows help');
+    expect(ran.out).not.toContain('today');
+  });
+
   it('should refuse to ask without a terminal, as it does for every other question', () => {
-    // a script that passes every flag but not --yes meets the new question the
-    // way it meets any other unanswered one
+    // a script that passes every flag but neither --yes nor --no-tui meets the
+    // question the way it meets any other unanswered one. --no-tui is how it
+    // opts out, which the flag tests above pin
     const dir = tempDir('sigil-new-tui-');
     const ran = run(dir, 'demo', '--js', '--single', '--lint', 'none', '--pm', 'npm');
 
@@ -796,23 +1000,89 @@ describe('every variant, scaffolded and run', () => {
     // only, because a built bundle has no specifier left to watch -- the build
     // has already turned each `import()` into a chunk that loads when asked
     const app = materialize({ syntax: 'ui', tui: { at: 'root' } });
+    // a synchronous hook in the loader's own thread. `module.register()` is the
+    // older spelling and prints DEP0205 on Node 26; `registerHooks()` is there
+    // from 22.15, under the 22.19 floor
     writeFileSync(
       join(app, 'probe.mjs'),
-      "import { register } from 'node:module';\nregister('./probe-hooks.mjs', import.meta.url);\n"
-    );
-    writeFileSync(
-      join(app, 'probe-hooks.mjs'),
-      "export async function resolve(specifier, context, next) {\n  if (specifier === '@ttylabs/sigil/app') {\n    process.stderr.write('RENDERER LOADED\\n');\n  }\n  return next(specifier, context);\n}\n"
+      "import { registerHooks } from 'node:module';\nregisterHooks({\n  resolve(specifier, context, next) {\n    if (specifier === '@ttylabs/sigil/app') {\n      process.stderr.write('RENDERER LOADED\\n');\n    }\n    return next(specifier, context);\n  },\n});\n"
     );
 
     const hello = await node(app, '--import', './probe.mjs', 'dev.ts', 'hello', 'there');
     expect(hello.code, hello.out).toBe(0);
     expect(hello.out).toContain('hello there');
     expect(hello.out).not.toContain('RENDERER LOADED');
+    expect(hello.out).not.toContain('DEP0205');
 
     // and the probe is shown to work, or a silent hook would pass for a lazy tree
     const ops = await node(app, '--import', './probe.mjs', 'dev.ts');
     expect(ops.out).toContain('RENDERER LOADED');
+  }, 120_000);
+
+  it('should write a component and a test that are already formatted', () => {
+    // the component is the file an author copies, so it should read as though it
+    // was written by hand: a template that splices an object in at the wrong depth
+    // is a file that looks generated. The repository's own oxfmt rules are the
+    // reference, over every variant at once. `test/app.test.*` is left out: it is
+    // the older file and its import order is a separate question
+    const all = tempDir('sigil-tui-format-');
+    const written: string[] = [];
+    const every = PLACEMENTS.flatMap((placement) =>
+      SYNTAXES.flatMap((syntax) =>
+        LANGUAGES.map((language) => ({ ...placement, language, syntax }))
+      )
+    );
+
+    for (const [index, { language, layout, syntax, tui }] of every.entries()) {
+      for (const entry of scaffold({ ...OPTIONS, language, layout, syntax, tui })) {
+        if (entry.path.startsWith('src/') || entry.path.startsWith('test/tui.test.')) {
+          const target = join(all, String(index), entry.path);
+          mkdirSync(dirname(target), { recursive: true });
+          writeFileSync(target, entry.contents);
+          written.push(target);
+        }
+      }
+    }
+
+    const root = resolve(here, '../../..');
+    const oxfmt = createRequire(join(root, 'package.json')).resolve('oxfmt/package.json');
+    const bin = (
+      JSON.parse(readFileSync(oxfmt, 'utf-8')) as { bin: string | Record<string, string> }
+    ).bin;
+    const ran = spawnSync(
+      process.execPath,
+      [
+        join(dirname(oxfmt), typeof bin === 'string' ? bin : (bin.oxfmt as string)),
+        '--check',
+        '-c',
+        join(root, '.oxfmtrc.json'),
+        ...written,
+      ],
+      { encoding: 'utf-8' }
+    );
+
+    expect(written.length).toBeGreaterThan(40);
+    expect(ran.stdout + ran.stderr, 'oxfmt would change these').toMatch(
+      /All matched files use the correct format/
+    );
+    expect(ran.status).toBe(0);
+  });
+
+  it.concurrent('should still say what is wrong when the dev script builds quietly', async () => {
+    // `dev` is `sigil build --quiet && node ...`, so a build that failed has to
+    // say so with the tables gone, or the loop would fail with nothing on screen
+    const app = materialize({ syntax: 'jsx', tui: { at: 'root' } });
+    const component = join(app, 'src', 'ui', 'app.tsx');
+    writeFileSync(
+      component,
+      `${readFileSync(component, 'utf-8')}\nexport const x: number = 'a';\n`
+    );
+
+    const built = await node(app, cli, 'build', '--quiet');
+
+    expect(built.code).not.toBe(0);
+    expect(built.out).toContain('TS2322');
+    expect(built.out).not.toContain('Loads');
   }, 120_000);
 
   it.concurrent('should resolve a .js specifier to the .tsx in a build, though the scaffold spells it .tsx', async () => {

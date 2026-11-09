@@ -43,13 +43,21 @@ import {
   component,
   componentPath,
   launcher,
+  otherSyntaxCommand,
   type Syntax,
   tuiCommand,
   tuiTest,
   type Tui,
 } from './tui.ts';
 
-export { commandNameProblem, DEFAULT_TUI_COMMAND, SYNTAXES, type Syntax, type Tui } from './tui.ts';
+export {
+  commandNameProblem,
+  DEFAULT_TUI_COMMAND,
+  otherSyntaxCommand,
+  SYNTAXES,
+  type Syntax,
+  type Tui,
+} from './tui.ts';
 
 /** What the app is written in. */
 export type Language = 'js' | 'ts';
@@ -77,6 +85,27 @@ export const MANAGERS = ['pnpm', 'vlt', 'npm'] as const;
 
 /** One of the package managers a scaffolded app can be set up with. */
 export type Manager = (typeof MANAGERS)[number];
+
+/**
+ * The command that runs one of the app's scripts with arguments, spelled the way
+ * `manager` takes them.
+ *
+ * Not one spelling, and measured rather than assumed on the three managers the
+ * scaffold supports. **npm** and **vlt** need the `--`: without it a flag-shaped
+ * argument -- `--help` -- is the manager's own, and `npm run dev --help` prints
+ * npm's help. **pnpm** passes the `--` through to the script, so `pnpm run dev --
+ * dash` starts the app with `-- dash` and the parser refuses `dash` as an extra
+ * argument; it forwards what follows the script name without one.
+ *
+ * @param manager - The package manager the app was set up with.
+ * @param script - The script's name.
+ * @param args - What to hand the script.
+ * @returns The command, for a person to run.
+ */
+export function runScript(manager: Manager, script: string, ...args: string[]): string {
+  const separator = manager === 'pnpm' || args.length === 0 ? [] : ['--'];
+  return [manager, 'run', script, ...separator, ...args].join(' ');
+}
 
 export interface ScaffoldOptions {
   /** The language. */
@@ -220,8 +249,11 @@ function manifest(opts: ScaffoldOptions): string {
     build: 'sigil build',
     check: 'sigil check',
     // a JSX app is built and the bundle run, since Node cannot load a `.tsx`;
-    // `sigil build` type-checks on the way, so the loop is also the check
-    dev: builtToRun(opts) ? `sigil build && node dist/${name}.mjs` : `node dev.${ext(language)}`,
+    // `sigil build` type-checks on the way, so the loop is also the check. `--quiet`
+    // because the size tables it prints are ~25 lines before every run of the app
+    dev: builtToRun(opts)
+      ? `sigil build --quiet && node dist/${name}.mjs`
+      : `node dev.${ext(language)}`,
     // the runtime it embeds lives in `sigil.json` rather than here, so this
     // script and the release workflow cannot name different ones
     package: 'sigil package',
@@ -762,13 +794,15 @@ function readme(opts: ScaffoldOptions): string {
   const e = ext(language);
   const syntax = opts.syntax ?? 'jsx';
   const built = builtToRun(opts);
+  const run = (script: string, ...args: string[]): string =>
+    runScript(opts.manager, script, ...args);
 
   const start =
     tui?.at === 'root'
-      ? 'npm run dev           # opens the full-screen app\nnpm run dev -- --help'
+      ? `${run('dev')}   # opens the full-screen app\n${run('dev', '--help')}`
       : tui
-        ? `npm run dev -- ${tui.command}   # opens the full-screen app\nnpm run dev -- --help`
-        : 'npm run dev -- --help\nnpm run dev -- hello world';
+        ? `${run('dev', tui.command)}   # opens the full-screen app\n${run('dev', '--help')}`
+        : `${run('dev', '--help')}\n${run('dev', 'hello', 'world')}`;
 
   // what is in the tree, one line each, and aligned. The runner is not there
   // for a JSX app because there is not one
@@ -805,13 +839,20 @@ and Ctrl-C with \`130\`.
 
 ${
   built
-    ? `It is written in JSX, which Node cannot run, so \`npm run dev\` builds first
-(\`sigil build\`, which type-checks) and then runs the bundle. \`sigil new --syntax
-ui\` writes the same app in the \`ui\` tag, which runs as it is with nothing to
-build.`
+    ? `It is written in JSX, which Node cannot run, so the \`dev\` script builds first
+(\`sigil build\`, which type-checks) and then runs the bundle. The \`ui\` tag is the
+alternative that needs no build, and this writes the same app in it:
+
+\`\`\`sh
+${otherSyntaxCommand({ language, layout, name, syntax, tui })}
+\`\`\``
     : `It is written in the \`ui\` tag, which Node runs as it is, so there is nothing
-to build between an edit and \`npm run dev\`. \`sigil new --syntax jsx\` writes the
-same app in JSX, whose props an editor checks and which is built to run.`
+to build between an edit and the \`dev\` script. JSX is the alternative, whose props
+an editor checks and which is built to run, and this writes the same app in it:
+
+\`\`\`sh
+${otherSyntaxCommand({ language, layout, name, syntax, tui })}
+\`\`\``
 }
 
 \`test/tui.test.${e}\` runs it over a fake terminal, presses keys, and reads the
@@ -905,7 +946,13 @@ export function scaffold(opts: ScaffoldOptions): ScaffoldFile[] {
     const syntax = opts.syntax ?? 'jsx';
     files.push(
       {
-        contents: component(opts.language, syntax, opts.name),
+        contents: component({
+          language: opts.language,
+          layout: opts.layout,
+          name: opts.name,
+          syntax,
+          tui: opts.tui,
+        }),
         path: componentPath(opts.language, syntax),
       },
       {

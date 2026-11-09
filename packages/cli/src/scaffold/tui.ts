@@ -24,7 +24,7 @@
  * right for one.
  */
 
-import type { Language } from './index.ts';
+import type { Language, Layout } from './index.ts';
 
 /** The template syntax the component is written in. */
 export type Syntax = 'jsx' | 'ui';
@@ -38,16 +38,29 @@ export type Tui = { readonly at: 'command'; readonly command: string } | { reado
 /** The command a TUI placed on one is called, unless it is told otherwise. */
 export const DEFAULT_TUI_COMMAND = 'dashboard';
 
-/** The command the multi-command scaffold already writes, which a TUI may not take. */
-const EXAMPLE_COMMAND = 'hello';
+/**
+ * The names a command that launches the app may not take, and why, from one list.
+ *
+ * `hello` is the example the scaffold writes beside it and `index` is the
+ * directory itself. `help` and `completion` are the two commands the runtime adds
+ * to every app: declaring one replaces the framework's, so `myapp help` would
+ * open the screen and lose its description, and `completion` would break shell
+ * completion install. Those two are what `registerHelp()` and the completion
+ * command in `@ttylabs/sigil` register under `builtIn`.
+ */
+const RESERVED_COMMANDS: Readonly<Record<string, string>> = Object.assign(Object.create(null), {
+  completion: 'the command every app has for installing shell completion',
+  hello: 'the example command the scaffold already writes',
+  help: 'the command every app has for describing its commands',
+  index: 'the directory itself, and not a command called index',
+});
 
 /**
  * What is wrong with a name for the command that launches the app.
  *
  * The name becomes a file, `commands/<name>.ts`, and the command argv spells, so
  * it has to be both at once: lowercase letters, digits and hyphens, starting
- * with a letter. `hello` is taken by the example beside it and `index` is not a
- * command at all -- inside a directory it is the directory itself.
+ * with a letter, and not one of the {@link RESERVED_COMMANDS}.
  *
  * @param name - The proposed name.
  * @returns What is wrong with it, or `undefined`.
@@ -59,11 +72,9 @@ export function commandNameProblem(name: string): string | undefined {
   if (!/^[a-z][a-z0-9-]*$/.test(name)) {
     return 'A command name may only hold lowercase letters, digits and hyphens, and must start with a letter';
   }
-  if (name === EXAMPLE_COMMAND) {
-    return `"${EXAMPLE_COMMAND}" is the example command the scaffold already writes`;
-  }
-  if (name === 'index') {
-    return '"index" is the directory itself, and not a command called index';
+  const reserved = RESERVED_COMMANDS[name];
+  if (reserved !== undefined) {
+    return `That name is ${reserved}`;
   }
   return undefined;
 }
@@ -128,6 +139,42 @@ ${launcher(language, `../ui/app.${componentExt(language, syntax)}`)}};
 `;
 }
 
+/** What a full-screen app's files are written from. */
+export interface TuiApp {
+  /** The language. */
+  readonly language: Language;
+  /** The layout, which `--single` is. */
+  readonly layout: Layout;
+  /** The app's name. */
+  readonly name: string;
+  /** The syntax it was written in. */
+  readonly syntax: Syntax;
+  /** Where it is launched from. */
+  readonly tui: Tui;
+}
+
+/**
+ * The command that scaffolds this same app in the other template syntax.
+ *
+ * Runnable as written, which is the whole of why it is built from the flags
+ * rather than from prose: `--syntax` alone is refused under `--yes` and asks the
+ * TUI question again interactively, so the hint has to carry the TUI flag, and
+ * the command form when the app was launched from one.
+ *
+ * @param app - The app that was written.
+ * @returns The command line, for a person to run.
+ */
+export function otherSyntaxCommand(app: TuiApp): string {
+  const flags = [
+    ...(app.language === 'js' ? ['--js'] : []),
+    ...(app.layout === 'single' ? ['--single'] : []),
+    ...(app.tui.at === 'command' ? ['--tui-command', app.tui.command] : ['--tui']),
+    '--syntax',
+    app.syntax === 'jsx' ? 'ui' : 'jsx',
+  ];
+  return `sigil new ${app.name} ${flags.join(' ')}`;
+}
+
 /** The app's own sheet, over the framework's. */
 const STYLESHEET = `  .app { flex-direction: column; flex-grow: 1 }
   .title { font-weight: bold; padding: 0 1 }
@@ -136,7 +183,7 @@ const STYLESHEET = `  .app { flex-direction: column; flex-grow: 1 }
   .row:focus { background-color: blue; color: white }
   .status { flex-direction: row; padding: 0 1 }
   .keys { flex-grow: 1 }
-  .chosen { font-weight: bold; margin-left: 1 }`;
+  .chosen { flex-shrink: 0; font-weight: bold; margin-left: 1; white-space: nowrap }`;
 
 /**
  * The component, in whichever syntax was chosen.
@@ -146,12 +193,11 @@ const STYLESHEET = `  .app { flex-direction: column; flex-grow: 1 }
  * deletes the contents of, so anything in it that is not teaching something is
  * something to delete first.
  *
- * @param language - The language the app is written in.
- * @param syntax - The template syntax.
- * @param name - The app's name, which the header shows.
+ * @param app - What was chosen.
  * @returns The module.
  */
-export function component(language: Language, syntax: Syntax, name: string): string {
+export function component(app: TuiApp): string {
+  const { language, name, syntax } = app;
   const typed = language === 'ts';
   const jsx = syntax === 'jsx';
 
@@ -166,19 +212,26 @@ export function component(language: Language, syntax: Syntax, name: string): str
     ...(jsx ? [] : ["import { ui } from '@ttylabs/sigil/template';"]),
   ].join('\n');
 
+  const other = otherSyntaxCommand(app);
   const how = jsx
     ? `// JSX makes real elements, so \`<box>\` is an element and not a description of
 // one. Node strips types and does not compile JSX, which is why this app is
-// built: \`npm run dev\` runs \`sigil build\` first, and the build type-checks.
-// The \`ui\` tag is the same program with nothing to build -- \`sigil new --syntax
-// ui\` writes it -- and what it gives up is the editor checking every prop.`
+// built: the \`dev\` script runs \`sigil build\` first, and the build type-checks.
+// The \`ui\` tag is the same program with nothing to build, and what it gives up
+// is the editor checking every prop. To write it that way:
+//
+//   ${other}`
     : `// The \`ui\` tag makes real elements out of a template, and it runs as it is:
 // Node strips the types and there is no JSX to compile, so there is no build
-// between an edit and \`npm run dev\`. What that gives up is the editor checking
-// every prop. \`sigil new --syntax jsx\` writes the same program in JSX.`;
+// between an edit and the \`dev\` script. What that gives up is the editor checking
+// every prop. To write the same program in JSX:
+//
+//   ${other}`;
 
   const rows = jsx
-    ? `  const rows = ITEMS.map((item) => (
+    ? `  // one row per item. \`focusable\` puts it in the focus ring, and \`:focus\` in the
+  // sheet above is the whole of the highlight
+  const rows = ITEMS.map((item) => (
     <box
       class="row"
       focusable
@@ -205,6 +258,8 @@ export function component(language: Language, syntax: Syntax, name: string): str
     }
   };
 
+  // one row per item. \`focusable\` puts it in the focus ring, and \`:focus\` in the
+  // sheet above is the whole of the highlight
   const rows = ITEMS.map(
     (item) => ui\`
       <box class="row" focusable onKey=\${onEnter(item)}>
@@ -217,25 +272,18 @@ export function component(language: Language, syntax: Syntax, name: string): str
     ? '  const list = <box class="rows">{rows}</box>;'
     : '  const list = ui`<box class="rows">${rows}</box>`;';
 
-  const footer = `keyHelp(input, {
-    // less the status beside it, which the footer cannot know about
-    width: () => Math.max(20, app.terminal.width - 24),
-  })`;
-
   const screen = jsx
     ? `  return (
     <box class="app">
       <text class="title">{NAME}</text>
       <Panel title="Sections">{list}</Panel>
       <box class="status">
-        <box class="keys">{${footer}}</box>
-        <text class="chosen">{() => (chosen.get() === '' ? '' : \`selected: \${chosen.get()}\`)}</text>
+        <box class="keys">{keys}</box>
+        <text class="chosen">{status}</text>
       </box>
     </box>
   );`
-    : `  const keys = ${footer};
-
-  // a component is interpolated rather than named, because a tag has no scope
+    : `  // a component is interpolated rather than named, because a tag has no scope
   // to look a name up in. Host elements stay bare
   return ui\`
     <box class="app">
@@ -243,7 +291,7 @@ export function component(language: Language, syntax: Syntax, name: string): str
       <\${Panel} title="Sections">\${list}</\${Panel}>
       <box class="status">
         <box class="keys">\${keys}</box>
-        <text class="chosen">\${() => (chosen.get() === '' ? '' : \`selected: \${chosen.get()}\`)}</text>
+        <text class="chosen">\${status}</text>
       </box>
     </box>
   \`;`;
@@ -284,11 +332,21 @@ export function App()${typed ? ': Element' : ''} {
   // reads changes, and only that text is redrawn
   const chosen = new State('');
 
-  // one row per item. \`focusable\` puts it in the focus ring, and \`:focus\` in the
-  // sheet above is the whole of the highlight
 ${rows}
 
 ${list}
+
+  // what the status bar says: nothing until Enter has chosen something. A function,
+  // so that it is read again when \`chosen\` changes
+  const status = () => (chosen.get() === '' ? '' : \`selected: \${chosen.get()}\`);
+
+  // the key-help footer, from the bindings below. It is told how wide it may be:
+  // the terminal less what the status says now and the bar's own padding and margin,
+  // so the two share a row and neither wraps. Reading \`status()\` here is what makes
+  // it follow the choice
+  const keys = keyHelp(input, {
+    width: () => Math.max(0, app.terminal.width - status().length - 3),
+  });
 
   // up and down move the focus round the ring, and what they are described as is
   // what the footer lists. Bound once for the whole app, so they work wherever
@@ -359,15 +417,15 @@ export function tuiTest(opts: TuiTestOptions): string {
 //
 // \`frame()\` is there because frames are drawn on a clock, about thirty a second,
 // and not once per key: it paints the next one now instead of waiting for it.
+import schema from '../src/index.${language === 'ts' ? 'ts' : 'js'}';
+import { App, stylesheet } from '${component}';
 import { runApp } from '@ttylabs/sigil/app';
 import { createTestTerminal, ctrl, frame, KEYS, runCommand } from '@ttylabs/sigil/testing';
 import { describe, expect, it } from 'vitest';
-import schema from '../src/index.${language === 'ts' ? 'ts' : 'js'}';
-import { App, stylesheet } from '${component}';
 
-/** Opens the app on a terminal that is 60 columns by 14 rows. */
-function open() {
-  const term = createTestTerminal({ columns: 60, rows: 14 });
+/** Opens the app on a terminal that is 14 rows high and, unless it is told, 60 columns wide. */
+function open(columns = 60) {
+  const term = createTestTerminal({ columns, rows: 14 });
   const app = runApp(App, { detect: false, sheets: [stylesheet], terminal: term.terminal });
 
   return { app, term };
@@ -399,6 +457,21 @@ describe('${name} full-screen app', () => {
     await app.exited;
   });
 
+  it('keeps what Enter chose on one line in a narrow terminal', async () => {
+    // the footer is given the width the status leaves it, so the two share a row.
+    // Left to take the terminal's whole width it pushed the status onto a second
+    // line, which is how the text of a status gets cut in half
+    const { app, term } = open(30);
+
+    await term.press(KEYS.down, KEYS.down, KEYS.down, KEYS.enter);
+    await frame(app);
+
+    expect(term.viewport.some((line) => line.includes('selected: Settings'))).toBe(true);
+
+    await term.press('q');
+    await app.exited;
+  });
+
   it('quits with 0 on q, and gives the screen back', async () => {
     const { app, term } = open();
 
@@ -417,13 +490,29 @@ describe('${name} full-screen app', () => {
   });
 
   it('refuses without a terminal, which is what a pipe is', async () => {
-    // \`runCommand()\` runs the real \`main()\` over pipes, so this is the app as a
-    // script meets it: one line on stderr and a non-zero exit, and nothing drawn
-    const ran = await runCommand({ argv: ${argv}, schema });
+    // \`runCommand()\` runs the real \`main()\`, so this is the app as a script
+    // meets it: one line on stderr and a non-zero exit, and nothing drawn.
+    //
+    // A test runner's streams are pipes, which is what makes this refuse, and a
+    // runner that hands its own terminal down would open the real app instead and
+    // wait for a key nobody is going to press. So the one thing \`runApp()\` asks of
+    // stdin is pinned rather than assumed
+    const was = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
 
-    expect(ran.code).toBe(1);
-    expect(ran.out).toBe('');
-    expect(ran.err).toContain('not a terminal');
+    try {
+      const ran = await runCommand({ argv: ${argv}, schema });
+
+      expect(ran.code).toBe(1);
+      expect(ran.out).toBe('');
+      expect(ran.err).toContain('not a terminal');
+    } finally {
+      if (was) {
+        Object.defineProperty(process.stdin, 'isTTY', was);
+      } else {
+        Reflect.deleteProperty(process.stdin, 'isTTY');
+      }
+    }
   });
 });
 `;

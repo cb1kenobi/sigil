@@ -30,6 +30,8 @@ import {
   type Manager,
   MANAGERS,
   nameProblem,
+  otherSyntaxCommand,
+  runScript,
   scaffold,
   type ScaffoldFile,
   type Syntax,
@@ -148,6 +150,14 @@ const newApp: AnyCommand = command({
       choices: [...SYNTAXES],
       desc: 'Which template syntax the full-screen app is written in',
     },
+    // its own destination rather than the negated twin of `--tui`, which is what
+    // `negate: false` is for: `--tui` has to stay `false` when it was not passed,
+    // and `--no-tui` is the only way to say a script does not want the question
+    '--no-tui': {
+      desc: 'Do not include a full-screen app, and do not ask',
+      negate: false,
+      type: 'bool',
+    },
     '--tui': {
       desc: 'Include a full-screen app, launched from the app itself',
       type: 'bool',
@@ -161,6 +171,10 @@ const newApp: AnyCommand = command({
   async run({ argv }) {
     const yes = Boolean(argv.yes);
 
+    // first, before the name is asked for: a flag that cannot work is refused
+    // before any question, so nothing has been answered when it is
+    checkTuiFlags(argv, yes);
+
     const name = await askName(argv.projectName as string | undefined, yes);
     const problem = nameProblem(name);
     if (problem) {
@@ -171,10 +185,6 @@ const newApp: AnyCommand = command({
     if (!usable(dir)) {
       throw new Error(`${displayPath(dir)} already exists and is not empty`);
     }
-
-    // refused before the first question, so that a flag which cannot work is not
-    // discovered after the answers to four others
-    checkTuiFlags(argv, yes);
 
     const language = await askLanguage(argv, yes);
     const layout = await askLayout(argv, yes);
@@ -212,14 +222,16 @@ const newApp: AnyCommand = command({
     process.stdout.write(
       `\nCreated ${name} in ${displayPath(dir)}.\n\n  cd ${displayPath(relative(process.cwd(), dir) || '.')}\n` +
         (argv.install === false ? `  ${pm} install\n` : '') +
-        (tui?.at === 'root' ? `  ${pm} run dev\n` : '') +
-        (tui?.at === 'command' ? `  ${pm} run dev -- ${tui.command}\n` : '') +
-        `  ${pm} run dev -- --help\n` +
+        (tui?.at === 'root' ? `  ${runScript(pm, 'dev')}\n` : '') +
+        (tui?.at === 'command' ? `  ${runScript(pm, 'dev', tui.command)}\n` : '') +
+        `  ${runScript(pm, 'dev', '--help')}\n` +
         // said once, after the steps and only to somebody who was given JSX: a
         // build is the price of it, and the other syntax is the answer to
-        // paying it
+        // paying it. One line, and the command is one that runs as it is written;
+        // it is not wrapped, since the terminal does that and a hard break at
+        // 88 columns is wrong at every other width
         (tui && syntax === 'jsx'
-          ? '\nThe app is in JSX, so `dev` builds it before it runs. The `ui` tag is the build-free\nalternative: `sigil new --syntax ui` writes the same app in it.\n'
+          ? `\nThe app is in JSX, so \`dev\` builds it before it runs. The \`ui\` tag is the build-free alternative: \`${otherSyntaxCommand({ language, layout, name, syntax, tui })}\`\n`
           : '')
     );
   },
@@ -281,7 +293,10 @@ async function askLayout(argv: Record<string, unknown>, yes: boolean): Promise<L
   if (argv.single) {
     return 'single';
   }
-  if (yes) {
+  // a command to launch the app from is a command, so the question has been
+  // answered: asking it anyway let somebody say "no, a single command" and then
+  // fail with a guard from the scaffold after every question was answered
+  if (yes || typeof argv.tuiCommand === 'string') {
     return 'multi';
   }
 
@@ -317,8 +332,20 @@ async function askLayout(argv: Record<string, unknown>, yes: boolean): Promise<L
  */
 function checkTuiFlags(argv: Record<string, unknown>, yes: boolean): void {
   const command = argv.tuiCommand;
+  const named = typeof command === 'string';
 
-  if (typeof command === 'string') {
+  if (argv.noTui && (argv.tui || named || argv.syntax !== undefined)) {
+    throw new Error(
+      `--no-tui says there is no full-screen app, and ${argv.tui ? '--tui' : named ? '--tui-command' : '--syntax'} asks for one.`
+    );
+  }
+  if (argv.tui && named) {
+    throw new Error(
+      '--tui launches the full-screen app from the app itself and --tui-command from a command. Pass one of them.'
+    );
+  }
+
+  if (named) {
     if (argv.single) {
       throw new Error(
         '--tui-command needs a commands directory to put the command in, and --single has none. Use --tui to launch the full-screen app from the app itself.'
@@ -330,7 +357,7 @@ function checkTuiFlags(argv: Record<string, unknown>, yes: boolean): void {
     }
   }
 
-  if (argv.syntax !== undefined && yes && !argv.tui && typeof command !== 'string') {
+  if (argv.syntax !== undefined && yes && !argv.tui && !named) {
     throw new Error(
       '--syntax chooses how a full-screen app is written, and there is none. Add --tui.'
     );
@@ -364,7 +391,8 @@ async function askTui(
   if (argv.tui) {
     return { at: 'root' };
   }
-  if (yes) {
+  // `--no-tui` is how a script that passes every flag but `--yes` says so
+  if (yes || argv.noTui) {
     return undefined;
   }
 
@@ -378,7 +406,7 @@ async function askTui(
   const where = (await select({
     choices: [
       { hint: 'running it with no command opens the app', label: app, value: 'root' },
-      { hint: 'the app shows help, as it does today', label: 'A command', value: 'command' },
+      { hint: `${app} on its own shows help`, label: 'A command', value: 'command' },
     ],
     message: `Launch it from \`${app}\`, or from a command?`,
   })) as 'command' | 'root';
