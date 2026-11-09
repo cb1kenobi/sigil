@@ -2871,7 +2871,7 @@ people's software and will move.
   negated twin and was the wrong conclusion: `'--no-tui': { negate: false }` is a
   destination of its own (`noTui`), exactly the opt-out the pairing rule in the
   root `AGENTS.md` describes, and `--tui` stays an ordinary flag. Without it,
-  `sigil new foo --js --single --lint none --pm npm </dev/null`, which worked
+  `sigil new foo --lang js --single --lint none --pm npm </dev/null`, which worked
   before the question existed, failed with `Cannot prompt for "Include a
   full-screen app (TUI)?"`. A script that passes neither `--yes` nor `--no-tui`
   still meets the question without a terminal and is refused, as it is for any
@@ -2906,7 +2906,7 @@ people's software and will move.
   because it is not a step, on **one line**: the terminal wraps, and a hard break
   at 88 columns is wrong at every other width. The hint is `otherSyntaxCommand()`,
   a command that runs as written -- `sigil new <name> --tui --syntax ui`, or the
-  `--tui-command` form, with `--js` and `--single` carried over -- and not
+  `--tui-command` form, with `--lang`, `--pm`, `--lint` and `--single` carried over -- and not
   `--syntax ui` alone, which is refused under `--yes` and asks the TUI question
   again interactively. The README and the component's header comment print the
   same function's output, and `new-tui.test.ts` reads each form back out of the
@@ -3012,6 +3012,30 @@ people's software and will move.
   the function next. The flag and its choices are unchanged, so no script breaks,
   and the framework's own docs, where `ui` literally is the tagged-template
   function, keep calling it the tag.
+- **`--lang js|ts` replaced `--js`, because a flag cannot say "TypeScript".** A
+  declared flag is `false` when it is absent, so "not passed" and "TypeScript,
+  please" were one value, and only `--yes` could skip "Would you like to use
+  TypeScript?" -- for somebody who had already answered it with
+  `--tui-command dashboard`. An option with a value says it either way, the way
+  `--pm`, `--lint` and `--syntax` already do: passed is answered, absent is asked,
+  `--yes` takes `ts`, and a value that is not one of `LANGUAGES` is judged by
+  `choices` before the first question. `--js` is removed outright, with no alias
+  and no deprecation: the package is pre-1.0 and the ask was a change. The
+  other-syntax command always prints `--lang`, `ts` included, because the hint
+  reproduces the answers and a reader who runs it should be asked nothing it can
+  say.
+
+  **The trap, and it is not closed here: `--js` is silently ignored.** The toolchain
+  leaves `allowUnknownOptions` on, so `sigil new app --yes --js` takes `--js` as an
+  undeclared option, exits 0 and writes TypeScript, saying nothing -- measured, and
+  pinned by a characterization test so that changing it is a decision. Anything
+  with `--js` in a script now builds the wrong app. The same holds for every
+  mistyped option of every command, so the real choice is wider than this flag:
+  turn `allowUnknownOptions` off for the toolchain (`Unknown option --js`, and every
+  typo gets caught; a change to what every command accepts), or leave it and add a
+  hidden `--js` that throws `--js was replaced by --lang js` (one flag, one
+  message, and it is the alias that was asked not to exist, in a form that cannot
+  be used). Neither is done.
 
 ### The registry: what `sigil add` copies
 

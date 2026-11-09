@@ -52,8 +52,16 @@ import {
 
 export { commandNameProblem, otherSyntaxCommand, SYNTAXES, type Syntax, type Tui } from './tui.ts';
 
+/**
+ * The languages an app can be written in, which is `--lang`'s `choices`.
+ *
+ * Declared here with the type for the reason `MANAGERS` is: the prompt, the flag
+ * and the scaffold read one vocabulary.
+ */
+export const LANGUAGES = ['js', 'ts'] as const;
+
 /** What the app is written in. */
-export type Language = 'js' | 'ts';
+export type Language = (typeof LANGUAGES)[number];
 
 /** How its commands are arranged. */
 export type Layout = 'multi' | 'single';

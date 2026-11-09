@@ -25,7 +25,7 @@ sigil new [options] [project-name]
 | Option | Type | Description |
 | --- | --- | --- |
 | `--cwd [dir]` | `string` | Where to create it, defaulting to the working directory |
-| `--js` | `bool` | Generate JavaScript files instead of TypeScript |
+| `--lang [js\|ts]` | `string` | Which language the app is written in |
 | `--lint [oxlint\|eslint\|biome\|none]` | `string` | Which linter to set up |
 | `--no-git` | `bool` | Do not run git init |
 | `--pm [pnpm\|vlt\|npm]` | `string` | Which package manager to set the app up with |

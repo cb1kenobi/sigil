@@ -7,7 +7,13 @@ import { searchRecords } from '../src/lib/search-records.ts';
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-/** A small corpus in the reference's own shape: names shared across commands, and a root. */
+/**
+ * A small corpus in the reference's own shape: names shared across commands, and a root.
+ *
+ * The names are fixtures and not a copy of `sigil new`'s options: `--js` is not a real
+ * option any more (`--lang` replaced it), but the tests below need two names a slip
+ * apart, `--js` and `--json`, so the corpus keeps them.
+ */
 const payload: SymbolPayload = {
   s: [
     ['sigil', '/reference'],

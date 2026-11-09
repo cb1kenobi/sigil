@@ -334,17 +334,20 @@
           "type": "bool"
         },
         {
-          "choices": [],
+          "choices": [
+            "js",
+            "ts"
+          ],
           "env": [],
           "hidden": false,
           "long": [
-            "--js"
+            "--lang"
           ],
           "multiple": false,
           "required": false,
           "short": [],
-          "takesValue": false,
-          "type": "bool"
+          "takesValue": true,
+          "type": "string"
         },
         {
           "choices": [

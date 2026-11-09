@@ -23,7 +23,8 @@ npx @ttylabs/cli new my-cli
 
 It asks five things:
 
-- Whether to use TypeScript. The default is yes, and `--js` says no.
+- Whether to use TypeScript. The default is yes, and `--lang ts` or `--lang js` answers
+  it without asking.
 - Whether the app has subcommands. The default is a `commands/` directory, and
   `--single` makes the app itself the command.
 - Whether to include a full-screen app (TUI). The default is no, and `--tui`

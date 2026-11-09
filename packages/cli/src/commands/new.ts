@@ -24,6 +24,7 @@ import { displayPath } from '../build/index.ts';
 import {
   commandNameProblem,
   type Language,
+  LANGUAGES,
   type Layout,
   type Linter,
   type Manager,
@@ -133,7 +134,10 @@ const newApp: AnyCommand = command({
     '--cwd [dir]': {
       desc: 'Where to create it, defaulting to the working directory',
     },
-    '--js': { desc: 'Generate JavaScript files instead of TypeScript', type: 'bool' },
+    '--lang [lang]': {
+      choices: [...LANGUAGES],
+      desc: 'Which language the app is written in',
+    },
     '--lint [linter]': {
       choices: ['oxlint', 'eslint', 'biome', 'none'],
       desc: 'Which linter to set up',
@@ -351,10 +355,16 @@ async function askName(given: string | undefined, yes: boolean, parent: string):
   ).trim();
 }
 
-/** Asks whether it is TypeScript, defaulting to yes. */
+/**
+ * Asks whether it is TypeScript, defaulting to yes.
+ *
+ * `--lang` answers it either way. It is an option with a value, as `--pm`, `--lint`
+ * and `--syntax` are, because a flag is `false` when it is absent: "not passed" and
+ * "TypeScript, please" were the same value, so only `--yes` could skip the question.
+ */
 async function askLanguage(argv: Record<string, unknown>, yes: boolean): Promise<Language> {
-  if (argv.js) {
-    return 'js';
+  if (typeof argv.lang === 'string') {
+    return argv.lang as Language;
   }
   if (yes) {
     return 'ts';

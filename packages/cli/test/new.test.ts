@@ -179,7 +179,7 @@ describe('the scaffold', () => {
     // This file's own header says running a scaffolded app needs a network and
     // a package manager, and for the single layout that is too strong: its
     // entry imports nothing, so the one file can be written out and imported.
-    // `--js` deliberately, because a `.ts` under vitest would prove vite can
+    // JavaScript deliberately, because a `.ts` under vitest would prove vite can
     // read TypeScript rather than anything about this schema.
     const scratch = mkdtempSync(join(tmpdir(), 'sigil-single-'));
 

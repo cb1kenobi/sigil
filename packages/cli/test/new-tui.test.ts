@@ -509,12 +509,42 @@ describe('the flags', () => {
     expect(run(tempDir('sigil-new-tui-'), 'demo', '--yes').stdout).not.toContain('build-free');
   });
 
-  it('should write JavaScript with --js', () => {
+  it.each([
+    { flags: ['--lang', 'ts'], language: 'ts', what: 'with --lang ts' },
+    { flags: [], language: 'ts', what: 'under --yes alone' },
+    { flags: ['--lang', 'js'], language: 'js', what: 'with --lang js' },
+  ])('should write $language $what', ({ flags, language }) => {
     const dir = tempDir('sigil-new-tui-');
-    expect(run(dir, 'demo', '--yes', '--js', '--tui').status).toBe(0);
+    expect(run(dir, 'demo', '--yes', ...flags).status).toBe(0);
 
-    expect(existsSync(join(dir, 'demo', 'src', 'ui', 'app.jsx'))).toBe(true);
-    expect(existsSync(join(dir, 'demo', 'tsconfig.json'))).toBe(false);
+    expect(existsSync(join(dir, 'demo', 'src', `index.${language}`))).toBe(true);
+    expect(existsSync(join(dir, 'demo', 'tsconfig.json'))).toBe(language === 'ts');
+  });
+
+  it('should refuse a --lang it does not know, before the first question', () => {
+    // no name and no --yes: the name would be asked first if the value were not
+    // judged on the way in, and the run would end at "Cannot prompt"
+    const dir = tempDir('sigil-new-tui-');
+    const ran = run(dir, '--lang', 'py');
+
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toContain('py');
+    expect(ran.stderr).not.toContain('Cannot prompt');
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('should read the removed --js as an option nobody declared, and write TypeScript', () => {
+    // A CHARACTERIZATION, not an endorsement. `--js` is gone, and the parser's
+    // answer to an undeclared option is to take it as a value (`allowUnknownOptions`
+    // is on), so a script that still says `--js` gets a TypeScript app, exit 0, and
+    // nothing said. Pinned so that changing it is a decision: see "`--lang` replaced
+    // `--js`" in AGENTS.md for what could be done about it
+    const dir = tempDir('sigil-new-tui-');
+    const ran = run(dir, 'demo', '--yes', '--js');
+
+    expect(ran.status).toBe(0);
+    expect(existsSync(join(dir, 'demo', 'src', 'index.ts'))).toBe(true);
+    expect(ran.stderr).toBe('');
   });
 
   it('should refuse --tui-command with --single, and say what to pass', () => {
@@ -635,7 +665,18 @@ describe('the flags', () => {
     // this exact invocation worked before the question existed, and without a
     // flag to answer it with, a script written then would have broken
     const dir = tempDir('sigil-new-tui-');
-    const ran = run(dir, 'demo', '--js', '--single', '--lint', 'none', '--pm', 'npm', '--no-tui');
+    const ran = run(
+      dir,
+      'demo',
+      '--lang',
+      'js',
+      '--single',
+      '--lint',
+      'none',
+      '--pm',
+      'npm',
+      '--no-tui'
+    );
 
     expect(ran.status, ran.stderr).toBe(0);
     expect(existsSync(join(dir, 'demo', 'src', 'ui'))).toBe(false);
@@ -709,7 +750,7 @@ describe('the flags', () => {
   it.each([
     {
       flags: ['--tui', '--pm', 'pnpm', '--lint', 'none'],
-      printed: 'sigil new <name> --pm pnpm --lint none --tui --syntax ui',
+      printed: 'sigil new <name> --pm pnpm --lint none --lang ts --tui --syntax ui',
       second: (app: string) => {
         expect(existsSync(join(app, 'src', 'ui', 'app.ts'))).toBe(true);
         expect(existsSync(join(app, 'src', 'commands', 'hello.ts'))).toBe(true);
@@ -721,17 +762,17 @@ describe('the flags', () => {
     },
     {
       flags: ['--tui-command', 'ops', '--pm', 'npm', '--lint', 'biome'],
-      printed: 'sigil new <name> --pm npm --lint biome --tui-command ops --syntax ui',
+      printed: 'sigil new <name> --pm npm --lint biome --lang ts --tui-command ops --syntax ui',
       second: (app: string) => {
         expect(existsSync(join(app, 'src', 'commands', 'ops.ts'))).toBe(true);
         expect(existsSync(join(app, 'biome.json'))).toBe(true);
       },
     },
     {
-      flags: ['--single', '--tui', '--js', '--pm', 'vlt', '--lint', 'eslint'],
-      printed: 'sigil new <name> --pm vlt --lint eslint --js --single --tui --syntax ui',
+      flags: ['--single', '--tui', '--lang', 'js', '--pm', 'vlt', '--lint', 'eslint'],
+      printed: 'sigil new <name> --pm vlt --lint eslint --lang js --single --tui --syntax ui',
       second: (app: string) => {
-        // `--js`: the file is `.js`, and there is no tsconfig. `--single`: no commands
+        // `--lang js`: the file is `.js`, and there is no tsconfig. `--single`: no commands
         expect(existsSync(join(app, 'src', 'ui', 'app.js'))).toBe(true);
         expect(existsSync(join(app, 'tsconfig.json'))).toBe(false);
         expect(existsSync(join(app, 'src', 'commands'))).toBe(false);
@@ -786,7 +827,7 @@ describe('the flags', () => {
   it('should print the JSX command for an app that is written in the ui tag', () => {
     const readme = file(files({ syntax: 'ui', tui: { at: 'root' } }), 'README.md');
 
-    expect(readme).toContain('sigil new <name> --pm pnpm --lint none --tui --syntax jsx');
+    expect(readme).toContain('sigil new <name> --pm pnpm --lint none --lang ts --tui --syntax jsx');
   });
 
   it('should leave the other-syntax hint on one line, since the terminal wraps and a break at 88 does not', () => {
@@ -1201,6 +1242,29 @@ describe('the questions', () => {
     expect(ran.out).not.toContain('The ui tag');
   });
 
+  it('should ask which language when --lang was not passed', async () => {
+    const dir = tempDir('sigil-new-tui-');
+    const ran = await ask(dir, [ENTER, ENTER], '--no-tui');
+
+    expect(ran.out).toContain('Would you like to use TypeScript?');
+    expect(existsSync(join(dir, 'demo', 'src', 'index.ts'))).toBe(true);
+  });
+
+  it.each([
+    ['ts', 'index.ts'],
+    ['js', 'index.js'],
+  ])('should not ask which language when --lang %s answered it', async (lang, file) => {
+    // a flag was `false` when absent, so "TypeScript" could not be said without
+    // --yes and the question was asked of everyone who had already answered it
+    const dir = tempDir('sigil-new-tui-');
+    const ran = await ask(dir, [ENTER], '--lang', lang, '--no-tui');
+
+    expect(ran.code, ran.out).toBe(0);
+    expect(ran.out).not.toContain('Would you like to use TypeScript?');
+    expect(ran.out).toContain('Will it have subcommands?');
+    expect(existsSync(join(dir, 'demo', 'src', file))).toBe(true);
+  });
+
   it('should not ask whether there are subcommands when --tui-command names one', async () => {
     // a command to launch from is a command, so the question is answered. It used
     // to be asked, and "No, a single command" then failed with a guard from the
@@ -1236,7 +1300,7 @@ describe('the questions', () => {
     // question the way it meets any other unanswered one. --no-tui is how it
     // opts out, which the flag tests above pin
     const dir = tempDir('sigil-new-tui-');
-    const ran = run(dir, 'demo', '--js', '--single', '--lint', 'none', '--pm', 'npm');
+    const ran = run(dir, 'demo', '--lang', 'js', '--single', '--lint', 'none', '--pm', 'npm');
 
     expect(ran.status).not.toBe(0);
     expect(existsSync(join(dir, 'demo'))).toBe(false);

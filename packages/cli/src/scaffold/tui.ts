@@ -161,8 +161,10 @@ export interface TuiApp {
  * rather than from prose: `--syntax` alone is refused under `--yes` and asks the
  * TUI question again interactively, so the hint has to carry the TUI flag, and
  * the command form when the app was launched from one. It carries `--pm`,
- * `--lint`, `--js` and `--single` too, since a second app that took the defaults
+ * `--lint`, `--lang` and `--single` too, since a second app that took the defaults
  * for those would be a different app and not the same one in another syntax.
+ * `--lang` is always printed, `ts` included: the hint reproduces the answers, and a
+ * reader who runs it should be asked nothing it can say.
  *
  * The name is a **placeholder**. It is printed where somebody is standing next
  * to the app it describes -- the summary, the README in the app's own directory,
@@ -178,7 +180,8 @@ export function otherSyntaxCommand(app: TuiApp): string {
     app.manager,
     '--lint',
     app.linter,
-    ...(app.language === 'js' ? ['--js'] : []),
+    '--lang',
+    app.language,
     ...(app.layout === 'single' ? ['--single'] : []),
     ...(app.tui.at === 'command' ? ['--tui-command', app.tui.command] : ['--tui']),
     '--syntax',
