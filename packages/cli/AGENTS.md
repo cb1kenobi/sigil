@@ -229,6 +229,75 @@ makes it testable with a fixture directory and no bundler at all.
   loaded. Baking a module's own `name` would make a command reachable bundled
   under a spelling that does not resolve unbundled, which is exactly what the
   shared route rules exist to prevent.
+- **...and a module that declares one is warned about, because help used to print
+  it and nothing routed it.** SIG-316. `commands/list.ts` saying `name: 'list, ls'`
+  answered to `list` alone -- `mycli ls` was `Unexpected argument "ls"`, from
+  source, under `dev.ts` and after a build -- while `mycli help list` printed
+  `Alias: ls`. Reproduced over every way a module is reached, and none routes: a
+  walked route, a route one level down, a directory's `index`, a declared `path`
+  and a `load`. A `default: true` in a module is the silent twin: it is read after
+  the module loads, by which time the command was matched by name, so it does
+  nothing and says nothing. Help leaves the spelling out (see "The help label is the
+  name string's", its last paragraph, in `packages/sigil/src/help/AGENTS.md`); this is the
+  half that tells the author, in the file.
+
+  `factsOf(parsed, routedBy)` takes how the module is reached (`RoutedBy`) and
+  returns the warnings in `Extracted.routing`, **apart from `diagnostics`**, and
+  the reason is who can silence them. `moduleFacts()` drops a module's
+  `diagnostics` when the placeholder already declares a `desc`, because those are
+  about what help shows before the module loads and the placeholder answered that.
+  A module's `alias` does not start to route because the placeholder has a `desc`,
+  so these are never dropped. `RoutedBy.name` is the file or directory name of a
+  walked route, and for a schema entry the placeholder's name string with its
+  `alias` property joined on: everything argv matches before the module is read.
+  Only what **differs** from it is reported -- `name: 'list'` in `list.ts` repeats
+  the route and says nothing wrong, `default: true` repeats a placeholder that
+  says it too (`RoutedBy.default`), and a warning that fires on correct code
+  teaches people to ignore warnings -- compared as spellings, so a `!` or `@`
+  prefix and an inline `<argument>` do not count, a spelling written twice is one,
+  and `default: false` is not `default: true`. A property written as `undefined`
+  is not declared, as `placeholderRouting()` and the runtime read it, and shares
+  that helper (`isUndefined()` in `literals.ts`). A value the source does not hold
+  (`name: spelling()`, `alias: names`, `default: flag`) is reported, since nothing
+  says it matches. A caller that does not say how the module is reached gets no
+  warning, which is `extractCommand()` without a `routedBy`, and a tree resolved
+  with `facts: false`.
+
+  **Two places say nothing on purpose, and one is a different bug.** A **package a
+  key's value is the path of** (`commands: { foo: './pkg' }`) is imported when the
+  schema is built and names itself, so from source its module's own `name` and
+  `alias` are what route and the key is not: warning there is wrong, and following
+  the advice loses the spellings that work. `routedByPlaceholder()` in
+  `discover.ts` returns nothing for it. A built app routes the other way round --
+  the key `foo`, and not the package's names -- so source and build disagree about
+  what a package is called. That predates SIG-316 and is not settled here. Only the
+  string value is exempt: `registerCommandPackage()` is reached through
+  `commandAtPath()`, which a key's string value or an unnamed path goes through
+  and an object's `path` property does not -- that is imported as a file, a
+  directory there is refused (`Directory import ... is not supported`), and a
+  package is checked like any other module. A `load` is a function and is no more a
+  package than the object form. And a
+  **directory's `index` module** gets advice that names the _directory_
+  (`RoutedBy.index`): pointing a key at `db/index.ts` is one command with none of
+  `db`'s subcommands, so `database migrate` would stop working. Its `default: true` is told there is
+  no spelling for it, rather than a `path`: only a string value walks a directory
+  and a string cannot carry `default`, while `{ db: { path: './db', default: true } }`
+  crashes from source on the directory import
+  (`NO_WAY_TO_DEFAULT_A_DIRECTORY`, which changes with `DECLARE_ON_THE_ROUTE` when
+  SIG-324 lands). What is **not
+  checked at all**: a package a directory walk finds (`tree.ts` takes its
+  description from the manifest and does not read the module), and the routes under
+  a directory a schema points at by key (`dd: './commands/dd'`; the build reads
+  its `index` and not what is beside it).
+
+  The advice is one sentence, `DECLARE_ON_THE_ROUTE` in `extract.ts`, and it says
+  to declare the spelling on the schema key that routes the module
+  (`commands: { 'list, ls': './path/to/this-file' }`) because that is the only
+  place it routes today. SIG-324's `commands.json` describes a routed directory
+  without loading its modules, and when it lands this is the one string that
+  changes. Not built here. A warning and not an error, because the app runs: the
+  declaration is just ignored by routing.
+
 - **...but a _placeholder's_ `alias` and `default` are carried, because the same
   rule is what requires it.** The runtime reads both off the placeholder when the
   command is registered, which is before any module could be loaded, and a built

@@ -1,0 +1,7 @@
+{
+  "name": "module-routing-inline",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}
