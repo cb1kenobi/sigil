@@ -457,7 +457,8 @@ makes it testable with a fixture directory and no bundler at all.
   those settings built, behaving identically from source (`Error: step failed:
   Unknown option "--typo"`, exit 1), and the warning's advice would have put
   `errorHandler: false` on the **outer** app, turning every one of its errors into
-  an unhandled rejection. So the schema module is not read. A **top-level**
+  an unhandled rejection. So the schema module is not _searched_ for calls (it is
+  read for one other thing, what its `settings` say, below). A **top-level**
   `main()` in it is a different problem and is deliberately not reported: it runs
   in the built app in addition to the one `sigil build` generates (measured on a
   built executable: `--typo` printed the refusal and then `root ran`), and its own
@@ -484,7 +485,15 @@ makes it testable with a fixture directory and no bundler at all.
   Anything that could change what the literal says keeps the general sentence
   instead, because "the default" is a claim that needs the whole schema known: a
   spread or a computed key at the top level, two `settings` keys (JavaScript keeps
-  the last), a `settings` that is not a literal, a schema built by a function, and
+  the last; the same inside a `settings` literal, where the last may be `undefined`),
+  a `settings` that is not a literal, and a default export that is **anything but an
+  object literal** -- parentheses and `as`/`satisfies` are looked through, a call is
+  not. `objectLiteral()` unwraps any call with one object argument, on purpose, so
+  that the `desc` lift sees through `command()`; reusing it here read
+  `withHouseDefaults({ name: 'a' })` as a bare literal, and a wrapper that returns
+  `{ ...s, settings: ... }` made the message say the built app uses the default when
+  it does not. No identity helper for a schema exists in `@ttylabs/sigil` (`command()`
+  and `options()` are for a command and an option set), so no call is allowed. And
   a binding **mentioned anywhere but its declaration and the `export default`** --
   one rule that covers `schema.settings = ...`, `schema.settings.errorHandler =
   false` and `Object.assign(schema.settings, ...)`, each of which the first version
@@ -500,7 +509,7 @@ makes it testable with a fixture directory and no bundler at all.
   that the difference is intended and live with a line of build output.
 
   **Shapes this misses, all silent:** any `main()` in a file other than the root
-  `dev.*` runner -- the schema module is not read (above), and neither are a bin
+  `dev.*` runner -- the schema module is not searched (above), and neither are a bin
   under `bin/`, a non-entry `src/cli.ts` or a test -- one reached through a
   re-export or a wrapper function, a call whose **argument** is a variable
   (`main(opts)`) or a spread (`main({ ...opts })`), a computed `settings` key
@@ -509,7 +518,10 @@ makes it testable with a fixture directory and no bundler at all.
   (`settings: shared`, `settings: { ...shared }`) **is** reported, with the general
   message. Those
   are reachable only by following the module graph from a bin, which is a much
-  larger pass than a warning earns.
+  larger pass than a warning earns. And the message's own claim reads the schema's
+  file alone, so a mutation of `schema.settings` from **another module** before
+  `main()` runs (a plugin loaded by a top-level `await import()`, or `eval`) is not
+  seen; no realistic path to a false claim was found otherwise.
 
 - **`export default cmd` is followed to the `const` it names, because that is
   the shape this repo's own rules force.** `--isolatedDeclarations` refuses to

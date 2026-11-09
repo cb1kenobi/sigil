@@ -523,6 +523,22 @@ The sharpest question in the design, and the ticket did not name it.
   `beforeError` still fires exactly once, because the merge fails at the top of
   `main()` and the error goes through `handleError()` like any other. The error
   reported is still the settings fault, never a second one hiding it.
+- **The merge is over a fixed list of keys, read one way.** `SETTING_KEYS` in
+  `settings.ts` is the seven keys of `Settings`, tied to the interface by a
+  type-level check (`COVERS_EVERY_SETTING` stops compiling when `Settings` gains a
+  key the list lacks -- sabotaged by adding one), and every value is read by `read()`
+  with plain property access. The first version spread the schema's settings and
+  looped `Object.entries()` over the call's, which sees own enumerable keys only, so
+  a settings object with its values on a prototype (a class instance,
+  `Object.create(defaults)`) or behind a getter -- which worked before the PR, when
+  `main()` read `opts.settings?.errorHandler` and `parse()` kept `opts.settings`
+  whole -- silently lost them; and `salvagedErrorHandler()` read the prototype chain
+  while the merge did not, so one object got different handlers on the two paths.
+  Both go through `read()` now, so they cannot disagree, and a key whose value is
+  `undefined` is still not named. **A key outside the list is not carried onto
+  `state.settings`**, which is a change from keeping the caller's object: nothing in
+  this repository reads a key that is not in `Settings` (checked), but an app's own
+  hook that did would have to read it off the object it passed.
 - **The result is always a new object.** `parse()` used to keep the settings object
   its caller passed, so a hook writing `state.settings.allowUnknownOptions` wrote
   onto the caller's, and the toolchain carried a `beforeParse` hook that copied it

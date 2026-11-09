@@ -610,8 +610,8 @@ never sees the settings your own `main()` call passed -- `allowUnknownOptions: f
 refuses a typo from source and accepts it built, and a custom `errorHandler` goes
 missing. `sigil build` and `sigil check` warn about a `main()` call in the root `dev.*`
 runner (the file `sigil new` writes, which a build never bundles) whose argument is an
-object literal with a `settings` key, naming the file and line and what a built app uses
-instead. A `main()` call inside the schema module is not warned about: that module is
+object literal with a `settings` key, naming the file and line and, where it can tell, what a
+built app uses instead. A `main()` call inside the schema module is not warned about: that module is
 bundled, so a command composing another app keeps the settings it passes. A call
 elsewhere, or one whose argument is a variable or a spread (`main(opts)`,
 `main({ ...opts })`), is not seen.

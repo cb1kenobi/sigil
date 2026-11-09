@@ -103,13 +103,7 @@ export {
   type DiscoverOptions,
 } from './discover.ts';
 export { checkMainSettings, mainSettingsIn, type MainSettingsCall } from './main-settings.ts';
-export {
-  defaultObject,
-  extractCommand,
-  factsOf,
-  type CommandFacts,
-  type Extracted,
-} from './extract.ts';
+export { extractCommand, factsOf, type CommandFacts, type Extracted } from './extract.ts';
 export {
   generateBin,
   generateCommands,

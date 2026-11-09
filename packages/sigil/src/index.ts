@@ -435,8 +435,9 @@ function errorHandlerSetting(opts: AppOptions): Settings['errorHandler'] {
   try {
     return resolveSettings(opts?.schema, opts?.settings).errorHandler;
   } catch {
-    // the merge failed -- one half is not an object, or a getter of the caller's
-    // threw -- but that says nothing about the other half's handler, and each was
+    // the merge failed -- one half is not an object, or a getter threw, on the call
+    // or on the schema (`get settings()`, or a throwing `errorHandler` getter inside
+    // `schema.settings`) -- but that says nothing about the other half's handler, and each was
     // honoured before `Schema.settings` existed. So whichever half can still be read
     // is: the call's, then the schema's, then the built-in. Dropping them here would
     // send an error the caller asked to have rethrown, or handled, to the built-in
