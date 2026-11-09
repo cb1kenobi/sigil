@@ -5200,10 +5200,18 @@ owns its own edge. `paneControl(host)` is its handle.
   triggers it, so a parent that is exactly as big as its panes make it -- an
   auto-height column -- is never a reason to ask for less. What a plain sibling
   claims depends on whether it gives way: one that cannot shrink (`flex-shrink: 0`)
-  keeps the size it was placed at and is taken off the room, with the parent's gaps;
-  one that can is what gives way and claims nothing. Two 15-cell panes beside a
+  keeps its basis and is taken off the room, with the parent's gaps; one that can is
+  what gives way and claims nothing. Two 15-cell panes beside a
   `width: 10; flex-shrink: 0` box in 30 columns used to leave the second half off the
-  screen.
+  screen. Its basis is the size it was placed at only if it does not grow either. A
+  box that grows has been drawn at its basis plus whatever the panes left it, so
+  claiming that drawn size handed a pane beside it only what it already had: a
+  `flex-grow: 1; flex-shrink: 0` box beside a 10-cell pane in 40 columns was drawn at
+  30, the pane could not get past 10, and every shrink was one it could not undo.
+  Such a box claims `basisOf()` instead -- a `flex-basis` in cells, else what
+  `measureNode()` reports -- and not nothing, which was the other fix on offer: it
+  cannot shrink below that, so claiming nothing let a size the app set push it off
+  the screen. Review of #350 found it.
 - **The size state is the app's and is not clamped in place.** `min` and `max` clamp
   where it is read and where a drag writes, and a state an app set out of range
   draws in range and keeps its value, so a terminal that is wide again finds the pane
@@ -5282,6 +5290,17 @@ owns its own edge. `paneControl(host)` is its handle.
   `min` or more. A collapse hands its cells to a neighbouring pane, and an expand takes
   them back; the size it had is kept in the size state throughout, which is what `expand()`
   restores.
+
+  So `collapse()` closes the pane or does nothing, and it is what a double-click, Enter
+  and Space reach through `toggle()`. Where the pane beside it cannot take every cell --
+  a `Pane` whose `max` leaves less room than the collapsing pane holds -- routing it
+  through the drag's arithmetic took the pane to what was left instead: still open,
+  smaller, the neighbour pushed to its `max`, and the size `expand()` restores written
+  over. A drag below the snap is a different request and still moves as far as it can.
+  The snap is also at zero whatever the minimum, since half of a `min: 0` is no snap at
+  all and a collapse of such a pane zeroed its size and left it open. Review of #350
+  found the first; the second turned up writing its test.
+
 - **A double-click is two clicks of the edge inside 400 ms, counted here.** The router
   reports `click` and has no count, and a count is not worth adding to every event for
   one component. The click that ends a drag is not a click on anything -- the edge moved

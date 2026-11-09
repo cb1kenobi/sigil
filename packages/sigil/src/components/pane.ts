@@ -211,6 +211,27 @@ function minimumOf(element: Element, axis: 'column' | 'row'): number {
   return axis === 'row' ? (measured.minWidth ?? 0) : (measured.minHeight ?? 0);
 }
 
+/**
+ * The cells a box that cannot shrink holds along the axis before it grows: its basis.
+ *
+ * The placement's own rule -- a `flex-basis` in cells, else the size `measureNode()`
+ * reports, which is a declared `width` or `height` with its padding and border where
+ * there is one and its content where there is not. A percentage basis, and a basis on
+ * a `content-box` box, read as that measured size instead, which are the cases this
+ * reads differently from the placement.
+ */
+function basisOf(element: Element, axis: 'column' | 'row', available: number): number {
+  const basis = element.style.flexBasis;
+  if (basis.type === 'cells' && element.style.boxSizing !== 'content-box') {
+    return basis.value;
+  }
+  const measured = measureNode(
+    element,
+    axis === 'row' ? available : (element.box?.width ?? available)
+  );
+  return axis === 'row' ? measured.width : measured.height;
+}
+
 /** Whether a sibling takes part in the flow the pane's edge is a boundary of. */
 function inFlow(element: Element): boolean {
   const { display, position } = element.style;
@@ -438,14 +459,21 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
       return wanted;
     }
     // the room the panes share is what is left once the things that will not give
-    // way have their cells: a box that cannot shrink keeps the size it was placed at,
-    // and the gaps between everything in the flow are the parent's. A box that can
-    // shrink or grow is what gives way, and claims nothing
+    // way have their cells, and the gaps between everything in the flow are the
+    // parent's. A box that can shrink is what gives way, and claims nothing. One that
+    // cannot keeps its basis: the size it was placed at, if it does not grow either --
+    // and if it does, not that, since what a growing box was drawn at includes the
+    // cells the pane left it, and claiming those handed the pane only what it already
+    // had, so a pane that shrank beside one could never grow back
     const flow = host.parent.children.filter((it) => it === host || inFlow(it));
     const gap = axis === 'row' ? host.parent.style.columnGap : host.parent.style.rowGap;
     const fixed = flow
       .filter((it) => it !== host && !models.has(it) && it.style.flexShrink <= 0)
-      .reduce((sum, it) => sum + extentOf(it, axis), 0);
+      .reduce(
+        (sum, it) =>
+          sum + (it.style.flexGrow > 0 ? basisOf(it, axis, content.width) : extentOf(it, axis)),
+        0
+      );
     const extent = Math.max(
       0,
       (axis === 'row' ? content.width : content.height) - fixed - gap * Math.max(0, flow.length - 1)
@@ -711,6 +739,9 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
     };
   };
 
+  /** Whether what is beside the pane can take every cell it has, which closing it needs. */
+  const canClose = (anchor: Anchor): boolean => anchor.start <= anchor.shrink;
+
   /** Takes the pane to `want` cells as far as everything involved allows. */
   const moveTo = (anchor: Anchor, want: number): number => {
     const low = Math.max(min, anchor.start - anchor.shrink);
@@ -718,9 +749,10 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
     let target = low > high ? anchor.start : Math.min(high, Math.max(low, Math.round(want)));
 
     // below half of its minimum a collapsible pane is not a small pane but a
-    // closed one, as a sash in an editor snaps. Only where its neighbour can take
-    // all of it
-    const closing = collapsible && want < min / 2 && anchor.start <= anchor.shrink;
+    // closed one, as a sash in an editor snaps -- and at zero whatever its minimum,
+    // since half of a zero minimum is no snap at all. Only where its neighbour can
+    // take all of it
+    const closing = collapsible && want < Math.max(min, 1) / 2 && canClose(anchor);
     if (closing) {
       target = 0;
     }
@@ -742,8 +774,15 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
 
   const control: PaneControl = Object.freeze({
     collapse(): void {
-      if (collapsible && !collapsed.get()) {
-        moveTo(begin(), 0);
+      if (!collapsible || collapsed.get()) {
+        return;
+      }
+      // a collapse closes the pane or does nothing. Where the pane beside it cannot
+      // take every cell, `moveTo()` would take it to what was left instead: still
+      // open, smaller, and with the size an expand puts back written over
+      const anchor = begin();
+      if (canClose(anchor)) {
+        moveTo(anchor, 0);
       }
     },
     collapsed,

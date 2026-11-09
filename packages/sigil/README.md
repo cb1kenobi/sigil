@@ -5345,7 +5345,9 @@ border and needs nothing.
 `collapsible: true` lets the pane go to zero cells: double-click the edge, press
 **Enter** or **Space** on it, or drag it below half of `min`. The edge stays, drawn
 dim, on the neighbour's cell beside the boundary, and a drag or the arrow that makes
-the pane bigger opens it again, to the size it had. `collapsed` is a boolean or a
+the pane bigger opens it again, to the size it had. A pane only collapses where
+what is beside it can take all of its cells; beside a `Pane` whose `max` leaves too
+little room, a collapse does nothing. `collapsed` is a boolean or a
 `State<boolean>` to keep it too.
 
 `paneControl(host)` hands an app the same moves for keys of its own:

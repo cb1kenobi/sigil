@@ -813,6 +813,44 @@ describe('Pane', () => {
       expect(picture(root, 30)[0]).toBe('╭─ fil… ─┃main');
     });
 
+    it('should leave the pane and both sizes alone when the pane beside it cannot take its cells', () => {
+      // a collapse closes the pane or does nothing: the right pane can grow by five, so
+      // the left one cannot close, and taking it to what was left resized it, still
+      // open, and wrote over the size an expand puts back
+      const left = pane('files', { collapsible: true, min: 4, size: 12 });
+      const right = pane('log', { max: 15, size: 10 });
+      const root = row(left, right, main());
+      picture(root, 40);
+      const control = paneControl(left)!;
+
+      control.collapse();
+      flush();
+      expect([control.collapsed.get(), control.size.get()]).toEqual([false, 12]);
+      expect(paneControl(right)?.size.get()).toBe(10);
+
+      // a double click, Enter and Space are a toggle, which is the same collapse
+      control.toggle();
+      flush();
+      expect([control.collapsed.get(), control.size.get()]).toEqual([false, 12]);
+      expect(paneControl(right)?.size.get()).toBe(10);
+      picture(root, 40);
+      expect(left.box?.width).toBe(12);
+    });
+
+    it('should collapse a collapsible pane whose min is zero', () => {
+      // half of a zero minimum is no snap at all, so a collapse took the size to zero
+      // and left the pane open, with the size it had gone
+      const { control, root } = collapsing({ min: 0 });
+
+      control.collapse();
+      flush();
+      expect([control.collapsed.get(), control.size.get()]).toEqual([true, 12]);
+      picture(root, 30);
+      control.expand();
+      flush();
+      expect(picture(root, 30)[0]).toBe('╭─ files ──╮main');
+    });
+
     it('should hand a collapsed pane’s cells to a pane beside it, and take them back', () => {
       const left = pane('files', { collapsible: true, min: 4, size: 12 });
       const right = pane('log', { min: 4, size: 10 });
@@ -1339,6 +1377,59 @@ describe('Pane', () => {
 
       expect([a.box?.width, fixed.box?.width, b.box?.width]).toEqual([11, 10, 5]);
       expect((b.box?.x ?? 0) + (b.box?.width ?? 0)).toBeLessThanOrEqual(30);
+    });
+
+    it('should grow back beside a box that grows and cannot shrink', () => {
+      // a box that grows is not fixed, though it cannot shrink: what it was drawn at
+      // includes the cells the pane left it, so counting that as fixed handed the pane
+      // only what it already had, and every shrink was one it could not undo
+      const side = Pane({ ascii: false, size: 10 }, text('side'));
+      const rest = box({ 'flex-grow': 1, 'flex-shrink': 0 }, text('rest'));
+      const root = row(side, rest);
+      const control = paneControl(side)!;
+      picture(root, 40, 2);
+
+      control.resize(20);
+      picture(root, 40, 2);
+      expect([side.box?.width, rest.box?.width]).toEqual([20, 20]);
+
+      control.resize(5);
+      picture(root, 40, 2);
+      control.resize(20);
+      picture(root, 40, 2);
+      expect([side.box?.width, rest.box?.width]).toEqual([20, 20]);
+    });
+
+    it('should still leave a box that grows and cannot shrink the room its basis takes', () => {
+      // it gives way down to its basis and no further, so a size the app sets past the
+      // room left is drawn in the room left, rather than pushing the box off the screen
+      const side = Pane({ ascii: false, size: 10 }, text('side'));
+      const rest = box(
+        { 'flex-grow': 1, 'flex-shrink': 0 },
+        text('x'.repeat(25), { 'white-space': 'nowrap' })
+      );
+      const root = row(side, rest);
+      picture(root, 40, 2);
+
+      paneControl(side)?.size.set(30);
+      flush();
+      picture(root, 40, 2);
+      picture(root, 40, 2);
+      expect([side.box?.width, rest.box?.width]).toEqual([15, 25]);
+    });
+
+    it('should read a declared flex-basis as the basis such a box keeps', () => {
+      // its content is one cell, so a basis read off the content would leave it 1
+      const side = Pane({ ascii: false, size: 10 }, text('side'));
+      const rest = box({ 'flex-basis': 25, 'flex-grow': 1, 'flex-shrink': 0 }, text('r'));
+      const root = row(side, rest);
+      picture(root, 40, 2);
+
+      paneControl(side)?.size.set(30);
+      flush();
+      picture(root, 40, 2);
+      picture(root, 40, 2);
+      expect([side.box?.width, rest.box?.width]).toEqual([15, 25]);
     });
 
     it('should not wipe a z-index the app sets after the pane is built', () => {
