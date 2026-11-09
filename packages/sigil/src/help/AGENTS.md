@@ -317,7 +317,10 @@ the entry it belongs to.
   a module: a level's walk would have to import every module to learn its names,
   which is what the deferral exists to avoid. `sigil check` and `sigil build` warn
   about the declaration instead (`packages/cli/AGENTS.md`, the entry that begins
-  "...and a module that declares one is warned about"), and SIG-324 is the real fix.
+  "...and a module that declares one is warned about"), and SIG-324 is the real fix:
+  a routed directory's `commands.json` declares those spellings where the walk can
+  read them without importing anything, and the warning now points there. An
+  alias it declares routes and is left out of help, as the `alias` property is.
 
   Three consequences, none of them new defects. A module that renames the command
   to something else (`name: 'show'` under the key `list`) lists the placeholder's

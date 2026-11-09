@@ -41,6 +41,7 @@ export * from './subpaths/log.js';
 export * from './subpaths/spinner.js';
 export * from './subpaths/tasks.js';
 export * from './subpaths/keys.js';
+export * from './subpaths/owned-hooks.js';
 export * from './subpaths/qrcode.js';
 export * from './subpaths/image.js';
 export * from './subpaths/console-capture.js';

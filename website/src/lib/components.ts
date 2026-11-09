@@ -718,6 +718,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'promptUnderHead',
     'promptValue',
     'promptWindow',
+    'refuseOwnedHooks',
     'refusePrompt',
     'runLinePrompt',
     'runPrompt',

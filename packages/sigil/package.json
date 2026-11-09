@@ -186,6 +186,10 @@
       "types": "./dist/components/outline.d.mts",
       "default": "./dist/components/outline.mjs"
     },
+    "./components/owned-hooks": {
+      "types": "./dist/components/owned-hooks.d.mts",
+      "default": "./dist/components/owned-hooks.mjs"
+    },
     "./components/pager": {
       "types": "./dist/components/pager.d.mts",
       "default": "./dist/components/pager.mjs"

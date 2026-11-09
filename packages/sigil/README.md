@@ -398,24 +398,28 @@ export default {
 A lazily loaded command appears in help by name alone until its module is read,
 because its description lives in that module. `help <command>` does load it.
 
-`routeInfo` is how a build that keeps the walk gets those descriptions onto the
-help screen without importing anything: it maps route names onto what was lifted
-out of them. `sigil build` does not write one — it bakes the whole tree into the
-executable it generates, as a `commands` literal with a `desc` and a `load` per
-command, which is the `load` shape further down.
+A `commands.json` beside the modules describes them without importing anything,
+and is also the one place a walked command can get an alias or be the default —
+a `name` or `alias` inside a module cannot route, since the module is read only
+after argv has matched its file:
 
-```js
-commands: './commands',
-routeInfo: {
-  build: { desc: 'Build the app' },
-  db: { desc: 'Database tasks', commands: { migrate: { desc: 'Run migrations' } } },
-},
+```json
+{
+  "build": { "desc": "Build the app", "alias": "b" },
+  "db": { "desc": "Database tasks" },
+  "serve": { "desc": "Run the server", "default": true }
+}
 ```
 
-It is a **cache over the walk, not a list of what exists**. The directory is
-still read, so a command with no entry still works and simply lists without a
-description — which is what keeps a command dropped into an installed app from
-becoming invisible. Once a module is loaded, its own `desc` is what stands.
+Each key is a route's name, and each directory has its own file, so
+`commands/db/commands.json` describes `db migrate`. It is a **description of the
+walk, not a list of what exists**: the directory is still read, so a command with
+no entry still works and simply lists without a description, and an entry naming
+no command is ignored (and `sigil check` says so). Once a module is loaded, its
+own `desc` is what stands. `sigil build` reads the same file and bakes it into
+the executable, so an alias routes the same before and after a build;
+`commands.jsonc` is read too. It replaces the schema's `routeInfo`, which is a
+breaking change: `routeInfo` is gone, and one left on a schema is ignored.
 
 `load` is `path` said as a function, for an app that has been bundled:
 
@@ -470,7 +474,6 @@ hook already are that moment.
 | `hooks`                       | `init`, `parse`, `help`, `afterRun`, `beforeError`, `subcommandLoaded`           |
 | `path`                        | a module to load the command from, resolved from the file that declared it       |
 | `load`                        | that module as a function -- `() => import('./build.js')` -- for a bundled app   |
-| `routeInfo`                   | descriptions a build lifted out of the modules a `commands` path points at       |
 | `examples`                    | `{ label, text }` pairs for help                                                 |
 
 ### Running one command from another
@@ -2722,14 +2725,73 @@ one line, each line break a space, which is what a table cell or a prefix
 beside a message wants -- a cell two lines tall pushes every row after it down
 by one.
 
+A hook is a prop too. `onKey`, `onMouse`, `onPaste`, `onFocusChange`, `onScroll`,
+`onResize` and `onLayout` can be given to `box()`, `text()` and `raw()` as well as
+assigned afterwards -- `box({ onKey: (event) => ... })` -- and a template writes
+them the same way. `HANDLER_PROPS` is the list, `isHandlerProp(name)` asks it,
+`HandlerProp` is the name of one, `HandlerProps` is the object of them typed by
+the fields they set, and `HandlerValue` is what any one may be (a function, or
+`undefined` to clear it). `ElementPropsWithout<'onKey'>` is `ElementProps` with
+some hooks pinned to `undefined`, which is the type of a built-in component's
+`props` where the component sets that hook itself: a component refuses a handler
+for a hook it owns, at run time as well as in the type, rather than replace it
+without a word. `TextField` owns `onKey`, `onPaste`, `onFocusChange` and
+`onResize`; `ScrollBox` `onKey` and `onMouse`; `createPager` `onKey`;
+`tabRowView` `onKey`, `onFocusChange` and `onResize`; `openModal` `onPaste`;
+`showToast` `onMouse`; `attachTooltip` `onLayout`. Put a handler for those on an
+element around the component. A wrapper that forwards `props` types them as
+`ElementPropsWithout<...>` with the same hooks: a value typed plain `ElementProps`
+no longer fits, because it may carry a handler the component would replace.
+`refuseOwnedHooks(who, props, hooks)` from
+`@ttylabs/sigil/components` is the check they share, for an ejected or a
+hand-written component that spreads `props` into its host and sets a hook there.
+
 ### `sigil/template`
 
 The `ui` tag, its parser, and the emitter's leaves -- `applyProp()`,
-`applyText()`, `appendValue()`, `rawElement()`, `rootElement()`,
-`componentChildren()`, `rawParts()` and `textPart()` -- which `sigil build`'s
-template compiler calls rather than restating, so a compiled template and an
-interpreted one cannot come to disagree about what a prop, a child or a `<raw>`
-means.
+`applyRef()`, `splitRefs()`, `refuseHandlerName()`, `applyText()`,
+`appendValue()`, `rawElement()`, `rootElement()`, `componentChildren()`,
+`rawParts()` and `textPart()` -- which
+`sigil build`'s template compiler calls rather than restating, so a compiled
+template and an interpreted one cannot come to disagree about what a prop, a
+child or a `<raw>` means.
+
+A host element takes the seven hooks as props -- `onKey`, `onMouse`, `onPaste`,
+`onFocusChange`, `onScroll`, `onResize` and `onLayout` -- in JSX and in the tag,
+spelled the same way (`onKey={fn}`, `onKey=${fn}`) and typed as the `Element`
+fields they set, so a handler with the wrong signature is a type error. A
+function under one of those names is **the handler**, never a reactive thunk: it
+is assigned once, and is not called while the template builds. Swapping a
+handler through a signal is not supported; a handler reads the state it needs
+when it runs. A value that is not a function (`onKey="x"`) is a template error.
+`box({ onKey })` and a template are one path.
+
+```jsx
+let list;
+<box onKey={(event) => event.key.name === 'q' && app.exit()} ref={(el) => (list = el)}>
+  <text>press q</text>
+</box>;
+```
+
+`ref` is a callback and nothing else, `ref={(el) => ...}`. It is called once with
+the element, after its props and children are built and before it is attached
+to its parent -- so layout has not run (`onLayout` is the hook for sizes). It is
+not called again on removal; cleanup goes through the owner (`onCleanup()`). A
+`State` holds an element as `ref={(el) => node.set(el)}`. Like a handler, a
+function under `ref` is never a thunk. `RefProps` is its type, which `HostProps`
+(from `@ttylabs/sigil/jsx-runtime`) already includes.
+
+`ref` and the hooks are props of a **host element**, `<box>`, `<text>` and
+`<raw>`. On a component, `<${Panel} ref=${fn} />`, they are props like any other:
+the template hands them to the component and does nothing with them, so a
+`ref` is called only if the component reads it and forwards it to a host. That is
+deliberate -- a component may take a `ref` on purpose -- and it means a `ref` on a
+component that ignores it is silently unused.
+
+A name that nearly spells a hook is refused rather than treated as a style
+property: `on-key`, `onkey` and the like say which name to write, and any other
+`on`-prefixed name given a function (`onClick=${fn}`) is "not an event this
+element has". No style property starts with `on`.
 
 ### `sigil/help`
 
@@ -6717,11 +6779,12 @@ import { createConfigSync, json, object } from '@ttylabs/sigil/config';
 ```
 
 It imports no parser module at all, which makes it usable from an app that does
-not use sigil's parser. The subpath is about 38 kB over nine modules — `paths`,
+not use sigil's parser. The subpath is about 39 kB over ten modules — `paths`,
 the type coercion, i18n, the debug logger, the environment-variable rule the
 parser shares, the directory creation the update cache shares, the atomic write
 the completion installer shares, the array-index rule the output formats share,
-and the module itself — which is a module
+the JSONC reader a routed directory's `commands.json` shares, and the module
+itself — which is a module
 rather than anything like `sigil/components`.
 
 ### `sigil/testing`

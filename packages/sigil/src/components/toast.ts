@@ -27,7 +27,7 @@ import {
   box,
   cellStyle,
   Element,
-  type ElementProps,
+  type ElementPropsWithout,
   raw,
   text as textNode,
 } from '../element/index.js';
@@ -37,6 +37,7 @@ import { onCleanup } from '../renderer/index.js';
 import type { Terminal } from '../terminal/index.js';
 import { mountLevel } from './mount.js';
 import { type NoteVariant, unicodeSupported } from './note.js';
+import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** Which corner of the screen a toast stacks in. */
 export type ToastPosition = 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
@@ -89,7 +90,7 @@ export interface ToastOptions {
   /** Which corner. Defaults to `bottom-right`. */
   position?: ToastPosition;
   /** The toast's own props: a margin, a class. Geometry only, never a colour. */
-  props?: ElementProps;
+  props?: ElementPropsWithout<'onMouse'>;
   /**
    * Whether this toast is progress rather than the answer -- `MountOptions.quiet`.
    *
@@ -241,6 +242,7 @@ function stackFor(root: Element, position: ToastPosition): Stack {
  * @returns The handle.
  */
 export function showToast(host: ToastHost, opts: ToastOptions): ToastHandle {
+  refuseOwnedHooks('showToast', opts?.props, ['onMouse']);
   const root = host instanceof Element ? host : host?.root;
   if (!(root instanceof Element)) {
     throw new TypeError(__`Expected a toast host to be an element or a renderer`);

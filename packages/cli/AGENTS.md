@@ -283,20 +283,54 @@ makes it testable with a fixture directory and no bundler at all.
   no spelling for it, rather than a `path`: only a string value walks a directory
   and a string cannot carry `default`, while `{ db: { path: './db', default: true } }`
   crashes from source on the directory import
-  (`NO_WAY_TO_DEFAULT_A_DIRECTORY`, which changes with `DECLARE_ON_THE_ROUTE` when
-  SIG-324 lands). What is **not
+  (`NO_WAY_TO_DEFAULT_A_DIRECTORY`; a _walked_ directory's `index` is told to use
+  its parent's `commands.json`, which can say it -- see the entry below). What is **not
   checked at all**: a package a directory walk finds (`tree.ts` takes its
   description from the manifest and does not read the module), and the routes under
   a directory a schema points at by key (`dd: './commands/dd'`; the build reads
   its `index` and not what is beside it).
 
-  The advice is one sentence, `DECLARE_ON_THE_ROUTE` in `extract.ts`, and it says
-  to declare the spelling on the schema key that routes the module
-  (`commands: { 'list, ls': './path/to/this-file' }`) because that is the only
-  place it routes today. SIG-324's `commands.json` describes a routed directory
-  without loading its modules, and when it lands this is the one string that
-  changes. Not built here. A warning and not an error, because the app runs: the
-  declaration is just ignored by routing.
+  The advice for a module a schema points at is one sentence,
+  `DECLARE_ON_THE_ROUTE` in `extract.ts`: declare the spelling on the schema key
+  that routes it (`commands: { 'list, ls': './path/to/this-file' }`). A **walked**
+  module has no schema key, so since SIG-324 it is told to use the `commands.json`
+  beside it instead, with the entry that says it --
+  `` `{ "list": { "alias": ["ls"] } }` `` -- through `declareIn()`, which
+  `RoutedBy.manifest` turns on. `tree.ts` sets it for every walked route, naming
+  the file the level has (`commands.jsonc` where that is the spelling) or
+  `commands.json` where it has none, and joins the entry's own `alias` onto
+  `RoutedBy.name`, so a module repeating what the file already routes is
+  silent. A walked directory's `index` is pointed at its parent's file, which
+  can make it the default where a schema key cannot. An alias declared there
+  routes and stays out of help, as the `alias` property does; a spelling help
+  shows still needs a name string on a schema key. A warning and not an error,
+  because the app runs: the declaration is just ignored by routing.
+
+- **The build reads a routed directory's `commands.json` through the runtime's
+  reader and bakes it.** SIG-324. `readRoutes()` reads the file out of the
+  listing it already has and applies each entry to its route, so `tree.ts`
+  receives routes with `desc`, `hidden`, `alias` and `default` already on them
+  and prints them through `generate.ts`'s existing `alias` and `default` fields
+  (SIG-315's) -- which is what makes an entry's alias or default route after a
+  build exactly as from source. No second reader, so no second wording: a file
+  that is not JSONC, a property of the wrong type, both spellings in one
+  directory or two defaults throw out of `readRoutes()`, which `walkCommandDir()`
+  turns into an error diagnostic, with the runtime's own message. An entry's
+  `desc` beats the lifted one (and drops a lifted `descTranslated`, since the
+  entry is prose), and a route with no entry, or an entry with no `desc`, keeps
+  the lift -- the settled fallback. When an entry has a `desc`, the module's own
+  pre-load diagnostics are dropped, which is `moduleFacts()`'s rule for a
+  placeholder with a `desc`; its routing warnings are not. What the runtime
+  ignores is a warning here, naming the file and no line: an entry naming no
+  route (`DirectoryRoutes.stale`), saying which alias does not route, and a
+  property that is none of the four (`RouteManifest.unknown`). `commands.json` is
+  read from the _app's_ tree, so nothing in this repository's own build reads
+  one; were the toolchain to grow one, it would sit under `src/**`, which its
+  `build.inputs` already hash. The build does not walk the routes under a
+  directory a schema points at by key (`dd: './commands/dd'`), so a
+  `commands.json` there is read from source and not by the build -- the same
+  pre-existing gap the SIG-316 entry records for their modules, and not
+  settled here.
 
 - **...but a _placeholder's_ `alias` and `default` are carried, because the same
   rule is what requires it.** The runtime reads both off the placeholder when the
@@ -357,7 +391,7 @@ makes it testable with a fixture directory and no bundler at all.
   module that left the key `undefined`), and the baked tree holds `desc`,
   `hidden`, `alias`, `default`, `name`, the module and a nested `commands` written
   as an object literal. So `run` (an inline handler with no module prints help and
-  exits 0), `options`, `args`, `examples`, `format`, `hooks`, `help`, `routeInfo`,
+  exits 0), `options`, `args`, `examples`, `format`, `hooks`, `help`,
   custom data, and a nested `commands` given as a path or a list are
   dropped, and a placeholder with `options: { '--force': { type: 'bool' } }` and
   `args: [{ name: 'target' }]` answers `remove --force x` as
@@ -1824,10 +1858,10 @@ other is refused with numbers.
   the change that stopped needing them, and the toolchain stopped filling the
   schema's `routeInfo` -- the shape to reach for when a generator appears beside
   a build is whether the build should have done it. `routeInfo` itself did
-  **not** go, and an earlier wording of this bullet said it had, which is the
-  one sentence here capable of causing damage: it is live runtime API, read in
-  `init-command.ts` wherever a placeholder is built, and the bullet below is
-  what stands between it and the next cleanup.
+  **not** go then, and an earlier wording of this bullet said it had, which was
+  the one sentence here capable of causing damage: it was live runtime API, read
+  in `init-command.ts` wherever a placeholder was built. It went in SIG-324, on
+  purpose rather than as a cleanup -- see the last bullet of these three.
 - **Except the lift-and-print module outlived everything around it, and dead
   code carrying instructions is worse than dead code.**
   `packages/cli/src/build/route-info.ts` -- the _generator_, which is a
@@ -1866,11 +1900,20 @@ other is refused with numbers.
   above under the route rules had all been saying otherwise. Each was false
   before the module was deleted rather than made false by deleting it, which is
   the only reason to correct them here: the deletion is what removes the last
-  thing in the tree those sentences could have been pointing at. Pinned now by
-  `a lifted description` in `test/parser/routing.test.ts`, which is the coverage
-  that was missing -- `routeInfo` is read throughout `init-command.ts` and was
-  tested nowhere at all, and a public API with no producer left in the tree is
-  one the next cleanup takes for dead.
+  thing in the tree those sentences could have been pointing at.
+
+  **And then `routeInfo` went, because a file replaced it.** SIG-324. Its one
+  writer was the test that pinned it, the runtime does not read it on a baked
+  tree, and a routed directory's `commands.json` covers the use it was published
+  for -- a build that keeps the walk writes that file instead -- while also saying
+  `alias` and `default`, which `RouteInfo` could not. `Schema.routeInfo`,
+  `Command.routeInfo`, `InternalCommandBase.routeInfo` and the `RouteInfo` type
+  were removed together, with the internal map that carried a subtree down the
+  walk: each level reads its own file now. A leftover `routeInfo` on a
+  declaration is custom data and is ignored, with no compatibility read and no
+  warning; `a commands.json` in `test/parser/routing.test.ts` pins the precedence
+  rules `a lifted description` used to, over the file.
+
 - **Stage 2 is the check that the compiler is a fixed point, and it holds.**
   Stage 1 is what stage 0 produces; stage 2 is what _stage 1_ produces, and the
   two are byte-identical. Two runs of one binary agreeing proves only

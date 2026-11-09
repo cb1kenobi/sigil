@@ -22,15 +22,16 @@ which provides the `sigil` command.
 - `<value>` in an option's format makes the option itself required. Use
   `[value]` for an optional option that takes a value. A value is a string
   unless the option sets `type`, such as `'int'` or `'bool'`.
-- A command in `src/commands/` answers to its file name and nothing else: a
-  `name`, an `alias` or `default: true` inside the module does not route it,
-  because the module is only loaded once argv has matched the file. Help leaves
-  such a spelling out, and `sigil check` and `sigil build` warn about it in the
-  modules they read. For a second spelling, list
-  the commands in the schema instead of a directory:
-  `commands: { 'hello, hi': './commands/hello.ts' }` runs `hi` and shows both
-  spellings in help. To run `hi` without listing it, give the command an
-  `alias`: `commands: { hello: { alias: 'hi', path: './commands/hello.ts' } }`.
+- A command in `src/commands/` answers to its file name: a `name`, an `alias`
+  or `default: true` inside the module does not route it, because the module is
+  only loaded once argv has matched the file. Help leaves such a spelling out,
+  and `sigil check` and `sigil build` warn about it in the modules they read.
+  Say it in a `commands.json` in the same directory instead, keyed by file name
+  without the extension: `{ "hello": { "desc": "Say hello", "alias": "hi" } }`
+  runs `hi` without listing it, and describes `hello` in help without loading
+  the module. A subdirectory has its own `commands.json`. For a second spelling
+  that help shows, list the commands in the schema instead of a directory:
+  `commands: { 'hello, hi': './commands/hello.ts' }`.
 - To fail, throw an `Error`. `main()` from `@ttylabs/sigil` prints its message
   without a stack and exits with 1, or with the error's integer `exitCode`.
 - For output a script can read, return data from `run()` and set

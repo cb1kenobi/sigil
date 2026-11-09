@@ -76,12 +76,14 @@ import {
   cellStyle,
   type Element,
   type ElementProps,
+  type ElementPropsWithout,
   raw,
   type RawPaint,
   scrollBy,
   scrollRange,
 } from '../element/index.js';
 import type { KeyEvent, MouseEvent } from '../input/index.js';
+import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** Which axes a scroll box scrolls, and therefore which bars it draws. */
 export type ScrollAxis = 'both' | 'horizontal' | 'vertical';
@@ -307,7 +309,7 @@ export interface ScrollBoxProps {
    * property rather than a component prop, and a decision for whoever needs it.
    */
   /** The host box's own props: the height it is given, a border, a class. */
-  props?: ElementProps;
+  props?: ElementPropsWithout<'onKey' | 'onMouse'>;
   /**
    * Whether to draw a scrollbar at all. Defaults to `true`.
    *
@@ -582,6 +584,7 @@ export function scrollControl(host: Element): ScrollControl | undefined {
  * @returns The host element.
  */
 export function ScrollBox(props: ScrollBoxProps): Element {
+  refuseOwnedHooks('ScrollBox', props.props, ['onKey', 'onMouse']);
   const axis = props.axis ?? 'vertical';
   const vertical = axis === 'both' || axis === 'vertical';
   const horizontal = axis === 'both' || axis === 'horizontal';

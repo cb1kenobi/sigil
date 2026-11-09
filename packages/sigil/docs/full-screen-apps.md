@@ -111,7 +111,10 @@ Five things in there are worth reading twice:
   `App` at all.
 - **JSX makes elements, not descriptions of them.** `<box>` returns a real
   element, so `row.onKey = ...` on the next line sets a handler on the row that
-  will be drawn. There is no virtual DOM.
+  will be drawn. There is no virtual DOM. A handler can also be written where
+  the element is, as a prop: `<box onKey={(event) => ...}>` -- one of seven
+  `on*` hooks, in JSX and in the `ui` tag alike -- and `ref={(el) => ...}` is
+  how a template hands back an element it built.
 - **`{() => String(count.get())}` is the reactive part.** A function child is
   called again whenever a signal it read changes, and only that text is
   updated. `{count.get()}` would be read once, and the number would never move.

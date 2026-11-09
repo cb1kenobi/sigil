@@ -284,7 +284,11 @@ describe('sigil check', () => {
       const [list] = warnings(err).filter((line) => line.startsWith('src/commands/list.ts:'));
       expect(list).toContain('"name" declares "ls", which does not route');
       expect(list).toContain('"list"');
-      expect(list).toContain("commands: { 'list, ls': ");
+      // a walked route has no schema key, so the advice is its commands.json
+      // (SIG-324)
+      expect(list).toContain(
+        'the commands.json beside this module instead, such as `{ "list": { "alias": ["ls"] } }`'
+      );
       expect(process.exitCode).toBeFalsy();
     });
 
@@ -295,8 +299,12 @@ describe('sigil check', () => {
       expect(index).toHaveLength(2);
       expect(index[0]).toContain('"alias" declares "database", which does not route');
       expect(index[1]).toContain('"default" has no effect here');
-      // pointing a key at `db/index.ts` would lose `db migrate`
-      expect(index[0]).toContain("commands: { 'db, database': './path/to/this-directory' }");
+      // described in the parent's file, which can make a directory the default
+      // where a schema key cannot
+      expect(index[0]).toContain(
+        'the commands.json beside this directory instead, such as `{ "db": { "alias": ["database"] } }`'
+      );
+      expect(index[1]).toContain('`{ "db": { "default": true } }`');
     });
 
     it('should say nothing where a module repeats the name it is routed by', async () => {
@@ -320,6 +328,45 @@ describe('sigil check', () => {
       // `list` repeats its key and `show` repeats the alias its placeholder holds
       expect(err).not.toContain('src/commands/list.ts');
       expect(err).not.toContain('src/commands/show.ts');
+    });
+  });
+
+  describe('a commands.json', () => {
+    // SIG-324. A routed directory's commands.json describes and aliases its
+    // commands without loading them; what the runtime ignores in it, `check`
+    // says out loud, because a stale alias is a spelling that does not route
+    const manifest = join(fixtures, 'discover', 'routes-manifest');
+
+    it('should warn about an entry naming no route, and the alias it carries', async () => {
+      const { err } = await sigil('check', manifest);
+
+      expect(err).toContain(
+        'src/commands/commands.json: warning: "gone" names no command in this directory, so its entry is ignored and "g" does not route'
+      );
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    it('should warn about a property an entry does not take', async () => {
+      const { err } = await sigil('check', manifest);
+
+      expect(err).toContain('warning: "aliases" on "close" is not something an entry takes');
+      expect(err).toContain('3 warnings');
+    });
+
+    it('should say nothing about a module repeating an alias its entry already routes', async () => {
+      // `db/migrate.ts` says `alias: 'm'`, which `db/commands.json` routes
+      const { err } = await sigil('check', manifest);
+
+      expect(err).toContain('src/commands/db/commands.json: warning: "seed" names no command');
+      expect(err).not.toContain('src/commands/db/migrate.ts');
+    });
+
+    it('should list what the file describes in the tree', async () => {
+      const { out } = await sigil('check', manifest, '--tree');
+
+      expect(out).toMatch(/list\s+src\/commands\/list\.ts\s+List the things/);
+      expect(out).toMatch(/migrate\s+src\/commands\/db\/migrate\.ts\s+Run migrations/);
+      expect(out).toContain('open (hidden)');
     });
   });
 
