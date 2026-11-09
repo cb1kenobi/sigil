@@ -23,7 +23,6 @@
 import { displayPath } from '../build/index.ts';
 import {
   commandNameProblem,
-  DEFAULT_TUI_COMMAND,
   type Language,
   type Layout,
   type Linter,
@@ -148,7 +147,7 @@ const newApp: AnyCommand = command({
     '--single': { desc: 'One command rather than a commands directory', type: 'bool' },
     '--syntax [syntax]': {
       choices: [...SYNTAXES],
-      desc: 'Which template syntax the full-screen app is written in',
+      desc: 'Which template syntax the full-screen app is written in: jsx, or ui for the Sigil UI template',
     },
     // its own destination rather than the negated twin of `--tui`, which is what
     // `negate: false` is for: `--tui` has to stay `false` when it was not passed,
@@ -175,13 +174,16 @@ const newApp: AnyCommand = command({
     // before any question, so nothing has been answered when it is
     checkTuiFlags(argv, yes);
 
-    const name = await askName(argv.projectName as string | undefined, yes);
+    const parent = parentDir(argv.cwd as string | undefined);
+    const name = await askName(argv.projectName as string | undefined, yes, parent);
+    // asked again of a name that came from the argument, which the prompt never
+    // saw; for one that was typed it is the check the prompt already passed
     const problem = nameProblem(name);
     if (problem) {
       throw new Error(`${problem}: "${name}"`);
     }
 
-    const dir = join(parentDir(argv.cwd as string | undefined), name);
+    const dir = join(parent, name);
     if (!usable(dir)) {
       throw new Error(`${displayPath(dir)} already exists and is not empty`);
     }
@@ -231,7 +233,7 @@ const newApp: AnyCommand = command({
         // it is not wrapped, since the terminal does that and a hard break at
         // 88 columns is wrong at every other width
         (tui && syntax === 'jsx'
-          ? `\nThe app is in JSX, so \`dev\` builds it before it runs. The \`ui\` tag is the build-free alternative: \`${otherSyntaxCommand({ language, layout, linter, manager: pm, name, syntax, tui })}\`\n`
+          ? `\nThe app is in JSX, so \`dev\` builds it before it runs. The Sigil UI template is the build-free alternative: \`${otherSyntaxCommand({ language, layout, linter, manager: pm, name, syntax, tui })}\`\n`
           : '')
     );
   },
@@ -262,8 +264,41 @@ function parentDir(cwd: string | undefined): string {
   return cwd === undefined ? process.cwd() : resolve(process.cwd(), expand(cwd));
 }
 
-/** Asks for the name, or takes the one that was given. */
-async function askName(given: string | undefined, yes: boolean): Promise<string> {
+/**
+ * What is wrong with a name typed at the prompt, which is everything that would
+ * refuse it once it was answered.
+ *
+ * The same two checks `run` makes of a name that came as an argument -- the
+ * package-name rule and the directory being usable -- so that somebody is told at
+ * the prompt, where they can fix it, and not after answering every other
+ * question. They are the same functions rather than a second copy, so the prompt
+ * and the positional argument cannot disagree about what a name is.
+ *
+ * @param value - What was typed.
+ * @param parent - The directory the project would be created in.
+ * @returns What is wrong with it, or `undefined`.
+ */
+function typedNameProblem(value: string, parent: string): string | undefined {
+  const name = value.trim();
+  if (name === '') {
+    return 'A name is required.';
+  }
+  const problem = nameProblem(name);
+  if (problem) {
+    return problem;
+  }
+  const dir = join(parent, name);
+  return usable(dir) ? undefined : `${displayPath(dir)} already exists and is not empty`;
+}
+
+/**
+ * Asks for the name, or takes the one that was given.
+ *
+ * An answer that would be refused cannot be submitted: the prompt shows why under
+ * the field and waits. Empty is one of them, so there is no placeholder to
+ * suggest a name nobody chose.
+ */
+async function askName(given: string | undefined, yes: boolean, parent: string): Promise<string> {
   if (given !== undefined) {
     return given;
   }
@@ -273,7 +308,12 @@ async function askName(given: string | undefined, yes: boolean): Promise<string>
     );
   }
 
-  return (await text({ message: 'What is it called?', placeholder: 'my-cli' })).trim();
+  return (
+    await text({
+      message: 'What is it called?',
+      validate: (value) => typedNameProblem(value, parent),
+    })
+  ).trim();
 }
 
 /** Asks whether it is TypeScript, defaulting to yes. */
@@ -421,16 +461,17 @@ async function askTui(
     return { at: 'root' };
   }
 
+  // no default: the name is the command somebody types every time they open the
+  // app, so it is theirs to choose, and an empty answer cannot be submitted
   const command = (
     await text({
-      default: DEFAULT_TUI_COMMAND,
       message: 'What is the command called?',
-      placeholder: DEFAULT_TUI_COMMAND,
-      validate: (value) => commandNameProblem(value.trim() || DEFAULT_TUI_COMMAND),
+      validate: (value) =>
+        value.trim() === '' ? 'A command name is required.' : commandNameProblem(value.trim()),
     })
   ).trim();
 
-  return { at: 'command', command: command || DEFAULT_TUI_COMMAND };
+  return { at: 'command', command };
 }
 
 /**
@@ -463,7 +504,7 @@ async function askSyntax(
   return (await select({
     choices: [
       { hint: 'typed props in an editor; built to run', label: 'JSX', value: 'jsx' },
-      { hint: 'runs as it is, with no build', label: 'The ui tag', value: 'ui' },
+      { hint: 'runs as it is, with no build', label: 'Sigil UI template', value: 'ui' },
     ],
     message: 'Which template syntax?',
   })) as Syntax;

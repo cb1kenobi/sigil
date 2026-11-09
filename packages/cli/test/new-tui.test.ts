@@ -394,6 +394,20 @@ describe('a scaffold with a full-screen app', () => {
       }
     );
 
+    it.each(SYNTAXES)(
+      'should call the ui syntax the Sigil UI template, not the tag, in %s',
+      (syntax) => {
+        // the README and the component's header are read by somebody choosing
+        // between two syntaxes who has not met the `ui` function; the tag is named in
+        // brackets for the one who has
+        const map = files({ syntax, tui: { at: 'root' } });
+        const normalized = (path: string): string => file(map, path).replace(/\s+/g, ' ');
+
+        expect(normalized('README.md')).toContain('Sigil UI template (the `ui` tag)');
+        expect(normalized(COMPONENT[syntax].ts)).toContain('Sigil UI template (the `ui` tag)');
+      }
+    );
+
     it('should name only files the scaffold writes', () => {
       for (const syntax of SYNTAXES) {
         const map = files({ syntax, tui: { at: 'root' } });
@@ -485,6 +499,7 @@ describe('the flags', () => {
     const dir = tempDir('sigil-new-tui-');
     const ran = run(dir, 'demo', '--yes', '--tui', '--pm', 'npm');
 
+    expect(ran.stdout).toContain('The Sigil UI template is the build-free alternative');
     expect(ran.stdout.match(/build-free/g)).toHaveLength(1);
     expect(ran.stdout.indexOf('build-free')).toBeGreaterThan(
       ran.stdout.indexOf('npm run dev -- --help')
@@ -573,6 +588,7 @@ describe('the flags', () => {
     expect(help).toContain('--no-tui');
     expect(help).toContain('--tui-command');
     expect(help).toContain('--syntax');
+    expect(help).toContain('Sigil UI template');
   });
 
   it('should refuse --tui with --tui-command, which would otherwise be a flag that does nothing', () => {
@@ -831,6 +847,32 @@ function ask(
   keys: readonly string[],
   ...argv: string[]
 ): Promise<{ code: number | null; out: string }> {
+  return askWith(dir, keys, ['demo', ...argv]);
+}
+
+/**
+ * `ask()` with the name left for the prompt, which is the one question the helper
+ * above answers for you.
+ *
+ * @param dir - Where to run it.
+ * @param keys - One entry per keystroke, starting with the answer to the name.
+ * @param argv - The flags that answer the questions this is not about.
+ * @returns What it printed and how it exited.
+ */
+function askName(
+  dir: string,
+  keys: readonly string[],
+  ...argv: string[]
+): Promise<{ code: number | null; out: string }> {
+  return askWith(dir, keys, argv);
+}
+
+/** Runs `sigil new` on a faked terminal with these arguments and types these keys. */
+function askWith(
+  dir: string,
+  keys: readonly string[],
+  args: readonly string[]
+): Promise<{ code: number | null; out: string }> {
   return new Promise((settle, fail) => {
     const child = spawn(
       process.execPath,
@@ -839,14 +881,13 @@ function ask(
         TTY_PRELOAD,
         cli,
         'new',
-        'demo',
+        ...args,
         '--no-install',
         '--no-git',
         '--lint',
         'none',
         '--pm',
         'npm',
-        ...argv,
       ],
       {
         cwd: dir,
@@ -865,6 +906,7 @@ function ask(
 
 const ENTER = '\r';
 const DOWN = '\u001B[B';
+const BACKSPACE = '\u007F';
 
 describe('the questions', () => {
   it('should ask about a full-screen app after the layout, and default to none', async () => {
@@ -894,15 +936,44 @@ describe('the questions', () => {
     expect(readFileSync(join(dir, 'demo', 'src', 'index.ts'), 'utf-8')).toContain('runApp');
   });
 
-  it('should ask for the command name, defaulting to dashboard', async () => {
+  it('should ask for the command name, and offer none', async () => {
     const dir = tempDir('sigil-new-tui-');
-    // a command, the default name, and the ui tag
-    const ran = await ask(dir, [ENTER, ENTER, 'y', DOWN, ENTER, ENTER, DOWN, ENTER]);
+    // a command, a name typed out, and the Sigil UI template
+    const ran = await ask(dir, [ENTER, ENTER, 'y', DOWN, ENTER, 'dash', ENTER, DOWN, ENTER]);
 
     expect(ran.code).toBe(0);
     expect(ran.out).toContain('What is the command called?');
-    expect(existsSync(join(dir, 'demo', 'src', 'commands', 'dashboard.ts'))).toBe(true);
+    // it used to be offered as a default and a placeholder, which is a name
+    // nobody chose; the user has to type one
+    expect(ran.out).not.toContain('dashboard');
+    expect(existsSync(join(dir, 'demo', 'src', 'commands', 'dash.ts'))).toBe(true);
     expect(existsSync(join(dir, 'demo', 'src', 'ui', 'app.ts'))).toBe(true);
+  });
+
+  it.each([
+    ['nothing', []],
+    ['only spaces', [' ', ' ']],
+  ])('should not submit %s for the command name, and say why', async (_what, typed) => {
+    const dir = tempDir('sigil-new-tui-');
+    // Enter on the empty field is refused under it and the field is still there,
+    // so what follows is typed into the same prompt and submits
+    const ran = await ask(dir, [
+      ENTER,
+      ENTER,
+      'y',
+      DOWN,
+      ENTER,
+      ...typed,
+      ENTER,
+      ...typed.map(() => BACKSPACE),
+      'ops',
+      ENTER,
+      ENTER,
+    ]);
+
+    expect(ran.out).toContain('A command name is required.');
+    expect(ran.code, ran.out).toBe(0);
+    expect(existsSync(join(dir, 'demo', 'src', 'commands', 'ops.ts'))).toBe(true);
   });
 
   it('should take a name that was typed, and refuse one that is taken', async () => {
@@ -967,6 +1038,97 @@ describe('the questions', () => {
     expect(ran.code).not.toBe(0);
     expect(ran.out).toContain('--syntax');
     expect(existsSync(join(dir, 'demo'))).toBe(false);
+  });
+
+  it('should not submit an empty name, and say why', async () => {
+    // Enter on the empty field used to submit, fail, and end the run. Now it is
+    // refused under the field and the field is still there to type into
+    const dir = tempDir('sigil-new-tui-');
+    const ran = await askName(dir, [ENTER, 'demo', ENTER, ENTER, ENTER], '--no-tui');
+
+    expect(ran.out).toContain('A name is required.');
+    // and no suggestion of what to type
+    expect(ran.out).not.toContain('my-cli');
+    expect(ran.code, ran.out).toBe(0);
+    expect(existsSync(join(dir, 'demo', 'package.json'))).toBe(true);
+  });
+
+  it('should not submit a name made of spaces', async () => {
+    const dir = tempDir('sigil-new-tui-');
+    const ran = await askName(
+      dir,
+      [' ', ' ', ENTER, BACKSPACE, BACKSPACE, 'demo', ENTER, ENTER, ENTER],
+      '--no-tui'
+    );
+
+    expect(ran.out).toContain('A name is required.');
+    expect(ran.code, ran.out).toBe(0);
+    expect(existsSync(join(dir, 'demo', 'package.json'))).toBe(true);
+  });
+
+  it.each([
+    ['Demo', 'lowercase', 4],
+    ['a/b', 'lowercase letters', 3],
+    ['.hidden', 'dot or an underscore', 7],
+  ])(
+    'should refuse the name %s at the prompt, and let it be corrected',
+    async (typed, because, length) => {
+      // the check the positional argument goes through, so the two cannot disagree
+      const dir = tempDir('sigil-new-tui-');
+      const ran = await askName(
+        dir,
+        [typed, ENTER, ...Array.from({ length }, () => BACKSPACE), 'demo', ENTER, ENTER, ENTER],
+        '--no-tui'
+      );
+
+      expect(ran.out).toContain(because);
+      expect(ran.code, ran.out).toBe(0);
+      expect(existsSync(join(dir, 'demo', 'package.json'))).toBe(true);
+    }
+  );
+
+  it('should refuse a name whose directory is taken, at the prompt', async () => {
+    // knowable before the other questions, and refusing it after the last of them
+    // is refusing somebody who has answered everything for nothing
+    const dir = tempDir('sigil-new-tui-');
+    mkdirSync(join(dir, 'demo'));
+    writeFileSync(join(dir, 'demo', 'keep.txt'), 'mine');
+    const ran = await askName(
+      dir,
+      ['demo', ENTER, ...Array.from({ length: 4 }, () => BACKSPACE), 'other', ENTER, ENTER, ENTER],
+      '--no-tui'
+    );
+
+    expect(ran.out).toContain('already exists and is not empty');
+    expect(ran.code, ran.out).toBe(0);
+    expect(existsSync(join(dir, 'other', 'package.json'))).toBe(true);
+    expect(readFileSync(join(dir, 'demo', 'keep.txt'), 'utf-8')).toBe('mine');
+  });
+
+  it('should check the name against --cwd, where the project would be made', async () => {
+    const dir = tempDir('sigil-new-tui-');
+    mkdirSync(join(dir, 'apps', 'demo'), { recursive: true });
+    writeFileSync(join(dir, 'apps', 'demo', 'keep.txt'), 'mine');
+    const ran = await askName(
+      dir,
+      ['demo', ENTER, ...Array.from({ length: 4 }, () => BACKSPACE), 'other', ENTER, ENTER, ENTER],
+      '--no-tui',
+      '--cwd',
+      'apps'
+    );
+
+    expect(ran.out).toContain('already exists and is not empty');
+    expect(existsSync(join(dir, 'apps', 'other', 'package.json'))).toBe(true);
+  });
+
+  it('should offer the Sigil UI template by that name', async () => {
+    const dir = tempDir('sigil-new-tui-');
+    const ran = await ask(dir, [ENTER, ENTER, 'y', ENTER, ENTER]);
+
+    expect(ran.out).toContain('Which template syntax?');
+    expect(ran.out).toContain('Sigil UI template');
+    // a newcomer does not know what a "tag" is
+    expect(ran.out).not.toContain('The ui tag');
   });
 
   it('should not ask whether there are subcommands when --tui-command names one', async () => {

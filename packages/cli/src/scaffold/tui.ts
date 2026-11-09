@@ -35,9 +35,6 @@ export const SYNTAXES: readonly Syntax[] = ['jsx', 'ui'];
 /** Where the full-screen app is launched from. */
 export type Tui = { readonly at: 'command'; readonly command: string } | { readonly at: 'root' };
 
-/** The command a TUI placed on one is called, unless it is told otherwise. */
-export const DEFAULT_TUI_COMMAND = 'dashboard';
-
 /**
  * The names a command that launches the app may not take, and why, from one list.
  *
@@ -233,11 +230,12 @@ export function component(app: TuiApp): string {
     ? `// JSX makes real elements, so \`<box>\` is an element and not a description of
 // one. Node strips types and does not compile JSX, which is why this app is
 // built: the \`dev\` script runs \`sigil build\` first, and the build type-checks.
-// The \`ui\` tag is the same program with nothing to build, and what it gives up
-// is the editor checking every prop. To write it that way:
+// The Sigil UI template (the \`ui\` tag) is the same program with nothing to build,
+// and what it gives up is the editor checking every prop. To write it that way:
 //
 //   ${other}`
-    : `// The \`ui\` tag makes real elements out of a template, and it runs as it is:
+    : `// The Sigil UI template (the \`ui\` tag) makes real elements out of a template, and
+// it runs as it is:
 // Node strips the types and there is no JSX to compile, so there is no build
 // between an edit and the \`dev\` script. What that gives up is the editor checking
 // every prop. To write the same program in JSX:

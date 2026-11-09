@@ -37,12 +37,12 @@ way of arranging them:
 | `--tui`                | Launches it from the app itself: the schema's `run` opens it                                                                     |
 | `--no-tui`             | Says there is none, so a script that passes every other flag is not asked. Refused beside `--tui`, `--tui-command` or `--syntax` |
 | `--tui-command <name>` | Launches it from a command of that name, and implies a commands directory. Refused with `--single` or `--tui`                    |
-| `--syntax jsx\|ui`     | The template syntax. JSX is the default and `--yes` takes it                                                                     |
+| `--syntax jsx\|ui`     | The template syntax: `jsx`, or `ui` for the Sigil UI template. JSX is the default and `--yes` takes it                           |
 
 The component is `src/ui/app.tsx` (or `.jsx`, `.ts`, `.js`), never a file under
 `commands/`, and whatever launches it imports it inside `run`, so no other
 command loads the renderer. A JSX app is built to run: its `dev` script is
-`sigil build --quiet && node dist/<name>.mjs`, and it has no `dev.ts`. The `ui` tag keeps
+`sigil build --quiet && node dist/<name>.mjs`, and it has no `dev.ts`. The Sigil UI template (the `ui` tag) keeps
 `node dev.ts`, with nothing to build. `test/tui.test.ts` runs the app over a
 fake terminal.
 

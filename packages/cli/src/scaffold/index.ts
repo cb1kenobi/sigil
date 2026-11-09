@@ -50,14 +50,7 @@ import {
   type Tui,
 } from './tui.ts';
 
-export {
-  commandNameProblem,
-  DEFAULT_TUI_COMMAND,
-  otherSyntaxCommand,
-  SYNTAXES,
-  type Syntax,
-  type Tui,
-} from './tui.ts';
+export { commandNameProblem, otherSyntaxCommand, SYNTAXES, type Syntax, type Tui } from './tui.ts';
 
 /** What the app is written in. */
 export type Language = 'js' | 'ts';
@@ -840,13 +833,13 @@ and Ctrl-C with \`130\`.
 ${
   built
     ? `It is written in JSX, which Node cannot run, so the \`dev\` script builds first
-(\`sigil build\`, which type-checks) and then runs the bundle. The \`ui\` tag is the
-alternative that needs no build, and this writes the same app in it:
+(\`sigil build\`, which type-checks) and then runs the bundle. The Sigil UI template
+(the \`ui\` tag) is the alternative that needs no build, and this writes the same app in it:
 
 \`\`\`sh
 ${otherSyntaxCommand({ language, layout, linter: opts.linter, manager: opts.manager, name, syntax, tui })}
 \`\`\``
-    : `It is written in the \`ui\` tag, which Node runs as it is, so there is nothing
+    : `It is written in the Sigil UI template (the \`ui\` tag), which Node runs as it is, so there is nothing
 to build between an edit and the \`dev\` script. JSX is the alternative, whose props
 an editor checks and which is built to run, and this writes the same app in it:
 

@@ -2826,7 +2826,7 @@ people's software and will move.
   layout and not a third layout (SIG-279).** "Include a full-screen app (TUI)?"
   follows "Will it have subcommands?", and a multi-command app is then asked
   where it launches from -- `myapp`, whose root `run` opens it, or a command of
-  its own, `dashboard` unless told otherwise -- and every app that has one is
+  its own, whose name has no default -- and every app that has one is
   asked "Which template syntax?". One TUI per scaffold. The placements are the
   schema's `run` for the app itself and `commands/<name>.ts` for a command, and
   both are the same four lines in `launcher()`. A root TUI is the "`main()`
@@ -2981,6 +2981,32 @@ people's software and will move.
   prints DEP0205 on Node 26 (measured), and `registerHooks()` is synchronous, in
   the loader's own thread, and there from 22.15, under the 22.19 floor. The test
   asserts the warning is absent from what the probed run printed.
+- **The two prompts that take typed text refuse what they cannot use, at the
+  prompt, and suggest nothing.** Enter on an empty project name used to submit,
+  fail, and end the run; the TUI command's name was pre-filled with `dashboard`
+  as both a default and a placeholder, so Enter made a command nobody chose, as
+  `my-cli` suggested a name nobody had. Both are `text()`'s `validate` now, which
+  shows the reason under the field and does not submit, so the answer is typed
+  into the same prompt: `A name is required.` and `A command name is required.`
+  for empty or blank, and otherwise the same functions the argument goes through
+  -- `nameProblem()` and `commandNameProblem()` -- so the prompt and the
+  positional argument cannot disagree about what a name is. The name prompt also
+  asks whether the directory it would make (under `--cwd`, which is why `run`
+  works out the parent first) already exists and is not empty, because that is
+  knowable the moment the name is, and refusing it after the last of the other
+  questions is refusing somebody for nothing. Checked again after the answer, for
+  a name that came as an argument and never met the prompt. `DEFAULT_TUI_COMMAND`
+  is deleted: `--yes` does not reach the question, since `--tui-command` is how a
+  non-interactive run names it, so nothing else needed a default and a constant
+  nothing reads is the dead property this file keeps recording.
+- **A newcomer picks between "JSX" and "Sigil UI template", and the `--syntax`
+  value stays `ui`.** "The ui tag" names a function a reader has not met. The
+  prompt's label, the `--syntax` description, the summary hint, the scaffolded
+  README, the component's header comment and the docs written for this ticket say
+  "Sigil UI template", with "(the `ui` tag)" beside it where the reader may meet
+  the function next. The flag and its choices are unchanged, so no script breaks,
+  and the framework's own docs, where `ui` literally is the tagged-template
+  function, keep calling it the tag.
 
 ### The registry: what `sigil add` copies
 
