@@ -56,6 +56,7 @@ export * from './subpaths/toast.js';
 export * from './subpaths/tooltip.js';
 export * from './subpaths/scroll-box.js';
 export * from './subpaths/list-view.js';
+export * from './subpaths/tree-list-view.js';
 export * from './subpaths/pager.js';
 export * from './subpaths/typewriter.js';
 export * from './subpaths/large-text.js';

@@ -4674,7 +4674,8 @@ next Right calls it again.
 
 **`directoryTree()`** is that prompt over the file system, as Textual's
 `DirectoryTree` is: the root is the top node, open, and each directory under it is
-read the first time it opens. It takes `filePicker()`'s `directory`, `extensions`,
+read the first time it opens. That root node is `directoryRoot()`, published so a
+`TreeListView` can browse the same tree. It takes `filePicker()`'s `directory`, `extensions`,
 `hidden` and `root`, decided by the same function, and answers with an absolute
 path. Enter opens a directory and answers a file; with `directory`, files are not
 listed and Enter answers the directory, the root included.
@@ -5032,6 +5033,80 @@ the selection on its own -- a current key, a set of selected keys, and the moves
 over whatever rows it was last handed with `setRows(keys, disabled)` -- for a
 component that draws its own rows, a table or a tree, and wants the same answer
 the list gives.
+
+#### A tree list view
+
+```js
+import { directoryRoot } from '@ttylabs/sigil/components/tree';
+import { describeTreeListView, TreeListView } from '@ttylabs/sigil/components/tree-list-view';
+
+const files = TreeListView({
+  items: [
+    directoryRoot({ root: '.' }), // a directory, read a level at a time
+    { text: 'cluster', items: async () => (await namespaces()).map((ns) => ns.name) },
+  ],
+  onActivate: (value, node) => open(value),
+  props: { height: 20 },
+});
+describeTreeListView(input, files); // for keyHelp(), once the router exists
+```
+
+```
+❯ ├── ▾ sigil/
+  │   ├── ▸ src/
+  │   ├──   README.md
+  │   └──   package.json
+  └── ▾ cluster
+      └──   Loading…
+```
+
+A tree you browse in a full-screen app -- the file sidebar of an editor, a JSON
+viewer, a Kubernetes resource tree -- as one focusable element. On screen a tree is a
+list of the rows that are open, so it **is** a `ListView` of them: Up, Down, Page Up,
+Page Down, Home and End move the cursor, a click moves it, the wheel scrolls, Enter
+and a double-click call `onActivate(value, node)`, `multiple` ticks rows, and only
+the rows on screen are built. What the tree adds: **Right** opens a closed branch
+and on an open one steps onto its first child; **Left** closes an open branch and
+on anything else steps to the parent; **Space** opens and closes a branch in a
+single tree (in a `multiple` one it ticks, as the list's); and a click on a branch's
+twisty opens or closes it without moving the cursor. `vim: true` adds `h` and `l`
+beside the list's `j`, `k`, `g` and `G`.
+
+The nodes are `selectTree()`'s -- a string, or `{ text, value, items, expanded }` --
+so one value is asked for by `selectTree()` and browsed here, and
+`directoryRoot()` is the root node `directoryTree()` asks over. A node's `value`
+(its `text` without one) is what the cursor, the selection and the open set hold,
+so two nodes with one value throw. `expanded` is a set of values or a `State` of
+one, the shape `current` and `selected` have: the keys write it and an app that
+writes it opens and closes branches. Closing a branch leaves the branches under it
+in the set, so they come back with it, and a node's own `expanded: true` opens it
+the first time the node is seen. **When a branch closes over the cursor, the cursor
+goes to that branch**, however it was closed; a node that was deleted leaves the
+cursor on the row that took its place, as in a list.
+
+A branch whose `items` is a function is read the first time it opens, and what it
+returned is kept, so closing and opening again is instant; `treeListControl(tree)
+.reload(value)` forgets it. A function that returns a list is taken at once; one
+that returns a promise draws `Loading…` under the branch until it lands. A read
+that rejects -- or returns something that is not a list of nodes -- puts `Could not
+load: <message>` there instead, keeps the branch open so the message has somewhere
+to be, and is not kept: **Right** reads it again, and so does closing and opening
+it. A branch closed while its read is in flight lets the read finish, and opens
+again on what it found. The loading and error lines are rows the cursor passes
+over.
+
+`row(node, info)` draws a node's text -- an element or a string -- with the guide
+and the twisty drawn in front of it either way; `info` says its `depth`, whether it
+is a `branch` and `expanded`, and where its read stands (`status`). The guides are
+`treeGlyphs()`'s, `guide: 'rounded'` among them, and `ascii` draws `|--` and `+`.
+`.sigil-tree-list-view` is on the host beside `.sigil-list`, each node is a
+`.sigil-tree-node` (with `is-branch` and `is-open`) of `-guide`, `-toggle` and
+`-label`, and the lines under a branch are `.sigil-tree-loading` and
+`.sigil-tree-error`. `treeListControl(tree)` is the handle: `current`, `expanded`,
+`expand(value?)`, `collapse(value?)`, `toggle(value?)`, `reload(value)`,
+`status(value)`, and `list` -- the list underneath, which `listControl()` answers for
+too. `describeTreeListView(input, ...trees)` describes the list's keys and the
+tree's, scoped to each.
 
 #### A panel
 

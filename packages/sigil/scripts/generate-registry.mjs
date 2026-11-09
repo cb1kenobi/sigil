@@ -170,6 +170,10 @@ const ENTRIES = [
     name: 'list-view',
   },
   {
+    desc: 'A tree list view: a focusable tree that opens and closes, selects by value, and reads children lazily',
+    name: 'tree-list-view',
+  },
+  {
     desc: 'A pager over a scroll box: less keys, line numbers, and / search with highlighted matches',
     name: 'pager',
   },

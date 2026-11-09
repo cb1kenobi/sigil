@@ -7,6 +7,7 @@ import { tabRowView, Tabs } from '../../src/components/tabs.js';
 import { TextField } from '../../src/components/text-field.js';
 import { showToast } from '../../src/components/toast.js';
 import { attachTooltip } from '../../src/components/tooltip.js';
+import { TreeListView } from '../../src/components/tree-list-view.js';
 import {
   box,
   type Element,
@@ -91,6 +92,11 @@ const CASES: Case[] = [
   {
     make: (props) => ({ element: ListView({ items: ['a', 'b'], props: props as never }) }),
     name: 'ListView',
+    owns: ['onKey', 'onFocusChange'],
+  },
+  {
+    make: (props) => ({ element: TreeListView({ items: ['a', 'b'], props: props as never }) }),
+    name: 'TreeListView',
     owns: ['onKey', 'onFocusChange'],
   },
   {

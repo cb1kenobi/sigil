@@ -290,6 +290,10 @@
       "types": "./dist/components/tree.d.mts",
       "default": "./dist/components/tree.mjs"
     },
+    "./components/tree-list-view": {
+      "types": "./dist/components/tree-list-view.d.mts",
+      "default": "./dist/components/tree-list-view.mjs"
+    },
     "./components/typewriter": {
       "types": "./dist/components/typewriter.d.mts",
       "default": "./dist/components/typewriter.mjs"

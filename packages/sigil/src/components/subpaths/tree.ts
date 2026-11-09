@@ -1,4 +1,6 @@
 export {
+  directoryRoot,
+  type DirectoryRootOptions,
   directoryTree,
   type DirectoryTreeOptions,
   selectTree,
@@ -7,6 +9,8 @@ export {
   type TreeChildren,
   type TreeChoice,
   type TreeChoiceItem,
+  treeChoiceOf,
+  type TreeChoiceParts,
   treeGlyphs,
   type TreeGlyphs,
   type TreeGuide,
