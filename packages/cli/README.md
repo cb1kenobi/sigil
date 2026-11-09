@@ -26,6 +26,30 @@ There is no `sigil dev`. This is a resolver and a compiler, not a server.
 one that checks out, and `package` runs `build`. One pass, three commands that
 cannot disagree about what a valid app is.
 
+## A full-screen app in the scaffold
+
+`sigil new` can include one. It is asked after whether the app has one command
+or several, because a full-screen app is something a command does rather than a
+way of arranging them:
+
+| Flag                   | What it does                                                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `--tui`                | Launches it from the app itself: the schema's `run` opens it                                                                     |
+| `--no-tui`             | Says there is none, so a script that passes every other flag is not asked. Refused beside `--tui`, `--tui-command` or `--syntax` |
+| `--tui-command <name>` | Launches it from a command of that name, and implies a commands directory. Refused with `--single` or `--tui`                    |
+| `--syntax jsx\|ui`     | The template syntax: `jsx`, or `ui` for the Sigil UI template. JSX is the default and `--yes` takes it                           |
+
+The component is `src/ui/app.tsx` (or `.jsx`, `.ts`, `.js`), never a file under
+`commands/`, and whatever launches it imports it inside `run`, so no other
+command loads the renderer. A JSX app is built to run: its `dev` script is
+`sigil build --quiet && node dist/<name>.mjs`, and it has no `dev.ts`. The Sigil UI template (the `ui` tag) keeps
+`node dev.ts`, with nothing to build. `test/tui.test.ts` runs the app over a
+fake terminal.
+
+Not done: a bundle-only dev build that skips the type check, and
+`jsx: "react-jsxdev"` in the scaffold's tsconfig, which would ship file names in
+the release bundle.
+
 ## Packaging a binary
 
 `sigil build` leaves you an app that still needs a runtime installed.

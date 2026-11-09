@@ -39,8 +39,29 @@
  * editor and `tsc` agreeing with it rather than the build being right alone.
  */
 
+import {
+  component,
+  componentPath,
+  launcher,
+  otherSyntaxCommand,
+  type Syntax,
+  tuiCommand,
+  tuiTest,
+  type Tui,
+} from './tui.ts';
+
+export { commandNameProblem, otherSyntaxCommand, SYNTAXES, type Syntax, type Tui } from './tui.ts';
+
+/**
+ * The languages an app can be written in, which is `--lang`'s `choices`.
+ *
+ * Declared here with the type for the reason `MANAGERS` is: the prompt, the flag
+ * and the scaffold read one vocabulary.
+ */
+export const LANGUAGES = ['js', 'ts'] as const;
+
 /** What the app is written in. */
-export type Language = 'js' | 'ts';
+export type Language = (typeof LANGUAGES)[number];
 
 /** How its commands are arranged. */
 export type Layout = 'multi' | 'single';
@@ -66,6 +87,27 @@ export const MANAGERS = ['pnpm', 'vlt', 'npm'] as const;
 /** One of the package managers a scaffolded app can be set up with. */
 export type Manager = (typeof MANAGERS)[number];
 
+/**
+ * The command that runs one of the app's scripts with arguments, spelled the way
+ * `manager` takes them.
+ *
+ * Not one spelling, and measured rather than assumed on the three managers the
+ * scaffold supports. **npm** and **vlt** need the `--`: without it a flag-shaped
+ * argument -- `--help` -- is the manager's own, and `npm run dev --help` prints
+ * npm's help. **pnpm** passes the `--` through to the script, so `pnpm run dev --
+ * dash` starts the app with `-- dash` and the parser refuses `dash` as an extra
+ * argument; it forwards what follows the script name without one.
+ *
+ * @param manager - The package manager the app was set up with.
+ * @param script - The script's name.
+ * @param args - What to hand the script.
+ * @returns The command, for a person to run.
+ */
+export function runScript(manager: Manager, script: string, ...args: string[]): string {
+  const separator = manager === 'pnpm' || args.length === 0 ? [] : ['--'];
+  return [manager, 'run', script, ...separator, ...args].join(' ');
+}
+
 export interface ScaffoldOptions {
   /** The language. */
   readonly language: Language;
@@ -73,6 +115,11 @@ export interface ScaffoldOptions {
   readonly layout: Layout;
   /** The linter. */
   readonly linter: Linter;
+  /**
+   * The template syntax of the full-screen app, which only a `tui` has. JSX when
+   * there is one and this is left out.
+   */
+  readonly syntax?: Syntax;
   /**
    * The package manager the app is being set up with.
    *
@@ -94,8 +141,27 @@ export interface ScaffoldOptions {
    * local path.
    */
   readonly version: string;
+  /**
+   * A full-screen app, and where it is launched from. Left out, there is none.
+   *
+   * It is a question about what a command does and not about how commands are
+   * arranged, so it sits beside `layout` rather than being a value of it.
+   */
+  readonly tui?: Tui;
   /** The versions of the shared devDependencies, read off the toolchain. */
   readonly versions: Readonly<Record<string, string>>;
+}
+
+/**
+ * Whether the app is one that has to be built to run.
+ *
+ * Node strips types and does not compile JSX, so an app with a JSX component
+ * only ever runs as `sigil build` wrote it. That decides three things -- the
+ * `dev` script, whether there is a `dev` runner, and what a JavaScript app's
+ * vitest has to be told -- so it is asked in one place.
+ */
+function builtToRun(opts: ScaffoldOptions): boolean {
+  return opts.tui !== undefined && (opts.syntax ?? 'jsx') === 'jsx';
 }
 
 /**
@@ -183,7 +249,12 @@ function manifest(opts: ScaffoldOptions): string {
   const scripts: Record<string, string> = {
     build: 'sigil build',
     check: 'sigil check',
-    dev: `node dev.${ext(language)}`,
+    // a JSX app is built and the bundle run, since Node cannot load a `.tsx`;
+    // `sigil build` type-checks on the way, so the loop is also the check. `--quiet`
+    // because the size tables it prints are ~25 lines before every run of the app
+    dev: builtToRun(opts)
+      ? `sigil build --quiet && node dist/${name}.mjs`
+      : `node dev.${ext(language)}`,
     // the runtime it embeds lives in `sigil.json` rather than here, so this
     // script and the release workflow cannot name different ones
     package: 'sigil package',
@@ -264,7 +335,7 @@ export function sorted(record: Record<string, string>): Record<string, string> {
 }
 
 /** The TypeScript config, whose `lib`, `types` and `jsx` are load-bearing. */
-function tsconfig(): string {
+function tsconfig(opts: ScaffoldOptions): string {
   return `${JSON.stringify(
     {
       compilerOptions: {
@@ -298,7 +369,9 @@ function tsconfig(): string {
       // `tsc --noEmit` -- and therefore `sigil build`, which type-checks with
       // this file -- see a type error in a test. A build that passes over the
       // tests is one that disagrees with the editor about what compiles
-      include: ['src', 'test', 'dev.ts', 'vitest.config.ts'],
+      include: builtToRun(opts)
+        ? ['src', 'test', 'vitest.config.ts']
+        : ['src', 'test', 'dev.ts', 'vitest.config.ts'],
     },
     undefined,
     2
@@ -324,8 +397,25 @@ await main({ schema });
 
 /** The schema, in whichever layout was chosen. */
 function entry(opts: ScaffoldOptions): string {
-  const { language, layout, name } = opts;
+  const { language, layout, name, tui } = opts;
   const typed = language === 'ts';
+  const syntax = opts.syntax ?? 'jsx';
+  // what the schema's own `run` is, when the app is launched from the app itself
+  const opensApp =
+    tui?.at === 'root'
+      ? `\n${launcher(language, `./${componentPath(language, syntax).slice('src/'.length)}`)}`
+      : '';
+
+  if (layout === 'single' && tui !== undefined) {
+    // the app *is* the screen, so there is no greeting beside it to keep: a root
+    // `run` that opened the screen and also took a `who` would be two programs
+    return `${header(name)}
+export default {
+  name: '${name}',
+  desc: 'What ${name} does',
+${opensApp}};
+`;
+  }
 
   if (layout === 'single') {
     return `${header(name)}
@@ -363,7 +453,7 @@ export default {
   // file, and a subdirectory is a command with subcommands of its own. Nothing
   // is imported until argv names it.
   commands: './commands',
-};
+${opensApp}};
 `;
 }
 
@@ -566,11 +656,21 @@ ${setup}
  *
  * @returns The config.
  */
-function vitestConfig(): string {
+function vitestConfig(opts: ScaffoldOptions): string {
+  // A TypeScript app says where its JSX comes from in `tsconfig.json`, and vite
+  // reads it there. A JavaScript app has no tsconfig -- the build supplies the
+  // import source itself -- so the runner has to be told the same thing, or a
+  // `.jsx` under test is a `react/jsx-runtime` import that is not there.
+  const jsx =
+    opts.language === 'js' && builtToRun(opts)
+      ? `  oxc: { jsx: { importSource: '@ttylabs/sigil', runtime: 'automatic' } },
+`
+      : '';
+
   return `import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  test: {
+${jsx}  test: {
     // \`runCommand()\` captures \`process.stdout.write\`, which is what \`main()\`
     // and \`console.log\` both go through. vitest replaces the \`console\` methods
     // by default so it can attribute output to a test, and then a command's
@@ -609,8 +709,19 @@ function appTest(opts: ScaffoldOptions): string {
   const from = language === 'ts' ? '../src/index.ts' : '../src/index.js';
 
   const body =
-    layout === 'multi'
-      ? `  it('greets', async () => {
+    layout === 'single' && opts.tui
+      ? `  it('describes itself', async () => {
+    // \`--help\` is the one thing to run through \`runCommand()\` here: the schema's
+    // own \`run\` opens the full-screen app, which needs a terminal and is tested
+    // over a fake one in \`tui.test\` instead
+    const ran = await runCommand({ argv: ['--help'], schema });
+
+    expect(ran.code).toBe(0);
+    expect(ran.out).toContain('${name}');
+  });
+`
+      : layout === 'multi'
+        ? `  it('greets', async () => {
     const ran = await runCommand({ argv: ['hello', 'world'], schema });
 
     expect(ran.code).toBe(0);
@@ -625,7 +736,7 @@ function appTest(opts: ScaffoldOptions): string {
     expect(ran.argv.who).toBe('everyone');
   });
 `
-      : `  it('greets', async () => {
+        : `  it('greets', async () => {
     // the schema *is* the command in this layout, so there is no subcommand to
     // name: \`main()\` dispatches the \`run\` on the schema itself
     const ran = await runCommand({ argv: ['world'], schema });
@@ -680,8 +791,80 @@ ${body}});
 
 /** The README, which is the only place the next steps are written down. */
 function readme(opts: ScaffoldOptions): string {
-  const { language, layout, name } = opts;
+  const { language, layout, name, tui } = opts;
   const e = ext(language);
+  const syntax = opts.syntax ?? 'jsx';
+  const built = builtToRun(opts);
+  const run = (script: string, ...args: string[]): string =>
+    runScript(opts.manager, script, ...args);
+
+  const start =
+    tui?.at === 'root'
+      ? `${run('dev')}   # opens the full-screen app\n${run('dev', '--help')}`
+      : tui
+        ? `${run('dev', tui.command)}   # opens the full-screen app\n${run('dev', '--help')}`
+        : `${run('dev', '--help')}\n${run('dev', 'hello', 'world')}`;
+
+  // what is in the tree, one line each, and aligned. The runner is not there
+  // for a JSX app because there is not one
+  const rows: [string, string][] = [
+    [`src/index.${e}`, "the schema: the app's name, its options, and where its commands are"],
+  ];
+  if (layout === 'multi') {
+    rows.push(['src/commands/', 'one command per file, loaded only when argv names it']);
+  }
+  if (tui) {
+    rows.push([
+      componentPath(language, syntax),
+      'the full-screen app: a component and its stylesheet, imported only when it is run',
+    ]);
+  }
+  if (!built) {
+    rows.push([`dev.${e}`, 'runs it from source']);
+  }
+  const width = Math.max(...rows.map(([path]) => path.length)) + 2;
+  const tree = rows.map(([path, what]) => `${path.padEnd(width)}${what}`).join('\n');
+
+  const screen = tui
+    ? `
+## The full-screen app
+
+${
+  tui.at === 'root'
+    ? `\`${name}\` with no command opens it, and \`${name} --help\` is still a CLI's help.`
+    : `\`${name} ${tui.command}\` opens it, and \`${name}\` on its own shows help.`
+}
+It is a command like any other, so flags work, and without a terminal -- piped
+into \`cat\`, say -- it refuses with one line and exits \`1\`. \`q\` quits with \`0\`
+and Ctrl-C with \`130\`.
+
+${
+  built
+    ? `It is written in JSX, which Node cannot run, so the \`dev\` script builds first
+(\`sigil build\`, which type-checks) and then runs the bundle. The Sigil UI template
+(the \`ui\` tag) is the alternative that needs no build, and this writes the same app
+in it:
+
+\`\`\`sh
+${otherSyntaxCommand({ language, layout, linter: opts.linter, manager: opts.manager, name, syntax, tui })}
+\`\`\``
+    : `It is written in the Sigil UI template (the \`ui\` tag), which Node runs as it is,
+so there is nothing to build between an edit and the \`dev\` script. JSX is the
+alternative, whose props an editor checks and which is built to run, and this
+writes the same app in it:
+
+\`\`\`sh
+${otherSyntaxCommand({ language, layout, linter: opts.linter, manager: opts.manager, name, syntax, tui })}
+\`\`\``
+}
+
+\`<name>\` is a new directory, so give it a name of its own and run it from the
+folder that holds this app, not from inside it.
+
+\`test/tui.test.${e}\` runs it over a fake terminal, presses keys, and reads the
+screen back as text. It is the test to copy for the next screen.
+`
+    : '';
 
   return `# ${name}
 
@@ -690,23 +873,17 @@ A CLI built with [sigil](https://github.com/cb1kenobi/sigil).
 ## Getting started
 
 \`\`\`sh
-npm run dev -- --help
-npm run dev -- hello world
+${start}
 \`\`\`
 
-\`npm run build\` bundles it into \`dist/${name}.mjs\`, which depends on nothing.
+\`${run('build')}\` bundles it into \`dist/${name}.mjs\`, which depends on nothing.
 
 ## Layout
 
 \`\`\`
-src/index.${e}${' '.repeat(Math.max(1, 14 - e.length))}the schema: the app's name, its options, and where its commands are
-${
-  layout === 'multi'
-    ? `src/commands/${' '.repeat(9)}one command per file, loaded only when argv names it\n`
-    : ''
-}dev.${e}${' '.repeat(Math.max(1, 20 - e.length))}runs it from source
+${tree}
 \`\`\`
-
+${screen}
 ## Components
 
 The spinner, progress bar, table and prompts are in \`@ttylabs/sigil/components\`
@@ -756,9 +933,8 @@ export function scaffold(opts: ScaffoldOptions): ScaffoldFile[] {
       contents: `${JSON.stringify({ components: 'src/components' }, undefined, 2)}\n`,
       path: 'sigil.json',
     },
-    { contents: devRunner(opts), executable: true, path: `dev.${e}` },
     { contents: entry(opts), path: `src/index.${e}` },
-    { contents: vitestConfig(), path: `vitest.config.${e}` },
+    { contents: vitestConfig(opts), path: `vitest.config.${e}` },
     { contents: appTest(opts), path: `test/app.test.${e}` },
     {
       contents: releaseWorkflow(opts.name, opts.manager),
@@ -766,8 +942,46 @@ export function scaffold(opts: ScaffoldOptions): ScaffoldFile[] {
     },
   ];
 
+  // a JSX app has nothing for a dev runner to do: Node cannot load the component
+  // it would start, and the `dev` script builds and runs the bundle instead
+  if (!builtToRun(opts)) {
+    files.push({ contents: devRunner(opts), executable: true, path: `dev.${e}` });
+  }
+
+  if (opts.tui !== undefined) {
+    const syntax = opts.syntax ?? 'jsx';
+    files.push(
+      {
+        contents: component({
+          language: opts.language,
+          layout: opts.layout,
+          linter: opts.linter,
+          manager: opts.manager,
+          name: opts.name,
+          syntax,
+          tui: opts.tui,
+        }),
+        path: componentPath(opts.language, syntax),
+      },
+      {
+        contents: tuiTest({ language: opts.language, name: opts.name, syntax, tui: opts.tui }),
+        path: `test/tui.test.${e}`,
+      }
+    );
+
+    if (opts.tui.at === 'command') {
+      if (opts.layout === 'single') {
+        throw new Error('A single-command app has no commands to launch a full-screen app from');
+      }
+      files.push({
+        contents: tuiCommand(opts.language, syntax, opts.name, opts.tui.command),
+        path: `src/commands/${opts.tui.command}.${e}`,
+      });
+    }
+  }
+
   if (opts.language === 'ts') {
-    files.splice(1, 0, { contents: tsconfig(), path: 'tsconfig.json' });
+    files.splice(1, 0, { contents: tsconfig(opts), path: 'tsconfig.json' });
   }
 
   if (opts.layout === 'multi') {

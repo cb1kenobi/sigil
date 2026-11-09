@@ -2822,6 +2822,220 @@ people's software and will move.
   exactly where a project's conventions should be explicit, and it is what stops
   `sigil add` having to guess -- and then print the guess, which is what it does
   when there is no config.
+- **A full-screen app is something a command does, so it is a question after the
+  layout and not a third layout (SIG-279).** "Include a full-screen app (TUI)?"
+  follows "Will it have subcommands?", and a multi-command app is then asked
+  where it launches from -- `myapp`, whose root `run` opens it, or a command of
+  its own, whose name has no default -- and every app that has one is
+  asked "Which template syntax?". One TUI per scaffold. The placements are the
+  schema's `run` for the app itself and `commands/<name>.ts` for a command, and
+  both are the same four lines in `launcher()`. A root TUI is the "`main()`
+  dispatches a `run` on the schema" rule in the root `AGENTS.md`, so
+  `commands/hello` stays beside it and `myapp --help` is still help; a command
+  placement leaves the root with no `run`, so `myapp` shows help as it always did.
+  A **single**-command TUI drops the `who` argument and the greeting: a root
+  `run` that opened a screen and also said hello would be two programs under one
+  name, and `test/app.test` for it only describes itself.
+- **Flags: `--tui`, `--no-tui`, `--tui-command <name>`, `--syntax jsx|ui`.** Two
+  TUI flags because an option that takes a value must be given one here, so a
+  bare `--tui [command]` cannot work. `--tui` is the root and `--tui-command` is
+  a command, and **`--tui-command` implies a commands directory**: `askLayout()`
+  does not offer the question, since "No, a single command" would otherwise fail
+  with the scaffold's own guard after every question had been answered.
+  **Refused, before any question** -- `checkTuiFlags()` is the first thing `run`
+  does, ahead of the name -- and writing nothing: `--tui-command` with
+  `--single` (the message names `--tui`, because the intent is clear and only the
+  spelling is wrong), `--tui` with `--tui-command` (the command used to win
+  silently), a command name that is not lowercase letters, digits and hyphens
+  starting with a letter or that is on `RESERVED_COMMANDS`, `--no-tui` with any
+  of `--tui`, `--tui-command` and `--syntax`, and `--syntax` under `--yes` with no
+  TUI flag. A flag that is accepted and does nothing is how a typo becomes an app
+  that is not what was asked for. `--syntax` followed by a "no" to the app
+  interactively is refused for the same reason, late, because the answer was not
+  known earlier.
+- **`RESERVED_COMMANDS` is one list: `hello`, `index`, `help`, `completion`.**
+  `hello` is the example beside it and `index` is the directory itself. `help`
+  and `completion` are the two commands the runtime adds to every app and marks
+  `builtIn`: declaring one replaces the framework's, so `myapp help` would open
+  the screen and lose its description and `completion` would break shell
+  completion install. Those two are everything `@ttylabs/sigil` registers under
+  that mark, read off `parser/help.ts` and `parser/completion.ts`.
+- **No TUI is the default, and `--yes` takes none, JSX, and the root.** The one
+  question whose default is "no": most CLIs are not full-screen apps and one that
+  is knows it. `--yes` with `--tui` takes JSX because the ticket said so, and
+  because it is the syntax an editor can check.
+- **`--no-tui` is how a script that passes every flag but `--yes` opts out, and
+  it needed no new parser feature.** The first version had none, on the
+  reasoning that the parser gives a flag `false` rather than `undefined`, so an
+  unanswered question and a refused one would be one value. That is true of a
+  negated twin and was the wrong conclusion: `'--no-tui': { negate: false }` is a
+  destination of its own (`noTui`), exactly the opt-out the pairing rule in the
+  root `AGENTS.md` describes, and `--tui` stays an ordinary flag. Without it,
+  `sigil new foo --lang js --single --lint none --pm npm </dev/null`, which worked
+  before the question existed, failed with `Cannot prompt for "Include a
+  full-screen app (TUI)?"`. A script that passes neither `--yes` nor `--no-tui`
+  still meets the question without a terminal and is refused, as it is for any
+  other unanswered question; `--no-tui` is how it says it does not want it.
+- **The component is in `src/ui/`, never `commands/`, and it is imported inside
+  `run`.** `.tsx` is not a route extension and Node cannot import it from source,
+  so a component in `commands/` is not a command; and a static import would load
+  the renderer for `myapp login`, which has nothing to draw. `runApp` is imported
+  there too, for the same reason. The specifier names the file as it is --
+  `app.tsx`, `app.jsx`, `app.ts` or `app.js` -- and not `app.js`: **`sigil build`
+  does resolve `import('../ui/app.js')` to `app.tsx`**, in rolldown and in the
+  app's own `tsc` (measured by editing a scaffolded command and building, and
+  pinned by `should resolve a .js specifier to the .tsx` in `new-tui.test.ts`), so
+  no build change was needed. The `ui`-tag scaffold is the reason for the real
+  extension: it runs unbuilt, and Node does not map `app.js` to the `app.ts`
+  that is there.
+- **A JSX app has no dev runner, and `dev` builds quietly.** `sigil build --quiet
+  && node dist/<name>.mjs`, since Node cannot load a `.tsx` and `sigil build`
+  type-checks on the way, so the loop is also the check. `--quiet` because the
+  size tables are about 25 lines before every run of the app; a failed build
+  still prints its error, which a test pins. `dev.ts` would start a
+  schema whose launcher fails on the one thing the app is for, so it is not
+  written and `tsconfig.json` does not name it. The `ui` scaffold keeps
+  `node dev.ts` unchanged. A JavaScript app with JSX gets `.jsx` and the same
+  `dev`, and its `vitest.config.js` carries `oxc.jsx.importSource` -- a
+  TypeScript app says it in `tsconfig.json` and vite reads it there, and a
+  JavaScript one has no tsconfig. Not done, deliberately: a bundle-only
+  `--no-check` dev build, and `jsx: "react-jsxdev"` in the scaffold's tsconfig,
+  which would ship file names in the release bundle.
+- **The summary says once that the `ui` tag is the build-free alternative, and
+  only to somebody who was given JSX.** After the steps rather than among them,
+  because it is not a step, on **one line**: the terminal wraps, and a hard break
+  at 88 columns is wrong at every other width. The hint is `otherSyntaxCommand()`,
+  a command that runs as written -- `sigil new <name> --tui --syntax ui`, or the
+  `--tui-command` form, with `--lang`, `--pm`, `--lint` and `--single` carried over -- and not
+  `--syntax ui` alone, which is refused under `--yes` and asks the TUI question
+  again interactively. The README and the component's header comment print the
+  same function's output, and `new-tui.test.ts` reads each form back out of the
+  summary and runs it.
+- **A script with arguments is spelled per package manager, by `runScript()`, and
+  it was measured.** `pnpm run dev -- dash` hands the app `-- dash` on pnpm 12,
+  which refuses `dash` as an extra argument, and the `pnpm run dev -- --help` the
+  summary printed before this fails the same way. pnpm forwards what follows the
+  script name, so its spelling has no `--`; npm and vlt need it, because without
+  it a flag-shaped argument is the manager's own (`npm run dev --help` prints
+  npm's help). Asked of the managers rather than recalled -- the test runs each
+  installed one against a script that prints its `argv` -- since a manager
+  changing what it does with `--` is what the spelling depends on. The summary and
+  the README both use it, `npm run build` included: it takes no arguments and
+  would be right everywhere, but a README that says `npm` under a pnpm app is the
+  one place a reader is told which manager to use, so it says the app's own.
+  **vlt's spelling rests on a local measurement and CI skips the test that
+  re-measures it.** Measured on vlt 1.1.1 (and pnpm 12.18, npm 11.19); the
+  workflow installs node and pnpm only, so on all nine jobs the vlt cases are
+  skipped by `whichSync()` and pnpm and npm are the ones that run. The CI workflow
+  was deliberately left alone, so the gap is recorded here instead.
+- **The scaffolded test is the one a TUI author copies, so it asserts on text.**
+  It runs the app over `createTestTerminal()`, presses a key, reads the screen,
+  and asserts `q` exits `0` and Ctrl-C `130`, and that without a terminal it
+  refuses with `runApp()`'s own line. No box-drawing character is asserted:
+  `Panel` draws ASCII where `unicodeSupported()` is false, which is every
+  Windows CI runner. `new-tui.test.ts` scaffolds every placement, syntax and
+  language, builds or starts each, runs it piped, and runs **its own test
+  suite** -- the one claim about the scaffold that is not a claim about text.
+- **The component is the file an author copies, so it is written to look
+  hand-made, and a test holds it to the repository's formatter.** The first
+  version spliced the `keyHelp(...)` object into the return at the wrong depth
+  and wrote one line over 100 columns. The footer and the status are now
+  constants built before the `return`, so the screen is only structure, and
+  `new-tui.test.ts` runs `oxfmt --check` over `src/**` and `test/tui.test.*` of
+  every variant under the repository's own `.oxfmtrc.json`. The scaffolded test
+  orders its imports the way that config does (relative first), because oxfmt
+  moves a comment with the import under it and a header comment above the
+  packages would otherwise end up between two of them. `test/app.test.*` is the
+  older file, has the other order, and is left alone.
+- **The footer is sized from what is beside it, it follows a resize, and the
+  status cannot wrap.** The first version gave `keyHelp()` `terminal.width - 24`,
+  a number that stood for `selected: Settings` and its padding and was wrong at 30
+  columns, where the status wrapped onto a second line. The width function is now
+  the terminal less what the status says _now_ and the bar's padding and margin,
+  measured with `stringWidth()` and not `.length`, since an item named in a script
+  that takes two columns a character is measured short by the second and the
+  status is pushed off the row (a test swaps in such a name and runs the
+  scaffold's own test). **The width follows a resize** because it is read from a
+  signal: `keyHelp()` calls the function inside an effect that runs again only
+  when something it read changes, and `app.terminal.width` is a plain number, so
+  the first revision kept the width the first frame was drawn at -- 60 to 22
+  columns lost the status entirely. The size is a `State` fed by
+  `input.onResize()`, the pattern `keyHelp`'s own `width` documentation shows. The
+  unsubscribe it returns goes to `onCleanup()`: the file is copied into
+  components that mount and unmount, and what is attached is put back. No test can
+  observe a leaked listener (a disposed router stops dispatching either way), so
+  the generated text is what is pinned.
+  `.chosen` is `white-space: nowrap`: a status with no room is clipped and does
+  not take a second row, which a test provokes at 16 columns and which fails
+  without it. It once carried `flex-shrink: 0` too; nothing failed with that
+  removed, so it went rather than stay as a line nothing holds up. The scaffolded
+  test chooses the longest item at 30 columns, then at 60 and resized to 22.
+- **The scaffolded "refuses without a terminal" test pins `process.stdin.isTTY`
+  rather than trusting the runner.** Its refusal comes from `runApp()` seeing no
+  terminal, and a runner that hands its own down would open the real app and wait
+  for a key. Measured on a real pty: with the pin the test body refuses with
+  exit 1 and without it the app opens and hangs. A vitest worker cannot show the
+  difference -- its streams are always pipes -- so no sabotage inside the suite
+  can reach it, and `new-tui.test.ts` pins the source instead.
+- **The renderer-not-loaded probe uses `module.registerHooks()`.** `module.register()`
+  prints DEP0205 on Node 26 (measured), and `registerHooks()` is synchronous, in
+  the loader's own thread, and there from 22.15, under the 22.19 floor. The test
+  asserts the warning is absent from what the probed run printed.
+- **The two prompts that take typed text refuse what they cannot use, at the
+  prompt, and suggest nothing.** Enter on an empty project name used to submit,
+  fail, and end the run; the TUI command's name was pre-filled with `dashboard`
+  as both a default and a placeholder, so Enter made a command nobody chose, as
+  `my-cli` suggested a name nobody had. Both are `text()`'s `validate` now, which
+  shows the reason under the field and does not submit, so the answer is typed
+  into the same prompt. The text is whatever the same functions the argument goes
+  through say -- `nameProblem()` and `commandNameProblem()`, which answer `A name
+  is required` and `A command name is required` for empty or blank, so there is
+  no second spelling of either for the prompt to disagree with. The name prompt also
+  asks whether the directory it would make (under `--cwd`, which is why `run`
+  works out the parent first) already exists and is not empty, because that is
+  knowable the moment the name is. The run was already refused for it, straight
+  after the name; what the prompt buys is correcting the name in the same field
+  instead of losing the run and starting over. One `dirProblem()` builds the
+  message for the prompt and for the check after the answer, which a name that
+  came as an argument still needs, having never met the prompt. `--cwd` is
+  checked the same way, before the first question: a `--cwd` that is a file, or
+  under one, was `ENOTDIR` from the first `mkdir` after every answer; it is refused
+  by name now, by walking up to the nearest part that exists. `DEFAULT_TUI_COMMAND`
+  is deleted: `--yes` does not reach the question, since `--tui-command` is how a
+  non-interactive run names it, so nothing else needed a default and a constant
+  nothing reads is the dead property this file keeps recording.
+- **A newcomer picks between "JSX" and "Sigil UI template", and the `--syntax`
+  value stays `ui`.** "The ui tag" names a function a reader has not met. The
+  prompt's label, the `--syntax` description, the summary hint, the scaffolded
+  README, the component's header comment and the docs written for this ticket say
+  "Sigil UI template", with "(the `ui` tag)" beside it where the reader may meet
+  the function next. The flag and its choices are unchanged, so no script breaks,
+  and the framework's own docs, where `ui` literally is the tagged-template
+  function, keep calling it the tag.
+- **`--lang js|ts` replaced `--js`, because a flag cannot say "TypeScript".** A
+  declared flag is `false` when it is absent, so "not passed" and "TypeScript,
+  please" were one value, and only `--yes` could skip "Would you like to use
+  TypeScript?" -- for somebody who had already answered it with
+  `--tui-command dashboard`. An option with a value says it either way, the way
+  `--pm`, `--lint` and `--syntax` already do: passed is answered, absent is asked,
+  `--yes` takes `ts`, and a value that is not one of `LANGUAGES` is judged by
+  `choices` before the first question. `--js` is removed outright, with no alias
+  and no deprecation: the package is pre-1.0 and the ask was a change. The
+  other-syntax command always prints `--lang`, `ts` included, because the hint
+  reproduces the answers and a reader who runs it should be asked nothing it can
+  say.
+
+  **The trap, and it is not closed here: `--js` is silently ignored.** The toolchain
+  leaves `allowUnknownOptions` on, so `sigil new app --yes --js` takes `--js` as an
+  undeclared option, exits 0 and writes TypeScript, saying nothing -- measured, and
+  pinned by a characterization test so that changing it is a decision. Anything
+  with `--js` in a script now builds the wrong app. The same holds for every
+  mistyped option of every command, so the real choice is wider than this flag:
+  turn `allowUnknownOptions` off for the toolchain (`Unknown option --js`, and every
+  typo gets caught; a change to what every command accepts), or leave it and add a
+  hidden `--js` that throws `--js was replaced by --lang js` (one flag, one
+  message, and it is the alias that was asked not to exist, in a form that cannot
+  be used). Neither is done.
 
 ### The registry: what `sigil add` copies
 

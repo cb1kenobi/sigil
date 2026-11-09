@@ -24,16 +24,31 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
  * `rows` come with it, because a renderer with no width draws nothing
  * assertable and the prompts read the terminal's width for their own layout.
  */
-export const TTY_PRELOAD: string = `data:text/javascript,${encodeURIComponent(
-  ['stdout', 'stderr', 'stdin']
-    .map(
-      (s) =>
-        `Object.defineProperty(process.${s},"isTTY",{configurable:true,value:true});` +
-        `Object.defineProperty(process.${s},"columns",{configurable:true,value:80});` +
-        `Object.defineProperty(process.${s},"rows",{configurable:true,value:24});`
-    )
-    .join('')
-)}`;
+export const TTY_PRELOAD: string = ttyPreload();
+
+/**
+ * {@link TTY_PRELOAD} for a terminal of another width.
+ *
+ * A message that carries a path wraps at the width the child believes it has, and
+ * where the temp directory is long -- every Windows runner's -- wraps through the
+ * middle of a phrase a test asserts on. A test about the words, and not about how
+ * they wrap, asks for a terminal wide enough not to.
+ *
+ * @param columns - The width the child's streams report. Defaults to 80.
+ * @returns A `data:` URL for `--import`.
+ */
+export function ttyPreload(columns = 80): string {
+  return `data:text/javascript,${encodeURIComponent(
+    ['stdout', 'stderr', 'stdin']
+      .map(
+        (s) =>
+          `Object.defineProperty(process.${s},"isTTY",{configurable:true,value:true});` +
+          `Object.defineProperty(process.${s},"columns",{configurable:true,value:${columns}});` +
+          `Object.defineProperty(process.${s},"rows",{configurable:true,value:24});`
+      )
+      .join('')
+  )}`;
+}
 
 /** How long the child's output has to stay still before it counts as waiting. */
 const QUIET_MS = 100;

@@ -334,17 +334,20 @@
           "type": "bool"
         },
         {
-          "choices": [],
+          "choices": [
+            "js",
+            "ts"
+          ],
           "env": [],
           "hidden": false,
           "long": [
-            "--js"
+            "--lang"
           ],
           "multiple": false,
           "required": false,
           "short": [],
-          "takesValue": false,
-          "type": "bool"
+          "takesValue": true,
+          "type": "string"
         },
         {
           "choices": [
@@ -363,6 +366,19 @@
           "short": [],
           "takesValue": true,
           "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--no-tui"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
         },
         {
           "choices": [
@@ -393,6 +409,48 @@
           "short": [],
           "takesValue": false,
           "type": "bool"
+        },
+        {
+          "choices": [
+            "jsx",
+            "ui"
+          ],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--syntax"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--tui"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--tui-command"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
         },
         {
           "choices": [],

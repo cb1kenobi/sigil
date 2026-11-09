@@ -9,6 +9,11 @@
  * because people have preferences there and the answer is a config file nobody
  * enjoys writing twice.
  *
+ * A full-screen app is a fourth, and it is asked **after** the layout because it
+ * is something a command does rather than a way of arranging them. Only when
+ * there is one does it go on to ask where it is launched from -- the app itself,
+ * or a command of its own -- and which template syntax it is written in.
+ *
  * It does *not* ask about the package manager -- `npm_config_user_agent` says
  * which one invoked it, so asking would be asking a question whose answer is
  * already on the table. Nor about git, which it just does.
@@ -17,21 +22,28 @@
 
 import { displayPath } from '../build/index.ts';
 import {
+  commandNameProblem,
   type Language,
+  LANGUAGES,
   type Layout,
   type Linter,
   type Manager,
   MANAGERS,
   nameProblem,
+  otherSyntaxCommand,
+  runScript,
   scaffold,
   type ScaffoldFile,
+  type Syntax,
+  SYNTAXES,
+  type Tui,
 } from '../scaffold/index.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { confirm, select, text } from '@ttylabs/sigil/components/prompt';
 import { expand } from '@ttylabs/sigil/paths';
 import { which } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 
 /** This toolchain's own manifest, for the versions it writes. */
@@ -122,7 +134,10 @@ const newApp: AnyCommand = command({
     '--cwd [dir]': {
       desc: 'Where to create it, defaulting to the working directory',
     },
-    '--js': { desc: 'Generate JavaScript files instead of TypeScript', type: 'bool' },
+    '--lang [lang]': {
+      choices: [...LANGUAGES],
+      desc: 'Which language the app is written in',
+    },
     '--lint [linter]': {
       choices: ['oxlint', 'eslint', 'biome', 'none'],
       desc: 'Which linter to set up',
@@ -134,25 +149,58 @@ const newApp: AnyCommand = command({
     },
     '--no-install': { desc: 'Do not install dependencies' },
     '--single': { desc: 'One command rather than a commands directory', type: 'bool' },
+    '--syntax [syntax]': {
+      choices: [...SYNTAXES],
+      desc: 'Which template syntax the full-screen app is written in: jsx, or ui for the Sigil UI template',
+    },
+    // its own destination rather than the negated twin of `--tui`, which is what
+    // `negate: false` is for: `--tui` has to stay `false` when it was not passed,
+    // and `--no-tui` is the only way to say a script does not want the question
+    '--no-tui': {
+      desc: 'Do not include a full-screen app, and do not ask',
+      negate: false,
+      type: 'bool',
+    },
+    '--tui': {
+      desc: 'Include a full-screen app, launched from the app itself',
+      type: 'bool',
+    },
+    '--tui-command [name]': {
+      desc: 'Include a full-screen app, launched from a command of this name',
+    },
     '-y, --yes': { desc: 'Take the defaults for anything not passed', type: 'bool' },
   },
 
   async run({ argv }) {
     const yes = Boolean(argv.yes);
 
-    const name = await askName(argv.projectName as string | undefined, yes);
+    // first, before the name is asked for: a flag that cannot work is refused
+    // before any question, so nothing has been answered when it is
+    checkTuiFlags(argv, yes);
+
+    const parent = parentDir(argv.cwd as string | undefined);
+    const blocked = parentProblem(parent);
+    if (blocked) {
+      throw new Error(blocked);
+    }
+    const name = await askName(argv.projectName as string | undefined, yes, parent);
+    // asked again of a name that came from the argument, which the prompt never
+    // saw; for one that was typed it is the check the prompt already passed
     const problem = nameProblem(name);
     if (problem) {
       throw new Error(`${problem}: "${name}"`);
     }
 
-    const dir = join(parentDir(argv.cwd as string | undefined), name);
-    if (!usable(dir)) {
-      throw new Error(`${displayPath(dir)} already exists and is not empty`);
+    const dir = join(parent, name);
+    const taken = dirProblem(dir);
+    if (taken) {
+      throw new Error(taken);
     }
 
     const language = await askLanguage(argv, yes);
     const layout = await askLayout(argv, yes);
+    const tui = await askTui(argv, yes, layout, name);
+    const syntax = await askSyntax(argv, yes, tui);
     const linter = await askLinter(argv, yes);
     const pm = await askManager(argv, yes);
 
@@ -166,6 +214,8 @@ const newApp: AnyCommand = command({
       // on its first tag
       manager: pm,
       name,
+      syntax,
+      tui,
       version: own.version,
       versions: own.devDependencies,
     });
@@ -183,7 +233,17 @@ const newApp: AnyCommand = command({
     process.stdout.write(
       `\nCreated ${name} in ${displayPath(dir)}.\n\n  cd ${displayPath(relative(process.cwd(), dir) || '.')}\n` +
         (argv.install === false ? `  ${pm} install\n` : '') +
-        `  ${pm} run dev -- --help\n`
+        (tui?.at === 'root' ? `  ${runScript(pm, 'dev')}\n` : '') +
+        (tui?.at === 'command' ? `  ${runScript(pm, 'dev', tui.command)}\n` : '') +
+        `  ${runScript(pm, 'dev', '--help')}\n` +
+        // said once, after the steps and only to somebody who was given JSX: a
+        // build is the price of it, and the other syntax is the answer to
+        // paying it. One line, and the command is one that runs as it is written;
+        // it is not wrapped, since the terminal does that and a hard break at
+        // 88 columns is wrong at every other width
+        (tui && syntax === 'jsx'
+          ? `\nThe app is in JSX, so \`dev\` builds it before it runs. The Sigil UI template is the build-free alternative: \`${otherSyntaxCommand({ language, layout, linter, manager: pm, name, syntax, tui })}\`\n`
+          : '')
     );
   },
 });
@@ -213,8 +273,71 @@ function parentDir(cwd: string | undefined): string {
   return cwd === undefined ? process.cwd() : resolve(process.cwd(), expand(cwd));
 }
 
-/** Asks for the name, or takes the one that was given. */
-async function askName(given: string | undefined, yes: boolean): Promise<string> {
+/**
+ * What is wrong with the directory a project would be made in, if anything.
+ *
+ * One message in one place: it is asked of a name that came as an argument, after
+ * the answer, and of a name typed at the prompt, as it is typed.
+ *
+ * @param dir - The project's own directory.
+ * @returns What is wrong with it, or `undefined`.
+ */
+function dirProblem(dir: string): string | undefined {
+  return usable(dir) ? undefined : `${displayPath(dir)} already exists and is not empty`;
+}
+
+/**
+ * Why nothing can be created inside `parent`, if that is so.
+ *
+ * `--cwd` need not exist, since the scaffold makes each directory as it goes, but
+ * the nearest part of it that does has to be a directory: a file there, or anywhere
+ * above, is `ENOTDIR` from the first `mkdir` -- after every question was answered,
+ * with the system's words. Asked before the first one instead.
+ *
+ * @param parent - The directory the project would be created in.
+ * @returns What is wrong with it, or `undefined`.
+ */
+function parentProblem(parent: string): string | undefined {
+  let nearest = parent;
+  while (!existsSync(nearest)) {
+    const up = dirname(nearest);
+    if (up === nearest) {
+      return undefined;
+    }
+    nearest = up;
+  }
+  return statSync(nearest).isDirectory()
+    ? undefined
+    : `${displayPath(nearest)} is a file, so a project cannot be created ${nearest === parent ? 'there' : `in ${displayPath(parent)}`}`;
+}
+
+/**
+ * What is wrong with a name typed at the prompt, which is everything that would
+ * refuse it once it was answered.
+ *
+ * The same two checks `run` makes of a name that came as an argument -- the
+ * package-name rule and the directory being usable -- so that a name which would be
+ * refused can be corrected where it is typed, in the same field, instead of the run
+ * ending and starting again. They are the same functions rather than a second copy,
+ * so the prompt and the positional argument cannot disagree about what a name is.
+ *
+ * @param value - What was typed.
+ * @param parent - The directory the project would be created in.
+ * @returns What is wrong with it, or `undefined`.
+ */
+function typedNameProblem(value: string, parent: string): string | undefined {
+  const name = value.trim();
+  return nameProblem(name) ?? dirProblem(join(parent, name));
+}
+
+/**
+ * Asks for the name, or takes the one that was given.
+ *
+ * An answer that would be refused cannot be submitted: the prompt shows why under
+ * the field and waits. Empty is one of them, so there is no placeholder to
+ * suggest a name nobody chose.
+ */
+async function askName(given: string | undefined, yes: boolean, parent: string): Promise<string> {
   if (given !== undefined) {
     return given;
   }
@@ -224,13 +347,24 @@ async function askName(given: string | undefined, yes: boolean): Promise<string>
     );
   }
 
-  return (await text({ message: 'What is it called?', placeholder: 'my-cli' })).trim();
+  return (
+    await text({
+      message: 'What is it called?',
+      validate: (value) => typedNameProblem(value, parent),
+    })
+  ).trim();
 }
 
-/** Asks whether it is TypeScript, defaulting to yes. */
+/**
+ * Asks whether it is TypeScript, defaulting to yes.
+ *
+ * `--lang` answers it either way. It is an option with a value, as `--pm`, `--lint`
+ * and `--syntax` are, because a flag is `false` when it is absent: "not passed" and
+ * "TypeScript, please" were the same value, so only `--yes` could skip the question.
+ */
 async function askLanguage(argv: Record<string, unknown>, yes: boolean): Promise<Language> {
-  if (argv.js) {
-    return 'js';
+  if (typeof argv.lang === 'string') {
+    return argv.lang as Language;
   }
   if (yes) {
     return 'ts';
@@ -244,7 +378,10 @@ async function askLayout(argv: Record<string, unknown>, yes: boolean): Promise<L
   if (argv.single) {
     return 'single';
   }
-  if (yes) {
+  // a command to launch the app from is a command, so the question has been
+  // answered: asking it anyway let somebody say "no, a single command" and then
+  // fail with a guard from the scaffold after every question was answered
+  if (yes || typeof argv.tuiCommand === 'string') {
     return 'multi';
   }
 
@@ -259,6 +396,162 @@ async function askLayout(argv: Record<string, unknown>, yes: boolean): Promise<L
     ],
     message: 'Will it have subcommands?',
   })) as Layout;
+}
+
+/**
+ * Refuses the flag combinations that cannot mean anything, before anything is asked.
+ *
+ * This is the first thing `run` does, ahead of the name, so nothing has been
+ * answered when it fires. Each is a flag that would otherwise be accepted and do
+ * nothing -- which is how a typo becomes an app that is not what was asked for:
+ *
+ * - `--no-tui` beside `--tui`, `--tui-command` or `--syntax`, which each ask for
+ *   the app it says there is none of.
+ * - `--tui` beside `--tui-command`: the app itself or a command, and not both.
+ *   The command used to win silently.
+ * - `--tui-command` with `--single`, since there is no command to launch from.
+ *   The message says what to pass instead, because the intent is clear and only
+ *   the spelling is wrong.
+ * - A command name that cannot be a file and a command at once, or that the
+ *   runtime or the scaffold already owns.
+ * - `--syntax` where nothing will be asked for a TUI at all: under `--yes`, with
+ *   neither TUI flag. Interactively it is not refused here, because the answer to
+ *   the question that follows may yet be yes.
+ *
+ * @param argv - The parsed options.
+ * @param yes - Whether defaults are being taken.
+ */
+function checkTuiFlags(argv: Record<string, unknown>, yes: boolean): void {
+  const command = argv.tuiCommand;
+  const named = typeof command === 'string';
+
+  if (argv.noTui && (argv.tui || named || argv.syntax !== undefined)) {
+    throw new Error(
+      `--no-tui says there is no full-screen app, and ${argv.tui ? '--tui' : named ? '--tui-command' : '--syntax'} asks for one.`
+    );
+  }
+  if (argv.tui && named) {
+    throw new Error(
+      '--tui launches the full-screen app from the app itself and --tui-command from a command. Pass one of them.'
+    );
+  }
+
+  if (named) {
+    if (argv.single) {
+      throw new Error(
+        '--tui-command needs a commands directory to put the command in, and --single has none. Use --tui to launch the full-screen app from the app itself.'
+      );
+    }
+    const problem = commandNameProblem(command);
+    if (problem) {
+      throw new Error(`${problem}: "${command}"`);
+    }
+  }
+
+  if (argv.syntax !== undefined && yes && !argv.tui && !named) {
+    throw new Error(
+      '--syntax chooses how a full-screen app is written, and there is none. Add --tui.'
+    );
+  }
+}
+
+/**
+ * Asks whether there is a full-screen app and where it is launched from.
+ *
+ * Nothing is the default, which is the one question here that is not "yes":
+ * most CLIs are not full-screen apps, and one that is knows it. `--tui` is the
+ * app itself and `--tui-command` is a command, and either answers the whole
+ * question. Interactively, only a multi-command app is asked where, since a
+ * single command has nowhere but itself.
+ *
+ * @param argv - The parsed options.
+ * @param yes - Whether to take the default rather than asking.
+ * @param layout - How the commands are arranged.
+ * @param app - The app's name, which the question names.
+ * @returns Where it is launched from, or `undefined` for none.
+ */
+async function askTui(
+  argv: Record<string, unknown>,
+  yes: boolean,
+  layout: Layout,
+  app: string
+): Promise<Tui | undefined> {
+  if (typeof argv.tuiCommand === 'string') {
+    return { at: 'command', command: argv.tuiCommand };
+  }
+  if (argv.tui) {
+    return { at: 'root' };
+  }
+  // `--no-tui` is how a script that passes every flag but `--yes` says so
+  if (yes || argv.noTui) {
+    return undefined;
+  }
+
+  if (!(await confirm({ default: false, message: 'Include a full-screen app (TUI)?' }))) {
+    return undefined;
+  }
+  if (layout === 'single') {
+    return { at: 'root' };
+  }
+
+  const where = (await select({
+    choices: [
+      { hint: 'running it with no command opens the app', label: app, value: 'root' },
+      { hint: `${app} on its own shows help`, label: 'A command', value: 'command' },
+    ],
+    message: `Launch it from \`${app}\`, or from a command?`,
+  })) as 'command' | 'root';
+
+  if (where === 'root') {
+    return { at: 'root' };
+  }
+
+  // no default: the name is the command somebody types every time they open the
+  // app, so it is theirs to choose, and an empty answer cannot be submitted
+  const command = (
+    await text({
+      message: 'What is the command called?',
+      validate: (value) => commandNameProblem(value.trim()),
+    })
+  ).trim();
+
+  return { at: 'command', command };
+}
+
+/**
+ * Asks which template syntax, JSX by default, and only when there is an app to write.
+ *
+ * @param argv - The parsed options.
+ * @param yes - Whether to take the default rather than asking.
+ * @param tui - What `askTui()` answered.
+ * @returns The syntax, or `undefined` when there is no full-screen app.
+ */
+async function askSyntax(
+  argv: Record<string, unknown>,
+  yes: boolean,
+  tui: Tui | undefined
+): Promise<Syntax | undefined> {
+  if (tui === undefined) {
+    if (argv.syntax !== undefined) {
+      // reached only interactively, by a `--syntax` and then a "no" to the app
+      throw new Error('--syntax chooses how a full-screen app is written, and none was asked for');
+    }
+    return undefined;
+  }
+  if (typeof argv.syntax === 'string') {
+    return argv.syntax as Syntax;
+  }
+  if (yes) {
+    return 'jsx';
+  }
+
+  return (await select({
+    choices: [
+      { hint: 'typed props in an editor; built to run', label: 'JSX', value: 'jsx' },
+      { hint: 'runs as it is, with no build', label: 'Sigil UI template', value: 'ui' },
+    ],
+    message: 'Which template syntax?',
+  })) as Syntax;
 }
 
 /** Asks which linter, defaulting to oxlint. */
