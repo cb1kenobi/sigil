@@ -3062,16 +3062,22 @@ people's software and will move.
   were regenerated for the `--layout` rename, which is what changed them, and not for
   this.
 
-  **Where it is set matters, and it took a measurement to find out.** `allowUnknownOptions`
-  is a setting of `main()`, a schema has no place for one, and the built toolchain's
-  executable is generated -- it calls `main({ schema })` and never reaches `run()` --
-  so a setting passed there refused in `node src/sigil.ts` and **nowhere that ships**
-  (measured: `dist/sigil.mjs build --outt x` ran on to "No package.json"). The
-  schema's own `beforeParse` hook rides into the bundle and fires before argv is
-  walked, which is where the setting is read, so it sets
-  `state.settings.allowUnknownOptions` and works from source and built alike. A
-  hook doing that is a workaround; `Schema.settings` would be the honest home and is
-  an addition to `@ttylabs/sigil`, left for a decision.
+  **Where it is set matters, and it took a measurement to find out.**
+  `allowUnknownOptions` is a setting of `main()`, a schema has no place for one, and
+  the built toolchain's executable is generated -- it calls `main({ schema })` and
+  never reaches `run()` -- so a setting passed there refused in `node src/sigil.ts`
+  and **nowhere that ships** (measured: `dist/sigil.mjs build --outt x` ran on to
+  "No package.json"). The schema's own `beforeParse` hook rides into the bundle and
+  fires before argv is walked, which is where the setting is read, so it works from
+  source and built alike. It replaces `state.settings` with a copy carrying
+  `allowUnknownOptions: false` rather than writing the flag onto it, because
+  `parse()` keeps the settings object its caller passed: written in place, the flag
+  stayed set on that object, and a second `main()` reusing it with an unrelated
+  schema then refused an option it was entitled to
+  (`unknown-options.test.ts`). The shipped program never passes settings, so only a
+  caller of `schema()` that passes its own object could meet that; it is not a
+  shipped bug. A hook doing this is a workaround; `Schema.settings` would be the
+  honest home and is an addition to `@ttylabs/sigil`, left for a decision.
 
   An app built with `sigil build` has no such hook to reach for unless it writes the
   same one, and its generated entry carries no `settings`: refusing unknown options
@@ -3097,11 +3103,9 @@ people's software and will move.
   It cannot show that a real menu _highlights_ what it is handed; that is `select()`'s
   contract -- `value` starts highlighted and beats `initial` -- pinned on a non-first
   row in `@ttylabs/sigil`'s `prompt-value.test.ts`, and no real default is a
-  non-first row, so nothing end to end can tell `value` from nothing at all.
-  The hook also writes a copy of `state.settings` and not the caller's object, which
-  `parse()` keeps: written in place it leaked `allowUnknownOptions: false` into every
-  later `main()` that reused the object (`unknown-options.test.ts`). The package manager is the one default that is not a constant -- it is
-  whichever installed manager `askManager()` prefers -- and is defined there.
+  non-first row, so nothing end to end can tell `value` from nothing at all. The
+  package manager is the one default that is not a constant -- it is whichever
+  installed manager `askManager()` prefers -- and is defined there.
 
 ### The registry: what `sigil add` copies
 

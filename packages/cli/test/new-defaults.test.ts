@@ -118,10 +118,14 @@ describe('the defaults, as the questions read them', () => {
       expect(confirm).not.toHaveBeenCalled();
     });
 
-    it('should let --tui-command say multi, without asking and whatever the default is', async () => {
-      // not under --yes, where the answer is the default and `multi` would be it
-      // anyway: asked, and with the default moved to `single`
+    it('should let --tui-command say multi, under --yes or asked, and whatever the default is', async () => {
+      // the default is `single` in here, so `multi` is the flag's doing and not the
+      // default's. Both ways round: asked, where the branch keeps the question from
+      // being put, and under --yes, where `if (yes) return DEFAULTS.layout` sitting
+      // before it would hand a `--yes --tui-command ops` run a layout that cannot
+      // hold the command
       expect(await askLayout({ tuiCommand: 'ops' }, false)).toBe('multi');
+      expect(await askLayout({ tuiCommand: 'ops' }, true)).toBe('multi');
       expect(select).not.toHaveBeenCalled();
     });
 

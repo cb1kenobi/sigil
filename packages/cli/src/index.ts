@@ -60,8 +60,9 @@ export function schema(): Schema {
     hooks: {
       beforeParse(state) {
         // a copy: `parse()` keeps the caller's own settings object, so writing the
-        // flag onto it would leave it set for every later `main()` that reused the
-        // object, whatever schema that one has
+        // flag onto it would leave it set for a later `main()` that reused the
+        // object, whatever schema that one has. The shipped program passes no
+        // settings, so this can only reach a caller of `schema()` that passes its own
         state.settings = { ...state.settings, allowUnknownOptions: false };
       },
     },
