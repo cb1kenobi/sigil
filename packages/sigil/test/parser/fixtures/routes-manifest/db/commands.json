@@ -1,0 +1,3 @@
+{
+  "migrate": { "desc": "run migrations", "alias": "m" }
+}

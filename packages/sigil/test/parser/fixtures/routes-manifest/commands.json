@@ -1,0 +1,8 @@
+{
+  "build": { "desc": "described", "alias": ["b", "compile"] },
+  "list": { "desc": "List the things", "alias": "ls" },
+  "secret": { "hidden": true },
+  "db": { "desc": "database tasks", "alias": "database" },
+  "routes-pkg": { "desc": "described", "alias": "rp" },
+  "gone": { "desc": "no such route", "alias": "g" }
+}

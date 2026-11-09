@@ -42,7 +42,9 @@
  * differently bundled and unbundled" failure the shared route rules exist to
  * prevent. So they stay where they are -- and a module that declares one, or a
  * `default: true`, is warned about (`unroutable()`), because help used to print
- * the spelling and nothing routed it (SIG-316).
+ * the spelling and nothing routed it (SIG-316). Where such a spelling belongs
+ * is the routed directory's `commands.json` (SIG-324), which `tree.ts` reads
+ * through the runtime's own reader and bakes.
  *
  * ## A computed value is reported, never guessed
  *
@@ -131,9 +133,17 @@ export interface RoutedBy {
    */
   readonly index?: boolean;
   /**
+   * Where a walked route is described: the `commands.json` (or
+   * `commands.jsonc`) in the directory it sits in, and the key it is described
+   * under there. Set only for a route a walk found, since that file is the
+   * one place a walked module's spellings can be declared -- a module a schema
+   * points at is declared on the schema key instead.
+   */
+  readonly manifest?: { readonly file: string; readonly key: string };
+  /**
    * What routes to it, as written: the file or directory name of a walked
-   * route, or the name string of the placeholder that points at it with its
-   * `alias` joined on.
+   * route with any alias its `commands.json` gives joined on, or the name
+   * string of the placeholder that points at it with its `alias` joined on.
    */
   readonly name: string;
 }
@@ -272,26 +282,51 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
 }
 
 /**
- * Where a routed module is told to say what it cannot say itself.
+ * Where a module a *schema* points at is told to say what it cannot say
+ * itself, which is the schema key that routes it.
  *
- * One sentence, used by every warning below, so that the day a routed
- * directory can describe its commands without loading them (SIG-324's
- * `commands.json`) it is changed here and nowhere else.
+ * A walked module is told something else -- the `commands.json` beside it,
+ * through `declareIn()` -- because a walk has no schema key to put a spelling
+ * on, and that file is what SIG-324 added for exactly this.
  */
 const DECLARE_ON_THE_ROUTE = 'declare it on the schema key that routes this module instead';
 
 /**
- * What a directory command's `default` is told, which is that there is nowhere
- * to say it yet.
+ * What a directory command's `default` is told when a schema key points at the
+ * directory, which is that the schema has nowhere to say it.
  *
- * The advice above does not work for it from source: only a key's string value
+ * The key's advice does not work for it from source: only a key's string value
  * walks a directory and a string cannot carry `default`, while an object's
- * `path` is imported as a file, and Node refuses a directory. SIG-324's
- * `commands.json` is where a directory will say it, and this changes with
- * `DECLARE_ON_THE_ROUTE` when that lands.
+ * `path` is imported as a file, and Node refuses a directory. A directory a
+ * *walk* found is told to use its parent's `commands.json` instead, which can.
  */
 const NO_WAY_TO_DEFAULT_A_DIRECTORY =
-  'a directory command cannot be made the default from the schema today, so this line can only be removed';
+  'a directory command cannot be made the default from the schema, so this line can only be removed ' +
+  'unless the directory is found by a walk, whose commands.json can say it';
+
+/**
+ * The advice for a walked module: the `commands.json` in the directory the
+ * route sits in, with the entry that says it.
+ *
+ * @param routedBy - How the module is reached, with the file it is described in.
+ * @param entry - The entry's body, as JSON.
+ * @returns The clause.
+ */
+function declareIn(routedBy: RoutedBy & { manifest: object }, entry: string): string {
+  const { file, key } = routedBy.manifest;
+  const beside = routedBy.index ? 'directory' : 'module';
+  return `declare it in the ${file} beside this ${beside} instead, such as \`{ ${JSON.stringify(key)}: ${entry} }\``;
+}
+
+/**
+ * A list of spellings as the `alias` of a `commands.json` entry.
+ *
+ * @param spellings - The spellings.
+ * @returns The entry's body.
+ */
+function aliasEntry(spellings: readonly string[]): string {
+  return `{ "alias": [${[...new Set(spellings)].map((spelling) => JSON.stringify(spelling)).join(', ')}] }`;
+}
 
 /**
  * The labels of a name string a route is reached by, less the arguments.
@@ -352,19 +387,27 @@ function unroutable(
   const quoted = (spellings: readonly string[]) =>
     [...new Set(spellings)].map((spelling) => `"${spelling}"`).join(', ');
 
+  const manifest = routedBy.manifest ? { ...routedBy, manifest: routedBy.manifest } : undefined;
+  /** The advice for spellings that do not route: the `commands.json`, or the schema key. */
+  const declareSpellings = (extra: readonly string[]) =>
+    manifest
+      ? // a value this could not read has no spellings to show, so the shape is
+        // shown with a stand-in
+        declareIn(manifest, aliasEntry(extra.length ? extra : ['...']))
+      : `${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${[...new Set([...routed, ...extra])].join(', ')}': '${target}' }\``;
+
   const name = declared('name');
   if (name) {
     const written = literalString(name.value);
     const extra = written === undefined ? [] : spellingsOf(written).filter((s) => !routed.has(s));
     if (written === undefined || extra.length > 0) {
-      const example = [...new Set([...routed, ...extra])].join(', ');
       warn(
         name.start,
         written === undefined
           ? `"name" is computed, so nothing says it matches "${route}", the name this module is routed by; a name in a routed module has no effect on routing, ` +
-              `so ${DECLARE_ON_THE_ROUTE}`
+              `so ${manifest ? declareIn(manifest, aliasEntry(['...'])) : DECLARE_ON_THE_ROUTE}`
           : `"name" declares ${quoted(extra)}, which does not route: this module is loaded only after argv has matched "${route}", ` +
-              `so a name in it has no effect and help leaves it out; ${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${example}': '${target}' }\``
+              `so a name in it has no effect and help leaves it out; ${declareSpellings(extra)}`
       );
     }
   }
@@ -379,7 +422,7 @@ function unroutable(
         alias.start,
         `"alias" ${written.kind === 'strings' ? `declares ${quoted(extra)}` : 'is not a list of strings written down'}, ` +
           `which does not route: this module is loaded only after argv has matched "${route}", so an alias in it has no effect; ` +
-          `${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${[...new Set([...routed, ...extra])].join(', ')}': '${target}' }\``
+          declareSpellings(extra)
       );
     }
   }
@@ -387,9 +430,11 @@ function unroutable(
   // `default: true` on a placeholder that already says so is the module
   // repeating the route, as a name equal to it is
   const fallback = declared('default');
-  const advice = routedBy.index
-    ? NO_WAY_TO_DEFAULT_A_DIRECTORY
-    : `${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${route}': { default: true, path: '${target}' } }\``;
+  const advice = manifest
+    ? declareIn(manifest, '{ "default": true }')
+    : routedBy.index
+      ? NO_WAY_TO_DEFAULT_A_DIRECTORY
+      : `${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${route}': { default: true, path: '${target}' } }\``;
   if (
     fallback &&
     literalBoolean(fallback.value) !== false &&

@@ -188,7 +188,8 @@ without destroying it is SIG-154's.
 - **`write()` and `writeSync()` are declared here and have no caller, and
   `wouldLose` has no producer in core.** Both are deliberate and each is the
   shape this file already records twice: a property with no reader is dead, and a
-  property with no **producer** is a contract -- `Schema.routeInfo`'s own entry.
+  property with no **producer** is a contract -- the `Command.choices` entry in
+  the root `AGENTS.md`, whose example of one was `Schema.routeInfo`.
   `save()` is SIG-154's, so `write()` is the contract SIG-149 and SIG-152 are
   blocked on; `wouldLose` is **absent** for a store that edits spans even over a
   comment-rich file and populated by one that reprints, which is what a YAML or

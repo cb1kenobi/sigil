@@ -164,21 +164,20 @@ declaring both throws.
 
 ### Command properties
 
-| Property    | Type                     | Notes                                                          |
-| ----------- | ------------------------ | -------------------------------------------------------------- |
-| `alias`     | `string \| string[]`     | Additional names, left out of help                             |
-| `args`      | `(string \| Argument)[]` | Positional arguments                                           |
-| `commands`  | `object \| string`       | Subcommands, or a path to load them from                       |
-| `default`   | `boolean`                | Runs when argv named no command — see below                    |
-| `desc`      | `string`                 | Description for help                                           |
-| `format`    | `boolean \| string[]`    | Output formats this command presents — see below               |
-| `hidden`    | `boolean`                | Omit from help; a `!` name prefix sets it too                  |
-| `hooks`     | `object`                 | `init`, `parse`, `help`, `afterRun`, `beforeError` — see below |
-| `load`      | `() => Promise<unknown>` | The module as a function, for a bundled app                    |
-| `options`   | `object`                 | Options scoped to this command and its children                |
-| `path`      | `string`                 | A module to load the command from                              |
-| `routeInfo` | `object`                 | Descriptions a build lifted out of a command tree              |
-| `run`       | `(state) => unknown`     | Handler invoked by `main()` when this command wins             |
+| Property   | Type                     | Notes                                                          |
+| ---------- | ------------------------ | -------------------------------------------------------------- |
+| `alias`    | `string \| string[]`     | Additional names, left out of help                             |
+| `args`     | `(string \| Argument)[]` | Positional arguments                                           |
+| `commands` | `object \| string`       | Subcommands, or a path to load them from                       |
+| `default`  | `boolean`                | Runs when argv named no command — see below                    |
+| `desc`     | `string`                 | Description for help                                           |
+| `format`   | `boolean \| string[]`    | Output formats this command presents — see below               |
+| `hidden`   | `boolean`                | Omit from help; a `!` name prefix sets it too                  |
+| `hooks`    | `object`                 | `init`, `parse`, `help`, `afterRun`, `beforeError` — see below |
+| `load`     | `() => Promise<unknown>` | The module as a function, for a bundled app                    |
+| `options`  | `object`                 | Options scoped to this command and its children                |
+| `path`     | `string`                 | A module to load the command from                              |
+| `run`      | `(state) => unknown`     | Handler invoked by `main()` when this command wins             |
 
 A command is hidden if its name carries a `!` prefix **or** it declares
 `hidden: true`. The two are additive: either one alone is enough, and an
@@ -482,10 +481,54 @@ A directory is read when its command is matched or when help describes it, and
 not before. `mycli db migrate up` reads `commands/`, then `commands/db/`, then
 `commands/db/migrate/`, and nothing else — plus the `package.json` of any
 subdirectory that has one, which is what lets a package keep its own name
-without being imported — so a tree of sixty commands costs one
-`readdir` per level argv actually names, and one `import`. A subdirectory lists
-by name alone in its parent's help until it has been read, which is the rule a
-lazily loaded module already follows.
+without being imported, and the level's own `commands.json` if it has one — so a
+tree of sixty commands costs one `readdir` per level argv actually names, and one
+`import`. A subdirectory lists by name alone in its parent's help until it has
+been read, which is the rule a lazily loaded module already follows, unless the
+parent's `commands.json` describes it.
+
+#### A `commands.json`
+
+A routed directory may hold a `commands.json`, which describes and aliases the
+commands in it **without loading any module**:
+
+```json
+{
+  "list": { "desc": "List the things", "alias": ["ls"] },
+  "db": { "desc": "Database commands" },
+  "debug": { "hidden": true },
+  "open": { "default": true }
+}
+```
+
+A key is a route's name: a file name without its extension, a subdirectory's
+name, or the name a package's `package.json` gives it. An entry takes `desc`,
+`hidden`, `alias` (a string or a list of strings) and `default`, and they mean
+what they mean on a placeholder declared by hand:
+
+- `desc` is what help shows until the module loads, and the module's own `desc`
+  wins once it has. A package's `package.json` description beats it.
+- `hidden` hides the command; the module cannot un-hide it.
+- `alias` routes — `mycli ls` runs `list` from source and after `sigil build` —
+  and stays out of help, as the `alias` property does.
+- `default: true` runs the command when argv names none of its siblings, and it
+  still routes and lists under its own name. Two entries both `default` throw.
+
+A directory command is described in its parent's `commands.json`, under its own
+name, and what is inside it in its own. Each level's file is read when that level
+is walked, and costs one file read.
+
+The walk still decides what exists. A route with no entry is a command listed by
+name alone, and an entry naming no route is ignored — as is a property that is
+none of the four — so `sigil check` and `sigil build` warn about both. The file
+may be called `commands.jsonc` instead, and either name is read as JSONC; a
+directory holding both throws. So does a file that does not parse or a property
+of the wrong type, naming the file, from source and from `sigil build` alike.
+Neither name is a route, since `.json` is not a route extension.
+
+`routeInfo` on the schema was the older way to describe a walked tree, and it has
+been removed: a leftover one is ignored. A `commands.json` says what it said and
+can also say `alias` and `default`.
 
 A path is relative to the file that declared it, the same as an `import` in
 that file: a command module exporting `commands: { all: './all.js' }` is
@@ -538,7 +581,15 @@ a module declares that its route does not already say, naming the file. They
 read the modules of a directory walk and the ones a schema points at by `path`
 or `load`; they do not read a package a walk finds, or the routes under a
 directory a schema points at by key. Declare the spelling where the route is
-declared:
+declared. For a walked route that is the directory's
+[`commands.json`](#a-commandsjson), and the warning names the entry:
+
+```json
+{ "list": { "alias": ["ls"] }, "open": { "default": true } }
+```
+
+An alias there routes and stays out of help. For a spelling help shows too, or a
+command a schema points at, it is the schema key:
 
 ```js
 const schema = {

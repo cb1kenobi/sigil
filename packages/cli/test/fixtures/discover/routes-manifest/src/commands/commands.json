@@ -1,0 +1,7 @@
+{
+  "list": { "desc": "List the things", "alias": ["ls"] },
+  "db": { "desc": "Database things", "alias": "database" },
+  "open": { "default": true, "hidden": true },
+  "gone": { "desc": "A command that was renamed", "alias": "g" },
+  "close": { "aliases": ["c"] }
+}

@@ -38,11 +38,12 @@ export function schema(): Schema {
     // './commands' mean *this* directory rather than the one the user was
     // standing in.
     //
-    // No `routeInfo`: `sigil build` lifts the descriptions out of those
-    // modules and bakes them into the tree it generates, which is the same
-    // lift a hand-run script used to do here. Running from source lists by
-    // name alone until a module is loaded, which is what an unbuilt
-    // filesystem tree has always done.
+    // No `commands.json` beside them: `sigil build` lifts the descriptions
+    // out of those modules and bakes them into the tree it generates, which
+    // is the same lift a hand-run script used to do here. Running from source
+    // lists by name alone until a module is loaded, which is what an unbuilt
+    // filesystem tree does without one -- and writing one would be every
+    // description said twice, for a toolchain whose users only run it built.
     baseDir: import.meta.dirname,
     commands: './commands',
   };

@@ -1,5 +1,6 @@
 import { generateBin, generateCommands, specifier } from '../../src/build/generate.js';
 import { resolveCommandTree, walkTree, type ResolvedCommand } from '../../src/build/tree.js';
+import { tempDir } from '../temp.js';
 import { Internal, main, type AnyCommand, type ParseState } from '@ttylabs/sigil';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve as resolvePath } from 'node:path';
@@ -190,6 +191,100 @@ describe('resolving a command tree', () => {
     expect(paths).to.contain('db');
     expect(paths.indexOf('db')).to.be.lessThan(paths.indexOf('db migrate'));
     expect(paths.indexOf('db migrate')).to.be.lessThan(paths.indexOf('db migrate up'));
+  });
+});
+
+/**
+ * A routed directory's `commands.json`, which the build reads through the
+ * runtime's own reader and bakes (SIG-324) -- so an alias or a default it
+ * declares routes the same from source and after a build.
+ */
+describe('a commands.json', () => {
+  const manifestApp = resolvePath(__dirname, '../fixtures/discover/routes-manifest/src/commands');
+
+  it("should bake an entry's desc, alias and default, and hidden", () => {
+    const { commands } = resolveCommandTree(manifestApp);
+
+    expect(at(commands, 'list')).to.include({ desc: 'List the things' });
+    expect(at(commands, 'list').alias).to.deep.equal(['ls']);
+    expect(at(commands, 'open')).to.include({ default: true, hidden: true });
+    expect(at(commands, 'db').alias).to.deep.equal(['database']);
+  });
+
+  it("should keep the lifted desc where an entry has none, and read each level's own file", () => {
+    const { commands } = resolveCommandTree(manifestApp);
+
+    // `close` has an entry with nothing it recognizes, so the lift stands
+    expect(at(commands, 'close').desc).to.equal('Close things');
+    // `db` is described in its parent's file and `migrate` in `db`'s
+    expect(at(commands, 'db').desc).to.equal('Database things');
+    expect(at(commands, 'db', 'migrate')).to.include({ desc: 'Run migrations' });
+    expect(at(commands, 'db', 'migrate').alias).to.deep.equal(['m']);
+  });
+
+  it('should not create a command for an entry, and warn about it and what it ignores', () => {
+    const { commands, diagnostics } = resolveCommandTree(manifestApp);
+
+    expect(commands.map((command) => command.name)).to.not.contain('gone');
+    expect(diagnostics.map((diagnostic) => diagnostic.message)).to.deep.equal([
+      '"gone" names no command in this directory, so its entry is ignored and "g" does not route; key it by a file or subdirectory name here, without the extension, or remove it',
+      '"aliases" on "close" is not something an entry takes, so it is ignored; an entry takes "desc", "hidden", "alias" and "default"',
+      // each level's own file is checked, not only the root's
+      '"seed" names no command in this directory, so its entry is ignored; key it by a file or subdirectory name here, without the extension, or remove it',
+    ]);
+    expect(diagnostics.every((diagnostic) => diagnostic.severity === 'warning')).to.equal(true);
+    expect(diagnostics[0]?.file).to.equal(join(manifestApp, 'commands.json'));
+    expect(diagnostics[2]?.file).to.equal(join(manifestApp, 'db', 'commands.json'));
+  });
+
+  it("should silence what a module's unreadable desc would have said, when an entry says it", () => {
+    // `list.ts` computes its `desc`, which is a warning anywhere else: the
+    // entry is what help shows before the module loads, which answers it
+    const { diagnostics } = resolveCommandTree(manifestApp);
+    expect(diagnostics.filter((diagnostic) => diagnostic.file.endsWith('list.ts'))).to.deep.equal(
+      []
+    );
+  });
+
+  it("should take an entry's desc over a translated one, as prose", () => {
+    const dir = tempDir('sigil-tree-manifest-');
+    const translatedModule =
+      "import { __ } from '@ttylabs/sigil/i18n';\nexport default { desc: __`Build it` };\n";
+    writeFileSync(join(dir, 'build.js'), translatedModule);
+    writeFileSync(join(dir, 'other.js'), translatedModule);
+    writeFileSync(join(dir, 'commands.json'), '{ "build": { "desc": "Built" } }');
+
+    const { commands } = resolveCommandTree(dir);
+    // the pair, so a lift that never reads `__` cannot pass it
+    expect(at(commands, 'other')).to.include({ desc: 'Build it', descTranslated: true });
+    expect(at(commands, 'build').desc).to.equal('Built');
+    expect(at(commands, 'build').descTranslated).to.equal(undefined);
+  });
+
+  it.each([
+    ['not JSON', { 'commands.json': '{ "build": ' }],
+    ['the wrong type', { 'commands.json': '{ "build": { "alias": 42 } }' }],
+    ['spelled both ways', { 'commands.json': '{}', 'commands.jsonc': '{}' }],
+    [
+      'two defaults',
+      { 'commands.json': '{ "a": { "default": true }, "build": { "default": true } }' },
+    ],
+  ])("should fail with the runtime's own message for a file that is %s", async (_, files) => {
+    const dir = tempDir('sigil-tree-manifest-');
+    writeFileSync(join(dir, 'build.js'), 'export default { run() {} };\n');
+    for (const [name, text] of Object.entries(files)) {
+      writeFileSync(join(dir, name), text);
+    }
+
+    // one reader, so one message: the build has no wording of its own to drift
+    let runtime: unknown;
+    try {
+      await main({ argv: [], schema: { commands: dir }, settings: { errorHandler: false } });
+    } catch (e: unknown) {
+      runtime = e;
+    }
+    expect(runtime).toBeInstanceOf(Error);
+    expect(() => resolveCommandTree(dir)).to.throw((runtime as Error).message);
   });
 });
 
