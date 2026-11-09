@@ -69,6 +69,11 @@ export * from './subpaths/diff.js';
 export * from './subpaths/rule.js';
 export * from './subpaths/markdown-parse.js';
 export * from './subpaths/markdown.js';
+export * from './subpaths/control.js';
+export * from './subpaths/button.js';
+export * from './subpaths/checkbox.js';
+export * from './subpaths/radio-set.js';
+export * from './subpaths/switch.js';
 export {
   FRAMEWORK_CSS,
   frameworkSheet,

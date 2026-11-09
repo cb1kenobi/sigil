@@ -10389,7 +10389,7 @@ exception per widget. This is the one answer, and every widget below follows it.
   could leave set. All four are in `src/element`'s entry, and the rounds and their
   sabotages are in its history file.
 - **Not done:** the modal onto the role, which is SIG-199's when `Button`
-  replaces its inline buttons; level-0 markers for the three existing controls,
+  replaces its inline buttons (it did: "Form controls" below); level-0 markers for the three existing controls,
   which have no blank to put one in; and `:focus-within`, which would not solve
   this, as above, and which nothing has asked for for any other reason.
 
@@ -10427,6 +10427,10 @@ exception per widget. This is the one answer, and every widget below follows it.
   | `openModal`     | `onPaste` (on the panel)                        |
   | `showToast`     | `onMouse` (on the panel)                        |
   | `attachTooltip` | `onLayout` (on the bubble)                      |
+  | `Button`        | `onKey`, `onMouse`, `onFocusChange`             |
+  | `Checkbox`      | `onKey`, `onMouse`, `onFocusChange`             |
+  | `Switch`        | `onKey`, `onMouse`, `onFocusChange`             |
+  | `RadioSet`      | `onKey`, `onFocusChange`                        |
 
   `Collapsible`, `Tabs` and `Show`/`For` assign none on the element their `props`
   reach (a `Collapsible`'s hooks are on its title, `Tabs`' on its row), so they
@@ -10449,3 +10453,131 @@ exception per widget. This is the one answer, and every widget below follows it.
   the code: a component that starts assigning another hook fails until it refuses
   that one too. It also asserts the refusal names both, the `undefined` pass, and
   that every hook it does not own is kept.
+
+### Form controls: a button, a checkbox, a radio set and a switch (SIG-199)
+
+`src/components/button.ts`, `checkbox.ts`, `radio-set.ts`, `switch.ts`, and
+`control.ts` for what the four share. The controls a settings screen or a login
+form is made of, as elements: the input router, the focus ring and the layout
+were there, and nothing to put in them. The ticket's "Settled by precedent" list
+was followed as written; what it left open, and what writing it turned up, is
+below. How each was reached -- the alternatives, the measurements and the
+sabotage pass -- is in
+[docs/history/form-controls.md](../../../../docs/history/form-controls.md).
+
+- **The elements first, built from the prompts' parts, and the prompts not moved
+  onto them.** SIG-215's answer for the text field. What is shared is what the
+  prompts already publish: `PROMPT_SYMBOLS` (`❯`, `◉`, `◯`), `promptChoice()`,
+  `promptValue()` and `promptSameValue()`, so a radio set reads `select()`'s
+  choices and compares values the way every prompt does; `labelLine()`; and the
+  `toggle()` prompt's `on` and `off`. Nothing in `prompt.ts` or `toggle.ts` moved.
+- **What the four share is one module, `control.ts`, and it is published.**
+  `controlFlag()` (a boolean or a `State<boolean>`, a truthy string refused),
+  `controlDisabled()` and `describeControls()`, each called four times or more.
+  Published at `@ttylabs/sigil/components/control` because every sibling a
+  component imports has to be, for `sigil add` to rewrite the import, and because
+  a control an app writes for itself can then follow the same rules by calling
+  them. The pointer cell is _not_ in it: every list in the package builds its
+  `❯` inline from `PROMPT_SYMBOLS.cursor`, and `control.ts` importing `prompt.ts`
+  would make `Button`, which draws no pointer, pay about 50 KB for the import.
+- **Settled: `Button` replaces the modal's inline buttons, and the modal is its
+  first user.** The modal's buttons were a button written inline -- the bracket
+  rule, Enter, Space and the click -- which is what "one definition" is about,
+  and SIG-278 had already decided the visible half: the focused button's label is
+  `.sigil-focus` (inverse) where it was the accent, which Chris accepted there.
+  The effect the modal ran over `input.focus.current` to bracket its buttons is
+  gone with them, since a button knows its own focus from `onFocusChange`. Every
+  modal test passes unchanged but one line, which read the focused element's
+  `.text` -- a button is a box of its brackets and its label now, so the test
+  reads its parts and asserts `[ B ]` exactly, which is stronger. Three small
+  consequences: a blank label (`' '`) is refused with the modal's own message
+  where only `''` was; a label's escape sequences and line breaks are taken out,
+  as every label in the package is; and the modal subpath grew 6.1 KB, from
+  198,373 to 204,473 B, for `button.ts` and `control.ts`. The modal still
+  delivers keys itself and owns the trap; a button is only what is focused.
+- **Settled: the checkbox is `[x]` and `[ ]`, not the multiselect's `◉` and
+  `◯`.** Both read at colour level 0, so that did not decide it. What did is that
+  in a form a checkbox and a radio set sit together, and "any of" against "one
+  of" is told by shape -- square against round, the convention every form a
+  reader has used keeps. The radio set and the switch take the prompts' round
+  marks, as `toggle()` does for its two states, so the checkbox has to be the
+  other shape or the two read alike. The multiselect is a list of many-of with
+  nothing round beside it, which is why its marks are not a precedent here.
+  `[x]` is ASCII, so it needs no `ascii` variant.
+- **Settled: a switch takes Left, Right and Space, and never Tab.** `toggle()`
+  flips on Tab because a prompt is alone on the screen; in a form Tab is the
+  ring's. Left picks the inactive state and Right the active one -- an arrow says
+  where to go, as in `toggle()` -- and each is claimed only where it changes
+  something, so Right on a switch that is on reaches the pane around it, which is
+  the collapsible's and the tab row's rule. Space always flips and is always
+  claimed. A click on a state's name picks that state; a click anywhere else on
+  the switch flips it. It draws the two states as `toggle()` does, the inactive
+  one on the left, with `◉` on the current one in the accent and the other muted.
+  A switch with no label puts the focus role on the current state, and moves it
+  when the state moves.
+- **Settled: a radio set is one stop in the ring, and the arrows select straight
+  away.** One stop is the tab row's shape, and what SIG-278 already wrote down
+  provisionally: Tab through a form visits the set once rather than once per
+  option, and the arrows move inside it. Straight away rather than a highlight
+  that Space commits, for three reasons. The tab row's arrows switch the tab and
+  the switch's arrows move the switch, so a set whose arrows only moved a
+  highlight would be the one control where an arrow shows something and changes
+  nothing. Enter is the form's (below), so a highlight that only Space commits
+  makes arrow-then-Enter submit the old value, which is a trap with no visible
+  cause. And it is the web platform's radio group, so it is what a reader's hands
+  already do. The cost is that `onChange` fires for each arrow; an app that
+  applies a setting only on submit reads the state then. Both arrow pairs work
+  whichever way the set runs, Home and End go to the first and last option on
+  offer, and each is claimed only where it selects something new. Space selects
+  the highlighted option -- which matters only while nothing is selected, when the
+  highlight is the first option on offer -- and is claimed whatever it changes,
+  because it is aimed at the set and would otherwise page a scroll box around the
+  form.
+- **Settled: a single option can be disabled.** `select()`'s choices can be, and
+  the set reads the same choices: muted, with its reason where a hint goes (or
+  `disabled`, the prompt's word, so it is told apart at colour level 0), stepped
+  over by the arrows and deaf to a click. A set whose every option is disabled is
+  disabled itself, since a stop where nothing can be chosen is a stop for
+  nothing. Two options holding one value are refused, because both would draw
+  selected; a value no option holds selects none, rather than being refused,
+  since an app writes it.
+- **Settled: `describe*()` helpers, one per control.** `describeButton`,
+  `describeCheckbox`, `describeSwitch` and `describeRadioSet`, the shape
+  `describeTabs` and `describeCollapsible` have: a router and the hosts, scoped to
+  each, returning one function that takes them all off, and refusing a foreign
+  element before describing anything. The switch describes its arrows by the
+  names of the states they pick, `← light · → dark`; the radio set describes the
+  arrows along its own direction and leaves Home and End to the README, the call
+  `describeTabs` makes for the digits.
+- **Enter is the form's everywhere but on a button.** Not on the ticket's list,
+  and it decided two answers above. A checkbox, a switch and a radio set leave
+  Enter unclaimed, so it reaches whatever holds them, which is where a submit
+  lives -- the rule a browser form keeps, and `TextField`'s without `onSubmit`. A
+  button claims it, because Enter on a focused Cancel means Cancel. A disabled
+  button does not, by the precedent: its keys go on.
+- **The focus is SIG-278's.** `.sigil-focus` on a button's, a checkbox's and a
+  switch's label and on the radio set's highlighted option; at colour level 0, a
+  button's brackets in its padding and the prompts' `❯` in a column every value
+  control keeps blank (hidden, so it takes its room), both drawn at every level.
+  The marker says the value and never the focus. No `ascii` option: the glyphs
+  are the prompts', which have none either.
+- **Disabled is the precedent plus `:disabled`.** `controlDisabled()` sets
+  `focusable`, `is-disabled`, the muted role and the `:disabled` state, which the
+  selector engine has and nothing had set; a checked checkbox or switch and a
+  selected option are `:checked` the same way. `TextField` does not set
+  `:disabled` yet, which is left for a ticket that touches it.
+- **No theme role and no framework-sheet exception.** Every part draws in a role:
+  the value in `.sigil-accent`, the switch's other state and anything disabled in
+  `.sigil-muted`, the focus in `.sigil-focus`. The new classes went into the
+  vocabulary comment, which `theme.test.ts` holds to the sources.
+- **No guard for the keys a control does not use.** Each `onKey` is a `switch`
+  or an early return whose default is to hand the key on, so Tab, Escape and the
+  abort go through the ordinary unclaimed branch, as the ticket required.
+- **Sabotage: twenty, two survived, both now caught.** A click on the switch's
+  current state flipping it passed, because no test clicked `off` while off; and
+  a labelled switch putting the role on its state as well passed, because the
+  state is redrawn only when it moves. Both tests now do the thing.
+- **Not done:** the prompts moved onto these elements; the dropdown select, which
+  is SIG-285's; a disabled option as a `State`; an indeterminate checkbox; button
+  variants (a default, a destructive one); a form element that owns Enter and
+  validation; and `:disabled` on `TextField`.

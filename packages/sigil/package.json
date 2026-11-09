@@ -58,6 +58,10 @@
       "types": "./dist/components/border-label.d.mts",
       "default": "./dist/components/border-label.mjs"
     },
+    "./components/button": {
+      "types": "./dist/components/button.d.mts",
+      "default": "./dist/components/button.mjs"
+    },
     "./components/calendar": {
       "types": "./dist/components/calendar.d.mts",
       "default": "./dist/components/calendar.mjs"
@@ -69,6 +73,10 @@
     "./components/chart": {
       "types": "./dist/components/chart.d.mts",
       "default": "./dist/components/chart.mjs"
+    },
+    "./components/checkbox": {
+      "types": "./dist/components/checkbox.d.mts",
+      "default": "./dist/components/checkbox.mjs"
     },
     "./components/clock": {
       "types": "./dist/components/clock.d.mts",
@@ -85,6 +93,10 @@
     "./components/console-capture": {
       "types": "./dist/components/console-capture.d.mts",
       "default": "./dist/components/console-capture.mjs"
+    },
+    "./components/control": {
+      "types": "./dist/components/control.d.mts",
+      "default": "./dist/components/control.mjs"
     },
     "./components/date": {
       "types": "./dist/components/date.d.mts",
@@ -230,6 +242,10 @@
       "types": "./dist/components/qrcode.d.mts",
       "default": "./dist/components/qrcode.mjs"
     },
+    "./components/radio-set": {
+      "types": "./dist/components/radio-set.d.mts",
+      "default": "./dist/components/radio-set.mjs"
+    },
     "./components/rule": {
       "types": "./dist/components/rule.d.mts",
       "default": "./dist/components/rule.mjs"
@@ -253,6 +269,10 @@
     "./components/spinner": {
       "types": "./dist/components/spinner.d.mts",
       "default": "./dist/components/spinner.mjs"
+    },
+    "./components/switch": {
+      "types": "./dist/components/switch.d.mts",
+      "default": "./dist/components/switch.mjs"
     },
     "./components/table": {
       "types": "./dist/components/table.d.mts",

@@ -186,6 +186,22 @@ const ENTRIES = [
     name: 'text-field',
   },
   {
+    desc: 'A button: a label that Enter, Space or a click presses, bracketed while it has the focus',
+    name: 'button',
+  },
+  {
+    desc: 'A checkbox: [x] or [ ] beside a label, ticked with Space or a click, for a form',
+    name: 'checkbox',
+  },
+  {
+    desc: 'A radio set: one of several options as one focus stop, the arrows selecting inside it',
+    name: 'radio-set',
+  },
+  {
+    desc: 'A switch: two named states, moved with Left, Right, Space or a click, for a form',
+    name: 'switch',
+  },
+  {
     desc: 'A toast: a timed message in a corner of the screen that stacks, never takes the focus, and stays out of --quiet',
     name: 'toast',
   },

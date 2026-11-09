@@ -478,9 +478,12 @@ describe('the system monitor', () => {
     expect(app.term.output).toContain(`${ESC}[35mtheme: violet`);
 
     // a dialog is appended beside the app's root rather than inside it, so the
-    // theme has to be on the host for the focused button's accent to follow
+    // theme has to be on the host for the dialog's title to follow. The title
+    // rather than the focused button since SIG-199: a button's focus is the
+    // focus role, inverse, which is the same under every palette
     await app.press('x');
-    expect(app.term.output).toMatch(new RegExp(`${ESC}\\[35m\\[ No \\]`));
+    expect(app.term.output).toMatch(new RegExp(`${ESC}\\[1;95mKill process`));
+    expect(app.term.output).toContain(`[ ${ESC}[7mNo${ESC}[27m ]`);
   });
 
   it('should come back to the framework colours after a lap of the themes, leaking nothing', async () => {

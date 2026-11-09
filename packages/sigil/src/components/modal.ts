@@ -38,9 +38,9 @@ import {
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { InputRouter, KeyEvent, MouseEvent, PasteEvent } from '../input/index.js';
-import { createEffect } from '../renderer/index.js';
+import { Button } from './button.js';
 import { decodeKeys, isAbort, type Key } from './keys.js';
-import { unicodeSupported } from './note.js';
+import { labelLine, unicodeSupported } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** One button along the bottom of the dialog. */
@@ -158,11 +158,6 @@ function topOf(element: Element): Element {
   return at;
 }
 
-/** The button text: bracketed while it has the focus, so it reads without colour too. */
-function buttonText(label: string, focused: boolean): string {
-  return focused ? `[ ${label} ]` : `  ${label}  `;
-}
-
 /**
  * Opens a modal over the screen.
  *
@@ -197,7 +192,9 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
     throw new TypeError(__`Expected modal actions to be an array`);
   }
   for (const action of actions) {
-    if (typeof action?.label !== 'string' || action.label === '') {
+    // blank is no label either: a button refuses one, and the message here says
+    // which part of a modal was wrong
+    if (typeof action?.label !== 'string' || labelLine(action.label) === '') {
       throw new TypeError(__`Expected a modal action to have a label`);
     }
   }
@@ -213,12 +210,14 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
 
   // -- the tree -------------------------------------------------------------
 
+  // a `Button` each (SIG-199): Enter, Space and a left click press it, and its
+  // focus is its own -- the brackets and the focus role on the label, drawn from
+  // the element's `onFocusChange` rather than from the router's focus signal
   const buttons = actions.map((action) =>
-    textNode(buttonText(action.label, false), {
-      class: 'sigil-modal-action',
-      focusable: true,
-      'flex-shrink': 0,
-      'white-space': 'nowrap',
+    Button({
+      label: action.label,
+      onPress: () => close(action.value),
+      props: { class: 'sigil-modal-action' },
     })
   );
 
@@ -353,7 +352,6 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
     }
     offDispose?.();
     offKey();
-    offFocus();
     // the tree the dialog was in, taken before it leaves it: an element that took
     // the focus without being in the ring -- a pane's edge, which a click focused --
     // is not in `pool`, and "is it still mounted" has to be asked of the tree
@@ -386,41 +384,6 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
 
     settle(value);
   }
-
-  // -- the buttons ----------------------------------------------------------
-
-  for (const [index, button] of buttons.entries()) {
-    const action = actions[index] as ModalAction<T>;
-    button.onKey = (event): void => {
-      const k = event.key;
-      if (event.paste || k.ctrl || k.meta || k.shift) {
-        return;
-      }
-      if (k.name === 'enter' || k.name === 'space') {
-        event.stop();
-        close(action.value);
-      }
-    };
-    button.onMouse = (event): void => {
-      if (event.kind !== 'click' || event.button !== 'left') {
-        return;
-      }
-      event.stop();
-      close(action.value);
-    };
-  }
-
-  // the focused button is the bracketed one, and the accent. Read off the focus
-  // signal rather than set by whoever moved it, because a Tab, a click and an
-  // app calling `focus()` are three ways to one change
-  const offFocus = createEffect(() => {
-    const at = input.focus.current.get();
-    for (const [index, button] of buttons.entries()) {
-      const on = button === at;
-      button.setText(buttonText((actions[index] as ModalAction<T>).label, on));
-      button.toggleClass('sigil-accent', on);
-    }
-  });
 
   // -- the mouse ------------------------------------------------------------
 

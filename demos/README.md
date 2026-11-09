@@ -383,6 +383,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/54-markdown.js`](components/54-markdown.js)                                 | A changelog entry from markdown at two widths, themed, and highlighted    |
 | [`components/55-image.js`](components/55-image.js)                                       | A photograph in half blocks: fitted three ways, and RGBA with a soft edge |
 | [`components/56-panels.js`](components/56-panels.js)                                     | Panels with words in the border, and panes with an edge to drag           |
+| [`components/57-form-controls.js`](components/57-form-controls.js)                       | A settings form: checkboxes, a switch, a radio set and two buttons        |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -644,6 +645,17 @@ collapse it, or press `b`. Piped, it draws the tree at two widths -- the narrow 
 shows an annotation going first and a title being cut -- and then moves the edge with
 real keys and with `resize()`, which is what a drag calls, up to a maximum, through a
 collapse and back.
+
+`57-form-controls.js` is a settings form: two `Checkbox`es, a `Switch` between
+`light` and `dark`, a `RadioSet` of log levels with `trace` disabled, and Save and
+Revert `Button`s that stay disabled until something has changed. Tab stops once on
+each control -- the radio set is one stop, and the arrows select inside it -- and
+skips a disabled button. Space ticks, flips and selects; Left and Right pick a state
+of the switch; a click does what Space does. Enter is the form's everywhere but on a
+button, and this form's own Enter handler saves. The focus is drawn as content too
+-- the `❯` in a column every value control keeps blank, and a button's brackets in
+its padding -- so piped, where the scripted keyboard drives it, the focus is still
+on the page. The footer is `keyHelp()` over the four `describe*()` helpers.
 
 ### Try them without a terminal
 
