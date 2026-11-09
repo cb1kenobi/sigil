@@ -61,7 +61,7 @@ describe('the framework sheet', () => {
    * built-ins share is a role by this test's own definition. A component puts it
    * on the part that shows its focus from `onFocusChange`.
    *
-   * The eleven exceptions are declared rather than discovered. Three are
+   * The twelve exceptions are declared rather than discovered. Three are
    * `inverse`, the focus role's declaration, and none is the focus:
    * `.sigil-caret` is a prompt's cursor, there whether or not anything has the
    * focus; `.sigil-badge` is how a role's colour becomes a background; and
@@ -81,13 +81,16 @@ describe('the framework sheet', () => {
    * so no role could carry them. `.sigil-text-field` is a background a second time, for the overlay's
    * reason -- no role is one -- and because without it a field at rest is the same
    * bytes as a label: it is what says the field is there before anything focuses it.
+   * `.sigil-panel` is a layout default and not a look -- it grows to fill its slot --
+   * and is in the sheet and not in the component's props because a prop beats a
+   * sheet, so a panel used as a card in a column could only be made to stop by a prop.
    * And `.sigil-markdown-em`, `.sigil-markdown-strong`, `.sigil-markdown-link` and
    * `.sigil-markdown-strike` are italic, bold, underlined and struck through
    * because that is what the author of the markdown wrote -- the words' meaning
    * rather than a colour -- and the bold one is not the heading role, or a theme
    * that coloured headings would colour every strong word.
    */
-  it('should declare on a role, bar eleven exceptions that say why', () => {
+  it('should declare on a role, bar twelve exceptions that say why', () => {
     const ROLES = [
       '.sigil-accent',
       '.sigil-muted',
@@ -107,6 +110,7 @@ describe('the framework sheet', () => {
       '.sigil-markdown-strike',
       '.sigil-markdown-strong',
       '.sigil-pager-match',
+      '.sigil-panel',
       '.sigil-qrcode-paint',
       '.sigil-scroll-track',
       '.sigil-text-field',

@@ -182,6 +182,8 @@ describe('what importing the package costs', () => {
     'qrcodeView',
     'commandPalette',
     'noteView',
+    'Panel',
+    'paneControl',
     'logView',
     'barChartView',
     'taskLog',
@@ -922,6 +924,8 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   // drawn with, which is most of every figure here
   'components/autocomplete': [488, 248_844],
   'components/badge': [316, 162_783],
+  // as of SIG-277, which added these three after the rest were measured
+  'components/border-label': [260, 133_586],
   'components/calendar': [484, 248_571],
   'components/catalog': [6, 2_800],
   'components/chart': [396, 201_844],
@@ -962,6 +966,8 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/pager': [428, 219_265],
   'components/paginator': [380, 194_228],
   'components/palette': [492, 252_125],
+  'components/pane': [392, 201_988],
+  'components/panel': [384, 196_687],
   'components/path': [484, 248_156],
   'components/progress': [380, 193_936],
   'components/prompt': [468, 240_102],

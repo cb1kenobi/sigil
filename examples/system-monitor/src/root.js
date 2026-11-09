@@ -16,7 +16,7 @@ import {
   SORT_ORDER,
   sortProcesses,
 } from './data.js';
-import { LiveChart, Panel, ProcessTable } from './stand-ins.js';
+import { LiveChart, ProcessTable } from './stand-ins.js';
 import { SystemContext } from './system.js';
 import { useApp } from '@ttylabs/sigil/app';
 import {
@@ -24,6 +24,7 @@ import {
   gaugeView,
   keyHelp,
   lineChartView,
+  Panel,
   sparklineView,
   TextField,
 } from '@ttylabs/sigil/components';
@@ -55,12 +56,6 @@ export const stylesheet = `
   .app { flex-direction: column; flex-grow: 1 }
   .top { flex-direction: row; flex-grow: 1; flex-basis: 0; min-height: 0 }
   .side { flex-direction: column; flex-grow: 1; flex-basis: 0; min-width: 0 }
-  .panel {
-    border: round; position: relative; flex-direction: column;
-    padding-left: 1; padding-right: 1; min-width: 0; min-height: 0
-  }
-  .panel-body { flex-direction: column; flex-grow: 1; min-height: 0; overflow: hidden }
-  .panel-title { position: absolute; top: -1; left: 1; white-space: pre }
   .cpu { flex-grow: 1; flex-basis: 0 }
   .mem, .net { flex-grow: 1; flex-basis: 0 }
   .procs { flex-grow: 1; flex-basis: 0 }

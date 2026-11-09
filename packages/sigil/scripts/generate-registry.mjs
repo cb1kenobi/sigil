@@ -218,6 +218,14 @@ const ENTRIES = [
     name: 'note',
   },
   {
+    desc: 'A panel: a bordered region with a title, an annotation, a footer and a footer annotation set into its border, fitted to its width',
+    name: 'panel',
+  },
+  {
+    desc: 'A pane: a region sized in cells, with an edge to drag, nudge from the keyboard, or double-click to collapse',
+    name: 'pane',
+  },
+  {
     desc: 'A key-help footer generated from the key bindings that are live',
     name: 'key-help',
   },

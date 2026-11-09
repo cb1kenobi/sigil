@@ -6,46 +6,14 @@
  * two that put handlers on nodes inside themselves -- `LiveChart`'s `onResize`,
  * and the table body's `onResize` and `onMouse` -- are written in the `ui` tag
  * with those handlers as props, and `ref` where the component has to hold a node
- * it built. `Panel` is still `box()` and `text()`; the README has the details,
- * under "What is a stand-in".
+ * it built. The README has the details, under "What is a stand-in".
  */
 
 import { SORTS, scrollTop } from './data.js';
-import { box, text } from '@ttylabs/sigil/element';
+import { text } from '@ttylabs/sigil/element';
 import { createEffect } from '@ttylabs/sigil/renderer';
 import { State } from '@ttylabs/sigil/signals';
 import { ui } from '@ttylabs/sigil/template';
-
-/**
- * A bordered box with a title sitting in its top border.
- *
- * stand-in for SIG-277: the title is a `position: absolute` child at `top: -1`,
- * which lands on the border row because the containing block is the padding box.
- * It covers the border characters it sits on rather than being drawn into them,
- * so the title's own padding is what keeps a gap either side.
- *
- * @param {{ title: string | (() => string), class?: string }} props - The title, and
- *   any extra classes for the box.
- * @param {...import('@ttylabs/sigil/element').Element} children - What goes inside.
- * @returns {import('@ttylabs/sigil/element').Element} The panel.
- */
-export function Panel(props, ...children) {
-  const title = text('', { class: 'panel-title' });
-  if (typeof props.title === 'function') {
-    const read = props.title;
-    createEffect(() => title.setText(` ${read()} `));
-  } else {
-    title.setText(` ${props.title} `);
-  }
-  // the clip is on an inner box rather than on the panel: `overflow: hidden`
-  // clips to the padding box, which is exactly the row the title is not in, so a
-  // panel that clipped its own content would clip its own title away
-  return box(
-    { class: ['panel', props.class ?? ''].join(' ').trim() },
-    title,
-    box({ class: 'panel-body' }, ...children)
-  );
-}
 
 /**
  * A chart that redraws when its data changes and when the layout resizes it.

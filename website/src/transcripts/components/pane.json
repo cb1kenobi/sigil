@@ -1,0 +1,85 @@
+{
+  "api": {
+    "interface": "PaneProps",
+    "options": [
+      {
+        "description": "How many cells the pane takes along the parent's main axis.",
+        "name": "size",
+        "optional": false,
+        "type": "number | State<number>"
+      },
+      {
+        "description": "Draw the edge with ASCII only. Defaults to what `unicodeSupported()` says, which is the rule the rest of the components keep.",
+        "default": "what `unicodeSupported()` says",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The content, for a template, which passes it here rather than as arguments.",
+        "name": "children",
+        "optional": true,
+        "type": "Element | readonly Element[]"
+      },
+      {
+        "description": "Extra classes for the pane, beside `sigil-pane`.",
+        "name": "class",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Whether the pane is collapsed to nothing.",
+        "name": "collapsed",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
+        "description": "Whether the pane may be collapsed to zero cells: by a drag below half of `min`, by double-clicking the edge, or by `collapse()`.",
+        "name": "collapsible",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Which end of the pane the edge is on. Defaults to `end`.",
+        "default": "`end`",
+        "name": "edge",
+        "optional": true,
+        "type": "PaneEdge"
+      },
+      {
+        "description": "The most cells the pane may take. Defaults to no limit.",
+        "default": "no limit",
+        "name": "max",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The fewest cells the pane may take, short of collapsed. Defaults to 1.",
+        "default": "1",
+        "name": "min",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The pane's own props. They win over the defaults.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementProps"
+      }
+    ],
+    "shared": [],
+    "signature": "function Pane(props: PaneProps, ...children: Element[]): Element"
+  },
+  "registryDescription": "A pane: a region sized in cells, with an edge to drag, nudge from the keyboard, or double-click to collapse",
+  "source": "packages/sigil/src/components/pane.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "╭─\u001b[1m files \u001b[0m────────╮the   ╭─\u001b[1m log \u001b[0m─\u001b[2m tail \u001b[0m─╮\n│ src/           │main  │ 12:01 build  │\n│   main.js      │region│ ok           │\n│ README.md      │takes │ 12:02        │\n│                │what  │ watching     │\n│                │the   │              │\n│                │panes │              │\n│                │leave │              │\n│                │      │              │\n│                │      │              │\n│                │      │              │\n│                │      │              │\n│                │      │              │\n│                │      │              │\n│                │      │              │\n│                │      │              │\n│                │      │              │\n│                │      │              │\n│                │      │              │\n│                │      │              │\n│                │      │              │\n│                │      │              │\n│                │      │              │\n╰─\u001b[2m 3 files \u001b[0m──────╯      ╰──────────────╯"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "╭─\u001b[1m files \u001b[0m────────╮the main region takes what the panes leave    ╭─\u001b[1m log \u001b[0m─\u001b[2m tail \u001b[0m─╮\n│ src/           │                                              │ 12:01 build  │\n│   main.js      │                                              │ ok           │\n│ README.md      │                                              │ 12:02        │\n│                │                                              │ watching     │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n│                │                                              │              │\n╰─\u001b[2m 3 files \u001b[0m──────╯                                              ╰──────────────╯"
+    }
+  }
+}

@@ -4953,6 +4953,178 @@ inverse by the framework sheet. `.sigil-tabs` (the host), `-row`, `-labels`,
 `describeTabs(input, ...tabs)` describes Left, Right, Home and End scoped to the
 row and returns a function that takes them off again.
 
+#### A panel
+
+```js
+import { Panel } from '@ttylabs/sigil/components/panel';
+
+Panel(
+  {
+    title: () => `processes · ${rows.get().length} of ${total.get()}`,
+    annotation: () => `sort: ${sort.get()}`,
+    footer: '↑↓ select · s sort',
+    footerAnnotation: () => `${first.get()}–${last.get()} of ${total.get()}`,
+  },
+  table
+);
+```
+
+```
+╭─ processes · 12 of 340 ──────── sort: cpu ─╮
+│ pid   name            cpu   mem            │
+╰─ ↑↓ select · s sort ────────── 1–4 of 340 ─╯
+```
+
+A bordered region with words set into the border: `title` along the top, left by
+default (`titleAlign: 'center'` or `'right'`), `annotation` at the top right, `footer`
+along the bottom and `footerAnnotation` at its right. Each is a string or a function
+of signals, re-read when what it reads changes. It takes its content as arguments,
+or as `children` from a template, grows to fill its slot (that is a rule in the
+framework sheet, `.sigil-panel { flex-grow: 1 }`, so `.card { flex-grow: 0 }` in your
+stylesheet says otherwise, and so does `props: { 'flex-grow': 0 }`), and clips what is inside in a box of its own, so the labels are not
+clipped with it.
+
+When a border is too narrow the annotation goes first, then the label is cut with an
+ellipsis, and at the extreme the border is plain. The top and the bottom are each on
+their own, and the labels are fitted to the width the layout gave the panel, so a
+terminal resize needs nothing from you:
+
+```
+╭─ processes · 12 of… ─╮
+│ pid   name           │
+╰─ ↑↓ select · s sort ─╯
+```
+
+The border is the box's own, so its colour is the theme's to set: `.sigil-panel {
+border-color: cyan }`, or your own class on it with `class`. The title is
+`.sigil-heading` and the three others `.sigil-muted`; `.sigil-panel`, `-title`,
+`-annotation`, `-footer`, `-footer-annotation` and `-body` are the theme hooks. The
+border is ASCII where `unicodeSupported()` says so (`ascii: true` forces it), and
+`border` picks another character set. There is no `:focus-within`, so a panel cannot
+light up because something inside it has the focus; the app says which panel is
+current by giving it a class.
+
+#### A pane
+
+```js
+import { Pane, paneControl } from '@ttylabs/sigil/components/pane';
+import { Panel } from '@ttylabs/sigil/components/panel';
+import { box } from '@ttylabs/sigil/element';
+
+box(
+  { class: 'row' },
+  Pane({ size: sidebarWidth, min: 16, collapsible: true }, Panel({ title: 'files' }, tree)),
+  box({ class: 'main', 'flex-grow': 1, 'min-width': 0 }, editor),
+  Pane({ size: 30, min: 20, edge: 'start' }, Panel({ title: 'log' }, log))
+);
+```
+
+A region whose size is a number of cells, and the edge it can be resized from. Put
+any number of them in any flex box -- there is no container -- and each owns its own
+edge. `size` is cells along the parent's main axis, a width in a row and a height in
+a column, and is a number or a `State<number>`: a drag writes the state, which is how
+an app keeps the size between runs. `min` (default 1) and `max` clamp it, and a
+terminal resize keeps the pane at its size, clamped to the room there is: where the
+panes in one parent ask for more than the parent has, each keeps its `min` and the rest
+is handed out in order, so every edge stays on the screen.
+
+The edge is one cell laid over the pane's last column (`edge: 'end'`, the default) or
+its first (`'start'`), and takes no space. Over a `Panel` it sits on the panel's
+border, and it lights up in the accent under the pointer (needs `motion: true` on the
+router), while it is dragged, and while it has the focus from the keyboard -- a click
+focuses it without lighting it, as `:focus-visible` treats a click on the web, and the
+first arrow or Enter lights it. A drag moves cells between
+the pane and the neighbour on that side, which is looked up when the press lands: a
+pane beside it gives or takes them within its own `min` and `max`, and a plain box
+with `flex-grow` absorbs the difference -- down to the least the layout would let it be,
+which is its `min-width` (or `min-height` in a column) or else the width of its longest
+unbreakable word, so give it `min-width: 0` to let a drag take it to nothing. Click the edge to focus it, and the arrows
+move it a cell and **Shift** with an arrow five; it is not in the Tab order. The other
+direction's arrows, and any arrow with Ctrl or Alt, are left for the app. A Tab from the
+edge carries on from where it sits in the document, as it does on the web.
+
+The edge is on the pane's own last column, so a scroll box that fills a pane has its
+scrollbar under it. A pane notices a scrollbar on its edge's cell and keeps that cell clear
+of the content, so both work; a `Panel` between the two puts the bar a cell inside its
+border and needs nothing.
+
+`collapsible: true` lets the pane go to zero cells: double-click the edge, press
+**Enter** or **Space** on it, or drag it below half of `min`. The edge stays, drawn
+dim, on the neighbour's cell beside the boundary, and a drag or the arrow that makes
+the pane bigger opens it again, to the size it had. A pane only collapses where
+what is beside it can take all of its cells; beside a `Pane` whose `max` leaves too
+little room, a collapse does nothing. `collapsed` is a boolean or a
+`State<boolean>` to keep it too.
+
+`paneControl(host)` hands an app the same moves for keys of its own:
+
+```js
+const sidebar = Pane({ size: 28, min: 16, collapsible: true }, files);
+const { collapse, expand, resize, toggle, size, collapsed } = paneControl(sidebar);
+
+input.bind('ctrl+b', () => toggle(), { description: 'sidebar' });
+input.bind('ctrl+r', () => resize(size.get() + 4)); // asks for 4 more cells
+```
+
+`resize(n)` clamps like a drag and answers the cells it took; `size` and `collapsed`
+are the states, and `edge` is the element that holds the focus. `.sigil-pane`,
+`-body` and `-edge` are the theme hooks.
+
+#### Building an app's chrome
+
+There is no `AppShell`: the chrome of a full-screen app is a header, a sidebar, the
+main region and a status bar, and each is a box with a few declarations. What the
+components give you are the parts that are not -- a `Pane` for the sidebar, a `Panel`
+for a bordered region, `keyHelp()` for the status bar. The shape is a column, with a
+row between the header and the status bar:
+
+```js
+import { keyHelp } from '@ttylabs/sigil/components/key-help';
+import { Pane, paneControl } from '@ttylabs/sigil/components/pane';
+import { Panel } from '@ttylabs/sigil/components/panel';
+import { box, text } from '@ttylabs/sigil/element';
+import { State } from '@ttylabs/sigil/signals';
+
+const sidebarWidth = new State(28);
+
+const sidebar = Pane(
+  { size: sidebarWidth, min: 16, max: 48, collapsible: true },
+  Panel({ title: 'files', footer: () => `${files.get().length} files` }, tree)
+);
+
+const chrome = box(
+  { class: 'app', 'flex-direction': 'column', 'flex-grow': 1 },
+  box({ class: 'header', height: 1 }, text('myapp', { class: 'sigil-heading' })),
+  box(
+    { 'flex-direction': 'row', 'flex-grow': 1, 'flex-basis': 0, 'min-height': 0 },
+    sidebar,
+    box({ 'flex-direction': 'column', 'flex-grow': 1, 'min-width': 0 }, editor)
+  ),
+  box({ class: 'status', height: 1 }, keyHelp(input))
+);
+
+input.bind('ctrl+b', () => paneControl(sidebar).toggle(), { description: 'sidebar' });
+```
+
+A few things the shape depends on, each learnt the hard way:
+
+- **Every level of the column needs `min-height: 0`.** A flex item will not shrink
+  below its content, so without it a tall editor pushes the status bar off the
+  screen instead of scrolling.
+- **The main region needs `min-width: 0` and `flex-grow`.** It is what a drag takes
+  cells from, so it has to be able to give them up.
+- **Persist a size by keeping the state.** `sidebarWidth` is a `State`; write it to
+  your config when it settles (`effect`, or on `mouseup`) and read it back as the
+  initial value.
+- **A pane's own panel is the sidebar's frame.** Put the `Panel` inside the `Pane`
+  and the edge sits on the panel's border; a pane around plain content shows its
+  edge only when it is hot.
+- **The status bar is one row.** `keyHelp()` lists the bindings that are live, so
+  `input.bind()` the keys of your own -- `ctrl+b` above -- with a description and
+  they appear there. The edge's own arrows are not described: it is a pointer's
+  handle with a keyboard fallback, and a footer that listed them would list them
+  whenever the pointer had focused it.
+
 #### A modal
 
 ```js
@@ -5330,6 +5502,11 @@ there for a component you write yourself too:
 - `labelLine(value)`, from `@ttylabs/sigil/components/note`, is a label as the
   grid draws it: escape sequences gone and every run of whitespace one space. A
   note's title, a badge, a rule's label, a tab and a chart's labels all read it.
+- `borderLabel()`, `borderLabelText()` and `fitBorder()`, from
+  `@ttylabs/sigil/components/border-label`, set a label into a border: a note's
+  title and a panel's title, annotation and footer. `fitBorder(width, start, end,
+  align)` lays one border row out for a width, dropping the right-hand label
+  first and then cutting the other with an ellipsis.
 - `refusePrompt(message, what)`, from `@ttylabs/sigil/components/prompt`,
   rejects with the `PromptError` a prompt gives for an option it cannot use,
   naming the prompt by its question.
@@ -5567,6 +5744,13 @@ that removes it.
 `quit`, so an app does not write that one. An app's own `fallback('q', …)` runs
 **as well as** the runner's -- every fallback on a key runs -- unless it passes
 `quitKey: false`.
+
+An element that is unmounted or stops being displayed gives up the focus to the stop
+that took its place, the way a browser blurs one. `runApp()` does it in the frame, after
+the layout, so the key help and `:focus` agree with the screen before a key is typed; an
+app that draws its own frames calls `input.reconcile()` there, which answers whether the
+focus moved. A key and a paste ask as well, so nothing reaches a hidden element in the
+window before a frame.
 
 A bracketed paste goes the other way round, which is the mouse's order: the
 focused element's `onPaste` and then each ancestor's are offered it first, the

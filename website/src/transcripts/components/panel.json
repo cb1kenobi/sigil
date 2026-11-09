@@ -1,0 +1,84 @@
+{
+  "api": {
+    "interface": "PanelProps",
+    "options": [
+      {
+        "description": "Set into the top border at its right end. Dropped first where the border is narrow.",
+        "name": "annotation",
+        "optional": true,
+        "type": "PanelLabel"
+      },
+      {
+        "description": "Draw the border with ASCII only. Defaults to what `unicodeSupported()` says, which is the rule `note()` and the modal keep.",
+        "default": "what `unicodeSupported()` says",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The border's character set. Defaults to `round`, or `ascii` where `ascii` says so.",
+        "default": "`round`",
+        "name": "border",
+        "optional": true,
+        "type": "NoteBorder"
+      },
+      {
+        "description": "The content, for a template, which passes it here rather than as arguments.",
+        "name": "children",
+        "optional": true,
+        "type": "Element | readonly Element[]"
+      },
+      {
+        "description": "Extra classes for the panel, beside `sigil-panel`.",
+        "name": "class",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Set into the bottom border at its left end.",
+        "name": "footer",
+        "optional": true,
+        "type": "PanelLabel"
+      },
+      {
+        "description": "Set into the bottom border at its right end. Dropped first where the border is narrow.",
+        "name": "footerAnnotation",
+        "optional": true,
+        "type": "PanelLabel"
+      },
+      {
+        "description": "The panel's own props: a size, a margin, a flex factor. They win over the defaults.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementProps"
+      },
+      {
+        "description": "Set into the top border.",
+        "name": "title",
+        "optional": true,
+        "type": "PanelLabel"
+      },
+      {
+        "description": "Where the title sits in the top border. Defaults to `left`.",
+        "default": "`left`",
+        "name": "titleAlign",
+        "optional": true,
+        "type": "BorderAlign"
+      }
+    ],
+    "shared": [],
+    "signature": "function Panel(props?: PanelProps, ...children: Element[]): Element"
+  },
+  "registryDescription": "A panel: a bordered region with a title, an annotation, a footer and a footer annotation set into its border, fitted to its width",
+  "source": "packages/sigil/src/components/panel.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "╭─\u001b[1m processes · 12 of 340 \u001b[0m──\u001b[2m sort: cpu \u001b[0m─╮\n│   PID  NAME          CPU             │\n│   412  node          8.1             │\n│   977  postgres      2.4             │\n│     1  launchd       0.0             │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n│                                      │\n╰─\u001b[2m ↑↓ select · s sort \u001b[0m────\u001b[2m 1–4 of 340 \u001b[0m─╯"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "╭─\u001b[1m processes · 12 of 340 \u001b[0m──────────────────────────────────────────\u001b[2m sort: cpu \u001b[0m─╮\n│   PID  NAME          CPU                                                     │\n│   412  node          8.1                                                     │\n│   977  postgres      2.4                                                     │\n│     1  launchd       0.0                                                     │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n│                                                                              │\n╰─\u001b[2m ↑↓ select · s sort \u001b[0m────────────────────────────────────────────\u001b[2m 1–4 of 340 \u001b[0m─╯"
+    }
+  }
+}

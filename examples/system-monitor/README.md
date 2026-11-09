@@ -94,9 +94,6 @@ This example was written before the components it wants, on purpose: it is
 the caller those tickets are waiting for. Each stand-in is marked in the source
 and is the least that works.
 
-- **`Panel`** stands in for SIG-277. The title in the border is a
-  `position: absolute` child at `top: -1`. Clipping has to go on an inner box,
-  because `overflow: hidden` on the panel itself clips the title away.
 - **`LiveChart`** stands in for SIG-284. The charts take an array and a width
   when they are built, so this builds a new chart on every tick for every chart
   on screen, and learns its size through `onResize`.
@@ -109,8 +106,8 @@ props: `LiveChart`'s `onResize`, and the table body's `onResize` and `onMouse`.
 which is called once the element's props and children are built. They used to be
 built by hand with `box()`, because a template could not put a handler on a node
 inside it and had no `ref`; SIG-305 gave a host element the seven `on*` hooks
-and a callback `ref`. `Panel` is still `box()` and `text()`, because another
-ticket replaces it outright (SIG-277).
+and a callback `ref`. `Panel` was a stand-in too, until SIG-277 made it a real
+component.
 
 The app's own keys are `input.fallback()`s rather than router bindings: a
 binding sees every key before a focused field does, so `q` typed into the

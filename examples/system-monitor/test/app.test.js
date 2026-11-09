@@ -4,7 +4,7 @@ import { runApp } from '@ttylabs/sigil/app';
 import { ESCAPE_TIMEOUT } from '@ttylabs/sigil/input';
 import { provideContext } from '@ttylabs/sigil/renderer';
 import { createTestTerminal, ctrl, frame, KEYS } from '@ttylabs/sigil/testing';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The monitor run by `runApp()` over a fake terminal, with a fake machine behind
@@ -143,11 +143,21 @@ function mount({
   return it;
 }
 
+// a terminal that draws Unicode, which every assertion on a border or a glyph
+// here is written against. A `Panel` asks `unicodeSupported()`, and on Windows
+// that is no unless the environment names a terminal that does -- so a CI runner,
+// which names none, drew every panel in ASCII. `TERM` is the spelling the glyph
+// cases below use for the same thing, and their ASCII case overrides it
+beforeEach(() => {
+  vi.stubEnv('TERM', 'xterm-256color');
+});
+
 afterEach(async () => {
   for (const it of mounted.splice(0)) {
     it.app.exit();
     await it.app.exited;
   }
+  vi.unstubAllEnvs();
 });
 
 /** Selects the process on the row `by` below the top, then kills it through the dialog. */
@@ -608,7 +618,8 @@ describe('the system monitor', () => {
 
   it.each([
     ['braille', 'unicode', /│ +│ +[⠁-⣿] +│$/m, / 0% ┤ +│$/m],
-    ['ASCII', 'ascii', /│ +\| +\* +│$/m, / 0% \+ +│$/m],
+    // the panel's border falls back with the glyphs, so its edge is ASCII here too
+    ['ASCII', 'ascii', /\| +\| +\* +\|$/m, / 0% \+ +\|$/m],
   ])(
     'should draw the first memory sample on the history chart rather than a line along its floor, in %s',
     async (_name, glyphs, point, floor) => {

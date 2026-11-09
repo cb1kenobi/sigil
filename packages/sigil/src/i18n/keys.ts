@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 306 keys, which is what a catalog has to carry to translate sigil's own
+ * 314 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -79,6 +79,9 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a modal host to be an element or a renderer',
   'Expected a modal input to be a router',
   'Expected a modal title to be a string',
+  'Expected a pane size to be a number of cells',
+  'Expected a panel titleAlign to be left, center or right',
+  'Expected a panel {0} to be a string or a function',
   'Expected a retry delay in milliseconds',
   'Expected a text field mask to be a non-empty string',
   'Expected a text field placeholder to be a string',
@@ -112,6 +115,11 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected min to be no later than max',
   'Expected modal actions to be an array',
   'Expected modal initial to be the position of an action',
+  'Expected pane collapsed to be a boolean or a State',
+  'Expected pane edge to be end or start',
+  'Expected pane max to be at least min',
+  'Expected pane size to be a number of cells or a State',
+  'Expected pane {0} to be a number of cells',
   'Expected retry to be a whole number of tries',
   'Expected tab children to be a function that builds the panel',
   'Expected tab labels to be a non-empty array of strings',

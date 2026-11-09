@@ -7,6 +7,7 @@ import {
   text,
 } from '../../src/element/index.js';
 import { canReadKeys, createInput, InputError, type KeyEvent } from '../../src/input/index.js';
+import { Cascade, parseStylesheet, Restyler } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { createTestTerminal, tick } from '../../src/testing/index.js';
 import { describe, expect, it } from 'vitest';
@@ -110,6 +111,8 @@ function tree(): { first: Element; root: Element; second: Element; third: Elemen
   const root = box({}, first, second, third);
   return { first, root, second, third };
 }
+
+const ESC = String.fromCharCode(0x1b);
 
 describe('the router', () => {
   it('should refuse to exist where there is nobody to type', () => {
@@ -1095,6 +1098,77 @@ describe('focus', () => {
     input.stop();
   });
 
+  it('should keep an element with a negative tabindex out of the ring and still focus it', () => {
+    // the web's rule, and what a control that wants a click or `focus()` but no
+    // Tab stop is built on: the `tabindex` implies `focusable`, so a press lands on
+    // it, and the ring a Tab walks leaves it out
+    const { terminal } = harness();
+    const first = box({ focusable: true });
+    const sash = box({ tabindex: -1 });
+    const last = box({ focusable: true });
+    const root = box({}, first, sash, last);
+    const input = createInput({ root, terminal });
+
+    expect(input.focus.ring()).toEqual([first, last]);
+
+    input.focus.focus(sash);
+    expect(input.focus.current.get()).toBe(sash);
+    input.stop();
+  });
+
+  it('should carry on from where an element outside the ring sits, in either direction', () => {
+    // the other half of the web's rule. With the ring [tree, editor, log] and a sash
+    // between the first two, Tab goes to the editor and Shift-Tab to the tree --
+    // neither starts the ring over, which is what a user who clicked the sash and
+    // pressed Tab would have called a bug
+    const { terminal } = harness();
+    const tree = box({ focusable: true });
+    const sash = box({ tabindex: -1 });
+    const editor = box({ focusable: true });
+    const log = box({ focusable: true });
+    const root = box({}, box({}, tree, sash), editor, log);
+    const input = createInput({ root, terminal });
+
+    input.focus.focus(sash);
+    input.focus.next();
+    expect(input.focus.current.get()).toBe(editor);
+
+    input.focus.focus(sash);
+    input.focus.previous();
+    expect(input.focus.current.get()).toBe(tree);
+
+    // and wraps from the ends, as the ring does
+    const head = box({ tabindex: -1 });
+    const tail = box({ tabindex: -1 });
+    root.insertBefore(head, root.children[0]);
+    root.append(tail);
+    input.focus.focus(head);
+    input.focus.previous();
+    expect(input.focus.current.get()).toBe(log);
+    input.focus.focus(tail);
+    input.focus.next();
+    expect(input.focus.current.get()).toBe(tree);
+    input.stop();
+  });
+
+  it('should hand focus to a neighbour when an element outside the ring is unmounted', () => {
+    // the position it held is where it sat in the document, not the top of the ring
+    const { feed, terminal } = harness();
+    const tree = box({ focusable: true });
+    const sash = box({ tabindex: -1 });
+    const editor = box({ focusable: true });
+    const log = box({ focusable: true });
+    const root = box({}, box({}, tree, sash), editor, log);
+    const input = createInput({ root, terminal });
+
+    input.focus.focus(sash);
+    sash.remove();
+    feed('x');
+
+    expect(input.focus.current.get()).toBe(editor);
+    input.stop();
+  });
+
   it('should skip a subtree that is not displayed', () => {
     // there is nothing on screen to move the focus to. Read off the *resolved*
     // style rather than the prop, because `display` can come from a sheet --
@@ -1108,6 +1182,229 @@ describe('focus', () => {
 
     expect(input.focus.ring()).toEqual([shown]);
     input.stop();
+  });
+
+  it('should hand focus on when the element holding it is hidden, or anything above it is', () => {
+    // a browser blurs an element that stops being displayed, and so does this: a key
+    // delivered to a tree nobody can see acts on something the user did not choose.
+    // Asked of the element and every ancestor, because `display: none` on a section
+    // is how a collapsed region hides what is in it
+    const { feed, terminal } = harness();
+    const inside = box({ focusable: true }, text('inside'));
+    const section = box({}, inside);
+    const before = box({ focusable: true }, text('before'));
+    const after = box({ focusable: true }, text('after'));
+    const root = box({}, before, section, after);
+    const input = createInput({ root, terminal });
+    const seen: string[] = [];
+    inside.onKey = () => void seen.push('hidden tree');
+
+    input.focus.focus(inside);
+    feed('x');
+    expect(seen).toEqual(['hidden tree']);
+
+    section.setProp('display', 'none');
+    resolveStyles(root);
+    feed('x');
+
+    // repaired the way an unmount is: to the element now at the position it held
+    expect(input.focus.current.get()).toBe(after);
+    expect(seen).toEqual(['hidden tree']);
+    input.stop();
+  });
+
+  it('should hand focus on when the focused element itself is hidden', () => {
+    const { feed, terminal } = harness();
+    const { root, second, third } = tree();
+    const input = createInput({ root, terminal });
+
+    input.focus.focus(second);
+    second.setProp('display', 'none');
+    resolveStyles(root);
+    feed('x');
+
+    expect(input.focus.current.get()).toBe(third);
+    input.stop();
+  });
+
+  it('should leave the focus on a drawn element that is outside the ring', () => {
+    // the other direction, and the reason the rule is about display and not about the
+    // ring: an element with a negative `tabindex` is not in the ring and is exactly
+    // where a click put the focus
+    const { feed, terminal } = harness();
+    const { first, root } = tree();
+    const handle = box({ tabindex: -1 }, text('handle'));
+    root.append(handle);
+    resolveStyles(root);
+    const input = createInput({ root, terminal });
+
+    input.focus.focus(handle);
+    feed('x');
+
+    expect(input.focus.ring()).not.toContain(handle);
+    expect(input.focus.current.get()).toBe(handle);
+    expect(first).toBeDefined();
+    input.stop();
+  });
+
+  it('should drop the focus when nothing else can take it', () => {
+    const { feed, terminal } = harness();
+    const only = box({ focusable: true }, text('only'));
+    const root = box({}, only);
+    const input = createInput({ root, terminal });
+
+    input.focus.focus(only);
+    only.setProp('display', 'none');
+    resolveStyles(root);
+    feed('x');
+
+    expect(input.focus.current.get()).toBeUndefined();
+    input.stop();
+  });
+
+  describe('between the hiding of the focused element and the next key', () => {
+    /**
+     * `[tree, editor, log]`, with a binding scoped to the tree and a hook on each.
+     *
+     * The tree sits in a section that a test hides, and the styles are resolved the
+     * way a frame leaves them, so "hidden" is something the router can read.
+     */
+    function scene() {
+      const { feed, terminal } = harness();
+      const tree = box({ focusable: true }, text('tree'));
+      const section = box({}, tree);
+      const editor = box({ focusable: true }, text('editor'));
+      const log = box({ focusable: true }, text('log'));
+      const root = box({}, section, editor, log);
+      resolveStyles(root);
+      const input = createInput({ root, terminal });
+      const got: string[] = [];
+      for (const [name, element] of [
+        ['tree', tree],
+        ['editor', editor],
+        ['log', log],
+      ] as const) {
+        element.onKey = (event) => void got.push(`${name}:${event.key.name}`);
+        element.onPaste = (event) => void got.push(`${name}:paste:${event.text}`);
+      }
+      input.describe('down', { description: 'next file', scope: tree });
+      input.focus.focus(tree);
+      const hide = (frame: boolean) => {
+        section.setProp('display', 'none');
+        if (frame) {
+          resolveStyles(root);
+        }
+      };
+      return { editor, feed, got, hide, input, log, section, tree };
+    }
+
+    const names = (input: ReturnType<typeof scene>['input']) =>
+      input.bindings().map((binding) => binding.description);
+
+    it('should have handed the focus on, and taken the hidden element’s keys off the list, once a frame has asked', () => {
+      // what a key-help footer reads: it listed the tree's keys under a focus that was
+      // on a tree nobody could see, because nothing had moved the focus yet
+      const { editor, hide, input, tree } = scene();
+      const told: string[] = [];
+      tree.onFocusChange = (_, on) => void told.push(`tree:${on}`);
+      editor.onFocusChange = (_, on) => void told.push(`editor:${on}`);
+      expect(names(input)).toEqual(['next file']);
+
+      hide(true);
+      expect(input.reconcile()).toBe(true);
+
+      expect(input.focus.current.get()).toBe(editor);
+      expect(names(input)).toEqual([]);
+      expect(told).toEqual(['tree:false', 'editor:true']);
+      expect(tree.states).not.toContain('focus');
+      expect(editor.states).toContain('focus');
+      // and again is nothing to do
+      expect(input.reconcile()).toBe(false);
+      input.stop();
+    });
+
+    it('should land a Tab on the stop that took the hidden one’s place, not the one after it', () => {
+      // repaired by the Tab itself, in the window before a frame: the repair is the
+      // Tab's answer, where it used to be repaired and then stepped on from
+      const { editor, feed, hide, input } = scene();
+      hide(true);
+
+      feed('\t');
+      expect(input.focus.current.get()).toBe(editor);
+      input.stop();
+    });
+
+    it('should land a Shift-Tab on the stop before the hidden one’s place', () => {
+      const { editor, feed, hide, input, log, tree } = scene();
+      hide(true);
+
+      feed(`${ESC}[Z`);
+      expect(input.focus.current.get()).toBe(log);
+      expect(tree.states).not.toContain('focus');
+      expect(editor.states).not.toContain('focus');
+      input.stop();
+    });
+
+    it('should leave a Tab alone once a frame has already repaired the focus', () => {
+      // the repair showed the user the editor holding the focus; the Tab after it is
+      // the next stop
+      const { editor, feed, hide, input, log } = scene();
+      hide(true);
+      input.reconcile();
+      expect(input.focus.current.get()).toBe(editor);
+
+      feed('\t');
+      expect(input.focus.current.get()).toBe(log);
+      input.stop();
+    });
+
+    it('should not hand a paste to the hidden element', () => {
+      const { feed, got, hide, input } = scene();
+      hide(true);
+
+      feed(`${ESC}[200~hello${ESC}[201~`);
+
+      expect(got.filter((it) => it.includes(':paste:'))).toEqual(['editor:paste:hello']);
+      input.stop();
+    });
+
+    it('should not hand a paste to an unmounted element either', () => {
+      const { feed, got, input, tree } = scene();
+      tree.remove();
+
+      feed(`${ESC}[200~hello${ESC}[201~`);
+
+      expect(got.filter((it) => it.includes(':paste:'))).toEqual(['editor:paste:hello']);
+      input.stop();
+    });
+
+    it('should not reach the hidden element with a key in the same read as the hiding', () => {
+      // a key that hides the section and the key after it arrive as one chunk: no frame
+      // and no restyle between them, so the resolved style still says the tree is drawn
+      // and only the inline `display` the section was just given says otherwise
+      const { feed, got, hide, input } = scene();
+      input.bind('ctrl+b', () => hide(false));
+
+      feed(`${String.fromCharCode(2)}${ESC}[B`);
+
+      expect(got).toEqual(['editor:down']);
+      input.stop();
+    });
+
+    it('should read a hide that only a sheet has made as hidden once the style is resolved', () => {
+      // the other half of the window: with no inline prop, "hidden" is as old as the
+      // last frame, and a key before it still reaches the element
+      const { feed, got, input, section } = scene();
+      section.addClass('gone');
+      const restyler = new Restyler(new Cascade([parseStylesheet('.gone { display: none }')]));
+      feed(`${ESC}[B`);
+      expect(got).toEqual(['tree:down']);
+
+      resolveStyles(section, restyler);
+      feed(`${ESC}[B`);
+      expect(got).toEqual(['tree:down', 'editor:down']);
+      input.stop();
+    });
   });
 
   it('should hand focus on when the element holding it is unmounted', () => {

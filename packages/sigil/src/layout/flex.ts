@@ -512,8 +512,8 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
    * Whether this container's children break into more than one line.
    *
    * A row only, because the main axis of a wrapping column is its height and
-   * this function is never told one -- so there is no room to pack against, and
-   * a column is left measuring as it always did.
+   * this function is never told one -- so there is no room to pack against. A column
+   * is measured by what its items ask for along its height, below, and never wraps.
    */
   const wrapping = style.flexWrap !== 'nowrap' && !axis.column && children.length > 1;
 
@@ -574,8 +574,9 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
       ? Math.max(measured.minWidth ?? 0, declaredMinW) + extraH
       : Math.max(measured.minHeight ?? measured.height, declaredMinH) + extraV;
 
-    // the main pair is a column's. A row replaces both below, out of the same
-    // items the placement will flex, for the reason the cross pair is replaced:
+    // the main pair is read here for both axes. A row replaces both below, and a column
+    // replaces the total (not the minimum), out of the same items the placement will
+    // flex, for the reason the cross pair is replaced:
     // this reads each child at the room it was *offered* rather than at what it
     // asked for, and on the main axis that misses a `flex-basis` entirely. They
     // are still computed here because one loop for both axes is cheaper than a
@@ -718,6 +719,23 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
     // kept the nineteen-column case above. The special case they were reached
     // through -- clamp on one line, replace on several -- is gone with them.
     minCrossMax = crossMin;
+  }
+
+  // and a column asks for the same thing along its own main axis, which is its
+  // height. The loop above sums each child's measured *content* height, and a
+  // `flex-basis` is what that misses -- `measureUncached()` reports a declared
+  // `height` and never a basis, so a `flex-basis: 3` child holding one row measured
+  // one and the column around it was drawn a row short of the three its child was
+  // then placed at. SIG-126 closed this for a nowrap row; a column is the same
+  // sentence with the other axis, through the same two functions, because the
+  // placement's `resolveFlexible()` is the same function for both. There is nothing
+  // to flex against here -- this function is never told a height -- so only the two
+  // sums are taken, and no cross pass follows: a column's cross size is not decided
+  // by how its main axis flexes.
+  if (axis.column) {
+    mainTotal =
+      items.reduce((sum, item) => sum + maxContentMain(item, axis), 0) +
+      gapMain * Math.max(0, items.length - 1);
   }
 
   const width = axis.column ? crossMax + inset.cross : mainTotal + inset.main;
@@ -1402,7 +1420,7 @@ function hypotheticalMain(item: Item, axis: Axis): number {
  * basis -- without which a `flex-basis: 0; flex-grow: 1` description contributes
  * nothing and the row it is in reports its own min-content width.
  *
- * Only a nowrap row sums it. A wrapping row is measured by the longest line it
+ * Only a nowrap row and a column sum it. A wrapping row is measured by the longest line it
  * packs into and has to be measured by the number that packed it, which is
  * `hypotheticalMain()`.
  *

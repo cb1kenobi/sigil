@@ -165,6 +165,9 @@ export const FRAMEWORK_CSS = `
  *   .sigil-note  .sigil-note-frame  .sigil-note-body  .sigil-note-title
  *   .sigil-note-note  .sigil-note-info  .sigil-note-success
  *   .sigil-note-warning  .sigil-note-error
+ *   .sigil-panel  .sigil-panel-title  .sigil-panel-annotation  .sigil-panel-body
+ *   .sigil-panel-footer  .sigil-panel-footer-annotation
+ *   .sigil-pane  .sigil-pane-body  .sigil-pane-edge
  *   .sigil-badge  .sigil-badge-neutral  .sigil-badge-success
  *   .sigil-badge-warning  .sigil-badge-error  .sigil-badge-info
  *   .sigil-key-help  .sigil-key-help-key  .sigil-key-help-desc
@@ -313,6 +316,18 @@ export const FRAMEWORK_CSS = `
 .sigil-markdown-strong { font-weight: bold }
 .sigil-markdown-link { text-decoration: underline }
 .sigil-markdown-strike { strikethrough: true }
+
+/*
+ * a panel
+ *
+ * The fifteenth declared exception to the role rule, and the one that is a layout
+ * default and not a look: a panel is a region that fills its slot, so it grows. It
+ * is here rather than in the component's props because a prop beats a sheet, and a
+ * panel used as a card in a column has to be able to say it does not -- with
+ * .card { flex-grow: 0 } as much as with props. The border's colour is not here: a
+ * border colour is the theme's, and the default is the terminal's foreground.
+ */
+.sigil-panel { flex-grow: 1 }
 
 /*
  * the debug overlay

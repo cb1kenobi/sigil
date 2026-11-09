@@ -2,7 +2,8 @@ import { strip } from '../ansi/index.js';
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
-import { terminalWidth, truncate } from '../wrap/index.js';
+import { terminalWidth } from '../wrap/index.js';
+import { borderLabel, borderLabelText } from './border-label.js';
 import { colorLevelOf } from './color-level.js';
 
 /** Which role a block takes its colour from. */
@@ -43,12 +44,9 @@ export interface NoteOptions extends StyledOptions {
 const MIN_WIDTH = 5;
 
 /**
- * What closes a title.
+ * A no-break space, which `note()` puts back to an ordinary one.
  *
- * A text drops the whitespace at the end of its last line when it wraps, so a
- * title ending in a space would lose it and the rule would run into the word. A
- * no-break space is not whitespace to the wrapper, takes one column, and is put
- * back to an ordinary space when the block is read out as a string.
+ * A message may hold one, and a block read out as a string should hold none.
  */
 const NBSP = '\u00A0';
 
@@ -164,25 +162,18 @@ export function noteView(
   // a title needs a rule cell and a corner on each side of its spaces, and one
   // column of its own; where there is not that much room the block goes without
   if (heading !== '' && room >= MIN_WIDTH + 4) {
-    // a space either side keeps the corner and the rule from running into the
-    // words, and is part of the text because padding paints nothing: a cell with
-    // no content would leave the border character showing through
-    const label = ` ${truncate(heading, room - 6, 'ellipsis')}${NBSP}`;
-    const align = opts.titleAlign ?? 'left';
-    // the label has to fit between the corners with a rule cell left each side
+    // the label has to fit between the corners with a rule cell left each side:
+    // a border row is `room` wide, less a corner and a rule cell at each end
+    const label = borderLabelText(heading, room - 4);
+    // and has to fit whole, so the box is at least as wide as it
     minWidth = stringWidth(label) + 4;
     children.push(
-      textNode(label, {
-        class: 'sigil-note-title sigil-heading',
-        position: 'absolute',
-        top: -1,
-        ...(align === 'left'
-          ? { left: 1 }
-          : align === 'right'
-            ? { right: 1 }
-            : { left: 0, right: 0, 'text-align': 'center' }),
-        'white-space': 'nowrap',
-      })
+      borderLabel(
+        label,
+        'top',
+        { align: opts.titleAlign ?? 'left' },
+        'sigil-note-title sigil-heading'
+      )
     );
   }
 

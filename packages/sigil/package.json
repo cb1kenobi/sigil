@@ -54,6 +54,10 @@
       "types": "./dist/components/badge.d.mts",
       "default": "./dist/components/badge.mjs"
     },
+    "./components/border-label": {
+      "types": "./dist/components/border-label.d.mts",
+      "default": "./dist/components/border-label.mjs"
+    },
     "./components/calendar": {
       "types": "./dist/components/calendar.d.mts",
       "default": "./dist/components/calendar.mjs"
@@ -201,6 +205,14 @@
     "./components/palette": {
       "types": "./dist/components/palette.d.mts",
       "default": "./dist/components/palette.mjs"
+    },
+    "./components/pane": {
+      "types": "./dist/components/pane.d.mts",
+      "default": "./dist/components/pane.mjs"
+    },
+    "./components/panel": {
+      "types": "./dist/components/panel.d.mts",
+      "default": "./dist/components/panel.mjs"
     },
     "./components/path": {
       "types": "./dist/components/path.d.mts",

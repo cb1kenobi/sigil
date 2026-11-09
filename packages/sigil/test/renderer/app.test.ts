@@ -1,5 +1,6 @@
 import { createSinkCanvas } from '../../src/canvas/index.js';
 import { keyHelpEntries } from '../../src/components/index.js';
+import { Pane, paneControl } from '../../src/components/pane.js';
 import { box, type Element, text } from '../../src/element/index.js';
 import { type Catalog, loadCatalog } from '../../src/i18n/index.js';
 import { type App, AppContext, runApp, useApp } from '../../src/renderer/app.js';
@@ -66,6 +67,29 @@ describe('runApp()', () => {
     await term.press(ctrl('d'));
     expect(await app.exited).toBe(130);
     expect(app.running).toBe(false);
+  });
+
+  it('should give the focus up in the frame that hides it, before any key', () => {
+    // a pane collapsed around the focused row: the key help, `:focus` and
+    // `onFocusChange` read the focus, and they must not have to wait for a key to
+    // find it moved
+    const list = text('list', { focusable: true });
+    const editor = text('editor', { focusable: true });
+    const side = Pane({ ascii: false, collapsible: true, size: 8 }, list);
+    // no quitKey, whose `quit` is a binding of its own and is not what moves here
+    const { app } = start(() => box({ 'flex-direction': 'row' }, side, editor), {
+      quitKey: false,
+    });
+    app.view.frame();
+    app.input?.describe('down', { description: 'next file', scope: list });
+    app.input?.focus.focus(list);
+    expect(app.input?.bindings().map((binding) => binding.description)).toEqual(['next file']);
+
+    paneControl(side)?.collapse();
+    app.view.frame();
+
+    expect(app.input?.focus.current.get()).toBe(editor);
+    expect(app.input?.bindings().map((binding) => binding.description)).toEqual([]);
   });
 
   it('should hand the component the router while its body is still running', () => {

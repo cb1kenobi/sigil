@@ -283,6 +283,42 @@ the entry it belongs to.
   real overflows and creates none, which is the same shape SIG-125's differential had
   and the only number that could carry the argument -- the invariants were already
   clean on `main`.
+- **An auto-height column asks for the sum of its items' max-content contributions, which
+  is SIG-126 for the other axis (SIG-277).** The per-child loop sums each child's measured
+  _content_ height, and `measureUncached()` reports a declared `height` and never a
+  `flex-basis` -- so a `flex-basis: 3` child holding one row measured one, and the column
+  around it was drawn a row short of the three its child was then placed at. A declared
+  `height: 3` measured four around the same child, which is why it went unseen: the same
+  size said in the one way the measure reads. It was found by a `Pane`, which is sized by
+  `flex-basis` so that it never has to know which axis its parent runs along, and a pane
+  in an auto-height column could not grow: the key set its size to three and it stayed
+  drawn at two. The column branch is `mainTotal = Σ maxContentMain(item)` plus the gaps, through
+  the function the nowrap row already uses (the sum does not depend on `order`, so nothing
+  sorts). **The minimum is not touched**, and that is a decision and not an omission:
+  the row replaced `minMainTotal` as well, but the column's automatic minimum has been
+  under-reported for a `flex-shrink: 0` empty box since the loop was written, and
+  correcting it moved two `scrollIntoView` results in `scroll.test.ts` (an outer box of a
+  declared height 3 holding 18 rows of unshrinkable children now reports a minimum of 3
+  and not 2). That is the right answer and a change to every column's minimum for a
+  ticket about a basis, which is the refusal the toolchain's type-check narrowing and the
+  `beforeError` bug already record. It is its own ticket.
+
+  What moves is measured against the engine on `main`, laid out over the fuzzer's trees at
+  its seven sizes. With neither `flex-basis` nor `max-height` declared, **42,000 layouts
+  were identical, box for box**; every difference in 17,500 more with both is one of the
+  two. `max-height` is the second because the loop read a column child's height
+  unclamped, so a column measured thirteen rows around a box the placement puts at none --
+  the disagreement the cross-size entry below is about, in the other axis, and the
+  contribution is clamped to the item's limits the way the row's is. The strict count (the
+  invariants with overflow _not_ allowed, which the fuzzer's own docblock records as
+  legitimately failing on most of the corpus) went from 16,878 to 16,883 over those 17,500:
+  six layouts that now report a child escaping its parent's content box and one that no
+  longer does. Every one of the six is a column that now measures what its items are placed
+  at and so is larger than the room its parent gave it, which it escapes on the cross axis;
+  the item carrying the basis has the default `flex-shrink: 1`, so it is not a frozen item
+  that causes it. That is overflow as CSS produces it, and the old engine hid it by
+  measuring the column short, so that the content was shrunk to nothing to fit.
+
 - **The flexed cross size _replaces_ what the per-child loop found rather than
   being a floor over it.** `Math.max` of the two was the first spelling and it is
   the wrong one, because the loop answers a different question: it reads each

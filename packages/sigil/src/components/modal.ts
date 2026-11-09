@@ -149,6 +149,15 @@ interface Entry {
   panel: Element;
 }
 
+/** The element at the top of a tree, which is what two elements share if they are both in it. */
+function topOf(element: Element): Element {
+  let at = element;
+  while (at.parent !== undefined) {
+    at = at.parent;
+  }
+  return at;
+}
+
 /** The button text: bracketed while it has the focus, so it reads without colour too. */
 function buttonText(label: string, focused: boolean): string {
   return focused ? `[ ${label} ]` : `  ${label}  `;
@@ -345,6 +354,10 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
     offDispose?.();
     offKey();
     offFocus();
+    // the tree the dialog was in, taken before it leaves it: an element that took
+    // the focus without being in the ring -- a pane's edge, which a click focused --
+    // is not in `pool`, and "is it still mounted" has to be asked of the tree
+    const base = backdrop.parent === undefined ? undefined : topOf(backdrop.parent);
     backdrop.remove();
 
     if (held) {
@@ -355,7 +368,16 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
       const pool = next === undefined ? input.focus.ring() : inside(next.panel);
       if (previous === undefined) {
         input.focus.focus(undefined);
-      } else if (pool.includes(previous)) {
+      } else if (
+        pool.includes(previous) ||
+        // out of the ring and still there: a focusable the dialog took the focus
+        // from goes back to it, rather than to whatever the ring starts with. Held to
+        // the modal underneath, if there is one, for the reason `pool` is
+        (previous.focusable &&
+          base !== undefined &&
+          topOf(previous) === base &&
+          (next === undefined || next.panel.contains(previous)))
+      ) {
         input.focus.focus(previous);
       } else {
         input.focus.focus(pool[0]);

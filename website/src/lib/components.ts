@@ -618,6 +618,24 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     example: { steps: ['tab', 'enter'] },
   },
   {
+    slug: 'panel',
+    name: 'Panel',
+    family: 'fullscreen',
+    exports: ['Panel'],
+    registry: 'panel',
+    // nothing in it takes a key: it is the frame other things are put in
+    example: { probe: false },
+  },
+  {
+    slug: 'pane',
+    name: 'Pane',
+    family: 'fullscreen',
+    exports: ['Pane', 'paneControl'],
+    registry: 'pane',
+    // its edge is a pointer's handle, focused by a click, which a capture cannot send
+    example: { probe: false },
+  },
+  {
     slug: 'text-field',
     name: 'TextField',
     family: 'fullscreen',
@@ -793,6 +811,10 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'splitList',
   ],
   'Measuring, pacing and formatting': [
+    'borderLabel',
+    'borderLabelProps',
+    'borderLabelText',
+    'borderRun',
     'byLine',
     'byWord',
     'clampPage',
@@ -802,6 +824,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'decryptFrameAt',
     'decryptPlan',
     'decryptedFrame',
+    'fitBorder',
     'fitKeyHelp',
     'formatClock',
     'formatDuration',
@@ -829,6 +852,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'ARC',
     'ARROW',
     'ASCII',
+    'BORDER_RUN_MIN',
     'BOUNCING_BAR',
     'CIRCLE',
     'CP437',
