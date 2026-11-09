@@ -63,7 +63,7 @@ import {
 } from '../input/capabilities.js';
 import type { InputRouter } from '../input/index.js';
 import { measureNode } from '../layout/index.js';
-import { createEffects, type Effects } from '../signals/index.js';
+import { createEffects, type Effects, untrack } from '../signals/index.js';
 import {
   type AnimationFrame,
   Animator,
@@ -1219,7 +1219,13 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     last = clock();
     settling = true;
     try {
-      settle();
+      // untracked, whole: `frame()` is called from wherever the caller is, and
+      // a component's `start()` or `text = ...` called from an effect is inside
+      // that effect's body. Nothing a frame reads -- a frame handler, the
+      // scope's own flush, a measure, an `onMount` callback -- is something the
+      // caller asked to depend on, and every one of them would otherwise have
+      // left it subscribed (SIG-321)
+      untrack(settle);
     } catch (error) {
       fail(error);
     } finally {

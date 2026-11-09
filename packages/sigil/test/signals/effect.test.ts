@@ -1355,6 +1355,50 @@ describe('createEffects', () => {
   });
 });
 
+describe("a flush called from inside another scope's effect", () => {
+  it('should leave that effect subscribed to none of the effects it drained', () => {
+    // a renderer's `frame()` called from an effect is this: the renderer's
+    // scope drains while the caller's body is the one tracking. Reading each
+    // pending effect tracked made the caller a sink of every one of them, and
+    // the caller's own scope then ran them on its next flush -- outside any
+    // frame, and whether or not their own scope had been asked (SIG-321)
+    const own = createEffects();
+    own.setScheduler(() => {});
+    const label = new State('a');
+    let theirs = 0;
+    const stopTheirs = own.effect(() => {
+      theirs++;
+      label.get();
+    });
+    label.set('b');
+
+    const on = new State(false);
+    let runs = 0;
+    const stop = effect(() => {
+      runs++;
+      if (on.get()) {
+        own.flush();
+      }
+    });
+    on.set(true);
+    flush();
+    expect(theirs).toBe(2);
+
+    // their effect is dirty again and their scope has not flushed, so a flush
+    // of the caller's scope has nothing of theirs to run
+    label.set('c');
+    flush();
+    expect(theirs).toBe(2);
+    expect(runs).toBe(2);
+
+    own.flush();
+    expect(theirs).toBe(3);
+
+    stop();
+    stopTheirs();
+  });
+});
+
 describe('unowned', () => {
   it('should keep an effect a body created alive across that body re-running', () => {
     // the ownership twin of `untrack()`, and the case it exists for: something
