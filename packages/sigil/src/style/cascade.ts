@@ -152,6 +152,7 @@ export class Cascade {
 
   #buckets: Map<string, Candidate[]> | undefined;
   #keyframes: Map<string, Keyframes> | undefined;
+  readonly #listeners = new Set<() => void>();
   readonly #sheets: Stylesheet[] = [];
 
   constructor(sheets: Iterable<Stylesheet> = [], media: MediaContext = DEFAULT_MEDIA) {
@@ -174,9 +175,106 @@ export class Cascade {
    */
   add(sheet: Stylesheet): this {
     this.#sheets.push(sheet);
+    this.#changed();
+    return this;
+  }
+
+  /**
+   * Takes a stylesheet out, so that a theme can be swapped for another or for
+   * nothing.
+   *
+   * Every occurrence goes: `add()` does not refuse a sheet it already holds, and
+   * a cascade that still held the sheet after being told to forget it would be
+   * the one answer to "is it in there" nobody could act on.
+   *
+   * @param sheet - The sheet, by identity.
+   * @returns Whether it was there.
+   */
+  remove(sheet: Stylesheet): boolean {
+    let found = false;
+    for (let at = this.#sheets.length - 1; at >= 0; at--) {
+      if (this.#sheets[at] === sheet) {
+        this.#sheets.splice(at, 1);
+        found = true;
+      }
+    }
+    if (found) {
+      this.#changed();
+    }
+    return found;
+  }
+
+  /**
+   * Puts a stylesheet where another one was.
+   *
+   * In place rather than a `remove()` and an `add()`, because the order sheets
+   * were added in is what breaks a tie within one origin and layer: a sheet that
+   * swapped itself in by being added last would beat an earlier sibling the old
+   * one lost to. The new sheet takes the old one's turn, in every position the
+   * old one held.
+   *
+   * It is the *origin* that places a sheet between the framework's and the app's,
+   * not where it was added, so a theme replaced by a theme stays where a theme
+   * is -- and a sheet parsed at another origin is placed by that one.
+   *
+   * @param old - The sheet to replace, by identity.
+   * @param next - The sheet that takes its place.
+   * @returns This cascade, for chaining.
+   * @throws If `old` is not in this cascade. Quietly adding `next` instead would
+   *   hide a caller that has lost track of which sheet it put in.
+   */
+  replace(old: Stylesheet, next: Stylesheet): this {
+    let found = false;
+    for (let at = 0; at < this.#sheets.length; at++) {
+      if (this.#sheets[at] === old) {
+        this.#sheets[at] = next;
+        found = true;
+      }
+    }
+    if (!found) {
+      throw new Error('Cannot replace a stylesheet that is not in the cascade');
+    }
+    this.#changed();
+    return this;
+  }
+
+  /**
+   * Calls `listener` whenever the set of sheets changes.
+   *
+   * What lets a change to the cascade restyle on its own: a renderer subscribes
+   * when it mounts, so a caller that swaps a theme never reaches into the
+   * restyler to say that every rule is stale. Told *that* it changed and not
+   * what, because the answer to what is a full re-match either way.
+   *
+   * Not told about `media`, which is a field a renderer writes on a resize and
+   * which it follows with a restyle of its own.
+   *
+   * Called over a copy and with a membership check, as every listener set in the
+   * renderer is: one that unsubscribes another, or itself, mid-dispatch is not
+   * called afterwards, and one that subscribes another is not called for the
+   * change that added it.
+   *
+   * @param listener - What to call.
+   * @returns Unsubscribes it.
+   */
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
+  }
+
+  /** The sheet set moved: drop what was built from it, then say so. */
+  #changed(): void {
     this.#buckets = undefined;
     this.#keyframes = undefined;
-    return this;
+    // a copy, so that one subscribing or leaving mid-dispatch cannot change who is called
+    const listeners = [...this.#listeners];
+    for (const listener of listeners) {
+      if (this.#listeners.has(listener)) {
+        listener();
+      }
+    }
   }
 
   /**
@@ -190,9 +288,10 @@ export class Cascade {
    * written outside. Specificity has nothing to apply to either, since a name
    * is matched rather than selected.
    *
-   * Built on the first ask and thrown away when a sheet is added, the way the
-   * bucket index is -- a theme swapped at runtime is a sheet added, and a
-   * keyframes map kept across that would answer for a sheet nobody has.
+   * Built on the first ask and thrown away when a sheet is added, removed or
+   * replaced, the way the bucket index is -- a theme swapped at runtime is one of
+   * the three, and a keyframes map kept across that would answer for a sheet
+   * nobody has.
    *
    * @param name - What `animation-name` said.
    * @returns The stops, or `undefined`.

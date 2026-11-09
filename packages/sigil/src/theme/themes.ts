@@ -41,10 +41,12 @@
  *
  * ## What each of these sets
  *
- * All seven roles, every time. Switching themes at runtime **adds** a sheet rather
- * than replacing one -- a `Cascade` has `add` and no `remove` -- so a role a theme
- * leaves out keeps whatever the previous one said. Ship an incomplete theme and
- * switching to it leaks.
+ * All seven roles, every time. Switching themes at runtime **replaces** the sheet
+ * (`app.setTheme()`, or `cascade.replace()`), so a role a theme leaves out is the
+ * framework's default rather than the previous theme's. It is still worth setting
+ * all seven, because a theme overrides per *property*: one that sets only a colour
+ * on `.sigil-muted` inherits the framework's `dim: true` and comes out dim and
+ * coloured.
  *
  * And `dim` is the one attribute that owes the other scheme a rule: SGR 2 blends
  * the foreground *towards* the background, so it is grey on black one way and grey

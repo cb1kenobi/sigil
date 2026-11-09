@@ -227,17 +227,59 @@ the entry it belongs to.
   that drops a role: the base rule still applies at level 2, so it falls back rather
   than going quiet, and there is nothing to catch.
 
-- **Switching a theme at runtime needs a reset prelude, and an app picking one does
-  not.** A `Cascade` has `add` and no `remove`, so a switch layers a sheet over the
-  last one and a property the new theme does not mention keeps whatever the old one
-  said. Measured: going from `MONO` to `VIOLET` left MONO's `underline` on the
-  heading, its `inverse` on the error and its `italic` on the info line, because a
-  colour theme has no reason to mention any of them. A switcher prepends a rule
-  turning every role's properties off, which is what
-  `demos/style/04-theme-switcher.js` does; it is also why the demo restates the
-  framework's own defaults as a theme rather than removing a sheet to get back to
-  them. This is a switcher's problem alone -- an app picks one theme at startup and
-  never meets it.
+- **Switching a theme at runtime is a swap, so it needs no reset prelude and
+  restates no defaults (SIG-307).** It used to: a `Cascade` had `add` and no
+  `remove`, so a switch layered a sheet over the last one and a property the new
+  theme did not mention kept whatever the old one said. Measured, going from `MONO`
+  to `VIOLET` left MONO's `underline` on the heading, its `inverse` on the error
+  and its `italic` on the info line, because a colour theme has no reason to
+  mention any of them -- so `demos/style/04-theme-switcher.js` prepended a rule
+  turning every role's properties off, and restated the framework's own defaults
+  as a theme to get back to them. `cascade.replace(old, next)` puts the new theme
+  in the old one's place and `cascade.remove(theme)` is the framework's defaults,
+  so all of that is deleted; the cascade section in `src/style` has the rest. The
+  system monitor had worked around the same limit by scoping every theme under a
+  `.theme-<name>` class and toggling it on the host, which is gone too.
+
+  In `runApp()` it is `app.setTheme(theme)`, and the decisions that left room are
+  these. It takes a `Stylesheet`, source text (read by `parseTheme()`, as the
+  `theme` option is) or `undefined` for none. The runner holds the theme sheet it
+  put in the cascade -- parsed in `runApp()` and handed to `themedCascade()` as a
+  sheet rather than as text, because a cascade finds a sheet by identity -- and
+  replaces it in place; with none, setting one **adds** it, and the origin puts it
+  between the framework's sheet and the app's wherever it arrives. `undefined`
+  removes it. Source that does not parse **throws before anything is swapped**, so
+  the old theme stays on screen. The same sheet again does nothing, rather than
+  paying a full re-match for no change. With the `cascade` option it **throws**,
+  naming `cascade.replace()`: the runner did not build that cascade and cannot
+  know which of its sheets is the theme, and guessing the first `theme`-origin
+  sheet would swap the wrong one for an app that has two. A refused app is asked
+  about its refusal first: with no terminal there is no cascade whatever option it
+  was given, and "you passed a cascade" would be the wrong thing to be told.
+
+  **A `Stylesheet` that is not at origin `theme` is refused**, by `setTheme()` and
+  by the `theme` option alike, with a message naming `parseTheme()`. It was used as
+  given, and the origin is what places a sheet -- so the same call did two things
+  depending on history: an app-origin sheet handed to `setTheme()` with no theme
+  yet was added after the app's sheets and beat them, while with a theme already
+  there it replaced into the theme's slot and lost to them (measured: `green` won
+  at origin app and `blue` at origin theme, for one call on one sheet). Source text
+  has no origin to get wrong and always goes through `parseTheme()`.
+  `themedCascade()` is left as it was: it has no setter, so there is no second
+  history for its answer to disagree with.
+
+  **`setTheme()` owns the one sheet it set, and nothing else.** An app that edits
+  the cascade itself has taken that sheet back, and `setTheme()` checks whether the
+  sheet it recorded is still in the cascade rather than assuming. If it is gone --
+  removed, or replaced by `app.cascade.replace()` -- the next `setTheme()` **adds**
+  a new one instead of throwing the cascade's "Cannot replace" from inside the
+  runner, and `setTheme(undefined)` has nothing of its own to remove; whatever the
+  app put there is the app's. What the cascade finds by identity cannot be two
+  things at once, so one `Stylesheet` object is refused as both the `theme` and one
+  of `sheets` (at `runApp()`), and a sheet the cascade already holds as another
+  sheet is refused by `setTheme()` -- otherwise `setTheme(undefined)` would remove
+  the app's sheet along with the theme, which it did.
+
 - **Parsed once, and a cascade built per call.** A `Stylesheet` is frozen and a
   `Cascade` only reads it, so parsing per spinner would be the same work per
   component per process; the cascade differs per call because the sheets do, and

@@ -6048,8 +6048,8 @@ process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] 
 | ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------------------- |
 | `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                                |
 | `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                                  |
-| `theme`                        | none          | A theme sheet                                                                                                  |
-| `cascade`                      | themed        | The whole cascade, in place of the themed one                                                                  |
+| `theme`                        | none          | A theme: source text, or a sheet from `parseTheme()` (any other origin throws)                                 |
+| `cascade`                      | themed        | The whole cascade, in place of the themed one; `app.setTheme()` throws with it                                 |
 | `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing             |
 | `quitKey`                      | `'q'`         | The key that ends it with 0, as a `fallback()`: a focused field that takes `q` keeps it. `false` binds nothing |
 | `console`                      | `true`        | Captures `console.*` while it runs, into `app.logs`; `false` leaves the console alone                          |
@@ -6059,7 +6059,30 @@ process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] 
 | `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                                  |
 
 `runApp()` returns an `App`: `exit(code = 0)`, `exited`, `input`, `view` (the
-`Renderer`), `logs`, `terminal`, `interactive` and `running`.
+`Renderer`), `cascade`, `setTheme()`, `logs`, `terminal`, `interactive` and
+`running`.
+
+**`app.setTheme(theme)` swaps the theme under the running app.** It takes source
+text, a `Stylesheet` made by `parseTheme()`, or `undefined` for the framework's
+defaults, and the screen follows on its own: the theme sheet the runner holds is
+replaced in place, so what the old theme set and the new one does not is gone —
+there is nothing to reset and no defaults to restate. A `Stylesheet` at any origin
+but `theme` throws, here and for the `theme` option: the origin is what places a
+sheet, and `parseStylesheet(css)` makes an app one. Source that does not parse
+throws before anything moves, leaving the old theme on screen. `setTheme()` owns
+the one sheet it set: if the app took it out of `app.cascade` itself, the next call
+adds a new one and leaves yours alone. An app given its own `cascade` gets a
+`setTheme()` that throws, because the runner cannot know which of those sheets is
+the theme; swap it there with `app.cascade.replace(old, next)`.
+
+```js
+import { runApp, useApp } from '@ttylabs/sigil/app';
+import { AMBER, VIOLET } from '@ttylabs/sigil/themes';
+
+const app = runApp(App, { theme: VIOLET });
+app.setTheme(AMBER); // the next frame is amber
+app.setTheme(undefined); // and back to the framework's own colours
+```
 
 **`exited` is the exit code, and setting the process's is yours.**
 
@@ -6555,11 +6578,17 @@ question: SGR 2 blends the foreground _towards_ the background, so it is grey on
 black one way and grey on white the other. `MONO` is the only theme here that uses
 it, and it carries that half.
 
-Switching at runtime **adds** a sheet rather than replacing one, because a
-`Cascade` has `add` and no `remove` — so a property the new theme does not mention
-keeps whatever the last one said. An app picking one theme at startup never meets
-this; a theme _switcher_ prepends a rule turning every role's properties off, which
-is what `demos/style/04-theme-switcher.js` does and why.
+Switching at runtime **replaces** the theme sheet rather than adding another over
+it, so a property the new theme does not mention is back to the framework's
+default and nothing has to be restated. In `runApp()` that is `app.setTheme(AMBER)`,
+and `app.setTheme(undefined)` is the framework's own colours. Anywhere else a
+`Cascade` takes the same three moves — `add(sheet)`, `remove(sheet)` and
+`replace(old, next)`, which puts `next` in `old`'s turn in source order — and a
+renderer mounted on it restyles on its own: it subscribes with
+`cascade.onChange()`, so nobody reaches into `view.restyler`. A theme is its own
+origin, which is what sits it between the framework's sheet and the app's wherever
+it was added; `parseTheme()` is what makes one. `demos/style/04-theme-switcher.js`
+is both: a theme switcher whose whole switch is one `replace()`.
 
 ### `sigil/signals`
 

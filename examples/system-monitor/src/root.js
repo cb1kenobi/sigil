@@ -35,9 +35,9 @@ import { AMBER, MONO, NEON, PHOSPHOR, VIOLET } from '@ttylabs/sigil/themes';
 /** How many samples each chart keeps: two minutes at one a second. */
 const HISTORY = 120;
 
-/** What `t` cycles through. `sigil` is the framework's own roles, with no class at all. */
+/** What `t` cycles through. `sigil` is the framework's own roles, with no theme sheet at all. */
 const THEMES = Object.freeze([
-  ['sigil', ''],
+  ['sigil', undefined],
   ['mono', MONO],
   ['violet', VIOLET],
   ['amber', AMBER],
@@ -46,30 +46,9 @@ const THEMES = Object.freeze([
 ]);
 
 /**
- * A theme's rules, scoped under a class on the app's host.
- *
- * The themes are written for `runApp()`'s `theme` option, which is set once:
- * the cascade it builds has no way to take a sheet back out, so switching by
- * adding sheets is adding forever, with every role restated so the last theme
- * cannot leak through (SIG-307 is the swap that would make this unnecessary).
- * Scoped instead, every theme is in the one stylesheet from the start and only
- * the one whose class is on the host matches -- the way a web app puts `.dark`
- * on `<html>`. A scoped rule is one class more specific than the framework's own,
- * so the active theme wins and anything it leaves unset falls back to the
- * defaults. Every line of these themes is a `.sigil-<role>` rule, an `@media` or a
- * closing brace, which is what makes a line-anchored rewrite exact.
- *
- * @param {string} name - The theme.
- * @param {string} css - Its rules, as `@ttylabs/sigil/themes` ships them.
- * @returns {string} The same rules, matching only under `.theme-<name>`.
- */
-function scopeTheme(name, css) {
-  return css.replace(/^(\s*)\.sigil-/gm, `$1.theme-${name} .sigil-`);
-}
-
-/**
- * The layout, then every theme. Every colour comes from a role class
- * (`sigil-accent`, `sigil-muted`, ...), so a theme restyles the whole screen.
+ * The layout, and no colour at all. Every colour comes from a role class
+ * (`sigil-accent`, `sigil-muted`, ...), so a theme restyles the whole screen --
+ * and the theme is not in here: `t` swaps it with `app.setTheme()`.
  */
 export const stylesheet = `
   /* runApp() lets the root shrink to the screen, so the cores wrap */
@@ -103,7 +82,6 @@ export const stylesheet = `
   .table-row.selected { inverse: true }
   .filter { flex-direction: row; height: 1; column-gap: 1 }
   .footer { height: 1; padding-left: 1; column-gap: 2 }
-${THEMES.map(([name, css]) => scopeTheme(name, css)).join('\n')}
 `;
 
 /**
@@ -333,14 +311,11 @@ export function App() {
 
   // -- keys -------------------------------------------------------------------
   const cycleTheme = () => {
-    // on the app's host rather than on this root, so that a dialog -- which is
-    // appended beside this root, not inside it -- takes the theme too
-    const host = app.view.root;
-    const [was] = THEMES[theme];
     theme = (theme + 1) % THEMES.length;
-    const [name] = THEMES[theme];
-    host.removeClass(`theme-${was}`);
-    host.addClass(`theme-${name}`);
+    const [name, css] = THEMES[theme];
+    // the cascade's, so a dialog -- which is appended beside this root, not
+    // inside it -- takes the theme too, and the renderer restyles on its own
+    app.setTheme(css);
     status.set(`theme: ${name}`);
   };
 

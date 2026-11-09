@@ -154,6 +154,21 @@ interface Entry {
    * finished animation ran again on the next style change of any kind.
    */
   settled: Settled | undefined;
+  /**
+   * An animation whose `@keyframes` is not in the cascade right now, kept with its
+   * timeline.
+   *
+   * CSS keeps an animation across a missing `@keyframes`: it has no effect and
+   * leaves no fill while the name resolves to nothing, and when it comes back the
+   * animation is where its own clock says it is -- not at the start. A theme that
+   * is swapped out and back would otherwise replay every finished one-shot on
+   * screen and restart every running one. Only a *running* animation lives here; a
+   * finished one stays in `settled`, with no stops, so that its `ran` stays true.
+   * Not `animation`, because `active` reads that and an endless animation with
+   * nothing to present would hold the frame loop open for as long as the sheet
+   * was gone.
+   */
+  missing: Running | undefined;
   /** The property values currently overriding the base, kept to compare against. */
   overrides: Map<PropertyName, unknown>;
   /** What was last handed back, kept so that an unchanged frame hands back the same object. */
@@ -325,6 +340,7 @@ export class Animator<T extends object> {
         entry.transitions.size === 0 &&
         entry.animation === undefined &&
         entry.overrides.size === 0 &&
+        entry.missing === undefined &&
         !entry.settled?.ran
       ) {
         this.#entries.delete(target);
@@ -417,6 +433,31 @@ export class Animator<T extends object> {
   }
 
   /**
+   * The stylesheets changed, so what a name refers to may have.
+   *
+   * The same re-decision as `touchMedia()` and for the same reason: whether an
+   * animation runs, and on which stops, is read from the cascade, and an element
+   * the swap did not restyle is never shown to `observe()` again. That is the
+   * case this is for -- a theme that rewrites `@keyframes slide` while every
+   * element's resolved style is exactly what it was, because `animation-name` is
+   * still `slide` and nothing else moved. The restyle reports nothing for it to
+   * observe, so without this a running animation went on against the stops it
+   * indexed at start and a finished one held a fill from stops nobody has.
+   * The same goes for a sheet that *arrives* declaring a name an element already
+   * asked for, which `#syncAnimation()` records as "runs nothing, silently"
+   * precisely because the sheet may not have arrived yet.
+   *
+   * Called after the frame's restyle has been observed, so each base is the new
+   * one; the walk is over every element the animator has a base for, which is
+   * what the restyle it follows already cost.
+   *
+   * @param now - The clock, for an animation this starts.
+   */
+  touchSheets(now: number): void {
+    this.touchMedia(now);
+  }
+
+  /**
    * Drops everything the animator knows about an element.
    *
    * Called when an element is unmounted, for the reason `Restyler.forget()` is:
@@ -477,6 +518,7 @@ export class Animator<T extends object> {
         animation: undefined,
         base,
         builtFrom: undefined,
+        missing: undefined,
         overrides: new Map(),
         presented: undefined,
         settled: undefined,
@@ -577,18 +619,59 @@ export class Animator<T extends object> {
     const live = this.#entries.get(target);
     const name = base.animationName;
     const frames = name === 'none' ? undefined : this.#cascade.keyframes(name);
+    const found = frames ? index(frames) : undefined;
 
-    if (!frames) {
-      // and the fill goes with it, because a fill belongs to its animation
-      if (live) {
+    // a name with no stops in it is the same effect as a name nothing declares: an
+    // empty `@keyframes a {}` touches no property, so a running animation parks
+    // through it exactly as it does through a missing one, and does not restart
+    if (found === undefined || found.size === 0) {
+      if (!live) {
+        return;
+      }
+      const settled = live.settled;
+      // a name nothing declares *right now* is not a name nobody asked for: the
+      // animation keeps its timeline and its `ran` record and does nothing, and
+      // is where its clock says when the sheet comes back. `none` is the other
+      // answer -- and so is a different name -- and the fill goes with it,
+      // because a fill belongs to its animation
+      const running =
+        name === 'none'
+          ? undefined
+          : live.animation?.name === name
+            ? live.animation
+            : live.missing?.name === name
+              ? live.missing
+              : undefined;
+      if (running) {
         live.animation = undefined;
+        live.missing = running;
+        live.settled = undefined;
+      } else if (name !== 'none' && settled?.ran && settled.animation.name === name) {
+        live.missing = undefined;
+        if (settled.animation.stops !== NO_STOPS) {
+          // no stops means no values, so no fill while it is gone
+          this.#settle(live, { ...settled.animation, stops: NO_STOPS }, true);
+        }
+      } else {
+        live.animation = undefined;
+        live.missing = undefined;
         live.settled = undefined;
       }
       return;
     }
 
-    const stops = index(frames);
+    const stops = found;
     const settled = live?.settled;
+
+    // back from missing, mid-run: on its own clock rather than from the start. A
+    // finite one that ran out in the meantime is retired by the next tick, which
+    // settles it as ran, so it shows its fill without playing again
+    if (live?.missing?.name === name) {
+      const resumed = { ...live.missing, ...timing(base), stops };
+      live.missing = undefined;
+      this.#commit(live, resumed);
+      return;
+    }
 
     // an animation that has **run** is left alone: it is finished, and a style
     // change somewhere else on the element is not a reason to run it again.
@@ -614,8 +697,12 @@ export class Animator<T extends object> {
     }
 
     const entry = this.#entryFor(target, base);
-    // whatever the animation this replaces left behind goes with it
+    // whatever the animation this replaces left behind goes with it -- a parked
+    // timeline included, which belongs to the name it was parked under: kept past
+    // a switch to another name, it resumed a long-finished `a` from its old start
+    // when the element came back to it, and held `tick()` from dropping the entry
     entry.settled = undefined;
+    entry.missing = undefined;
     this.#commit(entry, { name, start: now, stops, ...timing(base) });
   }
 
@@ -791,6 +878,9 @@ export class Animator<T extends object> {
     return out;
   }
 }
+
+/** The stops of an animation whose `@keyframes` is gone: it touches nothing. */
+const NO_STOPS: Running['stops'] = new Map();
 
 /** The timing half of an animation's declaration, which is taken up in place. */
 function timing(style: Style): Omit<Running, 'name' | 'start' | 'stops'> {
