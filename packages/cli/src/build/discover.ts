@@ -433,7 +433,7 @@ export function readAppCommands(app: DiscoveredApp): {
   /**
    * Whether the schema is itself the command: a `run` and no `commands`.
    *
-   * Which is a single-command app, and is the `--single` layout `sigil new`
+   * Which is a single-command app, and is the `--layout single` layout `sigil new`
    * scaffolds. There is nothing to walk and nothing to bake, so the absence of
    * `commands` is the answer rather than a thing to report -- without this the
    * build refused such an app outright with `no "commands" found in this

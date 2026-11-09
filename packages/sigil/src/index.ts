@@ -148,7 +148,7 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
     // across with everything else -- so a `run` on the schema is the root
     // command's `run`, and a run that named no command is the one it answers
     // for. Without this it answered for nothing: a single-command app, which is
-    // exactly what `sigil new --single` scaffolds, parsed argv and then did
+    // exactly what `sigil new --layout single` scaffolds, parsed argv and then did
     // nothing at all.
     //
     // It cannot change what a working app does, which is what makes it a fix

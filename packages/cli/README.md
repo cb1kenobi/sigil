@@ -36,7 +36,7 @@ way of arranging them:
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `--tui`                | Launches it from the app itself: the schema's `run` opens it                                                                     |
 | `--no-tui`             | Says there is none, so a script that passes every other flag is not asked. Refused beside `--tui`, `--tui-command` or `--syntax` |
-| `--tui-command <name>` | Launches it from a command of that name, and implies a commands directory. Refused with `--single` or `--tui`                    |
+| `--tui-command <name>` | Launches it from a command of that name, and implies a commands directory. Refused with `--layout single` or `--tui`             |
 | `--syntax jsx\|ui`     | The template syntax: `jsx`, or `ui` for the Sigil UI template. JSX is the default and `--yes` takes it                           |
 
 The component is `src/ui/app.tsx` (or `.jsx`, `.ts`, `.js`), never a file under

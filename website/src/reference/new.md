@@ -26,11 +26,11 @@ sigil new [options] [project-name]
 | --- | --- | --- |
 | `--cwd [dir]` | `string` | Where to create it, defaulting to the working directory |
 | `--lang [js\|ts]` | `string` | Which language the app is written in |
-| `--lint [oxlint\|eslint\|biome\|none]` | `string` | Which linter to set up |
+| `--linter [oxlint\|eslint\|biome\|none]` | `string` | Which linter to set up |
 | `--no-git` | `bool` | Do not run git init |
 | `--pm [pnpm\|vlt\|npm]` | `string` | Which package manager to set the app up with |
 | `--no-install` | `bool` | Do not install dependencies |
-| `--single` | `bool` | One command rather than a commands directory |
+| `--layout [single\|multi]` | `string` | One command (single) or a commands directory (multi) |
 | `--syntax [jsx\|ui]` | `string` | Which template syntax the full-screen app is written in: jsx, or ui for the Sigil UI template |
 | `--no-tui` | `bool` | Do not include a full-screen app, and do not ask |
 | `--tui` | `bool` | Include a full-screen app, launched from the app itself |

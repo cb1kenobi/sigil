@@ -46,6 +46,26 @@ export function schema(): Schema {
     // description said twice, for a toolchain whose users only run it built.
     baseDir: import.meta.dirname,
     commands: './commands',
+
+    // A typo is refused rather than taken as a value: `--lint` and `--js` were
+    // renamed, and an old script that still said either got the default, exit 0
+    // and nothing said. `allowUnknownOptions` is a setting of `main()` and a schema
+    // has no place for one, and the built executable is generated -- it calls
+    // `main({ schema })` and never reaches `run()` -- so a setting passed there
+    // would refuse in `node src/sigil.ts` and nowhere that is shipped. A hook rides
+    // the schema into the bundle, and `beforeParse` fires before argv is walked, which
+    // is where the setting is read. No command here reads an option it did not
+    // declare, which was checked rather than assumed: see "The toolchain refuses
+    // unknown options" in AGENTS.md
+    hooks: {
+      beforeParse(state) {
+        // a copy: `parse()` keeps the caller's own settings object, so writing the
+        // flag onto it would leave it set for a later `main()` that reused the
+        // object, whatever schema that one has. The shipped program passes no
+        // settings, so this can only reach a caller of `schema()` that passes its own
+        state.settings = { ...state.settings, allowUnknownOptions: false };
+      },
+    },
   };
 }
 

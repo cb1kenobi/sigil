@@ -351,6 +351,22 @@
         },
         {
           "choices": [
+            "multi",
+            "single"
+          ],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--layout"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [
             "biome",
             "eslint",
             "none",
@@ -359,7 +375,7 @@
           "env": [],
           "hidden": false,
           "long": [
-            "--lint"
+            "--linter"
           ],
           "multiple": false,
           "required": false,
@@ -396,19 +412,6 @@
           "short": [],
           "takesValue": true,
           "type": "string"
-        },
-        {
-          "choices": [],
-          "env": [],
-          "hidden": false,
-          "long": [
-            "--single"
-          ],
-          "multiple": false,
-          "required": false,
-          "short": [],
-          "takesValue": false,
-          "type": "bool"
         },
         {
           "choices": [

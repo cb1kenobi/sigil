@@ -1,5 +1,5 @@
 // A single-command app: the schema is the command, which is what
-// `sigil new --single` scaffolds. There is no `commands` because there are no
+// `sigil new --layout single` scaffolds. There is no `commands` because there are no
 // subcommands, and `main()` dispatches the root.
 //
 // `run` is written as a **method**, which is how anybody writes a handler and

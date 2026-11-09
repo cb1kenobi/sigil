@@ -24,7 +24,11 @@ const payload: SymbolPayload = {
     ['sigil package --out', '/reference/package#--out', 'Where the binaries go'],
     ['sigil package --name', '/reference/package#--name'],
     ['sigil new', '/reference/new'],
-    ['sigil new --single', '/reference/new#--single', 'One command'],
+    [
+      'sigil new --layout',
+      '/reference/new#--layout',
+      'One command (single) or a commands directory',
+    ],
     ['sigil new --js', '/reference/new#--js'],
     ['sigil new --json', '/reference/new#--json'],
   ],
@@ -49,7 +53,7 @@ describe('symbol lookup', () => {
 
   test('an option matches with or without its dashes, as the parser keys it', () => {
     assert.deepEqual(titles('out'), titles('--out'));
-    assert.equal(top('single')?.title, 'sigil new --single');
+    assert.equal(top('layout')?.title, 'sigil new --layout');
   });
 
   test('every word must begin a word of the name, so a command narrows a shared option', () => {
@@ -59,8 +63,8 @@ describe('symbol lookup', () => {
   });
 
   test('a typo lands, which is what Pagefind cannot do', () => {
-    const hit = top('--singel');
-    assert.equal(hit?.title, 'sigil new --single');
+    const hit = top('--layuot');
+    assert.equal(hit?.title, 'sigil new --layout');
     assert.equal(hit?.rule, 'fuzzy');
     assert.equal(top('biuld')?.title, 'sigil build');
     assert.equal(top('nwe')?.title, 'sigil new');
@@ -105,8 +109,8 @@ describe('symbol lookup over the real reference', () => {
   });
 
   test('finds the identifiers the ticket names', () => {
-    assert.equal(lookupSymbols(real, '--single')[0]?.url, '/reference/new#--single');
-    assert.equal(lookupSymbols(real, '--singel')[0]?.url, '/reference/new#--single');
+    assert.equal(lookupSymbols(real, '--layout')[0]?.url, '/reference/new#--layout');
+    assert.equal(lookupSymbols(real, '--layuot')[0]?.url, '/reference/new#--layout');
     assert.equal(lookupSymbols(real, 'sigil package')[0]?.url, '/reference/package');
     const out = lookupSymbols(real, '--out').map((hit) => hit.title);
     assert.ok(out.includes('sigil build --out') && out.includes('sigil package --out'));
