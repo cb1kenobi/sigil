@@ -933,7 +933,7 @@ function askWith(
       ],
       {
         cwd: dir,
-        env: { ...process.env, COLUMNS: '80', NO_COLOR: '1' },
+        env: { ...process.env, COLUMNS: String(columns), NO_COLOR: '1' },
         stdio: ['pipe', 'pipe', 'pipe'],
       }
     );
