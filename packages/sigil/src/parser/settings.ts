@@ -1,6 +1,59 @@
 import type { Schema, Settings } from '../types.js';
 
 /**
+ * Every key of `Settings`, which is what the merge is made over.
+ *
+ * Read with plain property access rather than by spreading or `Object.entries()`,
+ * which see own enumerable keys only. Before `Schema.settings`, `main()` read
+ * `opts.settings?.errorHandler` and `parse()` kept `opts.settings` itself as
+ * `state.settings`, so a settings object with its values on a prototype -- a class
+ * instance, `Object.create(defaults)` -- or behind a getter worked, and a merge that
+ * could not see them would have quietly turned its settings off. Reading a fixed
+ * list of keys is what keeps that true, and makes the one reader below the only
+ * place that decides what a key's value is.
+ *
+ * A key outside the list is no longer carried onto `state.settings`: the object is a
+ * new one, and nothing in this repository reads a key that is not in `Settings`. A
+ * hook of an app's own that read one off `state.settings` would have to read it off
+ * the object it passed.
+ */
+const SETTING_KEYS = [
+  'allowExtraArguments',
+  'allowUnexpectedArguments',
+  'allowUnknownOptions',
+  'assertCwd',
+  'errorHandler',
+  'helpExitCode',
+  'suggestions',
+] as const satisfies readonly (keyof Settings)[];
+
+/** The keys of `Settings` that `SETTING_KEYS` leaves out. */
+type Uncovered = Exclude<keyof Settings, (typeof SETTING_KEYS)[number]>;
+
+/**
+ * A compile error here means `Settings` gained a key and the list above did not,
+ * which would leave that setting out of every merge. A type-level check, because
+ * the list and the interface are two spellings of one fact.
+ */
+const COVERS_EVERY_SETTING: [Uncovered] extends [never] ? true : { uncovered: Uncovered } = true;
+void COVERS_EVERY_SETTING;
+
+/**
+ * One setting off an object, the way every reader here asks.
+ *
+ * Plain property access, so a prototype or a getter answers as it always did, and
+ * `undefined` for a source that is not an object -- which is the same answer as a
+ * key it does not name.
+ *
+ * @param source - A settings object, or whatever was passed in its place.
+ * @param key - The setting.
+ * @returns Its value, which may be `undefined`.
+ */
+function read<K extends keyof Settings>(source: unknown, key: K): Settings[K] | undefined {
+  return isObject(source) ? (source as Settings)[key] : undefined;
+}
+
+/**
  * The settings a parse runs under: the schema's, with the call's laid over them.
  *
  * Per key, with the call winning. A schema says what the app is and the call says
@@ -23,7 +76,7 @@ import type { Schema, Settings } from '../types.js';
  * @param schema - The schema, whose `settings` are the base.
  * @param call - The settings the caller of `main()` or `parse()` passed.
  * @returns The settings to use.
- * @throws If either is present and is not an object.
+ * @throws If either is present and is not an object, or a getter of either throws.
  */
 export function resolveSettings(schema: Schema | undefined, call?: Settings): Settings {
   const declared = schema?.settings;
@@ -36,9 +89,12 @@ export function resolveSettings(schema: Schema | undefined, call?: Settings): Se
     throw new TypeError('Expected settings to be an object');
   }
 
-  const merged: Record<string, unknown> = { ...declared };
+  const merged: Record<string, unknown> = {};
 
-  for (const [key, value] of Object.entries(call ?? {})) {
+  for (const key of SETTING_KEYS) {
+    const named = read(call, key);
+    const value = named !== undefined ? named : read(declared, key);
+
     if (value !== undefined) {
       merged[key] = value;
     }
@@ -76,21 +132,16 @@ export function salvagedErrorHandler(
   call?: Settings
 ): Settings['errorHandler'] {
   try {
-    if (isObject(call)) {
-      const handler = (call as Settings).errorHandler;
-      if (handler !== undefined) {
-        return handler;
-      }
+    const handler = read(call, 'errorHandler');
+    if (handler !== undefined) {
+      return handler;
     }
   } catch {
     // an unreadable call handler is not a reason to ignore the schema's
   }
 
   try {
-    const declared = schema?.settings;
-    if (isObject(declared)) {
-      return (declared as Settings).errorHandler;
-    }
+    return read(schema?.settings, 'errorHandler');
   } catch {
     // the built-in handler reports the original error
   }

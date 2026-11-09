@@ -336,6 +336,22 @@ describe('what the built app uses instead', () => {
       "const K = 'settings';\nexport default { name: 'a', [K]: { errorHandler: false } };\n",
     ],
     [
+      'wrapped in a call, which can return anything',
+      "export default withHouseDefaults({ name: 'a' });\n",
+    ],
+    [
+      'wrapped in a call, through a const',
+      "const schema = defineApp({ name: 'a' });\nexport default schema;\n",
+    ],
+    [
+      'wrapped in a call that has settings written in the literal',
+      "export default withHouseDefaults({ name: 'a', settings: { errorHandler: false } });\n",
+    ],
+    [
+      'a duplicate key inside settings, where the last is undefined',
+      "export default { name: 'a', settings: { errorHandler: false, errorHandler: undefined } };\n",
+    ],
+    [
       'a duplicate key, where the last wins',
       "export default { name: 'a', settings: { errorHandler: false }, settings: { allowUnknownOptions: false } };\n",
     ],
@@ -358,8 +374,23 @@ describe('what the built app uses instead', () => {
     expect(message).toContain("A built app uses the schema's `errorHandler`");
   });
 
+  it('should look through parentheses and type assertions on the schema, which change nothing', () => {
+    for (const entry of [
+      "export default ({ name: 'a', settings: { errorHandler: false } });\n",
+      "export default { name: 'a', settings: { errorHandler: false } } as const;\n",
+      "const schema = { name: 'a', settings: { errorHandler: false } } satisfies object;\nexport default schema;\n",
+    ]) {
+      expect(said({ 'dev.ts': dev, 'index.ts': entry })).toContain("the schema's `errorHandler`");
+    }
+  });
+
   it('should keep the general message when the call has keys it cannot enumerate', () => {
-    for (const settings of ['{ ...shared }', '{ [key]: 1 }', 'shared']) {
+    for (const settings of [
+      '{ ...shared }',
+      '{ [key]: 1 }',
+      'shared',
+      '{ errorHandler: false, errorHandler: undefined }',
+    ]) {
       const message = said({
         'dev.ts': `${RUNTIME}await main({ schema, settings: ${settings} });\n`,
         'index.ts': "export default { name: 'a' };\n",

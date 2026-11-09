@@ -16,10 +16,11 @@
  * the README documents) keeps those settings when built, and following this
  * warning's advice there would put an `errorHandler: false` on the *outer* app and
  * turn every error it has into an unhandled rejection. So the schema module is not
- * read at all. A call at its top level is a different problem -- it runs in the
- * built app as well as the generated entry's -- and is left to AGENTS.md rather
- * than reported here, because this warning's claim is about settings and that
- * call's settings do apply, to that call.
+ * searched for `main()` calls at all (it is read for one other thing: what its
+ * `settings` say, for the message below). A call at its top level is a different
+ * problem -- it runs in the built app as well as the generated entry's -- and is
+ * left to AGENTS.md rather than reported here, because this warning's claim is
+ * about settings and that call's settings do apply, to that call.
  *
  * What is read is the one file the build never touches that `sigil new` writes:
  * the `dev` runner at the app's root. Every call in it is reported, nested or not,
@@ -53,7 +54,6 @@
 import { bindingName, importBindings, reachable, unwrap, type ImportBindings } from './bindings.ts';
 import type { Diagnostic } from './diagnostic.ts';
 import { EXTENSIONS, isFile, RUNTIME, type DiscoveredApp } from './discover.ts';
-import { defaultObject } from './extract.ts';
 import { isUndefined, plainProperty, propertyKey, unwrapShallow } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
@@ -138,7 +138,7 @@ export function mainSettingsIn(parsed: ParsedModule): readonly MainSettingsCall[
  * The keys an object literal names with a value, or `undefined` when any of them
  * cannot be read.
  *
- * A spread or a computed key makes the whole answer `undefined`: naming
+ * A spread, a computed key or a key written twice makes the whole answer `undefined`: naming
  * three of five keys in a message that says what the built app uses would be a
  * claim about the two it left out.
  *
@@ -147,6 +147,7 @@ export function mainSettingsIn(parsed: ParsedModule): readonly MainSettingsCall[
  */
 function namedKeys(object: ObjectExpression): string[] | undefined {
   const keys: string[] = [];
+  const seen = new Set<string>();
 
   for (const property of object.properties) {
     if (property.type === 'SpreadElement') {
@@ -154,9 +155,12 @@ function namedKeys(object: ObjectExpression): string[] | undefined {
     }
 
     const key = propertyKey(property);
-    if (key === undefined) {
+    // a key written twice is legal and JavaScript keeps the last, which may be
+    // `undefined`: reading the first would name a key the object does not have
+    if (key === undefined || seen.has(key)) {
       return undefined;
     }
+    seen.add(key);
 
     if (!isUndefined(property.value)) {
       keys.push(key);
@@ -199,7 +203,7 @@ function schemaSettingsKeys(app: DiscoveredApp): ReadonlySet<string> | undefined
     return undefined;
   }
 
-  const schema = defaultObject(parsed, []);
+  const { binding, schema } = defaultSchema(parsed);
   if (!schema) {
     return undefined;
   }
@@ -212,7 +216,6 @@ function schemaSettingsKeys(app: DiscoveredApp): ReadonlySet<string> | undefined
     return undefined;
   }
 
-  const binding = defaultBinding(parsed);
   if (binding !== undefined && mentions(parsed, binding) > 2) {
     return undefined;
   }
@@ -235,31 +238,73 @@ function schemaSettingsKeys(app: DiscoveredApp): ReadonlySet<string> | undefined
 }
 
 /**
- * The name the default export refers to, when it is a reference rather than a
- * literal written in place.
+ * The schema a module default-exports, when it is an object literal and nothing else.
+ *
+ * Deliberately **not** `defaultObject()`, which reads through any call with one
+ * object argument so that the `desc` lift can see through `command()`. A schema
+ * wrapped in `withDefaults({ name: 'a' })` is an object the wrapper returns, which
+ * may carry a `settings` the literal does not say -- so only parentheses and
+ * `as`/`satisfies`/non-null are looked through here. No identity helper for a
+ * schema exists in `@ttylabs/sigil` (`command()` and `options()` are for a command
+ * and an option set), so no call is allowed.
  *
  * @param parsed - The module.
- * @returns The binding, or `undefined` for a literal or anything else.
+ * @returns The literal, and the module-scope `const` it was reached through, if any.
  */
-function defaultBinding(parsed: ParsedModule): string | undefined {
-  for (const node of parsed.program.body) {
-    if (node.type === 'ExportDefaultDeclaration') {
-      return node.declaration.type === 'Identifier' ? node.declaration.name : undefined;
-    }
-  }
+function defaultSchema(parsed: ParsedModule): { binding?: string; schema?: ObjectExpression } {
+  let named: string | undefined;
 
   for (const node of parsed.program.body) {
-    if (node.type !== 'ExportNamedDeclaration') {
-      continue;
+    if (node.type === 'ExportDefaultDeclaration') {
+      const declaration = unwrapShallow(node.declaration as never);
+
+      if (declaration.type === 'ObjectExpression') {
+        return { schema: declaration };
+      }
+
+      if (declaration.type !== 'Identifier') {
+        return {};
+      }
+
+      named = declaration.name;
+      break;
     }
-    for (const spec of node.specifiers) {
-      if (spec.exported.type === 'Identifier' && spec.exported.name === 'default') {
-        return spec.local.type === 'Identifier' ? spec.local.name : undefined;
+
+    if (node.type === 'ExportNamedDeclaration') {
+      for (const spec of node.specifiers) {
+        if (spec.exported.type === 'Identifier' && spec.exported.name === 'default') {
+          named = spec.local.type === 'Identifier' ? spec.local.name : undefined;
+        }
       }
     }
   }
 
-  return undefined;
+  if (named === undefined) {
+    return {};
+  }
+
+  // a `const` at module scope only: a `let` can be reassigned before the export
+  for (const node of parsed.program.body) {
+    const declaration =
+      node.type === 'VariableDeclaration'
+        ? node
+        : node.type === 'ExportNamedDeclaration' && node.declaration?.type === 'VariableDeclaration'
+          ? node.declaration
+          : undefined;
+
+    if (declaration?.kind !== 'const') {
+      continue;
+    }
+
+    for (const declarator of declaration.declarations) {
+      if (declarator.id.type === 'Identifier' && declarator.id.name === named && declarator.init) {
+        const init = unwrapShallow(declarator.init as never);
+        return init.type === 'ObjectExpression' ? { binding: named, schema: init } : {};
+      }
+    }
+  }
+
+  return {};
 }
 
 /**

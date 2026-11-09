@@ -398,6 +398,120 @@ describe("the schema's handler when the call's settings are the bad half", () =>
   });
 });
 
+describe('where a setting is read from', () => {
+  // `main()` read `opts.settings?.errorHandler` and `parse()` kept `opts.settings`
+  // itself, so a settings object whose values are on a prototype or behind a getter
+  // worked before the merge, and has to go on working
+  class Strict {
+    get allowUnknownOptions(): boolean {
+      return false;
+    }
+    get helpExitCode(): number {
+      return 5;
+    }
+  }
+
+  it('should read a class instance given to main()', async () => {
+    const ran = await runCommand({
+      argv: ['build', '--typo'],
+      schema: app(),
+      settings: new Strict(),
+    });
+
+    expect(ran.err).toContain('Unknown option "--typo"');
+    expect(
+      (await runCommand({ argv: ['--help'], schema: app(), settings: new Strict() })).code
+    ).toBe(5);
+  });
+
+  it('should read a class instance given to parse()', async () => {
+    const state = await parse({ argv: ['build'], schema: app(), settings: new Strict() });
+
+    expect(state.settings).toEqual({ allowUnknownOptions: false, helpExitCode: 5 });
+  });
+
+  it("should read a class instance as the schema's settings", async () => {
+    const ran = await runCommand({
+      argv: ['build', '--typo'],
+      schema: app({ settings: new Strict() }),
+    });
+
+    expect(ran.err).toContain('Unknown option "--typo"');
+  });
+
+  it('should read an inherited handler the same on the merge path and the salvage path', async () => {
+    const inherited = (): Settings => Object.create({ errorHandler: false });
+
+    // a good schema: the merge reads it
+    await expect(
+      runCommand({
+        argv: ['build', '--typo'],
+        schema: app({ settings: { allowUnknownOptions: false } }),
+        settings: inherited(),
+      })
+    ).rejects.toThrow('Unknown option "--typo"');
+
+    // a bad schema: the salvage reads it
+    await expect(
+      runCommand({
+        argv: ['build'],
+        schema: app({ settings: 'bad' as unknown as Settings }),
+        settings: inherited(),
+      })
+    ).rejects.toThrow('Expected schema settings to be an object');
+  });
+
+  it('should carry only the keys Settings names onto state.settings', async () => {
+    const ran = await runCommand({
+      argv: ['build'],
+      schema: app(),
+      settings: { assertCwd: false, extra: 1 } as Settings,
+    });
+
+    expect(ran.state?.settings).toEqual({ assertCwd: false });
+  });
+});
+
+describe('the handler salvaged from a half that can be read', () => {
+  it("should use the schema's when the call's errorHandler getter throws", async () => {
+    const settings = {};
+    Object.defineProperty(settings, 'errorHandler', {
+      enumerable: true,
+      get() {
+        throw new Error('call handler getter');
+      },
+    });
+
+    await expect(
+      runCommand({
+        argv: [],
+        schema: app({ settings: { errorHandler: false } }),
+        settings,
+      })
+    ).rejects.toThrow('call handler getter');
+  });
+
+  it("should use the schema's when the call names no handler and another getter throws", async () => {
+    // the call has no `errorHandler`, so reading it is `undefined`, which is not an
+    // answer: the schema's `false` is, and has to reach `main()`
+    const settings = {};
+    Object.defineProperty(settings, 'assertCwd', {
+      enumerable: true,
+      get() {
+        throw new Error('assertCwd getter');
+      },
+    });
+
+    await expect(
+      runCommand({
+        argv: [],
+        schema: app({ settings: { errorHandler: false } }),
+        settings,
+      })
+    ).rejects.toThrow('assertCwd getter');
+  });
+});
+
 describe('settings: null on the call', () => {
   // `main({ schema, settings: null })` worked when `parse()` read `opts.settings || {}`.
   // It is refused now, with the parser's rule that null is an error, and not read as
