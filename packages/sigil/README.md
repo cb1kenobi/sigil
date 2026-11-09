@@ -2722,14 +2722,73 @@ one line, each line break a space, which is what a table cell or a prefix
 beside a message wants -- a cell two lines tall pushes every row after it down
 by one.
 
+A hook is a prop too. `onKey`, `onMouse`, `onPaste`, `onFocusChange`, `onScroll`,
+`onResize` and `onLayout` can be given to `box()`, `text()` and `raw()` as well as
+assigned afterwards -- `box({ onKey: (event) => ... })` -- and a template writes
+them the same way. `HANDLER_PROPS` is the list, `isHandlerProp(name)` asks it,
+`HandlerProp` is the name of one, `HandlerProps` is the object of them typed by
+the fields they set, and `HandlerValue` is what any one may be (a function, or
+`undefined` to clear it). `ElementPropsWithout<'onKey'>` is `ElementProps` with
+some hooks pinned to `undefined`, which is the type of a built-in component's
+`props` where the component sets that hook itself: a component refuses a handler
+for a hook it owns, at run time as well as in the type, rather than replace it
+without a word. `TextField` owns `onKey`, `onPaste`, `onFocusChange` and
+`onResize`; `ScrollBox` `onKey` and `onMouse`; `createPager` `onKey`;
+`tabRowView` `onKey`, `onFocusChange` and `onResize`; `openModal` `onPaste`;
+`showToast` `onMouse`; `attachTooltip` `onLayout`. Put a handler for those on an
+element around the component. A wrapper that forwards `props` types them as
+`ElementPropsWithout<...>` with the same hooks: a value typed plain `ElementProps`
+no longer fits, because it may carry a handler the component would replace.
+`refuseOwnedHooks(who, props, hooks)` from
+`@ttylabs/sigil/components` is the check they share, for an ejected or a
+hand-written component that spreads `props` into its host and sets a hook there.
+
 ### `sigil/template`
 
 The `ui` tag, its parser, and the emitter's leaves -- `applyProp()`,
-`applyText()`, `appendValue()`, `rawElement()`, `rootElement()`,
-`componentChildren()`, `rawParts()` and `textPart()` -- which `sigil build`'s
-template compiler calls rather than restating, so a compiled template and an
-interpreted one cannot come to disagree about what a prop, a child or a `<raw>`
-means.
+`applyRef()`, `splitRefs()`, `refuseHandlerName()`, `applyText()`,
+`appendValue()`, `rawElement()`, `rootElement()`, `componentChildren()`,
+`rawParts()` and `textPart()` -- which
+`sigil build`'s template compiler calls rather than restating, so a compiled
+template and an interpreted one cannot come to disagree about what a prop, a
+child or a `<raw>` means.
+
+A host element takes the seven hooks as props -- `onKey`, `onMouse`, `onPaste`,
+`onFocusChange`, `onScroll`, `onResize` and `onLayout` -- in JSX and in the tag,
+spelled the same way (`onKey={fn}`, `onKey=${fn}`) and typed as the `Element`
+fields they set, so a handler with the wrong signature is a type error. A
+function under one of those names is **the handler**, never a reactive thunk: it
+is assigned once, and is not called while the template builds. Swapping a
+handler through a signal is not supported; a handler reads the state it needs
+when it runs. A value that is not a function (`onKey="x"`) is a template error.
+`box({ onKey })` and a template are one path.
+
+```jsx
+let list;
+<box onKey={(event) => event.key.name === 'q' && app.exit()} ref={(el) => (list = el)}>
+  <text>press q</text>
+</box>;
+```
+
+`ref` is a callback and nothing else, `ref={(el) => ...}`. It is called once with
+the element, after its props and children are built and before it is attached
+to its parent -- so layout has not run (`onLayout` is the hook for sizes). It is
+not called again on removal; cleanup goes through the owner (`onCleanup()`). A
+`State` holds an element as `ref={(el) => node.set(el)}`. Like a handler, a
+function under `ref` is never a thunk. `RefProps` is its type, which `HostProps`
+(from `@ttylabs/sigil/jsx-runtime`) already includes.
+
+`ref` and the hooks are props of a **host element**, `<box>`, `<text>` and
+`<raw>`. On a component, `<${Panel} ref=${fn} />`, they are props like any other:
+the template hands them to the component and does nothing with them, so a
+`ref` is called only if the component reads it and forwards it to a host. That is
+deliberate -- a component may take a `ref` on purpose -- and it means a `ref` on a
+component that ignores it is silently unused.
+
+A name that nearly spells a hook is refused rather than treated as a style
+property: `on-key`, `onkey` and the like say which name to write, and any other
+`on`-prefixed name given a function (`onClick=${fn}`) is "not an event this
+element has". No style property starts with `on`.
 
 ### `sigil/help`
 

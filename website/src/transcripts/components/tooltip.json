@@ -39,7 +39,7 @@
         "description": "The bubble's own props: a class. Geometry is the tooltip's, and is overwritten.",
         "name": "props",
         "optional": true,
-        "type": "ElementProps"
+        "type": "ElementPropsWithout<\"onLayout\">"
       },
       {
         "description": "Whether `--quiet` hides it. Defaults to following the process-wide request.",

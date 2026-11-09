@@ -27,6 +27,7 @@ const mounted = [];
 function mount({
   colorLevel = 0,
   columns = 100,
+  mouse = false,
   cores = [0.25, 0.75],
   memory = { total: 16 * 1024 ** 3, used: 8 * 1024 ** 3 },
   pid = 99999,
@@ -88,6 +89,7 @@ function mount({
   };
   const app = runApp(() => provideContext(SystemContext, system, App), {
     detect: false,
+    mouse,
     sheets: [stylesheet],
     terminal: term.terminal,
   });
@@ -341,6 +343,25 @@ describe('the system monitor', () => {
     expect(app.term.screen.lastInverse?.row).toBe(rowOf('proc-1'));
     await app.press('k', 'k');
     expect(app.term.screen.lastInverse?.row).toBe(rowOf('proc-2'));
+  });
+
+  it("should select the row that is clicked, through the table body's onMouse prop", async () => {
+    // the handler is a prop on a node inside a template, which is what a
+    // template could not do before SIG-305 -- so this is the one test that
+    // fails if the prop is dropped, where a key would not
+    const app = mount({
+      colorLevel: 1,
+      mouse: true,
+      processes: [proc(1, 5, 1), proc(2, 90, 2), proc(3, 40, 3)],
+    });
+    await app.step();
+    const row = app.term.viewport.findIndex((line) => line.includes('proc-3'));
+    const column = (app.term.viewport[row] ?? '').indexOf('proc-3') + 1;
+    expect(app.term.screen.lastInverse?.row).not.toBe(row);
+
+    // SGR mouse: press then release at the same cell is a click
+    await app.press(`\x1b[<0;${column};${row + 1}M`, `\x1b[<0;${column};${row + 1}m`);
+    expect(app.term.screen.lastInverse?.row).toBe(row);
   });
 
   it('should cycle the sort column with s', async () => {

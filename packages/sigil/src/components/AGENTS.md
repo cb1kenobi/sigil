@@ -9953,3 +9953,60 @@ exception per widget. This is the one answer, and every widget below follows it.
   replaces its inline buttons; level-0 markers for the three existing controls,
   which have no blank to put one in; and `:focus-within`, which would not solve
   this, as above, and which nothing has asked for for any other reason.
+
+### Components that take `props`
+
+- **A component's `props` may not carry a hook it owns (SIG-305, review round 1).**
+  `ElementProps` takes the seven hooks so that `box({ onKey })` and a template are
+  one path, and eight components spread their caller's `props` into a host and
+  then assign a hook of their own: `TextField({ props: { onKey: mine } })`
+  type-checked, built, and did nothing -- the silent no-op hooks-as-props set out
+  to remove, one level up (on main it threw `Unknown property "onKey"`, which was
+  a better answer). So a component refuses, at the top of its validation, exactly
+  the hooks it assigns on the element those props go to, with a `TypeError`
+  naming the component and the hook; and its `props` is typed
+  `ElementPropsWithout<...>`, which pins those keys to `undefined` (an `Omit`
+  would not: the index signature already admits a hook). `refuseOwnedHooks()` in
+  `owned-hooks.ts` is the one definition. `undefined` is let through, since an
+  optional prop a caller passed along is not a handler.
+
+  **The type break, accepted.** A value typed `ElementProps` no longer fits these
+  components' `props`: `function MyField(p: { props?: ElementProps }) { return
+  TextField({ props: p.props }) }`, or a shared `const style: ElementProps`, fails
+  with TS2322 where it compiled before hooks were props. Accepted because the
+  error is true -- such a value may carry a handler the component would replace
+  -- and a forwarder types its own `props` as `ElementPropsWithout<...>` with the
+  same hooks. `owned-hooks.test.ts` pins that spelling compiling and the other
+  not.
+
+  | component       | hooks it owns on the host its `props` go to     |
+  | --------------- | ----------------------------------------------- |
+  | `TextField`     | `onKey`, `onPaste`, `onFocusChange`, `onResize` |
+  | `ScrollBox`     | `onKey`, `onMouse`                              |
+  | `createPager`   | `onKey`                                         |
+  | `tabRowView`    | `onKey`, `onFocusChange`, `onResize`            |
+  | `openModal`     | `onPaste` (on the panel)                        |
+  | `showToast`     | `onMouse` (on the panel)                        |
+  | `attachTooltip` | `onLayout` (on the bubble)                      |
+
+  `Collapsible`, `Tabs` and `Show`/`For` assign none on the element their `props`
+  reach (a `Collapsible`'s hooks are on its title, `Tabs`' on its row), so they
+  keep accepting all seven. `openModal` and `showToast` are not on that list
+  although the review brief expected them to be: the modal's panel gets
+  `onPaste` and the toast's `onMouse` (a click dismisses it), both assigned after
+  the caller's `props` are spread, and `attachTooltip`'s bubble gets `onLayout`.
+  Found by the sweep, and in the table.
+
+  **Refused rather than composed.** `ScrollBox` runs its own `onScroll`/`onResize`
+  and then the caller's, but those are options of the component with a documented
+  order; a hook in `props` has no such contract, and composing would make the
+  order whatever the spread happened to be. An app that wants a key before the
+  component's puts the handler on the element around it, where a key bubbles to
+  it. **Not generalised past `props`:** a component's own callbacks (`onChange`,
+  `onSubmit`, `onQuit`) are not element hooks and are untouched.
+
+  `test/components/owned-hooks.test.ts` builds every component with no props and
+  reads which hooks it left on the host, so the table above is checked against
+  the code: a component that starts assigning another hook fails until it refuses
+  that one too. It also asserts the refusal names both, the `undefined` pass, and
+  that every hook it does not own is kept.

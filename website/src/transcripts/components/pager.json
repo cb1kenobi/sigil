@@ -27,7 +27,7 @@
         "description": "The host's own props: the height it is given, a border, a class.",
         "name": "props",
         "optional": true,
-        "type": "ElementProps"
+        "type": "ElementPropsWithout<\"onKey\">"
       },
       {
         "description": "Whether to draw a scrollbar. Defaults to `true`.",

@@ -331,26 +331,6 @@ export function App() {
     table.element
   );
 
-  // -- the footer -------------------------------------------------------------
-  // the terminal's width less the status beside it, read when the footer builds
-  // its line and again whenever the bindings or the focus move. It was the root's
-  // laid-out width, which does not exist yet at the first draw: the line was cut to
-  // a guess of 80 until something moved the focus, and the table taking it on
-  // mount was what happened to do that
-  const footer = keyHelp(input, { width: () => Math.max(20, app.terminal.width - 24) });
-
-  const root = ui`<box class="app">
-    <box class="top">
-      ${cpu}
-      <box class="side">${mem}${network}</box>
-    </box>
-    ${procs}
-    <box class="row footer">
-      ${footer}
-      <text class="sigil-accent">${() => status.get()}</text>
-    </box>
-  </box>`;
-
   // -- keys -------------------------------------------------------------------
   const cycleTheme = () => {
     // on the app's host rather than on this root, so that a dialog -- which is
@@ -466,14 +446,34 @@ export function App() {
 
   // the one key that belongs to the field rather than the app: Escape abandons the
   // filter, where Enter keeps it. The field does not take Escape, so it bubbles
-  // to the root from there
-  root.onKey = (event) => {
+  // to the root from there, where it is the `onKey` prop below
+  const onKey = (event) => {
     if (event.key.name === 'escape' && input.focus.current.get() === field) {
       event.stop();
       filter.set('');
       input.focus.focus(undefined);
     }
   };
+
+  // -- the footer -------------------------------------------------------------
+  // the terminal's width less the status beside it, read when the footer builds
+  // its line and again whenever the bindings or the focus move. It was the root's
+  // laid-out width, which does not exist yet at the first draw: the line was cut to
+  // a guess of 80 until something moved the focus, and the table taking it on
+  // mount was what happened to do that
+  const footer = keyHelp(input, { width: () => Math.max(20, app.terminal.width - 24) });
+
+  const root = ui`<box class="app" onKey=${onKey}>
+    <box class="top">
+      ${cpu}
+      <box class="side">${mem}${network}</box>
+    </box>
+    ${procs}
+    <box class="row footer">
+      ${footer}
+      <text class="sigil-accent">${() => status.get()}</text>
+    </box>
+  </box>`;
 
   // and unlisted with the component
   onCleanup(() => {
