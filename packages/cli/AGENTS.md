@@ -228,7 +228,9 @@ makes it testable with a fixture directory and no bundler at all.
   because a command has to be matched before the module that renames it can be
   loaded. Baking a module's own `name` would make a command reachable bundled
   under a spelling that does not resolve unbundled, which is exactly what the
-  shared route rules exist to prevent.
+  shared route rules exist to prevent. The one module whose names _are_ read is a
+  package a schema key points at, because there the runtime reads them first --
+  the entry after next.
 - **...and a module that declares one is warned about, because help used to print
   it and nothing routed it.** SIG-316. `commands/list.ts` saying `name: 'list, ls'`
   answered to `list` alone -- `mycli ls` was `Unexpected argument "ls"`, from
@@ -263,15 +265,13 @@ makes it testable with a fixture directory and no bundler at all.
   warning, which is `extractCommand()` without a `routedBy`, and a tree resolved
   with `facts: false`.
 
-  **Two places say nothing on purpose, and one is a different bug.** A **package a
-  key's value is the path of** (`commands: { foo: './pkg' }`) is imported when the
-  schema is built and names itself, so from source its module's own `name` and
-  `alias` are what route and the key is not: warning there is wrong, and following
-  the advice loses the spellings that work. `routedByPlaceholder()` in
-  `discover.ts` returns nothing for it. A built app routes the other way round --
-  the key `foo`, and not the package's names -- so source and build disagree about
-  what a package is called. That predates SIG-316 and is not settled here. Only the
-  string value is exempt: `registerCommandPackage()` is reached through
+  **Two places say nothing on purpose.** A **package a key's value is the path
+  of** (`commands: { foo: './pkg' }`) is imported when the schema is built and
+  names itself, so from source its module's own `name` and `alias` are what route
+  and the key is not: warning there is wrong, and following the advice loses the
+  spellings that work. `keyedPackage()` in `discover.ts` reads it before
+  `routedByPlaceholder()` is reached, and bakes those names (SIG-332, the entry
+  below). Only the string value is exempt: `registerCommandPackage()` is reached through
   `commandAtPath()`, which a key's string value or an unnamed path goes through
   and an object's `path` property does not -- that is imported as a file, a
   directory there is refused (`Directory import ... is not supported`), and a
@@ -305,6 +305,37 @@ makes it testable with a fixture directory and no bundler at all.
   routes and stays out of help, as the `alias` property does; a spelling help
   shows still needs a name string on a schema key. A warning and not an error,
   because the app runs: the declaration is just ignored by routing.
+
+- **A package a schema key points at is named the way the runtime names it, and
+  refused where its names cannot be read.** SIG-332. `commands: { foo: './pkg' }`
+  over a directory with a `package.json` is imported when the schema is built
+  and registered as `cmd.name ?? pkg.name` (`registerCommandPackage()`; "A
+  package names itself, wherever it was found" in the root `AGENTS.md`), so from
+  source a module saying `name: 'lazy, lz', alias: 'pk'` ran as `lazy`, `lz` and
+  `pk`, and `foo` was `Unexpected argument`. The build baked the key, so the built
+  app answered exactly the other way round. The runtime's rule is the recorded
+  one, so the build moved: `keyedPackage()` in `discover.ts` reads the package
+  through `readPackage()` (the runtime's, so the entry is the manifest's
+  `exports` or `main` rather than whatever `index` sits beside it), keys the tree
+  by the module's literal `name` or else the manifest's, and reads the module's
+  `alias` and `default` through `placeholderRouting()` -- this module _is_ the
+  declaration the runtime registers, so it is read as one. The key is not a
+  spelling. `desc` is the module's, else the manifest's `description`, which is
+  the runtime's order and the reverse of a _walked_ package's (described from its
+  manifest because its module is not imported).
+
+  Where the build cannot read those names it **refuses**, as it refuses a walked
+  `commands/` that is a package: a computed `name`, `alias` or `default`; an
+  accessor or method for one; a spread or a computed key in the export, either of
+  which can carry one; a default export it cannot read; neither the module nor
+  the manifest naming it; and a manifest the runtime itself refuses. A warning
+  would ship an app that routes differently from source, which is the one
+  divergence nobody can debug. Making the key win at runtime was the other way to
+  agree and was not taken: it changes what every app that already points a key at
+  a package answers to. Covered by `a package the schema points at answered to its
+  own name from source and to the schema key once built` in
+  `test/build-command.test.ts`, which runs both and compares, and by the
+  `package-names` fixture for the refusals.
 
 - **The build reads a routed directory's `commands.json` through the runtime's
   reader and bakes it.** SIG-324. `readRoutes()` reads the file out of the

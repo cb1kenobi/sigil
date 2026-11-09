@@ -45,6 +45,7 @@ import {
   isWrongType,
   literalBoolean,
   literalString,
+  literalType,
   loaderSpecifier,
   objectLiteral,
   outermostDeclaring,
@@ -597,6 +598,17 @@ function readCommand(
   // as one command however many files sit behind it
   const asPath = literalString(value);
   if (asPath !== undefined) {
+    // ...unless it is a package, which the runtime imports when the schema is
+    // built and which names itself -- the key is not one of its spellings
+    const pkg = keyedPackage(name, isAbsolute(asPath) ? asPath : resolve(from, asPath), {
+      at: value,
+      diagnostics,
+      parsed,
+    });
+    if (pkg) {
+      return pkg;
+    }
+
     const module = resolveSpecifier(from, asPath);
     return {
       commands: [],
@@ -609,7 +621,7 @@ function readCommand(
         diagnostics,
         value,
         false,
-        routedByPlaceholder(from, asPath, module, true, name)
+        routedByPlaceholder(asPath, module, name)
       ),
       name,
     };
@@ -650,10 +662,8 @@ function readCommand(
     value,
     described,
     routedByPlaceholder(
-      from,
       specifier,
       module,
-      false,
       [named, ...(routing.alias ?? [])].join(', '),
       routing.default === true
     )
@@ -702,17 +712,24 @@ function readCommand(
  * run from source into one that runs. That fails the build, in the runtime's
  * own words.
  *
+ * The same reading serves a package a schema key points at, whose own module
+ * routes it (see `keyedPackage()`). There a computed value is not this pass's
+ * limit to warn about but a built app that would route differently from
+ * source, so `refusal` makes it an error and says why.
+ *
  * @param object - The command literal.
  * @param parsed - The module, for positions.
  * @param diagnostics - Where to report.
  * @param name - The command, for the message.
+ * @param refusal - Why a computed value fails the build, where it does.
  * @returns The routing it declares, absent where it declares none.
  */
 function placeholderRouting(
   object: ObjectExpression,
   parsed: ParsedModule,
   diagnostics: Diagnostic[],
-  name: string
+  name: string,
+  refusal?: string
 ): { alias?: readonly string[]; default?: boolean } {
   const routing: { alias?: readonly string[]; default?: boolean } = {};
 
@@ -732,8 +749,8 @@ function placeholderRouting(
     } else if (list.kind === 'computed') {
       diagnostics.push({
         ...locate(parsed, alias.value.start),
-        message: `the "${name}" command's "alias" is computed rather than a string or a list of strings, so it cannot be read at build time; the built app will not answer to it`,
-        severity: 'warning',
+        message: `the "${name}" command's "alias" is computed rather than a string or a list of strings, so it cannot be read at build time; ${refusal ?? 'the built app will not answer to it'}`,
+        severity: refusal ? 'error' : 'warning',
       });
     } else if (list.values.length) {
       routing.alias = list.values;
@@ -754,8 +771,8 @@ function placeholderRouting(
     } else {
       diagnostics.push({
         ...locate(parsed, isDefault.value.start),
-        message: `the "${name}" command's "default" is computed rather than a boolean literal, so it cannot be read at build time; the built app will not run it when argv names no command`,
-        severity: 'warning',
+        message: `the "${name}" command's "default" is computed rather than a boolean literal, so it cannot be read at build time; ${refusal ?? 'the built app will not run it when argv names no command'}`,
+        severity: refusal ? 'error' : 'warning',
       });
     }
   }
@@ -955,46 +972,29 @@ function moduleSpecifier(object: ObjectExpression): string | undefined {
  * How a placeholder reaches its module, for the warning about what a module
  * declares that cannot route.
  *
- * Nothing for a **package** a key's value is the path of
- * (`commands: { foo: './pkg' }`): the runtime imports it when the schema is
- * built, because a package names itself, so its module's own `name` and `alias`
- * are what route from source and the key is not. That is `commandAtPath()`'s
- * string value and nothing else -- an object's `path` property is imported as a
- * file, so a directory there is refused and a package is not one. Warning
- * there is wrong, and following the warning's advice would lose the spellings
- * that work. A built app routes the other way round (the key, and not the
- * package's names), which is a divergence that predates the warning and is not
- * this function's to settle.
+ * Never asked about a **package** a key's value is the path of
+ * (`commands: { foo: './pkg' }`), whose module's own `name` and `alias` are what
+ * route: `keyedPackage()` reads that one before this is reached. An object's
+ * `path` property is imported as a file, so a directory there is refused and a
+ * package is not one -- its module is checked like any other.
  *
  * `index` is whether the specifier named a directory that resolved to its
  * `index` module. The advice then has to name the directory: a key pointed at
  * the `index` file is one command with none of the directory's subcommands.
  *
- * @param from - What the specifier is relative to.
  * @param specifier - What the command declared its module by.
  * @param module - The file it resolved to.
- * @param keyed - Whether the specifier is a key's string value, which is the
- *   only way the runtime registers a package. An object's `path` property and a
- *   `load` are not: the first is imported as a file, the second is a function.
  * @param name - Every spelling the placeholder is routed by, as a name string.
  * @param defaulted - Whether the placeholder declares `default: true`.
- * @returns How it is reached, or nothing where the module names itself.
+ * @returns How it is reached, or nothing where there is no module.
  */
 function routedByPlaceholder(
-  from: string,
   specifier: string | undefined,
   module: string | undefined,
-  keyed: boolean,
   name: string,
   defaulted = false
 ): RoutedBy | undefined {
   if (specifier === undefined || module === undefined) {
-    return undefined;
-  }
-
-  const target = isAbsolute(specifier) ? specifier : resolve(from, specifier);
-
-  if (keyed && isPackage(target)) {
     return undefined;
   }
 
@@ -1007,18 +1007,182 @@ function routedByPlaceholder(
 }
 
 /**
- * Whether a directory is a package, as the runtime decides it.
- *
- * A manifest that does not parse is the runtime's own error to raise when it is
- * imported; here it only means there is nothing safe to say, so it is not a
- * package and the module is checked like any other.
+ * Why a package a schema key points at fails the build when its names cannot be
+ * read: from source it answers to them and not to the key, so a built app that
+ * could not bake them would route differently from the app it was built from.
  */
-function isPackage(dir: string): boolean {
+const PACKAGE_NAMES =
+  'a package a schema key points at answers to the names its own module declares, ' +
+  'not to the key, so the build has to read them to route the built app as the app routes from source';
+
+/**
+ * Reads a package a schema key's string value points at, which names itself.
+ *
+ * From source, `commands: { foo: './pkg' }` over a directory with a
+ * `package.json` imports the package's module when the schema is built and
+ * registers it as `cmd.name ?? pkg.name` -- the key is not one of its spellings
+ * (`registerCommandPackage()` in the runtime, and "A package names itself,
+ * wherever it was found" in the root `AGENTS.md`). So the build reads the same
+ * answer statically: the module's literal `name`, else the manifest's, and the
+ * module's `alias` and `default` the way a placeholder's are read, since this
+ * module *is* the declaration the runtime registers. A built app then answers to
+ * exactly what the source run answers to.
+ *
+ * Where that cannot be read, the build is refused rather than guessing, which
+ * is the rule a walked `commands/` directory that is a package already follows:
+ * a computed `name`, `alias` or `default`, an accessor for one, a spread or a
+ * computed key that could carry one, a default export that is not a readable
+ * literal, and a manifest the runtime would itself refuse (one that does not
+ * parse, or names no entry that exists).
+ *
+ * @param key - What the schema wrote it under, for the messages.
+ * @param dir - The directory the key's value resolves to.
+ * @param context - The schema's module, for positions, where to report, and the
+ *   node to point at.
+ * @returns The command, or `undefined` when the directory is not a package.
+ */
+function keyedPackage(
+  key: string,
+  dir: string,
+  context: { at: { start: number }; diagnostics: Diagnostic[]; parsed: ParsedModule }
+): ResolvedCommand | undefined {
+  const { at, diagnostics, parsed } = context;
+  const refused: ResolvedCommand = { commands: [], kind: 'inline', name: key };
+
+  let pkg;
   try {
-    return readPackage(dir) !== undefined;
-  } catch {
-    return false;
+    pkg = readPackage(dir);
+  } catch (err) {
+    // the runtime raises the same error when the schema is built
+    diagnostics.push({
+      ...locate(parsed, at.start),
+      message: `the "${key}" command is a package the app cannot load: ${err instanceof Error ? err.message : String(err)}`,
+      severity: 'error',
+    });
+    return refused;
   }
+
+  if (!pkg) {
+    return undefined;
+  }
+
+  const entry = parseModule(pkg.entryFile, readFileSync(pkg.entryFile, 'utf-8'));
+  const read = factsOf(entry);
+  const description = typeof pkg.description === 'string' ? pkg.description : undefined;
+
+  // a manifest's description is what help shows when the module says nothing
+  // readable, so what the lift could not read is said only where there is none
+  for (const diagnostic of read.diagnostics) {
+    if (description === undefined || diagnostic.severity === 'error') {
+      diagnostics.push(diagnostic);
+    }
+  }
+
+  const { object } = read;
+  if (!object) {
+    diagnostics.push({
+      ...locate(parsed, at.start),
+      message: `the "${key}" command is a package whose default export cannot be read at build time; ${PACKAGE_NAMES}`,
+      severity: 'error',
+    });
+    return refused;
+  }
+
+  // what could carry a name nothing here can see
+  const opaque = object.properties.find(
+    (property) =>
+      property.type === 'SpreadElement' ||
+      property.computed ||
+      (ROUTED.has(propertyKey(property) ?? '') && (property.kind !== 'init' || property.method))
+  );
+  if (opaque) {
+    const what =
+      opaque.type === 'SpreadElement'
+        ? 'spreads another object, which may carry a "name", "alias" or "default" this cannot read'
+        : opaque.computed
+          ? 'has a computed key, which may be a "name", "alias" or "default" this cannot read'
+          : `declares "${propertyKey(opaque)}" as an accessor or a method rather than a value, so it cannot be read at build time`;
+    diagnostics.push({
+      ...locate(entry, opaque.start),
+      message: `the "${key}" command is a package whose default export ${what}; ${PACKAGE_NAMES}`,
+      severity: 'error',
+    });
+    return refused;
+  }
+
+  const before = diagnostics.length;
+  const name = packageName(object, entry, diagnostics, key, pkg.name, join(dir, 'package.json'));
+  const routing = placeholderRouting(object, entry, diagnostics, key, PACKAGE_NAMES);
+
+  if (name === undefined || diagnostics.slice(before).some((d) => d.severity === 'error')) {
+    return refused;
+  }
+
+  return {
+    ...routing,
+    ...read.facts,
+    commands: [],
+    desc: read.facts.desc ?? description,
+    kind: 'inline',
+    module: pkg.entryFile,
+    name,
+  };
+}
+
+/** What a package's module declares that decides how it is reached. */
+const ROUTED: ReadonlySet<string> = new Set(['alias', 'default', 'name']);
+
+/**
+ * The name string a package a schema key points at is registered under.
+ *
+ * `cmd.name ?? pkg.name`, as the runtime reads it: the module's own `name`
+ * wins, and an absent one -- `undefined` or `null`, both of which `??` passes
+ * over -- falls to the manifest's.
+ *
+ * @param object - The module's command literal.
+ * @param entry - The module, for positions.
+ * @param diagnostics - Where to report.
+ * @param key - What the schema wrote it under, for the messages.
+ * @param manifestName - What its `package.json` calls it.
+ * @param manifest - Where that is, for the message when neither names it.
+ * @returns The name string, or `undefined` with an error said.
+ */
+function packageName(
+  object: ObjectExpression,
+  entry: ParsedModule,
+  diagnostics: Diagnostic[],
+  key: string,
+  manifestName: unknown,
+  manifest: string
+): string | undefined {
+  const declared = plainProperty(object, 'name');
+  if (declared && !isUndefined(declared.value) && literalType(declared.value) !== 'null') {
+    const text = literalString(declared.value);
+    if (text) {
+      return text;
+    }
+
+    diagnostics.push({
+      ...locate(entry, declared.value.start),
+      message:
+        text === '' || isWrongType(declared.value, 'string')
+          ? `Expected command name to be a non-empty string in the "${key}" command`
+          : `the "${key}" command's "name" is computed rather than a string literal, so it cannot be read at build time; ${PACKAGE_NAMES}`,
+      severity: 'error',
+    });
+    return undefined;
+  }
+
+  if (typeof manifestName === 'string' && manifestName !== '') {
+    return manifestName;
+  }
+
+  diagnostics.push({
+    file: manifest,
+    message: `Expected command name to be a non-empty string in the "${key}" command, which is a package whose module and package.json both leave it unnamed`,
+    severity: 'error',
+  });
+  return undefined;
 }
 
 /**

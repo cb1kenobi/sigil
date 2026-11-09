@@ -15,6 +15,7 @@
     "./test/fixtures/jsx-preserve",
     "./test/fixtures/jsx-dev",
     "./test/fixtures/aliased",
+    "./test/fixtures/keyed-package",
     "./test/fixtures/buildable",
     "./test/fixtures/templated",
     "./test/fixtures/templated-tsx",

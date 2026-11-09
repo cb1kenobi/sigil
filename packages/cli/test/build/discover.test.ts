@@ -233,6 +233,52 @@ describe("reading where an app's commands are", () => {
       expect(diagnostics).toStrictEqual([]);
     });
 
+    it("should name a package a key points at by the package's own names, not the key", () => {
+      // SIG-332. The runtime imports such a package when the schema is built and
+      // registers it as `cmd.name ?? pkg.name`, so the key is not a spelling of
+      // it, and its module's `alias` routes as a placeholder's does
+      const root = join(__dirname, '../fixtures/keyed-package');
+      const { commands, diagnostics } = readAppCommands(discoverApp(root));
+      const list = commands?.kind === 'inline' ? commands.commands : [];
+
+      expect(list.map((command) => command.name)).toStrictEqual(['lazy, lz', 'bare-pkg']);
+      expect(at(list, 'lazy, lz').alias).toStrictEqual(['pk']);
+      expect(at(list, 'lazy, lz').desc).toBe('A package that names itself');
+      expect(at(list, 'lazy, lz').module).toBe(join(root, 'src', 'pkg', 'index.js'));
+      // named and described by its manifest, and its entry is the manifest's
+      // `main` rather than an `index` module
+      expect(at(list, 'bare-pkg').alias).toBeUndefined();
+      expect(at(list, 'bare-pkg').desc).toBe('A package named by its manifest');
+      expect(at(list, 'bare-pkg').module).toBe(join(root, 'src', 'bare', 'lib', 'command.js'));
+      expect(diagnostics).toStrictEqual([]);
+    });
+
+    it('should refuse a package a key points at whose names it cannot read', () => {
+      // from source each of these answers to whatever its module computes, so
+      // the build cannot route the built app the same way, and says so rather
+      // than baking the key
+      const app = discoverApp(join(apps, 'package-names'));
+      const { diagnostics } = readAppCommands(app);
+      const errors = diagnostics
+        .filter((d) => d.severity === 'error')
+        .map((d) => /^the "(\w+)" command[^;]*|^Expected[^,]*/.exec(d.message)?.[0]);
+
+      expect(errors).toStrictEqual([
+        'the "computed" command\'s "name" is computed rather than a string literal, so it cannot be read at build time',
+        'the "listed" command\'s "alias" is computed rather than a string or a list of strings, so it cannot be read at build time',
+        'the "spread" command is a package whose default export spreads another object, which may carry a "name", "alias" or "default" this cannot read',
+        'the "getter" command is a package whose default export declares "name" as an accessor or a method rather than a value, so it cannot be read at build time',
+        'the "bracketed" command is a package whose default export has a computed key, which may be a "name", "alias" or "default" this cannot read',
+        'Expected command name to be a non-empty string in the "unnamed" command',
+        'the "broken" command is a package the app cannot load: Command package does not have a valid export: ' +
+          join(apps, 'package-names', 'src', 'broken'),
+      ]);
+      // the refusal says why, where it is about the names
+      expect(
+        diagnostics.filter((d) => d.message.includes('answers to the names its own module'))
+      ).toHaveLength(5);
+    });
+
     it('should refuse an alias or a default of the wrong type, in the runtime’s words', () => {
       // each of these throws from source on every run, so a build that warned and
       // carried on would turn an app that cannot start into one that does. The

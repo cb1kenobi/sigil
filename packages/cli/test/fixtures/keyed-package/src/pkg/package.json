@@ -1,0 +1,5 @@
+{
+  "name": "keyed-pkg-manifest",
+  "type": "module",
+  "exports": "./index.js"
+}

@@ -1,0 +1,5 @@
+{
+  "name": "spread-pkg",
+  "type": "module",
+  "exports": "./index.js"
+}
