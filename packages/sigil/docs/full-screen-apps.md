@@ -287,7 +287,8 @@ terminal what it is, which a test terminal cannot answer.
 
 To drive the whole process instead — its own `main()`, its schema, a real stdin —
 `runOnTerminal({ run, stdin: true })` spawns it with a terminal on all three
-streams and hands back `press()` and `waitFor()`; the
-[testing section of the README](../README.md#testing) has it.
+streams and hands back `press()` and `waitFor()`;
+[Testing](testing.md#a-full-screen-app) has it.
 
-The [examples](../../../examples) are complete apps built this way.
+The [examples](../../../examples) are complete apps built this way, and
+[Testing](testing.md) covers the rest of `@ttylabs/sigil/testing`.

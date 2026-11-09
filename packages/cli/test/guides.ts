@@ -31,6 +31,49 @@ const require = createRequire(import.meta.url);
 /** `@ttylabs/sigil`'s package directory, as this package resolves it. */
 const sigil = dirname(require.resolve('@ttylabs/sigil/package.json'));
 
+/**
+ * vitest's package directory, as this package resolves it -- the version the
+ * scaffold names, since `prepare()` hands the scaffold this package's own
+ * `devDependencies` to write.
+ */
+const vitest = dirname(require.resolve('vitest/package.json'));
+
+/**
+ * What `npm test` runs, from the app's directory: the scaffold's `test` script
+ * is `vitest run`, and this is vitest's bin under the link `prepare()` makes.
+ * Run with node directly rather than through `npm`, the way a `my-cli` line is
+ * `node dev.ts` rather than `npm run dev`: no package manager is involved.
+ *
+ * The reporter is named because vitest picks one from the environment: `minimal`
+ * when std-env detects a coding agent, `default` otherwise, and `github-actions`
+ * on top of it on CI. The first time this ran on CI it was a different reporter
+ * and in colour, where it had been neither on the machine it was written on, so
+ * the transcript's summary lines were in the output and matched nothing. See
+ * `TEST_ENV` for the colour.
+ */
+const VITEST = [
+  join(
+    'node_modules',
+    'vitest',
+    (JSON.parse(readFileSync(join(vitest, 'package.json'), 'utf-8')) as { bin: { vitest: string } })
+      .bin.vitest
+  ),
+  'run',
+  '--reporter=default',
+];
+
+/**
+ * What a `$ npm test` step adds to `environment()`: no colour.
+ *
+ * vitest colours its summary whenever tinyrainbow says so, which is on unless
+ * `TERM` is `dumb` and is never asked of the stream -- so a pipe on CI is
+ * coloured, and only an agent's environment had made it plain locally, since
+ * vitest turns colour off for one. `NO_COLOR` outranks every input it reads.
+ * The app's own tests are unaffected: `runOnTerminal()` clears `NO_COLOR` in its
+ * child, and a test terminal reads no environment at all.
+ */
+export const TEST_ENV: Readonly<Record<string, string>> = { NO_COLOR: '1' };
+
 export interface Guide {
   /** The markdown file, under `packages/sigil/docs/`. */
   readonly file: string;
@@ -41,7 +84,10 @@ export interface Guide {
   readonly scaffold: string;
 }
 
-export const GUIDES: readonly Guide[] = [{ file: 'getting-started.md', scaffold: 'my-cli' }];
+export const GUIDES: readonly Guide[] = [
+  { file: 'getting-started.md', scaffold: 'my-cli' },
+  { file: 'testing.md', scaffold: 'my-cli' },
+];
 
 export interface Block {
   readonly body: string;
@@ -67,6 +113,13 @@ export type Step =
       readonly env: Readonly<Record<string, string>>;
       readonly expected: string;
       readonly kind: 'run';
+      readonly typed: string;
+    }
+  | {
+      readonly argv: readonly string[];
+      /** The lines the transcript shows, in order, with every `...` taken out. */
+      readonly expected: readonly string[];
+      readonly kind: 'test';
       readonly typed: string;
     };
 
@@ -120,12 +173,17 @@ const ASSIGN = /^([A-Z_][A-Z0-9_]*)=(\S*)$/;
  * - a `js` or `ts` block whose first line is `// <path>` is written to that
  *   path, replacing whatever an earlier block wrote there;
  * - a `console` block is a transcript, and every `$` line in it that calls the
- *   app's bin is a run, with the lines under it as the output it must print.
+ *   app's bin is a run, with the lines under it as the output it must print;
+ * - a `$ npm test` line is the app's test suite, run over every file written
+ *   so far. A vitest summary carries a start time and a duration, so the
+ *   transcript elides with `...` and what it does show has to appear in the
+ *   output, in that order. A step of its own rather than a run, because a run's
+ *   output is compared whole and is what the website captures.
  *
  * @param guide - The guide.
  * @param markdown - Its text.
- * @returns The writes and the runs, in document order, and the `$` lines that
- *   were not runnable here.
+ * @returns The writes, the runs and the test runs, in document order, and the
+ *   `$` lines that were not runnable here.
  */
 export function steps(guide: Guide, markdown: string): { skipped: string[]; steps: Step[] } {
   const out: Step[] = [];
@@ -161,6 +219,15 @@ export function steps(guide: Guide, markdown: string): { skipped: string[]; step
         env[name!] = value!;
       }
 
+      if (Object.keys(env).length === 0 && words.join(' ') === 'npm test') {
+        out.push({
+          argv: VITEST,
+          expected: rest.filter((line) => line !== '...'),
+          kind: 'test',
+          typed,
+        });
+        continue;
+      }
       if (words[0] !== guide.scaffold) {
         skipped.push(typed);
         continue;
@@ -185,6 +252,11 @@ export function steps(guide: Guide, markdown: string): { skipped: string[]; step
  * transcript in the guide sets -- so a `DEPLOY_RETRIES` left in somebody's shell
  * cannot change the answer to a line that does not set it. A caller that wants
  * colour adds `FORCE_COLOR` after this, which is what the capture script does.
+ *
+ * And every variable vitest sets in a worker, because the guide test runs in
+ * one and a `$ npm test` step starts a vitest of its own: that one is the app's
+ * suite, run the way its author would run it, and it should not inherit the
+ * worker's idea of which pool and which worker it is.
  */
 export function environment(
   all: readonly Step[],
@@ -193,6 +265,11 @@ export function environment(
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const name of ['DEBUG', 'FORCE_COLOR', 'NO_COLOR', 'SIGIL_LOCALE']) {
     delete env[name];
+  }
+  for (const name of Object.keys(env)) {
+    if (name.toUpperCase().startsWith('VITEST')) {
+      delete env[name];
+    }
   }
   for (const step of all) {
     if (step.kind === 'run') {
@@ -267,6 +344,8 @@ export function prepare(dir: string, guide: Guide): void {
   // a junction, which Windows makes without the privilege a symlink needs
   // and every other platform reads as an ordinary directory link
   symlinkSync(sigil, join(dir, 'node_modules', '@ttylabs', 'sigil'), 'junction');
+  // and the test runner the scaffold names, for a `$ npm test` step
+  symlinkSync(vitest, join(dir, 'node_modules', 'vitest'), 'junction');
 }
 
 /**

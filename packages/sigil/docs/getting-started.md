@@ -382,8 +382,8 @@ and the `argv` the command received. Always pass `argv`. If you leave it out,
 arguments.
 
 The streams in a test are pipes, not a terminal, so these tests never see color
-or a real terminal width. [Testing](../README.md#testing) covers
-`runOnTerminal()` for that case.
+or a real terminal width. [Testing](testing.md) covers `runOnTerminal()` for
+that case, and how to test a prompt or a full-screen app.
 
 ## Build it
 

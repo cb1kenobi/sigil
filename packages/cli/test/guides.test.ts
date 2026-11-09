@@ -8,6 +8,7 @@ import {
   root,
   run,
   steps,
+  TEST_ENV,
   write,
 } from './guides.ts';
 import { tempDir } from './temp.ts';
@@ -40,7 +41,12 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * - a `console` block is a transcript, and every `$` line in it that calls the
  *   app's bin is run from source, with the lines under it as the output it must
  *   print -- stdout, then stderr, since a transcript has no way to say which
- *   stream a line went to.
+ *   stream a line went to;
+ * - a `$ npm test` line runs the app's own vitest over every test file the
+ *   guide has written so far, and has to pass, with the lines the transcript
+ *   shows in its summary. This is what makes a guide about testing checkable at
+ *   all: its examples are tests, and the only way to know a test on the page
+ *   still passes is to run it.
  *
  * A `$` line that runs anything else -- `npx`, `npm run build`, the bundle in
  * `dist/` -- is left alone. Those need a network, a package manager or a build,
@@ -63,6 +69,21 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
 
+/**
+ * The `$` lines each guide shows and nothing here can run, written down so that
+ * one which silently stopped being runnable fails -- and so that a guide added
+ * to `GUIDES` has to say what it expects to skip.
+ */
+const SKIPPED: Readonly<Record<string, readonly string[]>> = {
+  'getting-started.md': [
+    'npx @ttylabs/cli new my-cli --yes',
+    'npm run build',
+    'node dist/my-cli.mjs --help',
+    'node dist/my-cli.mjs --version',
+  ],
+  'testing.md': [],
+};
+
 for (const guide of GUIDES) {
   const markdown = readGuide(guide.file);
   const { skipped, steps: all } = steps(guide, markdown);
@@ -80,38 +101,48 @@ for (const guide of GUIDES) {
       // a format change that matched nothing would pass every case below
       expect(all.filter((step) => step.kind === 'write').length).toBeGreaterThan(2);
       expect(all.filter((step) => step.kind === 'run').length).toBeGreaterThan(5);
+      expect(all.filter((step) => step.kind === 'test').length).toBeGreaterThan(0);
       // and a `$` line that silently stopped being runnable is the same hole
       // from the other side, so what is skipped is written down
-      expect(skipped).toEqual([
-        'npx @ttylabs/cli new my-cli --yes',
-        'npm test',
-        'npm run build',
-        'node dist/my-cli.mjs --help',
-        'node dist/my-cli.mjs --version',
-      ]);
+      expect(skipped).toEqual(SKIPPED[guide.file]);
     });
 
     it("should have every path comment on its block's first line", () => {
       expect(misplaced(guide, markdown)).toEqual([]);
     });
 
-    all.forEach((step, index) => {
-      if (step.kind !== 'run') {
-        return;
-      }
-      it(`should print what it shows for \`$ ${step.typed}\``, async () => {
-        // every file written before this point in the guide, and no later one,
-        // which also holds for a single case picked out with `-t`
-        for (; applied < index; applied++) {
-          const earlier = all[applied]!;
-          if (earlier.kind === 'write') {
-            write(dir, earlier);
-          }
+    /** Every file written before `index` in the guide, and no later one. */
+    const upTo = (index: number): void => {
+      // which also holds for a single case picked out with `-t`
+      for (; applied < index; applied++) {
+        const earlier = all[applied]!;
+        if (earlier.kind === 'write') {
+          write(dir, earlier);
         }
+      }
+    };
 
-        const ran = await run(dir, step.argv, environment(all, step.env));
-        expect(ran.output).toBe(step.expected);
-      });
+    all.forEach((step, index) => {
+      if (step.kind === 'run') {
+        it(`should print what it shows for \`$ ${step.typed}\``, async () => {
+          upTo(index);
+          const ran = await run(dir, step.argv, environment(all, step.env));
+          expect(ran.output).toBe(step.expected);
+        });
+      } else if (step.kind === 'test') {
+        it(`should pass the tests it shows for \`$ ${step.typed}\``, async () => {
+          upTo(index);
+          const ran = await run(dir, step.argv, environment(all, TEST_ENV));
+
+          // the whole output on failure, since it is what says which test failed
+          expect(ran.code, ran.output).toBe(0);
+          // the summary lines the page shows, in the order it shows them; what
+          // they are picked out of carries a start time and a duration
+          const shown = ran.output.split('\n').filter((line) => step.expected.includes(line));
+          expect(shown, ran.output).toEqual(step.expected);
+          expect(step.expected.length).toBeGreaterThan(0);
+        }, 120_000);
+      }
     });
   });
 }
@@ -143,6 +174,16 @@ describe('the imports in the guides', () => {
         }
       }
       expect(checked).toBeGreaterThan(2);
+    });
+
+    it(`should import a component from its own subpath, not the barrel, in ${guide.file}`, () => {
+      // the README recommends `@ttylabs/sigil/components/<file>`, since SIG-330,
+      // and the website's component pages hold their examples to it -- a guide is
+      // what a reader copies from just as much
+      const barrel = blocks(markdown).filter(({ body }) =>
+        /from\s*'@ttylabs\/sigil\/components'/.test(body)
+      );
+      expect(barrel.map(({ line }) => `${guide.file}:${line}`)).toEqual([]);
     });
   }
 });

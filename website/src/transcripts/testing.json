@@ -1,0 +1,30 @@
+{
+  "guide": "packages/sigil/docs/testing.md",
+  "columns": 80,
+  "runs": [
+    {
+      "command": "my-cli sum 1 2 3",
+      "output": "6"
+    },
+    {
+      "command": "my-cli sum 1 x",
+      "output": "Error: Invalid number: x"
+    },
+    {
+      "command": "my-cli sum 5 6 --max 10",
+      "output": "Error: 11 is over the limit of 10"
+    },
+    {
+      "command": "my-cli sync",
+      "output": "Syncing 0%\nSyncing 10%\nSyncing 20%\nSyncing 30%\nSyncing 40%\nSyncing 50%\nSyncing 60%\nSyncing 70%\nSyncing 80%\nSyncing 90%\nSyncing 100%\nSynced 40 files 100%"
+    },
+    {
+      "command": "my-cli init",
+      "output": "Error: Cannot prompt for \"Project name\" because the input is not a terminal"
+    },
+    {
+      "command": "my-cli counter",
+      "output": "Error: Cannot run an app because stdin or the output is not a terminal: it needs somebody to type and a screen to draw on"
+    }
+  ]
+}
