@@ -1,4 +1,5 @@
 import { Collapsible } from '../../src/components/collapsible.js';
+import { ListView } from '../../src/components/list-view.js';
 import { openModal } from '../../src/components/modal.js';
 import { createPager } from '../../src/components/pager.js';
 import { ScrollBox } from '../../src/components/scroll-box.js';
@@ -86,6 +87,11 @@ const CASES: Case[] = [
     }),
     name: 'ScrollBox',
     owns: ['onKey', 'onMouse'],
+  },
+  {
+    make: (props) => ({ element: ListView({ items: ['a', 'b'], props: props as never }) }),
+    name: 'ListView',
+    owns: ['onKey', 'onFocusChange'],
   },
   {
     make: (props) => ({ element: createPager({ content: 'a\nb', props: props as never }).element }),

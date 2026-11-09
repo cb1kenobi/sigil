@@ -166,6 +166,10 @@ const ENTRIES = [
     name: 'tabs',
   },
   {
+    desc: 'A list view: a focusable, virtualized list of rows with a current row and single or multiple selection by key',
+    name: 'list-view',
+  },
+  {
     desc: 'A pager over a scroll box: less keys, line numbers, and / search with highlighted matches',
     name: 'pager',
   },

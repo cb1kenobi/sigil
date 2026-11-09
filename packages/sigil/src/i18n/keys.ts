@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 314 keys, which is what a catalog has to carry to translate sigil's own
+ * 326 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -34,6 +34,7 @@ export const SIGIL_KEYS: readonly string[] = [
   '(skip)',
   '({0} to submit)',
   '<command>',
+  'A list takes type-to-find or vim keys, and not both',
   'A new version of {0} is available: {1} → {2}',
   'Added a block to {0}',
   'Alias:',
@@ -99,6 +100,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a tooltip maxWidth of at least 4 cells',
   'Expected a tooltip side to be top, bottom, left or right',
   'Expected an element that Collapsible() returned',
+  'Expected an element that ListView() returned',
   'Expected an element that Tabs() or tabRowView() returned',
   'Expected an enumerator to return a string',
   'Expected collapsible children to be a function that builds the body',
@@ -107,8 +109,13 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected concurrency to be a positive integer or Infinity',
   'Expected each item to be a string or an object with a text string',
   'Expected enumerator to hold at least one entry',
+  'Expected every list row to have a key of its own: {0} is used twice',
   'Expected every tab to have a label that is a string',
   'Expected items to be an array',
+  'Expected list empty to be a string or a function that builds an element',
+  'Expected list items to be an array, a State or a Computed',
+  'Expected list selected to be an iterable of keys or a State',
+  'Expected list {0} to be a function',
   'Expected locale to be a valid language tag',
   'Expected markdown source to be a string',
   'Expected markdown to be a string or parsed blocks',
@@ -185,6 +192,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'No matches for {0}',
   'Not a PNG file: the signature does not match',
   'Nothing to do.',
+  'Nothing to show',
   'OK',
   'Options:',
   'Order: {0}',
@@ -260,6 +268,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'end',
   'enter',
   'esc',
+  'first',
   'first tab',
   'from $SHELL',
   'from {0}',
@@ -270,6 +279,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'half page up',
   'home',
   'invert',
+  'last',
   'last tab',
   'match {0} of {1}',
   'move',
@@ -281,6 +291,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'on',
   'open',
   'option {0}',
+  'page',
   'page down',
   'page up',
   'pgdn',
@@ -293,6 +304,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'scroll sideways',
   'search',
   'select',
+  'select all',
   'setting "{0}"',
   'shift-{0}',
   'sort',

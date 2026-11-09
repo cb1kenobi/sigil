@@ -22,6 +22,7 @@ import {
 } from '../../src/element/index.js';
 import type { KeyEvent, MouseEvent } from '../../src/input/index.js';
 import type { MouseButton, MouseEventKind, WheelDirection } from '../../src/input/mouse.js';
+import { onCleanup } from '../../src/renderer/index.js';
 import { isKnownProperty } from '../../src/style/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1202,6 +1203,115 @@ describe('a windowed list whose count changed', () => {
     resolveStyles(host);
     arrange(host, { height: 4, width: 12 });
     expect(scrollRange(view).y).toBe(116);
+  });
+});
+
+describe('a windowed list whose rows are keyed (SIG-280)', () => {
+  /** Every row id the tree is holding, in order. */
+  const held = (host: Element): string[] =>
+    every(host)
+      .filter((e) => e.id?.startsWith('r'))
+      .map((e) => e.id as string);
+
+  /** A list over `names`, keyed on them, whose row builds are counted. */
+  function keyed(names: { list: string[] }, built: string[]): Element {
+    return ScrollBox({
+      props: { height: 4, width: 12 },
+      rows: {
+        get count() {
+          return names.list.length;
+        },
+        height: 1,
+        key: (i) => names.list[i],
+        row: (i) => {
+          built.push(names.list[i] as string);
+          return text(names.list[i] as string, { id: `r-${names.list[i]}` });
+        },
+      },
+    });
+  }
+
+  it('should keep a row by its key when the rows move, and build only the keys it has not seen', () => {
+    const names = { list: ['a', 'b', 'c', 'd', 'e'] };
+    const built: string[] = [];
+    const host = lay(keyed(names, built));
+    const b = find(host, (e) => e.id === 'r-b');
+    expect(built).toStrictEqual(['a', 'b', 'c', 'd']);
+
+    names.list = ['x', 'd', 'b', 'a', 'c'];
+    // nothing about the count or the offset moved: the keys are what changed
+    expect(scrollControl(host)?.resync()).toBe(true);
+
+    expect(held(host)).toStrictEqual(['r-x', 'r-d', 'r-b', 'r-a']);
+    expect(find(host, (e) => e.id === 'r-b')).toBe(b);
+    expect(built).toStrictEqual(['a', 'b', 'c', 'd', 'x']);
+  });
+
+  it('should find nothing to do when the keys in the window are the ones it holds', () => {
+    const names = { list: ['a', 'b', 'c', 'd', 'e'] };
+    const host = lay(keyed(names, []));
+    names.list = ['a', 'b', 'c', 'd', 'zz'];
+    expect(scrollControl(host)?.resync()).toBe(false);
+  });
+
+  it('should build a key that appears twice in one window twice, rather than move one row into two places', () => {
+    const names = { list: ['a', 'a', 'b'] };
+    const built: string[] = [];
+    const host = lay(keyed(names, built));
+    expect(held(host)).toStrictEqual(['r-a', 'r-a', 'r-b']);
+    expect(built).toStrictEqual(['a', 'a', 'b']);
+  });
+
+  it('should build each row under an owner of its own, disposed when the row leaves the window', () => {
+    let alive = 0;
+    const host = lay(
+      ScrollBox({
+        props: { height: 4, width: 12 },
+        rows: {
+          count: 100,
+          height: 1,
+          row: (i) => {
+            alive++;
+            onCleanup(() => alive--);
+            return text(`r${i}`, { id: `r${i}` });
+          },
+        },
+      })
+    );
+    expect(alive).toBe(4);
+
+    viewportIn(host).scrollTo(0, 50);
+    expect(held(host)).toStrictEqual(['r50', 'r51', 'r52', 'r53']);
+    expect(alive).toBe(4);
+  });
+
+  it('should dispose a row whose build threw, and keep the window it had', () => {
+    let alive = 0;
+    let fail = false;
+    const host = lay(
+      ScrollBox({
+        props: { height: 4, width: 12 },
+        rows: {
+          count: 100,
+          height: 1,
+          row: (i) => {
+            alive++;
+            onCleanup(() => alive--);
+            if (fail && i === 52) {
+              throw new Error('no');
+            }
+            return text(`r${i}`, { id: `r${i}` });
+          },
+        },
+      })
+    );
+    fail = true;
+    expect(() => viewportIn(host).scrollTo(0, 50)).toThrow('no');
+    // the two built before the throw are pruned, and disposed, by the next window
+    fail = false;
+    viewportIn(host).scrollTo(0, 1);
+    expect(held(host)).toStrictEqual(['r1', 'r2', 'r3', 'r4']);
+    expect(alive).toBe(4);
   });
 });
 

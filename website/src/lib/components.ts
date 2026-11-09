@@ -602,6 +602,14 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     example: { steps: ['tab', 'right'] },
   },
   {
+    slug: 'list-view',
+    name: 'ListView',
+    family: 'fullscreen',
+    exports: ['ListView', 'createListSelection', 'describeListView', 'listControl'],
+    registry: 'list-view',
+    example: { steps: ['tab', 'down', 'space', 'down', 'down', 'space'] },
+  },
+  {
     slug: 'scroll-box',
     name: 'ScrollBox',
     family: 'fullscreen',

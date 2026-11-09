@@ -83,6 +83,8 @@ import {
   scrollRange,
 } from '../element/index.js';
 import type { KeyEvent, MouseEvent } from '../input/index.js';
+import { createBranch, getOwner, type Owner, runWithOwner } from '../renderer/index.js';
+import { untrack } from '../signals/index.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** Which axes a scroll box scrolls, and therefore which bars it draws. */
@@ -126,6 +128,31 @@ export interface ScrollRows {
    */
   height: number;
   /**
+   * What the row at an index **is**, so that a row is kept by identity rather than
+   * by position. Read for the rows in the window on every window, like `count`.
+   *
+   * Left out, a row is its index, which is right for a list whose rows never move
+   * -- a log, a document -- and was the only answer before SIG-280. A list whose
+   * data is re-sorted, filtered or replaced under it wants this: a built row is
+   * kept while its key is anywhere in the window, at whatever index it has moved
+   * to, and built again when a key it has not seen arrives. So a re-sort keeps the
+   * rows that stayed on screen, and a row whose data changed is rebuilt by handing
+   * back a different key for it -- a list view keys its rows on the row's own key
+   * and the item object together, which is the whole of how an update reaches the
+   * screen.
+   *
+   * Compared as a `Map` compares, so a key is a string, a number or an object
+   * kept for the purpose. A key that appears twice in one window is built twice
+   * and the second is never kept, since one element cannot be in two places; a
+   * caller that cares refuses duplicates itself, which `ListView` does.
+   *
+   * Because the content is no longer a function of the index alone, the window's
+   * keys are part of what decides whether it moved: a `resync()` after the data
+   * changed rebuilds the rows whose keys changed even where the count and the
+   * offset did not.
+   */
+  key?: (index: number) => unknown;
+  /**
    * Builds the row at an index, called for the rows in the window.
    *
    * Called again when a row enters the window and not while it stays in one: a
@@ -133,6 +160,13 @@ export interface ScrollRows {
    * reason it matters here is the focus. A list rebuilt wholesale on every notch
    * would hand the focus on by position on every notch, because the element
    * holding it would have been unmounted.
+   *
+   * Called under an owner of its own, a branch of the one `ScrollBox()` was built
+   * in, and that owner is disposed when the row leaves the window -- `For`'s rule
+   * again (SIG-280). So a row may hold an effect, a component, an `onCleanup()`,
+   * and they live exactly as long as the row is built. Before that a row built by
+   * a wheel notch ran inside `scrollTo()`, with no owner at all, so an effect
+   * created there was never disposed.
    */
   row: (index: number) => Element;
   /**
@@ -687,7 +721,7 @@ export function ScrollBox(props: ScrollBoxProps): Element {
   wireKeys(host, viewport, { horizontal, vertical });
   wireWheel(host, viewport, { horizontal, vertical });
   const sync = props.rows
-    ? wireRows(viewport, content, props.rows, declaredHeight(props.props))
+    ? wireRows(viewport, content, props.rows, declaredHeight(props.props), getOwner())
     : undefined;
 
   const control: ScrollControl = Object.freeze({
@@ -772,6 +806,8 @@ export function ScrollBox(props: ScrollBoxProps): Element {
  * @param content - The box the rows go in.
  * @param rows - The count, the row height and the row builder.
  * @param bound - A floor under the viewport's height: the host's declared one.
+ * @param owner - What the scroll box was built under, which each row's own owner
+ *   is a branch of.
  * @returns The sync, which is what the viewport's two hooks and
  *   `ScrollControl.resync()` all call, and which says whether the window moved.
  */
@@ -779,9 +815,13 @@ function wireRows(
   viewport: Element,
   content: Element,
   rows: ScrollRows,
-  bound: number
+  bound: number,
+  owner: Owner | undefined
 ): () => boolean {
-  const built = new Map<number, Element>();
+  // keyed by what each row *is* -- its index, or what `rows.key` says -- with the
+  // owner it was built under, so that pruning a row disposes what it started
+  const built = new Map<unknown, { dispose: () => void; slot: Element }>();
+  const keyOf = rows.key;
   // the spacers stand in for the rows that are not built: ordinary boxes with a
   // declared height, which is what makes the content box's extent -- and so the
   // range, the clamp and the thumb -- span the whole list
@@ -789,7 +829,7 @@ function wireRows(
   const below = spacer();
   // the count is part of what the last window was computed from, or a `count`
   // that grew while the offset stayed put would be skipped by the guard below
-  let at: (RowWindow & { count: number }) | undefined;
+  let at: (RowWindow & { count: number; keys: readonly unknown[] }) | undefined;
   // the offset the last settled window was for, which is what a failed one is
   // rolled back to. It cannot be read off the viewport inside the handler --
   // `scrollTo()` writes the new offset before it dispatches -- so it is kept
@@ -811,10 +851,35 @@ function wireRows(
    * `rows.row()`, which is the caller's code -- is a call rather than a loop in
    * the middle of the commit.
    */
-  const buildWindow = (first: number, end: number, want: Element[]): void => {
+  const buildWindow = (
+    first: number,
+    end: number,
+    keys: readonly unknown[],
+    want: Element[]
+  ): void => {
+    // which keys this window has placed, so a duplicate is built rather than
+    // handed the slot its twin already holds
+    const placed = new Set<unknown>();
     for (let i = first; i < end; i++) {
-      let slot = built.get(i);
+      const wanted = keys[i - first];
+      // a duplicate is built under a key nothing else can match, so it is never
+      // kept and is pruned by the next sync like any row that left
+      const key = placed.has(wanted) ? {} : wanted;
+      placed.add(key);
+      let slot = built.get(key)?.slot;
       if (!slot) {
+        // a row's own owner, so what it starts ends when it leaves the window.
+        // Untracked as well as owned, because a sync can run inside an effect --
+        // an app's `resync()` from one -- and a signal a row reads while it is
+        // built must not become that effect's dependency; `For` does the same
+        const branch = runWithOwner(owner, createBranch);
+        let row: Element;
+        try {
+          row = runWithOwner(branch.owner, () => untrack(() => rows.row(i)));
+        } catch (error) {
+          branch.dispose();
+          throw error;
+        }
         // a slot of exactly the declared height that cannot shrink, so that
         // "every row is `height` cells" is true of the tree rather than of the
         // caller's intention -- which is what makes the range exact
@@ -833,13 +898,13 @@ function wireRows(
             // `ScrollRows.width`
             ...(span === undefined ? {} : { width: span }),
           },
-          rows.row(i)
+          row
         );
         // cached even though nothing is committed yet, which costs nothing: a
         // slot for a window that was never committed is pruned by the next
         // sync's own prune loop, and a `made` list to defer it was written here
         // and deleted for changing no answer
-        built.set(i, slot);
+        built.set(key, { dispose: branch.dispose, slot });
       }
       want.push(slot);
     }
@@ -860,7 +925,20 @@ function wireRows(
     const view = Math.max(viewportOf(viewport)?.height ?? 0, bound);
     const count = Math.max(0, Math.trunc(rows.count));
     const next = rowWindow(count, step, viewport.scroll?.y ?? 0, view);
-    if (at && at.first === next.first && at.length === next.length && at.count === count) {
+    // the window's keys, which are its indices unless the caller said otherwise.
+    // Read on every sync, because a key is what the data says the row is and the
+    // data is the caller's to change between two of them
+    const keys: unknown[] = [];
+    for (let i = next.first; i < next.first + next.length; i++) {
+      keys.push(keyOf ? keyOf(i) : i);
+    }
+    if (
+      at &&
+      at.first === next.first &&
+      at.length === next.length &&
+      at.count === count &&
+      sameKeys(at.keys, keys)
+    ) {
       // a fast path rather than a claim, and it says so because it survived its
       // sabotage: the window's inputs are these four numbers and no others, so
       // the work below is a `setProp()` to the value it already holds and a
@@ -888,7 +966,7 @@ function wireRows(
     // that rule rather than only a guard
     const want: Element[] = [above];
     try {
-      buildWindow(next.first, end, want);
+      buildWindow(next.first, end, keys, want);
     } catch (error) {
       if (seen.x !== now.x || seen.y !== now.y) {
         viewport.scrollTo(seen.x, seen.y);
@@ -898,7 +976,7 @@ function wireRows(
     want.push(below);
 
     // past the last thing that can throw, so everything below is bookkeeping
-    at = { ...next, count };
+    at = { ...next, count, keys };
     seen = now;
     above.setProp('height', next.first * step);
     below.setProp('height', Math.max(0, count - end) * step);
@@ -912,9 +990,14 @@ function wireRows(
         content.removeChild(child);
       }
     }
-    for (const [index] of built) {
-      if (index < next.first || index >= end) {
-        built.delete(index);
+    // a row that is not in this window is let go of, and what it built goes with
+    // it. After the commit, so a row's cleanup sees the tree it is leaving; and
+    // every one is disposed even if one throws, since a cleanup's throw is
+    // reported by its branch rather than raised here
+    for (const [key, { dispose, slot }] of built) {
+      if (!keep.has(slot)) {
+        built.delete(key);
+        dispose();
       }
     }
     // only what is out of place is moved, so a scroll of one row is one insert
@@ -938,6 +1021,26 @@ function wireRows(
   // `ScrollBox()` installs it on the viewport, ahead of the caller's own hooks
   sync();
   return sync;
+}
+
+/**
+ * Whether two windows hold the same keys, in the same order.
+ *
+ * Compared the way the `Map` of built rows compares them, SameValueZero, so a
+ * window this calls unchanged is one whose rows that map would hand back.
+ */
+function sameKeys(a: readonly unknown[], b: readonly unknown[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (key, i) =>
+        key === b[i] ||
+        (typeof key === 'number' &&
+          typeof b[i] === 'number' &&
+          Number.isNaN(key) &&
+          Number.isNaN(b[i]))
+    )
+  );
 }
 
 /**
