@@ -365,6 +365,19 @@
           "type": "string"
         },
         {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--no-tui"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
           "choices": [
             "npm",
             "pnpm",

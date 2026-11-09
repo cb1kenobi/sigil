@@ -312,6 +312,17 @@ describe('a scaffold with a full-screen app', () => {
       expect(test).toContain('toBe(130)');
     });
 
+    it('should pin the one thing the refusal depends on, rather than trusting the runner', () => {
+      // a runner that hands its own terminal down would open the real app and wait
+      // for a key. Measured on a pty: pinned it refuses, unpinned it hangs. A vitest
+      // worker's streams are always pipes, so nothing in the suite can show the
+      // difference, and the source is what is pinned
+      const test = file(files({ tui: { at: 'root' } }), 'test/tui.test.ts');
+
+      expect(test).toContain("Object.defineProperty(process.stdin, 'isTTY'");
+      expect(test).toContain("Reflect.deleteProperty(process.stdin, 'isTTY')");
+    });
+
     it('should assert on no border character, which an ASCII terminal does not draw', () => {
       // a panel draws ASCII where `unicodeSupported()` is false, which is every
       // Windows CI runner, so a box-drawing character in an assertion passes on

@@ -316,13 +316,19 @@ async function askLayout(argv: Record<string, unknown>, yes: boolean): Promise<L
 /**
  * Refuses the flag combinations that cannot mean anything, before anything is asked.
  *
- * Three of them, and each is a flag that would otherwise be accepted and do
+ * This is the first thing `run` does, ahead of the name, so nothing has been
+ * answered when it fires. Each is a flag that would otherwise be accepted and do
  * nothing -- which is how a typo becomes an app that is not what was asked for:
  *
+ * - `--no-tui` beside `--tui`, `--tui-command` or `--syntax`, which each ask for
+ *   the app it says there is none of.
+ * - `--tui` beside `--tui-command`: the app itself or a command, and not both.
+ *   The command used to win silently.
  * - `--tui-command` with `--single`, since there is no command to launch from.
  *   The message says what to pass instead, because the intent is clear and only
  *   the spelling is wrong.
- * - A command name that cannot be a file and a command at once.
+ * - A command name that cannot be a file and a command at once, or that the
+ *   runtime or the scaffold already owns.
  * - `--syntax` where nothing will be asked for a TUI at all: under `--yes`, with
  *   neither TUI flag. Interactively it is not refused here, because the answer to
  *   the question that follows may yet be yes.

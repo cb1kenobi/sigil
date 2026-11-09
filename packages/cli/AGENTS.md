@@ -2805,27 +2805,46 @@ people's software and will move.
   A **single**-command TUI drops the `who` argument and the greeting: a root
   `run` that opened a screen and also said hello would be two programs under one
   name, and `test/app.test` for it only describes itself.
-- **Flags: `--tui`, `--tui-command <name>`, `--syntax jsx|ui`.** Two TUI flags
-  because an option that takes a value must be given one here, so a bare
-  `--tui [command]` cannot work. `--tui-command` implies `--tui` and wins over
-  it; `--tui` is the root. **Refused, before the first question** and writing
-  nothing: `--tui-command` with `--single` (the message names `--tui`, because
-  the intent is clear and only the spelling is wrong), a command name that is not
-  lowercase letters, digits and hyphens starting with a letter, `hello` (the
-  example command beside it) and `index` (the directory itself), and `--syntax`
-  under `--yes` with no TUI flag. A flag that is accepted and does nothing is how
-  a typo becomes an app that is not what was asked for. `--syntax` followed by a
-  "no" to the app interactively is refused for the same reason, late, because the
-  answer was not known earlier.
+- **Flags: `--tui`, `--no-tui`, `--tui-command <name>`, `--syntax jsx|ui`.** Two
+  TUI flags because an option that takes a value must be given one here, so a
+  bare `--tui [command]` cannot work. `--tui` is the root and `--tui-command` is
+  a command, and **`--tui-command` implies a commands directory**: `askLayout()`
+  does not offer the question, since "No, a single command" would otherwise fail
+  with the scaffold's own guard after every question had been answered.
+  **Refused, before any question** -- `checkTuiFlags()` is the first thing `run`
+  does, ahead of the name -- and writing nothing: `--tui-command` with
+  `--single` (the message names `--tui`, because the intent is clear and only the
+  spelling is wrong), `--tui` with `--tui-command` (the command used to win
+  silently), a command name that is not lowercase letters, digits and hyphens
+  starting with a letter or that is on `RESERVED_COMMANDS`, `--no-tui` with any
+  of `--tui`, `--tui-command` and `--syntax`, and `--syntax` under `--yes` with no
+  TUI flag. A flag that is accepted and does nothing is how a typo becomes an app
+  that is not what was asked for. `--syntax` followed by a "no" to the app
+  interactively is refused for the same reason, late, because the answer was not
+  known earlier.
+- **`RESERVED_COMMANDS` is one list: `hello`, `index`, `help`, `completion`.**
+  `hello` is the example beside it and `index` is the directory itself. `help`
+  and `completion` are the two commands the runtime adds to every app and marks
+  `builtIn`: declaring one replaces the framework's, so `myapp help` would open
+  the screen and lose its description and `completion` would break shell
+  completion install. Those two are everything `@ttylabs/sigil` registers under
+  that mark, read off `parser/help.ts` and `parser/completion.ts`.
 - **No TUI is the default, and `--yes` takes none, JSX, and the root.** The one
   question whose default is "no": most CLIs are not full-screen apps and one that
   is knows it. `--yes` with `--tui` takes JSX because the ticket said so, and
-  because it is the syntax an editor can check. There is no `--no-tui`: the
-  parser gives a flag `false` rather than `undefined`, so an unanswered question
-  and a refused one would be the same value, and `--yes` already says "defaults".
-  What that costs is a script that passes every other flag but not `--yes`, which
-  now meets one more unanswered question and refuses without a terminal, as it
-  does for any other.
+  because it is the syntax an editor can check.
+- **`--no-tui` is how a script that passes every flag but `--yes` opts out, and
+  it needed no new parser feature.** The first version had none, on the
+  reasoning that the parser gives a flag `false` rather than `undefined`, so an
+  unanswered question and a refused one would be one value. That is true of a
+  negated twin and was the wrong conclusion: `'--no-tui': { negate: false }` is a
+  destination of its own (`noTui`), exactly the opt-out the pairing rule in the
+  root `AGENTS.md` describes, and `--tui` stays an ordinary flag. Without it,
+  `sigil new foo --js --single --lint none --pm npm </dev/null`, which worked
+  before the question existed, failed with `Cannot prompt for "Include a
+  full-screen app (TUI)?"`. A script that passes neither `--yes` nor `--no-tui`
+  still meets the question without a terminal and is refused, as it is for any
+  other unanswered question; `--no-tui` is how it says it does not want it.
 - **The component is in `src/ui/`, never `commands/`, and it is imported inside
   `run`.** `.tsx` is not a route extension and Node cannot import it from source,
   so a component in `commands/` is not a command; and a static import would load
@@ -2838,9 +2857,11 @@ people's software and will move.
   no build change was needed. The `ui`-tag scaffold is the reason for the real
   extension: it runs unbuilt, and Node does not map `app.js` to the `app.ts`
   that is there.
-- **A JSX app has no dev runner, and `dev` builds.** `sigil build && node
-  dist/<name>.mjs`, since Node cannot load a `.tsx` and `sigil build`
-  type-checks on the way, so the loop is also the check. `dev.ts` would start a
+- **A JSX app has no dev runner, and `dev` builds quietly.** `sigil build --quiet
+  && node dist/<name>.mjs`, since Node cannot load a `.tsx` and `sigil build`
+  type-checks on the way, so the loop is also the check. `--quiet` because the
+  size tables are about 25 lines before every run of the app; a failed build
+  still prints its error, which a test pins. `dev.ts` would start a
   schema whose launcher fails on the one thing the app is for, so it is not
   written and `tsconfig.json` does not name it. The `ui` scaffold keeps
   `node dev.ts` unchanged. A JavaScript app with JSX gets `.jsx` and the same
@@ -2851,9 +2872,25 @@ people's software and will move.
   which would ship file names in the release bundle.
 - **The summary says once that the `ui` tag is the build-free alternative, and
   only to somebody who was given JSX.** After the steps rather than among them,
-  because it is not a step. And the steps name the launch: `run dev` for the
-  root, `run dev -- <command>` for a command, before the `--help` line that every
-  scaffold prints.
+  because it is not a step, on **one line**: the terminal wraps, and a hard break
+  at 88 columns is wrong at every other width. The hint is `otherSyntaxCommand()`,
+  a command that runs as written -- `sigil new <name> --tui --syntax ui`, or the
+  `--tui-command` form, with `--js` and `--single` carried over -- and not
+  `--syntax ui` alone, which is refused under `--yes` and asks the TUI question
+  again interactively. The README and the component's header comment print the
+  same function's output, and `new-tui.test.ts` reads each form back out of the
+  summary and runs it.
+- **A script with arguments is spelled per package manager, by `runScript()`, and
+  it was measured.** `pnpm run dev -- dash` hands the app `-- dash` on pnpm 12,
+  which refuses `dash` as an extra argument, and the `pnpm run dev -- --help` the
+  summary printed before this fails the same way. pnpm forwards what follows the
+  script name, so its spelling has no `--`; npm and vlt need it, because without
+  it a flag-shaped argument is the manager's own (`npm run dev --help` prints
+  npm's help). Asked of the managers rather than recalled -- the test runs each
+  installed one against a script that prints its `argv` -- since a manager
+  changing what it does with `--` is what the spelling depends on. The summary and
+  the README both use it. `npm run build` in the README is left as it was: it
+  takes no arguments.
 - **The scaffolded test is the one a TUI author copies, so it asserts on text.**
   It runs the app over `createTestTerminal()`, presses a key, reads the screen,
   and asserts `q` exits `0` and Ctrl-C `130`, and that without a terminal it
@@ -2862,6 +2899,36 @@ people's software and will move.
   Windows CI runner. `new-tui.test.ts` scaffolds every placement, syntax and
   language, builds or starts each, runs it piped, and runs **its own test
   suite** -- the one claim about the scaffold that is not a claim about text.
+- **The component is the file an author copies, so it is written to look
+  hand-made, and a test holds it to the repository's formatter.** The first
+  version spliced the `keyHelp(...)` object into the return at the wrong depth
+  and wrote one line over 100 columns. The footer and the status are now
+  constants built before the `return`, so the screen is only structure, and
+  `new-tui.test.ts` runs `oxfmt --check` over `src/**` and `test/tui.test.*` of
+  every variant under the repository's own `.oxfmtrc.json`. The scaffolded test
+  orders its imports the way that config does (relative first), because oxfmt
+  moves a comment with the import under it and a header comment above the
+  packages would otherwise end up between two of them. `test/app.test.*` is the
+  older file, has the other order, and is left alone.
+- **The footer is sized from what is beside it, and the status cannot wrap.** The
+  first version gave `keyHelp()` `terminal.width - 24`, a number that stood for
+  `selected: Settings` and its padding and was wrong at 30 columns, where the
+  status wrapped onto a second line. The width function now reads `status()`, so
+  it is the terminal less what the status says _now_ and the bar's padding and
+  margin, and reading the signal there is what makes the footer follow the
+  choice. `.chosen` is `flex-shrink: 0; white-space: nowrap`. The scaffolded test
+  presses to the longest item at 30 columns and asserts the status is on one line.
+- **The scaffolded "refuses without a terminal" test pins `process.stdin.isTTY`
+  rather than trusting the runner.** Its refusal comes from `runApp()` seeing no
+  terminal, and a runner that hands its own down would open the real app and wait
+  for a key. Measured on a real pty: with the pin the test body refuses with
+  exit 1 and without it the app opens and hangs. A vitest worker cannot show the
+  difference -- its streams are always pipes -- so no sabotage inside the suite
+  can reach it, and `new-tui.test.ts` pins the source instead.
+- **The renderer-not-loaded probe uses `module.registerHooks()`.** `module.register()`
+  prints DEP0205 on Node 26 (measured), and `registerHooks()` is synchronous, in
+  the loader's own thread, and there from 22.15, under the 22.19 floor. The test
+  asserts the warning is absent from what the probed run printed.
 
 ### The registry: what `sigil add` copies
 

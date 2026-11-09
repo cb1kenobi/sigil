@@ -296,7 +296,8 @@ several is then asked where to launch it from: the app itself, where `myapp` wit
 no command opens it, or a command of its own, where `myapp dashboard` does and
 `myapp` still shows help. `--tui-command <name>` picks the second without the
 questions, and `--tui-command` with `--single` is refused, since a single
-command has nowhere to put one.
+command has nowhere to put one. `--no-tui` says there is none, which is how a
+script that passes every other flag avoids the question.
 
 The component lives in `src/ui/` and never in `commands/`, because a `.tsx` is
 not a route and Node cannot import one from source. Whatever opens it loads it

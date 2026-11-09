@@ -32,11 +32,12 @@ cannot disagree about what a valid app is.
 or several, because a full-screen app is something a command does rather than a
 way of arranging them:
 
-| Flag                   | What it does                                                                          |
-| ---------------------- | ------------------------------------------------------------------------------------- |
-| `--tui`                | Launches it from the app itself: the schema's `run` opens it                          |
-| `--tui-command <name>` | Launches it from a command of that name, and implies `--tui`. Refused with `--single` |
-| `--syntax jsx\|ui`     | The template syntax. JSX is the default and `--yes` takes it                          |
+| Flag                   | What it does                                                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `--tui`                | Launches it from the app itself: the schema's `run` opens it                                                                     |
+| `--no-tui`             | Says there is none, so a script that passes every other flag is not asked. Refused beside `--tui`, `--tui-command` or `--syntax` |
+| `--tui-command <name>` | Launches it from a command of that name, and implies a commands directory. Refused with `--single` or `--tui`                    |
+| `--syntax jsx\|ui`     | The template syntax. JSX is the default and `--yes` takes it                                                                     |
 
 The component is `src/ui/app.tsx` (or `.jsx`, `.ts`, `.js`), never a file under
 `commands/`, and whatever launches it imports it inside `run`, so no other
