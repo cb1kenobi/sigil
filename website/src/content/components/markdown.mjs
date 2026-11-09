@@ -1,4 +1,4 @@
-import { markdown } from '@ttylabs/sigil/components';
+import { markdown } from '@ttylabs/sigil/components/markdown';
 
 console.log(
   markdown(

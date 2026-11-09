@@ -1,4 +1,4 @@
-import { pickDate } from '@ttylabs/sigil/components';
+import { pickDate } from '@ttylabs/sigil/components/calendar';
 
 const day = await pickDate({ message: 'Which day?' });
 

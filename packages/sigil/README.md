@@ -2600,10 +2600,45 @@ Prompts, a spinner, a progress bar, and a table. Plain functions that render
 strings into a live region — no virtual DOM and no reconciler, because the
 render target is text: re-rendering a frame and diffing lines _is_ the diff.
 
+#### Import a component from its own subpath
+
+Each component has a subpath named after the file it is written in, and that is
+the import to write:
+
+```js
+import { createSpinner } from '@ttylabs/sigil/components/spinner';
+```
+
+`@ttylabs/sigil/components` still exports every component. The difference is
+what an import loads: the subpath loads the component and the stack it is drawn
+with, and the barrel loads every component. In an app run straight from
+`node_modules`, that was 195 KB over 30 modules and about 9 ms to import the
+spinner on its own, against 496 KB over 110 modules and about 22 ms for the
+whole set, measured when the subpaths were added. An app built with
+`sigil build` is tree-shaken either way, and the subpath still left it 18% less
+to load.
+
+The rule is one subpath per module of `src/components/`, named after the file
+rather than the export: `select()`, `confirm()` and the rest of the prompts are
+`@ttylabs/sigil/components/prompt`, `groupMultiselect()` is
+`@ttylabs/sigil/components/group-multiselect`, and `stopwatch()` and `timer()`
+are `@ttylabs/sigil/components/clock`. Each exports what the barrel exports
+from that module and nothing more, so `@ttylabs/sigil/components` is exactly
+the union of the subpaths, plus the theme, which is `@ttylabs/sigil/theme`. A
+component's page on the website names its subpath, and its example imports
+from it. Importing two subpaths loads the stack they share once.
+
 #### Prompts
 
 ```js
-import { text, multiline, password, confirm, select, multiselect } from '@ttylabs/sigil/components';
+import {
+  text,
+  multiline,
+  password,
+  confirm,
+  select,
+  multiselect,
+} from '@ttylabs/sigil/components/prompt';
 
 const name = await text({ message: 'Project name', default: 'my-app' });
 const secret = await password({ message: 'Token' });
@@ -2761,7 +2796,7 @@ other hands the terminal to another program.
 #### A date
 
 ```js
-import { date } from '@ttylabs/sigil/components';
+import { date } from '@ttylabs/sigil/components/date';
 
 const due = await date({
   message: 'Due date',
@@ -2796,7 +2831,8 @@ to what is shown and pulled into the range.
 #### A calendar
 
 ```js
-import { calendar, date, pickDate } from '@ttylabs/sigil/components';
+import { calendar, pickDate } from '@ttylabs/sigil/components/calendar';
+import { date } from '@ttylabs/sigil/components/date';
 
 console.log(calendar({ date: new Date(), highlight: deadlines, selected: new Date() }));
 
@@ -2851,7 +2887,7 @@ you are on, as they always did.
 #### Choices that say more
 
 ```js
-import { multiselect, select, separator } from '@ttylabs/sigil/components';
+import { multiselect, select, separator } from '@ttylabs/sigil/components/prompt';
 
 const target = await select({
   message: 'Deploy to',
@@ -2894,7 +2930,7 @@ only the Enter.
 #### Choices under groups
 
 ```js
-import { groupMultiselect } from '@ttylabs/sigil/components';
+import { groupMultiselect } from '@ttylabs/sigil/components/group-multiselect';
 
 const features = await groupMultiselect({
   message: 'Features',
@@ -2927,7 +2963,7 @@ object holds them, which for JavaScript means a group named like an array index
 #### Choosing by a key
 
 ```js
-import { selectKey } from '@ttylabs/sigil/components';
+import { selectKey } from '@ttylabs/sigil/components/select-key';
 
 const action = await selectKey({
   message: 'File exists',
@@ -2971,7 +3007,7 @@ others.
 #### A multiline answer
 
 ```js
-import { multiline } from '@ttylabs/sigil/components';
+import { multiline } from '@ttylabs/sigil/components/prompt';
 
 const notes = await multiline({
   message: 'Release notes',
@@ -3061,7 +3097,7 @@ other name is a hook for one. Where two spans overlap the later wins.
 #### An answer written in the editor
 
 ```js
-import { editor } from '@ttylabs/sigil/components';
+import { editor } from '@ttylabs/sigil/components/editor';
 
 const message = await editor({
   message: 'Commit message',
@@ -3115,7 +3151,7 @@ reading stdin, which would take keys out from under the editor.
 #### A number
 
 ```js
-import { number } from '@ttylabs/sigil/components';
+import { number } from '@ttylabs/sigil/components/number';
 
 const port = await number({ message: 'Port', min: 1, max: 65535, default: 8080 });
 const ratio = await number({ message: 'Ratio', float: true, step: 0.1, min: 0, max: 1 });
@@ -3156,16 +3192,8 @@ less, or a `min` above the `max`, rejects the prompt rather than asking it.
 #### Prompts as one flow
 
 ```js
-import {
-  cancel,
-  confirm,
-  group,
-  intro,
-  isCancel,
-  outro,
-  select,
-  text,
-} from '@ttylabs/sigil/components';
+import { cancel, group, intro, isCancel, outro } from '@ttylabs/sigil/components/group';
+import { confirm, select, text } from '@ttylabs/sigil/components/prompt';
 
 intro('create-app');
 
@@ -3235,7 +3263,7 @@ nothing when stdout or stderr is not a terminal and nothing under `--quiet`
 #### Autocomplete
 
 ```js
-import { autocomplete } from '@ttylabs/sigil/components';
+import { autocomplete } from '@ttylabs/sigil/components/autocomplete';
 
 // a static list: ranked by what is typed, with the matched letters marked
 const region = await autocomplete({
@@ -3303,7 +3331,7 @@ It rejects with `PromptError` where there is no terminal, like the others.
 #### A list
 
 ```js
-import { list } from '@ttylabs/sigil/components';
+import { list } from '@ttylabs/sigil/components/list';
 
 const tags = await list({ message: 'Tags', initial: ['cli', 'node'] });
 const hosts = await list({ message: 'Hosts', separator: /[\s,]+/ });
@@ -3341,7 +3369,7 @@ did not come from a prompt. A pasted block is flattened onto the line, like
 #### Autocomplete multiselect
 
 ```js
-import { autocompleteMultiselect } from '@ttylabs/sigil/components';
+import { autocompleteMultiselect } from '@ttylabs/sigil/components/autocomplete';
 
 const regions = await autocompleteMultiselect({
   message: 'Regions',
@@ -3382,7 +3410,7 @@ with what is ticked).
 #### A masked text field
 
 ```js
-import { maskedText } from '@ttylabs/sigil/components';
+import { maskedText } from '@ttylabs/sigil/components/masked-text';
 
 const phone = await maskedText({ message: 'Phone', template: '(###) ###-####' });
 const key = await maskedText({
@@ -3435,7 +3463,7 @@ for a value that did not come from a prompt.
 #### A path
 
 ```js
-import { path } from '@ttylabs/sigil/components';
+import { path } from '@ttylabs/sigil/components/path';
 
 const file = await path({ message: 'Which config?', extensions: ['json', 'yaml'] });
 const out = await path({ message: 'Output directory?', directory: true, root: process.cwd() });
@@ -3477,7 +3505,7 @@ This is the field. The picker that browses the tree is the next section.
 #### A file picker
 
 ```js
-import { filePicker } from '@ttylabs/sigil/components';
+import { filePicker } from '@ttylabs/sigil/components/file-picker';
 
 const file = await filePicker({ message: 'Which config?', extensions: ['json', 'yaml'] });
 const dir = await filePicker({ message: 'Output directory?', directory: true, confine: true });
@@ -3515,7 +3543,7 @@ root (`/`, or a Windows drive such as `C:\`) Left has nowhere to go.
 #### Sort
 
 ```js
-import { sort } from '@ttylabs/sigil/components';
+import { sort } from '@ttylabs/sigil/components/sort';
 
 const order = await sort({
   message: 'Run the steps in this order',
@@ -3559,7 +3587,7 @@ others.
 #### Toggle
 
 ```js
-import { toggle } from '@ttylabs/sigil/components';
+import { toggle } from '@ttylabs/sigil/components/toggle';
 
 const enabled = await toggle({
   message: 'Notifications',
@@ -3597,7 +3625,7 @@ no terminal, like the others.
 #### Spinner
 
 ```js
-import { createSpinner } from '@ttylabs/sigil/components';
+import { createSpinner } from '@ttylabs/sigil/components/spinner';
 
 const spinner = createSpinner({ text: 'Resolving' }).start();
 
@@ -3614,7 +3642,7 @@ or an array of your own (at 80 ms unless `interval` says otherwise). `interval`
 beats a set's own.
 
 ```js
-import { ARC, createSpinner } from '@ttylabs/sigil/components';
+import { ARC, createSpinner } from '@ttylabs/sigil/components/spinner';
 
 createSpinner({ frames: ARC, text: 'Resolving' }).start();
 ```
@@ -3646,7 +3674,7 @@ data in the registry rather than code in the package, so they cost nothing until
 #### Progress
 
 ```js
-import { createProgress } from '@ttylabs/sigil/components';
+import { createProgress } from '@ttylabs/sigil/components/progress';
 
 const bar = createProgress({ text: 'Copying', total: files.length });
 
@@ -3686,7 +3714,7 @@ Copying 100%
 ##### Several bars
 
 ```js
-import { createMultiProgress } from '@ttylabs/sigil/components';
+import { createMultiProgress } from '@ttylabs/sigil/components/multi-progress';
 
 const group = createMultiProgress({ eta: true, rate: true, unit: 'kB' });
 
@@ -3726,7 +3754,8 @@ react installed 100%
 #### Stopwatch and timer
 
 ```js
-import { createSpinner, stopwatch, timer } from '@ttylabs/sigil/components';
+import { stopwatch, timer } from '@ttylabs/sigil/components/clock';
+import { createSpinner } from '@ttylabs/sigil/components/spinner';
 import { effect } from '@ttylabs/sigil/signals';
 
 const watch = stopwatch().start();
@@ -3771,7 +3800,7 @@ it; the redraw does not.
 #### Log
 
 ```js
-import { log } from '@ttylabs/sigil/components';
+import { log } from '@ttylabs/sigil/components/log';
 
 log.step('Installing dependencies');
 log.info('Using the lockfile from the last run');
@@ -3883,7 +3912,7 @@ that settles when the source is drained.
 #### Tasks
 
 ```js
-import { skip, taskLog, tasks } from '@ttylabs/sigil/components';
+import { skip, taskLog, tasks } from '@ttylabs/sigil/components/tasks';
 
 await tasks([
   {
@@ -4002,7 +4031,7 @@ it arrives, and a settled line at the end. A quiet run writes nothing.
 #### Table
 
 ```js
-import { table } from '@ttylabs/sigil/components';
+import { table } from '@ttylabs/sigil/components/table';
 
 table(rows, {
   columns: [
@@ -4035,7 +4064,7 @@ to it and to the table if you override either.
 #### Select a row
 
 ```js
-import { selectRow } from '@ttylabs/sigil/components';
+import { selectRow } from '@ttylabs/sigil/components/select-row';
 
 const deployment = await selectRow({
   message: 'Which deployment?',
@@ -4102,7 +4131,7 @@ no terminal and for an empty `rows`, like the others.
 #### Note
 
 ```js
-import { note } from '@ttylabs/sigil/components';
+import { note } from '@ttylabs/sigil/components/note';
 
 console.log(
   note('Your project is ready.\n\n  $ cd my-app\n  $ npm install', {
@@ -4156,7 +4185,8 @@ is static, so `console.log(note(...))` already is one.
 #### Badge
 
 ```js
-import { badge, badgeView, table } from '@ttylabs/sigil/components';
+import { badge, badgeView } from '@ttylabs/sigil/components/badge';
+import { table } from '@ttylabs/sigil/components/table';
 
 console.log(`${badge('PASS', { variant: 'success' })} 148 tests in 2.1s`);
 
@@ -4197,7 +4227,7 @@ for one level and drawn at another is still legible but not the same shape.
 #### Rule
 
 ```js
-import { rule } from '@ttylabs/sigil/components';
+import { rule } from '@ttylabs/sigil/components/rule';
 
 console.log(rule({ label: 'Results', width: 32 }));
 console.log(rule({ align: 'left', label: 'Results', width: 32 }));
@@ -4241,7 +4271,7 @@ so a layout that resizes builds it again.
 #### Diff
 
 ```js
-import { diff } from '@ttylabs/sigil/components';
+import { diff } from '@ttylabs/sigil/components/diff';
 
 console.log(
   diff({ old: 'one\ntwo\nthree\n', new: 'one\nthree and a half\nthree\n' }, { width: 32 })
@@ -4300,7 +4330,7 @@ bold are gone and the `+` and `-` markers say which side a line is on.
 #### Markdown
 
 ```js
-import { markdown } from '@ttylabs/sigil/components';
+import { markdown } from '@ttylabs/sigil/components/markdown';
 import { readFileSync } from 'node:fs';
 
 console.log(
@@ -4443,7 +4473,7 @@ anything else.
 #### Outline
 
 ```js
-import { outline } from '@ttylabs/sigil/components';
+import { outline } from '@ttylabs/sigil/components/outline';
 
 console.log(
   outline(
@@ -4509,7 +4539,7 @@ run writes nothing.
 #### Tree
 
 ```js
-import { tree } from '@ttylabs/sigil/components';
+import { tree } from '@ttylabs/sigil/components/tree';
 
 console.log(
   tree({ text: 'src', items: ['index.ts', { text: 'parser', items: ['argv.ts', 'tokens.ts'] }] })
@@ -4588,7 +4618,7 @@ listed and Enter answers the directory, the root included.
 #### Charts
 
 ```js
-import { barChart, gauge, lineChart, sparkline } from '@ttylabs/sigil/components';
+import { barChart, gauge, lineChart, sparkline } from '@ttylabs/sigil/components/chart';
 
 console.log(`latency ${sparkline([12, 18, 15, 40, 22, 19, 31, 17])}`);
 console.log(barChart({ build: 12.4, test: 7.2, lint: 2.1 }, { width: 32 }));
@@ -4646,7 +4676,7 @@ theme hooks, each with `-row` and `-part` classes inside.
 #### An image
 
 ```js
-import { image, imageView } from '@ttylabs/sigil/components';
+import { image, imageView } from '@ttylabs/sigil/components/image';
 import { readFileSync } from 'node:fs';
 
 console.log(image(readFileSync('logo.png'), { width: 40 }));
@@ -4695,7 +4725,7 @@ class on the element.
 #### A paginator
 
 ```js
-import { createPaginator } from '@ttylabs/sigil/components';
+import { createPaginator } from '@ttylabs/sigil/components/paginator';
 
 const pager = createPaginator({ perPage: 5, total: results.length });
 
@@ -4748,7 +4778,11 @@ turn the page is the app's.
 #### A collapsible
 
 ```js
-import { Collapsible, collapsibleGroup, describeCollapsible } from '@ttylabs/sigil/components';
+import {
+  Collapsible,
+  collapsibleGroup,
+  describeCollapsible,
+} from '@ttylabs/sigil/components/collapsible';
 import { text } from '@ttylabs/sigil/element';
 
 const stack = Collapsible({ title: 'Show stack', children: () => text(err.stack) });
@@ -4798,7 +4832,7 @@ sheet. `.sigil-collapsible` (with `is-open` while open), `-title`, `-marker`,
 #### Tabs
 
 ```js
-import { describeTabs, Tabs } from '@ttylabs/sigil/components';
+import { describeTabs, Tabs } from '@ttylabs/sigil/components/tabs';
 import { text } from '@ttylabs/sigil/element';
 import { State } from '@ttylabs/sigil/signals';
 
@@ -4858,7 +4892,7 @@ row and returns a function that takes them off again.
 #### A modal
 
 ```js
-import { confirmModal, openModal } from '@ttylabs/sigil/components';
+import { confirmModal, openModal } from '@ttylabs/sigil/components/modal';
 
 const sure = await confirmModal(view, {
   input,
@@ -4930,7 +4964,8 @@ button can take the focus.
 #### A text field
 
 ```js
-import { openModal, TextField } from '@ttylabs/sigil/components';
+import { openModal } from '@ttylabs/sigil/components/modal';
+import { TextField } from '@ttylabs/sigil/components/text-field';
 import { State } from '@ttylabs/sigil/signals';
 
 const name = new State('draft.md');
@@ -4995,7 +5030,7 @@ controls do.
 #### A toast
 
 ```js
-import { showToast } from '@ttylabs/sigil/components';
+import { showToast } from '@ttylabs/sigil/components/toast';
 
 showToast(view, { message: 'Saved draft.md', title: 'Saved', variant: 'success' });
 showToast(view, { message: 'Lost the connection', timeout: 8000, variant: 'error' });
@@ -5045,7 +5080,7 @@ theme hooks.
 #### A tooltip
 
 ```js
-import { attachTooltip } from '@ttylabs/sigil/components';
+import { attachTooltip } from '@ttylabs/sigil/components/tooltip';
 import { createInput } from '@ttylabs/sigil/input';
 
 const input = createInput({ mouse: { motion: true, surface: view.backend }, root: view.root });
@@ -5091,7 +5126,7 @@ itself, timer and all, when the component it was attached inside unmounts.
 #### A key-help footer
 
 ```js
-import { keyHelp } from '@ttylabs/sigil/components';
+import { keyHelp } from '@ttylabs/sigil/components/key-help';
 
 input.bind('up', moveUp, { description: 'move', priority: 6 });
 input.bind('down', moveDown, { description: 'move', priority: 6 });
@@ -5129,7 +5164,8 @@ router -- see [Prompts](#prompts).
 #### A pager
 
 ```js
-import { createPager, keyHelp, page } from '@ttylabs/sigil/components';
+import { keyHelp } from '@ttylabs/sigil/components/key-help';
+import { createPager, page } from '@ttylabs/sigil/components/pager';
 
 // the whole screen until q, like `gum pager`; piped, it writes the text out
 await page(readFileSync('CHANGELOG.md', 'utf8'), { lineNumbers: true });
@@ -5186,7 +5222,7 @@ The pager is a component built on `ScrollBox`, and what it uses to hear one is
 public:
 
 ```js
-import { ScrollBox, scrollControl } from '@ttylabs/sigil/components';
+import { ScrollBox, scrollControl } from '@ttylabs/sigil/components/scroll-box';
 
 const rows = { count: 0, height: 1, row: (i) => text(lines[i]) };
 const view = ScrollBox({
@@ -5221,24 +5257,29 @@ the imperative facade. Cutting a line to a width is
 
 #### The pieces the built-ins share
 
-A component you eject with `sigil add` imports its siblings from
-`@ttylabs/sigil/components`, so what the built-ins share is published there
-rather than copied into each of them -- and is there for a component you write
-yourself:
+A component you eject with `sigil add` imports each sibling from that
+sibling's own subpath -- `writeLine()` from `@ttylabs/sigil/components/mount`
+-- so what the built-ins share is published there rather than copied into each
+of them, and an ejected spinner loads no more than the built-in one did. It is
+there for a component you write yourself too:
 
-- `labelLine(value)` is a label as the grid draws it: escape sequences gone and
-  every run of whitespace one space. A note's title, a badge, a rule's label, a
-  tab and a chart's labels all read it.
-- `refusePrompt(message, what)` rejects with the `PromptError` a prompt gives
-  for an option it cannot use, naming the prompt by its question.
-- `writeLine(mounted, opts, line)` is a lazy component's `write()`: a line above
-  the frame where one is mounted, and through the terminal where nothing is --
-  except under `--quiet`, asked at the moment of the write.
-- `promptListRows(rows, height, reserved)` is how many rows a list prompt's list
-  has: the caller's `rows` read the way the multiline field reads it, bounded by
-  what the terminal has left once `reserved` rows are taken.
-- `pathFoldCase(text, flavour)` is a file name as the file system compares it,
-  lower case on Windows and as it is everywhere else.
+- `labelLine(value)`, from `@ttylabs/sigil/components/note`, is a label as the
+  grid draws it: escape sequences gone and every run of whitespace one space. A
+  note's title, a badge, a rule's label, a tab and a chart's labels all read it.
+- `refusePrompt(message, what)`, from `@ttylabs/sigil/components/prompt`,
+  rejects with the `PromptError` a prompt gives for an option it cannot use,
+  naming the prompt by its question.
+- `writeLine(mounted, opts, line)`, from `@ttylabs/sigil/components/mount`, is a
+  lazy component's `write()`: a line above the frame where one is mounted, and
+  through the terminal where nothing is -- except under `--quiet`, asked at the
+  moment of the write.
+- `promptListRows(rows, height, reserved)`, from
+  `@ttylabs/sigil/components/prompt`, is how many rows a list prompt's list has:
+  the caller's `rows` read the way the multiline field reads it, bounded by what
+  the terminal has left once `reserved` rows are taken.
+- `pathFoldCase(text, flavour)`, from `@ttylabs/sigil/components/path`, is a
+  file name as the file system compares it, lower case on Windows and as it is
+  everywhere else.
 
 ### `sigil/canvas`
 

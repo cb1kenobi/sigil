@@ -59,7 +59,14 @@
         "type": "number"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function tree(items: readonly OutlineItem[] | TreeRoot, opts?: TreeOptions): string"
   },
   "registryDescription": "A tree: nested data printed with ├── and └──, a prompt that opens and closes branches read on demand, and a directory tree",

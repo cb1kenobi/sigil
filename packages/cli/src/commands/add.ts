@@ -42,7 +42,8 @@ import {
 } from '../registry/index.ts';
 import { isQuiet, writeNote } from '../report.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
-import { confirm, table } from '@ttylabs/sigil/components';
+import { confirm } from '@ttylabs/sigil/components/prompt';
+import { table } from '@ttylabs/sigil/components/table';
 import { byCodeUnit } from '@ttylabs/sigil/reference';
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';

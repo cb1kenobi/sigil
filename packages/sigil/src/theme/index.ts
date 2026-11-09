@@ -12,7 +12,7 @@
  * origin -- which is only true because these are not.
  *
  * ```js
- * import { table } from '@ttylabs/sigil/components';
+ * import { table } from '@ttylabs/sigil/components/table';
  *
  * table(rows, { theme: '.sigil-table-head { color: magenta }' });
  * ```

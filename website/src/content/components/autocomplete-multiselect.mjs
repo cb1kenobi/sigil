@@ -1,4 +1,4 @@
-import { autocompleteMultiselect } from '@ttylabs/sigil/components';
+import { autocompleteMultiselect } from '@ttylabs/sigil/components/autocomplete';
 
 const packages = await autocompleteMultiselect({
   message: 'Packages',

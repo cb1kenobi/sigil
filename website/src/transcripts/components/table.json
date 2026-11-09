@@ -30,7 +30,14 @@
         "type": "number"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function table(rows: readonly TableRow[], opts?: TableOptions): string"
   },
   "registryDescription": "A table with measured column widths, alignment and truncation",

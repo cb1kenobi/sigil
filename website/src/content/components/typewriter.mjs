@@ -1,4 +1,4 @@
-import { createTypewriter } from '@ttylabs/sigil/components';
+import { createTypewriter } from '@ttylabs/sigil/components/typewriter';
 
 const line = createTypewriter({
   cursor: '█',

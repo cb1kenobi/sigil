@@ -1,4 +1,5 @@
-import { mountLive, stopwatch } from '@ttylabs/sigil/components';
+import { stopwatch } from '@ttylabs/sigil/components/clock';
+import { mountLive } from '@ttylabs/sigil/components/mount';
 import { box, text } from '@ttylabs/sigil/element';
 
 const watch = stopwatch().start();

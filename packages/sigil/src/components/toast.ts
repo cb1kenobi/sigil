@@ -9,7 +9,7 @@
  * it or move the focus as a press would.
  *
  * ```js
- * import { showToast } from '@ttylabs/sigil/components';
+ * import { showToast } from '@ttylabs/sigil/components/toast';
  *
  * showToast(view, { message: 'Saved draft.md', variant: 'success' });
  * showToast(view, { message: 'Lost the connection', timeout: 8000, variant: 'error' });

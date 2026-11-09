@@ -1,4 +1,4 @@
-import { page } from '@ttylabs/sigil/components';
+import { page } from '@ttylabs/sigil/components/pager';
 
 const changelog = Array.from(
   { length: 120 },

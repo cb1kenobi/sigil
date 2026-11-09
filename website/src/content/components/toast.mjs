@@ -1,5 +1,5 @@
 import { runApp } from '@ttylabs/sigil/app';
-import { showToast } from '@ttylabs/sigil/components';
+import { showToast } from '@ttylabs/sigil/components/toast';
 import { box, text } from '@ttylabs/sigil/element';
 
 const root = box({ 'flex-direction': 'column', height: 8 }, text('Editing config.json'));

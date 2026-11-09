@@ -1,4 +1,4 @@
-import { password } from '@ttylabs/sigil/components';
+import { password } from '@ttylabs/sigil/components/prompt';
 
 const token = await password({ message: 'npm token' });
 

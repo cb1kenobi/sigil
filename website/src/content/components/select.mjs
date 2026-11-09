@@ -1,4 +1,4 @@
-import { select } from '@ttylabs/sigil/components';
+import { select } from '@ttylabs/sigil/components/prompt';
 
 const template = await select({
   message: 'Template',

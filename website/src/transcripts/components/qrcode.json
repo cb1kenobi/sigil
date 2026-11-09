@@ -52,7 +52,14 @@
         "type": "number"
       }
     ],
-    "shared": [],
+    "shared": [
+      "ansi",
+      "colorLevel",
+      "colorScheme",
+      "reducedMotion",
+      "sheets",
+      "theme"
+    ],
     "signature": "function qrcode(value: string, opts?: QrcodeOptions): string"
   },
   "registryDescription": "A QR code, encoded here and drawn in half blocks or in full cells",

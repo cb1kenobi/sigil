@@ -15,7 +15,7 @@
  *
  * ```js
  * import { readFileSync } from 'node:fs';
- * import { largeText, parseFlf } from '@ttylabs/sigil/components';
+ * import { largeText, parseFlf } from '@ttylabs/sigil/components/large-text';
  *
  * const font = parseFlf(readFileSync('standard.flf', 'utf8'));
  * console.log(largeText('sigil', { font }));

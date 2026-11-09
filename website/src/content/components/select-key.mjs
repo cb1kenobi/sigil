@@ -1,4 +1,4 @@
-import { selectKey } from '@ttylabs/sigil/components';
+import { selectKey } from '@ttylabs/sigil/components/select-key';
 
 const action = await selectKey({
   message: 'src/index.ts exists',

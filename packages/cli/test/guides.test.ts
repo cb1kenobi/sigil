@@ -175,6 +175,16 @@ describe('the imports in the guides', () => {
       }
       expect(checked).toBeGreaterThan(2);
     });
+
+    it(`should import a component from its own subpath, not the barrel, in ${guide.file}`, () => {
+      // the README recommends `@ttylabs/sigil/components/<file>`, since SIG-330,
+      // and the website's component pages hold their examples to it -- a guide is
+      // what a reader copies from just as much
+      const barrel = blocks(markdown).filter(({ body }) =>
+        /from\s*'@ttylabs\/sigil\/components'/.test(body)
+      );
+      expect(barrel.map(({ line }) => `${guide.file}:${line}`)).toEqual([]);
+    });
   }
 });
 

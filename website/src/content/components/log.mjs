@@ -1,4 +1,4 @@
-import { log } from '@ttylabs/sigil/components';
+import { log } from '@ttylabs/sigil/components/log';
 
 log.step('Deploying to staging');
 log.info('Using the lockfile from the last run', { packages: 42 });

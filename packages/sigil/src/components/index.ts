@@ -1,230 +1,68 @@
-export {
-  type CatalogOptions,
-  type CatalogTarget,
-  commandCatalog,
-  type PaletteEntry,
-  type PaletteSlot,
-  slotsFor,
-  slotTokens,
-} from './catalog.js';
-export {
-  type FuzzyMatch,
-  fuzzyMatch,
-  type HighlightRun,
-  highlightRuns,
-  type Ranked,
-  rankBy,
-} from './fuzzy.js';
-export {
-  autocomplete,
-  autocompleteMultiselect,
-  type AutocompleteMultiselectOptions,
-  type AutocompleteOptions,
-  type AutocompleteSource,
-} from './autocomplete.js';
-export {
-  checkSlotValue,
-  commandPalette,
-  type PaletteOptions,
-  type PaletteResult,
-} from './palette.js';
-export {
-  addMonths,
-  calendar,
-  type CalendarGrid,
-  calendarGrid,
-  type CalendarGridOptions,
-  type CalendarOptions,
-  calendarView,
-  type Day,
-  dayKey,
-  type GridView,
-  pickDate,
-  type PickDateOptions,
-} from './calendar.js';
-export { date, type DateOptions } from './date.js';
-export { editor, type EditorOptions, resolveEditor } from './editor.js';
-export {
-  cancel,
-  type FrameOptions,
-  group,
-  type GroupOptions,
-  type GroupStep,
-  type GroupSteps,
-  intro,
-  isBack,
-  isCancel,
-  outro,
-} from './group.js';
-export { groupMultiselect, type GroupMultiselectOptions } from './group-multiselect.js';
-export { joinList, list, type ListOptions, splitList } from './list.js';
-export {
-  applyMask,
-  type Applied,
-  MASK_SLOTS,
-  maskedText,
-  type MaskedTextOptions,
-  type MaskSlot,
-} from './masked-text.js';
-export { number, type NumberOptions } from './number.js';
-export {
-  createOutline,
-  outline,
-  type Outline,
-  type OutlineEntry,
-  outlineEntries,
-  type OutlineEnumerator,
-  type OutlineItem,
-  type OutlineMarkerInfo,
-  type OutlineMarkerOptions,
-  outlineMarkers,
-  type OutlineOptions,
-  type OutlineStyle,
-  outlineView,
-} from './outline.js';
-export {
-  clampPage,
-  createPaginator,
-  pageBounds,
-  pageCount,
-  pageIndicator,
-  type PageIndicatorOptions,
-  type PageIndicatorStyle,
-  pageIndicatorView,
-  type Paginator,
-  type PaginatorOptions,
-  type PaginatorState,
-  paginatorState,
-  paginatorView,
-} from './paginator.js';
-export { sort, type SortOptions } from './sort.js';
-export { toggle, type ToggleOptions } from './toggle.js';
-export {
-  directoryTree,
-  type DirectoryTreeOptions,
-  selectTree,
-  type SelectTreeOptions,
-  tree,
-  type TreeChildren,
-  type TreeChoice,
-  type TreeChoiceItem,
-  treeGlyphs,
-  type TreeGlyphs,
-  type TreeGuide,
-  type TreeOptions,
-  type TreeRoot,
-  treeView,
-} from './tree.js';
-export {
-  type KeyChoice,
-  type KeyChoiceEntry,
-  selectKey,
-  type SelectKeyOptions,
-} from './select-key.js';
-export {
-  candidatesOf,
-  type EntryCache,
-  entryCache,
-  path,
-  type PathEntry,
-  type PathFilter,
-  type PathFlavour,
-  pathFoldCase,
-  type PathOptions,
-} from './path.js';
-export {
-  entryPath,
-  filePicker,
-  type FilePickerFlavour,
-  type FilePickerOptions,
-  parentOf,
-} from './file-picker.js';
-export {
-  type AccessibleOptions,
-  type Choice,
-  type ChoiceEntry,
-  confirm,
-  type ConfirmOptions,
-  ESCAPE_TIMEOUT,
-  forcedAccessible,
-  type HighlightSpan,
-  multiline,
-  type MultilineOptions,
-  multiselect,
-  type MultiselectOptions,
-  password,
-  PromptBack,
-  PromptError,
-  type PromptOptions,
-  refusePrompt,
-  select,
-  type SelectOptions,
-  separator,
-  type Separator,
-  type SubmitKey,
-  text,
-  type TextOptions,
-  TOKEN_ROLE,
-  tokensOf,
-} from './prompt.js';
-export {
-  fieldLayers,
-  type FieldCell,
-  type FieldFrame,
-  type FieldLayout,
-  type FieldRow,
-  layoutField,
-  listWindow,
-  PROMPT_SYMBOLS,
-  promptAnswered,
-  promptAnswerFits,
-  promptAnswerSlot,
-  type PromptAnswerSlot,
-  promptAsLines,
-  type PromptHandlers,
-  promptHeadLine,
-  promptHeadWidths,
-  promptChoice,
-  promptFooter,
-  type PromptKeyHelp,
-  type PromptKeys,
-  promptKeys,
-  promptLineQuestion,
-  type PromptLineForm,
-  type PromptLineKeyAt,
-  type PromptLineKeyDone,
-  type PromptLineKeyQuery,
-  promptNote,
-  promptListRows,
-  promptRowCap,
-  promptLineChoice,
-  type PromptLineChoice,
-  promptLineList,
-  promptLineNumbers,
-  type PromptLineRead,
-  type PromptLineReply,
-  promptSameValue,
-  promptSummary,
-  type PromptSymbols,
-  promptTailFits,
-  promptUnderHead,
-  promptWindow,
-  type PromptWindow,
-  promptValue,
-  runLinePrompt,
-  runPrompt,
-  setPromptNote,
-} from './prompt.js';
-export {
-  fitKeyHelp,
-  keyHelp,
-  type KeyHelpEntry,
-  keyHelpEntries,
-  type KeyHelpOptions,
-  type KeyHelpSource,
-  keyLabel,
-} from './key-help.js';
-export { mountLevel, type Mounted, type MountOptions, mountLive, writeLine } from './mount.js';
+// `@ttylabs/sigil/components`: the union of the component subpaths, and the
+// theme the components are drawn with.
+//
+// What each subpath exports is written once, in `subpaths/<name>.ts`, and is
+// what the barrel exports from that module -- no more, since a module's other
+// exports are what its siblings share and are not published. This file says
+// only that the barrel is all of them, so the two cannot disagree about a
+// name; a name two subpaths both export is a type error here rather than one
+// that silently drops out of the barrel. `test/component-subpaths.test.ts`
+// holds the list to the directory. See "A subpath per component" in AGENTS.md.
+export * from './subpaths/catalog.js';
+export * from './subpaths/fuzzy.js';
+export * from './subpaths/autocomplete.js';
+export * from './subpaths/palette.js';
+export * from './subpaths/calendar.js';
+export * from './subpaths/date.js';
+export * from './subpaths/editor.js';
+export * from './subpaths/group.js';
+export * from './subpaths/group-multiselect.js';
+export * from './subpaths/list.js';
+export * from './subpaths/masked-text.js';
+export * from './subpaths/number.js';
+export * from './subpaths/outline.js';
+export * from './subpaths/paginator.js';
+export * from './subpaths/sort.js';
+export * from './subpaths/toggle.js';
+export * from './subpaths/tree.js';
+export * from './subpaths/select-key.js';
+export * from './subpaths/path.js';
+export * from './subpaths/file-picker.js';
+export * from './subpaths/prompt.js';
+export * from './subpaths/key-help.js';
+export * from './subpaths/mount.js';
+export * from './subpaths/progress.js';
+export * from './subpaths/log-stream.js';
+export * from './subpaths/chart.js';
+export * from './subpaths/clock.js';
+export * from './subpaths/multi-progress.js';
+export * from './subpaths/log.js';
+export * from './subpaths/spinner.js';
+export * from './subpaths/tasks.js';
+export * from './subpaths/keys.js';
+export * from './subpaths/qrcode.js';
+export * from './subpaths/image.js';
+export * from './subpaths/debug-overlay.js';
+export * from './subpaths/editing.js';
+export * from './subpaths/decrypt.js';
+export * from './subpaths/collapsible.js';
+export * from './subpaths/tabs.js';
+export * from './subpaths/modal.js';
+export * from './subpaths/text-field.js';
+export * from './subpaths/toast.js';
+export * from './subpaths/tooltip.js';
+export * from './subpaths/scroll-box.js';
+export * from './subpaths/pager.js';
+export * from './subpaths/typewriter.js';
+export * from './subpaths/large-text.js';
+export * from './subpaths/badge.js';
+export * from './subpaths/table.js';
+export * from './subpaths/select-row.js';
+export * from './subpaths/note.js';
+export * from './subpaths/diff.js';
+export * from './subpaths/rule.js';
+export * from './subpaths/markdown-parse.js';
+export * from './subpaths/markdown.js';
 export {
   FRAMEWORK_CSS,
   frameworkSheet,
@@ -233,359 +71,3 @@ export {
   type ThemeOptions,
   themedCascade,
 } from '../theme/index.js';
-export {
-  createProgress,
-  createRateEstimator,
-  formatDuration,
-  formatRate,
-  type Progress,
-  type ProgressOptions,
-  type ProgressState,
-  progressState,
-  type ProgressStatsOptions,
-  type ProgressTracker,
-  type ProgressViewOptions,
-  progressView,
-  type RateEstimator,
-  type RateEstimatorOptions,
-  resolveBarWidth,
-  trackProgress,
-  renderBar,
-} from './progress.js';
-export { createStreamWrapper, type StreamWrapper } from './log-stream.js';
-export {
-  barChart,
-  barChartView,
-  type BarChartOptions,
-  type BarData,
-  type BarDatum,
-  type ChartOptions,
-  type ChartRole,
-  type ChartView,
-  gauge,
-  type GaugeOptions,
-  gaugeView,
-  lineChart,
-  lineChartView,
-  type LineChartOptions,
-  type ScaleOptions,
-  SPARK_ASCII,
-  SPARK_BLOCKS,
-  sparkline,
-  type SparklineOptions,
-  sparklineView,
-} from './chart.js';
-export {
-  type Clock,
-  type ClockFormat,
-  type ClockOptions,
-  clockView,
-  formatClock,
-  stopwatch,
-  type Stopwatch,
-  timer,
-  type Timer,
-} from './clock.js';
-export {
-  createMultiProgress,
-  type MultiProgress,
-  type MultiProgressBar,
-  type MultiProgressBarOptions,
-  type MultiProgressOptions,
-  multiProgressView,
-} from './multi-progress.js';
-export {
-  createLog,
-  formatLogFields,
-  type Log,
-  type LogExtras,
-  type LogFields,
-  log,
-  type LogMessageOptions,
-  type LogOptions,
-  type LogSource,
-  type LogStream,
-  LOG_SYMBOLS,
-  LOG_SYMBOLS_ASCII,
-  type LogSymbols,
-  type LogTimestamp,
-  logView,
-} from './log.js';
-export {
-  ARC,
-  ARROW,
-  BOUNCING_BAR,
-  CIRCLE,
-  createSpinner,
-  DOTS,
-  GROW,
-  LINE,
-  OUTCOME_SYMBOLS,
-  type Spinner,
-  type SpinnerFrames,
-  spinnerFrames,
-  type SpinnerOptions,
-  type SpinnerOutcome,
-  type SpinnerState,
-  spinnerState,
-  spinnerView,
-} from './spinner.js';
-export {
-  skip,
-  type Skip,
-  type Task,
-  type TaskContext,
-  type TaskLog,
-  taskLog,
-  type TaskListOptions,
-  type TaskLogOptions,
-  type TaskOutcome,
-  type TaskResultValue,
-  type TaskRetry,
-  tasks,
-  type TasksOptions,
-} from './tasks.js';
-export { decodeKeys, isAbort, type Key, pendingLength } from './keys.js';
-export {
-  encodeQr,
-  type QrCode,
-  type QrEcc,
-  type QrEncodeOptions,
-  type QrForm,
-  type QrLinesOptions,
-  type QrMode,
-  type QrViewOptions,
-  qrcode,
-  type QrcodeOptions,
-  qrcodeView,
-  qrLines,
-} from './qrcode.js';
-export {
-  image,
-  type ImageFit,
-  type ImageOptions,
-  type ImageSource,
-  imageView,
-  type ImageViewOptions,
-} from './image.js';
-export {
-  captureConsole,
-  type CaptureOptions,
-  type ConsoleCapture,
-  createLogRing,
-  type DebugOverlayHandle,
-  type DebugOverlayOptions,
-  enableDebugOverlay,
-  type LogEntry,
-  type LogLevel,
-  type LogRing,
-  type LogRingOptions,
-} from './debug-overlay.js';
-export {
-  boundary,
-  deleteAfter,
-  deleteBefore,
-  deleteRange,
-  type Edit,
-  insertAt,
-  isControlChar,
-  isSpaceCluster,
-  pastedBlock,
-  pastedLine,
-  snap,
-  typedText,
-  wordAfter,
-  wordBefore,
-} from './editing.js';
-export {
-  ASCII,
-  CP437,
-  createDecrypt,
-  type Decrypt,
-  decrypt,
-  type DecryptCell,
-  decryptedFrame,
-  type DecryptFrame,
-  type DecryptFrameCell,
-  decryptFrameAt,
-  type DecryptOptions,
-  type DecryptPlan,
-  decryptPlan,
-  type DecryptPlanOptions,
-  decryptReveal,
-  type DecryptRevealOptions,
-  type DecryptState,
-  decryptState,
-  decryptView,
-  type MaskAlphabet,
-  type Random,
-  seeded,
-} from './decrypt.js';
-export {
-  Collapsible,
-  type CollapsibleDescriber,
-  type CollapsibleGroup,
-  collapsibleGroup,
-  type CollapsibleProps,
-  describeCollapsible,
-} from './collapsible.js';
-export {
-  describeTabs,
-  type Tab,
-  type TabRowProps,
-  Tabs,
-  tabRowView,
-  type TabsDescriber,
-  type TabsProps,
-  tabsActive,
-} from './tabs.js';
-export {
-  confirmModal,
-  type ConfirmModalOptions,
-  type ModalAction,
-  type ModalHandle,
-  type ModalHost,
-  type ModalOptions,
-  openModal,
-} from './modal.js';
-export { TextField, type TextFieldProps } from './text-field.js';
-export {
-  showToast,
-  type ToastCloseReason,
-  type ToastHandle,
-  type ToastHost,
-  type ToastOptions,
-  type ToastPosition,
-} from './toast.js';
-export {
-  attachTooltip,
-  type TooltipHandle,
-  type TooltipOptions,
-  type TooltipPlacement,
-  type TooltipSide,
-  placeTooltip,
-} from './tooltip.js';
-export {
-  type RowWindow,
-  rowWindow,
-  type ScrollAxis,
-  ScrollBox,
-  type ScrollBoxProps,
-  scrollControl,
-  type ScrollControl,
-  type ScrollRows,
-  thumbExtent,
-} from './scroll-box.js';
-export {
-  createPager,
-  MAX_MATCHES,
-  page,
-  type PageOptions,
-  type Pager,
-  pagerLines,
-  type PagerMatch,
-  type PagerOptions,
-  type PagerSearchMode,
-  type PagerSearchResult,
-  searchLines,
-  softWrap,
-} from './pager.js';
-export {
-  byLine,
-  byWord,
-  type Chunker,
-  createTypewriter,
-  type Pace,
-  type RevealStep,
-  revealSteps,
-  type Typewriter,
-  type TypewriterOptions,
-  type TypewriterRevealOptions,
-  typewriterReveal,
-  type TypewriterState,
-  typewriterState,
-  type TypewriterViewOptions,
-  typewriterView,
-} from './typewriter.js';
-export {
-  type FigDirection,
-  type FigFont,
-  type FigLayout,
-  type FigLayoutMode,
-  type FigletOptions,
-  type FigSmushRules,
-  largeText,
-  type LargeTextOptions,
-  largeTextView,
-  parseFlf,
-  renderFiglet,
-} from './large-text.js';
-export { badge, type BadgeOptions, type BadgeVariant, badgeView } from './badge.js';
-export {
-  type Align,
-  type Column,
-  table,
-  type TableCell,
-  tableCells,
-  type TableCellView,
-  type TableOptions,
-  type TableRow,
-  tableRowView,
-  tableValue,
-  tableView,
-  tableWidths,
-} from './table.js';
-export {
-  compareCells,
-  selectRow,
-  type SelectRowColumn,
-  type SelectRowOptions,
-} from './select-row.js';
-export {
-  labelLine,
-  note,
-  type NoteBorder,
-  type NoteOptions,
-  type NoteTitleAlign,
-  type NoteVariant,
-  noteView,
-  unicodeSupported,
-} from './note.js';
-export {
-  DIFF_SIDE_BY_SIDE_MIN_WIDTH,
-  diff,
-  type DiffChange,
-  type DiffFile,
-  type DiffHunk,
-  diffHunks,
-  type DiffInput,
-  diffInline,
-  type DiffLayout,
-  type DiffLine,
-  type DiffLineKind,
-  diffLines,
-  type DiffOp,
-  type DiffOptions,
-  diffSequence,
-  type DiffView,
-  diffView,
-  parsePatch,
-} from './diff.js';
-export {
-  rule,
-  type RuleAlign,
-  type RuleLine,
-  type RuleOptions,
-  type RuleRole,
-  type RuleView,
-  ruleView,
-} from './rule.js';
-export {
-  type MarkdownAlign,
-  type MarkdownBlock,
-  type MarkdownFootnote,
-  type MarkdownInline,
-  markdownText,
-  parseMarkdown,
-} from './markdown-parse.js';
-export { markdown, type MarkdownOptions, type MarkdownView, markdownView } from './markdown.js';

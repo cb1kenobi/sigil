@@ -1,0 +1,7 @@
+{
+  "name": "shake-spinner-subpath",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

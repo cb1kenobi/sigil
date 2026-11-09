@@ -1,4 +1,4 @@
-import { createSpinner } from '@ttylabs/sigil/components';
+import { createSpinner } from '@ttylabs/sigil/components/spinner';
 
 const spinner = createSpinner({ text: 'Resolving dependencies' }).start();
 

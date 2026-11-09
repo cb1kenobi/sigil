@@ -289,7 +289,7 @@ This command shows a progress bar:
 ```ts
 // src/commands/sync.ts
 import { command } from '@ttylabs/sigil';
-import { createProgress } from '@ttylabs/sigil/components';
+import { createProgress } from '@ttylabs/sigil/components/progress';
 
 export default command({
   desc: 'Sync the files',
@@ -395,7 +395,7 @@ worth testing in its own right:
 
 ```ts
 // src/ask.ts
-import { text } from '@ttylabs/sigil/components';
+import { text } from '@ttylabs/sigil/components/prompt';
 import type { Terminal } from '@ttylabs/sigil/terminal';
 
 export function askName(terminal?: Terminal): Promise<string> {
@@ -438,7 +438,7 @@ press keys with `press()`, and read the screen:
 ```ts
 // test/ask.test.ts
 import { askName } from '../src/ask.ts';
-import { PromptError } from '@ttylabs/sigil/components';
+import { PromptError } from '@ttylabs/sigil/components/prompt';
 import { createTestTerminal, ctrl, KEYS, tick } from '@ttylabs/sigil/testing';
 import { describe, expect, it } from 'vitest';
 

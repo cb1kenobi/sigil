@@ -433,6 +433,19 @@ prompt, and a full-screen app.
   output to capture. Sabotaged both ways: a test on the page asserting `7` for a
   sum of `6` fails the step and names `sum.test.ts > prints the total`, and a
   transcript claiming `16 passed (16)` fails it on the summary line.
+- **The nested vitest names its reporter and runs with `NO_COLOR`.** vitest picks
+  both from the environment: under a coding agent std-env's `isAgent` makes it
+  `minimal` and plain, and anywhere else -- CI included -- it is `default` and
+  coloured, because tinyrainbow colours unless `TERM` is `dumb` and never asks
+  the stream. So the first push matched locally and found none of the summary
+  lines on all nine CI jobs. `--reporter=default` and `NO_COLOR` make it one
+  answer, checked in both environments, and both sabotages still fail in the
+  CI-like one. The app's own tests are unaffected: `runOnTerminal()` clears
+  `NO_COLOR` in its child, and a test terminal reads no environment.
+- **A guide imports a component from its own subpath.** SIG-330 made
+  `@ttylabs/sigil/components/<file>` the recommended import, and `guides.test.ts`
+  refuses a guide block that imports from the barrel, as the website already
+  does for the component pages' examples.
 - **It sits third in `GUIDE_SLUGS`, after Getting started and Building a
   full-screen app and before the parser reference.** Its recipes test both
   kinds of app those two build, and both end in a "Test it" section that points
@@ -665,7 +678,10 @@ changes. The full before-and-after, the A/B runs and the sabotage passes are in
   sabotage type-checked and failed the tests it should.
 
 - **Recommended rather than done, because each changes a public API.** Per-
-  component subpaths: in a scratch build with a spinner as an entry of its own,
+  component subpaths -- done since, by SIG-330, under "A subpath per component"
+  in `src/components/AGENTS.md`, which also taught `staticGraph()` to follow a
+  `../` specifier out of `dist/components/` and added `shippedModules()` for the
+  checks over every shipped file: in a scratch build with a spinner as an entry of its own,
   that entry was 194,707 B over 29 modules and 8.4 ms to import, against 475,138
   over 41 and 15.4 ms for the barrel in the same build, so an unbundled one-spinner app would pay about half -- but that is new
   public surface on the package every app depends on, and the split would have to

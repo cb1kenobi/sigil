@@ -63,7 +63,7 @@ import {
   type Inspection,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
-import { table } from '@ttylabs/sigil/components';
+import { table } from '@ttylabs/sigil/components/table';
 import { relative, resolve } from 'node:path';
 
 /** Where a build goes when nobody says otherwise. */

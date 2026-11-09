@@ -2,7 +2,7 @@ import { COMPONENTS, FAMILIES, type ComponentEntry } from './components.ts';
 import { sgrRows } from './sgr.ts';
 import { tighten, type Row } from './terminal-rows.ts';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 
 /**
  * What the components pages read off disk: each component's capture, and its
@@ -27,7 +27,7 @@ export interface OptionDoc {
   readonly type: string;
 }
 
-/** A component's API, from `dist/components.d.mts`. */
+/** A component's API, from the declarations `dist/components.d.mts` re-exports. */
 export interface ComponentApi {
   /** The interface its options are, when it takes one. */
   readonly interface?: string;
@@ -111,6 +111,24 @@ const captures = new Map<string, ComponentCapture>();
  */
 export function exampleSource(file: string): string {
   return readFileSync(join(SRC, 'content', 'components', `${file}.mjs`), 'utf-8').trimEnd();
+}
+
+/**
+ * The subpath a component is imported from: `@ttylabs/sigil/components/<module>`,
+ * named after the module that declares it.
+ *
+ * The form the README recommends since SIG-330, because an app that imports one
+ * component through it loads that component and the stack it is drawn with
+ * rather than every other component too. Read off the capture's `source` rather
+ * than written beside each entry, since the package names each subpath after
+ * its file; `test/components.test.ts` asks the built subpath for every export a
+ * page lists, so a page cannot name one that does not have them.
+ *
+ * @param slug - Which component.
+ * @returns The specifier an app imports it with.
+ */
+export function componentSubpath(slug: string): string {
+  return `@ttylabs/sigil/components/${posix.basename(componentCapture(slug).source, '.ts')}`;
 }
 
 /**

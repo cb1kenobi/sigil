@@ -1,4 +1,4 @@
-import { sort } from '@ttylabs/sigil/components';
+import { sort } from '@ttylabs/sigil/components/sort';
 
 const order = await sort({
   message: 'Release order',

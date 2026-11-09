@@ -10,7 +10,7 @@
  * until the process ends and then arrives as a wall.
  *
  * ```js
- * import { captureConsole, createLogRing, enableDebugOverlay } from '@ttylabs/sigil/components';
+ * import { captureConsole, createLogRing, enableDebugOverlay } from '@ttylabs/sigil/components/debug-overlay';
  *
  * const log = createLogRing();
  * const capture = captureConsole(log);

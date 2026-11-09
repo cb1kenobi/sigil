@@ -710,10 +710,11 @@ ${
 ## Components
 
 The spinner, progress bar, table and prompts are in \`@ttylabs/sigil/components\`
-and need nothing installed:
+and need nothing installed. Import each from the subpath named after it, which
+loads that component and not the rest:
 
 \`\`\`js
-import { createSpinner } from '@ttylabs/sigil/components';
+import { createSpinner } from '@ttylabs/sigil/components/spinner';
 \`\`\`
 
 To restyle one, write an ordinary rule against the classes it draws with — that

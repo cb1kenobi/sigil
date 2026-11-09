@@ -1,4 +1,4 @@
-import { dist, graphBytes, staticBuiltins, staticGraph } from './static-graph.js';
+import { dist, graphBytes, shippedModules, staticBuiltins, staticGraph } from './static-graph.js';
 import { tempDir } from './temp.js';
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -34,7 +34,7 @@ function isControl(code: number): boolean {
 }
 
 describe('the shipped bundles', () => {
-  const files = readdirSync(dist).filter((name) => name.endsWith('.mjs'));
+  const files = shippedModules();
 
   it('should have been built', () => {
     // a missing `dist/` is a build that did not run, not a passing test
@@ -69,8 +69,7 @@ describe('the shipped bundles', () => {
     // styler cannot work without an `ESC`, and a build that dropped one would
     // pass the check above by being wrong
     const ansi = readFileSync(join(dist, 'ansi.mjs'), 'utf8');
-    const imported = readdirSync(dist)
-      .filter((name) => name.endsWith('.mjs'))
+    const imported = shippedModules()
       .map((name) => readFileSync(join(dist, name), 'utf8'))
       .join('');
 
@@ -318,9 +317,7 @@ describe('what importing the package costs', () => {
       // the presence half, for the reason the pair above gives: an absence over a
       // marker that is in no bundle is an assertion that cannot fail
       expect(
-        readdirSync(dist).filter(
-          (name) => name.endsWith('.mjs') && readFileSync(join(dist, name), 'utf8').includes(symbol)
-        ),
+        shippedModules().filter((name) => readFileSync(join(dist, name), 'utf8').includes(symbol)),
         symbol
       ).not.toEqual([]);
     }
@@ -495,7 +492,7 @@ describe('what importing the package costs', () => {
     // takes the graph to 253,201 B, about 29 kB more -- which is what the
     // palette does not cost
     const graph = staticGraph('components.mjs');
-    const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
+    const shipped = new Set(shippedModules());
 
     for (const marker of ['Extra arguments are not allowed', 'Missing required arguments']) {
       // the presence half first, because an absence alone passes forever the
@@ -632,7 +629,7 @@ describe('what importing the package costs', () => {
     // and `afterRun` both grew the graphs underneath. That is the staleness the
     // comment three hundred lines up is written about, and a merge moves these
     // figures exactly as an edit does
-    const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
+    const shipped = new Set(shippedModules());
     const printer = printerChunk();
 
     for (const marker of ['because the input is not a terminal', 'Choose at least one']) {
@@ -651,7 +648,7 @@ describe('what importing the package costs', () => {
     // command is on the parse path by construction, because a `choices` list
     // has to exist while the schema is built; the installer is two dynamic
     // imports past it
-    const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
+    const shipped = new Set(shippedModules());
     const root = staticGraph('index.mjs');
 
     for (const marker of ['was not written by sigil', 'bash-completion']) {
@@ -695,6 +692,15 @@ describe('what importing the package costs', () => {
     // the other entries are held to, and moving it either way would be a number
     // changed for its own sake. The audit is in src/testing/AGENTS.md
     //
+    // 496,422 B over 110 as of SIG-330, which gave every component a subpath of
+    // its own: the component code that was all in `components.mjs` is now one
+    // chunk per module so that a subpath loads only its own, and the barrel
+    // imports all of them. From 473,873 B over 38, and the 22.5 kB is the import
+    // and export statements between those chunks, which went from about 14 kB
+    // to 38 kB of the graph. The modules are what an unbundled import of the
+    // barrel pays for -- about 6 ms more, measured in src/components/AGENTS.md
+    // -- and the bytes are ordinary growth, so the ceiling stays, at 1.32x
+    //
     // A ceiling rather than a measurement, at about 1.4x, so ordinary growth
     // never touches it and a second runtime stack does
     const graph = staticGraph('components.mjs');
@@ -710,7 +716,7 @@ describe('what importing the package costs', () => {
   // `spinner-frames.ts` -- so a glyph only that file draws is asked of every
   // shipped file, beside one from each side of the built-ins as the presence half
   it.each(['✺', '⊶', '◰', '⣾', '◢'])('should leave the long-tail spinner glyph %s out', (glyph) => {
-    const shipped = new Set(readdirSync(dist).filter((name) => name.endsWith('.mjs')));
+    const shipped = new Set(shippedModules());
     expect(carriers(shipped, glyph)).toEqual([]);
   });
 
@@ -882,7 +888,8 @@ describe('the builtins an entry loads, and the ones it only asks for', () => {
  * entries that had none -- which was most of them, so an entry could double and
  * nothing would say so. In KiB; what each measured is the second figure, and it
  * is a measurement **as of SIG-328** rather than a claim about the tree, which
- * is the root AGENTS.md's rule about byte figures. The entries with a test of
+ * is the root AGENTS.md's rule about byte figures -- and as of SIG-330 for the
+ * `components/` subpaths, which that ticket added. The entries with a test of
  * their own keep it and are listed in `DEDICATED`, so that no entry has two
  * ceilings to disagree.
  */
@@ -890,6 +897,63 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   ansi: [16, 7_790],
   app: [400, 207_114],
   canvas: [76, 38_777],
+  // a component's subpath, as of SIG-330: its own module and the stack it is
+  // drawn with, which is most of every figure here
+  'components/autocomplete': [488, 248_844],
+  'components/badge': [316, 162_783],
+  'components/calendar': [484, 248_571],
+  'components/catalog': [6, 2_800],
+  'components/chart': [396, 201_844],
+  'components/clock': [384, 196_045],
+  'components/collapsible': [380, 193_603],
+  'components/date': [496, 253_149],
+  'components/debug-overlay': [272, 140_286],
+  'components/decrypt': [384, 196_337],
+  'components/diff': [488, 249_598],
+  'components/editing': [12, 5_876],
+  'components/editor': [480, 245_196],
+  'components/file-picker': [492, 252_742],
+  'components/fuzzy': [11, 5_500],
+  'components/group': [468, 240_621],
+  'components/group-multiselect': [476, 244_308],
+  'components/image': [344, 176_806],
+  'components/key-help': [332, 169_903],
+  'components/keys': [6, 2_860],
+  'components/large-text': [324, 165_478],
+  'components/list': [472, 241_986],
+  'components/log': [488, 248_992],
+  'components/log-stream': [20, 10_089],
+  'components/markdown': [516, 264_822],
+  'components/markdown-parse': [32, 15_970],
+  'components/masked-text': [476, 243_856],
+  'components/modal': [388, 198_373],
+  'components/mount': [372, 190_145],
+  'components/multi-progress': [384, 196_030],
+  'components/note': [316, 162_044],
+  'components/number': [480, 246_689],
+  'components/outline': [384, 195_717],
+  'components/pager': [428, 219_265],
+  'components/paginator': [380, 194_228],
+  'components/palette': [492, 252_125],
+  'components/path': [484, 248_156],
+  'components/progress': [380, 193_936],
+  'components/prompt': [468, 240_102],
+  'components/qrcode': [332, 169_062],
+  'components/rule': [320, 163_424],
+  'components/scroll-box': [268, 136_485],
+  'components/select-key': [476, 243_021],
+  'components/select-row': [480, 245_393],
+  'components/sort': [476, 242_891],
+  'components/spinner': [380, 194_847],
+  'components/table': [316, 162_282],
+  'components/tabs': [384, 196_349],
+  'components/tasks': [400, 203_977],
+  'components/text-field': [472, 242_489],
+  'components/toast': [380, 195_187],
+  'components/toggle': [472, 241_207],
+  'components/tooltip': [380, 195_074],
+  'components/tree': [512, 262_589],
+  'components/typewriter': [376, 192_912],
   element: [256, 131_505],
   'error-handler': [16, 8_422],
   help: [360, 184_164],
@@ -967,7 +1031,11 @@ describe('the update worker, baked in', () => {
     // the read is gone, so the file has no reason to be copied -- and leaving
     // it there would let a build that stopped baking go on working from
     // `node_modules` while every bundled app failed, which is this defect
-    expect(readdirSync(dist).filter((name) => name.includes('worker'))).toEqual([]);
+    expect(
+      readdirSync(dist, { recursive: true, encoding: 'utf8' }).filter((name) =>
+        name.includes('worker')
+      )
+    ).toEqual([]);
   });
 
   it('should carry the whole worker, not a truncated one', () => {
