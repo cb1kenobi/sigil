@@ -4,6 +4,7 @@ export {
   type ListControl,
   listControl,
   type ListItems,
+  listRowInset,
   type ListSelection,
   type ListSelectionOptions,
   ListView,

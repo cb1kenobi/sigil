@@ -1,8 +1,12 @@
 export {
   type Align,
+  cellOrder,
   type Column,
+  compareCells,
+  isTableCellView,
   table,
   type TableCell,
+  tableCell,
   tableCells,
   type TableCellView,
   type TableOptions,

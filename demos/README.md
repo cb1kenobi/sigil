@@ -384,6 +384,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/55-image.js`](components/55-image.js)                                       | A photograph in half blocks: fitted three ways, and RGBA with a soft edge |
 | [`components/56-panels.js`](components/56-panels.js)                                     | Panels with words in the border, and panes with an edge to drag           |
 | [`components/58-list-view.js`](components/58-list-view.js)                               | A list view over two thousand packages: filtered, ticked, updating live   |
+| [`components/63-data-table.js`](components/63-data-table.js)                             | A process table re-read every second: sorted, ticked, narrowed            |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -656,6 +657,17 @@ The filter is the app's -- a `Computed` over the field and `rankBy()` -- and `/`
 reaches it from anywhere, as a fallback. Tick a row, filter it out of sight, and
 clear the filter: it is still ticked. Piped, a scripted keyboard drives the same
 tree, with an update standing in for the clock, and prints it after each step.
+
+`63-data-table.js` is one `DataTable` over three hundred made-up processes in the
+shape htop draws them, sorted by CPU and re-read every second: every row object is
+replaced, a few processes exit and a few start, and the cursor and the ticks stay on
+their pids wherever the sort carries them. A click on a heading or a digit sorts --
+its first way, the other way, then back as the rows came -- and the arrow takes two
+columns every sortable heading already keeps back. Make the terminal narrower and the
+command column gives way to its minimum, and then RSS, USER and STATE are hidden,
+lowest priority first, while PID, CPU and the command stay; the footer's digits
+follow. Piped, a scripted keyboard drives the same tree, with a tick standing in for
+the clock and a second width for a resize.
 
 ### Try them without a terminal
 

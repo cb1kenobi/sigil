@@ -6,6 +6,7 @@ import {
   toDisplayLine,
 } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
+import { byCodeUnit } from '../util/by-code-unit.js';
 import { stringWidth } from '../width/index.js';
 import { colorLevelOf } from './color-level.js';
 
@@ -70,12 +71,13 @@ export interface TableCell {
  *
  * Checked by shape and not by class, so a view from another copy of the package
  * is one, and a plain object a row happens to hold -- which prints as
- * `[object Object]` -- is not unless it has both fields.
+ * `[object Object]` -- is not unless it has both fields. Exported for the data
+ * table, which sorts by a value and has to know the one shape that has no order.
  *
  * @param value - A cell.
  * @returns Whether it is a view.
  */
-function isView(value: unknown): value is TableCellView {
+export function isTableCellView(value: unknown): value is TableCellView {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -124,18 +126,134 @@ export function tableCells(
   ).map((column) => (typeof column === 'string' ? { header: column, key: column } : column));
 
   const cells = rows.map((row) =>
-    columns.map((column, i) => {
-      const value = tableValue(row, column, i);
-      if (isView(value)) {
-        return { text: '', view: value, width: Math.max(0, Math.floor(value.width)) };
-      }
-
-      const shown = value === undefined || value === null ? '' : toDisplayLine(String(value));
-      return { text: shown, width: stringWidth(shown) };
-    })
+    columns.map((column, i) => tableCell(tableValue(row, column, i)))
   );
 
   return { cells, columns, headers: columns.map((column) => toDisplayLine(column.header ?? '')) };
+}
+
+/**
+ * One cell, from what it holds: a view is drawn as itself and measured by its
+ * `width`, and anything else as one line of text -- `undefined` and `null` as
+ * nothing at all.
+ *
+ * What `tableCells()` does to every value it reads, given a name so that the data
+ * table, which reads its values one row at a time, builds a cell the same way.
+ *
+ * @param value - What the cell holds.
+ * @returns The cell.
+ */
+export function tableCell(value: unknown): TableCell {
+  if (isTableCellView(value)) {
+    return { text: '', view: value, width: Math.max(0, Math.floor(value.width)) };
+  }
+  const shown = value === undefined || value === null ? '' : toDisplayLine(String(value));
+  return { text: shown, width: stringWidth(shown) };
+}
+
+/**
+ * What a cell is ordered by, or `undefined` where it has nothing to be ordered by.
+ *
+ * Empty is a missing value, `null`, and the two numbers that are not one: `NaN`
+ * and an invalid `Date`. A boolean orders as the number it is.
+ *
+ * @param value - The cell's value.
+ * @returns A number, a bigint or a string, or `undefined`.
+ */
+function orderKey(value: unknown): bigint | number | string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isNaN(time) ? undefined : time;
+  }
+  if (typeof value === 'number') {
+    return Number.isNaN(value) ? undefined : value;
+  }
+  if (typeof value === 'bigint') {
+    return value;
+  }
+  if (typeof value === 'boolean') {
+    return Number(value);
+  }
+  return String(value);
+}
+
+/**
+ * Orders two cell values, the way a column sorts when it does not say.
+ *
+ * Numbers, bigints, dates and booleans order by what they are, so `9` comes
+ * before `10`. Anything else orders as the text it is, folded to lower case first
+ * so `alpha` sorts before `Zeta`, and by code unit after that -- not by
+ * `localeCompare()`, which needs ICU and is the lever a column's own `compare` is
+ * for. A number comes before a text where a column holds both, and a value that
+ * is empty comes after everything.
+ *
+ * Here rather than in `select-row.ts`, where it was written, because the data
+ * table sorts the same columns and a table element should not load a prompt to
+ * order its rows.
+ *
+ * @param a - One value.
+ * @param b - The other.
+ * @returns Negative where `a` comes first, positive where `b` does, and `0` where
+ *   neither does.
+ */
+export function compareCells(a: unknown, b: unknown): number {
+  const x = orderKey(a);
+  const y = orderKey(b);
+
+  if (x === undefined || y === undefined) {
+    return x === y ? 0 : x === undefined ? 1 : -1;
+  }
+
+  const textual = [typeof x === 'string', typeof y === 'string'];
+  if (textual[0] !== textual[1]) {
+    return textual[0] ? 1 : -1;
+  }
+  if (typeof x === 'string' && typeof y === 'string') {
+    return byCodeUnit(x.toLowerCase(), y.toLowerCase()) || byCodeUnit(x, y);
+  }
+  // a number, a bigint, a date's time or a boolean, which `<` orders across
+  // kinds where `byCodeUnit()` takes strings alone
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/**
+ * The order a sorted column runs in, as a comparator over the values its cells
+ * hold: the column's own `compare` or `compareCells()`, flipped for descending.
+ *
+ * Two rules sit around the comparison, and they are why this is one function
+ * that `selectRow()` and the data table both sort with rather than a line each.
+ * **An empty value goes last whichever way the column runs**, because "no value"
+ * has no place in an ascending order that reversing it would improve -- so a
+ * column's own `compare` is never handed one. And **a view has no order of its
+ * own**, so the default puts it with the empty values, where `String()` would
+ * have filed every one under `[object Object]`; a column's own `compare` is
+ * handed it, since whoever built the view knows what it stands for. Descending
+ * flips the comparison and not the list, so with a stable sort rows that tie keep
+ * the order they came in both ways.
+ *
+ * @param compare - The column's own order, if it has one.
+ * @param descending - Whether the column runs from the largest down.
+ * @returns A comparator for `Array.prototype.sort()`.
+ */
+export function cellOrder(
+  compare?: (a: unknown, b: unknown) => number,
+  descending = false
+): (a: unknown, b: unknown) => number {
+  const by = compare ?? compareCells;
+  const flip = descending ? -1 : 1;
+  const present = (value: unknown): boolean =>
+    isTableCellView(value) ? compare !== undefined : orderKey(value) !== undefined;
+  return (a, b) => {
+    const x = present(a);
+    const y = present(b);
+    if (!x || !y) {
+      return x ? -1 : y ? 1 : 0;
+    }
+    return by(a, b) * flip;
+  };
 }
 
 /**

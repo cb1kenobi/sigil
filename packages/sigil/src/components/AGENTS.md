@@ -10556,6 +10556,131 @@ will want and which is a `ScrollRows.width` passed through; wrapping at the ends
 which `select()` makes an option and nothing here has asked for; and a built-in
 filter field, for the reason above.
 
+### A data table: a list view with columns, a sort, and widths that hold still (SIG-281)
+
+`src/components/data-table.ts`. htop's process list, k9s's resource view and a
+database client's result grid, as one element: `table()` prints, `tableView()` is
+static and `selectRow()` is a prompt, and none of them holds rows that change every
+second while keeping the selection on the same row. How each question was settled,
+the probes and the sabotage pass are in
+[docs/history/a-data-table.md](../../../../docs/history/a-data-table.md).
+
+- **It is `DataTable`, and it is built on `ListView`, not beside it.** The ticket's
+  second question, and SIG-280 had already answered it by publishing its contract
+  for exactly this. The table is a host box holding a heading and a `ListView`
+  whose `row` function draws `tableRowView()` cells; the list's items are a
+  `Computed` that sorts the table's `rows`. So the windowing, the cursor and the
+  selection by key, Page Up and the double-click, the empty state, the focus role,
+  and every rule about what happens when the data changes are the list's answers,
+  reached rather than re-implemented -- the live-rows tests below pass through
+  `setRows()` and `follow()` and nothing of the table's. `Table` beside `table` in
+  one barrel would differ by a capital, the reason the list is not `List`.
+- **Row identity is `key`, and it defaults to the row, as the list's does.** The
+  ticket's first question. Required was considered -- a live table without one loses
+  its row every tick, which is exactly htop's complaint -- and refused, because the
+  default is right for static rows and wrong only for data fetched again, which the
+  prop's own documentation says in so many words. One rule for the list and the
+  table is worth more than a stricter one here.
+- **Live rows keep the selection and the view by the list's rules, unchanged.** A
+  new array re-keys; the cursor and the ticks stay on their keys wherever the sort
+  puts them; a key that went hands the cursor to the row that took its place; the
+  selection is never pruned. The view follows the cursor and only the cursor: a
+  tick that leaves the current row in view scrolls nothing, processes exiting above
+  the cursor carry it up the screen and the view moves only once it would leave the
+  top, by exactly that much, and a re-sort by a live column carries the row about
+  and keeps it on screen. **A wheel scroll away from the cursor is given up on the
+  tick a re-sort moves the cursor's row** -- the list's recorded rule ("a re-sort
+  that moves the current row is a move, and is followed"), kept rather than
+  overridden for the table, since a list sorted by something live has the same
+  question and one answer is better than two. A table sorted by something stable
+  holds a wheel scroll indefinitely, which is tested.
+- **Sorting is a click on a heading and a digit, three states, `selectRow()`'s.**
+  The column model is `selectRow()`'s -- `DataTableColumn extends SelectRowColumn`,
+  so one declaration prints a table, asks about one and shows one live -- and so are
+  the keys: a digit sorts by the column it numbers, a second press reverses, a third
+  puts the rows back as they came. The digit is the column's **declared** place, so
+  it never changes as the terminal narrows; a hidden column's digit is not claimed.
+  It arrives from the list, which claims no digit -- which is also why a table takes
+  no `find`: type-to-find claims every printable key, digits included.
+  `descendingFirst` is the one addition, for a column whose interesting end is the
+  top (CPU, memory, a date): htop's first sort by CPU is the busiest process, and a
+  table that needed two presses for that would teach the reader to press twice.
+- **One comparator, moved where both sorts can reach it.** `compareCells()` and the
+  empty-last rule were `selectRow()`'s, written inline in its `resort()`. They are
+  `table.ts`'s now -- `compareCells()` and `cellOrder(compare, descending)`, which
+  wraps a column's order with the two rules that have to be the same everywhere: an
+  empty value last whichever way the column runs, and a view with the empties unless
+  the column has its own `compare`. `select-row.ts` re-exports `compareCells()` so
+  nothing that imported it moves, and its `resort()` now calls `cellOrder()`; its
+  whole suite passes unchanged, and removing the empty-last guard from `cellOrder()`
+  fails three tests across both files. In `table.ts` rather than `select-row.ts`
+  because the data table should not load a prompt to order its rows.
+- **The sort reads the value; the cell draws the format.** `value(row)` is what a
+  cell holds -- the `key` property by default, as `tableValue()` reads it -- and
+  `format(value, row)` turns it into a string or a `TableCellView`. Splitting them
+  is what `selectRow()` could not do: there a cell was its value, so a view had no
+  order and a byte count drawn as `812M` sorted as text. Here RSS draws `812M` and
+  orders by the bytes, and a status column draws a badge and orders by its word.
+  `tableCell(value)` is `tableCells()`'s per-value step given a name, so a cell is
+  built one way in both.
+- **Column widths: `tableWidths()` measures, over the rows not measured yet, and a
+  column only grows.** The ticket's third question. `tableWidths()` over every row
+  on every update is the cost windowing avoids and a width that breathes: a live
+  CPU column is `0.0` one second and `100.0` the next, and every column to its right
+  would move with it. So a column keeps the widest cell it has held (`selectRow()`'s
+  "a table that holds still", for data that moves), and only row objects it has not
+  seen are measured -- a `WeakSet`, so an immutable update measures what changed.
+  `refresh()` measures from scratch, and replacing `columns` starts again. `width`
+  declares the width and skips measuring entirely, which a column of views wants:
+  a measured column formats every new row, and a badge is an element. A sortable
+  heading keeps two columns back for its arrow, `selectRow()`'s rule.
+- **Fitting is hide, narrow, grow -- in that order, in `fitColumns()`.** Columns are
+  hidden only while even their **minimums** do not fit, the lowest `priority`
+  first and the rightmost among equals (`fitKeyHelp()`'s rule for the footer, so the
+  two read alike); then columns with a `minWidth` below their width give way one
+  cell at a time from whichever has the most to give; then the room left over goes
+  to the columns with a `grow`, by share. `minWidth` defaults to the width, so no
+  column narrows unless it says it may. The last column standing is never hidden.
+  The room is learned through `onResize`, the tab row's and the text field's way,
+  less the list's pointer and mark columns and the scrollbar's gutter; before the
+  first layout every column is at its width.
+- **A wide table hides columns rather than scrolling sideways.** The ticket's fifth
+  question. Scrolling sideways scrolls the columns that say what a row _is_ -- the
+  pid, the name -- off the left edge, which is the one thing a reader needs on every
+  row, and it needs the heading kept in step with a second scroll offset, which is a
+  change to the list and the scroll box for a worse answer. Hiding by priority is
+  what htop and k9s do. `ScrollRows.width` stays unpassed.
+- **Resizing a column is the app's, by replacing `columns`.** `columns` may be a
+  `State` or a `Computed`, followed like `rows`: an app that binds `+` and `-` to a
+  column's `width`, or hides one from a menu, writes a new array and the table
+  measures, fits and rebuilds the rows in view. Dragging a heading's edge is not
+  done; the pane's drag (SIG-277) is the precedent if somebody asks.
+- **Cells are `TableCellView`s where they need to be, by `format`.** The ticket's
+  last question, and the answer is the one `table()` and `selectRow()` already
+  have: a cell is a string or a `{ element, width }`, measured by its `width` and
+  aligned by `align`, through the same `tableRowView()`.
+- **The heading lines up by `listRowInset()`.** The heading is outside the list, so
+  it has to be indented by what a list row spends before its content -- the pointer,
+  and the mark in a `multiple` list, each with its space. Those glyphs are
+  `list-view.ts`'s, so the one change to that file is an additive export,
+  `listRowInset({ ascii, multiple })`, counted in code points rather than through
+  `stringWidth()`, which would have put the width tables on the list's graph for
+  four fixed strings. Nothing else in `list-view.ts` or `scroll-box.ts` changed.
+- **Keys, focus and the describer.** The list inside the host is the focusable
+  element, which Tab reaches and `dataTableControl(table).list` names for an app's
+  `focus()`; the host owns `onKey` (the digits) and `onResize`, and refuses both in
+  `props`. `describeDataTable()` describes the list's keys and a digit per column on
+  screen that sorts, from an effect over the shown columns, so a resize that hides
+  a column takes its digit out of the footer and a resize that brings it back puts
+  it back: `selectRow()`'s "the footer names no digit that does nothing".
+
+**Not done:** a cell cursor and Left/Right, which `selectRow()` refused for the
+reason it gives; type-to-find, for the digits; dragging a column's edge; a
+horizontal axis, above; a range selection, the list's; and moving
+`examples/system-monitor` onto it, which is a change to that app's behaviour (it
+keeps the selection on a **row position** on purpose, its README says so) and
+belongs to whoever owns it.
+
 ### Components that take `props`
 
 - **A component's `props` may not carry a hook it owns (SIG-305, review round 1).**
@@ -10586,6 +10711,7 @@ filter field, for the reason above.
   | `TextField`     | `onKey`, `onPaste`, `onFocusChange`, `onResize` |
   | `ScrollBox`     | `onKey`, `onMouse`                              |
   | `ListView`      | `onKey`, `onFocusChange`                        |
+  | `DataTable`     | `onKey`, `onResize`                             |
   | `createPager`   | `onKey`                                         |
   | `tabRowView`    | `onKey`, `onFocusChange`, `onResize`            |
   | `openModal`     | `onPaste` (on the panel)                        |

@@ -481,6 +481,28 @@ const MARKS = {
   unicode: { off: '◯', on: '◉', pointer: '❯' },
 } as const;
 
+/**
+ * How many columns a row spends before its content: the pointer and the space
+ * after it, and in a `multiple` list the mark and the space after that.
+ *
+ * Published for a component that draws something over the rows and has to line
+ * it up with what is inside them -- a table's heading over its cells (SIG-281).
+ * Asked here rather than worked out there, because the glyphs are this file's.
+ *
+ * @param opts - Whether the list draws in ASCII, which defaults as `ascii` does,
+ *   and whether it is `multiple`.
+ * @returns The columns, which is where a row's content starts.
+ */
+export function listRowInset(opts: { ascii?: boolean; multiple?: boolean } = {}): number {
+  const marks = (opts.ascii ?? !unicodeSupported()) ? MARKS.ascii : MARKS.unicode;
+  // every glyph in `MARKS` is one cell a character, so its length in code points is
+  // its width -- counted rather than measured, since `stringWidth()` would put the
+  // width tables on this module's graph for four fixed strings. The `+ 1` is the
+  // `margin-right: 1` the pointer and the mark are each built with
+  const cells = (glyph: string): number => [...glyph].length;
+  return cells(marks.pointer) + 1 + (opts.multiple ? cells(marks.off) + 1 : 0);
+}
+
 /** The keys that move the cursor, which Shift turns into something this list leaves alone. */
 const MOVES = new Set(['down', 'end', 'home', 'pagedown', 'pageup', 'up']);
 

@@ -1,0 +1,143 @@
+{
+  "api": {
+    "interface": "DataTableProps",
+    "options": [
+      {
+        "description": "The columns, in the order they are drawn. A string is a column whose heading and `key` are that string. A `State` or a `Computed` of them is followed, which is how an app hides a column, adds one or changes a width: replace the array.",
+        "name": "columns",
+        "optional": false,
+        "type": "DataTableColumns<T>"
+      },
+      {
+        "description": "The rows. An array is fixed; a `State` or a `Computed` is followed, keeping the cursor and the selection on their keys and rebuilding the rows on screen whose row is a different object than before. Replace the array to change it, and replace a row to change that row.",
+        "name": "rows",
+        "optional": false,
+        "type": "readonly T[] | ListItems<T>"
+      },
+      {
+        "description": "Draw the pointer, the marks and the sort arrow with ASCII only.",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The current row, as its key, or the state that holds it: `ListView`'s `current`.",
+        "name": "current",
+        "optional": true,
+        "type": "K | State<K | undefined>"
+      },
+      {
+        "description": "Whether a row is disabled: drawn muted and passed over, as in a list.",
+        "name": "disabled",
+        "optional": true,
+        "type": "(row: T) => boolean"
+      },
+      {
+        "description": "What to show under the heading when there are no rows. Defaults to \"Nothing to show\".",
+        "default": "\"Nothing to show\"",
+        "name": "empty",
+        "optional": true,
+        "type": "string | (() => Element)"
+      },
+      {
+        "description": "The columns between one column and the next. Defaults to 2, as for `table()`.",
+        "default": "2",
+        "name": "gap",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Whether to draw the heading. Defaults to `true` when any column has one.",
+        "default": "`true` when any column has one",
+        "name": "head",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "What identifies a row, which the cursor and the selection hold. Defaults to the row itself, which is right for rows that are never replaced; rows fetched again every second -- a process list -- want their own id here, or the cursor loses its row on every update.",
+        "default": "the row itself",
+        "name": "key",
+        "optional": true,
+        "type": "(row: T) => K"
+      },
+      {
+        "description": "Whether more than one row can be selected, as in a list.",
+        "name": "multiple",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Called with the current row's key and the row on Enter or a double-click.",
+        "name": "onActivate",
+        "optional": true,
+        "type": "(key: K, row: T) => void"
+      },
+      {
+        "description": "The host box's own props: a height, a border, a class.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementPropsWithout<\"onKey\" | \"onResize\">"
+      },
+      {
+        "description": "Whether to draw a scrollbar. Defaults to `true`.",
+        "default": "`true`",
+        "name": "scrollbar",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The selected rows, as keys, or the state that holds them: `ListView`'s `selected`.",
+        "name": "selected",
+        "optional": true,
+        "type": "Iterable<K> | State<ReadonlySet<K>>"
+      },
+      {
+        "description": "What the rows are sorted by, or the state that holds it: a value is where it starts, a `State` is the state itself, which a click on a heading and a digit write and an app may write. Left out, the rows are in the order they came.",
+        "name": "sort",
+        "optional": true,
+        "type": "DataTableSort | State<DataTableSort | undefined>"
+      },
+      {
+        "description": "`j`, `k`, `g` and `G`, as in a list.",
+        "name": "vim",
+        "optional": true,
+        "type": "boolean"
+      }
+    ],
+    "shared": [],
+    "signature": "function DataTable<T, K = T>(props: DataTableProps<T, K>): Element"
+  },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "home",
+        "end",
+        "pageUp",
+        "pageDown",
+        "tab",
+        "shiftTab"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
+  "registryDescription": "A data table: a list view with a sortable heading, columns fitted to the width, and live rows that keep the selection",
+  "source": "packages/sigil/src/components/data-table.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "    \u001b[1mPID\u001b[0m    \u001b[1mCPU%\u001b[0m  \u001b[1mMEM% ▼\u001b[0m  \u001b[1mCOMMAND\u001b[0m\n    907     4.2     8.6  postgres: wri…\u001b[36m█\u001b[0m\n\u001b[7;36m❯\u001b[0m   \u001b[7m412\u001b[0m    \u001b[7m12.5\u001b[0m     \u001b[7m3.1\u001b[0m  \u001b[7mnode server.js\u001b[0m\u001b[36m█\u001b[0m\n   1180    31.2     2.4  WindowServer  \u001b[36m█\u001b[0m\n      1     0.1     0.2  launchd       \u001b[36m█\u001b[0m\n   2216     0.3     0.1  zsh           \u001b[36m█\u001b[0m"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "    \u001b[1mPID\u001b[0m  \u001b[1mUSER\u001b[0m             \u001b[1mCPU%\u001b[0m  \u001b[1mMEM% ▼\u001b[0m  \u001b[1mCOMMAND\u001b[0m\n    907  postgres          4.2     8.6  postgres: writer                       \u001b[36m█\u001b[0m\n\u001b[7;36m❯\u001b[0m   \u001b[7m412\u001b[0m  \u001b[7mchris\u001b[0m            \u001b[7m12.5\u001b[0m     \u001b[7m3.1\u001b[0m  \u001b[7mnode server.js\u001b[0m                         \u001b[36m█\u001b[0m\n   1180  _windowserver    31.2     2.4  WindowServer                           \u001b[36m█\u001b[0m\n      1  root              0.1     0.2  launchd                                \u001b[36m█\u001b[0m\n   2216  chris             0.3     0.1  zsh                                    \u001b[36m█\u001b[0m"
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import { Collapsible } from '../../src/components/collapsible.js';
+import { DataTable } from '../../src/components/data-table.js';
 import { ListView } from '../../src/components/list-view.js';
 import { openModal } from '../../src/components/modal.js';
 import { createPager } from '../../src/components/pager.js';
@@ -92,6 +93,13 @@ const CASES: Case[] = [
     make: (props) => ({ element: ListView({ items: ['a', 'b'], props: props as never }) }),
     name: 'ListView',
     owns: ['onKey', 'onFocusChange'],
+  },
+  {
+    make: (props) => ({
+      element: DataTable({ columns: ['a'], rows: [{ a: 1 }], props: props as never }),
+    }),
+    name: 'DataTable',
+    owns: ['onKey', 'onResize'],
   },
   {
     make: (props) => ({ element: createPager({ content: 'a\nb', props: props as never }).element }),

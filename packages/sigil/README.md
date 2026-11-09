@@ -5033,6 +5033,94 @@ over whatever rows it was last handed with `setRows(keys, disabled)` -- for a
 component that draws its own rows, a table or a tree, and wants the same answer
 the list gives.
 
+#### A data table
+
+```js
+import { DataTable, describeDataTable } from '@ttylabs/sigil/components/data-table';
+import { State } from '@ttylabs/sigil/signals';
+
+const processes = new State(await readProcesses());
+const table = DataTable({
+  rows: processes, // a State or a Computed is followed
+  key: (p) => p.pid, // what the cursor and the selection hold
+  columns: [
+    { key: 'pid', header: 'PID', align: 'right' },
+    { key: 'user', header: 'USER', priority: -1 }, // the first to go when narrow
+    { key: 'cpu', header: 'CPU%', align: 'right', descendingFirst: true },
+    { key: 'rss', header: 'RSS', align: 'right', format: formatBytes },
+    { key: 'command', header: 'COMMAND', grow: 1, minWidth: 10 },
+  ],
+  sort: { column: 'cpu', descending: true },
+  props: { height: 20 },
+});
+
+setInterval(async () => processes.set(await readProcesses()), 1000);
+describeDataTable(input, table); // for keyHelp(), once the router exists
+```
+
+```
+      PID  USER             CPU% ▼    RSS  COMMAND
+❯     412  chris            12.5   812M  node server.js
+     1180  _windowserver     3.1   402M  WindowServer
+        1  root              0.1    18M  launchd
+```
+
+htop's process list, k9s's resource view, a database client's result grid: a
+`ListView` whose rows have columns, with a heading over them that sorts. Everything
+the list does it does here -- only the rows on screen are built; **Up**, **Down**,
+**Page Up**, **Page Down**, **Home** and **End** move the cursor; `multiple`,
+`disabled`, `onActivate`, `empty` and `vim` mean what they mean there -- because the
+rows _are_ a list's, built through `row`. `rows` replaces `items`, as `table()` and
+`selectRow()` call their data.
+
+**Rows that change every second keep the selection.** Rows are identified by
+`key`, so a new array of rows keeps the cursor and the ticks on their keys wherever
+the sort puts them, a row whose process exited hands the cursor to the row that took
+its place, and only the rows whose object was replaced are rebuilt. The view follows
+the cursor and nothing else: an update that leaves the current row in view does not
+scroll, so a table sorted by something stable holds still while its numbers change,
+and one sorted by CPU carries the cursor's row about and keeps it on screen. Without
+a `key` a row is its own object, so data fetched again every second wants one.
+
+**Sorting** is a click on a heading or a digit -- `1` sorts by the first column, `2`
+by the second -- and the arrow `▲` or `▼` (`^`/`v` in ASCII) goes on the heading. The
+first press sorts the column its first way, which is ascending unless the column says
+`descendingFirst`, the second the other way, and the third puts the rows back in the
+order they came. `sort` is where it starts, or a `State` the clicks and digits write
+and the app may write; the names it takes are the columns' `key`s, or their places --
+`'0'`, `'1'` -- for a column with none. The default order is `selectRow()`'s: numbers,
+dates and booleans by what they are, text case-folded, and an empty value last both
+ways. A column's `compare(a, b)` replaces it, `sortable: false` takes the column out,
+and the sort reads what the cell holds rather than what it draws: `value(row)` says
+what that is for a cell the `key` cannot reach, and `format(value, row)` turns it into
+a string or a `TableCellView` such as `badgeView()` returns, so `RSS` can draw `812M`
+and order by the bytes. Rows that tie keep the order they were handed in.
+
+**Column widths.** A column is as wide as its heading and the widest cell it has
+held, up to `maxWidth`, with two columns kept back on a sortable heading for the
+arrow; it grows when a wider cell arrives and does not give the width back when that
+row goes, so a live table does not shift under the reader every tick. `width`
+declares the width instead, which is what a large table or a column of views wants:
+a measured column formats every row it has not seen. When the table is wider than
+that, the room left over goes to the columns with a `grow`, in proportion; when it
+is narrower, a column with a `minWidth` gives way toward it first, and then columns
+are **hidden** -- the lowest `priority` first, the rightmost among equals -- rather
+than scrolled sideways, so the columns that say what a row is stay on screen. A
+hidden column's digit does nothing until it is back. `columns` may be a `State`: an
+app hides a column, adds one or changes a width by replacing the array.
+
+The heading row is `.sigil-data-table-head`, its cells `.sigil-table-head
+.sigil-heading` with `is-sortable` and `is-sorted`, and each row's cells are
+`table()`'s, `.sigil-table-row` and `.sigil-table-cell`, inside the list's row.
+`.sigil-data-table` is the host and `props` goes on it; the list inside it,
+`.sigil-data-table-body`, is the element that takes the focus, which Tab reaches.
+`dataTableControl(table)` is the handle: the list's `selection`, `scroll`,
+`reveal()` and `activate()`, and `list` (the focusable element), `sort`,
+`sortBy(column)`, `shown()` (the columns on screen) and `refresh()`, which measures
+again and rebuilds the rows in view for rows changed in place.
+`describeDataTable(input, ...tables)` describes the list's keys and a digit for
+each column on screen that sorts, which a footer folds into `1/2/3 sort`.
+
 #### A panel
 
 ```js

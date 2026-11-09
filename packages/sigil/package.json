@@ -86,6 +86,10 @@
       "types": "./dist/components/console-capture.d.mts",
       "default": "./dist/components/console-capture.mjs"
     },
+    "./components/data-table": {
+      "types": "./dist/components/data-table.d.mts",
+      "default": "./dist/components/data-table.mjs"
+    },
     "./components/date": {
       "types": "./dist/components/date.d.mts",
       "default": "./dist/components/date.mjs"
