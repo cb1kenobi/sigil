@@ -8,6 +8,7 @@ import {
   root,
   run,
   steps,
+  TEST_ENV,
   write,
 } from './guides.ts';
 import { tempDir } from './temp.ts';
@@ -131,7 +132,7 @@ for (const guide of GUIDES) {
       } else if (step.kind === 'test') {
         it(`should pass the tests it shows for \`$ ${step.typed}\``, async () => {
           upTo(index);
-          const ran = await run(dir, step.argv, environment(all, {}));
+          const ran = await run(dir, step.argv, environment(all, TEST_ENV));
 
           // the whole output on failure, since it is what says which test failed
           expect(ran.code, ran.output).toBe(0);

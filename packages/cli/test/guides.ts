@@ -43,6 +43,13 @@ const vitest = dirname(require.resolve('vitest/package.json'));
  * is `vitest run`, and this is vitest's bin under the link `prepare()` makes.
  * Run with node directly rather than through `npm`, the way a `my-cli` line is
  * `node dev.ts` rather than `npm run dev`: no package manager is involved.
+ *
+ * The reporter is named because vitest picks one from the environment: `minimal`
+ * when std-env detects a coding agent, `default` otherwise, and `github-actions`
+ * on top of it on CI. The first time this ran on CI it was a different reporter
+ * and in colour, where it had been neither on the machine it was written on, so
+ * the transcript's summary lines were in the output and matched nothing. See
+ * `TEST_ENV` for the colour.
  */
 const VITEST = [
   join(
@@ -52,7 +59,20 @@ const VITEST = [
       .bin.vitest
   ),
   'run',
+  '--reporter=default',
 ];
+
+/**
+ * What a `$ npm test` step adds to `environment()`: no colour.
+ *
+ * vitest colours its summary whenever tinyrainbow says so, which is on unless
+ * `TERM` is `dumb` and is never asked of the stream -- so a pipe on CI is
+ * coloured, and only an agent's environment had made it plain locally, since
+ * vitest turns colour off for one. `NO_COLOR` outranks every input it reads.
+ * The app's own tests are unaffected: `runOnTerminal()` clears `NO_COLOR` in its
+ * child, and a test terminal reads no environment at all.
+ */
+export const TEST_ENV: Readonly<Record<string, string>> = { NO_COLOR: '1' };
 
 export interface Guide {
   /** The markdown file, under `packages/sigil/docs/`. */
