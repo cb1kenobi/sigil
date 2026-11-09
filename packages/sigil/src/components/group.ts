@@ -1,8 +1,8 @@
-import { ansi as defaultAnsi } from '../ansi/index.js';
 import { box, renderToString, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
+import { colorLevelOf } from './color-level.js';
 import { mountLevel } from './mount.js';
 import { PromptBack, PromptError } from './prompt.js';
 
@@ -239,7 +239,7 @@ function frame(kind: keyof typeof MARKS, message: string, opts: FrameOptions): v
 
   const out = renderToString(tree, {
     cascade: themedCascade(opts),
-    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    colorLevel: colorLevelOf(opts, opts.terminal),
     width: Math.max(1, terminal.width),
   });
   terminal.writeErr(`${out}\n`);

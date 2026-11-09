@@ -1563,6 +1563,11 @@ decided once, for all of them. The runs and the sabotage passes are in
   publish it. `INTERNAL` in `test/component-subpaths.test.ts` is where an
   exception is written, with its reason, so that the next one is a decision.
 
+  `color-level` is the second, for the same reason: SIG-309 put the one rule for
+  a component's colour level in its own module and called it from 23 component
+  sites, so most ejected components import it as a sibling. It was already in
+  the barrel, so its subpath adds a path rather than a name.
+
   `console-capture` is the first module the rule met after it was written, and
   it is a subpath for the registry's reason, not an exception. SIG-310 moved the
   log ring and the console patch out of `debug-overlay.ts` so that `runApp()`

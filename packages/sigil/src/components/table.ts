@@ -1,4 +1,3 @@
-import { ansi as defaultAnsi } from '../ansi/index.js';
 import {
   box,
   type Element,
@@ -8,6 +7,7 @@ import {
 } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
+import { colorLevelOf } from './color-level.js';
 
 export type Align = 'left' | 'right' | 'center';
 
@@ -325,7 +325,7 @@ export function table(rows: readonly TableRow[], opts: TableOptions = {}): strin
   // column bounded says so with that column's `maxWidth`
   return renderToString(element, {
     cascade: themedCascade(opts),
-    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    colorLevel: colorLevelOf(opts),
     width,
   });
 }

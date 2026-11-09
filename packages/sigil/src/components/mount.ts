@@ -35,13 +35,13 @@
  * than left to a type error somebody may not connect to this.
  */
 
-import { ansi as defaultAnsi } from '../ansi/index.js';
 import { type CanvasBackend, createSinkCanvas } from '../canvas/index.js';
 import type { Element } from '../element/index.js';
 import { render, type Renderer } from '../renderer/index.js';
 import { type OutputLevel, resolveOutput } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
+import { colorLevelOf } from './color-level.js';
 
 export interface MountOptions extends StyledOptions {
   /** Where frames go. Defaults to an inline canvas that follows its content. */
@@ -215,7 +215,7 @@ export function mountLive(
     // the one statement above the request
     backend: level === 'quiet' ? createSinkCanvas({ terminal }) : opts.backend,
     cascade,
-    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    colorLevel: colorLevelOf(opts, terminal),
     // passed on as well as into the cascade, because `readMedia()` rebuilds the
     // whole media context and would otherwise drop it: `themedCascade()` sets the
     // scheme and the renderer then overwrites it on the first frame. Found by

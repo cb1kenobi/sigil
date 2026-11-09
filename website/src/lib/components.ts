@@ -689,6 +689,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'ESCAPE_TIMEOUT',
     'PROMPT_SYMBOLS',
     'TOKEN_ROLE',
+    'colorLevelOf',
     'fieldLayers',
     'forcedAccessible',
     'layoutField',

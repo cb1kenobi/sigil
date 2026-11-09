@@ -921,6 +921,8 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/chart': [396, 201_844],
   'components/clock': [384, 196_045],
   'components/collapsible': [380, 193_603],
+  // added when SIG-309 gave every component one colour-level rule
+  'components/color-level': [16, 7_639],
   // added when SIG-310 split the ring and the console patch out of the overlay
   'components/console-capture': [4, 1_573],
   'components/date': [496, 253_149],

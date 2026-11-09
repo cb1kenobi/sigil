@@ -74,6 +74,10 @@
       "types": "./dist/components/collapsible.d.mts",
       "default": "./dist/components/collapsible.mjs"
     },
+    "./components/color-level": {
+      "types": "./dist/components/color-level.d.mts",
+      "default": "./dist/components/color-level.mjs"
+    },
     "./components/console-capture": {
       "types": "./dist/components/console-capture.d.mts",
       "default": "./dist/components/console-capture.mjs"

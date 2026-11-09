@@ -1,4 +1,7 @@
 import { runOnTerminal } from '../../src/testing/spawn.js';
+import { alt, ctrl, KEYS } from '../../src/testing/terminal.js';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -382,5 +385,364 @@ describe('runOnTerminal()', () => {
         timeout: 300,
       })
     ).rejects.toThrow(/did not finish within 300ms/);
+  });
+});
+
+/**
+ * A child shaped like a full-screen program: raw mode on, the alternate screen,
+ * a line per read it gets, and `q` to leave -- giving the screen back first.
+ */
+const FULLSCREEN = `
+const ESC = String.fromCharCode(27);
+process.stdin.setRawMode(true);
+process.stdin.setEncoding('utf8');
+process.stdout.write(ESC + '[?1049h' + ESC + '[?25l' + ESC + '[H' + 'ready');
+let row = 1;
+process.stdin.on('data', (data) => {
+  if (data === 'q') {
+    process.stdin.setRawMode(false);
+    process.stdout.write(ESC + '[?25h' + ESC + '[?1049l');
+    process.exit(0);
+  }
+  process.stdout.write(ESC + '[' + ++row + ';1H' + 'got ' + JSON.stringify(data));
+});
+`;
+
+describe('runOnTerminal() with a terminal on stdin', () => {
+  it('should make stdin answer the way a terminal does, and record raw mode', async () => {
+    const run = runOnTerminal({
+      source: `
+        const was = process.stdin.isRaw;
+        const returned = process.stdin.setRawMode(true) === process.stdin;
+        process.stdout.write(JSON.stringify({
+          isTTY: process.stdin.isTTY, was, returned, now: process.stdin.isRaw,
+        }));
+        process.stdin.setRawMode(false);
+        process.stdout.write(String(process.stdin.isRaw));
+      `,
+      stdin: true,
+    });
+    const ran = await run;
+
+    expect(ran.err).toBe('');
+    expect(ran.out).toBe('{"isTTY":true,"was":false,"returned":true,"now":true}false');
+  });
+
+  it('should leave stdin as it always was unless asked, which ends at once', async () => {
+    // a program that reads stdin to the end would hang on a pipe nobody closes,
+    // where it used to get end-of-file; so a terminal on stdin is opt-in, and
+    // `tty: true` is still the output streams only
+    const ran = await runOnTerminal({
+      source: `
+        process.stdout.write(String(process.stdin.isTTY ?? false));
+        process.stdin.on('data', () => {});
+        process.stdin.on('end', () => process.stdout.write(' ended'));
+      `,
+    });
+
+    expect(ran.out).toBe('false ended');
+  });
+
+  it('should deliver keys in the order they were pressed, to a program holding stdin open', async () => {
+    // the bytes, joined: a pipe promises the order and not the boundaries, and
+    // two writes in quick succession arrive as one read here more often than not
+    const run = runOnTerminal({
+      source: `
+        let all = '';
+        process.stdin.setRawMode(true);
+        process.stdin.setEncoding('utf8');
+        process.stdin.on('data', (data) => {
+          all += data;
+          process.stdout.write('\\rall=' + JSON.stringify(all));
+          if (all.endsWith('q')) process.exit(0);
+        });
+        process.stdout.write('ready');
+      `,
+      stdin: true,
+    });
+    await run.waitFor('ready');
+
+    await run.press('a', KEYS.up, ctrl('c'));
+    await run.press(alt('x'), KEYS.enter, 'q');
+    const ran = await run;
+
+    expect(ran.out).toContain(`all=${JSON.stringify('a\u001b[A\u0003\u001bx\rq')}`);
+    expect(ran.code).toBe(0);
+  });
+
+  it('should send a paste as one read with the markers a terminal writes', async () => {
+    const run = runOnTerminal({
+      source: `
+        process.stdin.setEncoding('utf8');
+        process.stdin.on('data', (data) => {
+          process.stdout.write(JSON.stringify(data) + '\\n');
+          process.exit(0);
+        });
+      `,
+      stdin: true,
+    });
+    await run.paste('one\ntwo');
+    const ran = await run;
+
+    expect(JSON.parse(ran.out)).toBe('\u001b[200~one\ntwo\u001b[201~');
+  });
+
+  it('should replay the child as a screen, which is what a diff of frames needs', async () => {
+    const run = runOnTerminal({ columns: 40, rows: 6, source: FULLSCREEN, stdin: true });
+    await run.waitFor('ready');
+
+    expect(run.screen.alternate).toBe(true);
+    expect(run.screen.cursorHidden).toBe(true);
+    expect(run.viewport[0]).toBe('ready');
+    expect(run.screen.width).toBe(40);
+    expect(run.viewport).toHaveLength(6);
+
+    await run.press('z');
+    await run.waitFor('got "z"');
+    expect(run.viewport[1]).toBe('got "z"');
+
+    await run.press('q');
+    await run;
+    // and it gave the screen back, which is the claim a full-screen app makes
+    expect(run.screen.alternate).toBe(false);
+    expect(run.screen.cursorHidden).toBe(false);
+  });
+
+  it('should read the screen with a pattern as well as with text', async () => {
+    const run = runOnTerminal({ source: FULLSCREEN, stdin: true });
+    await run.waitFor(/^re+ady$/m);
+    run.kill();
+    await run;
+  });
+
+  it('should look at what is showing, not at everything that was ever written', async () => {
+    // a frame is a diff, so the bytes of a repaint hold text that is no longer
+    // there: matching them would find the old frame and report it as on screen
+    const run = runOnTerminal({
+      source: `
+        const ESC = String.fromCharCode(27);
+        process.stdout.write('old line');
+        setTimeout(() => process.stdout.write(ESC + '[H' + 'new line'), 50);
+      `,
+    });
+
+    await run.waitFor('new line');
+    // gone from the screen, so the wait cannot succeed -- whether the program
+    // has exited by now or the timeout comes first, it says what it was after
+    await expect(run.waitFor('old line', { timeout: 100 })).rejects.toThrow(/"old line"/);
+    expect(run.output).toContain('old line');
+    await run;
+  });
+
+  it('should report a sequence the model has no answer for where the test is reading', async () => {
+    // thrown from a `data` handler it would be an uncaught exception in the
+    // runner, with no test to blame; remembered, it is the reader's to meet
+    const run = runOnTerminal({
+      source: `process.stdout.write(String.fromCharCode(27) + '[5Zthen text');`,
+    });
+    await run;
+
+    await expect(run.waitFor('text')).rejects.toThrow(/unmodelled sequence/);
+    expect(() => run.viewport).toThrow(/unmodelled sequence/);
+    expect(() => run.lines).toThrow(/unmodelled sequence/);
+    // and the screen itself, which would otherwise answer from a model that stopped
+    // listening: `alternate` and `cursorHidden` frozen at what they were
+    expect(() => run.screen).toThrow(/unmodelled sequence/);
+  });
+
+  it('should leave no timer behind once a wait is over', async () => {
+    const timers = () => process.getActiveResourcesInfo().filter((it) => it === 'Timeout').length;
+    const before = timers();
+
+    const run = runOnTerminal({ source: `process.stdout.write('hi');` });
+    await run.waitFor('hi', { timeout: 60_000 });
+    await run;
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(timers()).toBeLessThanOrEqual(before);
+  });
+
+  it('should not break the screen model on what a program asks the terminal', async () => {
+    // before its first frame an app asks what the terminal is -- device
+    // attributes, the version, a mode report -- and none of those draws. The
+    // model threw on the first of them, which for output replayed as it
+    // arrives was every full-screen app there is
+    const run = runOnTerminal({
+      source: `
+        const ESC = String.fromCharCode(27);
+        process.stdout.write(ESC + '[>q' + ESC + '[c' + ESC + '[?2026$p' + ESC + '[14t' + ESC + '[6n' + 'drawn');
+      `,
+    });
+    await run.waitFor('drawn');
+    expect(run.viewport[0]).toBe('drawn');
+    await run;
+  });
+
+  it('should decode a character split across two writes before the screen sees it', async () => {
+    const run = runOnTerminal({
+      source: `
+        const bytes = Buffer.from('日本');
+        process.stdout.write(bytes.subarray(0, 2));
+        setTimeout(() => process.stdout.write(bytes.subarray(2)), 50);
+      `,
+    });
+    await run.waitFor('日本');
+    expect(run.viewport[0]).toBe('日本');
+    await run;
+  });
+
+  it('should reject a wait the program exited before satisfying, showing the screen', async () => {
+    const run = runOnTerminal({ source: `process.stdout.write('goodbye');`, stdin: true });
+
+    await expect(run.waitFor('hello')).rejects.toThrow(/exited before.*"hello".*goodbye/s);
+    await run;
+  });
+
+  it('should reject a wait that times out, and leave no timer or process behind', async () => {
+    const run = runOnTerminal({ source: 'setInterval(() => {}, 1000);', stdin: true });
+
+    await expect(run.waitFor('never', { timeout: 100 })).rejects.toThrow(
+      /did not show "never" within 100ms/
+    );
+    run.kill();
+    expect((await run).signal).toBe('SIGTERM');
+  });
+
+  it('should refuse to type into a run that was not given a terminal on stdin', async () => {
+    const run = runOnTerminal({ source: `process.stdout.write('x');` });
+
+    await expect(run.press('a')).rejects.toThrow(/stdin: true/);
+    await expect(run.paste('a')).rejects.toThrow(/stdin: true/);
+    await run;
+  });
+
+  it('should refuse to type into a program that has gone', async () => {
+    const run = runOnTerminal({ source: 'void 0;', stdin: true });
+    await run;
+
+    await expect(run.press('a')).rejects.toThrow(/already exited/);
+  });
+
+  it('should refuse what is not text, naming the method, as the in-process terminal does', async () => {
+    const run = runOnTerminal({ source: 'setTimeout(() => {}, 100);', stdin: true });
+
+    await expect(run.press(undefined as never)).rejects.toThrow(/press\(\) takes the reads/);
+    await expect(run.paste(undefined as never)).rejects.toThrow(/paste\(\) takes the text/);
+    await expect(run.waitFor(42 as never)).rejects.toThrow(/waitFor\(\) takes text or a pattern/);
+    await run;
+  });
+
+  it('should reject every method of a run that was refused, with the refusal', async () => {
+    const run = runOnTerminal({});
+
+    await expect(run).rejects.toThrow(/exactly one/);
+    await expect(run.press('a')).rejects.toThrow(/exactly one/);
+    await expect(run.waitFor('a')).rejects.toThrow(/exactly one/);
+    expect(run.viewport).toHaveLength(24);
+  });
+
+  describe('when the run fails', () => {
+    /** Every unhandled rejection that reaches the process while `body` runs and settles. */
+    async function unhandledDuring(body: () => Promise<void>, settleMs = 100): Promise<unknown[]> {
+      const seen: unknown[] = [];
+      const listener = (reason: unknown): void => void seen.push(reason);
+      // the runner's own listeners are set aside while this one is the only one,
+      // or a rejection a test is here to observe is also an unhandled error that
+      // fails the whole run
+      const runners = process.listeners('unhandledRejection');
+      process.removeAllListeners('unhandledRejection');
+      process.on('unhandledRejection', listener);
+      try {
+        await body();
+        await new Promise((resolve) => setTimeout(resolve, settleMs));
+      } finally {
+        process.off('unhandledRejection', listener);
+        for (const it of runners) {
+          process.on('unhandledRejection', it);
+        }
+      }
+      return seen;
+    }
+
+    it('should tell a wait and a key that the program never started, with the spawn error', async () => {
+      // a `cwd` that is not there is `spawn ENOENT` as an event, and a wait that
+      // was told "the program exited before the screen showed" had been given
+      // the wrong cause: nothing ever ran
+      const missing = join(tmpdir(), 'sigil-no-such-directory-sig309');
+      const seen = await unhandledDuring(async () => {
+        const run = runOnTerminal({ cwd: missing, source: 'void 0;', stdin: true });
+
+        await expect(run.waitFor('x')).rejects.toThrow(/ENOENT/);
+        await expect(run.press('a')).rejects.toThrow(/ENOENT/);
+        await expect(run.paste('a')).rejects.toThrow(/ENOENT/);
+      });
+
+      expect(seen, 'the spawn error arrived a second time, with nobody to hear it').toEqual([]);
+    });
+
+    it('should still report the run timing out after a wait that was expected to fail', async () => {
+      // the test passes: it asked for a wait that cannot succeed, caught the
+      // rejection, and walked away from a child that is killed for time later.
+      // That kill is the run's own failure and nothing delivered it, so it is
+      // reported -- marking the whole run handled because *a* method rejected hid
+      // exactly the leak this guards
+      const seen = await unhandledDuring(async () => {
+        const run = runOnTerminal({
+          source: 'setInterval(() => {}, 1000);',
+          stdin: true,
+          timeout: 300,
+        });
+        await run.waitFor('never', { timeout: 50 }).catch(() => {});
+        await new Promise((resolve) => setTimeout(resolve, 450));
+        // told the cause when asked, though it is too late to have been the first to hear
+        await expect(run.press('a')).rejects.toThrow(/did not finish within 300ms/);
+      }, 100);
+
+      expect(seen).toHaveLength(1);
+      expect(String(seen[0])).toMatch(/did not finish within 300ms/);
+    });
+
+    it('should still report the run timing out after a key refused for its own reason', async () => {
+      // `press()` rejects here because the run has no terminal on stdin, which
+      // says nothing about whether the run finishes
+      const seen = await unhandledDuring(async () => {
+        const run = runOnTerminal({ source: 'setInterval(() => {}, 1000);', timeout: 200 });
+        await expect(run.press('a')).rejects.toThrow(/stdin: true/);
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }, 100);
+
+      expect(seen).toHaveLength(1);
+      expect(String(seen[0])).toMatch(/did not finish within 200ms/);
+    });
+
+    it('should tell a wait that is pending when the run is killed for time, and why', async () => {
+      const run = runOnTerminal({
+        source: 'setInterval(() => {}, 1000);',
+        stdin: true,
+        timeout: 200,
+      });
+
+      await expect(run.waitFor('never', { timeout: 5000 })).rejects.toThrow(
+        /did not finish within 200ms/
+      );
+    });
+
+    it('should report a refusal once, through the method that was used', async () => {
+      const seen = await unhandledDuring(async () => {
+        const run = runOnTerminal({});
+        await expect(run.press('a')).rejects.toThrow(/exactly one/);
+      });
+
+      expect(seen, 'the refusal arrived again from the handle nobody awaited').toEqual([]);
+    });
+
+    it('should still reject the handle itself for a caller that awaits that', async () => {
+      // marking it handled must not make it silent: `await run` is the other way
+      // to ask, and a promise that stopped rejecting would be a test that passes
+      const run = runOnTerminal({});
+      await run.press('a').catch(() => {});
+
+      await expect(run).rejects.toThrow(/exactly one/);
+    });
   });
 });

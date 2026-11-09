@@ -13,6 +13,7 @@ export * from './subpaths/fuzzy.js';
 export * from './subpaths/autocomplete.js';
 export * from './subpaths/palette.js';
 export * from './subpaths/calendar.js';
+export * from './subpaths/color-level.js';
 export * from './subpaths/date.js';
 export * from './subpaths/editor.js';
 export * from './subpaths/group.js';
