@@ -2844,8 +2844,8 @@ people's software and will move.
   with the scaffold's own guard after every question had been answered.
   **Refused, before any question** -- `checkTuiFlags()` is the first thing `run`
   does, ahead of the name -- and writing nothing: `--tui-command` with
-  `--single` (the message names `--tui`, because the intent is clear and only the
-  spelling is wrong), `--tui` with `--tui-command` (the command used to win
+  `--layout single` (the message names `--layout multi` and `--tui`, because the
+  intent is clear and only the spelling is wrong), `--tui` with `--tui-command` (the command used to win
   silently), a command name that is not lowercase letters, digits and hyphens
   starting with a letter or that is on `RESERVED_COMMANDS`, `--no-tui` with any
   of `--tui`, `--tui-command` and `--syntax`, and `--syntax` under `--yes` with no
@@ -2871,8 +2871,8 @@ people's software and will move.
   negated twin and was the wrong conclusion: `'--no-tui': { negate: false }` is a
   destination of its own (`noTui`), exactly the opt-out the pairing rule in the
   root `AGENTS.md` describes, and `--tui` stays an ordinary flag. Without it,
-  `sigil new foo --lang js --single --linter none --pm npm </dev/null`, which worked
-  before the question existed, failed with `Cannot prompt for "Include a
+  `sigil new foo --js --single --lint none --pm npm </dev/null` (as the flags were
+  spelled then), which worked before the question existed, failed with `Cannot prompt for "Include a
   full-screen app (TUI)?"`. A script that passes neither `--yes` nor `--no-tui`
   still meets the question without a terminal and is refused, as it is for any
   other unanswered question; `--no-tui` is how it says it does not want it.
@@ -2906,7 +2906,9 @@ people's software and will move.
   because it is not a step, on **one line**: the terminal wraps, and a hard break
   at 88 columns is wrong at every other width. The hint is `otherSyntaxCommand()`,
   a command that runs as written -- `sigil new <name> --tui --syntax ui`, or the
-  `--tui-command` form, with `--lang`, `--pm`, `--lint` and `--single` carried over -- and not
+  `--tui-command` form, with `--pm`, `--linter`, `--lang` and `--layout` always
+  printed (`--layout multi` too: it printed no layout at all, which the test that
+  re-ran the hint under `--yes` could not see) -- and not
   `--syntax ui` alone, which is refused under `--yes` and asks the TUI question
   again interactively. The README and the component's header comment print the
   same function's output, and `new-tui.test.ts` reads each form back out of the
@@ -3012,49 +3014,86 @@ people's software and will move.
   the function next. The flag and its choices are unchanged, so no script breaks,
   and the framework's own docs, where `ui` literally is the tagged-template
   function, keep calling it the tag.
-- **`--lang js|ts` replaced `--js`, because a flag cannot say "TypeScript".** A
-  declared flag is `false` when it is absent, so "not passed" and "TypeScript,
+- **`--lang`, `--layout` and `--linter` replaced `--js`, `--single` and `--lint`,
+  because a flag cannot say "TypeScript", and because a rename should be a rename.**
+  A declared flag is `false` when it is absent, so "not passed" and "TypeScript,
   please" were one value, and only `--yes` could skip "Would you like to use
   TypeScript?" -- for somebody who had already answered it with
-  `--tui-command dashboard`. An option with a value says it either way, the way
-  `--pm`, `--lint` and `--syntax` already do: passed is answered, absent is asked,
-  `--yes` takes `ts`, and a value that is not one of `LANGUAGES` is judged by
-  `choices` before the first question. `--js` is removed outright, with no alias
-  and no deprecation: the package is pre-1.0 and the ask was a change. The
-  other-syntax command always prints `--lang`, `ts` included, because the hint
-  reproduces the answers and a reader who runs it should be asked nothing it can
-  say.
+  `--tui-command dashboard`. `--single` was the same shape for "several commands".
+  An option with a value says it either way, the way `--pm` and `--syntax` do:
+  passed is answered, absent is asked, `--yes` takes the default, and a value that is
+  not one of `LANGUAGES` or `LAYOUTS` is judged by `choices` before the first
+  question. `--layout [layout]` takes the `[layout]` hint and not `<layout>`, which
+  would make the option itself required. `--tui-command` still implies `multi` when
+  `--layout` was not passed; `--layout single` beside it is refused before any
+  question, naming `--layout multi` and `--tui`, and `--layout multi` beside it is
+  redundant and not an error. `--js`, `--single` and `--lint` were removed outright,
+  with no alias and no deprecation: the package is pre-1.0 and the ask was a change.
+  The other-syntax command always prints `--lang` and `--layout`, `ts` and `multi`
+  included, because the hint reproduces the answers and a reader who runs it should
+  be asked nothing it can say. That was a real hole: the multi layout printed no
+  layout at all, and the test that re-ran the hint did so under `--yes`, which fills
+  in whatever is missing. It is re-run without `--yes` and without a terminal now,
+  for every placement, syntax and language, where a question left open is refused as
+  `Cannot prompt`.
+- **The toolchain refuses unknown options, and it is the rule for every command.**
+  It was the trap in the entry above: with `allowUnknownOptions` on, a script that
+  still said `--js` or `--lint eslint` took the removed name as a value, got the
+  default, exited 0 and said nothing -- measured, on `--js`, `--js=true`, `--lint
+  eslint` and `--lint=eslint` alike, and true of every mistyped option of every
+  command. Chris chose refusing them toolchain-wide over a hidden flag that throws a
+  custom message. Now `--js` is `Unknown option "--js"`, and `--lint eslint` and
+  `--lint=eslint` are `Unknown option "--lint". Did you mean "--linter"?` (the
+  parser's suggestion, which is why no custom message was written), `sigil build
+  --outt x` is `Did you mean "--out"?`, and nothing is written.
 
-  **The trap, and it is not closed here: `--js` is silently ignored.** The toolchain
-  leaves `allowUnknownOptions` on, so `sigil new app --yes --js` takes `--js` as an
-  undeclared option, exits 0 and writes TypeScript, saying nothing -- measured, and
-  pinned by a characterization test so that changing it is a decision. Anything
-  with `--js` in a script now builds the wrong app. The same holds for every
-  mistyped option of every command, so the real choice is wider than this flag:
-  turn `allowUnknownOptions` off for the toolchain (`Unknown option --js`, and every
-  typo gets caught; a change to what every command accepts), or leave it and add a
-  hidden `--js` that throws `--js was replaced by --lang js` (one flag, one
-  message, and it is the alias that was asked not to exist, in a form that cannot
-  be used). Neither is done.
+  **Checked before it was flipped**, because the setting would break anything that
+  relied on an undeclared option passing: every `argv.<name>` each command reads is
+  an option or argument it declares (`add`: `components`, `dir`, `force`, `yes`;
+  `build`, `package`: `dir`, `commands`, `entry`, `external`, `name`, `out`, `bin`,
+  `clean`, `shake`, `sourcemap`, and `package`'s `target`, `runtime` and `sign`;
+  `check`: `dir`, `commands`, `entry`, `tree`; `reference`: `dir`, `entry`, `out`,
+  `json`, `check`; `new`: all of it), the global `--help`, `--version` and `--quiet`
+  are the framework's own, `help` and `completion` take a command and a shell, and the
+  completion script is static, so it calls nothing back. No command passes argv
+  through to another tool, and the repository's own invocations (package scripts,
+  the scaffold's, the release workflow) use only declared options. The suite agreed:
+  flipping it failed two tests, the snapshot and the reference, which were regenerated.
+
+  **Where it is set matters, and it took a measurement to find out.** `allowUnknownOptions`
+  is a setting of `main()`, a schema has no place for one, and the built toolchain's
+  executable is generated -- it calls `main({ schema })` and never reaches `run()` --
+  so a setting passed there refused in `node src/sigil.ts` and **nowhere that ships**
+  (measured: `dist/sigil.mjs build --outt x` ran on to "No package.json"). The
+  schema's own `beforeParse` hook rides into the bundle and fires before argv is
+  walked, which is where the setting is read, so it sets
+  `state.settings.allowUnknownOptions` and works from source and built alike. A
+  hook doing that is a workaround; `Schema.settings` would be the honest home and is
+  an addition to `@ttylabs/sigil`, left for a decision.
+
+  An app built with `sigil build` has no such hook to reach for unless it writes the
+  same one, and its generated entry carries no `settings`: refusing unknown options
+  is the toolchain's rule, not something `sigil build` gives every app.
 
 - **`--lint` is `--linter`, and each choice's default is defined once.** `--lint`
-  was renamed for the noun, outright and with no alias, as `--js` was, and it has
-  the same trap: an undeclared `--lint none` is taken as a value and ignored, so a
-  script that still says it gets oxlint with exit 0 and nothing said (pinned by a
-  characterization test, beside `--js`'s). The recommendation made for `--js` --
-  `allowUnknownOptions: false` for the toolchain, or a hidden flag that throws --
-  is applied to neither, and covers both. A second finding from the same change:
-  because an undeclared option lands on `argv.<name>`, `--linter eslint` works even
-  where the option is not declared, so a test that only passes the flag proves
-  nothing about the declaration; the `choices` refusal and the `--help` text are
-  what do.
+  was renamed for the noun, outright and with no alias, as `--js` was. A finding from
+  the same change: because an undeclared option lands on `argv.<name>`, `--linter
+  eslint` worked even where the option was not declared, so a test that only passes
+  the flag proves nothing about the declaration; the `choices` refusal and the
+  `--help` text are what do.
 
-  `DEFAULTS` in `new.ts` is the one list of what `--yes` takes for language,
-  layout, linter and template syntax, and the menus preselect by looking the
-  default up in it rather than being the first row of a list, so the highlighted
-  entry and the value `--yes` takes cannot drift apart. The package manager is the
-  one default that is not a constant -- it is whichever installed manager
-  `askManager()` prefers -- and is defined there.
+  `DEFAULTS` in `new.ts` is the one list of what `--yes` takes -- language, layout,
+  linter, template syntax and whether to include a full-screen app (`tui`, `false`) --
+  and every menu and confirmation is handed its entry from it: `value:
+  DEFAULTS.layout` on the menu, `default: DEFAULTS.tui` on the confirmation, so the
+  highlighted entry and the value `--yes` takes are one definition. **What the test
+  proves and what it cannot:** `new-defaults.test.ts` stubs the prompts and asserts
+  each was handed the default, and `select()`'s own contract -- `value` starts
+  highlighted and beats `initial` -- is pinned on a non-first row in
+  `@ttylabs/sigil`'s `prompt-value.test.ts`. No default here is a non-first row, so
+  nothing end to end can tell `value` from nothing at all: the highlight is row 0
+  either way. The package manager is the one default that is not a constant -- it is
+  whichever installed manager `askManager()` prefers -- and is defined there.
 
 ### The registry: what `sigil add` copies
 

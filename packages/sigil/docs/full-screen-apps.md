@@ -295,7 +295,7 @@ it is asked after whether the app has one command or several, and an app with
 several is then asked where to launch it from: the app itself, where `myapp` with
 no command opens it, or a command of its own, where `myapp <command>` does (it
 is asked for, and `dashboard` would be one example) and `myapp` still shows help. `--tui-command <name>` picks the second without the
-questions, and `--tui-command` with `--single` is refused, since a single
+questions, and `--tui-command` with `--layout single` is refused, since a single
 command has nowhere to put one. `--no-tui` says there is none, which is how a
 script that passes every other flag avoids the question.
 

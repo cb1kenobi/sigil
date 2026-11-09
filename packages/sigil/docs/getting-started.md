@@ -26,7 +26,8 @@ It asks five things:
 - Whether to use TypeScript. The default is yes, and `--lang ts` or `--lang js` answers
   it without asking.
 - Whether the app has subcommands. The default is a `commands/` directory, and
-  `--single` makes the app itself the command.
+  `--layout single` makes the app itself the command. `--layout multi` answers it the
+  other way.
 - Whether to include a full-screen app (TUI). The default is no, and `--tui`
   says yes. If you do, it also asks where to launch it from and which template
   syntax to write it in; see [Building a full-screen app](full-screen-apps.md).

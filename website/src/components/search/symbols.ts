@@ -4,7 +4,7 @@ import { nearMiss } from '@ttylabs/sigil/suggest';
  * Exact-and-near name matching over every command and option (SIG-254).
  *
  * Ported from titaniumsdk.com's `symbols.ts`, for the two things Pagefind gets
- * wrong there and here alike. It has no typo tolerance, so `--singel` finds
+ * wrong there and here alike. It has no typo tolerance, so `--layuot` finds
  * nothing. And it ranks pages, so a name on several of them has no clear top
  * result: `--out` is an option of `build` and of `package`, and `--name` of
  * three commands. This runs first and answers the name questions; Pagefind
@@ -15,7 +15,7 @@ import { nearMiss } from '@ttylabs/sigil/suggest';
  *   exact    the query is the whole name: `sigil package`
  *   segment  the query is the last word: `package`, `--out`, `out`
  *   tokens   every word of the query begins a word of the name: `build out`
- *   fuzzy    the last word is a near miss for a name's last word: `--singel`
+ *   fuzzy    the last word is a near miss for a name's last word: `--layuot`
  *
  * Within a rule the shorter name wins, which is a decent proxy for how central
  * it is: `sigil build --out` before `sigil package --out`.
@@ -24,10 +24,10 @@ import { nearMiss } from '@ttylabs/sigil/suggest';
  *
  * titaniumsdk.com wrote a bounded Levenshtein with a tolerance by length. This
  * asks `nearMiss()` from `@ttylabs/sigil/suggest` instead, which is what the
- * parser answers `Unknown option "--singel"` with -- so the site and the CLI
+ * parser answers `Unknown option "--layuot"` with -- so the site and the CLI
  * correct a typo the same way, by one definition:
  *
- * - **Damerau-Levenshtein**, so `--singel` is one slip from `--single`, where
+ * - **Damerau-Levenshtein**, so `--layuot` is one slip from `--layout`, where
  *   Levenshtein counts a swap as two.
  * - **The tolerance** is its rate: one slip per three characters of the shorter
  *   name, at least one, and the two must share something. That replaces

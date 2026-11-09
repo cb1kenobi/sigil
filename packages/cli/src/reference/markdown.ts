@@ -297,7 +297,7 @@ function cell(raw: string | undefined): string {
  *
  * A table row is split on its bars **before** anything inside it is parsed, so
  * a code span is no shelter: a choices list joined with `|` --
- * `--lint [oxlint|eslint|biome|none]`, which is what the placeholder spells --
+ * `--linter [oxlint|eslint|biome|none]`, which is what the placeholder spells --
  * added three columns to its own row and shifted every cell after it. Found by
  * reading the generated page rather than by a test, which is why there is now a
  * test that every row in a table has the columns its header does.
@@ -364,7 +364,7 @@ function scalar(value: unknown): string {
  * `<>` where a value has to be given and `[]` where it need not, which is the
  * convention the declarations are written in and the one help already prints.
  * The choices stand in for the hint where there are any, because
- * `--lint <oxlint|eslint|biome|none>` says everything the hint would and more.
+ * `--linter <oxlint|eslint|biome|none>` says everything the hint would and more.
  *
  * @param required - Whether a value has to be given.
  * @param multiple - Whether more than one is taken.

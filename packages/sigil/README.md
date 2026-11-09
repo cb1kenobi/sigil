@@ -296,7 +296,7 @@ $ greet world
 hello world
 ```
 
-This is what `sigil new --single` scaffolds. Adding `commands` later does not
+This is what `sigil new --layout single` scaffolds. Adding `commands` later does not
 silence it: a `run` on the schema is what the app does when argv named no
 command, whichever way round. What outranks it is `--help`, `--version`, and a
 `default` command, which is an explicit declaration about a command of its own.

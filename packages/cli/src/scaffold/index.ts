@@ -63,8 +63,15 @@ export const LANGUAGES = ['js', 'ts'] as const;
 /** What the app is written in. */
 export type Language = (typeof LANGUAGES)[number];
 
+/**
+ * The ways an app's commands can be arranged, which is `--layout`'s `choices`.
+ *
+ * Declared here with the type for the reason `LANGUAGES` and `MANAGERS` are.
+ */
+export const LAYOUTS = ['single', 'multi'] as const;
+
 /** How its commands are arranged. */
-export type Layout = 'multi' | 'single';
+export type Layout = (typeof LAYOUTS)[number];
 
 /** Which linter it starts with, if any. */
 export type Linter = 'biome' | 'eslint' | 'none' | 'oxlint';

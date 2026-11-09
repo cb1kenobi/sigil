@@ -26,6 +26,7 @@ import {
   type Language,
   LANGUAGES,
   type Layout,
+  LAYOUTS,
   type Linter,
   type Manager,
   MANAGERS,
@@ -56,20 +57,29 @@ function toolchainManifest(): { devDependencies: Record<string, string>; version
 }
 
 /**
- * What each choice question's answer is when `--yes` takes it, written once.
+ * What each question's answer is when `--yes` takes it, written once.
  *
- * The menus preselect the same entries: `initial` is looked up from here rather than
- * being the first row of a list, so the highlighted entry and the value `--yes` takes
- * cannot drift apart, and moving a default moves both. The package manager is the one
- * default that is not a constant -- it is whichever of the installed ones
- * `askManager()` prefers -- and is defined there.
+ * The menus and the confirmation preselect the same entries: each is handed its
+ * default as `value` (or `default`) rather than the highlight being the first row of
+ * a list, so the highlighted entry and the value `--yes` takes cannot drift apart,
+ * and moving a default moves both. `tui` is whether there is a full-screen app, which
+ * nobody is given unless they ask. The package manager is the one default that is not
+ * a constant -- it is whichever of the installed ones `askManager()` prefers -- and is
+ * defined there. Exported for the test that proves the menus read it.
  */
-const DEFAULTS = {
+export const DEFAULTS: {
+  readonly language: Language;
+  readonly layout: Layout;
+  readonly linter: Linter;
+  readonly syntax: Syntax;
+  readonly tui: boolean;
+} = {
   language: 'ts',
   layout: 'multi',
   linter: 'oxlint',
   syntax: 'jsx',
-} as const satisfies { language: Language; layout: Layout; linter: Linter; syntax: Syntax };
+  tui: false,
+};
 
 /**
  * Which package manager to use, asked only when there is something to ask.
@@ -164,7 +174,10 @@ const newApp: AnyCommand = command({
       desc: 'Which package manager to set the app up with',
     },
     '--no-install': { desc: 'Do not install dependencies' },
-    '--single': { desc: 'One command rather than a commands directory', type: 'bool' },
+    '--layout [layout]': {
+      choices: [...LAYOUTS],
+      desc: 'One command (single) or a commands directory (multi)',
+    },
     '--syntax [syntax]': {
       choices: [...SYNTAXES],
       desc: 'Which template syntax the full-screen app is written in: jsx, or ui for the Sigil UI template',
@@ -378,7 +391,7 @@ async function askName(given: string | undefined, yes: boolean, parent: string):
  * and `--syntax` are, because a flag is `false` when it is absent: "not passed" and
  * "TypeScript, please" were the same value, so only `--yes` could skip the question.
  */
-async function askLanguage(argv: Record<string, unknown>, yes: boolean): Promise<Language> {
+export async function askLanguage(argv: Record<string, unknown>, yes: boolean): Promise<Language> {
   if (typeof argv.lang === 'string') {
     return argv.lang as Language;
   }
@@ -394,10 +407,16 @@ async function askLanguage(argv: Record<string, unknown>, yes: boolean): Promise
     : 'js';
 }
 
-/** Asks whether there are subcommands, defaulting to yes. */
-async function askLayout(argv: Record<string, unknown>, yes: boolean): Promise<Layout> {
-  if (argv.single) {
-    return 'single';
+/**
+ * Asks whether there are subcommands, defaulting to yes.
+ *
+ * `--layout` answers it either way, as an option with a value for the reason
+ * `--lang` is: a flag is `false` when absent, so nothing short of `--yes` could say
+ * "several commands" and skip the question.
+ */
+export async function askLayout(argv: Record<string, unknown>, yes: boolean): Promise<Layout> {
+  if (typeof argv.layout === 'string') {
+    return argv.layout as Layout;
   }
   // a command to launch the app from is a command, so the question has been
   // answered: asking it anyway let somebody say "no, a single command" and then
@@ -409,19 +428,17 @@ async function askLayout(argv: Record<string, unknown>, yes: boolean): Promise<L
     return DEFAULTS.layout;
   }
 
-  const choices = [
-    {
-      hint: 'a commands/ directory, one file each',
-      label: 'Yes, several commands',
-      value: 'multi',
-    },
-    { hint: 'the app itself is the command', label: 'No, a single command', value: 'single' },
-  ] as const;
-
   return (await select({
-    choices,
-    initial: choices.findIndex((choice) => choice.value === DEFAULTS.layout),
+    choices: [
+      {
+        hint: 'a commands/ directory, one file each',
+        label: 'Yes, several commands',
+        value: 'multi',
+      },
+      { hint: 'the app itself is the command', label: 'No, a single command', value: 'single' },
+    ],
     message: 'Will it have subcommands?',
+    value: DEFAULTS.layout,
   })) as Layout;
 }
 
@@ -436,9 +453,10 @@ async function askLayout(argv: Record<string, unknown>, yes: boolean): Promise<L
  *   the app it says there is none of.
  * - `--tui` beside `--tui-command`: the app itself or a command, and not both.
  *   The command used to win silently.
- * - `--tui-command` with `--single`, since there is no command to launch from.
- *   The message says what to pass instead, because the intent is clear and only
- *   the spelling is wrong.
+ * - `--tui-command` with `--layout single`, since there is no command to launch
+ *   from. The message says what to pass instead, because the intent is clear and
+ *   only the spelling is wrong. `--layout multi` beside it is redundant and is not
+ *   an error.
  * - A command name that cannot be a file and a command at once, or that the
  *   runtime or the scaffold already owns.
  * - `--syntax` where nothing will be asked for a TUI at all: under `--yes`, with
@@ -464,9 +482,9 @@ function checkTuiFlags(argv: Record<string, unknown>, yes: boolean): void {
   }
 
   if (named) {
-    if (argv.single) {
+    if (argv.layout === 'single') {
       throw new Error(
-        '--tui-command needs a commands directory to put the command in, and --single has none. Use --tui to launch the full-screen app from the app itself.'
+        '--tui-command needs a commands directory to put the command in, and --layout single has none. Use --layout multi, or --tui to launch the full-screen app from the app itself.'
       );
     }
     const problem = commandNameProblem(command);
@@ -497,7 +515,7 @@ function checkTuiFlags(argv: Record<string, unknown>, yes: boolean): void {
  * @param app - The app's name, which the question names.
  * @returns Where it is launched from, or `undefined` for none.
  */
-async function askTui(
+export async function askTui(
   argv: Record<string, unknown>,
   yes: boolean,
   layout: Layout,
@@ -509,15 +527,20 @@ async function askTui(
   if (argv.tui) {
     return { at: 'root' };
   }
-  // `--no-tui` is how a script that passes every flag but `--yes` says so
-  if (yes || argv.noTui) {
+  // `--no-tui` is how a script that passes every flag but `--yes` says so, and says it
+  // whatever the default is
+  if (argv.noTui) {
     return undefined;
   }
-
-  if (!(await confirm({ default: false, message: 'Include a full-screen app (TUI)?' }))) {
+  // what `--yes` takes, and what Enter alone means at the question: the same constant
+  const include = yes
+    ? DEFAULTS.tui
+    : await confirm({ default: DEFAULTS.tui, message: 'Include a full-screen app (TUI)?' });
+  if (!include) {
     return undefined;
   }
-  if (layout === 'single') {
+  // a single command has nowhere but itself, and `--yes` asks nothing further
+  if (layout === 'single' || yes) {
     return { at: 'root' };
   }
 
@@ -553,7 +576,7 @@ async function askTui(
  * @param tui - What `askTui()` answered.
  * @returns The syntax, or `undefined` when there is no full-screen app.
  */
-async function askSyntax(
+export async function askSyntax(
   argv: Record<string, unknown>,
   yes: boolean,
   tui: Tui | undefined
@@ -572,20 +595,18 @@ async function askSyntax(
     return DEFAULTS.syntax;
   }
 
-  const choices = [
-    { hint: 'typed props in an editor; built to run', label: 'JSX', value: 'jsx' },
-    { hint: 'runs as it is, with no build', label: 'Sigil UI template', value: 'ui' },
-  ] as const;
-
   return (await select({
-    choices,
-    initial: choices.findIndex((choice) => choice.value === DEFAULTS.syntax),
+    choices: [
+      { hint: 'typed props in an editor; built to run', label: 'JSX', value: 'jsx' },
+      { hint: 'runs as it is, with no build', label: 'Sigil UI template', value: 'ui' },
+    ],
     message: 'Which template syntax?',
+    value: DEFAULTS.syntax,
   })) as Syntax;
 }
 
 /** Asks which linter, defaulting to oxlint. */
-async function askLinter(argv: Record<string, unknown>, yes: boolean): Promise<Linter> {
+export async function askLinter(argv: Record<string, unknown>, yes: boolean): Promise<Linter> {
   if (typeof argv.linter === 'string') {
     return argv.linter as Linter;
   }
@@ -593,17 +614,15 @@ async function askLinter(argv: Record<string, unknown>, yes: boolean): Promise<L
     return DEFAULTS.linter;
   }
 
-  const choices = [
-    { hint: 'fast, near-zero config', label: 'oxlint', value: 'oxlint' },
-    { label: 'eslint', value: 'eslint' },
-    { label: 'biome', value: 'biome' },
-    { label: 'none', value: 'none' },
-  ] as const;
-
   return (await select({
-    choices,
-    initial: choices.findIndex((choice) => choice.value === DEFAULTS.linter),
+    choices: [
+      { hint: 'fast, near-zero config', label: 'oxlint', value: 'oxlint' },
+      { label: 'eslint', value: 'eslint' },
+      { label: 'biome', value: 'biome' },
+      { label: 'none', value: 'none' },
+    ],
     message: 'Which linter would you like to use?',
+    value: DEFAULTS.linter,
   })) as Linter;
 }
 

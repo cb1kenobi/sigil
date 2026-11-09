@@ -140,7 +140,7 @@ ${launcher(language, `../ui/app.${componentExt(language, syntax)}`)}};
 export interface TuiApp {
   /** The language. */
   readonly language: Language;
-  /** The layout, which `--single` is. */
+  /** The layout, which `--layout` is. */
   readonly layout: Layout;
   /** The linter it was set up with, which the other-syntax command carries over. */
   readonly linter: Linter;
@@ -161,7 +161,7 @@ export interface TuiApp {
  * rather than from prose: `--syntax` alone is refused under `--yes` and asks the
  * TUI question again interactively, so the hint has to carry the TUI flag, and
  * the command form when the app was launched from one. It carries `--pm`,
- * `--linter`, `--lang` and `--single` too, since a second app that took the defaults
+ * `--linter`, `--lang` and `--layout` too, since a second app that took the defaults
  * for those would be a different app and not the same one in another syntax.
  * `--lang` is always printed, `ts` included: the hint reproduces the answers, and a
  * reader who runs it should be asked nothing it can say.
@@ -182,7 +182,8 @@ export function otherSyntaxCommand(app: TuiApp): string {
     app.linter,
     '--lang',
     app.language,
-    ...(app.layout === 'single' ? ['--single'] : []),
+    '--layout',
+    app.layout,
     ...(app.tui.at === 'command' ? ['--tui-command', app.tui.command] : ['--tui']),
     '--syntax',
     app.syntax === 'jsx' ? 'ui' : 'jsx',

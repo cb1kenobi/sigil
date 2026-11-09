@@ -534,32 +534,62 @@ describe('the flags', () => {
   });
 
   it.each([
-    { flag: ['--js'], what: '--js', wrote: 'index.ts', also: 'TypeScript' },
-    { flag: ['--lint', 'none'], what: '--lint none', wrote: '.oxlintrc.json', also: 'oxlint' },
-  ])(
-    'should read the removed $what as an option nobody declared, and write $also',
-    ({ flag, wrote }) => {
-      // A CHARACTERIZATION, not an endorsement. `--js` and `--lint` are gone, and the
-      // parser's answer to an undeclared option is to take it as a value
-      // (`allowUnknownOptions` is on), so a script that still says either gets the
-      // default, exit 0, and nothing said. Pinned so that changing it is a decision:
-      // see "`--lang` replaced `--js`" in AGENTS.md for what could be done about it
-      const dir = tempDir('sigil-new-tui-');
-      const ran = run(dir, 'demo', '--yes', ...flag);
+    { flag: ['--js'], said: 'Unknown option "--js"' },
+    { flag: ['--js=true'], said: 'Unknown option "--js"' },
+    { flag: ['--lint', 'eslint'], said: 'Unknown option "--lint". Did you mean "--linter"?' },
+    { flag: ['--lint=eslint'], said: 'Unknown option "--lint". Did you mean "--linter"?' },
+    { flag: ['--single'], said: 'Unknown option "--single"' },
+  ])('should refuse the removed $flag, naming it', ({ flag, said }) => {
+    // `--js`, `--lint` and `--single` were renamed, and for as long as the toolchain
+    // took an undeclared option as a value a script that still said one got the
+    // default: exit 0, an app, and nothing said. Now it is refused, with nothing
+    // written, and where the parser can name what was meant it does
+    const dir = tempDir('sigil-new-tui-');
+    const ran = run(dir, 'demo', '--yes', ...flag);
 
-      expect(ran.status).toBe(0);
-      expect(
-        existsSync(join(dir, 'demo', wrote.startsWith('.') ? wrote : join('src', wrote)))
-      ).toBe(true);
-      expect(ran.stderr).toBe('');
-    }
-  );
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toContain(said);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('should refuse it in the built executable too, which is the one that ships', () => {
+    // the built toolchain is generated: it calls `main({ schema })` and never reaches
+    // `run()`, so a setting passed there refused from source and nowhere that ships.
+    // Measured before it was fixed: `dist/sigil.mjs build --outt x` ran on to
+    // "No package.json", having taken `--outt` as a value
+    const dir = tempDir('sigil-new-tui-');
+    const ran = spawnSync(
+      process.execPath,
+      [resolve(here, '../dist/sigil.mjs'), 'build', '--outt', 'x'],
+      {
+        cwd: dir,
+        encoding: 'utf-8',
+      }
+    );
+
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toContain('Unknown option "--outt". Did you mean "--out"?');
+  });
+
+  it('should refuse a typo on another command too, which is the rule now', () => {
+    // the refusal is the toolchain's and not `new`'s: `build` is not a command
+    // this change touched
+    const dir = tempDir('sigil-new-tui-');
+    const ran = spawnSync(process.execPath, [cli, 'build', '--outt', 'x'], {
+      cwd: dir,
+      encoding: 'utf-8',
+    });
+
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toContain('Unknown option "--outt". Did you mean "--out"?');
+    expect(readdirSync(dir)).toEqual([]);
+  });
 
   it.each([
-    ['oxlint', '.oxlintrc.json'],
-    ['eslint', 'eslint.config.js'],
-    ['biome', 'biome.json'],
-  ])('should set up %s with --linter %s', (linter, config) => {
+    { config: '.oxlintrc.json', linter: 'oxlint' },
+    { config: 'eslint.config.js', linter: 'eslint' },
+    { config: 'biome.json', linter: 'biome' },
+  ])('should set up $linter with --linter $linter, and write $config', ({ config, linter }) => {
     const dir = tempDir('sigil-new-tui-');
     expect(run(dir, 'demo', '--yes', '--linter', linter).status).toBe(0);
 
@@ -570,7 +600,9 @@ describe('the flags', () => {
     const dir = tempDir('sigil-new-tui-');
     expect(run(dir, 'demo', '--yes', '--linter', 'none').status).toBe(0);
 
-    expect(existsSync(join(dir, 'demo', '.oxlintrc.json'))).toBe(false);
+    for (const config of ['.oxlintrc.json', 'eslint.config.js', 'biome.json']) {
+      expect(existsSync(join(dir, 'demo', config)), config).toBe(false);
+    }
   });
 
   it('should refuse a --linter it does not know, before the first question', () => {
@@ -583,21 +615,47 @@ describe('the flags', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
-  it('should refuse --tui-command with --single, and say what to pass', () => {
+  it('should refuse --tui-command with --layout single, and say what to pass', () => {
     const dir = tempDir('sigil-new-tui-');
-    const ran = run(dir, 'demo', '--yes', '--single', '--tui-command', 'ops');
+    const ran = run(dir, 'demo', '--yes', '--layout', 'single', '--tui-command', 'ops');
 
     expect(ran.status).not.toBe(0);
     expect(ran.stderr).toContain('--tui-command');
-    expect(ran.stderr).toContain('Use --tui');
+    expect(ran.stderr).toContain('--layout single');
+    expect(ran.stderr).toContain('Use --layout multi, or --tui');
     // and wrote nothing, which is what refusing before the questions is for
     expect(existsSync(join(dir, 'demo'))).toBe(false);
   });
 
-  it('should take --tui with --single, which is the app itself', () => {
+  it('should take --layout multi with --tui-command, which says what it already implies', () => {
     const dir = tempDir('sigil-new-tui-');
-    expect(run(dir, 'demo', '--yes', '--single', '--tui').status).toBe(0);
+    expect(run(dir, 'demo', '--yes', '--layout', 'multi', '--tui-command', 'ops').status).toBe(0);
+    expect(existsSync(join(dir, 'demo', 'src', 'commands', 'ops.ts'))).toBe(true);
+  });
+
+  it('should take --tui with --layout single, which is the app itself', () => {
+    const dir = tempDir('sigil-new-tui-');
+    expect(run(dir, 'demo', '--yes', '--layout', 'single', '--tui').status).toBe(0);
     expect(existsSync(join(dir, 'demo', 'src', 'commands'))).toBe(false);
+  });
+
+  it.each([
+    { layout: 'single', commands: false },
+    { layout: 'multi', commands: true },
+  ])('should write $layout with --layout $layout', ({ commands, layout }) => {
+    const dir = tempDir('sigil-new-tui-');
+    expect(run(dir, 'demo', '--yes', '--layout', layout).status).toBe(0);
+    expect(existsSync(join(dir, 'demo', 'src', 'commands'))).toBe(commands);
+  });
+
+  it('should refuse a --layout it does not know, before the first question', () => {
+    const dir = tempDir('sigil-new-tui-');
+    const ran = run(dir, '--layout', 'both');
+
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toContain('both');
+    expect(ran.stderr).not.toContain('Cannot prompt');
+    expect(readdirSync(dir)).toEqual([]);
   });
 
   it.each([
@@ -706,7 +764,8 @@ describe('the flags', () => {
       'demo',
       '--lang',
       'js',
-      '--single',
+      '--layout',
+      'single',
       '--linter',
       'none',
       '--pm',
@@ -786,7 +845,8 @@ describe('the flags', () => {
   it.each([
     {
       flags: ['--tui', '--pm', 'pnpm', '--linter', 'none'],
-      printed: 'sigil new <name> --pm pnpm --linter none --lang ts --tui --syntax ui',
+      printed:
+        'sigil new <name> --pm pnpm --linter none --lang ts --layout multi --tui --syntax ui',
       second: (app: string) => {
         expect(existsSync(join(app, 'src', 'ui', 'app.ts'))).toBe(true);
         expect(existsSync(join(app, 'src', 'commands', 'hello.ts'))).toBe(true);
@@ -798,17 +858,19 @@ describe('the flags', () => {
     },
     {
       flags: ['--tui-command', 'ops', '--pm', 'npm', '--linter', 'biome'],
-      printed: 'sigil new <name> --pm npm --linter biome --lang ts --tui-command ops --syntax ui',
+      printed:
+        'sigil new <name> --pm npm --linter biome --lang ts --layout multi --tui-command ops --syntax ui',
       second: (app: string) => {
         expect(existsSync(join(app, 'src', 'commands', 'ops.ts'))).toBe(true);
         expect(existsSync(join(app, 'biome.json'))).toBe(true);
       },
     },
     {
-      flags: ['--single', '--tui', '--lang', 'js', '--pm', 'vlt', '--linter', 'eslint'],
-      printed: 'sigil new <name> --pm vlt --linter eslint --lang js --single --tui --syntax ui',
+      flags: ['--layout', 'single', '--tui', '--lang', 'js', '--pm', 'vlt', '--linter', 'eslint'],
+      printed:
+        'sigil new <name> --pm vlt --linter eslint --lang js --layout single --tui --syntax ui',
       second: (app: string) => {
-        // `--lang js`: the file is `.js`, and there is no tsconfig. `--single`: no commands
+        // `--lang js`: the file is `.js`, and there is no tsconfig. `--layout single`: no commands
         expect(existsSync(join(app, 'src', 'ui', 'app.js'))).toBe(true);
         expect(existsSync(join(app, 'tsconfig.json'))).toBe(false);
         expect(existsSync(join(app, 'src', 'commands'))).toBe(false);
@@ -844,6 +906,103 @@ describe('the flags', () => {
     }
   });
 
+  // The hint has to answer every question by itself. The test above re-runs it under
+  // `--yes`, which fills in whatever the hint leaves out, so a missing flag is never
+  // noticed: the multi layout printed no layout at all. Here the printed command is
+  // run without `--yes` and without a terminal, where any question it leaves
+  // unanswered is refused as "Cannot prompt", for every placement, syntax and language
+  describe.each(
+    PLACEMENTS.flatMap((placement) =>
+      SYNTAXES.flatMap((syntax) =>
+        LANGUAGES.map((language) => ({ ...placement, language, syntax }))
+      )
+    )
+  )('the hint for $name, $syntax, $language', ({ language, layout, syntax, tui }) => {
+    const other: Syntax = syntax === 'jsx' ? 'ui' : 'jsx';
+    const flags = [
+      '--lang',
+      language,
+      '--layout',
+      layout,
+      ...(tui.at === 'command' ? ['--tui-command', tui.command] : ['--tui']),
+      '--syntax',
+      syntax,
+      '--linter',
+      'biome',
+      '--pm',
+      'npm',
+    ];
+
+    /** The command the first app's README prints, as arguments after `sigil new <name>`. */
+    function printed(): { args: string[]; parent: string } {
+      const parent = tempDir('sigil-new-tui-');
+      const first = run(parent, 'first', '--yes', ...flags);
+      expect(first.status, first.stderr).toBe(0);
+      const line = /^sigil new <name> .*$/m.exec(
+        readFileSync(join(parent, 'first', 'README.md'), 'utf-8')
+      )?.[0];
+      expect(line).toBeDefined();
+      return { args: (line as string).split(' ').slice(3), parent };
+    }
+
+    it('should name the layout, the language and the placement, and the other syntax', () => {
+      const { args } = printed();
+
+      expect(args.join(' ')).toContain(`--lang ${language} --layout ${layout}`);
+      expect(args.join(' ')).toContain(
+        tui.at === 'command' ? `--tui-command ${tui.command}` : '--tui'
+      );
+      expect(args.slice(-2)).toEqual(['--syntax', other]);
+    });
+
+    it('should run without --yes and without a terminal, and make the same app in the other syntax', () => {
+      const { args, parent } = printed();
+      const again = run(parent, 'again', ...args);
+
+      expect(again.status, again.stderr).toBe(0);
+      expect(again.stderr).not.toContain('Cannot prompt');
+      const e = language === 'ts' ? 'ts' : 'js';
+      const component = join(
+        parent,
+        'again',
+        'src',
+        'ui',
+        `app.${other === 'jsx' ? (language === 'ts' ? 'tsx' : 'jsx') : e}`
+      );
+      expect(existsSync(component)).toBe(true);
+      expect(existsSync(join(parent, 'again', 'src', 'commands'))).toBe(layout === 'multi');
+      expect(
+        existsSync(
+          join(
+            parent,
+            'again',
+            'src',
+            'commands',
+            `${tui.at === 'command' ? tui.command : 'hello'}.${e}`
+          )
+        )
+      ).toBe(layout === 'multi');
+    });
+  });
+
+  it('should be asked nothing on a terminal either, by the command it prints', async () => {
+    // the same claim on a faked terminal: a question the hint left open would be
+    // printed as a prompt and wait for a key that is never typed
+    const parent = tempDir('sigil-new-tui-');
+    const first = run(parent, 'first', '--yes', '--tui', '--linter', 'biome', '--pm', 'npm');
+    const line = /^sigil new <name> .*$/m.exec(
+      readFileSync(join(parent, 'first', 'README.md'), 'utf-8')
+    )?.[0];
+    const args = (line as string).split(' ').slice(3);
+
+    expect(first.status).toBe(0);
+    const ran = await askWith(parent, [], ['again', ...args], 80, []);
+
+    expect(ran.code, ran.out).toBe(0);
+    expect(ran.out).not.toMatch(/^\? /m);
+    expect(existsSync(join(parent, 'again', 'package.json'))).toBe(true);
+  });
+
   it('should show the dev script the scaffold writes, in the docs and the README', () => {
     // two prose copies of a script drifted from it once already: they said
     // `sigil build &&` after the script gained `--quiet`. Compared with what the
@@ -864,7 +1023,7 @@ describe('the flags', () => {
     const readme = file(files({ syntax: 'ui', tui: { at: 'root' } }), 'README.md');
 
     expect(readme).toContain(
-      'sigil new <name> --pm pnpm --linter none --lang ts --tui --syntax jsx'
+      'sigil new <name> --pm pnpm --linter none --lang ts --layout multi --tui --syntax jsx'
     );
   });
 
@@ -993,7 +1152,7 @@ function askWith(
   keys: readonly string[],
   args: readonly string[],
   columns = 80,
-  linterAnswered = true
+  answered: readonly string[] = ['--linter', 'none', '--pm', 'npm']
 ): Promise<{ code: number | null; out: string }> {
   return new Promise((settle, fail) => {
     const child = spawn(
@@ -1006,11 +1165,9 @@ function askWith(
         ...args,
         '--no-install',
         '--no-git',
-        // the linter answered, so that the questions a test is about are the only
-        // ones left -- except for the test about the linter's own menu
-        ...(linterAnswered ? ['--linter', 'none'] : []),
-        '--pm',
-        'npm',
+        // the linter and the manager answered, so that the questions a test is about
+        // are the only ones left -- except for a test about those
+        ...answered,
       ],
       {
         cwd: dir,
@@ -1289,7 +1446,10 @@ describe('the questions', () => {
 
   it('should open the linter menu on oxlint, which --yes takes', async () => {
     const dir = tempDir('sigil-new-tui-');
-    const ran = await askWith(dir, [ENTER, ENTER, ENTER], ['demo', '--no-tui'], 80, false);
+    const ran = await askWith(dir, [ENTER, ENTER, ENTER], ['demo', '--no-tui'], 80, [
+      '--pm',
+      'npm',
+    ]);
 
     expect(ran.out).toContain('❯ oxlint');
     expect(existsSync(join(dir, 'demo', '.oxlintrc.json'))).toBe(true);
@@ -1363,7 +1523,18 @@ describe('the questions', () => {
     // question the way it meets any other unanswered one. --no-tui is how it
     // opts out, which the flag tests above pin
     const dir = tempDir('sigil-new-tui-');
-    const ran = run(dir, 'demo', '--lang', 'js', '--single', '--linter', 'none', '--pm', 'npm');
+    const ran = run(
+      dir,
+      'demo',
+      '--lang',
+      'js',
+      '--layout',
+      'single',
+      '--linter',
+      'none',
+      '--pm',
+      'npm'
+    );
 
     expect(ran.status).not.toBe(0);
     expect(existsSync(join(dir, 'demo'))).toBe(false);
