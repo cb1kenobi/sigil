@@ -1,6 +1,5 @@
 import {
   commandNameProblem,
-  otherSyntaxCommand,
   runScript,
   scaffold,
   type Language,
