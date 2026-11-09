@@ -1035,9 +1035,8 @@ describe('Pane', () => {
 
     const sgr = (cb: number, column: number, final = 'M') => `${ESC}[<${cb};${column};1${final}`;
 
-    function app() {
+    function app(files = pane('files', { size: 8 })) {
       const { feed, terminal } = harness();
-      const files = pane('files', { size: 8 });
       const field = box({ focusable: true }, text('field'));
       const root = row(field, files, main());
       picture(root, 30);
@@ -1232,6 +1231,100 @@ describe('Pane', () => {
       expect(edge.classes).toContain('sigil-accent');
       feed(sgr(35, at + 10));
       expect(edge.classes).not.toContain('sigil-accent');
+      input.stop();
+    });
+
+    it('should go out when the pointer leaves after a click, though the click focused it', () => {
+      // the web's :focus-visible: a focus the pointer gave is not one to draw. It
+      // stayed lit for as long as it held the focus, which after a click is until
+      // something else takes it
+      const { feed, files, input } = app();
+      const edge = edgeOf(files);
+      const at = (files.box?.x ?? 0) + 7;
+
+      feed(sgr(35, at + 1));
+      feed(sgr(0, at + 1));
+      feed(sgr(0, at + 1, 'm'));
+      feed(sgr(35, at + 10));
+      expect(input.focus.current.get()).toBe(edge);
+      expect(edge.classes).not.toContain('sigil-accent');
+      input.stop();
+    });
+
+    it('should go out after a drag that collapses the pane, and rest dim where it is left', () => {
+      const side = pane('side', { collapsible: true, min: 6, size: 8 });
+      const { feed, input } = app(side);
+      const edge = edgeOf(side);
+      const at = (side.box?.x ?? 0) + 7;
+
+      feed(sgr(35, at + 1));
+      feed(sgr(0, at + 1));
+      feed(sgr(32, at - 6));
+      feed(sgr(0, at - 6, 'm'));
+      feed(sgr(35, at + 15));
+      flush();
+      expect(paneControl(side)?.collapsed.get()).toBe(true);
+      expect(input.focus.current.get()).toBe(edge);
+      expect(edge.classes).not.toContain('sigil-accent');
+      expect(edge.classes).toContain('sigil-muted');
+      input.stop();
+    });
+
+    it('should light up once a key moves it, which is when its focus starts to matter', () => {
+      const { feed, files, input, root } = app();
+      const edge = edgeOf(files);
+      const at = (files.box?.x ?? 0) + 7;
+
+      feed(sgr(0, at + 1));
+      feed(sgr(0, at + 1, 'm'));
+      feed(sgr(35, at + 10));
+      expect(edge.classes).not.toContain('sigil-accent');
+
+      feed(`${ESC}[C`);
+      expect(paneControl(files)?.size.get()).toBe(9);
+      expect(edge.classes).toContain('sigil-accent');
+
+      // and the next press takes it back to the pointer's, on the edge where it now is
+      picture(root, 30);
+      feed(sgr(0, at + 2));
+      feed(sgr(0, at + 2, 'm'));
+      feed(sgr(35, at + 10));
+      expect(edge.classes).not.toContain('sigil-accent');
+      input.stop();
+    });
+
+    it('should light up when focused from code, which is not the pointer', () => {
+      const { feed, field, files, input } = app();
+      const edge = edgeOf(files);
+      const at = (files.box?.x ?? 0) + 7;
+
+      // a click and a release first, which is a press that is over by the time the
+      // focus comes back from code, and the pointer off the edge
+      feed(sgr(0, at + 1));
+      feed(sgr(0, at + 1, 'm'));
+      feed(sgr(35, at + 10));
+      input.focus.focus(field);
+      input.focus.focus(edge);
+      expect(edge.classes).toContain('sigil-accent');
+      input.focus.focus(undefined);
+      expect(edge.classes).not.toContain('sigil-accent');
+      input.stop();
+    });
+
+    it('should light up on Enter, which is a key it handled', () => {
+      const side = pane('side', { collapsible: true, min: 6, size: 8 });
+      const { feed, input } = app(side);
+      const edge = edgeOf(side);
+      const at = (side.box?.x ?? 0) + 7;
+
+      feed(sgr(0, at + 1));
+      feed(sgr(0, at + 1, 'm'));
+      feed(sgr(35, at + 15));
+      expect(edge.classes).not.toContain('sigil-accent');
+
+      feed('\r');
+      expect(paneControl(side)?.collapsed.get()).toBe(true);
+      expect(edge.classes).toContain('sigil-accent');
       input.stop();
     });
   });

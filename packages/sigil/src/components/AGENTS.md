@@ -5221,12 +5221,25 @@ owns its own edge. `paneControl(host)` is its handle.
   over the pane's own last (or first) column with `width: 1` and both vertical insets,
   or the same turned over for a column, so it takes no room and sits on the border of
   a `Panel` in it. At rest the border or the content under it shows. Hovered, held or
-  focused it draws a heavy line (`┃`, `━`; `|` and `-` in ASCII) in `.sigil-accent`,
-  which a theme restyles through the role. Hover needs the router's `motion: true`, as
-  every `:hover` does, and the edge reads it off the `mouseenter` and `mouseleave` it
-  is told rather than `element.states`, so one flag per cause says why it is lit.
-  Drawing over a panel's corner cells is deliberate: it is the whole height of the
-  pane, like a sash in an editor.
+  focused from the keyboard it draws a heavy line (`┃`, `━`; `|` and `-` in ASCII) in
+  `.sigil-accent`, which a theme restyles through the role. Hover needs the router's
+  `motion: true`, as every `:hover` does, and the edge reads it off the `mouseenter`
+  and `mouseleave` it is told rather than `element.states`, so one flag per cause says
+  why it is lit. Drawing over a panel's corner cells is deliberate: it is the whole
+  height of the pane, like a sash in an editor.
+
+  **A focus the pointer gave is not drawn, which is the web's `:focus-visible`.** A
+  click focuses the edge so that the arrows land on it, and the first version lit it
+  for as long as it held the focus -- so after a click, or a drag that collapsed the
+  pane, the line stayed lit with the pointer gone, until something else took the
+  focus, which in a layout with nothing else focusable is never. Found by hand in the
+  demo. The router focuses after it has dispatched the press, so a focus that arrives
+  while a button is down on the edge is the pointer's and is not drawn; one given from
+  code -- an app's key moving the focus there -- is drawn at once, and the first arrow,
+  Enter or Space the edge handles lights it, since that is when the focus starts to
+  matter. A later press takes it back to the pointer's. The alternative, never drawing
+  the focus, leaves nobody able to see which edge the arrows will move.
+
 - **A pane with no cells has its edge on the neighbour's cell, and goes above its
   siblings.** An `end` edge on a zero-width pane at the left of the screen would be
   column -1, off the canvas and not reachable, so a pane of no cells takes the other

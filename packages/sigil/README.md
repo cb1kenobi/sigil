@@ -5327,7 +5327,9 @@ is handed out in order, so every edge stays on the screen.
 The edge is one cell laid over the pane's last column (`edge: 'end'`, the default) or
 its first (`'start'`), and takes no space. Over a `Panel` it sits on the panel's
 border, and it lights up in the accent under the pointer (needs `motion: true` on the
-router), while it is dragged and while it has the focus. A drag moves cells between
+router), while it is dragged, and while it has the focus from the keyboard -- a click
+focuses it without lighting it, as `:focus-visible` treats a click on the web, and the
+first arrow or Enter lights it. A drag moves cells between
 the pane and the neighbour on that side, which is looked up when the press lands: a
 pane beside it gives or takes them within its own `min` and `max`, and a plain box
 with `flex-grow` absorbs the difference -- down to the least the layout would let it be,

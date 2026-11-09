@@ -26,7 +26,7 @@
  * plain flex box absorbs the difference, down to its own minimum.
  *
  * Click the edge to focus it, then the arrows move it a cell and Shift with an arrow
- * five. It is not in the Tab order. Double-clicking it, or Enter or Space on it,
+ * five; a click does not light it, and the first key does. It is not in the Tab order. Double-clicking it, or Enter or Space on it,
  * collapses a `collapsible` pane to nothing and opens it again; the edge stays so
  * that it can be dragged back open. {@link paneControl} hands an app the same moves
  * to bind its own keys to.
@@ -329,6 +329,18 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
   let axis: 'column' | 'row' = 'row';
   let hover = false;
   let focused = false;
+  /**
+   * Whether the focus is one to draw, which is the web's `:focus-visible`.
+   *
+   * A click focuses the edge so that the arrows land on it, and drawing that focus
+   * left the line lit after the pointer had gone, for as long as nothing else took
+   * the focus -- which after a click is usually forever. So a focus the pointer gave
+   * is not drawn, and the edge lights from the first key it handles; one given from
+   * code, which is an app's key moving the focus there, is drawn at once.
+   */
+  let keyed = false;
+  /** Whether a button is down on the edge, which is how a focus is known to be the pointer's. */
+  let pressed = false;
   /** The press the pointer is held on. */
   let drag: { anchor: Anchor; from: number; moved: boolean } | undefined;
   /** Whether the click a drag ends in is not one, because the edge was moved. */
@@ -336,7 +348,7 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
   let lastClick = Number.NEGATIVE_INFINITY;
 
   const isCollapsed = (): boolean => collapsible && collapsed.get();
-  const lit = (): boolean => hover || focused || drag !== undefined;
+  const lit = (): boolean => hover || drag !== undefined || (focused && keyed);
   /**
    * The cells the layout is asked for, which is what is in the `flex-basis`.
    *
@@ -833,6 +845,11 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
         return;
       }
       case 'mousedown': {
+        // the router focuses after it has dispatched the press, so this is what
+        // tells that focus apart from one given from code. And a press on an edge
+        // that is already focused takes it back to the pointer's
+        pressed = true;
+        keyed = false;
         if (event.button === 'left') {
           // the focus is not stopped: a press focuses the edge, which is what puts
           // the arrow keys on it
@@ -856,6 +873,7 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
         return;
       }
       case 'mouseup': {
+        pressed = false;
         if (drag !== undefined && event.button === 'left') {
           // a click that ends a drag is not a click on anything: the edge moved
           // under the pointer and came back to it
@@ -890,6 +908,7 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
 
   edge.onFocusChange = (_, on): void => {
     focused = on;
+    keyed = on && !pressed;
     sync();
   };
 
@@ -899,8 +918,10 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
       return;
     }
     if ((name === 'enter' || name === 'space') && collapsible) {
+      keyed = true;
       control.toggle();
       event.stop();
+      sync();
       return;
     }
 
@@ -924,6 +945,8 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
     }
 
     event.stop();
+    keyed = true;
+    sync();
     if (isCollapsed() && by > 0) {
       control.expand();
       return;
