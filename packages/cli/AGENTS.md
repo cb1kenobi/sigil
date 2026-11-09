@@ -2960,7 +2960,11 @@ people's software and will move.
   when something it read changes, and `app.terminal.width` is a plain number, so
   the first revision kept the width the first frame was drawn at -- 60 to 22
   columns lost the status entirely. The size is a `State` fed by
-  `input.onResize()`, the pattern `keyHelp`'s own `width` documentation shows.
+  `input.onResize()`, the pattern `keyHelp`'s own `width` documentation shows. The
+  unsubscribe it returns goes to `onCleanup()`: the file is copied into
+  components that mount and unmount, and what is attached is put back. No test can
+  observe a leaked listener (a disposed router stops dispatching either way), so
+  the generated text is what is pinned.
   `.chosen` is `white-space: nowrap`: a status with no room is clipped and does
   not take a second row, which a test provokes at 16 columns and which fails
   without it. It once carried `flex-shrink: 0` too; nothing failed with that

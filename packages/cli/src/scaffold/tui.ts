@@ -222,7 +222,7 @@ export function component(app: TuiApp): string {
     "import { Panel } from '@ttylabs/sigil/components/panel';",
     ...(typed ? ["import type { Element } from '@ttylabs/sigil/element';"] : []),
     ...(typed && !jsx ? ["import type { KeyEvent } from '@ttylabs/sigil/input';"] : []),
-    "import { onMount } from '@ttylabs/sigil/renderer';",
+    "import { onCleanup, onMount } from '@ttylabs/sigil/renderer';",
     "import { State } from '@ttylabs/sigil/signals';",
     ...(jsx ? [] : ["import { ui } from '@ttylabs/sigil/template';"]),
     "import { stringWidth } from '@ttylabs/sigil/width';",
@@ -361,7 +361,11 @@ ${list}
   // \`app.terminal.width\` would be read once and the footer would keep the width
   // it was drawn at after the window is resized
   const size = new State(app.terminal.width);
-  input.onResize((next) => size.set(next.width));
+  // \`onResize()\` hands back the way to stop listening, and the owner is what calls it
+  // when this component goes: put back what was attached, so that a copy of this
+  // in a component that mounts and unmounts does not leave a listener writing to a
+  // signal nothing reads
+  onCleanup(input.onResize((next) => size.set(next.width)));
 
   // the key-help footer, from the bindings below. It is told how wide it may be:
   // the terminal less what the status says now and the bar's own padding and margin,

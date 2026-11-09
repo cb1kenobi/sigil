@@ -291,6 +291,25 @@ describe('a scaffold with a full-screen app', () => {
       }
     });
 
+    it.each(SYNTAXES.flatMap((syntax) => LANGUAGES.map((language) => [syntax, language] as const)))(
+      'should hand the resize listener to the owner, which stops it, in %s in %s',
+      (syntax, language) => {
+        // `onResize()` returns the unsubscribe and an author copies this file into a
+        // component that mounts and unmounts, so it is given to `onCleanup()` rather
+        // than dropped. There is no cheap observable: a disposed router stops
+        // dispatching whether or not the handler was taken off, so a test cannot
+        // see a leaked one, and the generated text is what is pinned, as it is for
+        // the stdin pin
+        const source = file(
+          files({ language, syntax, tui: { at: 'root' } }),
+          COMPONENT[syntax][language]
+        );
+
+        expect(source).toContain('onCleanup(input.onResize(');
+        expect(source).toContain("import { onCleanup, onMount } from '@ttylabs/sigil/renderer';");
+      }
+    );
+
     it('should not put a quit key on the app, which runApp() already has', () => {
       for (const syntax of SYNTAXES) {
         const source = file(files({ syntax, tui: { at: 'root' } }), COMPONENT[syntax].ts);
