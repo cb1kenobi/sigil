@@ -1,6 +1,6 @@
 import { skip, taskLog, tasks } from '../../src/components/tasks.js';
 import { setQuiet } from '../../src/style/output.js';
-import { runsOf } from '../runs-of.js';
+import { runsOf, sourcesOf } from '../runs-of.js';
 import { screenSetup, setup, tick } from './helpers.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -1589,5 +1589,56 @@ describe('a task line set from an effect', () => {
     );
 
     expect(runs).toBe(2);
+  });
+});
+
+describe('a task list or a task log started from an effect', () => {
+  // SIG-321: mounting one paints a frame, and the renderer read both the build
+  // and that frame's drain tracked -- so whatever effect started it was left
+  // subscribed to the component's own state
+  it('should leave the effect that ran a list subscribed to nothing', async () => {
+    const ui = screenSetup({ rows: 12 });
+    let release = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let run: Promise<unknown> | undefined;
+
+    expect(
+      sourcesOf(() => {
+        run = tasks([{ task: () => gate, title: 'Build' }], {
+          ansi: ui.ansi,
+          terminal: ui.terminal,
+        });
+      })
+    ).toBe(0);
+
+    release();
+    await run;
+  });
+
+  it('should not re-run the effect that made a log when the log is settled from outside', () => {
+    // the log's title is a spinner's label, read by the build
+    const ui = screenSetup({ rows: 12 });
+    let log: ReturnType<typeof taskLog> | undefined;
+
+    expect(
+      runsOf(
+        () => {
+          log = taskLog({ ansi: ui.ansi, terminal: ui.terminal, title: 'Build' });
+        },
+        () => log?.success('Built')
+      )
+    ).toBe(2);
+    expect(log?.settled).toBe(true);
+  });
+
+  it('should leave the effect that wrote to a log subscribed to nothing', () => {
+    const ui = screenSetup({ rows: 12 });
+    const log = taskLog({ ansi: ui.ansi, terminal: ui.terminal, title: 'Build' });
+
+    expect(sourcesOf(() => log.message('compiling'))).toBe(0);
+    expect(ui.log).to.deep.equal(['Build', '  compiling']);
+    log.success();
   });
 });

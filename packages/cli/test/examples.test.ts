@@ -101,6 +101,29 @@ function examples(): Example[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * The `compilerOptions` an example's `tsconfig.json` ends up with, following a
+ * relative `extends` chain, nearest file winning. `undefined` when the example
+ * has no `tsconfig.json` at all. Plain `JSON.parse()`, since every tsconfig in
+ * this repository is plain JSON and `@ttylabs/sigil` does not export its JSONC
+ * reader; a base that is not is a failure to read it, which is loud.
+ */
+function tsconfigOptions(dir: string): Record<string, unknown> | undefined {
+  const read = (file: string): Record<string, unknown> => {
+    const config = JSON.parse(readFileSync(file, 'utf-8')) as {
+      compilerOptions?: Record<string, unknown>;
+      extends?: string;
+    };
+    const base =
+      typeof config.extends === 'string' && config.extends.startsWith('.')
+        ? read(resolve(dirname(file), config.extends))
+        : {};
+    return { ...base, ...config.compilerOptions };
+  };
+  const file = join(dir, 'tsconfig.json');
+  return existsSync(file) ? read(file) : undefined;
+}
+
 /** What a root module exports. */
 interface RootModule {
   App: () => Element;
@@ -349,6 +372,24 @@ describe('the examples', () => {
           'a built bin or an unbuilt src/ui entry'
         ).toBe(true);
       });
+
+      it.skipIf(!example.roots.some((file) => file.endsWith('.tsx')))(
+        'should name sigil as its JSX import source, because the build will not check',
+        () => {
+          // `sigil build` overrides `jsxImportSource` on purpose, so a wrong line
+          // builds; the build's own `tsc` (TS2875) stops some wrong sources, but not
+          // one that resolves with an untyped JSX runtime, so this read is the check. The in-process mount does honour the tsconfig, but vitest caches
+          // a transform by the module's content and not by the tsconfig, so a warm
+          // cache hides an edit to the line (SIG-312). Read from the file, so
+          // nothing cached can answer for it
+          const options = tsconfigOptions(example.dir);
+          expect(options, 'a JSX example has a tsconfig.json').toBeDefined();
+          expect(options?.jsxImportSource, 'compilerOptions.jsxImportSource').toBe(
+            '@ttylabs/sigil'
+          );
+          expect(['react-jsx', 'react-jsxdev'], 'compilerOptions.jsx').toContain(options?.jsx);
+        }
+      );
 
       for (const file of example.roots) {
         it(`should export App, taking no props, and its stylesheet: ${basename(file)}`, async () => {

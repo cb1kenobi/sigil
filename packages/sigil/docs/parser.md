@@ -152,10 +152,12 @@ const schema = {
 //   ship, go
 ```
 
-Which command owns a spelling is read when the listing is drawn, so it follows
-a lazily loaded module: a module that brings `'ship, go'` as its own name string
-takes `go` from an earlier `build` once it has loaded, and from then on `build`
-is listed without it. Until it loads, `go` still runs `build`, and help says so.
+Which command owns a spelling is read when the listing is drawn. A lazily
+loaded module's own name string is not published, because it routes nothing (see
+[A module's own name does not route](#a-modules-own-name-does-not-route)): a
+module that brings `'ship, go'` takes `go` from an earlier `build` in the process
+that loaded it, and from then on `build` is listed without it, but `ship` does
+not list it either. Until it loads, `go` still runs `build`, and help says so.
 
 Inline arguments cannot be combined with an `args` array on the same command;
 declaring both throws.
@@ -493,17 +495,61 @@ file to be relative to — a path there resolves from the working directory, so
 pass an absolute one, built from `import.meta.url`.
 
 Only the placeholder sees the name string, so the aliases and help label parsed
-from it are carried onto the loaded command; a module that declares its own
-`name` string brings its own label instead. An `alias` the module declares is
-merged in, but it cannot resolve the command — the parser has to match the
-command before it can load the module that declares the alias, so a name a user
-is expected to type belongs on the placeholder. One that is a sibling's name
+from it are carried onto the loaded command, and they are the only ones help
+publishes: see below. An `alias` the module declares is merged in, but it cannot
+resolve the command. One that is a sibling's name
 throws when the module loads, with the error a placeholder declaring it would
 have raised while the schema was built. Otherwise, once the module has loaded,
 the command takes the placeholder's place among its siblings: the same position,
 every spelling the placeholder answered to, and an alias the module adds is
 settled by declaration order like any other, so a sibling declared later keeps
 a spelling it shares.
+
+#### A module's own name does not route
+
+A module is loaded only after argv has matched the name its **route** is known
+by: the file or directory name of a walked route, the key of a `commands` entry,
+or the `name` and `alias` of the placeholder that points at it. So a `name`
+string, an `alias` or `default: true` written _inside_ the module comes too late
+to route anything. `commands/list.ts` saying
+
+```js
+export default { name: 'list, ls', run() {} };
+```
+
+answers to `list` and to nothing else: `mycli ls` is `Unexpected argument "ls"`,
+in a directory walk, behind a `path`, behind a `load` and in a directory's
+`index` module alike, from source and after `sigil build`. A module's `default`
+is read after the module loads, by which time the command was already matched
+by name, so `default: true` there does nothing either. The exception is a
+**package** a key's value is the path of (`foo: './pkg'`, and not `foo: { path: './pkg' }`): it is imported when the schema is
+built and names itself, so from source its own `name` and `alias` do route.
+
+Help only publishes what routes, so the `Alias:` block, the `Commands:` list,
+the completion menu and the markdown reference leave out a spelling that exists
+only inside a module. Two things still print a name that does not route, and
+neither is changed here: a `subcommandLoaded` hook's replacement brings its own
+label, because it is the parent's code and not a module, and a module that
+renames the command (`name: 'show'` under the key `list`) lists the placeholder's
+spellings but its usage line still names `show`.
+
+`sigil check` and `sigil build` warn about a name, an alias or a `default: true`
+a module declares that its route does not already say, naming the file. They
+read the modules of a directory walk and the ones a schema points at by `path`
+or `load`; they do not read a package a walk finds, or the routes under a
+directory a schema points at by key. Declare the spelling where the route is
+declared:
+
+```js
+const schema = {
+  commands: {
+    // `ls` runs `list`, and help shows both
+    'list, ls': './commands/list.ts',
+    // `default: true` belongs here too
+    open: { default: true, path: './commands/open.ts' },
+  },
+};
+```
 
 #### A module as a function
 

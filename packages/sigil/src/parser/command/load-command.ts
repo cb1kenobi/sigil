@@ -198,10 +198,6 @@ export async function loadCommand(
 
     const decl = def as Command;
 
-    // the module's own name string, if it has one, wins over the
-    // placeholder's
-    const renamed = decl.name !== undefined;
-
     // the ESM loader caches the module and hands the same object to every
     // importer, so the placeholder is merged into a copy — mutating `def`
     // would leak the placeholder's name and aliases into the next parse
@@ -269,11 +265,18 @@ export async function loadCommand(
     // module's reads off the command it is handed
     const loaded = await initCommand(merged, entryFile);
 
-    // ...and the same goes for the help label, unless the module renamed
-    // the command and brought its own labels
-    if (!renamed) {
-      loaded[Internal].label = internal.label;
-    }
+    // ...and the same goes for the help label, **whether or not the module
+    // renamed the command**. The label is what a listing publishes, and a
+    // listing may only publish a spelling argv reaches: this module was
+    // fetched because argv matched the placeholder, so a name string it brings
+    // of its own -- `'list, ls'` -- has never routed anything, and its label
+    // printed `Alias: ls` beside a command `mycli ls` refuses. The placeholder
+    // is the one thing that routed, so its label is the one that is published.
+    // The module's spellings still register (below), which is what settles a
+    // shared one by declaration order; they are just not advertised. See
+    // "The help label is the name string's" (its last paragraph) in
+    // `src/help/AGENTS.md`
+    loaded[Internal].label = internal.label;
 
     // a module's own aliases are only known now, so an alias that takes a
     // sibling's name is refused here with the error `add()` raises when the

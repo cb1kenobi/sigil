@@ -16,7 +16,7 @@
  * order things were built in, undone.
  */
 
-import { effect as defaultEffect, unowned } from '../signals/index.js';
+import { effect as defaultEffect, unowned, untrack } from '../signals/index.js';
 
 /** What a component is: a function of props that builds one element. */
 export type Cleanup = () => void;
@@ -136,6 +136,14 @@ export function runWithOwner<T>(owner: Owner | undefined, fn: () => T): T {
  * The root of a tree of owners, which is what a renderer mounts into and what a
  * test uses to own a handful of effects without one.
  *
+ * **Detached from tracking as well as from ownership.** `runWithOwner()` already
+ * puts the signals layer's parentage aside, so nothing built here dies with the
+ * effect that happened to be running; what it did not put aside is the
+ * *consumer*, so a body that read a signal directly -- `spinnerView()` reads its
+ * label to build the text node -- made the caller's effect a sink of it. A
+ * spinner started from an effect then re-ran that effect on every later
+ * `s.text = ...` (SIG-321). A root has nothing above it, at either level.
+ *
  * @param fn - Handed the disposer for the owner it is running under.
  * @param effects - The effect factory this tree runs through. Defaults to the
  *   module's `effect()`.
@@ -150,7 +158,7 @@ export function createRoot<T>(
   owner.effects = effects;
   owner.mounts = [];
   owner.report = report;
-  return runWithOwner(owner, () => fn(() => disposeOwner(owner, true)));
+  return untrack(() => runWithOwner(owner, () => fn(() => disposeOwner(owner, true))));
 }
 
 /**

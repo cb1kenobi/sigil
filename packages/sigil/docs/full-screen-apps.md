@@ -120,7 +120,9 @@ Five things in there are worth reading twice:
   through its ancestors, so a row handles its own Enter.
 - **`app.input?.bind('q', ...)` is an app-wide binding.** It fires wherever
   the focus is. `app.exit()` ends the app with exit code `0`. Ctrl-C needs no
-  binding: the runner ends the app on it, with `130`.
+  binding: the runner ends the app on it, with `130`. Nor does a bare `q`, which
+  the runner's `quitKey` ends it on with `0` -- as a fallback, so a text field
+  that takes `q` keeps it; this example binds it itself, ahead of that.
 
 The rest of the component is the screen itself:
 
@@ -185,6 +187,16 @@ answer.
 
 Without a terminal on both ends, piped into `cat` for example, `runApp()`
 refuses: it draws nothing, writes one line to stderr, and resolves `1`.
+
+While the app runs, `console.log()` is captured rather than written into the
+screen, so a stray log line from your code or a library cannot leave garbage in
+a frame. The lines are kept in `app.logs`. If the app fails -- a throw or a
+failed frame, an uncaught error or `process.exit(n)`, or an exit code other than
+`0` and `130` -- they are written to the main screen once it is back, ahead of
+the error: `log`, `info` and `debug` to stdout, `warn` and `error` to stderr. A
+clean exit throws them away, and so does Ctrl-C, which exits `130`. Pass `console:
+false` to leave the console alone. A bare `process.stdout.write()` and a child
+process's stderr are not the console and still write straight to the screen.
 
 With `"bin": { "hello": "./dist/hello.mjs" }` in `package.json`, `sigil build`
 type-checks the app, compiles the JSX, and writes the bundle:

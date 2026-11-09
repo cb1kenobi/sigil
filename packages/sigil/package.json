@@ -74,6 +74,10 @@
       "types": "./dist/components/collapsible.d.mts",
       "default": "./dist/components/collapsible.mjs"
     },
+    "./components/console-capture": {
+      "types": "./dist/components/console-capture.d.mts",
+      "default": "./dist/components/console-capture.mjs"
+    },
     "./components/date": {
       "types": "./dist/components/date.d.mts",
       "default": "./dist/components/date.mjs"
