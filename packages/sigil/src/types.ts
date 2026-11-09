@@ -207,13 +207,6 @@ export interface Command<
   default?: boolean;
   /** What the command is for, as help prints it. See {@link DescThunk}. */
   desc?: string | DescThunk;
-  /**
-   * Descriptions a build lifted out of the modules this command's own
-   * directory holds, so help can name them without importing them. Only
-   * meaningful on a command whose subcommands come from a path. See
-   * `RouteInfo`.
-   */
-  routeInfo?: Record<string, RouteInfo>;
   examples?: CommandExample | CommandExample[];
   /**
    * Which output formats this command can present its return value in, which is
@@ -367,13 +360,6 @@ export interface InternalCommandBase extends InternalBase {
    */
   formats?: true | readonly string[] | false;
   label: string;
-  /**
-   * What a build lifted out of the modules in `dir`, consulted by the walk.
-   * Carried rather than looked up, because a nested directory's own entries
-   * live under its parent's and the walk is the only thing that knows where
-   * in that tree it is.
-   */
-  routeInfo?: Record<string, RouteInfo>;
   /**
    * Whether `loadCommand()` has finished with this command. Always set: it
    * starts `false` and flips once there is nothing left to fetch — either the
@@ -912,11 +898,6 @@ export interface Schema {
    */
   quiet?: boolean;
   /**
-   * Descriptions a build lifted out of the modules `commands` points at, so
-   * that help can name them without importing anything. See `RouteInfo`.
-   */
-  routeInfo?: Record<string, RouteInfo>;
-  /**
    * Whether to check for a newer version of the program and say so.
    *
    * ```js
@@ -1082,36 +1063,6 @@ export interface Schema {
    * one.
    */
   version?: string | (() => string);
-}
-
-/**
- * What a build lifted out of the command modules a directory holds.
- *
- * `Route.desc` says why this exists: a package describes itself in its
- * `package.json`, which is a file read, while every other kind keeps its
- * description *inside the module* -- so a filesystem tree lists by name alone
- * until each module has been imported, and importing them is the one thing the
- * deferral exists to avoid. This is where a build that *keeps* the walk puts
- * what it read statically -- `sigil build` bakes the tree into the executable
- * it generates instead, so the descriptions reach it as what each placeholder
- * declares and it fills no `routeInfo` at all.
- *
- * It is a cache over the walk rather than a replacement for it. The directory
- * is still read, every route it finds is still a command, and a route with no
- * entry here behaves exactly as it did before -- which is what keeps a command
- * dropped in after the build from being invisible.
- *
- * So the filesystem always wins where it has an answer: a package's own
- * manifest beats this, because that read is free and cannot go stale. This
- * fills only what the filesystem cannot say.
- */
-export interface RouteInfo {
-  /** What the build lifted from a directory route's own children. */
-  readonly commands?: Record<string, RouteInfo>;
-  /** What the command does. */
-  readonly desc?: string;
-  /** Whether it is hidden, which the build lifts alongside the description. */
-  readonly hidden?: boolean;
 }
 
 /**

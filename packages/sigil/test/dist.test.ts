@@ -326,12 +326,12 @@ describe('what importing the package costs', () => {
     }
   );
 
-  it('should reach exactly the nine modules the measurement names', () => {
+  it('should reach exactly the ten modules the measurement names', () => {
     // the markers say what it must not reach and this says it reaches nothing
     // else at all, which is the only form that catches a parser module arriving
     // as a chunk of its own under a name nothing here could have predicted.
-    // Nine: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
-    // `env-value`, `mkdir-owner-sync`, `atomic` and `array-index` chunks --
+    // Ten: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
+    // `env-value`, `mkdir-owner-sync`, `atomic`, `array-index` and `jsonc` chunks --
     // which is the module list the byte figure below is over, so the two
     // cannot come apart.
     // `mkdir-owner-sync` is the write half's: `save()` creates the directory it
@@ -351,8 +351,14 @@ describe('what importing the package costs', () => {
     // spelling, and `format.ts` is on the root entry's graph, so the module is
     // shared and split out. Measured at 38,280 B over eight before and 38,672
     // over nine after, the rest of the difference being the store kit's text
-    // half; the root entry went from 12,269 B over seven to 12,326 over eight
-    expect([...staticGraph('config.mjs')].sort()).toHaveLength(9);
+    // half; the root entry went from 12,269 B over seven to 12,326 over eight.
+    //
+    // The tenth is the same shape a third time, from SIG-324: a routed
+    // directory's `commands.json` is read with `parseJsonc()`, so the JSONC
+    // reader is shared with `routes.ts` and split out of this entry rather than
+    // inlined. Measured at 39,576 B over ten after; the root entry did not move,
+    // since it reaches the parser only through a dynamic import
+    expect([...staticGraph('config.mjs')].sort()).toHaveLength(10);
   });
 
   it('should cost a module rather than a component', () => {
@@ -386,9 +392,9 @@ describe('what importing the package costs', () => {
     // onto it does. The **measured** figure is here and in src/config/AGENTS.md
     // and nowhere else, for the reason the root entry's is: two comments
     // disagreeing about one measurement leave a later reader with no way to
-    // tell which was measured. The README carries a rounded "about 38 kB over
-    // eight modules" for an app author deciding whether to import it, which is
-    // a different statement and names the same eight
+    // tell which was measured. The README carries a rounded "about 39 kB over
+    // ten modules" for an app author deciding whether to import it, which is
+    // a different statement and names the same ten
     expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(48 * 1024);
   });
 
@@ -901,7 +907,9 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   paths: [4, 1_855],
   reference: [82, 41_961],
   renderer: [328, 166_513],
-  routes: [5, 2_604],
+  // SIG-324: a `commands.json` is read with the config module's JSONC reader,
+  // which brings `__` and the debug logger with it -- 2,604 B over two before
+  routes: [22, 10_979],
   signals: [14, 6_776],
   style: [148, 75_603],
   template: [340, 174_120],

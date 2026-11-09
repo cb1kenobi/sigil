@@ -21,6 +21,20 @@
  * and `hidden` live *inside* its module, and the runtime cannot know them
  * without importing it. See `extract.ts`.
  *
+ * ## A `commands.json` is read the runtime's way and baked
+ *
+ * A routed directory's `commands.json` describes and aliases its commands
+ * without loading a module, and `readRoutes()` is what reads it -- so each
+ * route arrives here with its `desc`, `hidden`, `alias` and `default` already
+ * applied, by the same function the runtime walk applies them with. This bakes
+ * them into the tree, which is what makes an alias or a default route the same
+ * from source and after a build. An entry's `desc` wins over the one lifted out
+ * of the module, which is the placeholder rule (what help shows before the
+ * module loads); a route with no entry, or an entry with no `desc`, keeps the
+ * lift. What the runtime ignores -- an entry naming no route, a property it
+ * does not know -- is a warning here, because a stale alias is a spelling that
+ * does not route and must not be silent.
+ *
  * ## Eager here, lazy in what it emits
  *
  * Reading everything is what a compiler does; making the *output* read
@@ -32,8 +46,16 @@
 import type { Diagnostic } from './diagnostic.ts';
 import { factsOf, type CommandFacts, type RoutedBy } from './extract.ts';
 import { parseModule } from './parse-module.ts';
-import { readPackage, readRoutes, type Route, type RouteKind } from '@ttylabs/sigil/routes';
+import {
+  type DirectoryRoutes,
+  MANIFEST_FILES,
+  readPackage,
+  readRoutes,
+  type Route,
+  type RouteKind,
+} from '@ttylabs/sigil/routes';
 import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 
 /**
  * What a command came from: one of the three route kinds, or a schema that
@@ -48,28 +70,33 @@ export type CommandKind = RouteKind | 'inline';
 /** One command in a resolved tree. */
 export interface ResolvedCommand {
   /**
-   * The extra spellings its placeholder declared with the `alias` property.
+   * The extra spellings its placeholder declared with the `alias` property, or
+   * that the `commands.json` beside a walked route gives it.
    *
-   * Only ever an inline command's: a walked route is named by its file, and a
-   * module's own `alias` is not known until it loads -- see `placeholderRouting()`
-   * in `discover.ts`.
+   * Never a module's own: that is not known until it loads, and baking it would
+   * route a spelling the source does not -- see `placeholderRouting()` in
+   * `discover.ts`.
    */
   readonly alias?: readonly string[];
   /** Its subcommands, resolved the same way, sorted as the routes were. */
   readonly commands: readonly ResolvedCommand[];
   /**
    * Whether it is the command that runs when argv named none, as its
-   * placeholder declared. Routing, for the reason `alias` is.
+   * placeholder or its `commands.json` entry declared. Routing, for the reason
+   * `alias` is.
    */
   readonly default?: boolean;
-  /** What it does, lifted from its module or read from its manifest. */
+  /**
+   * What it does: from its `commands.json` entry, from its package's manifest,
+   * or lifted from its module.
+   */
   readonly desc?: string;
   /**
    * Whether `desc` is a catalog key rather than the description itself. Never
    * set for a package, whose description is prose out of a manifest.
    */
   readonly descTranslated?: boolean;
-  /** Whether it hides itself, lifted from its module. */
+  /** Whether it is hidden, from its `commands.json` entry or its module. */
   readonly hidden?: boolean;
   /**
    * Which of the three things the route behind it was, or `inline` for one a
@@ -155,12 +182,119 @@ function level(dir: string, diagnostics: Diagnostic[], facts: boolean): Resolved
     throw new Error(`Command directory not found: ${dir}`);
   }
 
+  warnManifest(found, diagnostics);
+
   // the root's own `index` is deliberately not read: a bare
   // `commands: './commands'` has no directory command for an index to *be* --
   // its own command is the schema -- which is the rule the runtime's walk
   // already follows. A subdirectory's index is a different thing, and
   // `resolve()` below is where it becomes that subdirectory's command
-  return found.routes.map((route) => resolve(route, diagnostics, facts));
+  return found.routes.map((route) => resolve(route, manifestName(found), diagnostics, facts));
+}
+
+/**
+ * The name a level's routes are described under: its `commands.json` or
+ * `commands.jsonc` if it has one, and the first spelling if it has neither --
+ * which is the one a warning tells an author to create.
+ *
+ * @param found - The level.
+ * @returns The file's name, without its directory.
+ */
+function manifestName(found: DirectoryRoutes): string {
+  return found.manifest ? basename(found.manifest.file) : MANIFEST_FILES[0];
+}
+
+/**
+ * Warns about what a level's `commands.json` says that the runtime ignores.
+ *
+ * Two things, and both are ignored rather than refused because an app with
+ * either runs exactly as it would without it: an entry naming no route, which
+ * describes nothing because the walk decides what exists, and a property that
+ * is none of the four an entry takes. Either is very often a spelling that
+ * does not route -- a renamed file's old entry, an `"aliases"` -- and that is
+ * the one thing that must not be silent.
+ *
+ * @param found - The level.
+ * @param diagnostics - Where to report.
+ */
+function warnManifest(found: DirectoryRoutes, diagnostics: Diagnostic[]): void {
+  const { manifest, stale } = found;
+  if (!manifest) {
+    return;
+  }
+
+  for (const name of stale) {
+    const alias = manifest.entries.get(name)?.alias ?? [];
+    diagnostics.push({
+      file: manifest.file,
+      message:
+        `"${name}" names no command in this directory, so its entry is ignored` +
+        (alias.length
+          ? ` and ${alias.map((spelling) => `"${spelling}"`).join(', ')} does not route`
+          : '') +
+        `; key it by a file or subdirectory name here, without the extension, or remove it`,
+      severity: 'warning',
+    });
+  }
+
+  for (const { name, property } of manifest.unknown) {
+    diagnostics.push({
+      file: manifest.file,
+      message: `"${property}" on "${name}" is not something an entry takes, so it is ignored; an entry takes "desc", "hidden", "alias" and "default"`,
+      severity: 'warning',
+    });
+  }
+}
+
+/**
+ * What a route's `commands.json` entry says, over what its module says.
+ *
+ * The entry's `desc` wins over the lifted one, because it is what the
+ * placeholder declares and so what help shows before the module loads -- and
+ * a lifted `descTranslated` goes with the lifted `desc`, since an entry's is
+ * prose. `hidden` the same way. `alias` and `default` are the entry's alone: a
+ * module's are not read, since they do not route.
+ *
+ * @param route - The route, with its entry already applied by `readRoutes()`.
+ * @param facts - What its module says.
+ * @returns The command's facts.
+ */
+function described(
+  route: Route,
+  facts: CommandFacts
+): CommandFacts & { alias?: readonly string[]; default?: boolean } {
+  const hidden = route.hidden ?? facts.hidden;
+  const desc =
+    route.desc !== undefined
+      ? { desc: route.desc }
+      : facts.desc !== undefined
+        ? { desc: facts.desc, ...(facts.descTranslated ? { descTranslated: true } : {}) }
+        : {};
+
+  return {
+    ...(route.alias?.length ? { alias: route.alias } : {}),
+    ...(route.default !== undefined ? { default: route.default } : {}),
+    ...desc,
+    ...(hidden !== undefined ? { hidden } : {}),
+  };
+}
+
+/**
+ * How a walked route is reached, for the warning about what its module
+ * declares that cannot route.
+ *
+ * @param route - The route.
+ * @param file - The `commands.json` its level is described in.
+ * @param index - Whether the module is the route's directory's `index`.
+ * @returns How it is reached.
+ */
+function walkedBy(route: Route, file: string, index: boolean): RoutedBy {
+  return {
+    default: route.default === true,
+    index,
+    manifest: { file, key: route.name },
+    name: [route.name, ...(route.alias ?? [])].join(', '),
+  };
 }
 
 /**
@@ -172,7 +306,12 @@ function level(dir: string, diagnostics: Diagnostic[], facts: boolean): Resolved
  * @param facts - Whether to read modules.
  * @returns The command.
  */
-function resolve(route: Route, diagnostics: Diagnostic[], facts: boolean): ResolvedCommand {
+function resolve(
+  route: Route,
+  file: string,
+  diagnostics: Diagnostic[],
+  facts: boolean
+): ResolvedCommand {
   if (route.kind === 'directory') {
     // read once and used twice, for its routes and for its index: reading it
     // again per half is the cost the runtime's own walk is careful to pay only
@@ -182,11 +321,26 @@ function resolve(route: Route, diagnostics: Diagnostic[], facts: boolean): Resol
       throw new Error(`Command directory not found: ${route.path}`);
     }
 
+    warnManifest(inside, diagnostics);
+
+    // the directory is described in its *parent's* file, under its own name --
+    // its own file describes what is inside it
     return {
-      commands: inside.routes.map((child) => resolve(child, diagnostics, facts)),
-      ...(inside.index
-        ? read(inside.index, { index: true, name: route.name }, diagnostics, facts)
-        : {}),
+      commands: inside.routes.map((child) =>
+        resolve(child, manifestName(inside), diagnostics, facts)
+      ),
+      ...described(
+        route,
+        inside.index
+          ? read(
+              inside.index,
+              walkedBy(route, file, true),
+              diagnostics,
+              facts,
+              route.desc !== undefined
+            )
+          : {}
+      ),
       kind: route.kind,
       module: inside.index,
       name: route.name,
@@ -198,10 +352,13 @@ function resolve(route: Route, diagnostics: Diagnostic[], facts: boolean): Resol
   // reading its entry module. Reading it would mean reading somebody's
   // compiled output for a `desc` that is very likely computed there, to answer
   // a question its manifest has already answered
+  //
+  // `route.desc` is the manifest's, or the `commands.json` entry's where the
+  // manifest has none -- `readRoutes()` settled which
   if (route.kind === 'package') {
     return {
       commands: [],
-      desc: route.desc,
+      ...described(route, {}),
       kind: route.kind,
       module: route.path,
       name: route.name,
@@ -210,7 +367,10 @@ function resolve(route: Route, diagnostics: Diagnostic[], facts: boolean): Resol
 
   return {
     commands: [],
-    ...read(route.path, { name: route.name }, diagnostics, facts),
+    ...described(
+      route,
+      read(route.path, walkedBy(route, file, false), diagnostics, facts, route.desc !== undefined)
+    ),
     kind: route.kind,
     module: route.path,
     name: route.name,
@@ -226,13 +386,19 @@ function resolve(route: Route, diagnostics: Diagnostic[], facts: boolean): Resol
  *   that is the one name argv matches before the module is read.
  * @param diagnostics - Where to report.
  * @param facts - Whether to read it at all.
+ * @param entryDescribed - Whether its `commands.json` entry already says what
+ *   help shows, which answers every diagnostic about what the module's own
+ *   `desc` and `hidden` would have shown -- the rule `moduleFacts()` in
+ *   `discover.ts` follows for a placeholder with a `desc`. What it declares
+ *   that cannot route is said either way.
  * @returns Its facts, or nothing when reading is off.
  */
 function read(
   file: string,
   routedBy: RoutedBy,
   diagnostics: Diagnostic[],
-  facts: boolean
+  facts: boolean,
+  entryDescribed: boolean
 ): CommandFacts {
   if (!facts) {
     return {};
@@ -241,7 +407,13 @@ function read(
   const parsed = parseModule(file, readFileSync(file, 'utf-8'));
   const extracted = factsOf(parsed, routedBy);
 
-  diagnostics.push(...extracted.diagnostics, ...extracted.routing);
+  // an `error` is the module being unusable, which no description answers
+  for (const diagnostic of extracted.diagnostics) {
+    if (!entryDescribed || diagnostic.severity === 'error') {
+      diagnostics.push(diagnostic);
+    }
+  }
+  diagnostics.push(...extracted.routing);
 
   return extracted.facts;
 }

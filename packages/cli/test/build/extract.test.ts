@@ -509,9 +509,58 @@ describe('extracting a command module', () => {
       // and `default` has nowhere to go: a key's string value is the only thing
       // that walks a directory and it cannot carry `default`, while an object's
       // `path` is imported as a file and a directory there crashes from source
-      expect(second?.message).toContain('cannot be made the default from the schema today');
+      expect(second?.message).toContain('cannot be made the default from the schema');
       expect(second?.message).not.toContain('path:');
       expect(routing(`alias: 'database'`, 'db')[0]?.message).toContain('./path/to/this-file');
+    });
+
+    describe('in a walked directory', () => {
+      // SIG-324. A walked route has no schema key to put a spelling on, and the
+      // `commands.json` beside it is the place that routes one -- so that is
+      // what the advice names, with the entry that says it
+      const walked = (body: string, rest: { index?: boolean; name?: string } = {}) =>
+        extractCommand('list.js', `export default { ${body} };`, {
+          manifest: { file: 'commands.json', key: 'list' },
+          name: rest.name ?? 'list',
+          ...(rest.index ? { index: true } : {}),
+        }).routing;
+
+      it("should point a name's extra spelling at the commands.json beside the module", () => {
+        const [name] = walked(`name: 'list, ls'`);
+        expect(name?.message).toContain('"name" declares "ls", which does not route');
+        expect(name?.message).toContain(
+          'declare it in the commands.json beside this module instead, such as `{ "list": { "alias": ["ls"] } }`'
+        );
+        expect(name?.message).not.toContain('commands: {');
+      });
+
+      it('should point an alias there too, and a default', () => {
+        expect(walked(`alias: ['ls', 'l']`)[0]?.message).toContain(
+          '`{ "list": { "alias": ["ls", "l"] } }`'
+        );
+        expect(walked(`default: true`)[0]?.message).toContain('`{ "list": { "default": true } }`');
+      });
+
+      it('should say nothing about a spelling the commands.json already routes', () => {
+        // the walk joins the entry's alias onto the name it is routed by
+        expect(walked(`alias: 'ls'`, { name: 'list, ls' })).to.deep.equal([]);
+      });
+
+      it("should give a directory's index the file beside the directory, default and all", () => {
+        // which is what a walk can say and a schema key cannot
+        const [alias, fallback] = walked(`alias: 'database', default: true`, { index: true });
+        expect(alias?.message).toContain('the commands.json beside this directory');
+        expect(fallback?.message).toContain('`{ "list": { "default": true } }`');
+        expect(fallback?.message).not.toContain('can only be removed');
+      });
+
+      it('should name the spelling of the file the level has', () => {
+        const [alias] = extractCommand('list.js', `export default { alias: 'ls' };`, {
+          manifest: { file: 'commands.jsonc', key: 'list' },
+          name: 'list',
+        }).routing;
+        expect(alias?.message).toContain('the commands.jsonc beside this module');
+      });
     });
   });
 });

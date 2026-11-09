@@ -1,0 +1,5 @@
+{
+  // the command that runs when argv names none of these
+  "open": { "default": true },
+  "close": { "desc": "close it" },
+}
