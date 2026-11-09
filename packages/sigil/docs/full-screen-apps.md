@@ -257,32 +257,37 @@ devDependency:
 // test/hello.test.ts
 import { App, stylesheet } from '../src/root.tsx';
 import { runApp } from '@ttylabs/sigil/app';
-import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
+import { createTestTerminal, frame, KEYS } from '@ttylabs/sigil/testing';
 import { expect, it } from 'vitest';
-
-// frames are drawn on a clock, about 30 a second, rather than once per key.
-// SIG-309 is a helper that waits for the next one; until then, a timer
-const frame = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 it('should count what Enter presses and quit on q', async () => {
   const term = createTestTerminal({ columns: 60, rows: 16 });
-  const done = runApp(App, { detect: false, sheets: [stylesheet], terminal: term.terminal }).exited;
-  await frame();
+  const app = runApp(App, { detect: false, sheets: [stylesheet], terminal: term.terminal });
 
   await term.press(KEYS.enter, KEYS.down, KEYS.enter);
-  await frame();
+  // frames are drawn on a clock, about 30 a second, rather than once per key:
+  // frame() paints the next one now instead of waiting for it
+  await frame(app);
   // the screen row by row; the last is the bottom border
   expect(term.viewport.at(-2)).toMatch(/^│ 2 presses +│$/);
 
   await term.press('q');
-  expect(await done).toBe(0);
+  expect(await app.exited).toBe(0);
   expect(term.screen.alternate).toBe(false);
 });
 ```
 
 That is the example's whole test file, and the repository's suite runs it.
-The first `frame()` matters: the first row takes the focus once the first frame
-has drawn, so a key pressed before then has no row to go to. `detect: false`
-skips asking the terminal what it is, which a test terminal cannot answer.
+The renderer draws on its own clock, about thirty frames a second, and not once
+per key — so a key leaves the screen as it was until the next tick, and a test
+that read it straight away would see the old count. `frame(app)` paints the next
+frame now instead of waiting for it, so the screen is read as the keys left it
+and not after a timer sized by guessing. `detect: false` skips asking the
+terminal what it is, which a test terminal cannot answer.
+
+To drive the whole process instead — its own `main()`, its schema, a real stdin —
+`runOnTerminal({ run, stdin: true })` spawns it with a terminal on all three
+streams and hands back `press()` and `waitFor()`; the
+[testing section of the README](../README.md#testing) has it.
 
 The [examples](../../../examples) are complete apps built this way.

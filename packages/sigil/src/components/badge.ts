@@ -1,7 +1,8 @@
-import { ansi as defaultAnsi, type ColorLevel } from '../ansi/index.js';
+import { type ColorLevel } from '../ansi/index.js';
 import { type Element, renderToString, text as textNode } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
+import { colorLevelOf } from './color-level.js';
 import { labelLine } from './note.js';
 
 /** Which role a badge takes its colour from. */
@@ -53,7 +54,7 @@ export function badgeView(
   opts: BadgeOptions = {}
 ): { element: Element; width: number } {
   const variant = opts.variant ?? 'neutral';
-  const level: ColorLevel = opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level;
+  const level: ColorLevel = colorLevelOf(opts);
   const body = labelLine(label);
   // an empty label is no badge, rather than a coloured gap two columns wide
   const [open, close] = body === '' ? ['', ''] : level === 0 ? ['[', ']'] : [' ', ' '];
@@ -92,7 +93,7 @@ export function badge(label: string, opts: BadgeOptions = {}): string {
 
   return renderToString(element, {
     cascade: themedCascade(opts),
-    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    colorLevel: colorLevelOf(opts),
     colorScheme: opts.colorScheme,
     width,
   });

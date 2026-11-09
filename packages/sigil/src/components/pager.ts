@@ -42,7 +42,7 @@
  * window -- for a log or a table where a folded row breaks the columns.
  */
 
-import { ansi as defaultAnsi, strip } from '../ansi/index.js';
+import { strip } from '../ansi/index.js';
 import { createFullscreenCanvas } from '../canvas/index.js';
 import {
   box,
@@ -64,6 +64,7 @@ import { render } from '../renderer/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { graphemes, graphemeWidth, stringWidth } from '../width/index.js';
+import { colorLevelOf } from './color-level.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 import { ScrollBox, scrollControl, type ScrollControl } from './scroll-box.js';
 
@@ -1177,7 +1178,7 @@ export function page(content: string | readonly string[], opts: PageOptions = {}
       {
         backend,
         cascade: themedCascade(opts),
-        colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+        colorLevel: colorLevelOf(opts, opts.terminal),
         colorScheme: opts.colorScheme,
         frameMs: opts.frameMs,
         onError: (error) => finish(error),

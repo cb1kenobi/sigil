@@ -69,7 +69,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Shell completion](#shell-completion) — `completion` installs it, `completion bash` prints it
 - [Translating](#translating) — `__`, `__n`, catalogs, `SIGIL_LOCALE`
 - [Typed argv](#typed-argv)
-- [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `KEYS`
+- [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `frame()`, `KEYS`
 - [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths, `save()`
 - [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `updates`, `testing`, `reference`, `png`
 
@@ -1701,20 +1701,23 @@ else, so that `grep` and `awk -F:` still work. A program that writes the same
 bytes either way gets the same bytes here, which is the right answer and is also
 the thing to check first if a differential surprises you.
 
-| option    | default | what it does                                                           |
-| --------- | ------- | ---------------------------------------------------------------------- |
-| `run`     | —       | a module to run. Exactly one of this and `source`                      |
-| `source`  | —       | an ES module to run inline, via `node --input-type=module -e`          |
-| `argv`    | `[]`    | arguments, after the module                                            |
-| `tty`     | `true`  | which streams claim to be a terminal; `false` is the pipe control      |
-| `columns` | `80`    | `COLUMNS` always, and `stdout.columns` on the streams `tty` names      |
-| `rows`    | `24`    | `LINES` always, and `stdout.rows` on the streams `tty` names           |
-| `color`   | —       | a level to force, or `false` for none. Omitted, it detects from `TERM` |
-| `cwd`     | —       | the working directory                                                  |
-| `env`     | `{}`    | variables on top of a sanitised copy of the parent's                   |
-| `timeout` | `30000` | how long before it is killed                                           |
+| option    | default | what it does                                                             |
+| --------- | ------- | ------------------------------------------------------------------------ |
+| `run`     | —       | a module to run. Exactly one of this and `source`                        |
+| `source`  | —       | an ES module to run inline, via `node --input-type=module -e`            |
+| `argv`    | `[]`    | arguments, after the module                                              |
+| `tty`     | `true`  | which output streams claim to be a terminal; `false` is the pipe control |
+| `stdin`   | `false` | whether stdin is a terminal you can type into; see below                 |
+| `columns` | `80`    | `COLUMNS` always, and `stdout.columns` on the streams `tty` names        |
+| `rows`    | `24`    | `LINES` always, and `stdout.rows` on the streams `tty` names             |
+| `color`   | —       | a level to force, or `false` for none. Omitted, it detects from `TERM`   |
+| `cwd`     | —       | the working directory                                                    |
+| `env`     | `{}`    | variables on top of a sanitised copy of the parent's                     |
+| `timeout` | `30000` | how long before it is killed                                             |
 
-What it answers: `{ code, out, err, signal }`.
+What it answers: `{ code, out, err, signal }`. What it _returns_ is a promise of
+that, with a way to talk to the child while it runs — see "Typing into a whole
+program" below.
 
 The useful assertion is usually a **differential** rather than either form on its
 own — the two say the same words, and what differs is the wrapping and the
@@ -1741,16 +1744,107 @@ for a real pty, or anything about terminal _modes_ — raw mode, bracketed paste
 mouse reporting. A claim only a real terminal can falsify belongs in a script you
 run by hand against the terminals you care about.
 
+### Typing into a whole program
+
+A full-screen program ends when it is told to, so `runOnTerminal()` returns its
+promise with the means to talk to the child while it is running. Ask for a
+terminal on stdin with `stdin: true`:
+
+```js
+import { KEYS, runOnTerminal } from '@ttylabs/sigil/testing';
+
+const run = runOnTerminal({ run: './dist/mycli.mjs', stdin: true, columns: 60, rows: 16 });
+
+await run.waitFor('0 presses'); // the first frame is on screen
+await run.press(KEYS.enter, KEYS.down, KEYS.enter);
+await run.waitFor('2 presses'); // and the second
+await run.press('q');
+
+const ran = await run; // { code, out, err, signal }, as ever
+ran.code; // 0
+run.screen.alternate; // false: it gave the screen back
+```
+
+It is the same child as before, over real pipes, with the same preload: stdin
+claims `isTTY`, and `setRawMode()` accepts the call and records it on `isRaw`,
+which is all a program asks of stdin. It is off unless you ask for it, because a
+program that reads stdin to the end gets end-of-file at once from `/dev/null`
+and would wait for ever on a pipe nobody closes; `tty` is still about the output.
+
+What the handle has is `createTestTerminal()`'s vocabulary, so one test reads the
+same in-process and spawned:
+
+- `press(...chunks)` and `paste(text)` write to the child's stdin, with `KEYS`,
+  `ctrl()` and `alt()` for the bytes. **A pipe promises the order and not the read
+  boundaries**: the kernel may hand the child two quick writes as one read, so
+  `press(KEYS.up, KEYS.enter)` is two keys in that order, but whether the program
+  saw one read or two is not something a pipe can say. Nothing the key router or a
+  prompt does depends on it. They resolve when the bytes are on the pipe — not when
+  the program has drawn what they caused.
+- `waitFor(text | /pattern/, { timeout })` is that wait. The program paints on its
+  own clock and this process only sees bytes, so it reads the child's output
+  **replayed against a screen**: the viewport and the main buffer, never the raw
+  bytes, which hold text a repaint has since covered. It rejects — with the screen
+  in the message — if the program exits first or `timeout` (5 seconds) passes.
+- `viewport`, `lines`, `output` and `screen` are the child's stdout as it stands,
+  read the way `createTestTerminal()`'s are, and `kill()` ends it.
+
+A test that can fail between starting a run and awaiting it ends the child
+itself — `try { … } finally { run.kill() }` — or the child lives until the run's
+own timeout, which is 30 seconds by default. A `waitFor()` or `press()` that
+rejects marks the run handled, so the failure is reported once; and one that
+finds the program never started rejects with the spawn error (`ENOENT` for a
+`cwd` that is not there) rather than with "the program exited".
+
+The model throws on a sequence it does not know, and from a `data` handler that
+would be an uncaught exception in your runner; the handle holds the error and
+rethrows it from `viewport`, `lines` and `waitFor()`, where you are reading. The
+questions a program asks the terminal before its first frame — device attributes,
+the version, a mode report — change nothing on a screen and are modelled as
+nothing; nobody answers them.
+
+What it cannot give a program is a _mode_: nothing is cooked or raw, nothing
+echoes, and Ctrl-C (`ctrl('c')`) is a byte rather than a signal. Raw mode is
+recorded on the _child's_ `process.stdin.isRaw`, where the parent cannot read it;
+a program that leaves the alternate screen and shows the cursor again has run the
+teardown that puts it back, and `run.screen` shows both. There is no `resize()`.
+
+### Waiting for a frame
+
+A full-screen app draws on the renderer's clock, about thirty frames a second, and
+not once per key — so in-process, with `createTestTerminal()`, a key leaves the
+screen as it was until the next tick. `frame(app)` paints the next one now:
+
+```js
+import { runApp } from '@ttylabs/sigil/app';
+import { createTestTerminal, frame, KEYS } from '@ttylabs/sigil/testing';
+
+const term = createTestTerminal({ columns: 60, rows: 16 });
+const app = runApp(App, { detect: false, terminal: term.terminal });
+
+await term.press(KEYS.enter);
+await frame(app);
+term.viewport; // what the key did
+```
+
+It takes the app `runApp()` returns, or the renderer `render()` does, and is a
+no-op for one that has gone or refused to start. It forces the frame instead of
+waiting for one: an awaitable that resolved on the _next_ frame would hang for a
+program with nothing dirty, which never schedules one. It does not cover work a
+handler starts for itself — a sampler that resolves later is another
+`await frame(app)`. A spawned program paints on its own clock, and that is
+`waitFor()`.
+
 ### Prompts, without a pty
 
 A prompt rejects outright when either end is not a terminal — that is what stops
 a build hanging on a question nobody can answer — so a prompt is not testable
-from a runner at all, and not through `runOnTerminal()` either: a prompt needs
-keys delivered over time and the far end held open, and a child whose stdin is
-written and closed reports that the stream ended.
+from a runner as it stands. A child whose stdin is written and closed reports that
+the stream ended; `runOnTerminal({ stdin: true })` holds it open, which is for a
+whole program.
 
-`createTestTerminal()` is the answer. It is a terminal and a keyboard,
-in-process, with no child and no clock:
+For one prompt, `createTestTerminal()` is the answer. It is a terminal and a
+keyboard, in-process, with no child and no clock:
 
 ```js
 import { select, text } from '@ttylabs/sigil/components';
@@ -1792,7 +1886,11 @@ await pick; // 'two'
 `createTestTerminal()` takes `columns` (40) and `rows` (8), `env` (none at all,
 so nothing is detected from the real environment), `colorLevel` (0 — raise it
 for a test that reads `ui.output` for a sequence, remembering that `Screen`
-keeps characters rather than colour), `isTTY` (true) and `inputTTY` (follows
+keeps characters rather than colour. It is the terminal's level, so `render()`,
+`runApp()` and the built-in components read it from the terminal they are
+handed; a `colorLevel` or an `ansi` named on any of them still wins.
+`colorLevelOf(opts, terminal)` from `@ttylabs/sigil/components` is the one place a
+component decides, for a component of your own), `isTTY` (true) and `inputTTY` (follows
 `isTTY`). That last one is how to test the path where there is nobody to answer:
 with `inputTTY: false` a prompt rejects rather than hanging, which is what stops
 a build waiting for ever on a question nothing can answer.

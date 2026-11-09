@@ -129,22 +129,31 @@ the `ui` tag run by plain `node`.
   package's script was not given a build of its own: it runs inside root
   `pnpm test` too, after the build the root filter already did.
 
-- **The smoke test runs in-process for behaviour and spawned for the entries.**
-  `runOnTerminal()` fakes `isTTY` on a child's output but never writes to its
-  stdin, and `createInput()` refuses a stdin that is not a terminal, so a spawned
-  child cannot be driven with keys. In-process over `createTestTerminal()` it
-  can: each root is mounted, walked with Tab, quit with `q` and with Ctrl-C, and
-  has to leave the alternate screen, show the cursor and put raw mode back. Where
-  an example has more than one root, all of them have to draw the same first
+- **The smoke test runs in-process for behaviour and spawned for the entries,
+  and the entries are driven with keys.** `runOnTerminal({ stdin: true })`
+  (SIG-309) makes a child's stdin a terminal as its stdout already was, so a
+  spawned entry can be typed at; before it, `runOnTerminal()` faked `isTTY` on a
+  child's output and never wrote to its stdin, and `createInput()` refuses a stdin
+  that is not a terminal, so the harness could only mount a root in-process. That
+  half is still the one that walks the whole app: each root is mounted over
+  `createTestTerminal()`, walked with Tab, quit with `q` and with Ctrl-C, and has to
+  leave the alternate screen, show the cursor and put raw mode back -- raw mode
+  being the one thing a spawned child cannot report, which is why it stays here.
+  Where an example has more than one root, all of them have to draw the same first
   screen -- the claim the two syntaxes rest on, one IR behind both, checked on a
   real app. Each root is run with `runApp(App, { detect: false, sheets, terminal })`
   -- the runner the entries use, so the harness mounts nothing its own way --
   and the codes asserted are the ones `exited` resolves. The entries are what
   the in-process half cannot see, so the built `bin` and `src/ui.*` are each
-  spawned piped and have to show `runApp()`'s refusal exactly: exit `1`, nothing
-  on stdout, the refusal's own line on stderr (matched by its wording, so an
-  entry dying of something else with a `1` is not mistaken for it), and no stack.
-  An entry that exits `0` piped has stopped refusing, and fails. The built one is
+  spawned twice. Piped, they have to show `runApp()`'s refusal exactly: exit `1`,
+  nothing on stdout, the refusal's own line on stderr (matched by its wording, so
+  an entry dying of something else with a `1` is not mistaken for it), and no
+  stack. And with a terminal on stdin and stdout, `waitFor()` the first frame,
+  press `q`, and the process has to exit `0` with nothing on stderr, no stack, and
+  the alternate screen and the cursor given back -- the real `main()`, the
+  schema, and the capability queries going out unanswered, none of which the
+  in-process half runs. An entry that exits `0` piped has stopped refusing, and
+  fails. The built one is
   the only check that `sigil build` produced a bundle that loads. The spawn helper and `STACK` moved out of
   `demos.test.ts` into `packages/cli/test/spawned.ts`, one definition for both.
   It lives in `packages/cli` for `demos.test.ts`'s reason: it needs `dist/`.
@@ -223,30 +232,22 @@ the `ui` tag run by plain `node`.
   nothing happened. And an entry sets `process.exitCode` itself, because
   `runApp()` resolves a code and leaves the process's alone.
 
-- **The harness and the guide wait on timers for frames, which is SIG-309.** A
-  frame is drawn on the renderer's clock rather than once per key, and nothing
-  yet says when the next has landed, so the harness polls the screen until it
-  stops changing and the example's own test waits 50ms. Both comments name
-  SIG-309, which is the call that would replace them. "Stops changing" is two
-  frame periods by the clock (`QUIET_MS`), never a count of polls: the first
-  version counted three equal reads 10ms apart, which returned in about 30ms,
-  inside one 33ms frame, under a comment saying it had waited one out. And the
-  clock only counts while the loop runs (review round 2, probed): node fires
-  due timers in the order they fell due, the 10ms poll is armed before a frame
-  a change scheduled, so after a stall longer than the window the poll ran
-  first and returned the screen from before a frame already due. Two guards: a
-  poll arriving more than a frame period after the last restarts the window,
-  and a window that looks finished yields past the timers phase
-  (`setImmediate`) and reads again. Three tests: changes at 45ms and 95ms with
-  a literal floor of 155ms, so a smaller `QUIET_MS` fails, and so does a fixed
-  sleep shorter than the floor -- one of 155ms or more passes all three, since
-  it outlasts every timer they arm, and no finite set of timings can refuse
-  every sleep without an upper bound that would flake under load; a synchronous stall with a change already due, which fails with both
-  guards removed; and a stall whose frame is armed by a timer the stall
-  delayed, which only the restart sees. Either guard alone passes the second,
-  and no deterministic test separates the yield from the restart: the case it
-  alone covers is a sub-frame stall where the poll and a frame fall due in one
-  tick, which a test can only hit by luck.
+- **The harness and the guide wait for frames with `frame(app)`, and the polling
+  is gone (SIG-309).** A frame is drawn on the renderer's clock rather than once
+  per key, and `settled()` -- poll the screen until it stops changing for two frame
+  periods -- was the harness's answer while nothing said when the next had
+  landed. It cost about 70ms a mount, had three tests of its own for the stalls it
+  had to survive (a poll that ran before a frame already due, a window restarted
+  after a stall), and was a guess about a clock the renderer owns. `frame(app)`
+  from `@ttylabs/sigil/testing` paints one now, so there is nothing to wait for
+  and nothing to guard; the helper, its tests and the reasoning are under
+  "Typing into a spawned program" in `packages/sigil/src/testing/AGENTS.md`, and
+  `QUIET_MS`, `FRAME_MS`, `until()` and the three `settled()` tests went with it.
+  `mount()` still calls it once, so a first screen that includes what an
+  `onMount` wrote is the one the twins are compared on; that call is not load
+  bearing for either example today (removing it fails nothing, since both set
+  only a focus, which is a background colour and invisible at level 0), and it is
+  there for the first example whose mount draws something.
 
 - **The guide quotes the example rather than being replayed.**
   `packages/sigil/docs/full-screen-apps.md` sits beside `getting-started.md`,
@@ -265,12 +266,16 @@ the `ui` tag run by plain `node`.
   fence trailing commas `JSON.parse()` refuses. The testing snippet used to be
   a loose fragment nothing ran, so it is `examples/hello/test/hello.test.ts`
   now, quoted whole, and the suite runs it as the example's own project. The
-  example's tests are what make the quoted code code that runs. That test waits
-  a frame before the first key, measured: the first row takes the focus in
-  `onMount`, after the first frame, so keys pressed before it reach no row, and
-  the screen lags a key by one frame tick. Thirty copies run ten at a time did
-  not flake: a frame a key scheduled falls due before the 50ms timer set after
-  it, and node fires timers in that order however late.
+  example's tests are what make the quoted code code that runs. That test pressed
+  after a 50ms wait for the first frame and read after another, on the claim that
+  the first row takes the focus in `onMount`, after the first frame, so keys
+  pressed before it reach no row. **Re-measured under SIG-309, and that half does
+  not hold:** `onMount` runs synchronously at the end of `render()`, `hello`'s
+  focus exists before any frame, and a key pressed straight after `runApp()`
+  counts. What does lag is the screen, by one frame tick -- so the test now has
+  one `frame(app)`, after the keys, and none before. The first one it used to
+  have was removed rather than kept as a ritual, and the sabotage that puts it
+  back fails nothing, which is the evidence it was never load bearing.
 
 - **`'!examples/*.md'` in the root vitest `projects`.** A projects glob that
   matches a file reads it as a config file, and vitest refuses

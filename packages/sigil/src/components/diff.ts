@@ -1,4 +1,3 @@
-import { ansi as defaultAnsi } from '../ansi/index.js';
 import {
   box,
   type Element,
@@ -9,6 +8,7 @@ import {
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { graphemes, stringWidth } from '../width/index.js';
 import { terminalWidth } from '../wrap/index.js';
+import { colorLevelOf } from './color-level.js';
 import { unicodeSupported } from './note.js';
 import { type HighlightSpan, TOKEN_ROLE, tokensOf } from './prompt.js';
 
@@ -1033,7 +1033,7 @@ export function diff(input: DiffInput, opts: DiffOptions = {}): string {
 
   return renderToString(element, {
     cascade: themedCascade(opts),
-    colorLevel: opts.colorLevel ?? (opts.ansi ?? defaultAnsi).level,
+    colorLevel: colorLevelOf(opts),
     colorScheme: opts.colorScheme,
     width,
   });

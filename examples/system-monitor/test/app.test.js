@@ -3,8 +3,7 @@ import { SystemContext } from '../src/system.js';
 import { runApp } from '@ttylabs/sigil/app';
 import { ESCAPE_TIMEOUT } from '@ttylabs/sigil/input';
 import { provideContext } from '@ttylabs/sigil/renderer';
-import { flush } from '@ttylabs/sigil/signals';
-import { createTestTerminal, ctrl, KEYS } from '@ttylabs/sigil/testing';
+import { createTestTerminal, ctrl, frame, KEYS } from '@ttylabs/sigil/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -89,20 +88,17 @@ function mount({
     }),
   };
   const app = runApp(() => provideContext(SystemContext, system, App), {
-    colorLevel,
     detect: false,
     mouse,
     sheets: [stylesheet],
     terminal: term.terminal,
   });
 
+  // four, because a sampler that resolves, a state write and the frame it asks
+  // for are each a turn of their own
   const settle = async () => {
     for (let i = 0; i < 4; i++) {
-      await new Promise((resolve) => setImmediate(resolve));
-      flush();
-      if (app.running) {
-        app.view.frame();
-      }
+      await frame(app);
     }
   };
   const press = async (...keys) => {
