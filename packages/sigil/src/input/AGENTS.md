@@ -37,12 +37,77 @@ the entry it belongs to.
   here rather than in `components` because input is the lower layer and the
   router is its first reader. `createInput()` still tests `stdin === undefined`
   beside it, for the type checker, since a boolean cannot narrow.
-- **Bindings, then the focused element, then its ancestors, then the default.**
-  A binding sees every key first, which is where quitting belongs: an app that
-  cannot be quit because a focused input swallowed Ctrl-C is the failure the
-  order exists to prevent. Tab is _last_, so a component that wants it -- a
-  completion, a cell in a grid -- keeps it by stopping the event rather than by
-  asking to be excluded from something.
+- **Bindings, then the focused element, then its ancestors, then the fallbacks,
+  then the default -- five layers since SIG-308.** A binding sees every key first,
+  which is where quitting belongs: an app that cannot be quit because a focused
+  input swallowed Ctrl-C is the failure the order exists to prevent. Tab is _last_,
+  so a component that wants it -- a completion, a cell in a grid -- keeps it by
+  stopping the event rather than by asking to be excluded from something. The
+  five are: function bindings (`bind(fn)`), sequences (`bind('g g', fn)`, which
+  includes a one-key `bind('q', fn)`), the focused element and its ancestors'
+  `onKey`, the **fallbacks** (`fallback('q', fn)`), and the Tab default. "A
+  fallback is the layer under the tree" has the reasons.
+- **A fallback is the layer under the tree: an app-level key that a focused
+  element outranks (SIG-308).** The order above had no place for `q` to quit an
+  app: `bind('q', fn)` is a sequence, consulted before the focused element, so it
+  quits while somebody types a word into a field; and an `onKey` on the root is
+  reached only by bubbling, from a focused element, so with nothing focused no key
+  reaches it at all -- the system monitor put its keys there and made sure
+  something was focused first, which is the workaround this replaced. A fallback is
+  after the focus walk and before the Tab default: a field that takes `q` stops the
+  event and the fallback never sees it, anywhere else `q` falls through, and it is
+  **the one layer that runs when the walk is empty**, because it asks nobody.
+
+  Decided, and each is the answer to a question the ticket left open:
+
+  - **It is the router's, as `input.fallback(key, handler, help?)`.** It is about
+    dispatch order and the router owns that; the runner is a caller (`quitKey`).
+    The disposer has `bind()`'s shape. The handler is handed the **key** and not an
+    event, for the reason a sequence handler is: a key that matches is claimed, so
+    there is nothing to stop.
+  - **One key per fallback, modifiers allowed, and a spec naming two throws
+    `KeySpecError`** the way a leader does. A sequence stays in the trie, which is
+    consulted before the tree; a fallback sequence would need its own pending
+    state, its own deadline and an answer for what a half-entered one does to the
+    focus walk, for a case no caller has. The lookup is a `Map` on `formatKey()`,
+    the one spelling the trie is keyed by.
+  - **A key that matches is claimed, and every fallback on it runs.** The Tab
+    default does not also see it: a fallback on `tab` is the app saying Tab means
+    something else, and moving the focus too would be two things for one press.
+    Several on one key all run, in the order added, over a copy and a membership
+    check -- the rule every handler set here follows, so one added **by a fallback**
+    during the key does not receive it and one removed during it is not called. A
+    fallback added earlier in the same dispatch -- by an `onKey` that did not stop
+    the key, or by a function binding that only watches keys -- is simply there when
+    this layer is reached, and does receive it; the trie layer behaves the same
+    way, and the copy is taken where the layer starts. And a router a
+    handler stopped runs no more of them, `fire()`'s fourth place. Two
+    registrations of one function are two entries (each is wrapped), so a
+    disposer takes off its own.
+  - **A pasted key never reaches it.** The rule sequences already follow, for the
+    same reason: content cannot drive a binding. `should never see a pasted key,
+    and should not be cancelled or advanced by one` pins it.
+  - **`bindings()` lists fallbacks after the scoped entries, which is their
+    dispatch order,** and `describe()`'s third argument (`into`) is the same function with a
+    set of its own to write into -- a separate set rather than a sort key on a
+    public record. A fallback applies wherever the focus is, so it is listed
+    wherever the focus is. **With a text field focused the footer still shows
+    `q  quit`, and pressing `q` there types it.** The router cannot know in
+    advance whether the focused element will take a key -- an `onKey` is a function
+    and says nothing about which keys it is for, which is the whole reason
+    `describe()` exists and can drift -- so the listing is the keys that _fall
+    through_ in general and not a promise about this focus. Accepted, as the
+    ticket decided; guessing would mean the router asking the field.
+  - **`bindings()` and a key-help footer needed no change.** Both read the same
+    list, and `should list a described fallback after the scoped entries` is the
+    pin.
+
+  What this does not change: the Ctrl-C guarantee (function bindings are still
+  first), the Tab rule (a component keeps Tab by stopping it), and `onKey` being
+  one function on the element. Under "Key sequences", "the order is function
+  bindings, then the trie, then the focused element, then the Tab default" is that
+  entry's own statement and is true with the fallbacks between the last two.
+
 - **An event is stoppable, or a text input's Left is also the list's "previous
   item".** The key reaches the focused element and every ancestor after it, and
   the only thing that can know the key was meant for the input is the input.
@@ -70,7 +135,7 @@ the entry it belongs to.
   the first. Repair is only for the element that has gone.
 - **A focused element that is unmounted hands focus on by position.** Dropping it
   into nothing reads as an app that stopped responding: every key then goes to
-  the bindings and nowhere else. What is kept is where it sat in the ring, not
+  the bindings and the fallbacks and nowhere else. What is kept is where it sat in the ring, not
   which element it was, because the element is exactly what has gone.
 - **`focusable` and `tabindex` are reserved props, and `selectable` joined them.**
   Everything a prop names that this list does not is a style property, and the
@@ -1700,8 +1765,9 @@ may be copied, `src/terminal/clipboard.ts` is OSC 52, and
   focus signal and a revision counter, so an effect or a computed that calls it
   re-runs when the focus moves or a description is added or removed. Order is
   dispatch order: unscoped entries, then scoped ones from the focused element
-  outwards, registration order within a tie (`sort` is stable). A scope the focus
-  is not inside is not listed, and with nothing focused only unscoped entries are.
+  outwards, registration order within a tie (`sort` is stable), then the
+  `fallback()` ones (SIG-308). A scope the focus is not inside is not listed, and
+  with nothing focused only unscoped entries and fallbacks are.
 - **There is no scoping on `bind()` itself, and `scope` on `describe()` is
   documentation.** Only an element's `onKey` is focus-scoped today, and it is a
   function; `describe()` is the declaration of what it handles and can drift from

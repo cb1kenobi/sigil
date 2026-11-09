@@ -114,13 +114,15 @@ takes what it returns as a style value. So `onKey=${(e) => e.stop()}` throws a
 `TypeError` during the build, a function returning a string throws
 `StyleError: Unknown property "onKey"`, and one returning nothing is called and
 dropped. A handler goes on an element you already hold: the root a template
-returns, which is how `App` takes its keys (`root.onKey = ...`), or a node built
+returns, which is how `App` takes its Escape (`root.onKey = ...`), or a node built
 with `box()`. `ProcessTable` needs `onResize` and `onMouse` on its body, which
 is inside it, so it is built by hand.
 
-The app's own keys are on `App`'s root `onKey` rather than router bindings: a
+The app's own keys are `input.fallback()`s rather than router bindings: a
 binding sees every key before a focused field does, so `q` typed into the
-filter would quit. A layer of app keys a focused field outranks is SIG-308.
+filter would quit. A fallback comes after the focused element, so a field keeps
+the letters it is typed, and it runs with nothing focused, which is how the
+monitor starts. `q` is `runApp()`'s own `quitKey`, a fallback too.
 
 ## Not yet
 
