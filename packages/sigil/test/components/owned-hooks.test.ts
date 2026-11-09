@@ -1,4 +1,6 @@
 import { Collapsible } from '../../src/components/collapsible.js';
+import { Dropdown } from '../../src/components/dropdown.js';
+import { Menubar } from '../../src/components/menubar.js';
 import { openModal } from '../../src/components/modal.js';
 import { createPager } from '../../src/components/pager.js';
 import { ScrollBox } from '../../src/components/scroll-box.js';
@@ -144,6 +146,15 @@ const CASES: Case[] = [
     name: 'attachTooltip',
     owns: ['onLayout'],
   },
+  {
+    make: (props) => {
+      const s = scene();
+      stops.push(() => s.input.stop());
+      return { element: Dropdown({ input: s.input, options: ['a'], props: props as never }) };
+    },
+    name: 'Dropdown',
+    owns: ['onFocusChange', 'onKey', 'onMouse'],
+  },
 ];
 
 /** The element with a class, at or under a root. */
@@ -211,6 +222,14 @@ describe('a component that owns no hook on its host', () => {
       () => Tabs({ props: everything as never, tabs: [{ children: () => box(), label: 'a' }] }),
     ],
     [
+      'Menubar',
+      () => {
+        const s = scene();
+        stops.push(() => s.input.stop());
+        return Menubar({ input: s.input, menus: [], props: everything as never });
+      },
+    ],
+    [
       'Show',
       () =>
         Show({
@@ -252,6 +271,8 @@ describe("the type of a component's props", () => {
       showToast(box(), { message: '', props: { onMouse: mine }, terminal: {} as never });
       // @ts-expect-error -- attachTooltip sets onLayout itself
       attachTooltip(box(), { input: {} as never, props: { onLayout: () => false }, text: '' });
+      // @ts-expect-error -- Dropdown sets onKey itself
+      Dropdown({ input: {} as never, options: [], props: { onKey: mine } });
 
       // the rest of the seven, and everything else, is accepted
       TextField({ props: { onMouse: mine, padding: 1 } });

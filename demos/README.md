@@ -383,6 +383,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/54-markdown.js`](components/54-markdown.js)                                 | A changelog entry from markdown at two widths, themed, and highlighted    |
 | [`components/55-image.js`](components/55-image.js)                                       | A photograph in half blocks: fitted three ways, and RGBA with a soft edge |
 | [`components/56-panels.js`](components/56-panels.js)                                     | Panels with words in the border, and panes with an edge to drag           |
+| [`components/61-menus.js`](components/61-menus.js)                                       | A menubar, a dropdown select and a context menu over a file list          |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -644,6 +645,19 @@ collapse it, or press `b`. Piped, it draws the tree at two widths -- the narrow 
 shows an annotation going first and a title being cut -- and then moves the edge with
 real keys and with `resize()`, which is what a drag calls, up to a maximum, through a
 collapse and back.
+
+`61-menus.js` is a small file browser with a menubar across the top, a dropdown that
+sorts the list, and a context menu on the files. F10 opens File and Alt with a title's
+letter opens that one; Left and Right move between the titles, Open Recent has a
+submenu, and Undo is disabled and says why. A press on a title opens it, a press on
+it again closes it, and a press dragged onto an item and released chooses it. Tab to
+the dropdown and Enter, Space or Down opens the list under it with the value
+highlighted, while a letter picks the next choice starting with it without opening
+anything. Right click a file, or press Shift-F10 or the Menu key with the focus on
+one, for a menu about that file, at the pointer or under the row. The focus never
+leaves where it was while a menu is open, and the keys are the menu's until it
+closes, so `q` does not quit with one open. Piped, a scripted keyboard and pointer
+drive the same tree and the demo prints it after each step.
 
 ### Try them without a terminal
 

@@ -1442,7 +1442,9 @@ patch, a pane, and three additions to the renderer that the pane needs.
   through as a key whose name is its own escape sequence. So the one documented
   value of the option matched nothing, and no unit test could have seen it,
   because every one of them wrote the name it was asserting. Found by driving the
-  demo, which is the argument for having written one.
+  demo, which is the argument for having written one. SIG-285 has since taught the decoder
+  the function keys, so `f12` is a name now; the predicate stays, for the reason
+  the next paragraph gives.
 
   A predicate also has no chord grammar to invent, which is the other half of it:
   a key name and a modifier set are two things, and a third spelling of a chord
@@ -10393,6 +10395,158 @@ exception per widget. This is the one answer, and every widget below follows it.
   which have no blank to put one in; and `:focus-within`, which would not solve
   this, as above, and which nothing has asked for for any other reason.
 
+### Menus: a dropdown select, a context menu and a menubar (SIG-285)
+
+`src/components/menu.ts`, `menubar.ts`, `dropdown.ts` and `overlay.ts`.
+`openMenu()` and `attachContextMenu()`, `Menubar()`, `Dropdown()`, all three on one
+`openMenuSession()`. The ticket's four "to settle" questions, as settled:
+
+- **Placement: `placeTooltip()`, on the root, `position: fixed` -- not `absolute`
+  in the panel the dropdown was written in.** `src/layout`'s "Out of flow" entry
+  says an `absolute` box anchors to the panel it was written inside, and that is
+  true and is the reason it is not used: an `absolute` box is clipped by every
+  ancestor's `overflow`, and a field near the bottom of a scroll box, a `Pane` or a
+  `Panel` would open a list cut off by the box it opened from. The tooltip met the
+  same choice and made the same call, so a menu is a `fixed` box on the root,
+  measured at the corner by the first layout and placed by the next through
+  `Element.onLayout` -- `placeTooltip()`'s flip and clamp, unchanged. Three
+  additions, all in the menu: a **cell** is an anchor (a context menu at the
+  pointer is a zero-sized box there, so the flip puts the menu's corner on the
+  cell, or its far corner beside it); a **submenu**'s anchor is its row grown by the
+  border, so it opens clear of its parent's edge with its first item level with the
+  row that opened it; and a menu **taller than the screen** is cut to it and its
+  list scrolled to keep the highlight in view -- one layout pass, since the capped
+  height is known from the row count. A resize closes every menu, as a desktop
+  does, rather than re-placing one against a screen that moved under it.
+
+- **Focus: not moved and so not trapped -- the keys and the mouse are held instead,
+  the modal's two mechanisms, and the focus stays where it was.** A function
+  `bind()` takes every key but the abort while a menu is open, and a transparent
+  `fixed` backdrop under the menus takes every mouse report; the router's focus is
+  never touched. That is the shape a desktop `<select>` and ARIA's
+  `aria-activedescendant` have, and it is what makes "the focus goes back to where it
+  was" true by construction rather than by the modal's restore rules (an element
+  that went, a dialog closed underneath) -- there is nothing to restore. It also
+  keeps a dropdown's field `:focus`, and its `.sigil-focus`, for the whole time its
+  list is open. Moving the focus into the menu was the alternative and was refused:
+  the rows would join the ring, Tab would have to be trapped, and the restore would
+  be the modal's again for a box that lives a second. **Escape** closes the deepest
+  menu, then the root one; **a click outside** closes all of them and is spent on
+  the backdrop -- reaching nothing below, the modal's reason, since a backdrop is
+  the only thing that keeps the mouse off what is below and the router has no way
+  to re-dispatch a report. A press is stopped there too, so click-to-focus never
+  moves the focus onto what was under a dismissing click. **Tab** closes the menu
+  and is _not_ stopped, so it moves the focus on as it would have. **Ctrl-C** is
+  never taken. A paste is the one gap: it walks the tree from the focused element
+  before any binding, so a focused text field under a context menu takes it; what
+  nothing took is typed in as keys, which the menu swallows.
+
+- **One list of who holds the input, shared with the modal, in `overlay.ts`.** A
+  dropdown inside a dialog is two overlays on one router, and the dialog's binding,
+  which sees every key first, would have taken every key from the list. So the
+  modal's per-router stack moved out of `modal.ts` into `holdInput()`, and a menu
+  session holds a layer on it as a dialog does: the dialog's `isTop()` is false
+  while the menu is up, its binding stands aside, and Escape closes the list and
+  the next one the dialog. A layer says whether it is a `trap`, because a dialog
+  closing under an open menu hands the focus to the nearest **trap** below, never
+  to the menu, which holds no focus. `topLayer()` is what `attachContextMenu()`
+  asks before answering Shift-F10, so a key bound before a menu opened does not
+  open a second one over it. The same file took the two other things three
+  overlays had each written: `rootOf()` (the modal's `topOf()`, the tooltip's
+  `rootOf()`) and `opaqueFill()` (the modal's, the tooltip's and the toast's blank
+  fill, each carrying a comment saying whose it was). One definition, published at
+  `@ttylabs/sigil/components/overlay` because an ejected modal and the built-in menu
+  have to share the **same** stack for either to stand aside for the other.
+
+- **The menubar: F10 and Alt-letter as fallbacks, Left and Right between titles,
+  submenus, and the titles out of the ring.** F10 opens the first title on offer
+  and Alt with a title's mnemonic opens that one, each as `input.fallback()`, which
+  is under the tree: a focused `TextField` reads Alt-F, Alt-B and Alt-D as word
+  motions and keeps them, while the same keys anywhere else open the bar. A
+  function binding would have taken them from every field. Two titles sharing a
+  letter register it once, since every fallback on a key runs. While a menu is
+  open, Left and Right move between titles past a disabled one, wrapping; Right on
+  an item with a submenu opens it and on a plain item moves to the next title; Left
+  in a submenu closes it and at the root moves back; Alt-letter switches; F10
+  closes. A press on a title opens it, a press on it again closes it, the pointer
+  moving onto another title while one is open opens that one, and a press dragged
+  onto an item and released chooses it -- the release is captured by the title the
+  press landed on, and the session is asked what is under the cell. The titles are
+  **not focusable**: F10 and Alt are how a keyboard reaches the bar, as on a
+  desktop, and Tab stays a walk through the app. So Escape at the root closes the
+  bar entirely rather than leaving it "active" with no menu, which is a state a
+  bar with no focusable titles has nowhere to keep. F10 is listed in the key help.
+
+- **The dropdown select is here, not with the form controls (SIG-199).** Settled
+  by Chris before the work started, and the code agrees: it is a field that opens
+  a menu under itself, on the same session, with the menu's keys and the menu's
+  dismissal -- what it adds is a value. SIG-199's controls change in place and
+  open nothing. Its choices are `select()`'s own (`string`, `Choice`, a separator),
+  so a list written for the prompt is a list for the field; an `&` in a choice
+  label is escaped, because a choice is words rather than a menu label. Enter,
+  Space, Up, Down and Alt-Down open it with the value highlighted, and a letter
+  picks the next choice starting with it **without** opening anything (ARIA's
+  select-only combobox). It is as wide as its widest choice so it does not change
+  width with its value, the list is never narrower than the field, and it is
+  `align-self: flex-start`, before the caller's props: stretched by a row with a
+  height it was eight rows tall and opened its list under the eighth, which the
+  website's capture found.
+
+- **Mnemonics are the `&` in a label, the first letter without one.** `Save &As`,
+  `&&` for an ampersand -- the convention every desktop toolkit reads, and one
+  label string rather than a `key` property beside it to keep in agreement. A
+  letter in an open menu chooses the one item it marks; several items sharing it
+  are stepped through instead, so a letter never chooses the wrong one of two. The
+  marked letter carries `.sigil-accent` and the hook `.sigil-menu-mnemonic`, which
+  is a role rather than a new rule: an underline would have been an exception to
+  the role rule, and the sheet's exceptions are counted. At colour level 0 the
+  mnemonic is not marked, which is the cost of that.
+
+- **The focus look is SIG-278's, as that entry assigned it.** The highlighted row
+  carries `.sigil-focus` across its whole width and shows the pointer, which is
+  hidden on every other row in a column every row reserves -- so the highlight is
+  seen at colour level 0. The open title takes the role on its face and brackets
+  in the blanks either side, and a focused dropdown the same; the brackets are the
+  level-0 marker, `Button`'s rule. **No theme role and no framework-sheet
+  exception was added**; the new classes are hooks in the comment that lists them.
+  A disabled item is `.sigil-muted` and `is-disabled`, a separator `.sigil-muted`.
+
+- **Function keys, because F10 had no name.** `keys.ts`' tables named the arrows,
+  the paging keys and the editing keys and nothing else, so F10 came through as
+  `unknown` -- the hole the debug overlay's entry recorded about `f12`, whose
+  predicate stays for the chord grammar it avoids. `f1` to `f12` (SS3 and the
+  `~` family both) and the Menu key's `menu` are named now, and the lookup reads
+  the **first** parameter as the key and the second as its modifiers: read whole,
+  Shift-F10 (`ESC [ 21 ; 2 ~`) was unknown, and so was every modified key of the
+  `~` family, Ctrl-Delete among them -- which `TextField` now reads as the
+  word-deleting key it already handled. `KEY_NAMES` grows by thirteen, derived as
+  before.
+
+- **Above the tooltip, below the debug overlay.** `z-index: 960`: a dropdown in a
+  dialog is drawn over the dialog (`900`) and over the field's own tooltip (`950`).
+  The quiet axis is not consulted: a menu is something the user asked for, on the
+  modal's side of `output.ts`'s line.
+
+- **Tests, and the sabotage pass.** `menu.test.ts`, `menubar.test.ts` and
+  `dropdown.test.ts`, through a real router over a test terminal with mouse reports
+  as bytes, plus the decoder's function keys in `keys.test.ts` and `Dropdown` in
+  `owned-hooks.test.ts`. Eighteen sabotages, each of which type-checks; two
+  survived the first pass and have a test now: the backdrop's `stop()` (the click
+  outside never reached `other` because the backdrop covers it, so the test now
+  listens on the root and the router) and the title's own toggle (only reachable
+  before the frame that draws the backdrop). The list and how the bugs were found
+  are in
+  [docs/history/menus-a-dropdown-select-a-context-menu-and-a-menubar.md](../../../../docs/history/menus-a-dropdown-select-a-context-menu-and-a-menubar.md).
+
+- **Not done:** check and radio items; type-ahead of more than one letter; a hover
+  delay before a submenu opens or closes (the pointer cutting diagonally across a
+  parent's rows closes its submenu); a keyboard context menu placed by the app
+  rather than under the focused element; scrolling a long list with the wheel by
+  the page rather than by the highlight; the dropdown's list on SIG-280's list
+  element, which is not built yet; the menus in accessible mode, which has no
+  screen to put them on; and Alt-letters in the key help, of which only F10 is
+  listed.
+
 ### Components that take `props`
 
 - **A component's `props` may not carry a hook it owns (SIG-305, review round 1).**
@@ -10427,6 +10581,7 @@ exception per widget. This is the one answer, and every widget below follows it.
   | `openModal`     | `onPaste` (on the panel)                        |
   | `showToast`     | `onMouse` (on the panel)                        |
   | `attachTooltip` | `onLayout` (on the bubble)                      |
+  | `Dropdown`      | `onKey`, `onMouse`, `onFocusChange`             |
 
   `Collapsible`, `Tabs` and `Show`/`For` assign none on the element their `props`
   reach (a `Collapsible`'s hooks are on its title, `Tabs`' on its row), so they

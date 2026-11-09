@@ -215,6 +215,13 @@ export const FRAMEWORK_CSS = `
  *   .sigil-toast-message  .sigil-toast-note  .sigil-toast-info
  *   .sigil-toast-success  .sigil-toast-warning  .sigil-toast-error
  *   .sigil-tooltip  .sigil-tooltip-fill  .sigil-tooltip-text
+ *   .sigil-menu  .sigil-menu-backdrop  .sigil-menu-fill  .sigil-menu-list
+ *   .sigil-menu-item  .sigil-menu-pointer  .sigil-menu-label  .sigil-menu-mnemonic
+ *   .sigil-menu-hint  .sigil-menu-arrow  .sigil-menu-separator
+ *   .sigil-menubar  .sigil-menubar-title  .sigil-menubar-face  .sigil-menubar-label
+ *   .sigil-menubar-bracket
+ *   .sigil-dropdown  .sigil-dropdown-face  .sigil-dropdown-label  .sigil-dropdown-arrow
+ *   .sigil-dropdown-bracket
  *   .sigil-markdown  .sigil-markdown-paragraph  .sigil-markdown-heading
  *   .sigil-markdown-h1  .sigil-markdown-h2  .sigil-markdown-h3
  *   .sigil-markdown-h4  .sigil-markdown-h5  .sigil-markdown-h6

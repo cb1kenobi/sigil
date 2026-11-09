@@ -29,11 +29,9 @@
 
 import {
   box,
-  cellStyle,
   Element,
   type ElementProps,
   type ElementPropsWithout,
-  raw,
   text as textNode,
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
@@ -41,6 +39,7 @@ import type { InputRouter, KeyEvent, MouseEvent, PasteEvent } from '../input/ind
 import { createEffect } from '../renderer/index.js';
 import { decodeKeys, isAbort, type Key } from './keys.js';
 import { unicodeSupported } from './note.js';
+import { holdInput, opaqueFill, rootOf } from './overlay.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** One button along the bottom of the dialog. */
@@ -141,23 +140,6 @@ const Z_INDEX = 900;
 /** The room a panel gets when nobody says. */
 const WIDTH = 50;
 
-/** Each router's open modals, bottom first. The last one owns the input. */
-const STACKS = new WeakMap<InputRouter, Entry[]>();
-
-/** What the stack needs to know about one open modal. */
-interface Entry {
-  panel: Element;
-}
-
-/** The element at the top of a tree, which is what two elements share if they are both in it. */
-function topOf(element: Element): Element {
-  let at = element;
-  while (at.parent !== undefined) {
-    at = at.parent;
-  }
-  return at;
-}
-
 /** The button text: bracketed while it has the focus, so it reads without colour too. */
 function buttonText(label: string, focused: boolean): string {
   return focused ? `[ ${label} ]` : `  ${label}  `;
@@ -244,24 +226,7 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
   // sheet declares nothing for it, and a theme that wants a colour behind the
   // dialog gives `.sigil-modal-fill` a background. First, so that everything else
   // is painted over it
-  panel.append(
-    raw(
-      {
-        measure: () => ({ height: 0, width: 0 }),
-        paint: (painter, area, element) => {
-          painter.fill(area.x, area.y, area.width, area.height, cellStyle(element.style));
-        },
-      },
-      {
-        bottom: 0,
-        class: 'sigil-modal-fill',
-        left: 0,
-        position: 'absolute',
-        right: 0,
-        top: 0,
-      }
-    )
-  );
+  panel.append(opaqueFill('sigil-modal-fill'));
 
   if (opts.title !== undefined) {
     panel.append(textNode(opts.title, { class: 'sigil-modal-title sigil-heading' }));
@@ -309,15 +274,10 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
 
   // -- the stack ------------------------------------------------------------
 
-  const entry: Entry = { panel };
-  let stack = STACKS.get(input);
-  if (stack === undefined) {
-    stack = [];
-    STACKS.set(input, stack);
-  }
-  const mine = stack;
-  mine.push(entry);
-  const isTop = (): boolean => mine.at(-1) === entry;
+  // shared with the menus through `overlay.ts`, so a dropdown opened inside the
+  // dialog is a layer over it and the dialog's binding stands aside for it
+  const layer = holdInput(input, { element: panel, trap: true });
+  const isTop = layer.isTop;
 
   // -- the settling ---------------------------------------------------------
 
@@ -347,25 +307,22 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
     // one -- is not ours to take back
     const held = at !== undefined && panel.contains(at);
 
-    const index = mine.indexOf(entry);
-    if (index !== -1) {
-      mine.splice(index, 1);
-    }
+    layer.release();
     offDispose?.();
     offKey();
     offFocus();
     // the tree the dialog was in, taken before it leaves it: an element that took
     // the focus without being in the ring -- a pane's edge, which a click focused --
     // is not in `pool`, and "is it still mounted" has to be asked of the tree
-    const base = backdrop.parent === undefined ? undefined : topOf(backdrop.parent);
+    const base = backdrop.parent === undefined ? undefined : rootOf(backdrop.parent);
     backdrop.remove();
 
     if (held) {
       // inside whatever modal is now on top, and not the whole ring: the one
       // below is still a trap, and a fallback that stepped out of it would be
       // the escape the trap exists to prevent
-      const next = mine.at(-1);
-      const pool = next === undefined ? input.focus.ring() : inside(next.panel);
+      const next = layer.nearestTrap();
+      const pool = next === undefined ? input.focus.ring() : inside(next.element);
       if (previous === undefined) {
         input.focus.focus(undefined);
       } else if (
@@ -375,8 +332,8 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
         // the modal underneath, if there is one, for the reason `pool` is
         (previous.focusable &&
           base !== undefined &&
-          topOf(previous) === base &&
-          (next === undefined || next.panel.contains(previous)))
+          rootOf(previous) === base &&
+          (next === undefined || next.element.contains(previous)))
       ) {
         input.focus.focus(previous);
       } else {

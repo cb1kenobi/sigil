@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 314 keys, which is what a catalog has to carry to translate sigil's own
+ * 334 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -73,7 +73,21 @@ export const SIGIL_KEYS: readonly string[] = [
   'Error: {0}',
   'Examples:',
   'Expected a collapsible title to be a string',
+  'Expected a context menu input to be a router',
+  'Expected a context menu target to be an element',
+  'Expected a dropdown input to be a router',
+  'Expected a dropdown option to be a string or a choice with a label',
+  'Expected a dropdown placeholder to be a string',
+  'Expected a dropdown width of more than four cells',
   'Expected a list of values',
+  'Expected a menu host to be an element or a renderer',
+  'Expected a menu input to be a router',
+  'Expected a menu item to have a label',
+  'Expected a menu minWidth to be a whole number of cells',
+  'Expected a menu side to be top, bottom, left or right',
+  'Expected a menu to be at an element or a cell',
+  'Expected a menubar input to be a router',
+  'Expected a menubar menu to have a label',
   'Expected a modal action to have a label',
   'Expected a modal body to be a string or an element',
   'Expected a modal host to be an element or a renderer',
@@ -105,6 +119,8 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected collapsible group to come from collapsibleGroup()',
   'Expected collapsible open to be a boolean or a State',
   'Expected concurrency to be a positive integer or Infinity',
+  'Expected dropdown disabled to be a boolean or a State',
+  'Expected dropdown options to be an array',
   'Expected each item to be a string or an object with a text string',
   'Expected enumerator to hold at least one entry',
   'Expected every tab to have a label that is a string',
@@ -112,6 +128,9 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected locale to be a valid language tag',
   'Expected markdown source to be a string',
   'Expected markdown to be a string or parsed blocks',
+  'Expected menu initial to be the position of an item',
+  'Expected menu items to be an array',
+  'Expected menubar menus to be an array',
   'Expected min to be no later than max',
   'Expected modal actions to be an array',
   'Expected modal initial to be the position of an action',
@@ -272,6 +291,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'invert',
   'last tab',
   'match {0} of {1}',
+  'menu',
   'move',
   'next match',
   'next tab',
