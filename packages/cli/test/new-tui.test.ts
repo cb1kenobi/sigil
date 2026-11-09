@@ -533,18 +533,54 @@ describe('the flags', () => {
     expect(readdirSync(dir)).toEqual([]);
   });
 
-  it('should read the removed --js as an option nobody declared, and write TypeScript', () => {
-    // A CHARACTERIZATION, not an endorsement. `--js` is gone, and the parser's
-    // answer to an undeclared option is to take it as a value (`allowUnknownOptions`
-    // is on), so a script that still says `--js` gets a TypeScript app, exit 0, and
-    // nothing said. Pinned so that changing it is a decision: see "`--lang` replaced
-    // `--js`" in AGENTS.md for what could be done about it
-    const dir = tempDir('sigil-new-tui-');
-    const ran = run(dir, 'demo', '--yes', '--js');
+  it.each([
+    { flag: ['--js'], what: '--js', wrote: 'index.ts', also: 'TypeScript' },
+    { flag: ['--lint', 'none'], what: '--lint none', wrote: '.oxlintrc.json', also: 'oxlint' },
+  ])(
+    'should read the removed $what as an option nobody declared, and write $also',
+    ({ flag, wrote }) => {
+      // A CHARACTERIZATION, not an endorsement. `--js` and `--lint` are gone, and the
+      // parser's answer to an undeclared option is to take it as a value
+      // (`allowUnknownOptions` is on), so a script that still says either gets the
+      // default, exit 0, and nothing said. Pinned so that changing it is a decision:
+      // see "`--lang` replaced `--js`" in AGENTS.md for what could be done about it
+      const dir = tempDir('sigil-new-tui-');
+      const ran = run(dir, 'demo', '--yes', ...flag);
 
-    expect(ran.status).toBe(0);
-    expect(existsSync(join(dir, 'demo', 'src', 'index.ts'))).toBe(true);
-    expect(ran.stderr).toBe('');
+      expect(ran.status).toBe(0);
+      expect(
+        existsSync(join(dir, 'demo', wrote.startsWith('.') ? wrote : join('src', wrote)))
+      ).toBe(true);
+      expect(ran.stderr).toBe('');
+    }
+  );
+
+  it.each([
+    ['oxlint', '.oxlintrc.json'],
+    ['eslint', 'eslint.config.js'],
+    ['biome', 'biome.json'],
+  ])('should set up %s with --linter %s', (linter, config) => {
+    const dir = tempDir('sigil-new-tui-');
+    expect(run(dir, 'demo', '--yes', '--linter', linter).status).toBe(0);
+
+    expect(existsSync(join(dir, 'demo', config))).toBe(true);
+  });
+
+  it('should set up no linter with --linter none', () => {
+    const dir = tempDir('sigil-new-tui-');
+    expect(run(dir, 'demo', '--yes', '--linter', 'none').status).toBe(0);
+
+    expect(existsSync(join(dir, 'demo', '.oxlintrc.json'))).toBe(false);
+  });
+
+  it('should refuse a --linter it does not know, before the first question', () => {
+    const dir = tempDir('sigil-new-tui-');
+    const ran = run(dir, '--linter', 'tslint');
+
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toContain('tslint');
+    expect(ran.stderr).not.toContain('Cannot prompt');
+    expect(readdirSync(dir)).toEqual([]);
   });
 
   it('should refuse --tui-command with --single, and say what to pass', () => {
@@ -671,7 +707,7 @@ describe('the flags', () => {
       '--lang',
       'js',
       '--single',
-      '--lint',
+      '--linter',
       'none',
       '--pm',
       'npm',
@@ -749,8 +785,8 @@ describe('the flags', () => {
   // not with itself: reading the answer off the output is how a dropped flag hid
   it.each([
     {
-      flags: ['--tui', '--pm', 'pnpm', '--lint', 'none'],
-      printed: 'sigil new <name> --pm pnpm --lint none --lang ts --tui --syntax ui',
+      flags: ['--tui', '--pm', 'pnpm', '--linter', 'none'],
+      printed: 'sigil new <name> --pm pnpm --linter none --lang ts --tui --syntax ui',
       second: (app: string) => {
         expect(existsSync(join(app, 'src', 'ui', 'app.ts'))).toBe(true);
         expect(existsSync(join(app, 'src', 'commands', 'hello.ts'))).toBe(true);
@@ -761,16 +797,16 @@ describe('the flags', () => {
       },
     },
     {
-      flags: ['--tui-command', 'ops', '--pm', 'npm', '--lint', 'biome'],
-      printed: 'sigil new <name> --pm npm --lint biome --lang ts --tui-command ops --syntax ui',
+      flags: ['--tui-command', 'ops', '--pm', 'npm', '--linter', 'biome'],
+      printed: 'sigil new <name> --pm npm --linter biome --lang ts --tui-command ops --syntax ui',
       second: (app: string) => {
         expect(existsSync(join(app, 'src', 'commands', 'ops.ts'))).toBe(true);
         expect(existsSync(join(app, 'biome.json'))).toBe(true);
       },
     },
     {
-      flags: ['--single', '--tui', '--lang', 'js', '--pm', 'vlt', '--lint', 'eslint'],
-      printed: 'sigil new <name> --pm vlt --lint eslint --lang js --single --tui --syntax ui',
+      flags: ['--single', '--tui', '--lang', 'js', '--pm', 'vlt', '--linter', 'eslint'],
+      printed: 'sigil new <name> --pm vlt --linter eslint --lang js --single --tui --syntax ui',
       second: (app: string) => {
         // `--lang js`: the file is `.js`, and there is no tsconfig. `--single`: no commands
         expect(existsSync(join(app, 'src', 'ui', 'app.js'))).toBe(true);
@@ -827,7 +863,9 @@ describe('the flags', () => {
   it('should print the JSX command for an app that is written in the ui tag', () => {
     const readme = file(files({ syntax: 'ui', tui: { at: 'root' } }), 'README.md');
 
-    expect(readme).toContain('sigil new <name> --pm pnpm --lint none --lang ts --tui --syntax jsx');
+    expect(readme).toContain(
+      'sigil new <name> --pm pnpm --linter none --lang ts --tui --syntax jsx'
+    );
   });
 
   it('should leave the other-syntax hint on one line, since the terminal wraps and a break at 88 does not', () => {
@@ -954,7 +992,8 @@ function askWith(
   dir: string,
   keys: readonly string[],
   args: readonly string[],
-  columns = 80
+  columns = 80,
+  answered = true
 ): Promise<{ code: number | null; out: string }> {
   return new Promise((settle, fail) => {
     const child = spawn(
@@ -967,10 +1006,9 @@ function askWith(
         ...args,
         '--no-install',
         '--no-git',
-        '--lint',
-        'none',
-        '--pm',
-        'npm',
+        // the linter and the manager answered, so the questions a test is about are
+        // the only ones left -- except where a test is about those
+        ...(answered ? ['--linter', 'none', '--pm', 'npm'] : []),
       ],
       {
         cwd: dir,
@@ -1300,10 +1338,149 @@ describe('the questions', () => {
     // question the way it meets any other unanswered one. --no-tui is how it
     // opts out, which the flag tests above pin
     const dir = tempDir('sigil-new-tui-');
-    const ran = run(dir, 'demo', '--lang', 'js', '--single', '--lint', 'none', '--pm', 'npm');
+    const ran = run(dir, 'demo', '--lang', 'js', '--single', '--linter', 'none', '--pm', 'npm');
 
     expect(ran.status).not.toBe(0);
     expect(existsSync(join(dir, 'demo'))).toBe(false);
+  });
+});
+
+describe('--defaults', () => {
+  /** What was asked of the person, one entry per question the run printed. */
+  const QUESTIONS = [
+    'Would you like to use TypeScript?',
+    'Will it have subcommands?',
+    'Which linter would you like to use?',
+    'Which package manager would you like to use?',
+    'Which template syntax?',
+  ] as const;
+
+  /** `sigil new demo --defaults ...` on a faked terminal, with nothing else answered. */
+  function askDefaults(dir: string, keys: readonly string[], ...argv: string[]) {
+    return askWith(dir, keys, ['demo', '--defaults', ...argv], 80, false);
+  }
+
+  /** The release workflow, which is where the package manager an app was set up with shows. */
+  function workflowOf(dir: string): string {
+    return readFileSync(join(dir, 'demo', '.github', 'workflows', 'release.yml'), 'utf-8');
+  }
+
+  it('should ask only whether to include a full-screen app, and take every default for the rest', async () => {
+    const dir = tempDir('sigil-new-tui-');
+    const ran = await askDefaults(dir, ['n']);
+
+    expect(ran.code, ran.out).toBe(0);
+    expect(ran.out).toContain('Include a full-screen app (TUI)?');
+    for (const question of QUESTIONS) {
+      expect(ran.out, question).not.toContain(question);
+    }
+    // TypeScript, several commands, oxlint
+    expect(existsSync(join(dir, 'demo', 'src', 'index.ts'))).toBe(true);
+    expect(existsSync(join(dir, 'demo', 'src', 'commands', 'hello.ts'))).toBe(true);
+    expect(existsSync(join(dir, 'demo', '.oxlintrc.json'))).toBe(true);
+    expect(existsSync(join(dir, 'demo', 'src', 'ui'))).toBe(false);
+  });
+
+  it('should take the package manager the way --yes does', async () => {
+    // whichever it is on this machine -- pnpm when it is installed, npm when not --
+    // and the same one as --yes, which is the rule being claimed
+    const withDefaults = tempDir('sigil-new-tui-');
+    const withYes = tempDir('sigil-new-tui-');
+    expect((await askDefaults(withDefaults, ['n'])).code).toBe(0);
+    expect(run(withYes, 'demo', '--yes').status).toBe(0);
+
+    expect(workflowOf(withDefaults)).toBe(workflowOf(withYes));
+  });
+
+  it('should ask where and what to call the command, and not the syntax, which is JSX', async () => {
+    const dir = tempDir('sigil-new-tui-');
+    const ran = await askDefaults(dir, ['y', DOWN, ENTER, 'ops', ENTER]);
+
+    expect(ran.code, ran.out).toBe(0);
+    expect(ran.out).toContain('Launch it from');
+    expect(ran.out).toContain('What is the command called?');
+    expect(ran.out).not.toContain('Which template syntax?');
+    expect(existsSync(join(dir, 'demo', 'src', 'ui', 'app.tsx'))).toBe(true);
+    expect(existsSync(join(dir, 'demo', 'src', 'commands', 'ops.ts'))).toBe(true);
+  });
+
+  it('should still ask the name, which has no default', async () => {
+    const dir = tempDir('sigil-new-tui-');
+    const ran = await askWith(dir, ['demo', ENTER, 'n'], ['--defaults'], 80, false);
+
+    expect(ran.code, ran.out).toBe(0);
+    expect(ran.out).toContain('What is it called?');
+    expect(existsSync(join(dir, 'demo', 'package.json'))).toBe(true);
+  });
+
+  it('should let an explicit option beat it', async () => {
+    const dir = tempDir('sigil-new-tui-');
+    const ran = await askDefaults(dir, ['n'], '--lang', 'js', '--linter', 'biome', '--single');
+
+    expect(ran.code, ran.out).toBe(0);
+    expect(existsSync(join(dir, 'demo', 'src', 'index.js'))).toBe(true);
+    expect(existsSync(join(dir, 'demo', 'biome.json'))).toBe(true);
+    expect(existsSync(join(dir, 'demo', 'src', 'commands'))).toBe(false);
+    expect(existsSync(join(dir, 'demo', '.oxlintrc.json'))).toBe(false);
+  });
+
+  it('should be --yes when both are given', () => {
+    const both = tempDir('sigil-new-tui-');
+    const yes = tempDir('sigil-new-tui-');
+    const ran = run(both, 'demo', '--yes', '--defaults');
+
+    expect(ran.status, ran.stderr).toBe(0);
+    expect(run(yes, 'demo', '--yes').status).toBe(0);
+    expect(readdirSync(join(both, 'demo'), { recursive: true }).sort()).toEqual(
+      readdirSync(join(yes, 'demo'), { recursive: true }).sort()
+    );
+    expect(readFileSync(join(both, 'demo', 'package.json'), 'utf-8')).toBe(
+      readFileSync(join(yes, 'demo', 'package.json'), 'utf-8')
+    );
+  });
+
+  it('should still be refused without a terminal where something is left to ask', () => {
+    // the full-screen question has no default, so it is asked like any other
+    const dir = tempDir('sigil-new-tui-');
+    const ran = run(dir, 'demo', '--defaults');
+
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toContain('Cannot prompt for "Include a full-screen app (TUI)?"');
+    expect(existsSync(join(dir, 'demo'))).toBe(false);
+  });
+
+  it('should refuse a missing name without a terminal, since --defaults does not cover it', () => {
+    const ran = run(tempDir('sigil-new-tui-'), '--defaults', '--no-tui');
+
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toContain('Cannot prompt');
+  });
+
+  it('should run with no questions once the rest is answered', () => {
+    const dir = tempDir('sigil-new-tui-');
+    const ran = run(dir, 'demo', '--defaults', '--no-tui');
+
+    expect(ran.status, ran.stderr).toBe(0);
+    expect(existsSync(join(dir, 'demo', 'src', 'index.ts'))).toBe(true);
+  });
+
+  it('should preselect the same entries it takes, in the menus', async () => {
+    // the defaults are one list, and the menus read their highlight from it: asked
+    // interactively, each menu opens on the entry --defaults would have taken
+    const dir = tempDir('sigil-new-tui-');
+    const ran = await ask(dir, [ENTER, ENTER, 'y', ENTER, ENTER], '--linter', 'none');
+
+    expect(ran.out).toContain('❯ JSX');
+    expect(ran.out).toContain('❯ Yes, several commands');
+  });
+
+  it('should list --defaults in its own help, with what it covers', () => {
+    // wrapped where the help wraps, which is not what is being asserted
+    const help = run(tempDir('sigil-new-tui-'), '--help').stdout.replace(/\s+/g, ' ');
+
+    expect(help).toContain('--defaults');
+    expect(help).toContain('language, layout, syntax, linter, package manager');
+    expect(help).toContain('still ask the rest');
   });
 });
 

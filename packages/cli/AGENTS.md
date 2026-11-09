@@ -2871,7 +2871,7 @@ people's software and will move.
   negated twin and was the wrong conclusion: `'--no-tui': { negate: false }` is a
   destination of its own (`noTui`), exactly the opt-out the pairing rule in the
   root `AGENTS.md` describes, and `--tui` stays an ordinary flag. Without it,
-  `sigil new foo --lang js --single --lint none --pm npm </dev/null`, which worked
+  `sigil new foo --lang js --single --linter none --pm npm </dev/null`, which worked
   before the question existed, failed with `Cannot prompt for "Include a
   full-screen app (TUI)?"`. A script that passes neither `--yes` nor `--no-tui`
   still meets the question without a terminal and is refused, as it is for any
@@ -3036,6 +3036,32 @@ people's software and will move.
   hidden `--js` that throws `--js was replaced by --lang js` (one flag, one
   message, and it is the alias that was asked not to exist, in a form that cannot
   be used). Neither is done.
+
+- **`--lint` is `--linter`, and `--defaults` takes each choice's default but not
+  the open questions.** `--lint` was renamed for the noun, outright and with no
+  alias, as `--js` was, and it has the same trap: an undeclared `--lint none` is
+  taken as a value and ignored, so a script that still says it gets oxlint with
+  exit 0 and nothing said (pinned by a characterization test, beside `--js`'s). The
+  recommendation made for `--js` -- `allowUnknownOptions: false` for the
+  toolchain, or a hidden flag that throws -- is applied to neither, and covers both.
+  A second finding from the same change: because an undeclared option lands on
+  `argv.<name>`, `--linter eslint` works even where the option is not declared, so
+  a test that only passes the flag proves nothing about the declaration; the
+  `choices` refusal and the `--help` text are what do.
+
+  `--defaults` fills the **choices** -- language, layout, template syntax, linter
+  and package manager -- and still asks the name, whether to include a full-screen
+  app, where to launch it and what to call its command, none of which has a default
+  worth taking. An explicit option beats it. `--yes` is unchanged, covers
+  everything, and `--yes --defaults` is `--yes` since `--defaults` is already
+  inside it. **Defined once:** `DEFAULTS` in `new.ts` is the one list of what a
+  default is, `takesDefault(argv, 'choice' | 'open')` is the one place that says
+  which flag covers which kind of question, and every `ask*()` reads both. The
+  menus preselect by looking the default up in `DEFAULTS`, and the package manager
+  -- the one default that is not a constant -- is `askManager()`'s `preferred`, the
+  rule `--yes` has always used. The `yes` boolean that used to be threaded through
+  each `ask*()` is gone, so there is no second spelling for the two flags to
+  disagree about.
 
 ### The registry: what `sigil add` copies
 

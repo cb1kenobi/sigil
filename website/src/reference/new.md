@@ -26,7 +26,7 @@ sigil new [options] [project-name]
 | --- | --- | --- |
 | `--cwd [dir]` | `string` | Where to create it, defaulting to the working directory |
 | `--lang [js\|ts]` | `string` | Which language the app is written in |
-| `--lint [oxlint\|eslint\|biome\|none]` | `string` | Which linter to set up |
+| `--linter [oxlint\|eslint\|biome\|none]` | `string` | Which linter to set up |
 | `--no-git` | `bool` | Do not run git init |
 | `--pm [pnpm\|vlt\|npm]` | `string` | Which package manager to set the app up with |
 | `--no-install` | `bool` | Do not install dependencies |
@@ -35,4 +35,5 @@ sigil new [options] [project-name]
 | `--no-tui` | `bool` | Do not include a full-screen app, and do not ask |
 | `--tui` | `bool` | Include a full-screen app, launched from the app itself |
 | `--tui-command [name]` | `string` | Include a full-screen app, launched from a command of this name |
+| `--defaults` | `bool` | Take the default for each choice (language, layout, syntax, linter, package manager) and still ask the rest |
 | `-y, --yes` | `bool` | Take the defaults for anything not passed |

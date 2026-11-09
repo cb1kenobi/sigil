@@ -310,6 +310,19 @@
           "env": [],
           "hidden": false,
           "long": [
+            "--defaults"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
             "--git",
             "--no-git"
           ],
@@ -359,7 +372,7 @@
           "env": [],
           "hidden": false,
           "long": [
-            "--lint"
+            "--linter"
           ],
           "multiple": false,
           "required": false,

@@ -30,13 +30,15 @@ It asks five things:
 - Whether to include a full-screen app (TUI). The default is no, and `--tui`
   says yes. If you do, it also asks where to launch it from and which template
   syntax to write it in; see [Building a full-screen app](full-screen-apps.md).
-- Which linter to set up: oxlint, eslint, biome, or none.
+- Which linter to set up: oxlint, eslint, biome, or none. `--linter` answers it.
 - Which package manager to use. It only asks this when more than one is
   installed.
 
 After writing the files, it runs `git init` and installs the dependencies.
 `--no-git` and `--no-install` skip those steps, and `--yes` takes the defaults
-for every question you did not answer with a flag. When it finishes, it prints
+for every question you did not answer with a flag. `--defaults` takes only the
+default for each choice (language, layout, template syntax, linter and package
+manager) and still asks the rest: the name and whether to include a full-screen app. When it finishes, it prints
 the next commands to run:
 
 ```console
