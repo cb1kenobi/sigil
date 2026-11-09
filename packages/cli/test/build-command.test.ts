@@ -473,6 +473,66 @@ describe('sigil build', () => {
     expect(stale.stderr).toContain('Unexpected argument "g"');
   }, 60_000);
 
+  it('a package the schema points at answered to its own name from source and to the schema key once built', async () => {
+    // SIG-332. `commands: { foo: './pkg' }` over a package whose module says
+    // `name: 'lazy, lz', alias: 'pk'`: the runtime imports it when the schema is
+    // built and registers it under its own names, so from source `lazy`, `lz`
+    // and `pk` ran and `foo` was `Unexpected argument`, while the build baked
+    // the key and the built app answered the other way round. `bar` is a
+    // package whose module names nothing, which the manifest's name names.
+    const app = join(fixtures, 'keyed-package');
+    const { err } = await sigil('build', app, '--out', out);
+
+    // nothing about a package's own names, which are what route it
+    expect(err).not.toContain('"name"');
+    expect(process.exitCode).toBeFalsy();
+
+    const exe = join(out, 'keyed-package.mjs');
+    const built = (...argv: string[]) =>
+      spawnSync(process.execPath, [exe, ...argv], { cwd: tmpdir(), encoding: 'utf-8' });
+    const source = (...argv: string[]) =>
+      spawnSync(process.execPath, [join(app, 'dev.ts'), ...argv], {
+        cwd: tmpdir(),
+        encoding: 'utf-8',
+      });
+
+    // what each spelling does, from source, is what it does built
+    for (const spelling of ['lazy', 'lz', 'pk', 'foo', 'bare-pkg', 'bar']) {
+      const [from, after] = [source(spelling), built(spelling)];
+      expect({ spelling, status: after.status, stdout: after.stdout }).toStrictEqual({
+        spelling,
+        status: from.status,
+        stdout: from.stdout,
+      });
+      expect(after.stderr, spelling).toBe(from.stderr);
+    }
+
+    // and that answer is the package's names, not the keys
+    expect(built('lz').stdout).toBe('lazy\n');
+    expect(built('pk').stdout).toBe('lazy\n');
+    expect(built('bare-pkg').stdout).toBe('bare\n');
+    expect(built('foo').stderr).toContain('Unexpected argument "foo"');
+    expect(built('bar').status).toBe(1);
+
+    // help lists the package's name string, described before anything loads
+    const help = built('--help').stdout;
+    expect(help).toMatch(/^\s+lazy, lz\s+A package that names itself$/m);
+    expect(help).toMatch(/^\s+bare-pkg\s+A package named by its manifest$/m);
+  }, 60_000);
+
+  it('should refuse a package the schema points at whose names it cannot read', async () => {
+    // SIG-332. From source such a package answers to whatever its module
+    // computes, so a build that baked the key, or guessed, would route the built
+    // app differently -- the refusal a walked `commands/` package already gets
+    const { err } = await sigil('build', join(fixtures, 'discover', 'package-names'), '--out', out);
+
+    expect(err).toContain('the "computed" command\'s "name" is computed');
+    expect(err).toContain('the "listed" command\'s "alias" is computed');
+    expect(err).toContain('the "spread" command is a package whose default export spreads');
+    expect(process.exitCode).toBe(1);
+    expect(existsSync(join(out, 'package-names.mjs'))).toBe(false);
+  }, 60_000);
+
   it('should refuse an alias of the wrong type, as the app does from source', async () => {
     // `alias: 42` throws on every run from source. A build that warned and
     // carried on would write an app that starts, which is a worse answer than

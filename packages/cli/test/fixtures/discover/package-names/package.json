@@ -1,0 +1,7 @@
+{
+  "name": "package-names",
+  "type": "module",
+  "devDependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

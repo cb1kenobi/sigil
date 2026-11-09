@@ -1,0 +1,6 @@
+{
+  "name": "bare-pkg",
+  "description": "A package named by its manifest",
+  "type": "module",
+  "main": "lib/command.js"
+}

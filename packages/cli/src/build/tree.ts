@@ -75,7 +75,9 @@ export interface ResolvedCommand {
    *
    * Never a module's own: that is not known until it loads, and baking it would
    * route a spelling the source does not -- see `placeholderRouting()` in
-   * `discover.ts`.
+   * `discover.ts`. The one exception is a package a schema key points at, whose
+   * module the runtime imports when the schema is built, so its own `alias` is
+   * the placeholder's -- see `keyedPackage()` there.
    */
   readonly alias?: readonly string[];
   /** Its subcommands, resolved the same way, sorted as the routes were. */

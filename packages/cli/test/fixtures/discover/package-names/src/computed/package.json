@@ -1,0 +1,5 @@
+{
+  "name": "computed-pkg",
+  "type": "module",
+  "exports": "./index.js"
+}
