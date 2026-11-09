@@ -2791,6 +2791,77 @@ people's software and will move.
   exactly where a project's conventions should be explicit, and it is what stops
   `sigil add` having to guess -- and then print the guess, which is what it does
   when there is no config.
+- **A full-screen app is something a command does, so it is a question after the
+  layout and not a third layout (SIG-279).** "Include a full-screen app (TUI)?"
+  follows "Will it have subcommands?", and a multi-command app is then asked
+  where it launches from -- `myapp`, whose root `run` opens it, or a command of
+  its own, `dashboard` unless told otherwise -- and every app that has one is
+  asked "Which template syntax?". One TUI per scaffold. The placements are the
+  schema's `run` for the app itself and `commands/<name>.ts` for a command, and
+  both are the same four lines in `launcher()`. A root TUI is the "`main()`
+  dispatches a `run` on the schema" rule in the root `AGENTS.md`, so
+  `commands/hello` stays beside it and `myapp --help` is still help; a command
+  placement leaves the root with no `run`, so `myapp` shows help as it always did.
+  A **single**-command TUI drops the `who` argument and the greeting: a root
+  `run` that opened a screen and also said hello would be two programs under one
+  name, and `test/app.test` for it only describes itself.
+- **Flags: `--tui`, `--tui-command <name>`, `--syntax jsx|ui`.** Two TUI flags
+  because an option that takes a value must be given one here, so a bare
+  `--tui [command]` cannot work. `--tui-command` implies `--tui` and wins over
+  it; `--tui` is the root. **Refused, before the first question** and writing
+  nothing: `--tui-command` with `--single` (the message names `--tui`, because
+  the intent is clear and only the spelling is wrong), a command name that is not
+  lowercase letters, digits and hyphens starting with a letter, `hello` (the
+  example command beside it) and `index` (the directory itself), and `--syntax`
+  under `--yes` with no TUI flag. A flag that is accepted and does nothing is how
+  a typo becomes an app that is not what was asked for. `--syntax` followed by a
+  "no" to the app interactively is refused for the same reason, late, because the
+  answer was not known earlier.
+- **No TUI is the default, and `--yes` takes none, JSX, and the root.** The one
+  question whose default is "no": most CLIs are not full-screen apps and one that
+  is knows it. `--yes` with `--tui` takes JSX because the ticket said so, and
+  because it is the syntax an editor can check. There is no `--no-tui`: the
+  parser gives a flag `false` rather than `undefined`, so an unanswered question
+  and a refused one would be the same value, and `--yes` already says "defaults".
+  What that costs is a script that passes every other flag but not `--yes`, which
+  now meets one more unanswered question and refuses without a terminal, as it
+  does for any other.
+- **The component is in `src/ui/`, never `commands/`, and it is imported inside
+  `run`.** `.tsx` is not a route extension and Node cannot import it from source,
+  so a component in `commands/` is not a command; and a static import would load
+  the renderer for `myapp login`, which has nothing to draw. `runApp` is imported
+  there too, for the same reason. The specifier names the file as it is --
+  `app.tsx`, `app.jsx`, `app.ts` or `app.js` -- and not `app.js`: **`sigil build`
+  does resolve `import('../ui/app.js')` to `app.tsx`**, in rolldown and in the
+  app's own `tsc` (measured by editing a scaffolded command and building, and
+  pinned by `should resolve a .js specifier to the .tsx` in `new-tui.test.ts`), so
+  no build change was needed. The `ui`-tag scaffold is the reason for the real
+  extension: it runs unbuilt, and Node does not map `app.js` to the `app.ts`
+  that is there.
+- **A JSX app has no dev runner, and `dev` builds.** `sigil build && node
+  dist/<name>.mjs`, since Node cannot load a `.tsx` and `sigil build`
+  type-checks on the way, so the loop is also the check. `dev.ts` would start a
+  schema whose launcher fails on the one thing the app is for, so it is not
+  written and `tsconfig.json` does not name it. The `ui` scaffold keeps
+  `node dev.ts` unchanged. A JavaScript app with JSX gets `.jsx` and the same
+  `dev`, and its `vitest.config.js` carries `oxc.jsx.importSource` -- a
+  TypeScript app says it in `tsconfig.json` and vite reads it there, and a
+  JavaScript one has no tsconfig. Not done, deliberately: a bundle-only
+  `--no-check` dev build, and `jsx: "react-jsxdev"` in the scaffold's tsconfig,
+  which would ship file names in the release bundle.
+- **The summary says once that the `ui` tag is the build-free alternative, and
+  only to somebody who was given JSX.** After the steps rather than among them,
+  because it is not a step. And the steps name the launch: `run dev` for the
+  root, `run dev -- <command>` for a command, before the `--help` line that every
+  scaffold prints.
+- **The scaffolded test is the one a TUI author copies, so it asserts on text.**
+  It runs the app over `createTestTerminal()`, presses a key, reads the screen,
+  and asserts `q` exits `0` and Ctrl-C `130`, and that without a terminal it
+  refuses with `runApp()`'s own line. No box-drawing character is asserted:
+  `Panel` draws ASCII where `unicodeSupported()` is false, which is every
+  Windows CI runner. `new-tui.test.ts` scaffolds every placement, syntax and
+  language, builds or starts each, runs it piped, and runs **its own test
+  suite** -- the one claim about the scaffold that is not a claim about text.
 
 ### The registry: what `sigil add` copies
 

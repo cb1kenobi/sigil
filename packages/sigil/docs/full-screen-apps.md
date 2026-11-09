@@ -285,6 +285,30 @@ frame now instead of waiting for it, so the screen is read as the keys left it
 and not after a timer sized by guessing. `detect: false` skips asking the
 terminal what it is, which a test terminal cannot answer.
 
+## Starting from the scaffold
+
+`sigil new` writes this app for you. Answer yes to "Include a full-screen app
+(TUI)?", or pass `--tui`, and the app gets `src/ui/app.tsx`, a `test/tui.test.ts`
+that runs it over a fake terminal like the one above, and a `dev` script that
+builds it and runs the bundle. A full-screen app is something a command does, so
+it is asked after whether the app has one command or several, and an app with
+several is then asked where to launch it from: the app itself, where `myapp` with
+no command opens it, or a command of its own, where `myapp dashboard` does and
+`myapp` still shows help. `--tui-command <name>` picks the second without the
+questions, and `--tui-command` with `--single` is refused, since a single
+command has nowhere to put one.
+
+The component lives in `src/ui/` and never in `commands/`, because a `.tsx` is
+not a route and Node cannot import one from source. Whatever opens it loads it
+with a dynamic `import()` inside `run`, so `myapp login` never loads the
+renderer.
+
+The syntax is a question of its own, "Which template syntax?", and `--syntax
+jsx|ui` answers it. JSX is the default: it type-checks every prop, and what it
+costs is a build, which is why its `dev` script is `sigil build && node
+dist/myapp.mjs`. `--syntax ui` writes the same app in the `ui` tag, whose `dev`
+is plain `node dev.ts` with nothing to build.
+
 To drive the whole process instead — its own `main()`, its schema, a real stdin —
 `runOnTerminal({ run, stdin: true })` spawns it with a terminal on all three
 streams and hands back `press()` and `waitFor()`;

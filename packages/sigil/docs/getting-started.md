@@ -21,11 +21,14 @@ nothing is compiled while you develop.
 npx @ttylabs/cli new my-cli
 ```
 
-It asks four things:
+It asks five things:
 
 - Whether to use TypeScript. The default is yes, and `--js` says no.
 - Whether the app has subcommands. The default is a `commands/` directory, and
   `--single` makes the app itself the command.
+- Whether to include a full-screen app (TUI). The default is no, and `--tui`
+  says yes. If you do, it also asks where to launch it from and which template
+  syntax to write it in; see [Building a full-screen app](full-screen-apps.md).
 - Which linter to set up: oxlint, eslint, biome, or none.
 - Which package manager to use. It only asks this when more than one is
   installed.
