@@ -1,0 +1,7 @@
+{
+  "name": "settings-app",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

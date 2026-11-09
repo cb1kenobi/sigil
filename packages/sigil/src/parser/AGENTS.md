@@ -481,6 +481,86 @@ The sharpest question in the design, and the ticket did not name it.
   answer people trust instead of trying it. The diagnostic names the line, says
   which directory each side would resolve against, and gives the one line to add.
 
+### Settings on the schema: what a build keeps of what `main()` was told
+
+- **`Schema.settings` exists because the build can only carry a schema.** The
+  executable `sigil build` generates calls `main({ schema: { ...schema, commands,
+  version } })` and nothing else, so every `settings` an app passed in its own
+  `main()` call -- `allowUnknownOptions`, `allowExtraArguments`,
+  `allowUnexpectedArguments`, `assertCwd`, `errorHandler`, `helpExitCode`,
+  `suggestions` -- fell back to its default once built. An app with
+  `allowUnknownOptions: false` refused a typo from source and accepted it built,
+  and both builds reported success (SIG-333, found by the toolchain's own
+  `--outt`). Reading the `main()` call statically was the other candidate and is
+  refused: the call can be computed and an app might not have one, where a
+  schema is already what the build spreads. The generated entry needed no change
+  for this -- `settings` rides the spread the way a hook does, and a function
+  (`errorHandler`) survives it for the same reason -- which `settings-build.test.ts`
+  in `@ttylabs/cli` proves by building an app and running both.
+- **Per key, and the call wins.** `{ ...schema.settings, ...call }` -- a flag
+  beats the file, and a key the call does not name is the schema's, which is what
+  lets an app say `allowUnknownOptions: false` once and have a test override only
+  the setting it means to. A key the call names as `undefined` is **not named**:
+  `{ errorHandler: undefined }` is how an optional value looks at a call site, and
+  reading it as "clear the schema's" would switch a setting off by accident. This
+  differs from a spread on purpose, which is why `resolveSettings()` loops rather
+  than spreads the call.
+- **It is one function, in one place, because three readers had three chances to
+  miss it.** `main()` reads `assertCwd` and `errorHandler` itself and `parse()`
+  builds `state.settings` for everything else; the merge is
+  `resolveSettings()` in `settings.ts`, and `main()` merges once up front and hands
+  the result on. `parse()` merges again, which is a no-op -- laying a result over
+  its own base is the result -- and is there for a caller of `parse()` with no
+  `main()`. `errorHandlerSetting()` merges inside its own `try`, and when the merge fails --
+  either half is not an object, or a getter threw -- it falls back through
+  `salvagedErrorHandler()`: **the call's own handler if its settings is an object and
+  names one, then the schema's if its `settings` is an object, then the built-in**,
+  each read in its own `try`. A fault in one half used to discard the other's handler,
+  from both sides: a bad schema dropped the call's (fixed first), and a bad call
+  (`settings: null`, refused since this change) dropped the schema's, so an app with
+  `errorHandler: false` on its schema had the error rendered by the built-in instead
+  of rethrown -- which is where an app upgrading across the `null` refusal lands.
+  `beforeError` still fires exactly once, because the merge fails at the top of
+  `main()` and the error goes through `handleError()` like any other. The error
+  reported is still the settings fault, never a second one hiding it.
+- **The result is always a new object.** `parse()` used to keep the settings object
+  its caller passed, so a hook writing `state.settings.allowUnknownOptions` wrote
+  onto the caller's, and the toolchain carried a `beforeParse` hook that copied it
+  first. Nothing needs the copy now: `state.settings` is the merge, neither source
+  is written to (asserted with both frozen), and a second `main()` that reuses a
+  settings object gets it as the caller left it.
+- **`settings` is the root schema's alone, and nothing is inherited.** A nested
+  `main()` -- a command that composes another app -- runs under its own schema's
+  settings and its own call's, not the outer call's. There is no ambient state to
+  inherit from, and inventing some would make a nested app's behaviour depend on
+  who started it. **But a schema carries its own**: the README's "Running one
+  command from another" passes `schema: state.schema`, so that nested call runs
+  under the outer schema's `settings` -- `errorHandler` and `allowUnknownOptions`
+  included -- through the schema itself, not through the call. Passing the same
+  schema is asking for its settings. A lazily loaded command module's `settings` is custom data and is
+  not read: settings are about the run, and a run has one root.
+- **`Settings` has no `state` field, and the schema's type is `Settings` whole.**
+  The ticket asked whether a per-call member such as a pre-built `ParseState`
+  belonged in the schema's type. There is no such member -- `Settings` is the seven
+  documented keys and nothing else -- so there is no subset type to exclude it from.
+- **A `settings` that is not an object is a `TypeError`**, on the schema
+  (`Expected schema settings to be an object`) and on the call (`Expected settings
+  to be an object`), thrown before anything is parsed, and it reaches the
+  `beforeError` hooks like any other invalid schema. An array is refused as well,
+  since it would spread as numeric keys and look like an empty object.
+
+  **`settings: null` on the call is a behaviour change.** `parse()` read
+  `opts.settings || {}`, so `main({ schema, settings: null })` worked; it throws now.
+  Kept, because it is the parser's rule everywhere else that `null` is an error and
+  `undefined` is absent (`schema` follows it), and a merge that quietly read `null`
+  as "none" would be the one place it did not. `undefined` is still fine.
+
+- **Pinned by sabotage, once each**, in `schema-settings.test.ts`: dropping the
+  schema's settings from the merge fails eleven tests, reversing the precedence
+  four, returning a source instead of a new object three, and `main()` reading only
+  the call for `assertCwd` and `errorHandler` three -- which is the one the other
+  three would not catch, since `parse()` reads the merge either way.
+
 ### An `afterRun` hook: `finally`, `postrun`, and the telemetry seam in one
 
 oclif gives a command `init()`, `catch()` and `finally()`, plus a `postrun`
