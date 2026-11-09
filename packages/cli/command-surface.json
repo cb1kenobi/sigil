@@ -395,6 +395,48 @@
           "type": "bool"
         },
         {
+          "choices": [
+            "jsx",
+            "ui"
+          ],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--syntax"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--tui"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": false,
+          "type": "bool"
+        },
+        {
+          "choices": [],
+          "env": [],
+          "hidden": false,
+          "long": [
+            "--tui-command"
+          ],
+          "multiple": false,
+          "required": false,
+          "short": [],
+          "takesValue": true,
+          "type": "string"
+        },
+        {
           "choices": [],
           "env": [],
           "hidden": false,

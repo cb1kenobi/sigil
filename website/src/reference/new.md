@@ -31,4 +31,7 @@ sigil new [options] [project-name]
 | `--pm [pnpm\|vlt\|npm]` | `string` | Which package manager to set the app up with |
 | `--no-install` | `bool` | Do not install dependencies |
 | `--single` | `bool` | One command rather than a commands directory |
+| `--syntax [jsx\|ui]` | `string` | Which template syntax the full-screen app is written in |
+| `--tui` | `bool` | Include a full-screen app, launched from the app itself |
+| `--tui-command [name]` | `string` | Include a full-screen app, launched from a command of this name |
 | `-y, --yes` | `bool` | Take the defaults for anything not passed |

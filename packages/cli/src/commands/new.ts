@@ -9,6 +9,11 @@
  * because people have preferences there and the answer is a config file nobody
  * enjoys writing twice.
  *
+ * A full-screen app is a fourth, and it is asked **after** the layout because it
+ * is something a command does rather than a way of arranging them. Only when
+ * there is one does it go on to ask where it is launched from -- the app itself,
+ * or a command of its own -- and which template syntax it is written in.
+ *
  * It does *not* ask about the package manager -- `npm_config_user_agent` says
  * which one invoked it, so asking would be asking a question whose answer is
  * already on the table. Nor about git, which it just does.
@@ -17,6 +22,8 @@
 
 import { displayPath } from '../build/index.ts';
 import {
+  commandNameProblem,
+  DEFAULT_TUI_COMMAND,
   type Language,
   type Layout,
   type Linter,
@@ -25,6 +32,9 @@ import {
   nameProblem,
   scaffold,
   type ScaffoldFile,
+  type Syntax,
+  SYNTAXES,
+  type Tui,
 } from '../scaffold/index.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { confirm, select, text } from '@ttylabs/sigil/components/prompt';
@@ -134,6 +144,17 @@ const newApp: AnyCommand = command({
     },
     '--no-install': { desc: 'Do not install dependencies' },
     '--single': { desc: 'One command rather than a commands directory', type: 'bool' },
+    '--syntax [syntax]': {
+      choices: [...SYNTAXES],
+      desc: 'Which template syntax the full-screen app is written in',
+    },
+    '--tui': {
+      desc: 'Include a full-screen app, launched from the app itself',
+      type: 'bool',
+    },
+    '--tui-command [name]': {
+      desc: 'Include a full-screen app, launched from a command of this name',
+    },
     '-y, --yes': { desc: 'Take the defaults for anything not passed', type: 'bool' },
   },
 
@@ -151,8 +172,14 @@ const newApp: AnyCommand = command({
       throw new Error(`${displayPath(dir)} already exists and is not empty`);
     }
 
+    // refused before the first question, so that a flag which cannot work is not
+    // discovered after the answers to four others
+    checkTuiFlags(argv, yes);
+
     const language = await askLanguage(argv, yes);
     const layout = await askLayout(argv, yes);
+    const tui = await askTui(argv, yes, layout, name);
+    const syntax = await askSyntax(argv, yes, tui);
     const linter = await askLinter(argv, yes);
     const pm = await askManager(argv, yes);
 
@@ -166,6 +193,8 @@ const newApp: AnyCommand = command({
       // on its first tag
       manager: pm,
       name,
+      syntax,
+      tui,
       version: own.version,
       versions: own.devDependencies,
     });
@@ -183,7 +212,15 @@ const newApp: AnyCommand = command({
     process.stdout.write(
       `\nCreated ${name} in ${displayPath(dir)}.\n\n  cd ${displayPath(relative(process.cwd(), dir) || '.')}\n` +
         (argv.install === false ? `  ${pm} install\n` : '') +
-        `  ${pm} run dev -- --help\n`
+        (tui?.at === 'root' ? `  ${pm} run dev\n` : '') +
+        (tui?.at === 'command' ? `  ${pm} run dev -- ${tui.command}\n` : '') +
+        `  ${pm} run dev -- --help\n` +
+        // said once, after the steps and only to somebody who was given JSX: a
+        // build is the price of it, and the other syntax is the answer to
+        // paying it
+        (tui && syntax === 'jsx'
+          ? '\nThe app is in JSX, so `dev` builds it before it runs. The `ui` tag is the build-free\nalternative: `sigil new --syntax ui` writes the same app in it.\n'
+          : '')
     );
   },
 });
@@ -259,6 +296,143 @@ async function askLayout(argv: Record<string, unknown>, yes: boolean): Promise<L
     ],
     message: 'Will it have subcommands?',
   })) as Layout;
+}
+
+/**
+ * Refuses the flag combinations that cannot mean anything, before anything is asked.
+ *
+ * Three of them, and each is a flag that would otherwise be accepted and do
+ * nothing -- which is how a typo becomes an app that is not what was asked for:
+ *
+ * - `--tui-command` with `--single`, since there is no command to launch from.
+ *   The message says what to pass instead, because the intent is clear and only
+ *   the spelling is wrong.
+ * - A command name that cannot be a file and a command at once.
+ * - `--syntax` where nothing will be asked for a TUI at all: under `--yes`, with
+ *   neither TUI flag. Interactively it is not refused here, because the answer to
+ *   the question that follows may yet be yes.
+ *
+ * @param argv - The parsed options.
+ * @param yes - Whether defaults are being taken.
+ */
+function checkTuiFlags(argv: Record<string, unknown>, yes: boolean): void {
+  const command = argv.tuiCommand;
+
+  if (typeof command === 'string') {
+    if (argv.single) {
+      throw new Error(
+        '--tui-command needs a commands directory to put the command in, and --single has none. Use --tui to launch the full-screen app from the app itself.'
+      );
+    }
+    const problem = commandNameProblem(command);
+    if (problem) {
+      throw new Error(`${problem}: "${command}"`);
+    }
+  }
+
+  if (argv.syntax !== undefined && yes && !argv.tui && typeof command !== 'string') {
+    throw new Error(
+      '--syntax chooses how a full-screen app is written, and there is none. Add --tui.'
+    );
+  }
+}
+
+/**
+ * Asks whether there is a full-screen app and where it is launched from.
+ *
+ * Nothing is the default, which is the one question here that is not "yes":
+ * most CLIs are not full-screen apps, and one that is knows it. `--tui` is the
+ * app itself and `--tui-command` is a command, and either answers the whole
+ * question. Interactively, only a multi-command app is asked where, since a
+ * single command has nowhere but itself.
+ *
+ * @param argv - The parsed options.
+ * @param yes - Whether to take the default rather than asking.
+ * @param layout - How the commands are arranged.
+ * @param app - The app's name, which the question names.
+ * @returns Where it is launched from, or `undefined` for none.
+ */
+async function askTui(
+  argv: Record<string, unknown>,
+  yes: boolean,
+  layout: Layout,
+  app: string
+): Promise<Tui | undefined> {
+  if (typeof argv.tuiCommand === 'string') {
+    return { at: 'command', command: argv.tuiCommand };
+  }
+  if (argv.tui) {
+    return { at: 'root' };
+  }
+  if (yes) {
+    return undefined;
+  }
+
+  if (!(await confirm({ default: false, message: 'Include a full-screen app (TUI)?' }))) {
+    return undefined;
+  }
+  if (layout === 'single') {
+    return { at: 'root' };
+  }
+
+  const where = (await select({
+    choices: [
+      { hint: 'running it with no command opens the app', label: app, value: 'root' },
+      { hint: 'the app shows help, as it does today', label: 'A command', value: 'command' },
+    ],
+    message: `Launch it from \`${app}\`, or from a command?`,
+  })) as 'command' | 'root';
+
+  if (where === 'root') {
+    return { at: 'root' };
+  }
+
+  const command = (
+    await text({
+      default: DEFAULT_TUI_COMMAND,
+      message: 'What is the command called?',
+      placeholder: DEFAULT_TUI_COMMAND,
+      validate: (value) => commandNameProblem(value.trim() || DEFAULT_TUI_COMMAND),
+    })
+  ).trim();
+
+  return { at: 'command', command: command || DEFAULT_TUI_COMMAND };
+}
+
+/**
+ * Asks which template syntax, JSX by default, and only when there is an app to write.
+ *
+ * @param argv - The parsed options.
+ * @param yes - Whether to take the default rather than asking.
+ * @param tui - What `askTui()` answered.
+ * @returns The syntax, or `undefined` when there is no full-screen app.
+ */
+async function askSyntax(
+  argv: Record<string, unknown>,
+  yes: boolean,
+  tui: Tui | undefined
+): Promise<Syntax | undefined> {
+  if (tui === undefined) {
+    if (argv.syntax !== undefined) {
+      // reached only interactively, by a `--syntax` and then a "no" to the app
+      throw new Error('--syntax chooses how a full-screen app is written, and none was asked for');
+    }
+    return undefined;
+  }
+  if (typeof argv.syntax === 'string') {
+    return argv.syntax as Syntax;
+  }
+  if (yes) {
+    return 'jsx';
+  }
+
+  return (await select({
+    choices: [
+      { hint: 'typed props in an editor; built to run', label: 'JSX', value: 'jsx' },
+      { hint: 'runs as it is, with no build', label: 'The ui tag', value: 'ui' },
+    ],
+    message: 'Which template syntax?',
+  })) as Syntax;
 }
 
 /** Asks which linter, defaulting to oxlint. */
