@@ -250,6 +250,10 @@
       "types": "./dist/components/select-row.d.mts",
       "default": "./dist/components/select-row.mjs"
     },
+    "./components/slider": {
+      "types": "./dist/components/slider.d.mts",
+      "default": "./dist/components/slider.mjs"
+    },
     "./components/sort": {
       "types": "./dist/components/sort.d.mts",
       "default": "./dist/components/sort.mjs"
@@ -421,7 +425,7 @@
     "@types/node": "26.6.6",
     "@vitest/coverage-v8": "5.1.0",
     "rimraf": "6.1.4",
-    "tsdown": "0.23.5",
+    "tsdown": "0.23.7",
     "typescript": "7.0.2",
     "vitest": "5.1.0"
   },

@@ -1125,6 +1125,25 @@ values — see [Undeclared options](#undeclared-options).
 
 ## Settings
 
+Settings are declared on the schema, as `settings`, or passed to `main()` or
+`parse()`. Both together are merged per key and the call wins; a key the call
+leaves out, or sets to `undefined`, is the schema's. Neither object is modified, and
+`state.settings` is a new object holding the result. Only the keys in the table below
+land on it, and each is read once, when the settings are merged, so a getter runs
+eagerly.
+
+A built app only has the schema's: `sigil build` generates the executable and calls
+`main({ schema })` itself, so settings passed in the app's own `main()` call do not
+reach it. Declare them on the schema.
+
+```js
+export default {
+  name: 'mycli',
+  settings: { allowUnknownOptions: false },
+  commands: './commands',
+};
+```
+
 | Setting                    | Default | Effect                                                      |
 | -------------------------- | ------- | ----------------------------------------------------------- |
 | `allowExtraArguments`      | `false` | Permit arguments after `--`                                 |
@@ -1133,6 +1152,7 @@ values — see [Undeclared options](#undeclared-options).
 | `assertCwd`                | `true`  | Fail early if the working directory is gone                 |
 | `errorHandler`             | —       | `false` to rethrow, or a function to render errors yourself |
 | `helpExitCode`             | `0`     | Exit code `main()` sets after printing help                 |
+| `suggestions`              | `true`  | Offer the nearest command or option a typo missed           |
 
 ## Sharing options between commands
 
@@ -1909,17 +1929,17 @@ valued twin instead.
 
 `parse()` resolves to a `ParseState`:
 
-| Field      | Description                                      |
-| ---------- | ------------------------------------------------ |
-| `argv`     | Resolved values, keyed by camelCase destination  |
-| `_`        | Every positional value, in order                 |
-| `$`        | The classified token stream — see below          |
-| `$orig`    | The original argv                                |
-| `cmd`      | The innermost matched or default command, if any |
-| `contexts` | The context chain, innermost first               |
-| `env`      | The environment used for fallbacks               |
-| `schema`   | The schema, exactly as it was given              |
-| `settings` | The settings in effect                           |
+| Field      | Description                                                          |
+| ---------- | -------------------------------------------------------------------- |
+| `argv`     | Resolved values, keyed by camelCase destination                      |
+| `_`        | Every positional value, in order                                     |
+| `$`        | The classified token stream — see below                              |
+| `$orig`    | The original argv                                                    |
+| `cmd`      | The innermost matched or default command, if any                     |
+| `contexts` | The context chain, innermost first                                   |
+| `env`      | The environment used for fallbacks                                   |
+| `schema`   | The schema, exactly as it was given                                  |
+| `settings` | The settings in effect: the schema's, with the call's laid over them |
 
 Each entry in `$` is classified as one of `Command`, `Option`, `UnknownOption`,
 `Extra`, or `Unknown`, the last being a positional value.

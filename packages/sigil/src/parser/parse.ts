@@ -26,6 +26,7 @@ import { registerCompletion } from './completion.js';
 import { detectFormat } from './format.js';
 import { detectHelp, registerHelp } from './help.js';
 import { detectQuiet, registerQuiet } from './quiet.js';
+import { resolveSettings } from './settings.js';
 import { unexpectedArgument, unknownOption } from './suggest.js';
 import { detectVersion, registerVersion } from './version.js';
 
@@ -121,7 +122,8 @@ export async function parse(opts: ParseOptions = {}): Promise<ParseState> {
       ],
       env,
       schema,
-      settings: opts.settings || {},
+      // the schema's and the call's, merged into a new object: see `resolveSettings()`
+      settings: resolveSettings(schema, opts.settings),
     };
 
     const handles = await registerHelp(state.contexts[0], schema);

@@ -84,7 +84,7 @@ export const RUNTIME = '@ttylabs/sigil';
 const ENTRY_NAMES = ['src/index', 'src/main', 'src/cli', 'src/app', 'index', 'main', 'cli'];
 
 /** The extensions a module may have, in the order they are tried. */
-const EXTENSIONS = ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'];
+export const EXTENSIONS: readonly string[] = ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'];
 
 /** What an app's manifest says that matters here. */
 export interface AppManifest {

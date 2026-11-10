@@ -593,9 +593,39 @@ that nothing but a load can supply.
 
 ## Settings
 
+Settings can live on the schema, or be passed to `main()`:
+
 ```js
+export default {
+  name: 'mycli',
+  settings: { allowUnknownOptions: false, helpExitCode: 2 },
+};
+
 await main({ schema, settings: { allowExtraArguments: true } });
 ```
+
+**If the app is built, they have to be on the schema.** `sigil build` generates the
+executable and calls `main({ schema })` itself, so it carries the schema across and
+never sees the settings your own `main()` call passed -- `allowUnknownOptions: false`
+refuses a typo from source and accepts it built, and a custom `errorHandler` goes
+missing. `sigil build` and `sigil check` warn about a `main()` call in the root `dev.*`
+runner (the file `sigil new` writes, which a build never bundles) whose argument is an
+object literal with a `settings` key, naming the file and line and, where it can tell, what a
+built app uses instead. A `main()` call inside the schema module is not warned about: that module is
+bundled, so a command composing another app keeps the settings it passes. A call
+elsewhere, or one whose argument is a variable or a spread (`main(opts)`,
+`main({ ...opts })`), is not seen.
+
+When both are given the two are merged key by key, and the `main()` call wins: a
+flag beats the file. A key the call leaves out, or sets to `undefined`, is the
+schema's. Neither object is written to, and a nested `main()` inherits nothing from
+the one running it -- it has its own schema's settings and its own call's. The
+pattern in [Running one command from another](#running-one-command-from-another)
+passes `schema: state.schema`, though, so that nested call picks up the outer schema's
+`settings` through the schema itself, `errorHandler` and `allowUnknownOptions`
+included; pass a different schema to get different settings. `settings: null` is an
+error, as `schema: null` is; leave the key out. `parse({ schema, settings })` follows the same rule. Only
+the keys in the table below land on `state.settings`.
 
 | Setting                    | Default  | Effect                                                |
 | -------------------------- | -------- | ----------------------------------------------------- |
@@ -5343,6 +5373,61 @@ background, and the caret of a focused field carries `.sigil-focus`, the role a
 control puts on the part that shows its focus -- `sigil/themes` below says which
 controls do.
 
+#### A slider
+
+```js
+import { describeSlider, Slider } from '@ttylabs/sigil/components/slider';
+import { box, text } from '@ttylabs/sigil/element';
+import { State } from '@ttylabs/sigil/signals';
+
+const volume = new State(40);
+const slider = Slider({ value: volume, format: (v) => `${v}%`, onChange: (v) => mixer.set(v) });
+const row = box({ 'flex-direction': 'row' }, text('Volume', { width: 8 }), slider);
+describeSlider(input, slider); // for keyHelp(), once the router exists
+```
+
+```
+Volume  ━━━━━━━━○───────────  40%
+```
+
+A number on a track, as an element: focusable, moved by the keys and dragged by
+the pointer. `value` is a number to start from or a `State<number>` that is the
+value itself -- the keys and the pointer write it, and a write the app makes moves
+the thumb. `onChange(value)` is called after the keys or the pointer moved it, and
+never for a write the app made. `min` and `max` default to 0 and 100 and `step` to
+1; the value is always `min` plus a whole number of steps, so the top is the last
+step at or under `max`, and a fractional step lands on `0.3` rather than
+`0.30000000000000004`. A value the app writes outside the range or between two
+steps is drawn at the nearest step and left as written.
+
+Left and Right move a step, Page Up and Page Down a page -- `page`, in the value's
+own units, defaulting to a tenth of the range and never less than a step -- and
+Home and End go to the ends. They are claimed even at an end, so a held key that
+overshoots does not reach whatever is around the slider; Up, Down, Enter, Tab and
+any key with a modifier are left alone, so a form of rows can have them. A left
+press on the track puts the thumb under the pointer and focuses the slider, and
+holding the button drags it: the press captures the pointer, so a drag past either
+end of the track, or off the canvas, clamps at that end and the release still ends
+it. The wheel is left to whatever scrolls. `disabled` (a boolean or a
+`State<boolean>`) takes it out of the focus ring, ignores the keys and the pointer,
+and mutes it.
+
+**The label is the app's, and the readout is the slider's.** A form lines its
+labels up in a column only it knows the width of, which is why a text field has
+none either. `format` draws a readout after the track, and it is as wide as the
+widest thing `format` returns over the range, so the track does not move a column
+as the value goes from `9%` to `100%`; without `format` there is no readout.
+`width` is the track's columns; without one the track takes what the layout gives
+it -- the rest of a column, or twenty columns in a row with no width of its own,
+shrinking to its share where the row is short. Horizontal only.
+
+The focused slider's thumb carries `.sigil-focus` and fills in, `○` to `●` (`o` to
+`O` in ASCII), and the glyph is what shows the focus at colour level 0, where the
+role is dropped. The filled stretch and the thumb are `.sigil-accent` and the rest
+of the track `.sigil-muted`; `.sigil-slider`, `-track`, `-fill`, `-thumb`, `-rest`
+and `-value` are the theme hooks. `describeSlider(input, ...sliders)` describes the
+six keys scoped to each slider, for `keyHelp()`.
+
 #### A toast
 
 ```js
@@ -5465,11 +5550,16 @@ cannot read, so `input.describe(keys, { description, scope })` declares it, and 
 is listed while the scope element or anything inside it holds the focus. That is
 the one half that can drift from its handler.
 
-Wider than the terminal, the short form drops whole bindings, lowest `priority`
-first and the later of two equals, and ends in `…`; it never wraps and never cuts
-a binding in half. Pass `width: () => n` if the terminal resizes. `expanded` is a
-boolean or a `State<boolean>`: set it true and the footer lists every binding
-under its `group`, one to a line. Binding `?` to that signal is the app's job.
+Wider than its box, the short form drops whole bindings, lowest `priority` first
+and the later of two equals, and ends in `…`; it never wraps and never cuts a
+binding in half. The box is whatever the layout gives it, learned through
+`onResize`, so a terminal resize refits it: it asks for the width of every
+binding, is never wider than its container, and in a row beside a status it takes
+what the status leaves -- give the status `flex-shrink: 0` if it should keep its
+width. `width: n` or `width: () => n` fits it to a number of the app's own
+instead, and then the layout is not asked. `expanded` is a boolean or a
+`State<boolean>`: set it true and the footer lists every binding under its
+`group`, one to a line. Binding `?` to that signal is the app's job.
 
 Key names that are words (`enter`, `esc`, `tab`, ...) and the `ctrl-`/`alt-`/
 `shift-` prefixes go through the catalog; arrows are glyphs. Descriptions are

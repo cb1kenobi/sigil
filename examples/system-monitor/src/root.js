@@ -77,6 +77,9 @@ export const stylesheet = `
   .table-row.selected { inverse: true }
   .filter { flex-direction: row; height: 1; column-gap: 1 }
   .footer { height: 1; padding-left: 1; column-gap: 2 }
+  /* the status says what just happened, so it keeps its width and the key-help
+     footer beside it takes what is left */
+  .status { flex-shrink: 0 }
 `;
 
 /**
@@ -426,12 +429,8 @@ export function App() {
   };
 
   // -- the footer -------------------------------------------------------------
-  // the terminal's width less the status beside it, read when the footer builds
-  // its line and again whenever the bindings or the focus move. It was the root's
-  // laid-out width, which does not exist yet at the first draw: the line was cut to
-  // a guess of 80 until something moved the focus, and the table taking it on
-  // mount was what happened to do that
-  const footer = keyHelp(input, { width: () => Math.max(20, app.terminal.width - 24) });
+  // fitted to the room the layout gives it, which is the row less the status
+  const footer = keyHelp(input);
 
   const root = ui`<box class="app" onKey=${onKey}>
     <box class="top">
@@ -441,7 +440,7 @@ export function App() {
     ${procs}
     <box class="row footer">
       ${footer}
-      <text class="sigil-accent">${() => status.get()}</text>
+      <text class="status sigil-accent">${() => status.get()}</text>
     </box>
   </box>`;
 

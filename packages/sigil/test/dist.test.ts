@@ -195,6 +195,7 @@ describe('what importing the package costs', () => {
     'selectRow',
     'treeView',
     'imageView',
+    'describeSlider',
   ];
 
   /** The bundles in a graph that define any of them. */
@@ -980,6 +981,8 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/scroll-box': [268, 136_485],
   'components/select-key': [476, 243_021],
   'components/select-row': [480, 245_393],
+  // as of SIG-286, which added it
+  'components/slider': [392, 200_048],
   'components/sort': [476, 242_891],
   'components/spinner': [380, 194_847],
   'components/table': [316, 162_282],

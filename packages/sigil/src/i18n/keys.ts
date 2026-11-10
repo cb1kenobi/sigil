@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 326 keys, which is what a catalog has to carry to translate sigil's own
+ * 341 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -84,6 +84,13 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a panel titleAlign to be left, center or right',
   'Expected a panel {0} to be a string or a function',
   'Expected a retry delay in milliseconds',
+  'Expected a slider format to be a function',
+  'Expected a slider min and max to be finite numbers, min below max',
+  'Expected a slider page to be a positive number',
+  'Expected a slider step no larger than max minus min',
+  'Expected a slider step to be a positive number',
+  'Expected a slider value to be a number or a State',
+  'Expected a slider width to be a positive whole number',
   'Expected a text field mask to be a non-empty string',
   'Expected a text field placeholder to be a string',
   'Expected a text field value to be a string or a State',
@@ -101,6 +108,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a tooltip side to be top, bottom, left or right',
   'Expected an element that Collapsible() returned',
   'Expected an element that ListView() returned',
+  'Expected an element that Slider() returned',
   'Expected an element that Tabs() or tabRowView() returned',
   'Expected an enumerator to return a string',
   'Expected collapsible children to be a function that builds the body',
@@ -128,6 +136,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected pane size to be a number of cells or a State',
   'Expected pane {0} to be a number of cells',
   'Expected retry to be a whole number of tries',
+  'Expected slider disabled to be a boolean or a State',
   'Expected tab children to be a function that builds the panel',
   'Expected tab labels to be a non-empty array of strings',
   'Expected tabs active to be a number or a State',
@@ -281,8 +290,14 @@ export const SIGIL_KEYS: readonly string[] = [
   'invert',
   'last',
   'last tab',
+  'less',
   'match {0} of {1}',
+  'maximum',
+  'minimum',
+  'more',
   'move',
+  'much less',
+  'much more',
   'next match',
   'next tab',
   'no',

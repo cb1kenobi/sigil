@@ -652,6 +652,14 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     example: { steps: ['tab', { text: 'ledger' }] },
   },
   {
+    slug: 'slider',
+    name: 'Slider',
+    family: 'fullscreen',
+    exports: ['Slider', 'describeSlider'],
+    registry: 'slider',
+    example: { steps: ['tab', 'right'] },
+  },
+  {
     slug: 'modal',
     name: 'openModal()',
     family: 'fullscreen',
