@@ -8107,6 +8107,16 @@ that prompt over a directory.
   opens, which a test pins by watching `readdir`. The root row is the root's own
   name and the answer is an absolute path; in `directory` mode the root is a row
   like any other, so the directory you started in can be the answer.
+- **The element is `TreeListView` (SIG-282), and the two share a node and a root.**
+  What the first bullet calls "a focusable element in a full-screen app" is a
+  `ListView` of the open rows now, under "A tree list view" below. It reads nodes
+  with `treeChoiceOf()`, which `selectTree()` was refactored onto, draws its
+  twisties from `treeGlyphs()`, which grew `closed`, `open` and `leaf` for it, and
+  browses `directoryRoot()`, which is the root node `directoryTree()` was always
+  building, published. `directoryRoot()` reads a directory each time a branch's
+  function is called rather than through one cache per root: the prompt calls each
+  function once, so it is unchanged, and the element's `reload()` has to reach the
+  disk.
 - **Not done:** a `.` key to show dotfiles while open (it would mean refiltering
   every directory already read); a live `createTree()` (`outline()` has one because
   its ticket asked for one; this one did not); several answers; typing to filter;
@@ -11085,6 +11095,136 @@ will want and which is a `ScrollRows.width` passed through; wrapping at the ends
 which `select()` makes an option and nothing here has asked for; and a built-in
 filter field, for the reason above.
 
+### A tree list view: a `ListView` of the open rows, with Right, Left and lazy branches (SIG-282)
+
+`src/components/tree-list-view.ts`. An interactive tree in a full-screen app -- an
+editor's file sidebar, a JSON viewer, a Kubernetes resource tree -- where
+`treeView()` is static and `selectTree()` and `directoryTree()` are prompts. How
+each question was settled, the probes and the sabotage pass are in
+[docs/history/a-tree-list-view.md](../../../../docs/history/a-tree-list-view.md).
+
+- **It is `TreeListView`, and it is a `ListView`, not a second list.** "Shared with
+  the list element?" is settled **yes**, at the higher of SIG-280's two layers: the
+  host `TreeListView()` returns is the `ListView` host, built with a `row` function
+  over the rows a walk of the open tree produces. So the cursor, the ticks, the
+  windowing, keyed rows, the focus role, the mouse, `find`, `vim`, the empty state
+  and `listControl()` are the list's -- one model, which is what the ticket asked
+  for -- and what the tree adds is the walk, the guides, Right and Left, and the
+  lazy branch. **Nothing in `list-view.ts` or `scroll-box.ts` changed.** The name:
+  `TreeView` would sit beside `treeView()` differing by a capital, which the list
+  view entry already refused for `List` beside `list`, and `TreeListView` says what
+  it is.
+- **The tree's keys compose over the list's on the same host, rather than on an
+  element around it.** The list's `onKey` is read and wrapped -- the list first, the
+  tree for whatever it did not stop -- which is the wrap the root `AGENTS.md`
+  documents for every hook. An element around the list was SIG-280's suggestion and
+  works, but it makes the returned element a wrapper: `props` and an app's
+  `:focus` rule would land on something that never has the focus, and
+  `listControl()` and `describeListView()` would need the inner element. A tree's
+  `props` refuses `onKey` and `onFocusChange` under its own name.
+- **The nodes are `selectTree()`'s.** A string, or `{ text, value, items, expanded }`;
+  a list is drawn from the margin with guides and one object is a root drawn bare,
+  as there. One value is asked for by the prompt and browsed by the element, and
+  `treeChoiceOf()` is the one reader both use -- what a node's value, text and
+  branchness are cannot drift between them. A node's `value` (its `text` without
+  one) is what the cursor, the ticks and the open set hold, so two nodes with one
+  value throw, in the tree's words, before the list's would.
+- **Keys.** Right opens a closed branch and on an open one steps onto its first
+  child; Left closes an open branch and on anything else steps to the parent --
+  `Collapsible`'s Right and Left and `selectTree()`'s, which are every file
+  manager's. A Right or a Left that would change nothing (Right on a leaf or on an
+  open branch with nothing in it, Left on a closed node at the margin) is **not
+  claimed**, `Collapsible`'s rule, so a horizontal scroller around the tree gets it.
+  Right on a branch still being read **is** claimed: the key is about that branch,
+  and its children are on their way. Space opens and closes in a single tree and is
+  the list's tick in a `multiple` one. **Enter activates** and does nothing else: a
+  tree without `onActivate` leaves Enter to what is around it, as a list does,
+  rather than toggling -- one key with two meanings depending on whether a prop was
+  passed is a key a reader cannot predict. `vim: true` adds `h` and `l`. A key with
+  Ctrl, Alt or Shift, and a paste, are left alone.
+- **The mouse.** A click moves the cursor and a double-click activates, which are
+  the list's. A branch's twisty is a button of its own: a click on it opens or
+  closes, stops the click so the list neither moves the cursor nor counts it toward
+  a double-click -- the "a row may stop a click it handles itself" SIG-280 left room
+  for -- and the press still focuses the tree. A disabled branch's twisty still
+  works: `disabled` says a node cannot be picked, not that what is under it cannot
+  be seen.
+- **State.** `expanded` is a set of values or a `State` of one, the shape
+  `current` and `selected` have; the keys and the twisty write it and an app that
+  writes it opens and closes branches. A node's own `expanded: true` adds its value
+  **the first time the node is seen**, and not again, so a branch the reader closed
+  stays closed through a live update that hands the same node over again. Closing a
+  branch leaves the branches under it in the set, so they come back with it -- what
+  every file sidebar does. The ticks are never pruned by a branch closing, which is
+  the list's rule and the reason that rule was written.
+- **When a branch closes over the cursor, the cursor goes to that branch.** The
+  list's rule for a key that vanished is the row that took its place, which for a
+  tree is a stranger -- the next sibling of the branch that closed, at whatever
+  depth. So after each walk, a cursor whose node was shown and is not now climbs the
+  parents the last walk recorded to the first ancestor still shown; if that ancestor
+  no longer shows its children, it closed over the cursor and the cursor goes to it,
+  **however it closed** -- Left, a twisty, the app writing the set, a `reload()`.
+  If the ancestor is open and showing its children, the node was **deleted** from
+  it, and the list's rule stands. Done before the rows are handed to the list, so
+  the list's settle finds the cursor already on a row.
+- **A branch whose `items` is a function is read the first time it opens, and kept.**
+  A function that returns a list is taken at once, so a synchronous tree never
+  flashes a loading line; one that returns a promise puts a `Loading…` line under
+  the branch until it lands. What it returns is checked as `selectTree()` checks it
+  -- a list, of nodes `treeChoiceOf()` accepts -- and anything else is a failed
+  read rather than a throw out of an effect. Kept, so closing and opening again is
+  instant; `treeListControl(tree).reload(value)` forgets it, reading again at once
+  if the branch is open and when it next opens if not.
+- **A read that fails says why under the branch, keeps the branch open, and is not
+  kept.** `Could not load: <message>`, `.sigil-tree-error sigil-error`, where the
+  children would be. `selectTree()` closes the branch and puts the message under its
+  question; an element has no question line, and the place the reader is looking
+  is under the branch they opened. Not kept, `selectTree()`'s reason: a branch that
+  failed once is the one most worth retrying. **Right reads it again** -- on an
+  open branch that failed there are no children to step onto, so Right has nothing
+  better to mean -- and so does closing and opening it, by any route, because the
+  walk forgets a failure on any branch it finds closed.
+- **A branch closed while it is being read lets the read finish.** Nothing is
+  cancelled: the read lands, is kept, and the branch opens on it at once next time;
+  a read that fails while its branch is closed is forgotten, so opening reads again.
+  An `AbortSignal` handed to the function was the alternative, and it would turn a
+  close-and-reopen into a second read of something already on its way, for a
+  function signature `selectTree()` shares. A read superseded by `reload()` is
+  dropped when it lands, by a run number, and one that lands after the tree's owner
+  was disposed is dropped too.
+- **Keys do not wait for a read, unlike the prompt.** `selectTree()` holds a key
+  typed behind a Right until the branch is read, so a Right and a Down land on the
+  first child. An element's key handler is synchronous and the read is on screen
+  as a line the cursor passes over, so a Down typed while it runs goes to whatever
+  is below now. Recorded as a difference rather than a gap: holding keys would
+  mean a queue in front of the router that every other control would have to know
+  about.
+- **The loading and error lines are disabled rows.** Their keys are objects made
+  per branch, so no value can collide with one, and being disabled is what keeps
+  the cursor, a tick and an activation off them -- the list's own rule, so the
+  tree needed nothing new from it. `treeListControl(tree).list` is typed
+  `ListControl<unknown>` because its rows include them.
+- **A row is kept while it draws the same thing.** The walk runs again on every
+  change and builds new row records; one whose node, depth, guide, open state and
+  read state match the last walk's is replaced by the last walk's object, so the
+  list -- which rebuilds a row whose item is a different object -- keeps the element.
+  Opening one branch rebuilds that branch's row and builds its children, and
+  nothing else.
+- **`describeTreeListView(router, ...trees)`** describes the list's keys through
+  `describeListView()` and adds Right `expand`, Left `collapse`, `h`/`l` with
+  `vim`, and Space `toggle` in a single tree, scoped to each. Every tree is checked
+  before anything is described.
+- **What moved in `tree.ts` for it.** `treeChoiceOf()` (the reader, exported and on
+  the barrel as a helper); `TreeGlyphs` grew `closed`, `open` and `leaf`, so the
+  twisties are one table with the guides and `selectTree()` lost its private copy;
+  `directoryRoot()`, the root `directoryTree()` builds, now published.
+- **Not done:** ticks that cascade to a branch's descendants, or a tri-state mark;
+  `*` to open every sibling; `reveal(value)` for a node under branches that have
+  never been opened, which would mean reading them to find it; keys held behind a
+  read, above; an `AbortSignal` for a read; an `enumerator`, which the prompt has;
+  and a walk cheaper than one pass over the open rows per change, which nothing has
+  measured a need for.
+
 ### Components that take `props`
 
 - **A component's `props` may not carry a hook it owns (SIG-305, review round 1).**
@@ -11116,6 +11256,7 @@ filter field, for the reason above.
   | `TextArea`      | `onKey`, `onMouse`, `onPaste`, `onFocusChange`  |
   | `ScrollBox`     | `onKey`, `onMouse`                              |
   | `ListView`      | `onKey`, `onFocusChange`                        |
+  | `TreeListView`  | `onKey`, `onFocusChange`                        |
   | `createPager`   | `onKey`                                         |
   | `tabRowView`    | `onKey`, `onFocusChange`, `onResize`            |
   | `openModal`     | `onPaste` (on the panel)                        |

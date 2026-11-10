@@ -343,7 +343,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     slug: 'directory-tree',
     name: 'directoryTree()',
     family: 'prompts',
-    exports: ['directoryTree'],
+    exports: ['directoryTree', 'directoryRoot'],
     registry: 'tree',
     description: 'A file or a folder, from a tree of the file system read as it opens.',
     example: { steps: ['down', 'right', 'down'] },
@@ -610,6 +610,15 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     exports: ['ListView', 'createListSelection', 'describeListView', 'listControl'],
     registry: 'list-view',
     example: { steps: ['tab', 'down', 'space', 'down', 'down', 'space'] },
+  },
+  {
+    slug: 'tree-list-view',
+    name: 'TreeListView',
+    family: 'fullscreen',
+    exports: ['TreeListView', 'describeTreeListView', 'treeListControl'],
+    registry: 'tree-list-view',
+    example: { steps: ['tab', 'down', 'right', 'right', 'down', 'right'] },
+    related: ['list-view', 'tree'],
   },
   {
     slug: 'scroll-box',
@@ -921,6 +930,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'slotsFor',
     'softWrap',
     'splitList',
+    'treeChoiceOf',
   ],
   'Measuring, pacing and formatting': [
     'borderLabel',

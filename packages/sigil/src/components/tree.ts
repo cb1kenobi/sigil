@@ -75,22 +75,38 @@ import nodePath from 'node:path';
  */
 export type TreeGuide = 'plain' | 'rounded';
 
-/** The four pieces a guide is made of, each four columns wide. */
+/**
+ * The pieces a tree is drawn with: the four a guide is made of, each four columns
+ * wide, and the three toggles an interactive tree draws in front of a node's text,
+ * each two.
+ */
 export interface TreeGlyphs {
   /** Under an ancestor that was the last of its list: nothing to continue. */
   readonly after: string;
   /** In front of an item with more after it. */
   readonly branch: string;
+  /** In front of a branch that is closed. */
+  readonly closed: string;
   /** In front of the last item of a list. */
   readonly last: string;
+  /** In front of a leaf, where a branch's toggle would be: blank, so the text lines up. */
+  readonly leaf: string;
+  /** In front of a branch that is open. */
+  readonly open: string;
   /** Under an ancestor with more after it: the line carries on down. */
   readonly through: string;
 }
 
+/** The toggles, which no guide style changes. */
+const TOGGLES = {
+  ascii: { closed: '+ ', leaf: '  ', open: '- ' },
+  unicode: { closed: '▸ ', leaf: '  ', open: '▾ ' },
+} as const;
+
 const GLYPHS: Readonly<Record<TreeGuide | 'ascii', TreeGlyphs>> = {
-  ascii: { after: '    ', branch: '|-- ', last: '`-- ', through: '|   ' },
-  plain: { after: '    ', branch: '├── ', last: '└── ', through: '│   ' },
-  rounded: { after: '    ', branch: '├── ', last: '╰── ', through: '│   ' },
+  ascii: { ...TOGGLES.ascii, after: '    ', branch: '|-- ', last: '`-- ', through: '|   ' },
+  plain: { ...TOGGLES.unicode, after: '    ', branch: '├── ', last: '└── ', through: '│   ' },
+  rounded: { ...TOGGLES.unicode, after: '    ', branch: '├── ', last: '╰── ', through: '│   ' },
 };
 
 /**
@@ -381,11 +397,46 @@ function flat(text: string): string {
   return strip(text).replaceAll(/\s*[\n\r]+\s*/g, ' ');
 }
 
-/** The glyph in front of a branch's text, by whether it is open. */
-const TOGGLE = {
-  ascii: { closed: '+ ', leaf: '  ', open: '- ' },
-  unicode: { closed: '▸ ', leaf: '  ', open: '▾ ' },
-} as const;
+/** A node as an interactive tree reads it: what `treeChoiceOf()` returns. */
+export interface TreeChoiceParts<T = string> {
+  /** Whether it is a branch: it has `items`, even an empty list or a function. */
+  readonly branch: boolean;
+  /** The node as an object: the item itself, or `{ text, value }` for a string. */
+  readonly choice: TreeChoice<T>;
+  /** What is drawn: the text on one line, with its escape sequences dropped. */
+  readonly text: string;
+  /** What identifies it and what it answers with: `value`, or `text` without one. */
+  readonly value: T;
+}
+
+/**
+ * Reads one node of a tree the way `selectTree()` and `TreeListView` both read it:
+ * a string is a leaf whose value is itself, an object needs a `text` string, a
+ * node with `items` is a branch, and the text is drawn on one line.
+ *
+ * @param item - The node.
+ * @returns Its parts.
+ * @throws TypeError for an item that is neither a string nor an object with text.
+ */
+export function treeChoiceOf<T = string>(item: TreeChoiceItem<T>): TreeChoiceParts<T> {
+  if (typeof item === 'string') {
+    return {
+      branch: false,
+      choice: { text: item, value: item as unknown as T },
+      text: flat(item),
+      value: item as unknown as T,
+    };
+  }
+  if (item === null || typeof item !== 'object' || typeof item.text !== 'string') {
+    throw new TypeError(__`Expected each item to be a string or an object with a text string`);
+  }
+  return {
+    branch: item.items !== undefined,
+    choice: item,
+    text: flat(item.text),
+    value: item.value === undefined ? (item.text as T) : item.value,
+  };
+}
 
 /**
  * Asks for a node of a tree.
@@ -414,7 +465,6 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
   const loop = opts.loop ?? true;
   const ascii = opts.ascii ?? !unicodeSupported(opts.env, opts.platform);
   const glyphs = treeGlyphs(opts.guide, ascii);
-  const toggle = ascii ? TOGGLE.ascii : TOGGLE.unicode;
   const marking = { enumerator: opts.enumerator ?? 'none', start: opts.start };
 
   let top: TreeNode<T>[] = [];
@@ -457,27 +507,17 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     active = found;
   }
 
-  /** Refuses an item that is neither a string nor an object with text. */
-  function choiceOf(item: TreeChoiceItem<T>): TreeChoice<T> {
-    if (typeof item === 'string') {
-      return { text: item, value: item as unknown as T };
-    }
-    if (item === null || typeof item !== 'object' || typeof item.text !== 'string') {
-      throw new TypeError(__`Expected each item to be a string or an object with a text string`);
-    }
-    return item;
-  }
-
   /** One node, and what is under it when that is a list. */
   function nodeOf(
-    choice: TreeChoice<T>,
+    parts: TreeChoiceParts<T>,
     parent: TreeNode<T> | undefined,
     depth: number,
     marker: string,
     last: boolean
   ): TreeNode<T> {
+    const choice = parts.choice;
     const node: TreeNode<T> = {
-      branch: choice.items !== undefined,
+      branch: parts.branch,
       children: undefined,
       depth,
       expanded: false,
@@ -485,8 +525,8 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
       marker,
       parent,
       root: false,
-      text: flat(choice.text),
-      value: choice.value === undefined ? (choice.text as T) : choice.value,
+      text: parts.text,
+      value: parts.value,
     };
     if (typeof choice.items === 'function') {
       node.load = choice.items;
@@ -508,16 +548,16 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     if (!Array.isArray(items)) {
       throw new TypeError(__`Expected items to be an array`);
     }
-    const choices = items.map(choiceOf);
+    const choices = items.map((item) => treeChoiceOf<T>(item));
     const { column, drawn } = outlineMarkers(
-      choices.map((choice) => ({ items: [], text: flat(choice.text) })),
+      choices.map((parts) => ({ items: [], text: parts.text })),
       depth,
       marking,
       ascii
     );
-    return choices.map((choice, index) =>
+    return choices.map((parts, index) =>
       nodeOf(
-        choice,
+        parts,
         parent,
         depth,
         column === 0 ? '' : `${drawn[index]} `,
@@ -619,7 +659,7 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     } else {
       // the one node handed over on its own: drawn bare, with its children hung
       // from the margin -- which is what a depth of -1 makes them, depth 0
-      const root = nodeOf(choiceOf(opts.items as TreeChoice<T>), undefined, -1, '', true);
+      const root = nodeOf(treeChoiceOf<T>(opts.items as TreeChoice<T>), undefined, -1, '', true);
       root.root = true;
       top = [root];
     }
@@ -876,7 +916,7 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     /** One row: the pointer, the guide, whether it is open, the marker and the text. */
     function row(node: TreeNode<T>, current: boolean): Element {
       const guide = guideOf(node);
-      const state = node.branch ? (node.expanded ? toggle.open : toggle.closed) : toggle.leaf;
+      const state = node.branch ? (node.expanded ? glyphs.open : glyphs.closed) : glyphs.leaf;
       return box(
         { class: current ? 'sigil-tree-row is-active sigil-accent' : 'sigil-tree-row' },
         textNode(PROMPT_SYMBOLS.cursor, {
@@ -967,6 +1007,77 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
   });
 }
 
+/** Which directories and files a directory tree offers, and where it starts. */
+export interface DirectoryRootOptions {
+  /** List directories only, and no files. Defaults to `false`. */
+  directory?: boolean;
+  /**
+   * Which files are offered, by extension, with or without the dot. Directories
+   * are always offered. The rule `path()` and `filePicker()` have.
+   */
+  extensions?: readonly string[];
+  /** List dotfiles. Defaults to `false`. */
+  hidden?: boolean;
+  /** The directory at the top of the tree. Defaults to the working directory. A `~` is expanded. */
+  root?: string;
+  /**
+   * A path under `root` to open the way down to: every directory between the two
+   * starts open. Nothing is opened for a path that is not under `root`.
+   */
+  value?: string;
+}
+
+/**
+ * A directory as the root node of a tree: open, with each directory under it a
+ * branch whose `items` is a function that reads it.
+ *
+ * What `directoryTree()` asks over and what a `TreeListView` browses, so the two
+ * offer the same entries: each read goes through `path()`'s reader and its filter,
+ * so `directory`, `extensions` and `hidden` mean what they mean there, directories
+ * come first, and a directory that cannot be read has nothing in it. A directory
+ * is read each time its function is called, which both trees do once and then
+ * keep -- so a tree that is asked to read one again reads the disk again. Every
+ * `value` is an absolute path.
+ *
+ * @param opts - Where to start, and what to offer.
+ * @returns The root node.
+ */
+export function directoryRoot(opts: DirectoryRootOptions = {}): TreeChoice<string> {
+  const base = baseDir(opts.root) ?? nodePath.resolve(opts.root ?? process.cwd());
+  const filter: PathFilter = {
+    directory: opts.directory,
+    extensions: opts.extensions,
+    hidden: opts.hidden,
+  };
+  // the directories on the way down to a starting path are opened here, where
+  // the path says which they are, since neither tree reads a branch to look
+  const target = typeof opts.value === 'string' ? nodePath.resolve(opts.value) : undefined;
+
+  const read = (dir: string) => async (): Promise<TreeChoice<string>[]> => {
+    // a reader of its own per call, so a second call reads the disk again
+    const cache = entryCache();
+    await cache.load(dir);
+    return candidatesOf(cache.get(dir) ?? [], '', filter).map((entry) => {
+      const value = nodePath.join(dir, entry.name);
+      return entry.dir
+        ? {
+            expanded: target?.startsWith(value + nodePath.sep) === true,
+            items: read(value),
+            text: entry.name + nodePath.sep,
+            value,
+          }
+        : { text: entry.name, value };
+    });
+  };
+
+  return {
+    expanded: true,
+    items: read(base),
+    text: (nodePath.basename(base) || base) + (nodePath.basename(base) ? nodePath.sep : ''),
+    value: base,
+  };
+}
+
 export interface DirectoryTreeOptions extends Omit<
   SelectTreeOptions<string>,
   'items' | 'leaves' | 'short' | 'enumerator' | 'start'
@@ -998,53 +1109,28 @@ export interface DirectoryTreeOptions extends Omit<
 /**
  * Asks for a file, or a directory, out of a tree of them.
  *
- * `selectTree()` over the file system: the root is the top node, open, and each
+ * `selectTree()` over `directoryRoot()`: the root is the top node, open, and each
  * directory under it is a branch read the first time it opens -- through the same
- * once-per-directory read and the same filter `path()` and `filePicker()` use, so
- * the three agree about what is offered. Enter on a directory opens and closes it
- * and on a file answers; with `directory`, files are not listed and Enter answers
- * with a directory. The answer is an absolute path.
+ * read and the same filter `path()` and `filePicker()` use, so the three agree
+ * about what is offered. Enter on a directory opens and closes it and on a file
+ * answers; with `directory`, files are not listed and Enter answers with a
+ * directory. The answer is an absolute path.
  *
  * @param opts - What to ask, where to start, and what to offer.
  * @returns The path.
  */
 export function directoryTree(opts: DirectoryTreeOptions): Promise<string> {
-  const base = baseDir(opts.root) ?? nodePath.resolve(opts.root ?? process.cwd());
-  const filter: PathFilter = {
-    directory: opts.directory,
-    extensions: opts.extensions,
-    hidden: opts.hidden,
-  };
-  const cache = entryCache();
-  // a starting answer is found by `selectTree()`, which reads no branch to look
-  // for one -- so the directories on the way down to it are opened here, where
-  // the path says which they are
   const target = typeof opts.value === 'string' ? nodePath.resolve(opts.value) : undefined;
-
-  const read = (dir: string) => async (): Promise<TreeChoice<string>[]> => {
-    await cache.load(dir);
-    return candidatesOf(cache.get(dir) ?? [], '', filter).map((entry) => {
-      const value = nodePath.join(dir, entry.name);
-      return entry.dir
-        ? {
-            expanded: target?.startsWith(value + nodePath.sep) === true,
-            items: read(value),
-            text: entry.name + nodePath.sep,
-            value,
-          }
-        : { text: entry.name, value };
-    });
-  };
-
   return selectTree<string>({
     ...opts,
     value: target,
-    items: {
-      expanded: true,
-      items: read(base),
-      text: (nodePath.basename(base) || base) + (nodePath.basename(base) ? nodePath.sep : ''),
-      value: base,
-    },
+    items: directoryRoot({
+      directory: opts.directory,
+      extensions: opts.extensions,
+      hidden: opts.hidden,
+      root: opts.root,
+      value: target,
+    }),
     leaves: !opts.directory,
     short: (value) => value,
   });

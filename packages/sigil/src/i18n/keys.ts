@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 396 keys, which is what a catalog has to carry to translate sigil's own
+ * 405 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -60,6 +60,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Corrupt PNG: the image data does not inflate: {0}',
   'Corrupt PNG: the image data inflates to more than the {0} bytes a {1}x{2} image needs',
   'Corrupt PNG: the image data inflates to {0} bytes rather than {1}',
+  'Could not load: {0}',
   'Could not open {0}: {1}',
   'Count is too large to be exact: {0}',
   'Date must not be after {0}',
@@ -145,6 +146,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected an element that Slider() returned',
   'Expected an element that Switch() returned',
   'Expected an element that Tabs() or tabRowView() returned',
+  'Expected an element that TreeListView() returned',
   'Expected an enumerator to return a string',
   'Expected button disabled to be a boolean or a State',
   'Expected checkbox checked to be a boolean or a State',
@@ -161,6 +163,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected every radio option to be a string or have a label',
   'Expected every radio option to have a different value',
   'Expected every tab to have a label that is a string',
+  'Expected every tree node to have a value of its own: {0} is used twice',
   'Expected items to be an array',
   'Expected list empty to be a string or a function that builds an element',
   'Expected list items to be an array, a State or a Computed',
@@ -195,6 +198,9 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected text field disabled to be a boolean or a State',
   'Expected toast max to be a whole number of at least 1',
   'Expected tooltip text to be a string',
+  'Expected tree expanded to be an iterable of values or a State',
+  'Expected tree items to be an array, a root node, a State or a Computed',
+  'Expected tree {0} to be a function',
   'Expected weekStart to be an integer from 0 to 6',
   'Expected {0} to be a valid Date',
   'Extra arguments are not allowed: {0}',
@@ -238,6 +244,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'It will remove {0}',
   'It will replace {0}',
   'It will write {0}',
+  'Loading',
   'Missing required arguments: {0}',
   'Missing required options: {0}',
   'Missing value for option {0}',
@@ -319,6 +326,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'backspace',
   'bottom',
   'close',
+  'collapse',
   'confirm',
   'ctrl-{0}',
   'default: {0}',
@@ -328,6 +336,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'end',
   'enter',
   'esc',
+  'expand',
   'first',
   'first tab',
   'from $SHELL',

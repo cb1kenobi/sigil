@@ -1009,6 +1009,9 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/toggle': [472, 241_207],
   'components/tooltip': [380, 195_074],
   'components/tree': [512, 262_589],
+  // SIG-282, measured when it was added: the tree's module and the list view's,
+  // which it is built on
+  'components/tree-list-view': [568, 289_948],
   'components/typewriter': [376, 192_912],
   element: [256, 131_505],
   'error-handler': [16, 8_422],
