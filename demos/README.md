@@ -388,9 +388,10 @@ waits for it rather than reporting a silence that is not one.
 somebody typed: each key is described where it is bound, the footer follows the
 focus with Tab, and `?` -- the app's own binding, since the component claims no
 key -- expands it into groups. On a terminal it is a small full-screen app; piped
-it has nobody to type, so it replays Tab and `?` through the testing terminal and
-prints the footer after each, including a 24-column step where the
-lowest-priority keys go first and the line ends in `…`.
+it has nobody to type, so it replays Tab, a Down and `?` through the testing
+terminal and prints the whole app after each -- the `›` marker moves down the file
+list -- including a 24-column step where the app narrows, the footer refits to the
+box inside its border, the lowest-priority keys go first and the line ends in `…`.
 
 `24-select-key.js` is a prompt, so a pipe cannot answer it: piped, it plays the same
 prompts against an in-process terminal from `@ttylabs/sigil/testing` and prints the

@@ -5415,11 +5415,16 @@ cannot read, so `input.describe(keys, { description, scope })` declares it, and 
 is listed while the scope element or anything inside it holds the focus. That is
 the one half that can drift from its handler.
 
-Wider than the terminal, the short form drops whole bindings, lowest `priority`
-first and the later of two equals, and ends in `…`; it never wraps and never cuts
-a binding in half. Pass `width: () => n` if the terminal resizes. `expanded` is a
-boolean or a `State<boolean>`: set it true and the footer lists every binding
-under its `group`, one to a line. Binding `?` to that signal is the app's job.
+Wider than its box, the short form drops whole bindings, lowest `priority` first
+and the later of two equals, and ends in `…`; it never wraps and never cuts a
+binding in half. The box is whatever the layout gives it, learned through
+`onResize`, so a terminal resize refits it: it asks for the width of every
+binding, is never wider than its container, and in a row beside a status it takes
+what the status leaves -- give the status `flex-shrink: 0` if it should keep its
+width. `width: n` or `width: () => n` fits it to a number of the app's own
+instead, and then the layout is not asked. `expanded` is a boolean or a
+`State<boolean>`: set it true and the footer lists every binding under its
+`group`, one to a line. Binding `?` to that signal is the app's job.
 
 Key names that are words (`enter`, `esc`, `tab`, ...) and the `ctrl-`/`alt-`/
 `shift-` prefixes go through the catalog; arrows are glyphs. Descriptions are

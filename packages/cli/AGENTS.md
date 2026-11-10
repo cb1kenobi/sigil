@@ -3066,8 +3066,12 @@ people's software and will move.
   when something it read changes, and `app.terminal.width` is a plain number, so
   the first revision kept the width the first frame was drawn at -- 60 to 22
   columns lost the status entirely. The size is a `State` fed by
-  `input.onResize()`, the pattern `keyHelp`'s own `width` documentation shows. The
-  unsubscribe it returns goes to `onCleanup()`: the file is copied into
+  `input.onResize()`, the pattern `keyHelp`'s own `width` documentation showed
+  until SIG-311, which made a footer given no `width` fit the box the layout
+  gives it and refit on a resize. The scaffold still passes one, which still
+  works -- an explicit width is honoured exactly as before -- and dropping it for
+  `keyHelp(input)` and a status that keeps its width is a change to the generated
+  text of its own. The unsubscribe it returns goes to `onCleanup()`: the file is copied into
   components that mount and unmount, and what is attached is put back. No test can
   observe a leaked listener (a disposed router stops dispatching either way), so
   the generated text is what is pinned.
