@@ -111,8 +111,9 @@ function isObject(value: unknown): value is object {
 /**
  * The error handler to use when the settings could not be merged.
  *
- * `resolveSettings()` throws when either half is not an object, or a getter of the
- * caller's threw -- and the half that is fine still has an opinion. Order: the
+ * `resolveSettings()` throws when either half is not an object, or a getter on
+ * either half threw (`get settings()` on the schema, a throwing key inside it, or a
+ * throwing key on the call) -- and the half that is fine still has an opinion. Order: the
  * call's own handler, if its settings is an object and names one; then the
  * schema's, if its `settings` is an object; then `undefined`, which is the built-in.
  * Each is read in its own `try`, because this runs on the error path where a

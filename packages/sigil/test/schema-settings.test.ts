@@ -491,6 +491,26 @@ describe('the handler salvaged from a half that can be read', () => {
     ).rejects.toThrow('call handler getter');
   });
 
+  it("should read the schema's handler through its prototype, as the merge does", async () => {
+    // the call's `assertCwd` getter fails the merge, so the schema's handler is read
+    // by the salvage -- and it has to see what `Object.create(base)` inherits
+    const settings = {};
+    Object.defineProperty(settings, 'assertCwd', {
+      enumerable: true,
+      get() {
+        throw new Error('assertCwd getter');
+      },
+    });
+
+    await expect(
+      runCommand({
+        argv: [],
+        schema: app({ settings: Object.create({ errorHandler: false }) }),
+        settings,
+      })
+    ).rejects.toThrow('assertCwd getter');
+  });
+
   it("should use the schema's when the call names no handler and another getter throws", async () => {
     // the call has no `errorHandler`, so reading it is `undefined`, which is not an
     // answer: the schema's `false` is, and has to reach `main()`

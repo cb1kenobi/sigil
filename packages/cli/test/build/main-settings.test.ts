@@ -352,6 +352,14 @@ describe('what the built app uses instead', () => {
       "export default { name: 'a', settings: { errorHandler: false, errorHandler: undefined } };\n",
     ],
     [
+      'given a prototype inside settings, which is read through',
+      "export default { name: 'a', settings: { __proto__: { errorHandler: false } } };\n",
+    ],
+    [
+      'given a prototype at the top, whose settings are read through',
+      "const base = { settings: { errorHandler: false } };\nexport default { name: 'a', __proto__: base };\n",
+    ],
+    [
       'a duplicate key, where the last wins',
       "export default { name: 'a', settings: { errorHandler: false }, settings: { allowUnknownOptions: false } };\n",
     ],
@@ -390,6 +398,7 @@ describe('what the built app uses instead', () => {
       '{ [key]: 1 }',
       'shared',
       '{ errorHandler: false, errorHandler: undefined }',
+      '{ __proto__: { errorHandler: false } }',
     ]) {
       const message = said({
         'dev.ts': `${RUNTIME}await main({ schema, settings: ${settings} });\n`,
