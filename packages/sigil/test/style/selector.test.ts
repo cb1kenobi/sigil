@@ -352,3 +352,104 @@ describe('matching', () => {
     ]);
   });
 });
+
+describe('the later-sibling combinator', () => {
+  // every node carries an id, so a match reads back as a list of names
+  const siblings = el('box#root', [
+    el('section#s1.a', [
+      el('row#r1'),
+      el('text#h1.heading'),
+      el('row#r2.x'),
+      el('row#r3'),
+      el('text#h2.heading'),
+      el('box#g1', [el('text#t1')]),
+      el('row#r4'),
+    ]),
+    el('section#s2', [el('row#r5'), el('text#h3.heading'), el('row#r6')]),
+  ]);
+
+  const which = (source: string): string[] => {
+    const selector = parseSelector(source);
+    const out: string[] = [];
+    const walk = (node: Node): void => {
+      if (matches(selector, node)) {
+        out.push(node.id ?? '');
+      }
+      node.children.forEach(walk);
+    };
+    walk(siblings);
+    return out;
+  };
+
+  it.each([
+    // [selector, what it matches in document order, its specificity]
+    ['.heading ~ row', ['r2', 'r3', 'r4', 'r6'], [0, 1, 1]],
+    ['row ~ row', ['r2', 'r3', 'r4', 'r6'], [0, 0, 2]],
+    ['.heading ~ .heading', ['h2'], [0, 2, 0]],
+    ['* ~ box', ['g1'], [0, 0, 1]],
+    ['#r4 ~ *', [], [1, 0, 0]],
+    // a descendant to the left of the sibling step
+    ['.a .heading ~ row', ['r2', 'r3', 'r4'], [0, 2, 1]],
+    ['section ~ section row', ['r5', 'r6'], [0, 0, 3]],
+    // two sibling steps, each of which can backtrack
+    ['.heading ~ .heading ~ row', ['r4'], [0, 2, 1]],
+    ['row ~ .heading ~ row', ['r2', 'r3', 'r4', 'r6'], [0, 1, 2]],
+    // a next-sibling step to its left
+    ['.heading + row ~ *', ['r3', 'h2', 'g1', 'r4'], [0, 1, 1]],
+    ['.x + row ~ row', ['r4'], [0, 1, 2]],
+    // a child step to its right
+    ['.heading ~ box > text', ['t1'], [0, 1, 2]],
+    ['.heading ~ box text', ['t1'], [0, 1, 2]],
+    // `:not()` on either side; its argument is a compound, never a combinator
+    [':not(.heading) ~ .heading', ['h1', 'h2', 'h3'], [0, 2, 0]],
+    ['.heading ~ :not(row)', ['h2', 'g1'], [0, 1, 1]],
+    [':not(section) ~ row:not(.x)', ['r3', 'r4', 'r6'], [0, 1, 2]],
+  ] as const)('%s', (source, matched, specificity) => {
+    expect(which(source)).toEqual(matched);
+    expect(parseSelector(source).specificity).toEqual(specificity);
+  });
+
+  it('should never match an element with no parent', () => {
+    // it has no siblings to have come after
+    expect(matches(parseSelector('* ~ *'), el('box'))).toBe(false);
+    expect(matches(parseSelector('* ~ box'), siblings)).toBe(false);
+  });
+
+  it('should find its siblings once per element, not once per step back', () => {
+    // A children list that counts how many entries `indexOf()` reads, which is
+    // the work the matcher does to learn where an element sits. Walking back by
+    // asking each sibling for its own position made one element cost O(n^2)
+    // and a list of them O(n^3); a single lookup is O(n) and O(n^2). Doubling
+    // the list therefore multiplies the work by 8 before and 4 after, and the
+    // bound sits between the two.
+    class Counting extends Array<Node> {
+      read = 0;
+      override indexOf(search: Node, from = 0): number {
+        const index = super.indexOf(search, from);
+        this.read += (index === -1 ? this.length : index + 1) - from;
+        return index;
+      }
+    }
+    const work = (source: string, n: number): number => {
+      const list = new Counting();
+      for (let i = 0; i < n; i++) {
+        list.push(el('row'));
+      }
+      el('box', list);
+      const selector = parseSelector(source);
+      for (const row of list) {
+        matches(selector, row);
+      }
+      return list.read;
+    };
+
+    // the left side never matches, which is the expensive case: every
+    // sibling is tried and none ends the walk
+    for (const source of ['.heading ~ row', 'row + row', 'row:nth-child(odd)']) {
+      const small = work(source, 100);
+      const large = work(source, 200);
+      expect(large / small, source).toBeLessThan(6);
+      expect(large, source).toBeLessThanOrEqual(200 * 201);
+    }
+  });
+});
