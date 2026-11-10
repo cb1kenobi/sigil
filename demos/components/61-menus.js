@@ -53,6 +53,9 @@ const live = process.stdin.isTTY && process.stdout.isTTY;
 const WIDTH = 52;
 const HEIGHT = 22;
 
+/** What to try, shown under the list the whole time; the status line is under it. */
+const HINT = 'F10/Alt-F menus · right click a file · ctrl+n/o/y';
+
 /** The files, in no order: the dropdown decides the order they are shown in. */
 const FILES = [
   { bytes: 2_150, modified: '2026-10-02', name: 'README.md' },
@@ -172,7 +175,10 @@ function scene(input, status) {
   });
   const list = box({ 'flex-direction': 'column' }, header, ...rows);
 
-  const line = text('', { class: 'sigil-muted', 'margin-top': 1 });
+  // the hint is always there, and the status has a row of its own whether or not
+  // anything has happened yet, so the first message moves nothing
+  const hint = text(HINT, { class: 'sigil-muted', 'margin-top': 1 });
+  const line = text('', { height: 1 });
   createEffect(() => {
     line.setText(status.get());
   });
@@ -238,6 +244,7 @@ function scene(input, status) {
       dropdown
     ),
     list,
+    hint,
     line,
     text('Styled: menuClass and props.class', { class: 'sigil-muted', 'margin-top': 1 }),
     styledBar,
@@ -251,7 +258,7 @@ function scene(input, status) {
 }
 
 if (live) {
-  const status = new State('F10 or Alt-F for the menus; right click a file; ctrl+n works too');
+  const status = new State('');
   // the router is made over the renderer's root, and the components need the
   // router to hold the keys with -- so the tree goes into a holder afterwards
   const holder = box({ 'flex-grow': 1 });
