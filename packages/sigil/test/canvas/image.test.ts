@@ -98,7 +98,7 @@ describe('resampleImage()', () => {
     expect(pixel(out, 0, 0)).toEqual([0, 255, 0, 255]);
   });
 
-  it('should take a fractional rectangle, which a centred crop is', () => {
+  it('should take a fractional rectangle, which a centered crop is', () => {
     // half a column of black and a whole one of white, so a third black
     const halves = picture(2, 1, (x) => (x === 0 ? [0, 0, 0, 255] : [255, 255, 255, 255]));
     const out = resampleImage(halves, 1, 1, { height: 1, width: 1.5, x: 0.5, y: 0 });

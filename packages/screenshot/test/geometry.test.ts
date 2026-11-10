@@ -46,13 +46,13 @@ describe('which characters are geometry', () => {
 });
 
 describe('box drawing', () => {
-  it('should run a horizontal line edge to edge on the centre row', () => {
+  it('should run a horizontal line edge to edge on the center row', () => {
     const line = cell('─');
     expect(row(line, cy)).toEqual(Array(BOX.width).fill(255));
     expect(inked(line)).toBe(BOX.width);
   });
 
-  it('should run a vertical line edge to edge on the centre column', () => {
+  it('should run a vertical line edge to edge on the center column', () => {
     const line = cell('│');
     expect(column(line, cx)).toEqual(Array(BOX.height).fill(255));
     expect(inked(line)).toBe(BOX.height);
@@ -119,8 +119,8 @@ describe('box drawing', () => {
   });
 
   it('should end an arc where a straight line would carry on', () => {
-    // `╭` leaves through the bottom on the centre column and through the right
-    // edge on the centre row -- exactly where `│` and `─` start
+    // `╭` leaves through the bottom on the center column and through the right
+    // edge on the center row -- exactly where `│` and `─` start
     const arc = cell('╭');
     expect(at(arc, cx, BOX.height - 1)).toBeGreaterThan(200);
     expect(at(arc, BOX.width - 1, cy)).toBeGreaterThan(200);

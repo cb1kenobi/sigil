@@ -180,8 +180,8 @@ describe('geometry', () => {
     );
     expect(svg).not.toContain('<text');
     expect(svg).toContain('<g fill="#11a8cd">');
-    // each line is its two arms, which meet at the centre: every one on the
-    // centre row and a pixel high
+    // each line is its two arms, which meet at the center: every one on the
+    // center row and a pixel high
     const rects = svg.match(/<g fill="#11a8cd">(.*)<\/g>/)?.[1].match(/<rect [^>]*>/g) ?? [];
     expect(rects).toHaveLength(6);
     for (const rect of rects) {

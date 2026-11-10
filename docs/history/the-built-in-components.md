@@ -261,7 +261,7 @@ already records: a round pointed at a diff finds sentences. The encoder's
 arithmetic was checked against the spec by hand -- the degree-7 generator
 expanded coefficient by coefficient against the published polynomial, the format
 bits for L mask 0 as `0x77C4`, the version bits for 7, version 32's alignment
-centres, all eight masks, the four penalty weights, both finder windows, and
+centers, all eight masks, the four penalty weights, both finder windows, and
 spot-checks of the two capacity tables -- and **nothing in it was wrong**. Of the
 thirteen findings, nine were a comment or a sentence that was false about the code
 beside it, two were a vacuous test, one was a misleading error message, and one

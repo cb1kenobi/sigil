@@ -77,7 +77,7 @@ reader and the coverage rasterizer.
   then multiplied by `scale` -- so a 2x PNG is exactly twice the 1x one, and the
   SVG (whose coordinates are 1x) declares the PNG's size. Rounding at the device
   size instead gave 17 for 2 x 8.4 and the formats drifted a column apart across a
-  wide frame; that was measured before this rule was written. Glyphs are centred
+  wide frame; that was measured before this rule was written. Glyphs are centered
   in the whole-pixel cell, which is a few tenths of a pixel of squeeze -- the trade
   every terminal makes.
 - **Box drawing, blocks and braille are geometry in both formats, through a
@@ -265,11 +265,11 @@ SIG-329. `fonts/DejaVuSans.ttf` is looked in after every face and every
   as it was. The unit is now the
   face's own; `should draw a fallback at its own em` builds one square at 1000
   and at 2000 units and wants the same pixels, and fails with the old unit.
-- **A symbol is drawn at its own size, centred on its advance, and may overhang
+- **A symbol is drawn at its own size, centered on its advance, and may overhang
   the cells beside it.** That is the rule every glyph already had, and measured
-  over the 32 it centres the ink: their side bearings are equal to within 0.13
+  over the 32 it centers the ink: their side bearings are equal to within 0.13
   px at 14 px, except `ℹ` (0.48 against 0.35) and `⌠ ⌡`, which are the two halves
-  of an integral and are designed off-centre on purpose. What it does not do is
+  of an integral and are designed off-center on purpose. What it does not do is
   fit: DejaVu's circles and squares are 10.7 px wide in an 8 px cell, so `◐`
   overhangs each neighbour by about 1.3 px -- which is what a terminal does with a
   fallback glyph, and is why glyphs are painted after every background. In sigil
@@ -281,23 +281,23 @@ SIG-329. `fonts/DejaVuSans.ttf` is looked in after every face and every
   cell breaks sets that are designed in one frame: `ARC` is `◜◠◝◞◡◟`, where the
   quarters are 5.4 px wide and the halves 12.2, so a per-glyph fit draws one
   arc at two radii. Scaling the whole font by one factor keeps the sets whole but
-  puts DejaVu's shapes lower than JetBrains Mono's -- its circles are centred
+  puts DejaVu's shapes lower than JetBrains Mono's -- its circles are centered
   3.6 px above the baseline, JetBrains Mono's 5.0 -- and moving them up is a
   constant tuned to one pair of fonts. The cost of not fitting is that two sets
   mix fonts: JetBrains Mono has `◶` and `✶` itself, so `CIRCLE` and `STAR` each
   have one frame that is smaller and higher than the rest. A terminal with these
   two fonts shows exactly that.
 
-- **Fullwidth ASCII, `U+FF01` to `U+FF5E`, is drawn from the ASCII glyph, centred
+- **Fullwidth ASCII, `U+FF01` to `U+FF5E`, is drawn from the ASCII glyph, centered
   across both cells.** None of the bundled fonts has a fullwidth design, a CJK
   font that does is some 16 MB, and decrypt's default alphabet uses 52 of them
   (the ticket said 48). JetBrains Mono's `cmap` does map two, `U+FF5B` and
   `U+FF5D`, to copies of its narrow braces at the narrow advance, so those two
-  are drawn from the face rather than rewritten -- centred across the two cells
+  are drawn from the face rather than rewritten -- centered across the two cells
   all the same, which is the same picture.
   It is the last thing tried before the box, after every font, so a `fallback`
   with real fullwidth glyphs draws those; and the ASCII is looked up through the
-  same chain with the cell's style, so a bold `Ａ` is a bold `A`. Centring is the
+  same chain with the cell's style, so a bold `Ａ` is a bold `A`. Centering is the
   ordinary rule with a span of two: at the default size that is four whole pixels
   along from the narrow glyph, so `should draw a fullwidth form as its ASCII
   glyph` can ask for the very same pixels. The rest of the block is not mapped:
@@ -345,13 +345,13 @@ SIG-329. `fonts/DejaVuSans.ttf` is looked in after every face and every
 #### What review round 1 found, and what did not reproduce
 
 - **A combining mark was drawn half a cell to the left of its base.** Every glyph
-  was centred on its own advance, and a mark's advance is zero, so its origin was
+  was centered on its own advance, and a mark's advance is zero, so its origin was
   the middle of the cell -- while a font with no positioning tables draws a mark
   to the _left_ of its origin, over the glyph before it. So an `é` written as `e`
   and U+0301 had its accent on the cell's left edge. Older than this ticket, and
   made reachable by it: a fullwidth form and a DejaVu symbol were boxes before,
   and a box draws no marks. Reproduced in a 6x PNG before the fix. The base is
-  still centred on its advance; the pen then moves past it, and each mark is
+  still centered on its advance; the pen then moves past it, and each mark is
   drawn from there, so the origin is in the glyph cache's key -- a mark after
   `✔` and after `ℹ` sits at two different places. `should put a combining mark
   over ...` asks that the mark's ink lie inside the base's, for `e`, `ｅ` and `✔`;
@@ -363,7 +363,7 @@ SIG-329. `fonts/DejaVuSans.ttf` is looked in after every face and every
   figures recounted at the same time.
 - **JetBrains Mono maps `U+FF5B` and `U+FF5D`.** To copies of its narrow braces,
   so "none of the fonts has fullwidth forms" was not true of its `cmap`. Those two
-  are drawn from the face, centred across both cells, which is what the rewrite
+  are drawn from the face, centered across both cells, which is what the rewrite
   would have drawn; the wording says so now, and nothing in the code changed.
 
 #### What review round 2 found

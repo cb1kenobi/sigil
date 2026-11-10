@@ -778,7 +778,7 @@ toolchain's one reader.
   fiction one level up: `PROPERTIES.width.initial = cells(7)` changed what
   `declare()` returned for every style in the process.
 - **Margins take a length and paddings take a count.** `auto` is how a box is
-  centred and how it is pushed to one end, and a negative margin is a real
+  centered and how it is pushed to one end, and a negative margin is a real
   thing; neither is true of padding.
 - **`position` takes all four keywords, and the insets are a length.** `absolute`
   was a parse error for as long as there was no out-of-flow engine, on the rule

@@ -159,7 +159,7 @@ describe('the colours of a cell', () => {
 });
 
 describe('lines under, through and over', () => {
-  /** The rows of a cell's centre column that are not the background. */
+  /** The rows of a cell's center column that are not the background. */
   const inkedRows = (attrs: number): number[] => {
     const shot = frame(1, 1, (p) => p.text(0, 0, ' ', { attrs }));
     const image = rasterize(shot, OPTS);
@@ -285,7 +285,7 @@ describe('what is drawn in a cell', () => {
     ['ｅ', 4],
     ['✔', 3],
   ])('should put a combining mark over %s, not beside it', (base, width) => {
-    // review round 1: a mark was centred on its own zero advance, which puts a
+    // review round 1: a mark was centered on its own zero advance, which puts a
     // font's mark -- drawn to the left of its origin, over the glyph before it
     // -- half a cell left of its base. Reachable for a fullwidth form and a
     // symbol once those stopped being boxes. The mark's ink is what the second
@@ -347,9 +347,9 @@ describe('the bundled symbol font', () => {
     expect(one(char, ATTR.bold | ATTR.italic).data).not.toEqual(tofu.data);
   });
 
-  it.each([...'✔✖☐☒◐✸⊶'])('should centre %s in its cell, whatever its advance', (char) => {
+  it.each([...'✔✖☐☒◐✸⊶'])('should center %s in its cell, whatever its advance', (char) => {
     // DejaVu Sans is proportional, and these are wider than the cell: the
-    // advance is centred, and their bearings are even, so the ink is too --
+    // advance is centered, and their bearings are even, so the ink is too --
     // overhanging both neighbours alike, as a terminal's fallback does
     const [first, last] = inked(one(char));
     expect(Math.abs(first - W - (2 * W - 1 - last))).toBeLessThanOrEqual(1);
@@ -407,8 +407,8 @@ describe('the bundled symbol font', () => {
 });
 
 describe('fullwidth ASCII', () => {
-  it('should draw a fullwidth form as its ASCII glyph, centred across both cells', () => {
-    // the advance is centred in sixteen pixels rather than eight, which is four
+  it('should draw a fullwidth form as its ASCII glyph, centered across both cells', () => {
+    // the advance is centered in sixteen pixels rather than eight, which is four
     // whole pixels along: the same subpixel phase, so the very same pixels
     for (const [wide, narrow] of [
       ['Ａ', 'A'],
