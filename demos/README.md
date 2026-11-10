@@ -384,6 +384,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/55-image.js`](components/55-image.js)                                       | A photograph in half blocks: fitted three ways, and RGBA with a soft edge |
 | [`components/56-panels.js`](components/56-panels.js)                                     | Panels with words in the border, and panes with an edge to drag           |
 | [`components/58-list-view.js`](components/58-list-view.js)                               | A list view over two thousand packages: filtered, ticked, updating live   |
+| [`components/60-live-charts.js`](components/60-live-charts.js)                           | Live charts fed from a `Series` and sized by the layout: a small monitor  |
 | [`components/62-slider.js`](components/62-slider.js)                                     | A settings screen of sliders: keys, a press, a drag past the edge         |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
@@ -658,6 +659,15 @@ The filter is the app's -- a `Computed` over the field and `rankBy()` -- and `/`
 reaches it from anywhere, as a fallback. Tick a row, filter it out of sight, and
 clear the filter: it is still ticked. Piped, a scripted keyboard drives the same
 tree, with an update standing in for the clock, and prints it after each step.
+
+`60-live-charts.js` is a small monitor, and nothing in it builds a chart twice. Four
+cores are a `Series` each and a `Sparkline` beside their names; under them a
+`LineChart` draws two series in braille with a legend, scrolling left as samples are
+pushed, and a `BarChart` and a `Gauge` read a `State`. On a terminal it ticks ten
+times a second and every chart takes the size its panel has, so widening the window
+widens all of them. Piped, it ticks by hand and prints the tree twice at 72 columns
+-- the history filling in from the right, then full and scrolled -- and once at 52,
+where every chart is narrower and nothing else changed.
 
 `62-slider.js` is a settings screen: four rows, each a label the app lays out and a
 `Slider` with a readout. Tab moves between them, Left and Right a step, Page Up and

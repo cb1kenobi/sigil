@@ -254,7 +254,7 @@ const ENTRIES = [
     name: 'tree',
   },
   {
-    desc: 'Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge',
+    desc: 'Charts: a sparkline, bars, a braille line chart and a gauge, printed or live -- fed from signals and sized by the layout -- and the Series ring buffer that feeds them',
     name: 'chart',
   },
   {
