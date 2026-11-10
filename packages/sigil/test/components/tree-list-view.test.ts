@@ -788,6 +788,22 @@ describe('TreeListView()', () => {
       ]);
     });
 
+    it('should say a read failed when its function rejected with a null-prototype object', async () => {
+      // `String(Object.create(null))` is a TypeError, so the line that said why
+      // a read failed threw instead, and the branch never left `loading`
+      const host = tree({
+        items: [{ items: () => Promise.reject(Object.create(null)), text: 'odd' }],
+      });
+      press(host, 'right');
+      await landed();
+
+      expect(control(host).status('odd')).toBe('failed');
+      expect(picture(host, 60)).toEqual([
+        '❯ └── ▾ odd',
+        '      └──   Could not load: Unknown error',
+      ]);
+    });
+
     it('should not land a read whose tree has been disposed', async () => {
       const read = deferred<string[]>();
       let host!: Element;

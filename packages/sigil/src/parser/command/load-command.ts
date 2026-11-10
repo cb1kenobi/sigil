@@ -1,5 +1,6 @@
 import debug from '../../debug/index.js';
 import { Command, Internal, InternalCommand } from '../../types.js';
+import { errorMessage } from '../../util/error-message.js';
 import { initCommand, loadCommandDir } from './init-command.js';
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -26,6 +27,13 @@ const { log } = debug('sigil:parser:load-command');
  * its own specifier, and one that does not *parse* reports `Unexpected end of
  * input` and names no file.
  *
+ * And either keeps what it caught as the `cause`. The message is the one line a
+ * reader is shown, and the stack it replaces is the only thing that says which
+ * line of the module threw -- so without it a module that fails while it is
+ * evaluated cannot be located, even with `errorHandler: false` or
+ * `DEBUG=sigil:error`. The message is `errorMessage()`'s, because a loader can
+ * reject with anything, a string or an object with no prototype included.
+ *
  * @param cmd - The command whose module to fetch.
  * @returns The module's default export and the file it came from, or
  *   `undefined` when the command declared no module at all.
@@ -43,7 +51,8 @@ async function fetchModule(
       mod = await internal.load();
     } catch (e: unknown) {
       throw new Error(
-        `Failed to load command module (the "${cmd.name}" command's loader): ${(<Error>e).message}`
+        `Failed to load command module (the "${cmd.name}" command's loader): ${errorMessage(e)}`,
+        { cause: e }
       );
     }
 
@@ -76,7 +85,9 @@ async function fetchModule(
       const def = (await import(pathToFileURL(internal.path).href)).default;
       return { def, entryFile: internal.path };
     } catch (e: unknown) {
-      throw new Error(`Failed to load command module (${internal.path}): ${(<Error>e).message}`);
+      throw new Error(`Failed to load command module (${internal.path}): ${errorMessage(e)}`, {
+        cause: e,
+      });
     }
   }
 

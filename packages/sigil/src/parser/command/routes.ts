@@ -28,6 +28,7 @@
 
 import { parseJsonc } from '../../config/jsonc.js';
 import { byCodeUnit } from '../../util/by-code-unit.js';
+import { errorMessage } from '../../util/error-message.js';
 import { type Dirent, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, parse } from 'node:path';
 
@@ -397,7 +398,7 @@ export function readPackage(dir: string): PackageRoute | undefined {
   try {
     pkgJson = JSON.parse(json);
   } catch (err) {
-    throw new Error(`Failed to JSON parse ${pkgFile}: ${err instanceof Error ? err.message : err}`);
+    throw new Error(`Failed to JSON parse ${pkgFile}: ${errorMessage(err)}`, { cause: err });
   }
 
   const { description, exports, main, name, type } = pkgJson;

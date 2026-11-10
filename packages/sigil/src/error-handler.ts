@@ -2,9 +2,13 @@ import debug from './debug/index.js';
 import { assertSerialized, formatFor, type SerializedError } from './format.js';
 import { __ } from './i18n/index.js';
 import type { ErrorContext, ErrorHandlerOptions } from './types.js';
+import { errorMessage, readString } from './util/error-message.js';
 import { safeLog as safeLogTo } from './util/safe-log.js';
 
 export type { ErrorContext, ErrorHandler, ErrorHandlerOptions, ErrorRenderer } from './types.js';
+// published here, and written in a leaf module so that a layer below this one
+// -- the signals graph -- can ask it without importing the error handler
+export { errorMessage } from './util/error-message.js';
 
 const { log } = debug('sigil:error');
 
@@ -14,77 +18,12 @@ const { log } = debug('sigil:error');
 const defaultExitCode = 1;
 
 /**
- * What is rendered when the thrown value has nothing to say for itself.
- */
-const fallbackMessage = 'Unknown error';
-
-/**
  * Logs a value without letting the logger throw from inside the error path.
  *
  * @param value - The value to log.
  */
 function safeLog(value: unknown): void {
   safeLogTo(log, value);
-}
-
-/**
- * Reads a string property without letting a throwing getter escape.
- *
- * @param obj - The object to read from.
- * @param key - The property to read.
- * @returns The value, when it is a non-empty string.
- */
-function readString(obj: object, key: 'message' | 'name'): string | undefined {
-  try {
-    const value = (obj as Record<string, unknown>)[key];
-    return typeof value === 'string' && value ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Coerces anything to a string without throwing. A null-prototype object has
- * no `toString`, and a `toString` of someone else's making can throw.
- *
- * @param value - The value to coerce.
- * @returns The coerced string, or the fallback message.
- */
-function stringify(value: unknown): string {
-  try {
-    return String(value) || fallbackMessage;
-  } catch {
-    return fallbackMessage;
-  }
-}
-
-/**
- * Extracts a user-facing message from anything that can be thrown.
- *
- * Parser errors are plain `Error`s whose messages are written for the person
- * running the CLI, so the message is all that is wanted. Everything else --
- * a thrown string, a plain object, `null` -- still has to render as something
- * rather than crash the error path.
- *
- * @param err - The thrown value.
- * @returns A single-line-ish message, never empty.
- */
-function errorMessage(err: unknown): string {
-  if (typeof err === 'string') {
-    return err || fallbackMessage;
-  }
-
-  if (err === null || err === undefined) {
-    return fallbackMessage;
-  }
-
-  if (typeof err === 'object') {
-    // `message` first, then `name` for an error thrown with neither a
-    // message nor a subclass of its own
-    return readString(err, 'message') ?? readString(err, 'name') ?? stringify(err);
-  }
-
-  return stringify(err);
 }
 
 /**

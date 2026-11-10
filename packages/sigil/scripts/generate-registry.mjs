@@ -356,10 +356,16 @@ function entryMap() {
  * whole command surface and importing it put about 29 kB on the components
  * graph for a three-token comparison. An ejected copy imports it from the
  * subpath, where an app's own bundler shakes the rest.
+ *
+ * `src/util/error-message.ts` is the same shape again: `errorMessage()` is
+ * published from `@ttylabs/sigil/error-handler`, and lives in a leaf module so
+ * that the signals graph can ask it without importing the error handler. The
+ * components import the leaf, for the same reason the signals do.
  */
 const BARRELLED = new Map([
   ['src/types.ts', 'index'],
   ['src/util/by-code-unit.ts', 'reference'],
+  ['src/util/error-message.ts', 'error-handler'],
 ]);
 
 /**

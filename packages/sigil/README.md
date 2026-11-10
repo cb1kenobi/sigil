@@ -139,6 +139,28 @@ try {
 }
 ```
 
+`errorMessage()` is the message on its own, without the `Error: ` prefix, from
+`@ttylabs/sigil/error-handler`. It takes anything that can be thrown and never
+throws itself: a string is that string, an object its `message` (or its `name`),
+and a value with nothing to say — `null`, an object with no prototype, a getter
+that throws — is `Unknown error`. Use it in a `catch` that shows what went wrong,
+in place of `err instanceof Error ? err.message : String(err)`, which throws on
+an object with no prototype.
+
+```js
+import { errorMessage } from '@ttylabs/sigil/error-handler';
+
+try {
+  await load();
+} catch (err) {
+  status = `Could not load: ${errorMessage(err)}`;
+}
+```
+
+A command module that fails to load is reported as `Failed to load command
+module (…): <message>`, and the error it failed with is that error's `cause`, so
+its stack still says which line of the module threw.
+
 > [!NOTE]
 > `parse()` is internal — `main()` is the entry point. The parse state is
 > reachable from `main()`'s return value and from every hook.

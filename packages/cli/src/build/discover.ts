@@ -56,6 +56,7 @@ import {
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
+import { errorMessage } from '@ttylabs/sigil/error-handler';
 import { readPackage } from '@ttylabs/sigil/routes';
 import { readFileSync, statSync } from 'node:fs';
 import nodePath, { basename, dirname, isAbsolute, join, resolve } from 'node:path';
@@ -1056,7 +1057,7 @@ function keyedPackage(
     // the runtime raises the same error when the schema is built
     diagnostics.push({
       ...locate(parsed, at.start),
-      message: `the "${key}" command is a package the app cannot load: ${err instanceof Error ? err.message : String(err)}`,
+      message: `the "${key}" command is a package the app cannot load: ${errorMessage(err)}`,
       severity: 'error',
     });
     return refused;

@@ -680,6 +680,23 @@ describe('autocomplete() over a source', () => {
     expect((await answer).value).toBe('none-found');
   });
 
+  it('should show a source that rejected with a null-prototype object', async () => {
+    // `String(Object.create(null))` is a TypeError, thrown from inside the
+    // handler that was reporting the rejection
+    const ui = screenSetup({ rows: 10 });
+    const answer = settle(
+      open(ui, {
+        source: (term) => (term === 'x' ? Promise.reject(Object.create(null)) : ['fine']),
+      })
+    );
+
+    await type(ui.stdin, 'x');
+    expect(rows(ui)).toEqual(['? Pick x', '  Unknown error']);
+
+    await type(ui.stdin, CTRL_C);
+    await answer;
+  });
+
   it('should show a source that throws before it returns a promise', async () => {
     const ui = screenSetup({ rows: 10 });
     const answer = settle(

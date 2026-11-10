@@ -1622,6 +1622,43 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   written and deleted: the next dispatch refuses that ancestor anyway, with the
   same message.
 
+### A command module that fails to load keeps what it failed with
+
+- **The rethrow carries the original as its `cause`.** SIG-343.
+  `loadCommand()` turns a failed `import()` or a rejected `load` into
+  `Failed to load command module (…): <message>`, and `readPackage()` does the
+  same for a `package.json` that is not JSON. Those used to be a new `Error`
+  with nothing attached, so the only stack left pointed at `load-command.ts`. A
+  module that threw while it was being evaluated could not be found, even with
+  `errorHandler: false` or `DEBUG=sigil:error`, because nothing kept the stack
+  that named its line. The message is unchanged: a reader is still shown one
+  line, and a caller who wants the module's own error reads `err.cause`.
+- **The message is `errorMessage()`'s, because a loader can reject with
+  anything.** `(<Error>e).message` printed `undefined` for a rejected string,
+  and the inline `e instanceof Error ? e.message : String(e)` throws inside its
+  own `catch` for an object with no prototype, since
+  `String(Object.create(null))` is a `TypeError`. `errorMessage()` was the error
+  handler's private answer to the same question and is now the only one.
+- **It is defined in `src/util/error-message.ts` and published from
+  `@ttylabs/sigil/error-handler`.** The signals graph reports an effect that
+  threw and may not import the error handler, so the function sits in a leaf
+  module with no imports and the error handler re-exports it. The components
+  import the leaf for the same reason, and the registry's `BARRELLED` map sends
+  an ejected copy to `@ttylabs/sigil/error-handler`. As of this change the leaf
+  is a 296 B chunk: `signals.mjs` went from 6,777 B over two modules to 7,088 B
+  over three, and the root entry from 13,037 B over eight to 13,126 B over nine,
+  which is the same code split into one more chunk.
+- **Every site that showed a thrown value's message asks it.** The command
+  loader, `readPackage()`, the signals graph's default report, `autocomplete()`
+  (twice), the palette's slot check, `tree()` (twice), `TreeListView()` and the
+  toolchain's `discover.ts`. Three things read differently from before, all at
+  the edges: an `Error` with an empty message shows its `name` rather than
+  nothing, an empty or `null` throw shows `Unknown error`, and a plain object
+  with a `message` shows that message rather than `[object Object]`. Pinned in
+  `a command module that failed to load lost its original error` in
+  `test/parser/regressions.test.ts`, and by a null-prototype rejection in the
+  autocomplete and tree-list-view tests.
+
 ### Sharing options between commands
 
 - **Nothing declares what a command inherits, because nothing has to.** Options

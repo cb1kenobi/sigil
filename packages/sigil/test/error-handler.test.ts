@@ -1,4 +1,4 @@
-import { errorExitCode, errorHandler, renderError } from '../src/error-handler.js';
+import { errorExitCode, errorHandler, errorMessage, renderError } from '../src/error-handler.js';
 import type { ErrorContext, ParseState } from '../src/types.js';
 import { Writable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -233,5 +233,33 @@ describe('errorHandler', () => {
     });
 
     expect(out.text).toBe('42\n');
+  });
+});
+
+describe('errorMessage', () => {
+  it('should be the message renderError() prints, without the prefix', () => {
+    // one definition: the components, the signals graph, the command loader and
+    // the toolchain all ask this, and so does the error handler
+    for (const err of [new Error('boom'), 'a string', null, Object.create(null), { name: 'X' }]) {
+      expect(renderError(err)).toBe(`Error: ${errorMessage(err)}`);
+    }
+  });
+
+  it('should answer for a value the inline form threw on', () => {
+    // `String(Object.create(null))` is a TypeError
+    expect(errorMessage(Object.create(null))).toBe('Unknown error');
+    expect(
+      errorMessage({
+        get message(): string {
+          throw new Error('getter');
+        },
+      })
+    ).toBe('[object Object]');
+  });
+
+  it('should never be empty', () => {
+    expect(errorMessage(new Error(''))).toBe('Error');
+    expect(errorMessage('')).toBe('Unknown error');
+    expect(errorMessage(undefined)).toBe('Unknown error');
   });
 });

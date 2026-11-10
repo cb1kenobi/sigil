@@ -30,6 +30,7 @@ import { __ } from '../i18n/index.js';
 import { baseDir } from '../paths.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
+import { errorMessage } from '../util/error-message.js';
 import { stringWidth } from '../width/index.js';
 import { terminalWidth, wrap } from '../wrap/index.js';
 import { colorLevelOf } from './color-level.js';
@@ -586,13 +587,13 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
         },
         (err: unknown) => {
           node.expanded = false;
-          error = err instanceof Error ? err.message : String(err);
+          error = errorMessage(err);
         }
       )
       .catch((err: unknown) => {
         // `build()` refusing what the function returned
         node.expanded = false;
-        error = err instanceof Error ? err.message : String(err);
+        error = errorMessage(err);
       })
       .finally(() => {
         node.loading = undefined;
