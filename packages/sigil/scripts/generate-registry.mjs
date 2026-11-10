@@ -218,6 +218,18 @@ const ENTRIES = [
     name: 'tooltip',
   },
   {
+    desc: 'A menu anchored to an element or to the pointer, with submenus, disabled items and separators, and a context menu on right click or Shift-F10',
+    name: 'menu',
+  },
+  {
+    desc: 'A menubar: titles across the top that open menus, from F10, an Alt-letter or the pointer',
+    name: 'menubar',
+  },
+  {
+    desc: 'A dropdown select: a field showing one choice that opens a list of the others',
+    name: 'dropdown',
+  },
+  {
     desc: 'Markdown drawn as styled text: headings, emphasis, code, lists, quotes, tables and OSC 8 links, wrapped to the terminal',
     name: 'markdown',
   },

@@ -31,11 +31,9 @@
 
 import {
   box,
-  cellStyle,
   type Element,
   type ElementProps,
   type ElementPropsWithout,
-  raw,
   text as textNode,
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
@@ -44,6 +42,7 @@ import type { Box } from '../layout/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { resolveOutput } from '../style/index.js';
 import { unicodeSupported } from './note.js';
+import { opaqueFill, rootOf } from './overlay.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** Which side of the anchor the bubble goes on. */
@@ -204,15 +203,6 @@ export function placeTooltip(
   return { side: placed, x, y };
 }
 
-/** The outermost ancestor, which is the root the layout places `fixed` against. */
-function rootOf(element: Element): Element {
-  let at = element;
-  while (at.parent !== undefined) {
-    at = at.parent;
-  }
-  return at;
-}
-
 /**
  * The part of an element anybody can see: its box cut to what clips it, or
  * `undefined` where nothing of it is left.
@@ -338,25 +328,7 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     // the modal's opaque fill: a box paints nothing in its empty cells, and a
     // background colour is dropped at level 0, so what is under the bubble would
     // show between its words for a user who asked for no colour
-    element.append(
-      raw(
-        {
-          measure: () => ({ height: 0, width: 0 }),
-          paint: (painter, area, it) => {
-            painter.fill(area.x, area.y, area.width, area.height, cellStyle(it.style));
-          },
-        },
-        {
-          bottom: 0,
-          class: 'sigil-tooltip-fill',
-          left: 0,
-          position: 'absolute',
-          right: 0,
-          top: 0,
-        }
-      ),
-      label
-    );
+    element.append(opaqueFill('sigil-tooltip-fill'), label);
 
     /** What this bubble was last placed against, so a layout that moved none of it moves nothing. */
     let against: Placed | undefined;

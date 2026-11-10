@@ -2472,7 +2472,8 @@ for a hook it owns, at run time as well as in the type, rather than replace it
 without a word. `TextField` owns `onKey`, `onPaste`, `onFocusChange` and
 `onResize`; `ScrollBox` `onKey` and `onMouse`; `createPager` `onKey`;
 `tabRowView` `onKey`, `onFocusChange` and `onResize`; `openModal` `onPaste`;
-`showToast` `onMouse`; `attachTooltip` `onLayout`. Put a handler for those on an
+`showToast` `onMouse`; `attachTooltip` `onLayout`; `Dropdown` `onKey`, `onMouse`
+and `onFocusChange`. Put a handler for those on an
 element around the component. A wrapper that forwards `props` types them as
 `ElementPropsWithout<...>` with the same hooks: a value typed plain `ElementProps`
 no longer fits, because it may carry a handler the component would replace.
@@ -5690,6 +5691,125 @@ alone. A tooltip is chrome rather than content, so **`--quiet` hides it**;
 itself, timer and all, when the component it was attached inside unmounts.
 `.sigil-tooltip`, `-fill` and `-text` are the theme hooks.
 
+#### Menus: a dropdown select, a context menu and a menubar
+
+```js
+import { Dropdown } from '@ttylabs/sigil/components/dropdown';
+import { attachContextMenu, openMenu } from '@ttylabs/sigil/components/menu';
+import { Menubar } from '@ttylabs/sigil/components/menubar';
+
+const bar = Menubar({
+  input,
+  menus: [
+    {
+      label: '&File',
+      items: [
+        { label: '&Open', hint: 'ctrl+o', value: open },
+        { separator: '' },
+        { label: '&Quit', value: quit },
+      ],
+    },
+    { label: '&Edit', items: [{ label: '&Undo', disabled: 'Nothing to undo', value: undo }] },
+  ],
+  onSelect: (item) => item.value(),
+});
+
+const level = new State('warn');
+const field = Dropdown({ input, options: ['debug', 'info', 'warn', 'error'], value: level });
+
+attachContextMenu(fileList, {
+  input,
+  items: (row) => [
+    { label: '&Rename', value: 'rename' },
+    { label: '&Delete', value: 'delete' },
+  ],
+  onSelect: (item, row) => act(item.value, row),
+});
+```
+
+```
+[File] Edit
+╭──────────────────╮
+│❯ Open     ctrl+o │
+│──────────────────│
+│  Quit            │
+╰──────────────────╯
+```
+
+A **menu** is a list of items in a box over the screen, anchored to an element --
+below it, flipped above where there is no room, by `placeTooltip()`'s arithmetic --
+or to a cell, which is a context menu at the pointer. An item has a `label`, a
+`value`, an optional `hint` drawn at the right (the key that does the same -- a
+label only: the menu binds no key for it, so bind it yourself, as
+`input.bind('ctrl+o', open)`, and keep it off `ctrl+c`, which is the abort), an
+`items` list that makes it a **submenu**, and `disabled`, which keeps it in the
+list, muted, and steps the highlight over it; a string there is the reason, shown
+where the hint would be. A **separator** is the prompts' own, `{ separator: '' }`
+or `separator()`, drawn as a line across. An `&` in a label marks its
+**mnemonic**: `Save &As` is chosen with `a`, and without one the first letter is.
+
+While a menu is open **it has the keys and the mouse, and the focus stays where it
+was**. Up and Down move the highlight, Home and End go to the ends, Right or Enter
+opens a submenu beside its row and Left or Escape closes it, Enter or Space
+chooses, a letter chooses the item it is the mnemonic of, and Tab closes the menu
+and moves on. The pointer highlights what it is over and opens a submenu it rests
+on, a click chooses, and a click outside closes the menu and reaches nothing under
+it. Ctrl-C is never taken. A menu opened inside a modal holds the keys over it, so
+Escape closes the menu and the next one the dialog.
+
+- `openMenu(host, { at, input, items, side, minWidth, initial, onSelect })` opens
+  one and hands back `result`, which settles with the item chosen or `undefined`
+  for a dismissal -- Escape, a click outside, Tab, `close()`, a resize, or the
+  renderer going.
+- `attachContextMenu(element, { input, items, onSelect })` opens one on a **right
+  click** inside the element, at the pointer, and on **Shift-F10** or the
+  **Menu** key with the focus inside it, under the focused element. `items` may be
+  a function of what was clicked or focused. The element's own hooks are left
+  alone, and Shift-F10 is listed in the key help.
+- `Menubar({ input, menus, onSelect })` is a row of titles. **F10** opens the
+  first and **Alt** with a title's mnemonic opens that one, from anywhere --
+  as fallbacks, so a focused text field that reads Alt-F keeps it. While one is
+  open, Left and Right move between the titles. A press on a title opens it, a
+  press again closes it, the pointer moving onto another title opens that one, and
+  a press dragged onto an item and released chooses it. The titles are not in the
+  focus ring. `menubarControl(bar)` opens and closes it from code, and `keys:
+  false` leaves F10 and Alt to the app.
+- `Dropdown({ input, options, value, onChange, placeholder, disabled, width })` is a
+  focusable field showing one choice. Enter, Space, Up, Down or Alt-Down open the
+  list under it with the value highlighted; a letter picks the next choice
+  starting with it without opening anything; a press opens it. `options` are
+  `select()`'s, strings and `Choice`s and separators, and `value` may be a
+  `State` the field writes and follows. It is as wide as its widest choice unless
+  given a `width`, and the list is never narrower than the field.
+
+The highlighted item, the open title and a focused dropdown carry `.sigil-focus`,
+and a pointer, brackets or both show the same at colour level 0. Every glyph has an
+ASCII fallback, by `unicodeSupported()` or `ascii: true`. A menu draws above a
+modal and a tooltip and below the debug overlay, opaque without a colour. The
+theme hooks are `.sigil-menu`, `-list`, `-item`, `-pointer`, `-label`,
+`-mnemonic`, `-hint`, `-arrow`, `-separator` and `-fill`; `.sigil-menubar`,
+`-title`, `-face`, `-label` and `-bracket`; and `.sigil-dropdown`, `-face`,
+`-label`, `-arrow` and `-bracket`. The decoder now names the function keys
+`f1` to `f12` and the Menu key `menu`, so `bind('f5', ...)` works too.
+
+A menu is drawn on the root rather than inside what opened it, so a rule written
+under a menubar or a field -- `.mybar .sigil-menu` -- never reaches its menus. To
+style one set apart from another, give the component a class for itself through
+`props` and one for its menus through **`menuClass`**, which every entry point
+takes and puts on each menu it opens, submenus included:
+
+```js
+const bar = Menubar({ input, menus, menuClass: 'tinted', props: { class: 'tinted-bar' } });
+const css = `
+  .tinted-bar { background-color: blue; color: white }
+  .tinted { background-color: blue; color: white; border-color: cyan }
+  .tinted .sigil-menu-fill { background-color: blue }
+`;
+```
+
+`.sigil-menu-fill` is what paints the empty cells inside the border, so a
+background meant to fill the menu goes there as well as on the box.
+
 #### A key-help footer
 
 ```js
@@ -5864,6 +5984,18 @@ there for a component you write yourself too:
 - `pathFoldCase(text, flavour)`, from `@ttylabs/sigil/components/path`, is a
   file name as the file system compares it, lower case on Windows and as it is
   everywhere else.
+- `rootOf(element)`, `opaqueFill(className)`, `holdInput(input, layer)` and
+  `topLayer(input)`, from `@ttylabs/sigil/components/overlay`, are what a box
+  over the screen needs: the root a `fixed` box resolves against, the blank fill
+  that hides what is under it at every colour level, and the per-router list of
+  overlays holding the keys, of which only the top one answers. The modal, the
+  toast, the tooltip and the menus all use them, and an overlay of your own that
+  holds the input through `holdInput()` is one a modal stands aside for.
+- `openMenuSession()`, `parseMnemonic()`, `labelParts()`, `checkMenuEntries()` and
+  `menuClasses()`, from `@ttylabs/sigil/components/menu`, are the session the
+  menubar and the dropdown open their menus in, the `&` read out of a label, a
+  label drawn with its mnemonic set apart, the check that a list of items is one a
+  menu can draw, all the way down, and the check that a `menuClass` option is one.
 
 ### `sigil/canvas`
 

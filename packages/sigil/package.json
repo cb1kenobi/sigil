@@ -114,6 +114,10 @@
       "types": "./dist/components/diff.d.mts",
       "default": "./dist/components/diff.mjs"
     },
+    "./components/dropdown": {
+      "types": "./dist/components/dropdown.d.mts",
+      "default": "./dist/components/dropdown.mjs"
+    },
     "./components/editing": {
       "types": "./dist/components/editing.d.mts",
       "default": "./dist/components/editing.mjs"
@@ -182,6 +186,14 @@
       "types": "./dist/components/masked-text.d.mts",
       "default": "./dist/components/masked-text.mjs"
     },
+    "./components/menu": {
+      "types": "./dist/components/menu.d.mts",
+      "default": "./dist/components/menu.mjs"
+    },
+    "./components/menubar": {
+      "types": "./dist/components/menubar.d.mts",
+      "default": "./dist/components/menubar.mjs"
+    },
     "./components/modal": {
       "types": "./dist/components/modal.d.mts",
       "default": "./dist/components/modal.mjs"
@@ -205,6 +217,10 @@
     "./components/outline": {
       "types": "./dist/components/outline.d.mts",
       "default": "./dist/components/outline.mjs"
+    },
+    "./components/overlay": {
+      "types": "./dist/components/overlay.d.mts",
+      "default": "./dist/components/overlay.mjs"
     },
     "./components/owned-hooks": {
       "types": "./dist/components/owned-hooks.d.mts",

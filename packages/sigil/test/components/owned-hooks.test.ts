@@ -1,7 +1,9 @@
 import { Button } from '../../src/components/button.js';
 import { Checkbox } from '../../src/components/checkbox.js';
 import { Collapsible } from '../../src/components/collapsible.js';
+import { Dropdown } from '../../src/components/dropdown.js';
 import { ListView } from '../../src/components/list-view.js';
+import { Menubar } from '../../src/components/menubar.js';
 import { openModal } from '../../src/components/modal.js';
 import { createPager } from '../../src/components/pager.js';
 import { RadioSet } from '../../src/components/radio-set.js';
@@ -161,6 +163,15 @@ const CASES: Case[] = [
     owns: ['onLayout'],
   },
   {
+    make: (props) => {
+      const s = scene();
+      stops.push(() => s.input.stop());
+      return { element: Dropdown({ input: s.input, options: ['a'], props: props as never }) };
+    },
+    name: 'Dropdown',
+    owns: ['onFocusChange', 'onKey', 'onMouse'],
+  },
+  {
     make: (props) => ({ element: Button({ label: 'OK', props: props as never }) }),
     name: 'Button',
     owns: ['onKey', 'onMouse', 'onFocusChange'],
@@ -248,6 +259,14 @@ describe('a component that owns no hook on its host', () => {
       () => Tabs({ props: everything as never, tabs: [{ children: () => box(), label: 'a' }] }),
     ],
     [
+      'Menubar',
+      () => {
+        const s = scene();
+        stops.push(() => s.input.stop());
+        return Menubar({ input: s.input, menus: [], props: everything as never });
+      },
+    ],
+    [
       'Show',
       () =>
         Show({
@@ -289,6 +308,8 @@ describe("the type of a component's props", () => {
       showToast(box(), { message: '', props: { onMouse: mine }, terminal: {} as never });
       // @ts-expect-error -- attachTooltip sets onLayout itself
       attachTooltip(box(), { input: {} as never, props: { onLayout: () => false }, text: '' });
+      // @ts-expect-error -- Dropdown sets onKey itself
+      Dropdown({ input: {} as never, options: [], props: { onKey: mine } });
       // @ts-expect-error -- Button sets onMouse itself
       Button({ label: 'x', props: { onMouse: mine } });
       // @ts-expect-error -- Checkbox sets onKey itself

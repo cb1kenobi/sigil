@@ -386,6 +386,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/57-form-controls.js`](components/57-form-controls.js)                       | A settings form: checkboxes, a switch, a radio set and two buttons        |
 | [`components/58-list-view.js`](components/58-list-view.js)                               | A list view over two thousand packages: filtered, ticked, updating live   |
 | [`components/60-live-charts.js`](components/60-live-charts.js)                           | Live charts fed from a `Series` and sized by the layout: a small monitor  |
+| [`components/61-menus.js`](components/61-menus.js)                                       | A menubar, a dropdown select and a context menu over a file list          |
 | [`components/62-slider.js`](components/62-slider.js)                                     | A settings screen of sliders: keys, a press, a drag past the edge         |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
@@ -680,6 +681,26 @@ times a second and every chart takes the size its panel has, so widening the win
 widens all of them. Piped, it ticks by hand and prints the tree twice at 72 columns
 -- the history filling in from the right, then full and scrolled -- and once at 52,
 where every chart is narrower and nothing else changed.
+
+`61-menus.js` is a small file browser with a menubar across the top, a dropdown that
+sorts the list, and a context menu on the files. F10 opens File and Alt with a title's
+letter opens that one; Left and Right move between the titles, Open Recent has a
+submenu, and Undo is disabled and says why. A press on a title opens it, a press on
+it again closes it, and a press dragged onto an item and released chooses it. The
+shortcuts beside the items are labels the menu draws, and the app binds them itself,
+so Ctrl-N, Ctrl-O and Ctrl-Y work with no menu open. The list shows each file's
+size and modified date, and the dropdown really sorts it -- by name, by size largest
+first, or by date newest first, with an arrow on the column. Tab to the dropdown and
+Enter, Space or Down opens the list under it with the value highlighted, while a
+letter picks the next choice starting with it without opening anything. Right click
+a file, or press Shift-F10 or the Menu key with the focus on one, for a menu about
+that file, at the pointer or under the row. The focus never leaves where it was
+while a menu is open, and the keys are the menu's until it closes, so `q` does not
+quit with one open. At the bottom the same menubar and dropdown are styled on a blue
+background: `props.class` for the bar and the field, and `menuClass` for the menus
+they open, which are drawn on the root where a rule under the bar cannot reach them.
+Piped, a scripted keyboard and pointer drive the same tree and the demo prints it
+after each step, without the colour.
 
 `62-slider.js` is a settings screen: four rows, each a label the app lays out and a
 `Slider` with a readout. Tab moves between them, Left and Right a step, Page Up and
