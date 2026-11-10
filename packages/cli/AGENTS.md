@@ -700,10 +700,10 @@ makes it testable with a fixture directory and no bundler at all.
   `import("./commands\build.js")` and fail at run time on the machine that
   produced it. Every specifier is written with forward slashes and carries an
   explicit `./`, since a bare `commands/build.js` is a _package_ specifier to
-  every resolver there is. A description is escaped with `JSON.stringify` and
-  then ` `/` ` on top, because those two are line terminators to a
-  JavaScript parser and JSON leaves them raw -- prose is somebody else's and may
-  hold a quote, a backslash or a newline.
+  every resolver there is. A description is quoted by `quote()` in `src/template/emit.ts`, the one
+  helper for every string the toolchain prints as source -- prose is somebody
+  else's and may hold a quote, a backslash or a newline. What it escapes, and
+  why, is the entry on it under the async schema.
 - **The app is discovered, not assumed, and `@ttylabs/sigil` in the manifest is
   what makes a directory one.** Asked before anything else, because every error
   after it would be a worse version of the same message -- "no `commands/`
@@ -894,7 +894,81 @@ makes it testable with a fixture directory and no bundler at all.
   options and hooks survives untouched. `commands` is the one property the build
   knows better than the app does. A schema export may be a function, because a
   schema that reads the environment has to be built rather than declared, and it
-  is called exactly where the app would have called it.
+  is called exactly where the app would have called it -- and awaited, which is
+  the entry below.
+- **A schema function is awaited, so an `async` one is a schema rather than a
+  Promise.** SIG-353. The entry called `declared()` and spread the result, so an
+  `async` schema spread a Promise: the built app said `Usage: app1.mjs`, with no
+  description and none of the root options, and the build reported success with
+  no warning. `sigil reference` already awaited the same export
+  (`schemaFrom()` in `src/reference/load.ts`), so two commands of one toolchain
+  disagreed about what a valid schema export is. The entry now awaits it
+  whatever kind of function it is: awaiting a plain object hands it straight
+  back, and a sync function returning a Promise is an async schema too, so
+  asking whether the function is `async` would be the wrong question. The
+  `cjs` form `sigil package --runtime node` bundles cannot hold a top-level
+  `await`, so there the schema is resolved inside the async IIFE the call was
+  already in, which is the same code moved rather than a second rule.
+  `test/async-schema.test.ts` runs the fixture from source, built, and as the
+  `cjs` bundle node would embed, through one `describe.each`, and asserts the
+  three print the same help; `tree.test.ts` pins both shapes of the entry.
+
+  Every other place the toolchain reads the schema export was checked for the
+  same sync-only assumption, and none has it, because none runs the export:
+  `readAppCommands()` (`discover.ts`), `readAppCatalogs()` (`i18n.ts`) and
+  `readSchemaUpdateCheck()` (`update-check.ts`, which `sigil package` refuses on)
+  each look for the outermost object literal declaring a key **anywhere in the
+  module**, so a literal returned from an `async` arrow is found exactly as a
+  bare one is -- measured for `readAppCommands()` and `readSchemaUpdateCheck()`,
+  which give the same answer for a literal, a sync function and an async one,
+  and `readAppCatalogs()` is the same `outermostWith()` walk. `main-settings.ts` reads the default export
+  as a literal and gives up on a function of either kind, keeping the general
+  message, which is its recorded rule. `sigil check` is `inspect()`, which is
+  the static passes above.
+
+- **One `quote()` for every string the toolchain prints as source, and it
+  escapes the union of what the two copies did.** SIG-353. `generate.ts` and the
+  template emitter each had one: the first escaped the two line separators after
+  `JSON.stringify` "because they would end the string", the second escaped
+  nothing after it and said JSON "escapes every control character". Both
+  reasons were wrong. The separators have been legal in a string literal since
+  ES2019 and node parses one; they are escaped anyway because V8 still **counts
+  them as line breaks** -- measured, a raw U+2028 in a string on line 1 reports
+  a throw on line 2 as line 3 -- while editors and sourcemaps count `\n`, so a
+  raw one moves every line number after it. And JSON leaves `DEL` and the C1
+  controls raw, so the second claim was false of exactly the set the root
+  `AGENTS.md`'s escape rule adds to C0. The shipped bytes were never at risk --
+  the build's own escape pass runs after the minifier, which would fold any
+  escape back -- so escaping `\p{Cc}` here is about the generated module being
+  what its comment says, not about what ships. The regex names the separators
+  as `\p{Zl}` and `\p{Zp}` rather than spelling their escapes: an edit tool
+  turned a typed escape into the raw character on the way into the file,
+  which is a regex literal containing a line terminator. This file's own bullet
+  about specifiers held the two raw characters between backticks too, where it
+  meant to show their escapes; it says it in words now.
+  It lives in `src/template/emit.ts` and `generate.ts` imports it, because the
+  build already depends on the template emitter and not the other way round.
+- **The build summary's `Loads` column reads rolldown's graph, not "is it the
+  entry".** SIG-353. Every chunk but the entry said `lazy`, and on a scaffolded
+  app the 0.8 kB entry statically imports about 12 kB more, so what `--help`
+  pays for was labelled as though a command had to ask for it -- which is the
+  opposite of what the column is there to say. `chunkLoads()` in `bundle.ts`
+  walks the static closure of the entry through each chunk's `imports` and calls
+  what it reaches `startup`; everything else is `lazy`. Walked rather than read
+  off `isDynamicEntry`, which answers a different question: a chunk that is an
+  `import()` target and also statically imported by the entry loads at startup,
+  and one only a lazy chunk imports statically is no dynamic entry and still
+  loads lazily. `BuiltChunk.entry` became `BuiltChunk.loads` rather than gaining
+  a second boolean beside it, so there is one answer to "when does this load".
+  The labels are not translated, as nothing else in that table is.
+- **A `sigil.json` error names the file that was read.** SIG-353. Every message
+  `config.ts` writes opened with `CONFIG_FILE`, which is `sigil.json`, so a
+  mistake in a `sigil.jsonc` sent its author to a file that was not there. The
+  readers now take the layer's own name, which is what the shared validator's
+  messages already used. `CONFIG_FILE` stays for what it says it is -- the name
+  `sigil new` writes and the one named where there is no file. Not fixed here
+  and worth knowing: `sigil package`'s `Using bun from sigil.json.` note has the
+  same shape, because `readSigilConfig()` does not report which file it read.
 - **The namespace is spread before it is read.** `app.default ?? app.schema` is
   a _static_ reference to a named export the module need not have, and a bundler
   resolves that at build time -- rolldown warns that it will always be

@@ -88,6 +88,8 @@ describe('sigil build', () => {
     expect(existsSync(join(out, 'buildable.mjs'))).toBe(true);
     expect(stdout).toContain('entry');
     expect(stdout).toContain('lazy');
+    // a chunk the entry imports statically loads with it, and says so
+    expect(stdout).toMatch(/^chunks\/\S+\s+[\d.]+ kB\s+startup$/m);
     expect(err).toContain('4 commands');
     expect(process.exitCode).toBeFalsy();
   }, 60_000);

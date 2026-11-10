@@ -522,6 +522,26 @@ describe('a translated description', () => {
     }
   });
 
+  it('should quote a description with the one quote(), which escapes what JSON leaves raw', () => {
+    // SIG-353: this file and the template emitter each had a `quote()`, escaping
+    // two different sets. JSON leaves DEL, the C1 controls and the two line
+    // separators raw; V8 counts a separator as a line break, so a raw one moves
+    // every line number after it. Built from code points so that no editor and
+    // no tool between here and the file can turn the escape into the character
+    const raw = [0x7f, 0x85, 0x9f, 0x2028, 0x2029].map((point) => String.fromCharCode(point));
+    const prose = `a "quoted" \\ ${raw.join(' ')} \t\n end`;
+    const source = generateCommands(treeWith(prose, false), { from: '/app' });
+
+    for (const char of raw) {
+      expect(source.includes(char), JSON.stringify(char)).toBe(false);
+    }
+    // eslint-disable-next-line no-new-func
+    const desc = new Function(
+      `${source.replace('export const', 'const')}\nreturn commands.a.desc;`
+    )();
+    expect(desc).toBe(prose);
+  });
+
   it('should not leave a raw backtick in the template it printed', () => {
     // the round trip above is the claim; this is the one spelling worth
     // pinning, because an unescaped backtick is a syntax error rather than a
@@ -578,6 +598,34 @@ describe('the generated executable', () => {
 
     expect(source).to.contain('import { main } from "@scope/runtime";');
     expect(source).to.contain('import { __ } from "@scope/runtime/i18n";');
+  });
+
+  it('should await a schema function, which an async one needs', () => {
+    // SIG-353: `declared()` was spread unawaited, so an `async` schema was a
+    // Promise and the built app had no name, description or options. Awaiting a
+    // plain object hands it back, so one spelling serves both kinds
+    const source = generateBin({ from: '/app/out', schemaModule: '/app/src/index.ts', tree });
+
+    expect(source).to.contain(
+      "const exported = { ...app };\nconst declared = exported.default ?? exported.schema;\nconst schema = typeof declared === 'function' ? await declared() : declared;\n\n// `commands` last, because the baked tree is the one property the build knows\n// better than the app does -- everything else is the app's own\nawait main({ schema: {\n  ...schema,\n  commands,\n} });\n"
+    );
+  });
+
+  it('should await it inside the function in the CommonJS form, where module scope cannot', () => {
+    // rolldown refuses a top-level `await` in a `cjs` bundle, so the schema's
+    // await goes where the call's already went: inside the async IIFE
+    const source = generateBin({
+      from: '/app/out',
+      schemaModule: '/app/src/index.ts',
+      tree,
+      wrap: true,
+    });
+
+    expect(source).to.contain(
+      "void (async () => {\n  const schema = typeof declared === 'function' ? await declared() : declared;\n  await main({ schema: {\n  ...schema,\n  commands,\n} });\n})();\n"
+    );
+    // every `await` in the module is inside that function
+    expect(source.slice(0, source.indexOf('void (async () => {'))).to.not.contain('await ');
   });
 
   it('should bake no locale when the config named none', () => {
