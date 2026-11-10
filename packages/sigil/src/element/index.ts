@@ -638,16 +638,23 @@ export class Element implements LayoutNode {
     if (this.type !== 'box') {
       throw new Error(`A ${this.type} element cannot have children`);
     }
+    // every check is made before anything is detached, so a call that throws
+    // leaves the tree as it found it -- the child taken out of its old parent
+    // and then refused was a child in neither
+    if (before !== undefined && before.#parent !== this) {
+      throw new Error('The element to insert before is not a child of this element');
+    }
+    // already where it was asked to go, which the DOM treats as a no-op too
+    if (before === child) {
+      return this;
+    }
 
     // moved rather than duplicated: a child already somewhere else is taken
-    // from there first, which is what makes `insertBefore` a move
+    // from there first, which is what makes `insertBefore` a move -- and the
+    // index is read after it, because taking it out can shift `before`
     child.#parent?.removeChild(child);
 
     const at = before === undefined ? this.#children.length : this.#children.indexOf(before);
-    if (at === -1) {
-      throw new Error('The element to insert before is not a child of this element');
-    }
-
     this.#children.splice(at, 0, child);
     child.#parent = this;
     child.#adopt(this.#tree);

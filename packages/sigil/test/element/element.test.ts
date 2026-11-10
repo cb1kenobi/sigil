@@ -119,6 +119,88 @@ describe('an element', () => {
     expect(to.children).toEqual([child]);
     expect(child.parent).toBe(to);
   });
+
+  it('should move a child before a sibling that comes after it', () => {
+    // the index of `before` is read after the child is taken out, since taking
+    // it out shifts everything behind it along by one
+    const parent = box();
+    const a = text('a');
+    const b = text('b');
+    const c = text('c');
+    parent.append(a, b, c);
+
+    parent.insertBefore(a, c);
+    expect(parent.children).toEqual([b, a, c]);
+  });
+});
+
+describe('a refused insertBefore', () => {
+  it('should not lose the child when inserting it before itself', () => {
+    // SIG-346: the child was detached before `before` was checked, and once
+    // detached it was no longer a child for `before` to be found among -- so
+    // the call threw and the child was gone from the tree
+    const parent = box();
+    const a = text('a');
+    const b = text('b');
+    parent.append(a, b);
+    const tree = createTree(parent);
+    tree.take();
+
+    expect(() => parent.insertBefore(a, a)).not.toThrow();
+    expect(parent.children).toEqual([a, b]);
+    expect(a.parent).toBe(parent);
+    expect(a.tree).toBe(tree);
+
+    // already where it was asked to go, so nothing was recorded either
+    const marks = tree.take();
+    expect(marks.children.size).toBe(0);
+    expect(marks.removed.size).toBe(0);
+  });
+
+  it('should not detach the child when before is not a child of the target', () => {
+    const from = box();
+    const to = box();
+    const stray = box();
+    const child = text('x');
+    from.append(child);
+    const tree = createTree(from);
+    tree.take();
+
+    expect(() => to.insertBefore(child, stray)).toThrow(/not a child of this element/);
+    expect(from.children).toEqual([child]);
+    expect(child.parent).toBe(from);
+    expect(child.tree).toBe(tree);
+
+    const marks = tree.take();
+    expect(marks.children.size).toBe(0);
+    expect(marks.removed.size).toBe(0);
+  });
+
+  it('should refuse a child of another element as before, leaving both parents alone', () => {
+    const one = box();
+    const two = box();
+    const child = text('x');
+    const elsewhere = text('y');
+    one.append(child);
+    two.append(elsewhere);
+
+    expect(() => one.insertBefore(child, elsewhere)).toThrow(/not a child of this element/);
+    expect(one.children).toEqual([child]);
+    expect(two.children).toEqual([elsewhere]);
+  });
+
+  it('should refuse a containing insert before anything is detached', () => {
+    // already ordered this way before SIG-346, pinned so it stays that way
+    const parent = box();
+    const outer = box();
+    const inner = box();
+    parent.append(outer);
+    outer.append(inner);
+
+    expect(() => inner.insertBefore(outer, undefined)).toThrow(/cannot contain itself/);
+    expect(parent.children).toEqual([outer]);
+    expect(outer.parent).toBe(parent);
+  });
 });
 
 describe('mutation marks', () => {
