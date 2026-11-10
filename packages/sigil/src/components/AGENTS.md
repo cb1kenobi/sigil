@@ -9475,7 +9475,14 @@ sabotage pass, are in
   bottom. What is refused is refused at construction, with a `TypeError`: a
   non-number value, a `min` not below `max`, a non-finite bound, a `step` or `page`
   that is not positive, a `format` that is not a function, a `width` that is not a
-  positive whole number.
+  positive whole number -- and a `step` larger than `max` minus `min`. That last one
+  used to be read as one step anyway, so `{ min: 0, max: 1, step: 2 }` let End,
+  Right, Page Up or a drag write `2` into the app's state and `onChange`, a value
+  past `max` that the rule above says cannot exist. No step fits, so there is no
+  slider to draw; the default step counts, so `{ max: 0.5 }` is refused too. It is
+  asked of the step count, with the tolerance that count already has, rather than
+  as `step > max - min`, since `0.3 - 0.1` is `0.19999999999999998` and 0.1 to 0.3
+  in 0.2s is a range that holds exactly one step.
 - **The ticket's second question: horizontal only.** A vertical slider is a column
   of one-cell rows, and a cell is about twice as tall as it is wide, so the same
   range gets half the resolution in twice the screen -- and every use the ticket

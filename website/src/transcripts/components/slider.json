@@ -56,7 +56,7 @@
         "type": "ElementPropsWithout<\"onFocusChange\" | \"onKey\">"
       },
       {
-        "description": "The size of one step. The value is always `min` plus a whole number of them, so the top of the range is the last step at or under `max`. Defaults to 1.",
+        "description": "The size of one step. The value is always `min` plus a whole number of them, so the top of the range is the last step at or under `max`. Defaults to 1, and must be no larger than `max` minus `min`, the default included.",
         "default": "1",
         "name": "step",
         "optional": true,

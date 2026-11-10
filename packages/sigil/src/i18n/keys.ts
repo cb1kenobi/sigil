@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 328 keys, which is what a catalog has to carry to translate sigil's own
+ * 329 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -86,6 +86,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a slider format to be a function',
   'Expected a slider min and max to be finite numbers, min below max',
   'Expected a slider page to be a positive number',
+  'Expected a slider step no larger than max minus min',
   'Expected a slider step to be a positive number',
   'Expected a slider value to be a number or a State',
   'Expected a slider width to be a positive whole number',

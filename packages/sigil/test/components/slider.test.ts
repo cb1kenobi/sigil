@@ -342,6 +342,16 @@ describe('Slider', () => {
       expect(value.get()).toBe(9);
     });
 
+    it('should take a step as large as the range, and end on max', () => {
+      const value = new State(0.1);
+      const host = Slider({ max: 0.3, min: 0.1, step: 0.2, value });
+
+      press(host, 'end');
+      expect(value.get()).toBe(0.3);
+      press(host, 'right');
+      expect(value.get()).toBe(0.3);
+    });
+
     it('should land on whole steps of a fractional step, with no rounding error', () => {
       const value = new State(0);
       const host = Slider({ max: 1, step: 0.1, value });
@@ -602,6 +612,8 @@ describe('Slider', () => {
       [{ min: '0' }, 'min below max'],
       [{ step: 0 }, 'Expected a slider step to be a positive number'],
       [{ step: Number.NaN }, 'Expected a slider step to be a positive number'],
+      [{ min: 0, max: 1, step: 2 }, 'Expected a slider step no larger than max minus min'],
+      [{ max: 0.5 }, 'Expected a slider step no larger than max minus min'],
       [{ page: -1 }, 'Expected a slider page to be a positive number'],
       [{ format: '%' }, 'Expected a slider format to be a function'],
       [{ width: 2.5 }, 'Expected a slider width to be a positive whole number'],

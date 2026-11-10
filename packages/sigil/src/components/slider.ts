@@ -69,7 +69,8 @@ export interface SliderProps {
   props?: ElementPropsWithout<'onFocusChange' | 'onKey'>;
   /**
    * The size of one step. The value is always `min` plus a whole number of them,
-   * so the top of the range is the last step at or under `max`. Defaults to 1.
+   * so the top of the range is the last step at or under `max`. Defaults to 1, and
+   * must be no larger than `max` minus `min`, the default included.
    */
   step?: number;
   /**
@@ -173,7 +174,13 @@ export function Slider(props: SliderProps = {}): Element {
 
   const step = props.step ?? 1;
   /** How many steps the range holds, so the top is `min + last * step`. */
-  const last = Math.max(1, Math.floor((max - min) / step + 1e-9));
+  const last = Math.floor((max - min) / step + 1e-9);
+  // the default step counts too, so `{ max: 0.5 }` is refused rather than one step
+  // of 1 putting the value at 1; asked of `last`, with its tolerance, rather than
+  // as `step > max - min`, so 0.1 to 0.3 in 0.2s is not refused over a float
+  if (last < 1) {
+    throw new TypeError(__`Expected a slider step no larger than max minus min`);
+  }
   const pageSteps = Math.max(1, Math.round((props.page ?? (max - min) / 10) / step));
   const places = Math.max(decimals(min), decimals(step));
   const value = props.value instanceof State ? props.value : new State(props.value ?? min);
