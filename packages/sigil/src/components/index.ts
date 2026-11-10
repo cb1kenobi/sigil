@@ -55,6 +55,7 @@ export * from './subpaths/text-field.js';
 export * from './subpaths/toast.js';
 export * from './subpaths/tooltip.js';
 export * from './subpaths/scroll-box.js';
+export * from './subpaths/list-view.js';
 export * from './subpaths/pager.js';
 export * from './subpaths/typewriter.js';
 export * from './subpaths/large-text.js';
@@ -73,6 +74,7 @@ export * from './subpaths/control.js';
 export * from './subpaths/button.js';
 export * from './subpaths/checkbox.js';
 export * from './subpaths/radio-set.js';
+export * from './subpaths/slider.js';
 export * from './subpaths/switch.js';
 export {
   FRAMEWORK_CSS,

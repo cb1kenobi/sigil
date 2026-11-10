@@ -24,6 +24,7 @@
 import {
   appKeys,
   checkCatalogs,
+  checkMainSettings,
   discoverApp,
   displayPath,
   isFatal,
@@ -100,6 +101,10 @@ export function inspect(options: InspectOptions): Inspection {
   const found = findCommands(app, options.commands, diagnostics);
 
   diagnostics.push(...checkTranslations(app, diagnostics));
+
+  // a `settings` passed to the app's own `main()` is lost in the built app, which
+  // calls `main({ schema })` itself -- so say so, where the app has not moved it
+  diagnostics.push(...checkMainSettings(app));
 
   return { app, commands: found.commands, diagnostics, root: found.root, types };
 }

@@ -514,6 +514,28 @@ describe('the system monitor', () => {
     expect(app.screen()).toContain('proc-1');
   });
 
+  it('should refit the footer to a resize, with the status keeping its width beside it', async () => {
+    // the footer used to be told the terminal's width less a guess at the status,
+    // read only when the bindings or the focus moved -- so a resize left it fitted
+    // to the old width. It is fitted to its box now, which is the row less the status
+    const app = mount({ columns: 60, processes: [proc(1, 5, 1)] });
+    await app.step();
+    expect(app.term.viewport.at(-1)).toBe(' ↑/↓ select · s sort · / filter · x kill · q quit …');
+
+    app.term.resize(100, 30);
+    await app.settle();
+    expect(app.term.viewport.at(-1)).toBe(
+      ' ↑/↓ select · s sort · / filter · x kill · t theme · q quit'
+    );
+
+    await app.press('t');
+    app.term.resize(40, 30);
+    await app.settle();
+    const footer = app.term.viewport.at(-1) ?? '';
+    expect(footer).toMatch(/^ ↑\/↓ select · q quit … +theme: mono$/);
+    expect([...footer].length).toBeLessThanOrEqual(40);
+  });
+
   it('should fit the screen however many cores there are, wrapping them into columns', async () => {
     // the root is a flex item of the runner's host, and a flex item keeps its
     // content's height as a minimum unless told otherwise: eighteen cores pushed

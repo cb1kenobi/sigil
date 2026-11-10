@@ -166,6 +166,10 @@ const ENTRIES = [
     name: 'tabs',
   },
   {
+    desc: 'A list view: a focusable, virtualized list of rows with a current row and single or multiple selection by key',
+    name: 'list-view',
+  },
+  {
     desc: 'A pager over a scroll box: less keys, line numbers, and / search with highlighted matches',
     name: 'pager',
   },
@@ -196,6 +200,10 @@ const ENTRIES = [
   {
     desc: 'A radio set: one of several options as one focus stop, the arrows selecting inside it',
     name: 'radio-set',
+  },
+  {
+    desc: 'A slider: a value on a track, moved a step or a page by the keys and dragged by the pointer, with an optional readout',
+    name: 'slider',
   },
   {
     desc: 'A switch: two named states, moved with Left, Right, Space or a click, for a form',
@@ -262,7 +270,7 @@ const ENTRIES = [
     name: 'tree',
   },
   {
-    desc: 'Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge',
+    desc: 'Charts: a sparkline, bars, a braille line chart and a gauge, printed or live -- fed from signals and sized by the layout -- and the Series ring buffer that feeds them',
     name: 'chart',
   },
   {

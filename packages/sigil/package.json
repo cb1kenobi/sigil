@@ -158,6 +158,10 @@
       "types": "./dist/components/list.d.mts",
       "default": "./dist/components/list.mjs"
     },
+    "./components/list-view": {
+      "types": "./dist/components/list-view.d.mts",
+      "default": "./dist/components/list-view.mjs"
+    },
     "./components/log": {
       "types": "./dist/components/log.d.mts",
       "default": "./dist/components/log.mjs"
@@ -261,6 +265,10 @@
     "./components/select-row": {
       "types": "./dist/components/select-row.d.mts",
       "default": "./dist/components/select-row.mjs"
+    },
+    "./components/slider": {
+      "types": "./dist/components/slider.d.mts",
+      "default": "./dist/components/slider.mjs"
     },
     "./components/sort": {
       "types": "./dist/components/sort.d.mts",
@@ -437,7 +445,7 @@
     "@types/node": "26.6.6",
     "@vitest/coverage-v8": "5.1.0",
     "rimraf": "6.1.4",
-    "tsdown": "0.23.5",
+    "tsdown": "0.23.7",
     "typescript": "7.0.2",
     "vitest": "5.1.0"
   },
