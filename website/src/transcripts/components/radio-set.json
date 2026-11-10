@@ -1,0 +1,81 @@
+{
+  "api": {
+    "interface": "RadioSetProps",
+    "options": [
+      {
+        "description": "The options, in order. A string is an option whose label is its value. A `disabled` option is drawn muted with its reason beside it, the arrows step over it and a click does nothing.",
+        "name": "options",
+        "optional": false,
+        "type": "readonly (RadioOption<T> | string)[]"
+      },
+      {
+        "description": "Whether the options are a column, one per line, or a row. Defaults to a column.",
+        "default": "a column",
+        "name": "direction",
+        "optional": true,
+        "type": "\"column\" | \"row\""
+      },
+      {
+        "description": "Whether the whole set refuses to change.",
+        "default": "`false`",
+        "name": "disabled",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
+        "description": "Called with the option's value after a key or a click selected it. Not called for a write the app made.",
+        "name": "onChange",
+        "optional": true,
+        "type": "(value: T) => void"
+      },
+      {
+        "description": "The host box's own props: a class, a margin. Geometry only, never a colour.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementPropsWithout<\"onFocusChange\" | \"onKey\">"
+      },
+      {
+        "description": "The value of the option that is selected.",
+        "default": "none selected",
+        "name": "value",
+        "optional": true,
+        "type": "State<T | undefined> | State<T> | T"
+      }
+    ],
+    "shared": [],
+    "signature": "function RadioSet<T = string>(props: RadioSetProps<T>): Element"
+  },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "left",
+        "right",
+        "home",
+        "end",
+        "tab",
+        "shiftTab"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
+  "registryDescription": "A radio set: one of several options as one focus stop, the arrows selecting inside it",
+  "source": "packages/sigil/src/components/radio-set.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "  ◯ eu-west\n❯ \u001b[36m◉\u001b[0m \u001b[7mus-east\u001b[0m\n  \u001b[2m◯\u001b[0m \u001b[2map-south\u001b[0m \u001b[2mat capacity\u001b[0m\n  ◯ us-west\n\n\u001b[36m↑\u001b[0m \u001b[2mprevious\u001b[0m \u001b[2m·\u001b[0m \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36mq\u001b[0m \u001b[2mquit\u001b[0m \u001b[2m…\u001b[0m"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "  ◯ eu-west\n❯ \u001b[36m◉\u001b[0m \u001b[7mus-east\u001b[0m\n  \u001b[2m◯\u001b[0m \u001b[2map-south\u001b[0m \u001b[2mat capacity\u001b[0m\n  ◯ us-west\n\n\u001b[36m↑\u001b[0m \u001b[2mprevious\u001b[0m \u001b[2m·\u001b[0m \u001b[36m↓\u001b[0m \u001b[2mnext\u001b[0m \u001b[2m·\u001b[0m \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36mq\u001b[0m \u001b[2mquit\u001b[0m"
+    }
+  }
+}

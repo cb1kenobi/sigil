@@ -23,20 +23,14 @@
  */
 
 import { strip } from '../ansi/index.js';
-import {
-  box,
-  cellStyle,
-  Element,
-  type ElementPropsWithout,
-  raw,
-  text as textNode,
-} from '../element/index.js';
+import { box, Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { MouseEvent } from '../input/index.js';
 import { onCleanup } from '../renderer/index.js';
 import type { Terminal } from '../terminal/index.js';
 import { mountLevel } from './mount.js';
 import { type NoteVariant, unicodeSupported } from './note.js';
+import { opaqueFill } from './overlay.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** Which corner of the screen a toast stacks in. */
@@ -296,17 +290,7 @@ export function showToast(host: ToastHost, opts: ToastOptions): ToastHandle {
   // background colour is dropped at colour level 0 -- so the app would show
   // through between the words for exactly the user who asked for no colour.
   // Filled with blank cells instead, which the grid counts as drawn
-  panel.append(
-    raw(
-      {
-        measure: () => ({ height: 0, width: 0 }),
-        paint: (painter, area, element) => {
-          painter.fill(area.x, area.y, area.width, area.height, cellStyle(element.style));
-        },
-      },
-      { bottom: 0, class: 'sigil-toast-fill', left: 0, position: 'absolute', right: 0, top: 0 }
-    )
-  );
+  panel.append(opaqueFill('sigil-toast-fill'));
   if (opts.title !== undefined) {
     panel.append(textNode(strip(opts.title), { class: 'sigil-toast-title sigil-heading' }));
   }

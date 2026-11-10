@@ -285,7 +285,7 @@ describe('a key spec', () => {
    * Which is the half of "derived from the decoder's own tables" that can be
    * checked from outside: a name in the set that nothing produces is a spec that
    * parses and can never fire. The other half -- a hand-written copy of the same
-   * fourteen -- is **not** observable here, because the tables are not exported
+   * twenty-seven -- is **not** observable here, because the tables are not exported
    * and an identical list behaves identically. Said rather than left as an
    * impression: what the snapshot below catches is the set drifting, and what
    * this catches is an entry being wrong; replacing the derivation with a copy of
@@ -300,8 +300,21 @@ describe('a key spec', () => {
       end: `${ESC}[F`,
       enter: '\r',
       escape: ESC,
+      f1: `${ESC}OP`,
+      f10: `${ESC}[21~`,
+      f11: `${ESC}[23~`,
+      f12: `${ESC}[24~`,
+      f2: `${ESC}OQ`,
+      f3: `${ESC}OR`,
+      f4: `${ESC}OS`,
+      f5: `${ESC}[15~`,
+      f6: `${ESC}[17~`,
+      f7: `${ESC}[18~`,
+      f8: `${ESC}[19~`,
+      f9: `${ESC}[20~`,
       home: `${ESC}[H`,
       left: `${ESC}[D`,
+      menu: `${ESC}[29~`,
       pagedown: `${ESC}[6~`,
       pageup: `${ESC}[5~`,
       right: `${ESC}[C`,
@@ -335,8 +348,21 @@ describe('a key spec', () => {
       'end',
       'enter',
       'escape',
+      'f1',
+      'f10',
+      'f11',
+      'f12',
+      'f2',
+      'f3',
+      'f4',
+      'f5',
+      'f6',
+      'f7',
+      'f8',
+      'f9',
       'home',
       'left',
+      'menu',
       'pagedown',
       'pageup',
       'right',

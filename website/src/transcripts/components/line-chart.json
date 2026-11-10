@@ -38,6 +38,13 @@
         "type": "number"
       },
       {
+        "description": "Whether to write each labelled series under the chart. Defaults to whether any has a label.",
+        "default": "whether any has a label",
+        "name": "legend",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
         "description": "The value drawn as the top. Defaults to the largest value.",
         "default": "the largest value",
         "name": "max",
@@ -66,6 +73,13 @@
         "type": "ChartRole"
       },
       {
+        "description": "How far apart two samples are, in braille dot columns -- two to a cell -- with the latest at the right edge and what does not fit cut from the left; or `fit`, which spreads every sample across the width. `LineChart`'s is `1`, since a printed chart is a whole series and a live one is a window onto one. Defaults to `fit`.",
+        "default": "`fit`",
+        "name": "step",
+        "optional": true,
+        "type": "number | \"fit\""
+      },
+      {
         "description": "The widest the whole chart may be. Defaults to `terminalWidth()`.",
         "default": "`terminalWidth()`",
         "name": "width",
@@ -87,9 +101,9 @@
       "sheets",
       "theme"
     ],
-    "signature": "function lineChart(values: readonly number[], opts?: LineChartOptions): string"
+    "signature": "function lineChart(values: readonly number[] | readonly LineChartSeries[], opts?: LineChartOptions): string"
   },
-  "registryDescription": "Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge",
+  "registryDescription": "Charts: a sparkline, bars, a braille line chart and a gauge, printed or live -- fed from signals and sized by the layout -- and the Series ring buffer that feeds them",
   "source": "packages/sigil/src/components/chart.ts",
   "views": {
     "narrow": {

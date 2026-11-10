@@ -31,6 +31,7 @@ export {
   type FieldLayout,
   type FieldRow,
   layoutField,
+  offsetIn,
   listWindow,
   PROMPT_SYMBOLS,
   promptAnswered,

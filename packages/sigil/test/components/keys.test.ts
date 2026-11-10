@@ -120,6 +120,27 @@ describe('decodeKeys()', () => {
       expect(one('\u001b[200~').name).to.equal('unknown');
     });
 
+    // SIG-285: a menubar opens on F10, and a context menu on Shift-F10 or the
+    // Menu key -- none of which the decoder had a name for
+    it('should name the function keys in both spellings, and the Menu key', () => {
+      expect(one('\u001bOP').name).to.equal('f1');
+      expect(one('\u001b[11~').name).to.equal('f1');
+      expect(one('\u001bOS').name).to.equal('f4');
+      expect(one('\u001b[15~').name).to.equal('f5');
+      expect(one('\u001b[21~').name).to.equal('f10');
+      expect(one('\u001b[24~').name).to.equal('f12');
+      expect(one('\u001b[29~').name).to.equal('menu');
+    });
+
+    // the key is the first parameter and the modifiers the second, so a modified
+    // key of the `~` family was read whole and came out unknown
+    it('should read a modifier on a function key and on the editing keys', () => {
+      expect(one('\u001b[21;2~')).toMatchObject({ ctrl: false, name: 'f10', shift: true });
+      expect(one('\u001b[1;2P')).toMatchObject({ name: 'f1', shift: true });
+      expect(one('\u001b[3;5~')).toMatchObject({ ctrl: true, name: 'delete' });
+      expect(one('\u001b[6;3~')).toMatchObject({ meta: true, name: 'pagedown' });
+    });
+
     // a CSI ends on a byte in 0x40-0x7e, and taking anything at all as the
     // terminator swallowed whatever was pressed while one was still arriving:
     // `ESC [` and then ctrl-c was one unknown sequence and a prompt that could

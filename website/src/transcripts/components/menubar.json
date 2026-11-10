@@ -1,0 +1,65 @@
+{
+  "api": {
+    "interface": "MenubarProps",
+    "options": [
+      {
+        "description": "The router the keys come from.",
+        "name": "input",
+        "optional": false,
+        "type": "InputRouter"
+      },
+      {
+        "description": "The titles, in order.",
+        "name": "menus",
+        "optional": false,
+        "type": "readonly MenubarMenu<T>[]"
+      },
+      {
+        "description": "Draw the menus with ASCII only. Defaults to what `unicodeSupported()` says.",
+        "default": "what `unicodeSupported()` says",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Whether F10 and the Alt-letters open the menus. Defaults to `true`.",
+        "default": "`true`",
+        "name": "keys",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Classes put on every menu its titles open, submenus included -- the bar's own class is `props.class`. A menu is drawn on the root rather than inside the bar, so `.mybar .sigil-menu` cannot reach it and this is how to style the two together. Space-separated for several.",
+        "name": "menuClass",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Called with the item chosen, after the menu has closed.",
+        "name": "onSelect",
+        "optional": true,
+        "type": "(item: MenuItem<T>) => void"
+      },
+      {
+        "description": "The bar's own props: a class, a margin. Geometry only, never a colour.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementProps"
+      }
+    ],
+    "shared": [],
+    "signature": "function Menubar<T = unknown>(props: MenubarProps<T>): Element"
+  },
+  "registryDescription": "A menubar: titles across the top that open menus, from F10, an Alt-letter or the pointer",
+  "source": "packages/sigil/src/components/menubar.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "[\u001b[7;36mF\u001b[0m\u001b[7mile\u001b[0m] \u001b[36mE\u001b[0mdit  \u001b[36mH\u001b[0melp\n╭──────────────────╮he menus\n│  \u001b[36mN\u001b[0mew      \u001b[2mctrl+n\u001b[0m │\n│\u001b[7m❯ \u001b[0m\u001b[7;36mO\u001b[0m\u001b[7mpen...  \u001b[0m\u001b[7;2mctrl+o\u001b[0m\u001b[7m \u001b[0m│\n│  Open \u001b[36mR\u001b[0mecent   ▸ │\n│\u001b[2m──────────────────\u001b[0m│\n│  \u001b[36mQ\u001b[0muit            │\n╰──────────────────╯"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "[\u001b[7;36mF\u001b[0m\u001b[7mile\u001b[0m] \u001b[36mE\u001b[0mdit  \u001b[36mH\u001b[0melp\n╭──────────────────╮he menus\n│  \u001b[36mN\u001b[0mew      \u001b[2mctrl+n\u001b[0m │\n│\u001b[7m❯ \u001b[0m\u001b[7;36mO\u001b[0m\u001b[7mpen...  \u001b[0m\u001b[7;2mctrl+o\u001b[0m\u001b[7m \u001b[0m│\n│  Open \u001b[36mR\u001b[0mecent   ▸ │\n│\u001b[2m──────────────────\u001b[0m│\n│  \u001b[36mQ\u001b[0muit            │\n╰──────────────────╯"
+    }
+  }
+}
