@@ -198,6 +198,7 @@ describe('what importing the package costs', () => {
     'selectRow',
     'treeView',
     'imageView',
+    'describeSlider',
   ];
 
   /** The bundles in a graph that define any of them. */
@@ -929,15 +930,20 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/badge': [316, 162_783],
   // as of SIG-277, which added these three after the rest were measured
   'components/border-label': [260, 133_586],
+  // as of SIG-199, which added the four form controls and `control`, what they
+  // share -- button, checkbox, control, radio-set and switch
+  'components/button': [388, 197_258],
   'components/calendar': [484, 248_571],
   'components/catalog': [6, 2_800],
   'components/chart': [396, 201_844],
+  'components/checkbox': [488, 248_863],
   'components/clock': [384, 196_045],
   'components/collapsible': [380, 193_603],
   // added when SIG-309 gave every component one colour-level rule
   'components/color-level': [16, 7_639],
   // added when SIG-310 split the ring and the console patch out of the overlay
   'components/console-capture': [4, 1_573],
+  'components/control': [332, 168_553],
   'components/date': [496, 253_149],
   'components/debug-overlay': [272, 140_286],
   'components/decrypt': [384, 196_337],
@@ -955,6 +961,8 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/keys': [6, 2_860],
   'components/large-text': [324, 165_478],
   'components/list': [472, 241_986],
+  // SIG-280, measured when it was added
+  'components/list-view': [408, 209_306],
   'components/log': [488, 248_992],
   'components/log-stream': [20, 10_089],
   'components/markdown': [516, 264_822],
@@ -980,12 +988,18 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/progress': [380, 193_936],
   'components/prompt': [468, 240_102],
   'components/qrcode': [332, 169_062],
+  'components/radio-set': [492, 250_508],
   'components/rule': [320, 163_424],
+  // SIG-280: a row is built under an owner of its own, which is the renderer's --
+  // 174,349 B over 28 modules, from 136,485, and still under the ceiling it had
   'components/scroll-box': [268, 136_485],
   'components/select-key': [476, 243_021],
   'components/select-row': [480, 245_393],
+  // as of SIG-286, which added it
+  'components/slider': [392, 200_048],
   'components/sort': [476, 242_891],
   'components/spinner': [380, 194_847],
+  'components/switch': [488, 249_814],
   'components/table': [316, 162_282],
   'components/tabs': [384, 196_349],
   'components/tasks': [400, 203_977],

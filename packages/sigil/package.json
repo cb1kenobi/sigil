@@ -58,6 +58,10 @@
       "types": "./dist/components/border-label.d.mts",
       "default": "./dist/components/border-label.mjs"
     },
+    "./components/button": {
+      "types": "./dist/components/button.d.mts",
+      "default": "./dist/components/button.mjs"
+    },
     "./components/calendar": {
       "types": "./dist/components/calendar.d.mts",
       "default": "./dist/components/calendar.mjs"
@@ -69,6 +73,10 @@
     "./components/chart": {
       "types": "./dist/components/chart.d.mts",
       "default": "./dist/components/chart.mjs"
+    },
+    "./components/checkbox": {
+      "types": "./dist/components/checkbox.d.mts",
+      "default": "./dist/components/checkbox.mjs"
     },
     "./components/clock": {
       "types": "./dist/components/clock.d.mts",
@@ -85,6 +93,10 @@
     "./components/console-capture": {
       "types": "./dist/components/console-capture.d.mts",
       "default": "./dist/components/console-capture.mjs"
+    },
+    "./components/control": {
+      "types": "./dist/components/control.d.mts",
+      "default": "./dist/components/control.mjs"
     },
     "./components/date": {
       "types": "./dist/components/date.d.mts",
@@ -149,6 +161,10 @@
     "./components/list": {
       "types": "./dist/components/list.d.mts",
       "default": "./dist/components/list.mjs"
+    },
+    "./components/list-view": {
+      "types": "./dist/components/list-view.d.mts",
+      "default": "./dist/components/list-view.mjs"
     },
     "./components/log": {
       "types": "./dist/components/log.d.mts",
@@ -246,6 +262,10 @@
       "types": "./dist/components/qrcode.d.mts",
       "default": "./dist/components/qrcode.mjs"
     },
+    "./components/radio-set": {
+      "types": "./dist/components/radio-set.d.mts",
+      "default": "./dist/components/radio-set.mjs"
+    },
     "./components/rule": {
       "types": "./dist/components/rule.d.mts",
       "default": "./dist/components/rule.mjs"
@@ -262,6 +282,10 @@
       "types": "./dist/components/select-row.d.mts",
       "default": "./dist/components/select-row.mjs"
     },
+    "./components/slider": {
+      "types": "./dist/components/slider.d.mts",
+      "default": "./dist/components/slider.mjs"
+    },
     "./components/sort": {
       "types": "./dist/components/sort.d.mts",
       "default": "./dist/components/sort.mjs"
@@ -269,6 +293,10 @@
     "./components/spinner": {
       "types": "./dist/components/spinner.d.mts",
       "default": "./dist/components/spinner.mjs"
+    },
+    "./components/switch": {
+      "types": "./dist/components/switch.d.mts",
+      "default": "./dist/components/switch.mjs"
     },
     "./components/table": {
       "types": "./dist/components/table.d.mts",
@@ -433,7 +461,7 @@
     "@types/node": "26.6.6",
     "@vitest/coverage-v8": "5.1.0",
     "rimraf": "6.1.4",
-    "tsdown": "0.23.5",
+    "tsdown": "0.23.7",
     "typescript": "7.0.2",
     "vitest": "5.1.0"
   },

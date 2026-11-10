@@ -41,7 +41,7 @@ import {
   type RawPaint,
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
-import type { KeyEvent, MouseEvent } from '../input/index.js';
+import { DOUBLE_CLICK_MS, type KeyEvent, type MouseEvent } from '../input/index.js';
 import { measureNode } from '../layout/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
@@ -152,14 +152,6 @@ const models = new WeakMap<Element, Model>();
 export function paneControl(host: Element): PaneControl | undefined {
   return models.get(host)?.control;
 }
-
-/**
- * Two clicks on the edge this close together are one double-click, in milliseconds.
- *
- * The input router reports a click and has no count, so a double-click is two of
- * them that this decides.
- */
-const DOUBLE_CLICK_MS = 400;
 
 /** The cells an arrow moves the edge, and Shift with it. */
 const STEP = 1;

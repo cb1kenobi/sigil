@@ -414,6 +414,12 @@ not building it addresses the 72ms." This is not building it.
   for cell at every offset too, because a spacer draws nothing and only `text`
   and `raw` write to the mask -- which is the rule that walk already followed.
 
+- **A row is kept by its index unless the caller keys it, and is built under an
+  owner of its own (SIG-280).** `ScrollRows.key(index)` keeps a built row by what
+  it is rather than where it is, so a re-sorted list moves rows instead of showing
+  stale ones, and each row's owner is disposed when it leaves the window. Both are
+  recorded under "A list view", which is what needed them.
+
 - **`flex-shrink: 0` on the spacers is the single declaration the feature rests
   on, and without it the range is 1.** A box with no children has no
   content-based automatic minimum -- which the layout engine records as a
@@ -5658,10 +5664,49 @@ field.
 - **The footer does not claim a key.** `?`, and whether the footer is expanded, are
   the app's: `expanded` is a boolean or a `State<boolean>` and the demo binds `?`
   to it, for the reason the palette does not bind a key to open itself.
-- **The width is an option because the footer cannot know its box.** It defaults
-  to `terminal.width` at each run and accepts `() => n` for an app that resizes;
-  reading the laid-out width of the element would need a layout pass inside an
-  effect that is itself rebuilding the children.
+- **The width is the layout's, learned through `onResize`, the way the tabs row
+  and `TextField` learn theirs (SIG-311).** This entry used to say the footer
+  could not know its box, so `width` defaulted to `terminal.width` read inside the
+  effect, and that effect re-ran only when the bindings or the focus moved -- so a
+  resize left the line fitted to the old width until an unrelated key moved the
+  focus. The premise was wrong: nothing has to be laid out inside the effect,
+  because a frame dispatches `onResize` after its layout and before its paint, so
+  the footer records the room, refits, answers whether that changed the tree, and
+  the first frame is already drawn at the right width. `terminal.width` is now only
+  the guess the effect fits to before any layout has said, which nothing on the
+  screen is drawn from. The system monitor (SIG-291) and the demo both passed a
+  width function fed by `input.onResize()` to get round it; neither does now.
+- **The short form asks for every line, whatever it kept: `width` the natural
+  width of all of them, `max-width: 100%`, `min-width: 0`.** The same loop
+  SIG-318 found in `TextField`, met before it could ship. A row is the default
+  direction and sizes a child to its content, so a footer that asked for what it
+  kept was laid out at the width of its last fit: squeezed once, it dropped a
+  binding, was laid out narrower, and was never offered the room back however
+  wide the terminal grew. Asking for all of it makes the box independent of what
+  was drawn in it. Each declaration has a sabotage of its own in
+  `in a running app, sized by its box`: no `onResize` fails both cases, no `width`
+  fails the row growing back, no `max-width` fails the column -- a declared width
+  is not stretched, and is not clamped to the column either -- and no `min-width`
+  fails the row being squeezed at all, since a box's automatic minimum is its
+  content's. Three costs are taken knowingly. In a column the box is the natural
+  width rather than stretched, which only a background on `.sigil-key-help` would
+  show. Between the `…` and whatever follows the footer in a row there is up to
+  one dropped line's worth of blank, because the box is the room it was given and
+  it shows whole lines. And beside a status, both shrink in proportion unless the
+  status says otherwise -- the monitor gives its status `flex-shrink: 0`, since
+  what just happened is the line worth keeping whole.
+- **An explicit `width` is the app's answer and the layout is not asked.** No
+  `onResize` and no declared width, so `width: 60` and `width: () => n` behave
+  exactly as they did -- which is what `prompt.ts` passes, fitting its footer to
+  the columns it already computed. The long form declares nothing either way: its
+  descriptions are cut by the layout's own ellipsis, so it has no room to fit to,
+  and holding it to the short form's width would cut a group heading wider than
+  the line under it (`should not hold the long form to the width the short form
+  asked for`). A draw that would change nothing -- the same lines, the same
+  form, the same width asked for -- does nothing and answers `false`, so a resize
+  that keeps every line costs no rebuild and a frame no second layout -- `should
+  answer a resize that changes no line as no change` asks the hook directly,
+  since a frame that lays out once more converges either way and cannot see it.
 
 #### What is deliberately out
 
@@ -6823,11 +6868,139 @@ to a string, each with a `*View()` returning `{ element, width }`, and the split
   heuristic.** Block elements and braille are no safer than box drawing, and a
   caller can say `ascii: true` outright. The line chart keeps its sub-cell grid
   and prints `*` for any cell with a dot in it, so the line is still connected.
-- **Several are not done on purpose:** more than one series in a line chart (a
-  braille cell has one foreground, so two series sharing a cell would need a rule
-  for who wins, and that is the design the first user of it should drive); axis
-  ticks between the top and the bottom label; a live form (the app rebuilds the
-  string or the tree); and negative bars below a zero baseline.
+- **Several are not done on purpose:** negative bars below a zero baseline. The
+  other three this list held -- more than one series in a line chart, axis ticks
+  between the top and the bottom label, and a live form -- are SIG-284's, the entry
+  below, and the system monitor was the first user that drove them.
+
+### Live charts: fed from signals, sized by the layout (SIG-284)
+
+`Sparkline`, `LineChart`, `BarChart` and `Gauge` in `src/components/chart.ts`, beside
+the printed charts, and `Series`, a ring buffer that is a signal. The ticket's five
+questions were settled as below. The sabotage runs are in
+[docs/history/live-charts-fed-from-signals-sized-by-the-layout.md](../../../../docs/history/live-charts-fed-from-signals-sized-by-the-layout.md).
+
+- **Data: anything with a `get()`, a function, or the values -- and `Series` for
+  the case a tick pushes a sample.** The ticket offered `State<readonly number[]>`
+  or a ring buffer, and it is both, because they answer different callers. A chart
+  reads its source inside an effect, so a `State`, a `Computed`, a function over
+  them, and a `Series` all redraw it, and a monitor whose history is derived from a
+  `State` of snapshots needs no second copy of it. What a `State` of an array costs
+  is a new array a tick and the app writing the slice; `Series(capacity)` writes
+  into a ring and moves its start, so a push allocates nothing and the oldest falls
+  off. Its `get()` is built once per change and frozen, so ten charts reading one
+  series build it once, and a version `State` inside it is what subscribes them.
+  `at(-1)` is the latest, which is what a figure beside a sparkline reads. It lives
+  in `chart.ts` rather than in `src/signals`, because it is the one shape a chart
+  is fed and nothing else in the library wants a ring of numbers.
+- **Size: from the layout, through `onResize`, and what a chart asks for is never
+  what it last drew.** The host is a box holding a `raw` that measures the size
+  the chart asks for -- `width` and `height`, or a default from its data -- and
+  paints nothing, with both minimums zero, and an absolutely placed body the rows
+  are drawn into. The rows take no space, so the size is the layout's: stretched
+  across a column, given what a row leaves with `flex: 1`, as tall as a panel with
+  `flex-grow`. Rows in flow were the obvious build and are SIG-318 again: the chart
+  would ask for the size it was last drawn at, so a row that squeezed it once would
+  keep it squeezed. `should grow back to what it asks for once a row that squeezed
+  it has room again` is the test, and a sabotage that measures the drawn size fails
+  it and nothing else. A `raw` that painted the chart itself was the other way to
+  get the size, and was refused for colour: a `raw` paints styles it resolves
+  itself, which is right for a photograph and wrong for a series whose colour is a
+  theme role -- a role is a class, and a class reaches a `text`.
+
+  Where the layout leaves the size to the chart, it asks: a `Sparkline` for a column
+  a sample of its `Series`' capacity, or of the samples there are; a `LineChart` for
+  40 columns and 8 plot rows plus its axis, x labels and legend; a horizontal
+  `BarChart` for 40 by a row a bar, a vertical one for its bars' own width and 8
+  rows plus its two label rows; a `Gauge` for a bar of 20 and its label and figure.
+  An ask that moves with the data -- a sparkline over an array that grows, bars
+  added -- re-measures the `raw`. **No growing by default, so no framework-sheet
+  rule**: a chart in a column already spans it, `flex: 1` is one prop, and a
+  default `flex-grow` would be the sixteenth declared exception to the role rule for
+  something the panel's fifteenth already shows the cost of.
+
+- **What a chart has: axes with ticks, a legend, several series in one chart, a role
+  per series, and a scale fixed or following what is shown.** The axis names a
+  value every four rows or so on a plot tall enough -- `tickRows()` -- so a printed
+  chart of the default eight rows is the picture it always was, and a panel thirty
+  rows tall has seven labels. Each label is the value at its own row, so a plot of
+  ten rows labels `44%` rather than a rounder number half a row away. Several series
+  are the line chart's alone: a sparkline's block has one foreground, and grouped
+  bars are a different chart. A bar takes a `role` of its own, which is the one
+  "series" a bar chart has.
+
+  **Who wins a shared braille cell: both lines' dots, in the colour of the series
+  listed later.** The rule the earlier entry left for the first user. Each series is
+  drawn into its own `Dots` and into one they share; the shared grid is the
+  character, so where two lines cross both are still there, and the colour is the
+  last series with a dot in that cell -- paint order, which is the order a reader
+  can predict from the call. Most-dots-wins was the alternative and was refused: it
+  makes the colour of a crossing depend on the slopes. `should draw both lines
+  through a cell they share, in the colour of the later one` pins both halves.
+
+  **A colour per series is a role, and no role was added.** A series names one of
+  the six `ChartRole`s; one that names none takes the chart's `role` if it is the
+  first and `warn`, `success`, `info`, `error` after that -- the colour roles in an
+  order that keeps neighbours apart in the framework's sheet, red last. That is
+  semantic roles standing in for a palette, which is a compromise: a `series-2`
+  role would be a ninth role and a `palette` question for every theme in
+  `src/theme`. What makes it bearable is the hook: every cell of series N carries
+  `.sigil-chart-series-N`, which a theme or an app restyles at a later origin than
+  the role's, so a dashboard that wants six blues writes six rules. The legend's
+  mark carries the same classes as the line, so the two cannot disagree. The
+  vocabulary comment names the series, legend, body and sizer classes; no rule was
+  added to the sheet.
+
+  The scale follows the data unless `min` and `max` say otherwise, and for a live
+  line chart "the data" is the window: what scrolled off the left is not scaled
+  over, which is the sparkline's rule from the entry above. The gutter is as wide
+  as the labels and the labels are the scale's, so `lineDrawing()` asks until the
+  gutter settles -- at once, unless a label gains a digit.
+
+- **Resolution is per chart, and not an option.** A sparkline is eighths of a
+  block, a line chart braille, bars eighths across or up, a gauge a block bar. A
+  braille sparkline is a `LineChart` with `axis: false`, and a block line chart is a
+  `Sparkline` more than one row tall -- which it now is: the live sparkline stacks
+  its eighths into an area as tall as its box, `rows * 8` heights, the block graph
+  btop draws, and on one row it is the eight heights it always was. So the choice
+  the ticket asked about is already the choice between two components, and an
+  option on each would be two ways to say it.
+- **The printed views stay, and both forms draw with one function per chart.**
+  `sparkline()`, `lineChart()`, `barChart()`, `gauge()` and their `*View()`s keep
+  their signatures and their pictures -- every test in `chart.test.ts` passes
+  unchanged -- and the live charts call the same `sparkRows()`, `lineDrawing()`,
+  `barDrawing()` and `gaugeDrawing()` at the size `onResize` reported. Moving the
+  views onto the components was refused: a printed chart has no layout to ask, and
+  `renderToString()` laying out a host, measuring a `raw` and dispatching a resize
+  to print one line is a lot of machinery for a string. Two things widened the
+  views additively: `lineChart()` takes several series as `[{ data, label, role }]`
+  and a `legend`, and `step`. `step` is the one default that differs between the
+  two forms -- `fit` printed, `1` live -- because a printed chart is a whole series
+  and a live one is a window onto one; `should be the picture lineChart() prints at
+  the same size with step fit` pins that the two are otherwise one drawing.
+- **A live line chart scrolls from the right.** The latest sample is at the right
+  edge and each one before it a dot column further left, so 40 columns hold the
+  last 80 samples and the line moves left as it is pushed to; one sample past the
+  left edge is still drawn to, so the line enters from the edge. Stretching a
+  growing series across the width, as `fit` does, would squash the whole history
+  every tick. A live sparkline is the same rule a column a sample, with the left
+  blank until history fills it; a printed one is as wide as its series.
+- **A gauge pads its percentage to four columns.** Live, a reading going from 9% to
+  10% moved the bar a cell. A `detail` the app writes is its own width, and is the
+  app's to pad.
+- **A row that did not change is left alone.** The host keeps each row's segments
+  and their classes as a signature and rebuilds only a row whose signature moved,
+  so a tick that scrolls the plot leaves the axis, the x labels and the legend as
+  they were. Simpler than diffing segments, and a chart's rows are few.
+- **The new messages are plain, not `__`.** They are programmer errors -- a
+  capacity, a step, a size that is not a whole number -- of the kind `chart.ts`
+  already threw as plain `RangeError`s, and the key set in `src/i18n/keys.ts` is a
+  generated file every parallel branch adding a key would conflict on.
+- **Not done:** grouped or stacked bars; a sparkline or bars with several series; a
+  time axis that labels more than its two ends; `selectable: false` on a live
+  chart's body, which the printed tree does not set either; and a mouse readout of
+  the value under the pointer, which is a tooltip's job and wants the samples'
+  positions, which a drawing does not keep.
 
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 
@@ -9401,6 +9574,179 @@ blanks on a dark terminal and `ESC[47m...` on a light one.
   `black` in its place fails four, a focus background and a disabled
   `background-color: default` fail two each (one of them the role invariant).
 
+### A slider: a value on a track, by key and by drag (SIG-286)
+
+`src/components/slider.ts`. `Slider()` is a number on a track that a tree can
+hold -- a settings screen's volume, a media player's seek bar -- and
+`describeSlider()` puts its keys in a key-help footer. An element in the shape
+`TextField` is: a function of props that returns the focusable host, the keys in
+`onKey`, the pointer in `onMouse`, the focus from `onFocusChange`. The demo is
+`demos/components/62-slider.js`; how each answer below was tested, and the
+sabotage pass, are in
+[docs/history/a-slider-a-value-on-a-track-by-key-and-by-drag.md](../../../../docs/history/a-slider-a-value-on-a-track-by-key-and-by-drag.md).
+
+- **The ticket's first question: `min`, `max` and `step`, and the value is a number
+  or a `State<number>`.** The shape `TextField`'s `value`, `Tabs`' `active` and
+  `Collapsible`'s `open` already have, for their reasons: a number is where it
+  starts, the state is the value, the keys and the pointer write it, and an app
+  that writes it moves the thumb. `onChange` is the text field's, called after a
+  key or the pointer moved the value and never after a write the app made, since
+  the app already knows -- and not called for a key that moved nothing, Left at
+  the bottom. No `sliderValue()` accessor the way `Tabs` has `tabsActive()`: that
+  door exists because tabs have no `onChange`, and a slider does. Defaults are
+  0, 100 and 1, which is HTML's `<input type="range">`.
+- **The value is always `min` plus a whole number of steps, and the top is the last
+  step at or under `max`.** HTML's rule, and the only one that keeps every value
+  reachable by the keys: a range of 0 to 10 in threes ends at 9, and End goes
+  there. The steps are counted from `min`, not from zero, so 1 to 21 in fives is
+  1, 6, 11. A step's value is `min + i * step` rounded to the decimal places `min`
+  and `step` are written with, so three Rights on a step of `0.1` is `0.3` and not
+  `0.30000000000000004` -- a value an app compares, prints, or stores in a config
+  file, where the noise is a bug report.
+- **A value the app writes outside the range or between two steps is drawn at the
+  nearest step and left as written.** The tabs' rule for an out-of-range `active`,
+  for the same reason: it is written at run time by an app and a refusal has
+  nowhere to land, and rewriting the app's state behind its back would be a write
+  nobody asked for. The next key moves from the nearest step. `NaN` reads as the
+  bottom. What is refused is refused at construction, with a `TypeError`: a
+  non-number value, a `min` not below `max`, a non-finite bound, a `step` or `page`
+  that is not positive, a `format` that is not a function, a `width` that is not a
+  positive whole number -- and a `step` larger than `max` minus `min`. That last one
+  used to be read as one step anyway, so `{ min: 0, max: 1, step: 2 }` let End,
+  Right, Page Up or a drag write `2` into the app's state and `onChange`, a value
+  past `max` that the rule above says cannot exist. No step fits, so there is no
+  slider to draw; the default step counts, so `{ max: 0.5 }` is refused too. It is
+  asked of the step count, with the tolerance that count already has, rather than
+  as `step > max - min`, since `0.3 - 0.1` is `0.19999999999999998` and 0.1 to 0.3
+  in 0.2s is a range that holds exactly one step.
+- **The ticket's second question: horizontal only.** A vertical slider is a column
+  of one-cell rows, and a cell is about twice as tall as it is wide, so the same
+  range gets half the resolution in twice the screen -- and every use the ticket
+  names (volume, seeking, a settings row) is a row. Nothing asked for vertical, and
+  a feature nothing needs is a feature designed by guessing (the root file's
+  `which` entry). It is additive later -- an `orientation` prop, Up and Down -- so
+  refusing it now closes nothing.
+- **The ticket's third question: the label is the app's, the readout is the
+  slider's.** A form lines its labels up in a column whose width only the form
+  knows, which is why `TextField` has no label either; a settings screen's rows lay
+  out the same way whether the control is a field or a slider. The readout is the
+  other way round because only the slider can do it right. `05-drag.js`'s
+  hand-drawn slider is the trap the layout's `AGENTS.md` records: a readout as wide
+  as what it says took a column from its neighbours at exactly `100%` and nowhere
+  else, and moved the track. So `format` draws a readout after the track, and its
+  width is the widest `format` returns over the range -- every step when there are
+  at most a thousand, which is a hundred calls for the default range, and the two
+  ends past that, where an integer range's widest is an end anyway. Measured over
+  every step rather than at the ends because the ends are not always the widest:
+  `-0.5` is wider than `-1` and `1`. A `format` that comes back wider than it
+  measured (one that reads a clock) widens the readout rather than being cut: a
+  track moving once is better than a value nobody can read. No `format`, no
+  readout -- HTML's range shows none either, and a seek bar's `1:23 / 4:56` is
+  usually beside it rather than after it.
+- **The ticket's fourth question: Left and Right a step, Page Up and Page Down a
+  page, Home and End the ends -- and Up and Down are not the slider's.** ARIA's
+  slider also takes Up and Down, as increase and decrease. Here they are left to
+  bubble, because a settings screen is a column of rows and Up and Down are what a
+  form or a list around the slider moves between them with (SIG-199, SIG-280); a
+  horizontal slider taking the vertical arrows would be the one control in the
+  form that traps them. `page` is in the value's own units, rounded to whole steps
+  and never less than one, and defaults to a tenth of the range, so Page Up on a
+  0-to-4 range still moves. Modifiers and pastes are left alone, the `Tabs` rule.
+- **The keys are claimed at the ends too, which is the text field's rule and not the
+  tab row's.** `Tabs` and `Collapsible` hand on a key that would change nothing, so
+  Right on the last tab reaches the pane around the row. A slider is the one
+  control whose keys are held down: getting from 40 to 0 is Left with the key
+  repeating, and it overshoots. Every repeat past the end would reach whatever is
+  around the slider -- a list moving its selection, a tab row switching tabs --
+  which is `TextField`'s "Left at column zero is still the field's", for a stronger
+  reason.
+- **A press on the track puts the thumb under the pointer, and holding the button
+  drags it.** The press rather than the click, which is where `Tabs` and
+  `Collapsible` differ, because the press is when the thumb must move -- a drag
+  starts from it, and a slider that moved on release would draw the thumb in the
+  wrong place for the whole of the drag. The press is **not** stopped, so it still
+  focuses the slider, the pane's edge rule. The moves and the release are stopped:
+  the slider owns the drag, so nothing above it acts on it, which is what
+  `05-drag.js` does and is why the router's "a stopped `mouseup` does not cancel
+  the derived `click`" exists. The click that follows is stopped too, so a row
+  around the slider does not take it as well. Any release ends a drag, whatever
+  its button says, so a report that lost its button cannot leave the thumb stuck
+  to the pointer. The wheel is not the slider's: a slider in a scroll box changing
+  value as the page scrolls past is the web's best-known annoyance, and the wheel
+  goes on to whatever scrolls.
+- **The column is read against where the layout put the track, and clamped there.**
+  The pointer's offset into `track.box` over its width less one, the fraction
+  `05-drag.js` uses, so the left cell is the bottom and the right cell the top. A
+  captured drag reports columns past either end and off the canvas, which is
+  where the ends are -- clamped here rather than by the router, for the reason
+  `05-drag.js` gives: a captured report really is outside. Before the first layout
+  there is no box, and a press moves nothing.
+- **`onMouse` is on the track, not the host, and none of the track's parts ever
+  leaves the tree.** On the track, so a press on the readout moves nothing. The
+  press lands on one of the track's three parts -- the filled stretch, the thumb,
+  the rest -- and bubbles to the track; while the button is held the moves and the
+  release go to that part, wherever the pointer is. A part with nothing to draw is
+  drawn zero wide rather than taken out, which is what `Tabs` does with a part of
+  its rule: a press on the rest of the track that the drag then empties would
+  otherwise leave the capture holding an element no longer in the tree, and the
+  router bubbles a captured event up the target's own ancestry, which would no
+  longer reach the track.
+- **The track's width is its basis and the layout's, never its drawing.** Learned
+  through `onResize`, the tabs row's rule, and drawn to exactly that many cells.
+  With no `width`, the track is `flex-basis: 20` and grows and shrinks: the rest
+  of a column, twenty columns in a row with no width of its own, its share of a
+  row that is short. A basis rather than its content because what it draws is cut
+  to the room it was last given, so a track sized by its drawing could only ever
+  stay the size it last was -- the text field's SIG-318 in the other direction:
+  narrowed once, it never grew back. `min-width: 0` is what lets it take less than
+  it drew last. `width` is the **track**'s columns rather than the whole slider's,
+  so four sliders with readouts of different widths can still line their tracks
+  up, which is what the demo does; the host's `props` take a width for the whole.
+- **The focus: `.sigil-focus` on the thumb, and the thumb fills in.** "Focus on a
+  control", below, left the glyphs to this ticket. `○` at rest and `●` focused,
+  `o` and `O` in ASCII: the same width, in the cell the thumb already holds, so the
+  focus moves nothing and is drawn at every level -- which is the one cue at
+  colour level 0, where the role's `inverse` is dropped, and in a pipe. Hollow to
+  filled rather than another shape because "filled in" already reads as "this
+  one" beside the prompts' `◯` and `◉`. The filled stretch and the thumb are
+  `.sigil-accent`, the rest of the track `.sigil-muted`, the tabs' rule and its
+  heavy `━` against the light `─`. No new role and no framework-sheet exception.
+- **Disabled is a state, and it ends a drag.** The text field's `disabled`:
+  `focusable` follows it, the keys and the pointer do nothing, the accent parts go
+  to `.sigil-muted`, the readout is muted, and a disabled slider shows no focus
+  even if it kept the focus it had when it was disabled. A drag in progress ends
+  when the slider is disabled, so enabling it again does not resume a drag nobody
+  is holding. At colour level 0 a disabled slider is indistinguishable from an
+  enabled one at rest, which is the text field's cost too.
+- **One effect draws, and it was two.** `draw()` reads the value and `disabled`, so
+  the effect that runs it is what redraws on a write the app makes to either. There
+  was a second effect reading the value alone, and the sabotage pass found it was
+  dead: the disabled effect called `draw()` too, so it had been tracking the value
+  all along. The disabled effect now sets classes and nothing else.
+- **`describeSlider()` describes the six keys, the arrows above the rest.** `less`,
+  `more`, `much less`, `much more`, `minimum`, `maximum`: short, because six
+  entries have to fit an 80-column footer and `decrease by a page` did not. The
+  arrows carry priority 1, so a narrow footer drops Page Up, Page Down, Home and End
+  first. A helper rather than an option, the collapsible's reason: the router is
+  built from the tree the slider is in, so it does not exist while the slider is
+  being built.
+- **`demos/element/05-drag.js` stays drawn by hand.** Its subject is the router's
+  capture, and the root file's rule is that a demo lives with its subject: rebuilt
+  on `Slider` it would hide the fifteen lines that show what a component does with
+  a press, a move and a release, which is the whole of what it is for. Its doc
+  comment and the demos README point at `62-slider.js` as what an app should use.
+- **Sabotage: thirty-four, five survivors.** One was a sabotage that changed
+  nothing, rewritten and caught; one was a test whose helper turned "no button"
+  back into `'left'`, fixed; one was a missing test, the track growing back, added;
+  `overflow: hidden` on the track was deleted for surviving; and the dead value
+  effect, above. The list is in the history file.
+- **Not done:** vertical; Up and Down; the wheel; a `commit` callback on release,
+  for a seek that should happen once rather than on every move -- the keys have no
+  release, so it would be every key anyway, as HTML's `change` is, and an app that
+  wants fewer seeks debounces `onChange`; a range with two thumbs; tick marks under
+  the track; a vertical readout or a label inside the slider; snapping the app's
+  own writes into the state; and a level-0 cue for disabled.
+
 ### A toast: a timed message in a corner, and nothing it takes
 
 `src/components/toast.ts`. SIG-213, split from SIG-191. `showToast(host, opts)` puts
@@ -10339,15 +10685,16 @@ exception per widget. This is the one answer, and every widget below follows it.
   - **List, table, tree** (SIG-280 to SIG-282): the current row is content -- the
     pointer `❯` -- whether or not the widget has the focus, so an unfocused pane
     still shows its selection, and `.sigil-focus` goes across the current row
-    while it does. At level 0 a focused pane and an unfocused one look alike: a
+    while it does. Done for the list by SIG-280, on the row box the table and the
+    tree draw through as well. At level 0 a focused pane and an unfocused one look alike: a
     recorded cost, since the pointer is already spent on the selection.
   - **Text area** (SIG-283): `.sigil-focus` on the caret, as `TextField` does; no
     caret at level 0.
   - **Menus** (SIG-285): `.sigil-focus` and the pointer on the highlighted item;
     a menubar's open title takes the role.
   - **Slider** (SIG-286): `.sigil-focus` on the thumb; at level 0 the thumb's
-    glyph swaps for one of the same width. Provisional: the slider picks the
-    glyphs.
+    glyph swaps for one of the same width. Settled there: `○` fills in to `●`,
+    `o` to `O` in ASCII -- "A slider", above.
 - **`:focus` is still the app's.** Nothing changes for an app writing
   `.panel:focus { border-color: cyan }`; the selector, the state and its
   invalidation are as they were. The framework sheet simply has no `:focus` rule
@@ -10391,7 +10738,7 @@ exception per widget. This is the one answer, and every widget below follows it.
   could leave set. All four are in `src/element`'s entry, and the rounds and their
   sabotages are in its history file.
 - **Not done:** the modal onto the role, which is SIG-199's when `Button`
-  replaces its inline buttons; level-0 markers for the three existing controls,
+  replaces its inline buttons (it did: "Form controls" below); level-0 markers for the three existing controls,
   which have no blank to put one in; and `:focus-within`, which would not solve
   this, as above, and which nothing has asked for for any other reason.
 
@@ -10547,6 +10894,162 @@ exception per widget. This is the one answer, and every widget below follows it.
   screen to put them on; and Alt-letters in the key help, of which only F10 is
   listed.
 
+### A list view: a cursor and a selection by key, over a windowed scroll box (SIG-280)
+
+`src/components/list-view.ts`. A scrolling list of rows with a current row and
+keys to move it, as one focusable element -- what a file manager, a log viewer,
+`k9s` and `lazygit` are mostly made of. It is two layers, and the lower one is
+published because the table (SIG-281) and the tree (SIG-282) are to stand on it.
+How each question was settled, the probes and the sabotage pass are in
+[docs/history/a-list-view.md](../../../../docs/history/a-list-view.md).
+
+- **It is `ListView`.** The ticket's own suggestion, and the alternatives were all
+  taken: `list()` is the prompt that reads a line as an array, `select()` is a
+  prompt, and the outline entry above records why one name over a prompt and an
+  element is a type that depends on its argument. `List` beside `list` in one
+  barrel would differ by a capital, which is a name a reader gets wrong. PascalCase
+  because it is an element component, as `ScrollBox`, `TextField` and `Tabs` are.
+- **The current row is a key, and multiple selection is a set of keys.**
+  `current` is `K | State<K | undefined>` and `selected` is
+  `Iterable<K> | State<ReadonlySet<K>>`, the value-or-state shape `Tabs`' `active`
+  and `Collapsible`'s `open` have: a value is where it starts, a `State` is the
+  state itself, which the keys and the mouse write and the app may write. A key
+  defaults to the item, which is right for strings; data fetched again names its
+  own with `key`. A single list keeps `selected` empty, because there the current
+  row _is_ the selection -- two answers to "what is selected" in one list would be
+  two answers to disagree. `selected` is replaced on every write, never mutated,
+  since a `State` hears a new value and not a changed one.
+- **The selection survives the data changing, by four rules in one place.**
+  `setRows(keys, disabled)` settles the cursor: on its key wherever that key now
+  is; on the row that took the place of a key that disappeared, or the one before
+  it at the end, which is where a reader's eye already is -- not the top; off a row
+  that became disabled, to the nearest that is not; and **left on its key** while
+  there is no row to be on, so a filter that matched nothing and is cleared finds
+  the cursor where it was. And the selection is **never pruned** by `setRows()`: a
+  row a filter hides or a collapsed tree node hides is not a row that was deleted,
+  so pruning would untick it behind the reader's back -- the searchable multiselect
+  entry's "ticks that outlive the filter", for the same reason. An app that deleted
+  a row and wants it unselected writes `selected`. Two rows with one key throw,
+  because a key is what the cursor and the selection mean by a row.
+- **Rows are a render function over `ScrollBox`'s windowing, keyed.** `row(item,
+  key)` returns an element or a string, and only the rows in view are built:
+  ten thousand rows are a few dozen elements. What the scroll box lacked was
+  identity -- it kept a built row by its _index_, so a re-sort showed the old rows
+  in the new order. `ScrollRows.key(index)` is the one addition: a built row is
+  kept while its key is anywhere in the window, at whatever index, and built again
+  when a key it has not seen arrives, and the window's keys are part of the
+  unchanged-window guard so a `resync()` after a re-sort rebuilds what moved. The
+  list keys a row on its key and its item **together** (a token per key, replaced
+  when the item is a different object), so a row is rebuilt exactly when its item
+  was replaced -- immutable updates are how a live update reaches the screen, and
+  `listControl(list).refresh()` drops every token for data changed in place. The
+  cursor and the selection never rebuild a row: they are classes on the row box
+  around the app's content, `is-current` and `is-selected`, set from an effect.
+- **A row is built under an owner of its own, in the scroll box, for everyone.**
+  A row built by a wheel notch ran inside `scrollTo()` with no owner at all, so an
+  effect in it -- a component in a row, a cell bound to a signal -- was never
+  disposed. `ScrollBox` now builds each row under a branch of the owner it was
+  built in, untracked, and disposes it when the row leaves the window; a row whose
+  build throws disposes its own branch. That is `For`'s rule, and it is in the
+  scroll box rather than the list so a table or a tree drawing rows through either
+  gets it. What it cost: `components/scroll-box` imports the renderer now, 136,485
+  B to 174,349 B over 28 modules, under the ceiling it already had; the element
+  components beside it were already paying for the renderer.
+- **The view follows the cursor, and only the cursor.** Every move reveals the
+  current row with the arithmetic of a fixed row height -- no row needs to be built
+  to be scrolled to -- and an update that does not move the current row (its key
+  and its position both unchanged) does not scroll. So a wheel scroll away from the
+  cursor is not snapped back by the next live update, while a re-sort that carries
+  the current row elsewhere is a move and is followed. A reveal asked for before
+  anything laid the list out waits for the scroll box's `onResize`, so a list that
+  starts with `current` on row 300 opens showing it. An offset past the end of a
+  list that shrank is brought back inside it.
+- **Finding: filtering is the app's, and type-to-find is opt-in.** A filter field
+  is a second focusable thing with its own keys, layout and editing, and
+  `TextField` and `rankBy()` already exist: the items are a `Computed` over the
+  field and the data, and the list sees only that its items changed (the demo does
+  exactly that, and puts the cursor on the best match when the query changes --
+  where the cursor goes on a filter is an app's call). Type-to-find costs no space
+  and is worth having, so `find: true` turns it on: a printable key moves to the
+  next row whose `label` starts with what was typed in the last second, one letter
+  pressed again steps through the rows it begins, and a run of one letter that
+  matches nothing as a word steps through that letter. **Off by default** because a
+  list that claims letters outranks every fallback while it has the focus, and the
+  runner's `quitKey` is one -- `q` would stop quitting the app the moment a list was
+  focused. A letter that finds nothing is still claimed, or a miss would reach
+  whatever is around the list.
+- **Keys: arrows, Page Up/Down, Home/End; vim opt-in; Enter and a double-click
+  activate.** A page is the view less one row, the scroll box's and every pager's
+  rule. A move stops at the ends rather than wrapping, as `select()` does by
+  default, and is **claimed even where it goes nowhere** -- Down on the last row is
+  the list's key, the scroll box's rule for a box at its end -- while a list with
+  no rows claims nothing. `vim: true` adds `j`/`k`/`g`/`G`, `less`'s spelling and
+  the pager's, off by default for the reason `find` is; the two together are
+  refused, since both want the letters. Shift, Ctrl or Alt with a move is left for
+  what is around the list (a range selection is not drawn here). In a `multiple`
+  list Space ticks the current row and Ctrl-A every row that is not disabled, or
+  none where every one already is -- the multiselect prompt's `a`, as a chord
+  because a letter is a fallback's. Enter calls `onActivate(key, item)`, and is not
+  claimed by a list without one. Escape and Tab are never the list's.
+- **The mouse: a click moves the cursor, the wheel scrolls the view, a
+  double-click activates.** The click and not the press, so the press keeps its
+  default action -- focusing the list, which is the one focusable element: the
+  scroll box inside it is built `focusable: false` and every key comes to the host.
+  In a `multiple` list a click also ticks the row, which makes a multiple list a
+  checklist; a double-click's second click activates **without** undoing the
+  first one's tick, and is counted only where there is an `onActivate`, so a list
+  without one hears two clicks as two clicks. The wheel moves the view and not the
+  cursor, as every file manager does. A disabled row takes no click.
+  `DOUBLE_CLICK_MS` moved to `@ttylabs/sigil/input` so the pane and the list count
+  against one number -- "There is no double-click event" in `src/input`.
+- **Disabled rows and the empty state.** `disabled(item)` draws a row
+  `.sigil-muted` with `is-disabled`, and the cursor, a click and both kinds of
+  tick pass it over; `toggleAll()` leaves a disabled row's tick as it was, the
+  multiselect prompt's rule. With no items the scroll box is `display: none` and
+  `empty` shows -- a string drawn `.sigil-muted`, or a function that builds an
+  element -- defaulting to "Nothing to show", because a blank box reads as a list
+  that failed to load.
+- **The focus is SIG-278's answer for a list.** The pointer `❯` marks the current
+  row whether or not the list has the focus, so an unfocused pane still shows its
+  selection; `.sigil-focus` goes across the current row while it does, from
+  `onFocusChange`, and moves with the cursor. At colour level 0 a focused list and
+  an unfocused one look alike, the cost "Focus on a control" recorded. No theme
+  role and no framework-sheet rule was added: every class here is a hook with no
+  default, listed in the sheet's comment.
+- **`describeListView(router, ...lists)` describes the keys each list claims**,
+  scoped to it: the moves always, `j`/`k` with `vim`, Space and Ctrl-A with
+  `multiple`, Enter with `onActivate`. Type-to-find is not described, for the reason
+  `describeTabs()` leaves the digits out.
+
+**The contract a table and a tree build on.** Either of two layers, and
+`ListView` itself is built on the lower one, which is the evidence it is enough:
+
+- `createListSelection<K>({ current?, selected?, multiple? })` is the selection
+  with no elements: `current: State<K | undefined>`, `selected:
+  State<ReadonlySet<K>>`, `setRows(keys, disabled?)`, `settle()`, `move(by)`,
+  `moveTo(index, direction?)`, `first()`, `last()`, `toggle(key?)`, `toggleAll()`,
+  and the readers `index()`, `indexOf(key)`, `keyAt(index)`, `isDisabled(index)`,
+  `isSelected(key)` and `rowCount`. Every method reads the states untracked, so a
+  call from inside an effect depends on nothing. A tree hands it the keys of the
+  rows an expanded tree shows; a table hands it its rows in their sorted order.
+- `ListView` with a `row` function is the element: a table's row draws its cells,
+  a tree's row draws its guides and its marker, and either puts its own keys (Left
+  and Right, a sort key) on an element **around** the list, where every key the
+  list does not claim bubbles. `listControl(host)` hands back `selection`,
+  `scroll` (the scroll box's control), `reveal(key?)`, `refresh()` and
+  `activate()`. A row stops a click it handles itself -- a tree's twisty -- and the
+  list never sees it.
+- `ScrollRows.key` with `ScrollBox` directly, for a component that wants the
+  windowing and draws its own cursor.
+
+**Not done:** a range selection (Shift with the arrows, Shift-click), which is a
+third piece of state -- an anchor -- and a decision about what a range means over
+disabled rows; rows of different heights, which the scroll box's fixed-height
+tier refuses for its own recorded reason; a horizontal axis, which a wide table
+will want and which is a `ScrollRows.width` passed through; wrapping at the ends,
+which `select()` makes an option and nothing here has asked for; and a built-in
+filter field, for the reason above.
+
 ### Components that take `props`
 
 - **A component's `props` may not carry a hook it owns (SIG-305, review round 1).**
@@ -10576,12 +11079,18 @@ exception per widget. This is the one answer, and every widget below follows it.
   | --------------- | ----------------------------------------------- |
   | `TextField`     | `onKey`, `onPaste`, `onFocusChange`, `onResize` |
   | `ScrollBox`     | `onKey`, `onMouse`                              |
+  | `ListView`      | `onKey`, `onFocusChange`                        |
   | `createPager`   | `onKey`                                         |
   | `tabRowView`    | `onKey`, `onFocusChange`, `onResize`            |
   | `openModal`     | `onPaste` (on the panel)                        |
   | `showToast`     | `onMouse` (on the panel)                        |
   | `attachTooltip` | `onLayout` (on the bubble)                      |
   | `Dropdown`      | `onKey`, `onMouse`, `onFocusChange`             |
+  | `Button`        | `onKey`, `onMouse`, `onFocusChange`             |
+  | `Checkbox`      | `onKey`, `onMouse`, `onFocusChange`             |
+  | `Switch`        | `onKey`, `onMouse`, `onFocusChange`             |
+  | `RadioSet`      | `onKey`, `onFocusChange`                        |
+  | `Slider`        | `onKey`, `onFocusChange`                        |
 
   `Collapsible`, `Tabs` and `Show`/`For` assign none on the element their `props`
   reach (a `Collapsible`'s hooks are on its title, `Tabs`' on its row), so they
@@ -10604,3 +11113,144 @@ exception per widget. This is the one answer, and every widget below follows it.
   the code: a component that starts assigning another hook fails until it refuses
   that one too. It also asserts the refusal names both, the `undefined` pass, and
   that every hook it does not own is kept.
+
+### Form controls: a button, a checkbox, a radio set and a switch (SIG-199)
+
+`src/components/button.ts`, `checkbox.ts`, `radio-set.ts`, `switch.ts`, and
+`control.ts` for what the four share. The controls a settings screen or a login
+form is made of, as elements: the input router, the focus ring and the layout
+were there, and nothing to put in them. The ticket's "Settled by precedent" list
+was followed as written; what it left open, and what writing it turned up, is
+below. How each was reached -- the alternatives, the measurements and the
+sabotage pass -- is in
+[docs/history/form-controls.md](../../../../docs/history/form-controls.md).
+
+- **The elements first, built from the prompts' parts, and the prompts not moved
+  onto them.** SIG-215's answer for the text field. What is shared is what the
+  prompts already publish: `PROMPT_SYMBOLS` (`❯`, `◉`, `◯`), `promptChoice()`,
+  `promptValue()` and `promptSameValue()`, so a radio set reads `select()`'s
+  choices and compares values the way every prompt does; `labelLine()`; and the
+  `toggle()` prompt's `on` and `off`. Nothing in `prompt.ts` or `toggle.ts` moved.
+- **What the four share is one module, `control.ts`, and it is published.**
+  `controlFlag()` (a boolean or a `State<boolean>`, a truthy string refused),
+  `controlDisabled()` and `describeControls()`, each called four times or more.
+  Published at `@ttylabs/sigil/components/control` because every sibling a
+  component imports has to be, for `sigil add` to rewrite the import, and because
+  a control an app writes for itself can then follow the same rules by calling
+  them. The pointer cell is _not_ in it: every list in the package builds its
+  `❯` inline from `PROMPT_SYMBOLS.cursor`, and `control.ts` importing `prompt.ts`
+  would make `Button`, which draws no pointer, pay about 50 KB for the import.
+- **Settled: `Button` replaces the modal's inline buttons, and the modal is its
+  first user.** The modal's buttons were a button written inline -- the bracket
+  rule, Enter, Space and the click -- which is what "one definition" is about,
+  and SIG-278 had already decided the visible half: the focused button's label is
+  `.sigil-focus` (inverse) where it was the accent, which Chris accepted there.
+  The effect the modal ran over `input.focus.current` to bracket its buttons is
+  gone with them, since a button knows its own focus from `onFocusChange`. Every
+  modal test passes unchanged but one line, which read the focused element's
+  `.text` -- a button is a box of its brackets and its label now, so the test
+  reads its parts and asserts `[ B ]` exactly, which is stronger. Three small
+  consequences: a blank label (`' '`) is refused with the modal's own message
+  where only `''` was; a label's escape sequences and line breaks are taken out,
+  as every label in the package is; and the modal subpath grew 6.1 KB, from
+  198,373 to 204,473 B, for `button.ts` and `control.ts`. The modal still
+  delivers keys itself and owns the trap; a button is only what is focused.
+- **Settled: the checkbox is `[x]` and `[ ]`, not the multiselect's `◉` and
+  `◯`.** Both read at colour level 0, so that did not decide it. What did is that
+  in a form a checkbox and a radio set sit together, and "any of" against "one
+  of" is told by shape -- square against round, the convention every form a
+  reader has used keeps. The radio set and the switch take the prompts' round
+  marks, as `toggle()` does for its two states, so the checkbox has to be the
+  other shape or the two read alike. The multiselect is a list of many-of with
+  nothing round beside it, which is why its marks are not a precedent here.
+  `[x]` is ASCII, so it needs no `ascii` variant.
+- **Settled: a switch takes Left, Right and Space, and never Tab.** `toggle()`
+  flips on Tab because a prompt is alone on the screen; in a form Tab is the
+  ring's. Left picks the inactive state and Right the active one -- an arrow says
+  where to go, as in `toggle()` -- and each is claimed only where it changes
+  something, so Right on a switch that is on reaches the pane around it, which is
+  the collapsible's and the tab row's rule. Space always flips and is always
+  claimed. A click on a state's name picks that state; a click anywhere else on
+  the switch flips it. It draws the two states as `toggle()` does, the inactive
+  one on the left, with `◉` on the current one in the accent and the other muted.
+  A switch with no label puts the focus role on the current state, and moves it
+  when the state moves.
+- **Settled: a radio set is one stop in the ring, and the arrows select straight
+  away.** One stop is the tab row's shape, and what SIG-278 already wrote down
+  provisionally: Tab through a form visits the set once rather than once per
+  option, and the arrows move inside it. Straight away rather than a highlight
+  that Space commits, for three reasons. The tab row's arrows switch the tab and
+  the switch's arrows move the switch, so a set whose arrows only moved a
+  highlight would be the one control where an arrow shows something and changes
+  nothing. Enter is the form's (below), so a highlight that only Space commits
+  makes arrow-then-Enter submit the old value, which is a trap with no visible
+  cause. And it is the web platform's radio group, so it is what a reader's hands
+  already do. The cost is that `onChange` fires for each arrow; an app that
+  applies a setting only on submit reads the state then. Both arrow pairs work
+  whichever way the set runs, Home and End go to the first and last option on
+  offer, and each is claimed only where it selects something new. Space selects
+  the highlighted option -- which matters only while nothing is selected, when the
+  highlight is the first option on offer -- and is claimed whatever it changes,
+  because it is aimed at the set and would otherwise page a scroll box around the
+  form.
+- **Settled: a single option can be disabled.** `select()`'s choices can be, and
+  the set reads the same choices: muted, with its reason where a hint goes (or
+  `disabled`, the prompt's word, so it is told apart at colour level 0), stepped
+  over by the arrows and deaf to a click. A set whose every option is disabled is
+  disabled itself, since a stop where nothing can be chosen is a stop for
+  nothing. Two options holding one value are refused, because both would draw
+  selected; a value no option holds selects none, rather than being refused,
+  since an app writes it.
+- **Settled: `describe*()` helpers, one per control.** `describeButton`,
+  `describeCheckbox`, `describeSwitch` and `describeRadioSet`, the shape
+  `describeTabs` and `describeCollapsible` have: a router and the hosts, scoped to
+  each, returning one function that takes them all off, and refusing a foreign
+  element before describing anything. The switch describes its arrows by the
+  names of the states they pick, `← light · → dark`; the radio set describes the
+  arrows along its own direction and leaves Home and End to the README, the call
+  `describeTabs` makes for the digits.
+- **Enter is the form's everywhere but on a button.** Not on the ticket's list,
+  and it decided two answers above. A checkbox, a switch and a radio set leave
+  Enter unclaimed, so it reaches whatever holds them, which is where a submit
+  lives -- the rule a browser form keeps, and `TextField`'s without `onSubmit`. A
+  button claims it, because Enter on a focused Cancel means Cancel. A disabled
+  button does not, by the precedent: its keys go on.
+- **The focus is SIG-278's.** `.sigil-focus` on a button's, a checkbox's and a
+  switch's label and on the radio set's highlighted option; at colour level 0, a
+  button's brackets in its padding and the prompts' `❯` in a column every value
+  control keeps blank (hidden, so it takes its room), both drawn at every level.
+  The marker says the value and never the focus. No `ascii` option: the glyphs
+  are the prompts', which have none either.
+- **Disabled is the precedent plus `:disabled`.** `controlDisabled()` sets
+  `focusable`, `is-disabled`, the muted role and the `:disabled` state, which the
+  selector engine has and nothing had set; a checked checkbox or switch and a
+  selected option are `:checked` the same way. `TextField` does not set
+  `:disabled` yet, which is left for a ticket that touches it.
+- **A disabled control or option is muted whole, its marker included.** The first
+  version muted a disabled radio option's label and reason and left its `◯` in the
+  default foreground, so the one part that says "a choice" still read as one on
+  offer -- and a theme that greyed `.sigil-radio-label` would have made it worse.
+  The mark carries `.sigil-muted` too now. The second half is the same defect at
+  the control's scale: `controlDisabled()` puts the muted role on the **host**, and
+  `.sigil-accent` on a ticked box's mark, a selected option's mark or a switch's
+  current state is on the part itself, so it beat the colour the part inherited and
+  a disabled control drew its value in the accent. Each control now withholds the
+  accent while it is disabled and gives it back when it is not, and a radio option
+  that is disabled never takes it, even when the app wrote its value. The marker
+  still says the value -- `[x]`, `◉` -- in the muted colour, which is what a
+  disabled field does with its text.
+- **No theme role and no framework-sheet exception.** Every part draws in a role:
+  the value in `.sigil-accent` while the control is enabled, the switch's other
+  state and anything disabled in `.sigil-muted`, the focus in `.sigil-focus`. The new classes went into the
+  vocabulary comment, which `theme.test.ts` holds to the sources.
+- **No guard for the keys a control does not use.** Each `onKey` is a `switch`
+  or an early return whose default is to hand the key on, so Tab, Escape and the
+  abort go through the ordinary unclaimed branch, as the ticket required.
+- **Sabotage: twenty, two survived, both now caught.** A click on the switch's
+  current state flipping it passed, because no test clicked `off` while off; and
+  a labelled switch putting the role on its state as well passed, because the
+  state is redrawn only when it moves. Both tests now do the thing.
+- **Not done:** the prompts moved onto these elements; the dropdown select, which
+  is SIG-285's; a disabled option as a `State`; an indeterminate checkbox; button
+  variants (a default, a destructive one); a form element that owns Enter and
+  validation; and `:disabled` on `TextField`.

@@ -76,6 +76,10 @@ export function importBindings(parsed: ParsedModule, from: string, name: string)
         namespaces.add(entry.localName.value);
       } else if (entry.importName.kind === 'Name' && entry.importName.name === name) {
         direct.add(entry.localName.value);
+      } else if (entry.importName.kind === 'Default' && name === 'default') {
+        // `import main from '@ttylabs/sigil'` is the export named `default`, the same
+        // binding `import { default as main }` is, which the branch above reads
+        direct.add(entry.localName.value);
       }
     }
   }

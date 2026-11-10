@@ -26,6 +26,11 @@
  * a grabbed handle -- differs per component. What that comes to in practice is the
  * fifteen lines under `track.onMouse` below.
  *
+ * Those fifteen lines are what `Slider` (`demos/components/62-slider.js`) is built
+ * on, and an app wanting a slider should use that. This one stays drawn by hand on
+ * purpose: its subject is the capture, and the element would hide the very lines
+ * that show what a component does with it.
+ *
  * The other thing worth watching is the two counters. A press and a release on the
  * same box is a `click`; a drag that wandered off and released out there is a
  * `mouseup` with no click after it, because a click is the nearest box containing

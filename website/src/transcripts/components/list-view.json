@@ -1,0 +1,143 @@
+{
+  "api": {
+    "interface": "ListViewProps",
+    "options": [
+      {
+        "description": "The items, in the order they are shown.",
+        "name": "items",
+        "optional": false,
+        "type": "readonly T[] | ListItems<T>"
+      },
+      {
+        "description": "Draw the pointer and the marks with ASCII only, `>` and `[x]`. Defaults to what `unicodeSupported()` says, which is the rule `Tabs` keeps.",
+        "default": "what `unicodeSupported()` says",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The current row, as its key, or the state that holds it: see `ListSelectionOptions.current`.",
+        "name": "current",
+        "optional": true,
+        "type": "K | State<K | undefined>"
+      },
+      {
+        "description": "Whether an item's row is disabled: drawn muted, passed over by the cursor, not clicked, and never selected by a key or a click.",
+        "name": "disabled",
+        "optional": true,
+        "type": "(item: T) => boolean"
+      },
+      {
+        "description": "What to show when there are no items. A string is drawn muted; a function builds an element. Defaults to \"Nothing to show\".",
+        "default": "\"Nothing to show\"",
+        "name": "empty",
+        "optional": true,
+        "type": "string | (() => Element)"
+      },
+      {
+        "description": "Type-to-find: a printable key moves the cursor to the next row whose `label` starts with what was typed in the last second. Off by default, because a list that takes every letter takes the app's own keys -- `q` among them -- while it has the focus. Not with `vim`, which wants four of those letters.",
+        "name": "find",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "What identifies an item's row, which the cursor and the selection hold. Defaults to the item itself, which is right for strings and for objects that are never replaced; data that is fetched again wants its own id here.",
+        "default": "the item itself",
+        "name": "key",
+        "optional": true,
+        "type": "(item: T) => K"
+      },
+      {
+        "description": "The text type-to-find matches against. Defaults to the item itself for a string or a number, and nothing -- a row `find` never lands on -- otherwise.",
+        "default": "the item itself for a string or a number",
+        "name": "label",
+        "optional": true,
+        "type": "(item: T) => string"
+      },
+      {
+        "description": "Whether more than one row can be selected. Space selects the current row, Ctrl-A every row, and a click the row clicked; each selected row carries a mark. Defaults to `false`, where the current row is the selection.",
+        "default": "`false`",
+        "name": "multiple",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Called with the current row's key and item on Enter or a double-click. A list without one claims neither, so Enter reaches whatever is around it.",
+        "name": "onActivate",
+        "optional": true,
+        "type": "(key: K, item: T) => void"
+      },
+      {
+        "description": "The host box's own props: a height, a border, a class.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementPropsWithout<\"onFocusChange\" | \"onKey\">"
+      },
+      {
+        "description": "Builds an item's row: an element, or a string drawn as one line.",
+        "name": "row",
+        "optional": true,
+        "type": "(item: T, key: K) => Element | string"
+      },
+      {
+        "description": "Every row's height in cells, fixed rather than measured. Defaults to 1.",
+        "default": "1",
+        "name": "rowHeight",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Whether to draw a scrollbar. Defaults to `true`.",
+        "default": "`true`",
+        "name": "scrollbar",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The selected rows, as keys, or the state that holds them: see `ListSelectionOptions.selected`.",
+        "name": "selected",
+        "optional": true,
+        "type": "Iterable<K> | State<ReadonlySet<K>>"
+      },
+      {
+        "description": "`j` and `k` to move, and `g` and `G` to the ends, which is `less`'s spelling and the pager's. Off by default for the reason `find` is.",
+        "name": "vim",
+        "optional": true,
+        "type": "boolean"
+      }
+    ],
+    "shared": [],
+    "signature": "function ListView<T, K = T>(props: ListViewProps<T, K>): Element"
+  },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "home",
+        "pageUp",
+        "tab",
+        "shiftTab",
+        "space"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
+  "registryDescription": "A list view: a focusable, virtualized list of rows with a current row and single or multiple selection by key",
+  "source": "packages/sigil/src/components/list-view.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "  ◯ api-7d9f      Running              \u001b[36m█\u001b[0m\n  \u001b[36m◉\u001b[0m worker-5c2a   Running              \u001b[36m█\u001b[0m\n  ◯ cron-81bb     Completed            \u001b[36m█\u001b[0m\n  \u001b[2m◯\u001b[0m \u001b[2mdb-0          Terminating\u001b[0m          \u001b[36m█\u001b[0m\n\u001b[7;36m❯\u001b[0m \u001b[7;36m◉\u001b[0m \u001b[7mcache-3e1     Running\u001b[0m              \u001b[36m█\u001b[0m"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "  ◯ api-7d9f      Running                                                      \u001b[36m█\u001b[0m\n  \u001b[36m◉\u001b[0m worker-5c2a   Running                                                      \u001b[36m█\u001b[0m\n  ◯ cron-81bb     Completed                                                    \u001b[36m█\u001b[0m\n  \u001b[2m◯\u001b[0m \u001b[2mdb-0          Terminating\u001b[0m                                                  \u001b[36m█\u001b[0m\n\u001b[7;36m❯\u001b[0m \u001b[7;36m◉\u001b[0m \u001b[7mcache-3e1     Running\u001b[0m                                                      \u001b[36m█\u001b[0m"
+    }
+  }
+}

@@ -1316,6 +1316,16 @@ mode, and the routing is the router's.
   legible on a terminal with `NO_COLOR` set. Worth knowing before drawing anything
   that has to cover what is behind it: the fill is a `background-color`, and level 0
   drops colour.
+- **There is no double-click event, and there is one number for what a double-click
+  is (SIG-280).** The router reports a `click` and no count, and a count carried on
+  every event for the few components that want one is not worth it -- `Pane` counted
+  its own edge's against a private 400ms. `ListView` was the second component to
+  want one and the tree will be the third, so the number moved here as
+  `DOUBLE_CLICK_MS`, published from `@ttylabs/sigil/input`, and both count against
+  it: two components with two numbers is two mice. Counting stays each component's,
+  because what a second click _is_ differs -- the click that ends a drag of the
+  pane's edge is not a click on anything, and a list's second click activates
+  without undoing the toggle the first one made.
 
 ### Selection and the clipboard
 
