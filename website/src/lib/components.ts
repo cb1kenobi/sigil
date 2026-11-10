@@ -909,6 +909,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'pathFoldCase',
     'rankBy',
     'searchLines',
+    'searchPattern',
   ],
   'Reading and encoding what a component draws': [
     'MASK_SLOTS',

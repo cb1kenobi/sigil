@@ -106,9 +106,12 @@ async function mount(
 /** A log line or a table row as drawn, less the scrollbar, whose thumb moves as lines arrive. */
 const unbarred = (line: string): string => line.slice(0, -4);
 
-/** The row the cursor is on. */
+/**
+ * The row the cursor is on, which the pointer marks: `❯`, or `>` where the
+ * terminal is taken to draw ASCII only, which is a Windows runner's.
+ */
 const cursorRow = (it: Mounted): string =>
-  unbarred(it.term.viewport.find((line) => line.includes('❯')) ?? '');
+  unbarred(it.term.viewport.find((line) => /^[│|] [❯>] /.test(line)) ?? '');
 
 /** The log lines on screen. */
 const logLines = (it: Mounted): string[] =>
