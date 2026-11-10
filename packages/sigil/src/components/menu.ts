@@ -107,6 +107,14 @@ export interface MenuOptions<T = unknown> {
   /** What it offers. */
   items: readonly MenuEntry<T>[];
   /**
+   * Classes put on the menu and on every submenu it opens, beside `sigil-menu`, so
+   * a theme can style these menus apart from every other: `.files-menu
+   * { background-color: blue }`. A menu is drawn on the root rather than inside
+   * whatever opened it, so a rule written under that element cannot reach it.
+   * Space-separated for several.
+   */
+  menuClass?: string;
+  /**
    * The narrowest the menu is, border included, in cells. A dropdown passes the
    * width of its field, so the list is never narrower than what it opened from.
    */
@@ -241,6 +249,26 @@ export function checkMenuEntries(items: unknown): void {
 }
 
 /**
+ * The classes a `menuClass` option names, refused where the component is built.
+ *
+ * Every entry point calls it when it is built, not when a menu opens, for the
+ * reason `checkMenuEntries()` is called there: a menubar's or a dropdown's menu
+ * opens from a key handler, after the session already holds the keys.
+ *
+ * @param value - What was passed.
+ * @returns The class names, none if nothing was passed.
+ */
+export function menuClasses(value: unknown): string[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (typeof value !== 'string') {
+    throw new TypeError(__`Expected a menuClass to be a string of class names`);
+  }
+  return value.split(/\s+/).filter((name) => name !== '');
+}
+
+/**
  * The label drawn as three pieces, so the mnemonic can carry a class of its own.
  *
  * @param label - The label as written.
@@ -330,6 +358,8 @@ export interface MenuSessionOptions<T> {
   /** The menubar the session is for, if it is for one. */
   bar?: MenuBar;
   input: InputRouter;
+  /** Classes put on every menu panel the session opens, submenus included. */
+  menuClass?: string;
   /** Called once, when it closes, with what was chosen. */
   onClose(item: MenuItem<T> | undefined): void;
   /** Where it is drawn, and whose disposal closes it. */
@@ -404,6 +434,7 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
     throw new TypeError(__`Expected a menu input to be a router`);
   }
   const glyphs = (opts.ascii ?? !unicodeSupported()) ? GLYPHS.ascii : GLYPHS.unicode;
+  const extraClasses = menuClasses(opts.menuClass);
   const bar = opts.bar;
 
   const levels: Level<T>[] = [];
@@ -519,6 +550,9 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
       opaqueFill('sigil-menu-fill'),
       list
     );
+    for (const name of extraClasses) {
+      popup.addClass(name);
+    }
     const level: Level<T> = { anchor, highlight: -1, list, popup, rows, side, viewport: undefined };
 
     /** What the menu was last placed against, so a layout that moved none of it moves nothing. */
@@ -967,6 +1001,7 @@ const SIDES: readonly TooltipSide[] = ['bottom', 'left', 'right', 'top'];
  */
 export function openMenu<T = unknown>(host: MenuHost, opts: MenuOptions<T>): MenuHandle<T> {
   checkMenuEntries(opts?.items);
+  menuClasses(opts.menuClass);
   const at = opts.at;
   if (
     !isElement(at) &&
@@ -996,6 +1031,7 @@ export function openMenu<T = unknown>(host: MenuHost, opts: MenuOptions<T>): Men
     ascii: opts.ascii,
     host,
     input: opts.input,
+    menuClass: opts.menuClass,
     onClose(item) {
       settle(item);
       if (item !== undefined) {
@@ -1029,6 +1065,8 @@ export interface ContextMenuOptions<T = unknown> {
    * click landed on or the focus is on, so the menu can be about that.
    */
   items: readonly MenuEntry<T>[] | ((target: Element) => readonly MenuEntry<T>[]);
+  /** Classes put on every menu it opens, submenus included; `openMenu()`'s option. */
+  menuClass?: string;
   /** Called with the item chosen. */
   onSelect?: (item: MenuItem<T>, target: Element) => void;
 }
@@ -1067,6 +1105,7 @@ export function attachContextMenu<T = unknown>(
   if (typeof opts.items !== 'function') {
     checkMenuEntries(opts.items);
   }
+  menuClasses(opts.menuClass);
 
   let menu: MenuHandle<T> | undefined;
 
@@ -1082,6 +1121,7 @@ export function attachContextMenu<T = unknown>(
       at,
       input,
       items,
+      menuClass: opts.menuClass,
       onSelect: (item) => opts.onSelect?.(item, about),
     });
   }

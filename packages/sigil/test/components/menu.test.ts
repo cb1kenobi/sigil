@@ -610,3 +610,29 @@ describe('openMenuSession()', () => {
     expect(s.seen).toEqual(['field:x', 'field:escape']);
   });
 });
+
+describe('menuClass', () => {
+  /** The menu panels open on a scene, root first. */
+  const panels = (s: ReturnType<typeof scene>) =>
+    s.root.children.at(-1)?.children.filter((el) => el.classes.includes('sigil-menu')) ?? [];
+
+  it('should put its classes on the menu and on every submenu, beside sigil-menu', async () => {
+    const s = scene();
+    menuOn(s, { menuClass: 'files  dark' });
+    await s.term.press(KEYS.down, KEYS.down, KEYS.right);
+    picture(s.root);
+    expect(panels(s).map((el) => el.classes)).toEqual([
+      ['sigil-menu', 'files', 'dark'],
+      ['sigil-menu', 'files', 'dark'],
+    ]);
+  });
+
+  it('should refuse a menuClass that is not a string, where the menu is built', () => {
+    const s = scene();
+    expect(() => menuOn(s, { menuClass: ['files'] as never })).toThrow(/menuClass/);
+    expect(() =>
+      attachContextMenu(s.field, { input: s.input, items: ITEMS, menuClass: 1 as never })
+    ).toThrow(/menuClass/);
+    expect(topLayer(s.input)).toBeUndefined();
+  });
+});

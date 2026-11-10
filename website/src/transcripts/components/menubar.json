@@ -29,6 +29,12 @@
         "type": "boolean"
       },
       {
+        "description": "Classes put on every menu its titles open, submenus included -- the bar's own class is `props.class`. A menu is drawn on the root rather than inside the bar, so `.mybar .sigil-menu` cannot reach it and this is how to style the two together. Space-separated for several.",
+        "name": "menuClass",
+        "optional": true,
+        "type": "string"
+      },
+      {
         "description": "Called with the item chosen, after the menu has closed.",
         "name": "onSelect",
         "optional": true,

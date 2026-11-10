@@ -686,14 +686,21 @@ where every chart is narrower and nothing else changed.
 sorts the list, and a context menu on the files. F10 opens File and Alt with a title's
 letter opens that one; Left and Right move between the titles, Open Recent has a
 submenu, and Undo is disabled and says why. A press on a title opens it, a press on
-it again closes it, and a press dragged onto an item and released chooses it. Tab to
-the dropdown and Enter, Space or Down opens the list under it with the value
-highlighted, while a letter picks the next choice starting with it without opening
-anything. Right click a file, or press Shift-F10 or the Menu key with the focus on
-one, for a menu about that file, at the pointer or under the row. The focus never
-leaves where it was while a menu is open, and the keys are the menu's until it
-closes, so `q` does not quit with one open. Piped, a scripted keyboard and pointer
-drive the same tree and the demo prints it after each step.
+it again closes it, and a press dragged onto an item and released chooses it. The
+shortcuts beside the items are labels the menu draws, and the app binds them itself,
+so Ctrl-N, Ctrl-O and Ctrl-Y work with no menu open. The list shows each file's
+size and modified date, and the dropdown really sorts it -- by name, by size largest
+first, or by date newest first, with an arrow on the column. Tab to the dropdown and
+Enter, Space or Down opens the list under it with the value highlighted, while a
+letter picks the next choice starting with it without opening anything. Right click
+a file, or press Shift-F10 or the Menu key with the focus on one, for a menu about
+that file, at the pointer or under the row. The focus never leaves where it was
+while a menu is open, and the keys are the menu's until it closes, so `q` does not
+quit with one open. At the bottom the same menubar and dropdown are styled on a blue
+background: `props.class` for the bar and the field, and `menuClass` for the menus
+they open, which are drawn on the root where a rule under the bar cannot reach them.
+Piped, a scripted keyboard and pointer drive the same tree and the demo prints it
+after each step, without the colour.
 
 `62-slider.js` is a settings screen: four rows, each a label the app lays out and a
 `Slider` with a readout. Tab moves between them, Left and Right a step, Page Up and

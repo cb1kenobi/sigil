@@ -10883,6 +10883,27 @@ exception per widget. This is the one answer, and every widget below follows it.
   its own session if it throws while no menu is open in it, so the next caller
   that forgets the first rule gets an exception rather than a dead keyboard.
 
+- **A hint is a label, and the menu binds no key for it.** `hint: 'ctrl+o'` is drawn
+  at the right of the row and that is all: which key does what is the app's, the
+  item's `value` is already the app's action, and a menu that bound its hints would
+  bind them only while it exists -- a menubar's items are not built until a title
+  opens -- and would take keys from a focused field that wanted them. The demo
+  binds its three with `input.bind()` to the same actions, which is the pattern the
+  README gives. A hint of `ctrl+c` is a trap, since Ctrl-C is the abort; the demo
+  had one on Copy and quit when a reader tried it.
+
+- **`menuClass` is the class for the menus, and `props.class` is still the class for
+  the component.** A menu is a `fixed` box on the root, not inside the bar or the
+  field that opened it, so a descendant rule written under either cannot reach it
+  and every menu in an app was styled by the one `.sigil-menu` rule. `menuClass`
+  is taken by every entry point -- `openMenu()`, `attachContextMenu()`,
+  `Menubar()`, `Dropdown()` -- and put on each panel the session opens, submenus
+  included, beside `sigil-menu`. A string of class names rather than props,
+  because a panel's geometry is the session's and a colour is a class's job.
+  Checked by `menuClasses()` where the component is built, for the reason above.
+  A background meant to fill a menu goes on `.sigil-menu-fill` as well as on the
+  box, since the fill is what paints the cells inside the border.
+
 - **Above the tooltip, below the debug overlay.** `z-index: 960`: a dropdown in a
   dialog is drawn over the dialog (`900`) and over the field's own tooltip (`950`).
   The quiet axis is not consulted: a menu is something the user asked for, on the

@@ -57,7 +57,9 @@ afterEach(() => {
 });
 
 /** An app with a menubar across the top and a field under it, which has the focus. */
-function scene(opts: { body?: (input: InputRouter) => Element; keys?: boolean } = {}) {
+function scene(
+  opts: { body?: (input: InputRouter) => Element; keys?: boolean; menuClass?: string } = {}
+) {
   const term = createTestTerminal({ columns: WIDTH, rows: HEIGHT });
   const chosen: string[] = [];
   const holder = box({ 'flex-direction': 'column', height: HEIGHT, width: WIDTH });
@@ -74,6 +76,7 @@ function scene(opts: { body?: (input: InputRouter) => Element; keys?: boolean } 
       ascii: false,
       input,
       keys: opts.keys,
+      menuClass: opts.menuClass,
       menus: MENUS,
       onSelect: (item: MenuItem<string>) => chosen.push(item.value as string),
     });
@@ -257,6 +260,17 @@ describe('menubarControl()', () => {
     expect(s.control.openIndex).to.equal(undefined);
   });
 
+  it('should put menuClass on the menus its titles open, which are drawn on the root', async () => {
+    const s = scene({ menuClass: 'files' });
+    await s.term.press(`${ESC}[21~`);
+    picture(s.root);
+    const panels = s.root.children
+      .at(-1)
+      ?.children.filter((el) => el.classes.includes('sigil-menu'));
+    expect(panels?.map((el) => el.classes)).toEqual([['sigil-menu', 'files']]);
+    expect(s.bar.classes).not.toContain('files');
+  });
+
   it('should answer undefined for an element no menubar built', () => {
     expect(menubarControl(box())).to.equal(undefined);
   });
@@ -266,6 +280,7 @@ describe('menubarControl()', () => {
     routers.push(input);
     expect(() => Menubar({ input: {} as never, menus: [] })).toThrow(/router/);
     expect(() => Menubar({ input, menus: 'x' as never })).toThrow(/array/);
+    expect(() => Menubar({ input, menuClass: 3 as never, menus: [] })).toThrow(/menuClass/);
     expect(() => Menubar({ input, menus: [{ items: [], label: '' }] })).toThrow(/label/);
     expect(() => Menubar({ input, menus: [{ items: 'x' as never, label: 'A' }] })).toThrow(/array/);
     // all the way down, where it is built rather than where a key opens it

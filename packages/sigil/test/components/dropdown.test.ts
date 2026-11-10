@@ -112,6 +112,16 @@ describe('Dropdown()', () => {
     expect(picture(s.root).join('\n')).not.toContain('debug');
   });
 
+  it('should put menuClass on the list it opens, and not on the field', async () => {
+    const s = scene({ menuClass: 'tinted' });
+    s.input.focus.focus(s.field);
+    await s.term.press(KEYS.enter);
+    picture(s.root);
+    const list = s.root.children.at(-1)?.children.find((el) => el.classes.includes('sigil-menu'));
+    expect(list?.classes).toEqual(['sigil-menu', 'tinted']);
+    expect(s.field.classes).not.toContain('tinted');
+  });
+
   it('should open on Space, Up, Down and Alt-Down, and leave the value alone on Escape', async () => {
     const s = scene();
     s.input.focus.focus(s.field);
@@ -252,6 +262,7 @@ describe('Dropdown()', () => {
     expect(() => Dropdown({ ...base, options: ['', 'a'] })).toThrow(/label/);
     expect(() => Dropdown({ ...base, options: [{ label: '', value: 'x' }] })).toThrow(/label/);
     expect(() => Dropdown({ ...base, width: 4 })).toThrow(/width/);
+    expect(() => Dropdown({ ...base, menuClass: {} as never })).toThrow(/menuClass/);
     expect(() => Dropdown({ ...base, disabled: 'yes' as never })).toThrow(/disabled/);
     expect(() => Dropdown({ ...base, props: { onKey: () => {} } as never })).toThrow(/onKey/);
   });

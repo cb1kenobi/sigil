@@ -35,6 +35,12 @@
         "type": "number"
       },
       {
+        "description": "Classes put on the menu and on every submenu it opens, beside `sigil-menu`, so a theme can style these menus apart from every other: `.files-menu { background-color: blue }`. A menu is drawn on the root rather than inside whatever opened it, so a rule written under that element cannot reach it. Space-separated for several.",
+        "name": "menuClass",
+        "optional": true,
+        "type": "string"
+      },
+      {
         "description": "The narrowest the menu is, border included, in cells. A dropdown passes the width of its field, so the list is never narrower than what it opened from.",
         "name": "minWidth",
         "optional": true,

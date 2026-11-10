@@ -13,6 +13,7 @@ export {
   type MenuOptions,
   type MenuSession,
   type MenuSessionOptions,
+  menuClasses,
   openMenu,
   openMenuSession,
   parseMnemonic,

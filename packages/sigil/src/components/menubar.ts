@@ -38,6 +38,7 @@ import {
   type MenuEntry,
   type MenuItem,
   type MenuSession,
+  menuClasses,
   openMenuSession,
   parseMnemonic,
 } from './menu.js';
@@ -65,6 +66,13 @@ export interface MenubarProps<T = unknown> {
    * that has its own use for those keys.
    */
   keys?: boolean;
+  /**
+   * Classes put on every menu its titles open, submenus included -- the bar's own
+   * class is `props.class`. A menu is drawn on the root rather than inside the bar,
+   * so `.mybar .sigil-menu` cannot reach it and this is how to style the two
+   * together. Space-separated for several.
+   */
+  menuClass?: string;
   /** The titles, in order. */
   menus: readonly MenubarMenu<T>[];
   /** Called with the item chosen, after the menu has closed. */
@@ -131,6 +139,7 @@ export function Menubar<T = unknown>(props: MenubarProps<T>): Element {
     }
     checkMenuEntries(menu.items);
   }
+  menuClasses(props.menuClass);
   const menus = props.menus;
 
   const host = box({ ...props.props, 'flex-direction': 'row', 'flex-shrink': 0 });
@@ -224,6 +233,7 @@ export function Menubar<T = unknown>(props: MenubarProps<T>): Element {
         bar,
         host: root,
         input,
+        menuClass: props.menuClass,
         onClose(item) {
           session = undefined;
           current = -1;

@@ -796,6 +796,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'labelParts',
     'layoutField',
     'listWindow',
+    'menuClasses',
     'mountLevel',
     'mountLive',
     'opaqueFill',

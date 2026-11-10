@@ -33,7 +33,13 @@ import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
-import { type MenuEntry, type MenuItem, type MenuSession, openMenuSession } from './menu.js';
+import {
+  type MenuEntry,
+  type MenuItem,
+  type MenuSession,
+  menuClasses,
+  openMenuSession,
+} from './menu.js';
 import { unicodeSupported } from './note.js';
 import { rootOf } from './overlay.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
@@ -49,6 +55,12 @@ export interface DropdownProps<T = unknown> {
   disabled?: boolean | State<boolean>;
   /** The router the keys come from, which the list needs to hold them while it is open. */
   input: InputRouter;
+  /**
+   * Classes put on the list it opens, beside `sigil-menu` -- the field's own class
+   * is `props.class`. The list is drawn on the root rather than inside the field,
+   * so a rule under the field cannot reach it. Space-separated for several.
+   */
+  menuClass?: string;
   /** Called with the value after a pick that changed it. Not called for a write the app made. */
   onChange?: (value: T) => void;
   /** The choices: strings, `Choice`s, and separators, as `select()` takes them. */
@@ -113,6 +125,7 @@ export function Dropdown<T = unknown>(props: DropdownProps<T>): Element {
   if (props.width !== undefined && !(Number.isInteger(props.width) && props.width > CHROME)) {
     throw new TypeError(__`Expected a dropdown width of more than four cells`);
   }
+  menuClasses(props.menuClass);
 
   const options: Option<T>[] = props.options.map((entry): Option<T> => {
     if (typeof entry === 'object' && entry !== null && 'separator' in entry) {
@@ -207,6 +220,7 @@ export function Dropdown<T = unknown>(props: DropdownProps<T>): Element {
       ascii: props.ascii,
       host: root,
       input,
+      menuClass: props.menuClass,
       onClose(item) {
         menu = undefined;
         if (item !== undefined) {

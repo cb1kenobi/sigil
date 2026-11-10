@@ -5739,7 +5739,9 @@ attachContextMenu(fileList, {
 A **menu** is a list of items in a box over the screen, anchored to an element --
 below it, flipped above where there is no room, by `placeTooltip()`'s arithmetic --
 or to a cell, which is a context menu at the pointer. An item has a `label`, a
-`value`, an optional `hint` drawn at the right (the key that does the same), an
+`value`, an optional `hint` drawn at the right (the key that does the same -- a
+label only: the menu binds no key for it, so bind it yourself, as
+`input.bind('ctrl+o', open)`, and keep it off `ctrl+c`, which is the abort), an
 `items` list that makes it a **submenu**, and `disabled`, which keeps it in the
 list, muted, and steps the highlight over it; a string there is the reason, shown
 where the hint would be. A **separator** is the prompts' own, `{ separator: '' }`
@@ -5789,6 +5791,24 @@ theme hooks are `.sigil-menu`, `-list`, `-item`, `-pointer`, `-label`,
 `-title`, `-face`, `-label` and `-bracket`; and `.sigil-dropdown`, `-face`,
 `-label`, `-arrow` and `-bracket`. The decoder now names the function keys
 `f1` to `f12` and the Menu key `menu`, so `bind('f5', ...)` works too.
+
+A menu is drawn on the root rather than inside what opened it, so a rule written
+under a menubar or a field -- `.mybar .sigil-menu` -- never reaches its menus. To
+style one set apart from another, give the component a class for itself through
+`props` and one for its menus through **`menuClass`**, which every entry point
+takes and puts on each menu it opens, submenus included:
+
+```js
+const bar = Menubar({ input, menus, menuClass: 'tinted', props: { class: 'tinted-bar' } });
+const css = `
+  .tinted-bar { background-color: blue; color: white }
+  .tinted { background-color: blue; color: white; border-color: cyan }
+  .tinted .sigil-menu-fill { background-color: blue }
+`;
+```
+
+`.sigil-menu-fill` is what paints the empty cells inside the border, so a
+background meant to fill the menu goes there as well as on the box.
 
 #### A key-help footer
 
@@ -5971,11 +5991,11 @@ there for a component you write yourself too:
   overlays holding the keys, of which only the top one answers. The modal, the
   toast, the tooltip and the menus all use them, and an overlay of your own that
   holds the input through `holdInput()` is one a modal stands aside for.
-- `openMenuSession()`, `parseMnemonic()`, `labelParts()` and
-  `checkMenuEntries()`, from `@ttylabs/sigil/components/menu`, are the session the
+- `openMenuSession()`, `parseMnemonic()`, `labelParts()`, `checkMenuEntries()` and
+  `menuClasses()`, from `@ttylabs/sigil/components/menu`, are the session the
   menubar and the dropdown open their menus in, the `&` read out of a label, a
-  label drawn with its mnemonic set apart, and the check that a list of items is
-  one a menu can draw, all the way down.
+  label drawn with its mnemonic set apart, the check that a list of items is one a
+  menu can draw, all the way down, and the check that a `menuClass` option is one.
 
 ### `sigil/canvas`
 

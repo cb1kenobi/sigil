@@ -29,6 +29,12 @@
         "type": "boolean | State<boolean>"
       },
       {
+        "description": "Classes put on the list it opens, beside `sigil-menu` -- the field's own class is `props.class`. The list is drawn on the root rather than inside the field, so a rule under the field cannot reach it. Space-separated for several.",
+        "name": "menuClass",
+        "optional": true,
+        "type": "string"
+      },
+      {
         "description": "Called with the value after a pick that changed it. Not called for a write the app made.",
         "name": "onChange",
         "optional": true,
