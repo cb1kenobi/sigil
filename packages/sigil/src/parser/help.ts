@@ -126,12 +126,27 @@ export async function detectHelp(
  * there is. So the chain is trimmed back to the commands argv named -- one
  * `ParsedCommand` each, and none for a default, which is exactly the difference.
  *
+ * Trimmed from the innermost command argv named, and not by counting them: a
+ * default is not only ever innermost. `mycli status`, where `status` is a
+ * subcommand of the default `serve`, ends in `[status, serve, root]` having
+ * named one command -- so keeping that many from the root end kept `serve` and
+ * described it, when `status` is what was typed. Everything inside the innermost
+ * named command was implied, and everything outside it is its real chain,
+ * adopted default included.
+ *
  * @param state - The parse state.
  * @returns The chain, innermost first.
  */
 function asked(state: ParseState): InternalCommand[] {
-  const named = state.$.filter((parsed) => parsed.type === 'Command').length;
-  return state.contexts.slice(state.contexts.length - (named + 1));
+  const named = new Set<InternalCommand>();
+  for (const parsed of state.$) {
+    if (parsed.type === 'Command') {
+      named.add((parsed as ParsedCommand).cmd);
+    }
+  }
+
+  const innermost = state.contexts.findIndex((cmd) => named.has(cmd));
+  return state.contexts.slice(innermost === -1 ? state.contexts.length - 1 : innermost);
 }
 
 /**

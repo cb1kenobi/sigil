@@ -1170,9 +1170,9 @@ resolution.
   option that works and the command that does not.
 
 - **One `ParsedCommand` per command rather than one per token, each carrying
-  the segment as it was typed.** Everything downstream counts those entries --
+  the segment as it was typed.** Everything downstream reads those entries --
   `asked()` trims a help chain back to the commands argv _named_ -- so a token
-  that named three has to count as three or `mycli db:migrate --help` would
+  that named three has to say all three or `mycli db:migrate --help` would
   describe the wrong command. The `inputs` is the segment rather than the
   command's name, because `state.$` is what argv said and `d:m` reaching `db`
   and `migrate` through their aliases is exactly the case where the two
@@ -1621,6 +1621,28 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   the load for a `subcommandLoaded` hook that hands back an ancestor, was
   written and deleted: the next dispatch refuses that ancestor anyway, with the
   same message.
+
+### `--help` is trimmed from the innermost command argv named
+
+- **Not by counting the commands argv named.** SIG-340. `asked()` kept as many
+  contexts from the root end as there were `ParsedCommand` entries, which
+  assumed every implied default sits inside every named command. A typed
+  subcommand of an adopted default breaks that: with `serve` the default and
+  `status` its child, `mycli status` ends in `[status, serve, root]` having named
+  one command, so `mycli status --help` kept `[serve, root]` and printed
+  `serve`'s screen while `mycli status` ran `status`. Now the chain starts at the
+  first context that some `ParsedCommand` holds, and is the root alone when argv
+  named none. A default _inside_ the named command (`build` dispatching `all`) is
+  still dropped and a default _outside_ it (`serve` above) is kept, because it is
+  the path to what was named -- the usage line reads `mycli serve status`, which
+  is also typeable. The rule in `src/help/AGENTS.md` ("`--help` with no command
+  named describes the program") is unchanged; only its implementation was wrong.
+  Pinned under `help` in `test/parser/default-command.test.ts`.
+- **`mycli help status` is not changed by this, and still refuses.** `resolve()`
+  walks the `help` command's path from the root only, so a subcommand reachable
+  through a default is `Unknown command "status"` there even though `mycli
+  status` runs it. Whether `help <name>` should resolve through a default is a
+  product decision that was left open rather than taken inside a bug fix.
 
 ### Sharing options between commands
 
