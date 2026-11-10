@@ -541,6 +541,49 @@ the entry it belongs to.
   raises at `dispose()`. Handing it the array swallowed the throw: an
   `onCleanup()` in an effect body, which is where an unsubscribe belongs, failed
   in silence, while the same call one line up in the component body was reported.
+- **A context scope opened inside an effect body belongs to that run (SIG-344).**
+  `provideContext()` makes a child owner of the component and builds under it
+  through `runWithOwner()`, which detaches what `fn` builds from the run at both
+  levels -- correctly, for `For` and `Show`, whose branches outlive a run. Here
+  nothing outlived it on purpose: every re-run left one more scope behind, its
+  effects live and its `onCleanup()`s waiting for the whole tree to go. Measured,
+  five writes to the outer effect's dependency left six inner effects -- six runs
+  and six sinks for one write -- and none of the five stale scopes' cleanups had
+  run, where a plain nested `createEffect()` gives one, one and five. So during
+  an effect run the scope's disposer is pushed onto that run's cleanups, before
+  `fn` runs so it is undone in the order it was built, and it _throws_ what the
+  scope's cleanups threw, which makes it reported exactly as the run's own
+  cleanups are: to the error handler on a re-run, out of `dispose()` where
+  somebody asked. Outside a run it is the component's, as before.
+  `runWithOwner()` itself is unchanged, because a borrowed owner is the case
+  where the caller means the lifetime to be the owner's.
+- **An owned effect stopped by hand is taken off its owner (SIG-344).** The
+  disposer went onto `owner.cleanups` and stayed there after the caller had
+  called it -- a closure over the computed, the body and its cleanups -- so an
+  owner as long-lived as the app root, borrowed by a handler that starts and
+  stops effects, grew without bound: **+218 MB over 200,000 cycles and +655 MB
+  over 600,000** under `--expose-gc`, all of it given back when the root went,
+  and a flat line after. `createEffect()` now hands back a disposer that splices
+  its own entry out, searched from the end because the effect stopped is usually
+  the newest, and spliced rather than tombstoned so the list is exactly the
+  registration order and the teardown stays its reverse. A `Set` was refused for
+  the same reason: the list is shared with `onCleanup()`, whose entries must
+  keep their place between the effects, and a callback registered twice must
+  run twice. The one time it does not splice is while the owner is being
+  disposed: `runAll()` walks the list by index, and a cleanup stopping a sibling
+  must not move the entries under the walk; the list is cleared after the walk
+  anyway and the second call is a no-op. The structural test reads the length
+  of the list rather than a heap, which is what a regression would change.
+- **One definition each of "throw one error, or an `AggregateError` for several"
+  and of the refusal of an `async` effect body (SIG-344).** They were written five
+  and two times across `signals/graph.ts`, `element/focus.ts`,
+  `signals/effect.ts` and this directory's `owner.ts`, with the same messages. They
+  are `raise()` and `refuseAsync()` in `src/signals/raise.ts`, which imports
+  nothing and is not re-exported -- a module of its own rather than `graph.ts`
+  because `element/index.ts` imports `element/focus.ts`, and reaching it through
+  `graph.ts` would put the signals graph behind `@ttylabs/sigil/element`, which
+  carries none of it today; the leaf is a 294 B chunk.
+  Each site passes its own message, byte for byte what it threw before.
 - **A frame does not start from inside a frame.** `frame()` called from an effect
   re-entered `settle()`, and the flush it runs is a no-op while one is already
   draining -- so what the inner frame actually did was take the outer frame's

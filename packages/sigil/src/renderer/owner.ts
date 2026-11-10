@@ -17,6 +17,7 @@
  */
 
 import { effect as defaultEffect, unowned, untrack } from '../signals/index.js';
+import { raise, refuseAsync } from '../signals/raise.js';
 
 /** What a component is: a function of props that builds one element. */
 export type Cleanup = () => void;
@@ -210,7 +211,8 @@ export function createBranch(): { dispose: Cleanup; owner: Owner } {
 function reportTo(owner: OwnerNode, errors: readonly unknown[]): void {
   const sink = owner.root().report;
   if (!sink) {
-    throw errors.length === 1 ? errors[0] : new AggregateError(errors, 'Errors while unmounting');
+    raise(errors, 'Errors while unmounting');
+    return;
   }
   for (const error of errors) {
     sink(error);
@@ -354,17 +356,11 @@ export function createEffect(fn: () => void | Cleanup): Cleanup {
 
     if (typeof returned === 'function') {
       cleanups.push(returned);
-    } else if (
-      returned !== null &&
-      typeof returned === 'object' &&
-      typeof (returned as { then?: unknown }).then === 'function'
-    ) {
+    } else {
       // the same refusal the signals layer makes, and it has to be made here
       // too: this wrapper always returns a function, so the check downstream
       // can no longer see what the body returned
-      throw new TypeError(
-        'An effect may not be async: tracking stops at the first await, so nothing read after it is a dependency'
-      );
+      refuseAsync(returned);
     }
 
     // raised rather than returned, because this is the cleanup the *signals*
@@ -373,21 +369,35 @@ export function createEffect(fn: () => void | Cleanup): Cleanup {
     // written inside an effect body -- which is where an unsubscribe belongs --
     // failed in silence, while the same call in a component body was reported
     return cleanups.length > 0
-      ? () => {
-          const errors = runAll(cleanups);
-          if (errors.length > 0) {
-            throw errors.length === 1
-              ? errors[0]
-              : new AggregateError(errors, 'Errors in an effect cleanup');
-          }
-        }
+      ? () => raise(runAll(cleanups), 'Errors in an effect cleanup')
       : undefined;
   });
 
-  if (owned) {
-    owner?.cleanups.push(dispose);
+  if (!owned || !owner) {
+    return dispose;
   }
-  return dispose;
+
+  owner.cleanups.push(dispose);
+  // handed back as a disposer that also takes itself off the owner, because the
+  // entry is a closure over the computed, the body and its cleanups, and an
+  // owner that lives as long as the app -- the root, borrowed through
+  // `runWithOwner()` by a handler that starts and stops effects -- otherwise
+  // holds every one it was ever given until the app ends. Spliced rather than
+  // left as a hole, so what stays is exactly the order it was registered in and
+  // the teardown undoes it in reverse as before. From the end, because the
+  // effect stopped by hand is usually the one most recently started. Not while
+  // the owner is going: `runAll()` is walking the list by index, and a cleanup
+  // that stops a sibling must not move the entries under it -- the list is
+  // emptied after the walk anyway, and the second call to `dispose` is a no-op
+  return () => {
+    if (!owner.disposed) {
+      const at = owner.cleanups.lastIndexOf(dispose);
+      if (at !== -1) {
+        owner.cleanups.splice(at, 1);
+      }
+    }
+    dispose();
+  };
 }
 
 /**
@@ -449,10 +459,8 @@ export function disposeOwner(owner: Owner, thrown: boolean): unknown[] {
   errors.push(...runAll(node.cleanups));
   node.cleanups.length = 0;
 
-  if (thrown && errors.length > 0) {
-    throw errors.length === 1
-      ? errors[0]
-      : new AggregateError(errors, 'Errors while disposing a component');
+  if (thrown) {
+    raise(errors, 'Errors while disposing a component');
   }
   return errors;
 }
@@ -484,6 +492,11 @@ export function createContext<T>(defaultValue: T, name = 'context'): Context<T> 
 /**
  * Provides a value for `context` to everything `fn` builds.
  *
+ * Inside an effect body the scope it opens belongs to *that run*, the way an
+ * `onCleanup()` there does: the body is about to run again and build the scope
+ * again, so the one it built last time is disposed when it does, effects and
+ * cleanups with it. Anywhere else it belongs to the component.
+ *
  * @param context - The context.
  * @param value - The value.
  * @param fn - What to build under it.
@@ -492,6 +505,16 @@ export function createContext<T>(defaultValue: T, name = 'context'): Context<T> 
 export function provideContext<T, R>(context: Context<T>, value: T, fn: () => R): R {
   const owner = new OwnerNode(current);
   owner.context = new Map([[context.id, value]]);
+  // registered before `fn` runs, so it sits in the run's list in the order it
+  // was built, and thrown rather than returned so that a cleanup inside it that
+  // fails is reported the way the run's own cleanups are: by the signals layer
+  // on a re-run, and out of `dispose()` where somebody asked. Without it the
+  // scope was a child of the component and `runWithOwner()` detached what was
+  // built in it from the run, so every re-run left one more scope behind, its
+  // effects live and its cleanups waiting for the whole tree to go
+  runCleanups?.push(() => {
+    disposeOwner(owner, true);
+  });
   return runWithOwner(owner, fn);
 }
 
