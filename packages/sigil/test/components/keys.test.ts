@@ -59,6 +59,30 @@ describe('decodeKeys()', () => {
       expect(k.name).to.equal(name);
       expect(k.ctrl).to.equal(true);
     });
+
+    // SIG-361: 0x1c to 0x1f are their keys plus 0x40, not plus 0x60 the way a
+    // letter is -- read from 0x60 they came out as `|`, `}`, `~` and DEL, so
+    // `ctrl+\` and readline's `ctrl+_` named keys the decoder never produced
+    it.each([
+      ['\x1c', '\\'],
+      ['\x1d', ']'],
+      ['\x1e', '^'],
+      ['\x1f', '_'],
+    ])(
+      'should name Ctrl-\\, Ctrl-], Ctrl-^ and Ctrl-_ after their keys: %j is %s',
+      (input, name) => {
+        const k = one(input);
+        expect(k).toMatchObject({ ctrl: true, meta: false, name, sequence: input });
+      }
+    );
+
+    // the two either side of the change that it must not reach: NUL keeps the
+    // backtick 0x60 gives it, and ESC is never a ctrl key at all
+    it('should leave NUL as Ctrl-backtick and ESC as Escape beside them', () => {
+      expect(one('\x00')).toMatchObject({ ctrl: true, name: '`' });
+      expect(one('\x1a')).toMatchObject({ ctrl: true, name: 'z' });
+      expect(one('\x1b')).toMatchObject({ ctrl: false, name: 'escape' });
+    });
   });
 
   describe('escape sequences', () => {
@@ -168,6 +192,74 @@ describe('decodeKeys()', () => {
     });
   });
 
+  describe('the Linux console and a held introducer (SIG-361)', () => {
+    // the Linux virtual console sends F1 to F5 as `ESC [ [ A` to `ESC [ [ E`,
+    // and the CSI reader took the second `[` as the final byte -- so F1 was an
+    // unknown sequence and a literal `A`, typed into a text field
+    it.each([
+      ['A', 'f1'],
+      ['B', 'f2'],
+      ['C', 'f3'],
+      ['D', 'f4'],
+      ['E', 'f5'],
+    ])('should read the Linux console F-key ESC [ [ %s as %s, not as a letter', (letter, name) => {
+      const k = one(`\x1b[[${letter}`);
+      expect(k).toMatchObject({ ctrl: false, meta: false, name, sequence: `\x1b[[${letter}` });
+    });
+
+    it('should read a Linux console F-key among other keys', () => {
+      expect(decodeKeys('a\x1b[[Bb\x1b[A').map((k) => k.name)).to.deep.equal([
+        'a',
+        'f2',
+        'b',
+        'up',
+      ]);
+    });
+
+    // anything other than A to E after `ESC [ [` keeps the reading it always had
+    it('should read ESC [ [ followed by anything else the way it always did', () => {
+      expect(decodeKeys('\x1b[[Z').map((k) => [k.name, k.sequence])).to.deep.equal([
+        ['unknown', '\x1b[['],
+        ['Z', 'Z'],
+      ]);
+      expect(decodeKeys('\x1b[[1').map((k) => k.name)).to.deep.equal(['unknown', '1']);
+      expect(decodeKeys('\x1b[[\x03').map((k) => k.name)).to.deep.equal(['unknown', 'c']);
+    });
+
+    // `final` is what a reader passes when nothing more will arrive, and it is
+    // the only thing that turns a held `ESC [` or `ESC O` into the Alt key it
+    // was -- `ESC ]` and `ESC P` already came out as theirs
+    it('should read a lone ESC [ or ESC O as Alt-[ or Alt-Shift-O once it is final', () => {
+      expect(one('\x1b[', { final: true })).toMatchObject({
+        meta: true,
+        name: '[',
+        sequence: '\x1b[',
+      });
+      expect(one('\x1bO', { final: true })).toMatchObject({
+        meta: true,
+        name: 'O',
+        sequence: '\x1bO',
+      });
+      expect(one('\x1b]')).toMatchObject({ meta: true, name: ']' });
+    });
+
+    it('should still read a lone ESC [ as unfinished while more may follow', () => {
+      expect(one('\x1b[').name).to.equal('unknown');
+      expect(one('\x1bO').name).to.equal('unknown');
+    });
+
+    // only the bare introducer: a longer sequence that stopped arriving is not a
+    // key anybody pressed, and a whole one reads the same either way
+    it('should leave every other reading alone when it is final', () => {
+      expect(one('\x1b[1;', { final: true }).name).to.equal('unknown');
+      expect(one('\x1b[[', { final: true })).toMatchObject({ meta: false, name: 'unknown' });
+      expect(one('\x1b[A', { final: true }).name).to.equal('up');
+      expect(one('\x1b[[A', { final: true }).name).to.equal('f1');
+      expect(one('\x1b', { final: true }).name).to.equal('escape');
+      expect(one('\x1bb', { final: true })).toMatchObject({ meta: true, name: 'b' });
+    });
+  });
+
   describe('chunks carrying more than one key', () => {
     // a paste arrives as one chunk, and dropping all but the first key loses
     // most of what was pasted
@@ -211,6 +303,15 @@ describe('pendingLength()', () => {
 
   // the modifier is the ESC in front of the sequence, so all three bytes are
   // what the `A` after them completes
+  // the Linux console's F1 split before its letter is held like any other split
+  // sequence, or the letter arrives on its own in the next read and is typed
+  it('should hold ESC [ [ until the letter that makes it a Linux console F-key', () => {
+    expect(pendingLength('\x1b[[')).to.equal(3);
+    expect(pendingLength('x\x1b[[')).to.equal(3);
+    expect(pendingLength('\x1b[[A')).to.equal(0);
+    expect(pendingLength('\x1b[[Z')).to.equal(0);
+  });
+
   it('should hold an alt held over a sequence that has not finished', () => {
     expect(pendingLength('[')).to.equal(3);
   });

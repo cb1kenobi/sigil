@@ -673,8 +673,8 @@ the absence here is settled rather than pending.
   for a plain character -- Shift-A arrives as `A` with the flag clear -- so it is a
   binding that can never fire; `shift+tab` is kept, because that is the one place a
   terminal really does report it. And `ctrl+X` is **normalized** to `ctrl+x` rather
-  than refused, because the byte is the same one either way and `readOne()` names it
-  from `code + 0x60`: the two spellings are one key press, so normalizing is what
+  than refused, because the byte is the same one either way and `readOne()` names a
+  letter from `code + 0x60`: the two spellings are one key press, so normalizing is what
   they mean rather than a rewrite of what was asked for.
 
   What it cannot check is whether a terminal can _send_ what a spec names.
@@ -683,6 +683,43 @@ the absence here is settled rather than pending.
   pairs -- that is the limit the Kitty keyboard protocol exists to lift rather than
   something this grammar can enumerate, so it is written down rather than
   pretended about.
+
+- **Three keys the decoder misnamed, and what each reading is now (SIG-361).**
+  Each made a key a spec could name and nothing could fire.
+
+  - **0x1c to 0x1f are Ctrl-`\`, Ctrl-`]`, Ctrl-`^` and Ctrl-`_`.** `code + 0x60`
+    is right for 0x01 to 0x1a, the letters, and for NUL's backtick; past ESC the
+    keys are their characters plus 0x40, and from 0x60 they came out as `|`, `}`,
+    `~` and DEL. So `ctrl+\` and readline's `ctrl+_` undo parsed, normalized and
+    never matched. The spec side needed nothing: lower-casing leaves the four
+    alone. 0x1b is untouched because it never reaches that branch -- it is ESC.
+  - **A held `ESC [` or `ESC O` that nothing followed is Alt-`[` or Alt-Shift-`O`.**
+    The router holds either as the start of a CSI or SS3, which is what lets a
+    split `ESC [` + `A` become Up, and its `expire()` flushed it as `unknown`,
+    while `ESC ]` and `ESC P` -- introducers too -- came out as their Alt keys.
+    `DecodeOptions.final` is how `expire()` says nothing more is coming, and it
+    changes exactly that one reading: a longer unfinished sequence such as
+    `ESC [ 1 ;` is still `unknown`, because it stopped arriving rather than being
+    pressed. `keys()` never passes it, so the hold is what it was, and a held
+    control string is not touched -- that is `readString()`'s, asked first, and its
+    wait still belongs to the query (`src/terminal`). What it costs is a CSI
+    _reply_ split after its introducer and stalled past `ESCAPE_TIMEOUT`, whose
+    introducer now dispatches as Alt-`[` rather than `unknown`: neither is a key a
+    text prompt inserts, and the stall itself is the cost "`ESCAPE_TIMEOUT` still
+    owns a half-arrived CSI" already accepts. A run of ESC bytes is decoded the
+    way it was -- `ESC ESC [` flushed is Alt over the inner read, which is now
+    Alt-`[` -- because how consecutive ESCs nest is SIG-408's question, not this.
+  - **`ESC [ [ A` to `ESC [ [ E` are the Linux console's F1 to F5.** The CSI
+    reader takes the second `[` as a final byte, so F1 was an unknown sequence and
+    a literal `A` typed into the field. `readEscape()` reads one more byte after
+    `ESC [ [` and names A to E from `LINUX_CONSOLE`, a table beside `SEQUENCES`
+    that `KEY_NAMES` also reads (its names were already there). With nothing after
+    the second `[` yet, the sequence is pending, so a split read holds it like any
+    other; with `final` it is the `unknown` it always was. `ESC [ [` and any other
+    byte keeps today's reading, an unknown `ESC [ [` and then that byte.
+
+  Pinned in `test/components/keys.test.ts` and, through the router, in "keys the
+  decoder misnamed" in `test/input/sequence.test.ts`.
 
 - **`KEY_NAMES` is derived from the decoder's own two tables.** The rule
   `COLOR_PROPERTIES` and `INHERITED` already follow: a hand-written list beside
