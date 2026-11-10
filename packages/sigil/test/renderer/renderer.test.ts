@@ -23,6 +23,7 @@ import { State } from '../../src/signals/index.js';
 import { Cascade, parseStylesheet } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { Screen, screenStream } from '../../src/testing/screen.js';
+import { seeded } from '../../src/util/random.js';
 import { setup } from '../components/helpers.js';
 import { runsOf } from '../runs-of.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1160,6 +1161,164 @@ describe('For', () => {
     items.set([{ n: 'b' }]);
     effects.flush();
     expect(reconciles).toBe(2);
+  });
+});
+
+describe('For, placing a reorder', () => {
+  // counted in `insertBefore` calls, because each is a removal and an insertion
+  // that both search the host's children: placing by position moved n-1 rows to
+  // take the first one to the end, which made a one-row move quadratic
+
+  /** A `For` of text rows over `initial`, with its moves counted. */
+  function list<T>(initial: readonly T[], label: (item: T) => string = String) {
+    const effects = createEffects();
+    const items = new State<readonly T[]>(initial);
+    const built: T[] = [];
+    const gone: T[] = [];
+    const host = createRoot(
+      () =>
+        For({
+          children: (item) => {
+            built.push(item);
+            onCleanup(() => gone.push(item));
+            return text(label(item));
+          },
+          each: () => items.get(),
+        }),
+      effects.effect
+    );
+    const moves = vi.spyOn(host, 'insertBefore');
+    return {
+      built,
+      gone,
+      host,
+      moves,
+      order: () => host.children.map((row) => row.text),
+      set(next: readonly T[]) {
+        moves.mockClear();
+        items.set(next);
+        effects.flush();
+      },
+    };
+  }
+
+  const numbers = (n: number) => Array.from({ length: n }, (_, at) => at);
+
+  it('should move one row to take the first to the end', () => {
+    const l = list(numbers(100));
+    const next = [...numbers(100).slice(1), 0];
+    l.set(next);
+    expect(l.order()).toEqual(next.map(String));
+    expect(l.moves).toHaveBeenCalledTimes(1);
+  });
+
+  it('should move two rows to swap the ends', () => {
+    const l = list(numbers(100));
+    const next = [99, ...numbers(100).slice(1, -1), 0];
+    l.set(next);
+    expect(l.order()).toEqual(next.map(String));
+    expect(l.moves).toHaveBeenCalledTimes(2);
+  });
+
+  it('should move one row to take the last to the front', () => {
+    const l = list(numbers(100));
+    const next = [99, ...numbers(100).slice(0, -1)];
+    l.set(next);
+    expect(l.order()).toEqual(next.map(String));
+    expect(l.moves).toHaveBeenCalledTimes(1);
+  });
+
+  it('should move every row but one to reverse the list', () => {
+    const l = list(numbers(20));
+    const next = numbers(20).reverse();
+    l.set(next);
+    expect(l.order()).toEqual(next.map(String));
+    expect(l.moves).toHaveBeenCalledTimes(19);
+  });
+
+  it('should move nothing for a list in the same order, and only a new row for an insert', () => {
+    const l = list(numbers(10));
+    l.set(numbers(10));
+    expect(l.moves).not.toHaveBeenCalled();
+
+    const next = [0, 1, 2, 3, 4, 100, 5, 6, 7, 8, 9];
+    l.set(next);
+    expect(l.order()).toEqual(next.map(String));
+    expect(l.moves).toHaveBeenCalledTimes(1);
+  });
+
+  it('should move only the rows off the longest run already in order, over a shuffle', () => {
+    // the bound is exact: a row on a longest increasing run of old positions
+    // need not move, and every row off one must -- so the count is n minus the
+    // run's length, computed here the quadratic way rather than by the helper
+    const random = seeded(345);
+    for (let round = 0; round < 20; round++) {
+      const n = 1 + Math.floor(random() * 60);
+      const next = numbers(n);
+      for (let at = n - 1; at > 0; at--) {
+        const other = Math.floor(random() * (at + 1));
+        [next[at], next[other]] = [next[other], next[at]];
+      }
+      const best = next.map(() => 1);
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < i; j++) {
+          if (next[j] < next[i]) {
+            best[i] = Math.max(best[i], best[j] + 1);
+          }
+        }
+      }
+
+      const l = list(numbers(n));
+      l.set(next);
+      expect(l.order()).toEqual(next.map(String));
+      expect(l.moves).toHaveBeenCalledTimes(n - Math.max(...best));
+      expect(l.built).toHaveLength(n);
+    }
+  });
+
+  it('should keep the right row for each copy of a key through a reorder and a removal', () => {
+    // a key held three times is three rows, handed out in the order they were
+    // held: the first `x` wanted is the first `x` built, and the one nobody
+    // asks for any more is the last -- whose cleanup is the one that runs
+    const ids = new Map<Element, number>();
+    const x = 'x';
+    const l = list<string>([x, 'y', x, x]);
+    const rows = [...l.host.children];
+    for (const [at, row] of rows.entries()) {
+      ids.set(row, at);
+    }
+
+    l.set(['y', x, x]);
+
+    expect(l.order()).toEqual(['y', 'x', 'x']);
+    expect(l.host.children.map((row) => ids.get(row))).toEqual([1, 0, 2]);
+    expect(l.built).toHaveLength(4);
+    expect(l.gone).toEqual(['x']);
+    expect(rows[3].parent).toBeUndefined();
+    expect(l.moves).toHaveBeenCalledTimes(1);
+  });
+
+  it('should reconcile a long list of one repeated primitive against itself without building or moving', () => {
+    // read through a cursor rather than by `shift()`, which is O(k) for a key
+    // held k times and made this quadratic. What is asserted is the outcome a
+    // cursor has to keep: every copy kept, none built, none moved, none disposed
+    const l = list<string>(Array.from({ length: 5000 }, () => 'x'));
+    const before = [...l.host.children];
+
+    l.set(Array.from({ length: 5000 }, () => 'x'));
+
+    expect(l.host.children.every((row, at) => row === before[at])).toBe(true);
+    expect(l.built).toHaveLength(5000);
+    expect(l.gone).toEqual([]);
+    expect(l.moves).not.toHaveBeenCalled();
+
+    // and shrinking it lets go of the copies past the end, not the ones before
+    l.set(Array.from({ length: 4998 }, () => 'x'));
+    expect(l.host.children).toHaveLength(4998);
+    expect(l.host.children.every((row, at) => row === before[at])).toBe(true);
+    expect(before.slice(4998).every((row) => row.parent === undefined)).toBe(true);
+    expect(l.gone).toEqual(['x', 'x']);
+    expect(l.moves).not.toHaveBeenCalled();
   });
 });
 
