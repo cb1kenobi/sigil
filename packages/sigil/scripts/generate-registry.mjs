@@ -166,6 +166,10 @@ const ENTRIES = [
     name: 'tabs',
   },
   {
+    desc: 'A list view: a focusable, virtualized list of rows with a current row and single or multiple selection by key',
+    name: 'list-view',
+  },
+  {
     desc: 'A pager over a scroll box: less keys, line numbers, and / search with highlighted matches',
     name: 'pager',
   },
@@ -184,6 +188,10 @@ const ENTRIES = [
   {
     desc: 'A text field: one editable line as an element, for a form or a dialog',
     name: 'text-field',
+  },
+  {
+    desc: 'A slider: a value on a track, moved a step or a page by the keys and dragged by the pointer, with an optional readout',
+    name: 'slider',
   },
   {
     desc: 'A toast: a timed message in a corner of the screen that stacks, never takes the focus, and stays out of --quiet',

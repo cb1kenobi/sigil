@@ -182,6 +182,17 @@ export const ESCAPE_TIMEOUT: number = 50;
 export const SEQUENCE_TIMEOUT: number = 500;
 
 /**
+ * Two clicks on one thing this close together are a double-click, in milliseconds.
+ *
+ * The router reports a `click` and no count, and a count is not worth carrying on
+ * every event for the few components that want one -- so a component counts its
+ * own, against this. One number for all of them, because a double-click that is
+ * 400ms on a pane's edge and something else on a list row is two mice. `Pane`'s
+ * edge and `ListView`'s rows read it (SIG-280 moved it here from the pane).
+ */
+export const DOUBLE_CLICK_MS: number = 400;
+
+/**
  * The longest delay `setTimeout` will hold.
  *
  * Node stores one as a signed 32-bit integer, so anything past this becomes

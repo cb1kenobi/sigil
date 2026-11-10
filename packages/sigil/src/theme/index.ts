@@ -143,6 +143,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-spinner-frame  .sigil-progress-bar  .sigil-scroll-thumb
  *   .sigil-scroll  .sigil-scroll-row  .sigil-scroll-viewport  .sigil-scroll-content
  *   .sigil-scroll-bar  .sigil-scroll-slot  .sigil-scroll-spacer
+ *   .sigil-list  .sigil-list-scroll  .sigil-list-row  .sigil-list-pointer
+ *   .sigil-list-mark  .sigil-list-content  .sigil-list-text  .sigil-list-empty
  *   .sigil-collapsible  .sigil-collapsible-title  .sigil-collapsible-marker
  *   .sigil-collapsible-label  .sigil-collapsible-body
  *   .sigil-tabs  .sigil-tabs-row  .sigil-tabs-labels  .sigil-tabs-tab
@@ -213,6 +215,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-modal-body  .sigil-modal-actions  .sigil-modal-action
  *   .sigil-text-field  .sigil-text-field-before  .sigil-text-field-caret
  *   .sigil-text-field-after  .sigil-text-field-placeholder
+ *   .sigil-slider  .sigil-slider-track  .sigil-slider-fill  .sigil-slider-thumb
+ *   .sigil-slider-rest  .sigil-slider-value
  *   .sigil-toast  .sigil-toast-stack  .sigil-toast-fill  .sigil-toast-title
  *   .sigil-toast-message  .sigil-toast-note  .sigil-toast-info
  *   .sigil-toast-success  .sigil-toast-warning  .sigil-toast-error

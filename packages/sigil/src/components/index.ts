@@ -55,6 +55,7 @@ export * from './subpaths/text-field.js';
 export * from './subpaths/toast.js';
 export * from './subpaths/tooltip.js';
 export * from './subpaths/scroll-box.js';
+export * from './subpaths/list-view.js';
 export * from './subpaths/pager.js';
 export * from './subpaths/typewriter.js';
 export * from './subpaths/large-text.js';
@@ -69,6 +70,7 @@ export * from './subpaths/diff.js';
 export * from './subpaths/rule.js';
 export * from './subpaths/markdown-parse.js';
 export * from './subpaths/markdown.js';
+export * from './subpaths/slider.js';
 export {
   FRAMEWORK_CSS,
   frameworkSheet,

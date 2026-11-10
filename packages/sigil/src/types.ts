@@ -1026,6 +1026,35 @@ export interface Schema {
    */
   run?: CommandRunHandler<any>;
   /**
+   * How the parser and `main()` behave for this app: unknown options, extra
+   * arguments, the error handler, the help exit code and the rest of
+   * {@link Settings}.
+   *
+   * **This is the place for them if the app is built.** `sigil build` generates
+   * the executable and calls `main({ schema })` itself, so it carries the schema
+   * across whole and never sees the settings an app passes in its own `main()`
+   * call -- `allowUnknownOptions: false` refused a typo from source and accepted
+   * it built. A schema is what survives the build, so a setting that has to
+   * survive it is declared here.
+   *
+   * ```js
+   * export default {
+   *   name: 'mycli',
+   *   settings: { allowUnknownOptions: false, helpExitCode: 2 },
+   * };
+   * ```
+   *
+   * `main({ settings })` and `parse({ settings })` still work, and are laid over
+   * these **per key** with the call winning: a flag beats the file. A key the call
+   * does not name -- or names as `undefined` -- is the schema's. Neither object is
+   * written to.
+   *
+   * It is the root schema's alone. Nothing is inherited from an enclosing
+   * `main()`, so a nested `main()` runs under its own schema's settings and its
+   * own call's.
+   */
+  settings?: Settings;
+  /**
    * What a command path may be spelled with, in argv.
    *
    * `' '` is the default and is what this framework has always read:

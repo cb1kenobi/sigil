@@ -604,6 +604,14 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     example: { steps: ['tab', 'right'] },
   },
   {
+    slug: 'list-view',
+    name: 'ListView',
+    family: 'fullscreen',
+    exports: ['ListView', 'createListSelection', 'describeListView', 'listControl'],
+    registry: 'list-view',
+    example: { steps: ['tab', 'down', 'space', 'down', 'down', 'space'] },
+  },
+  {
     slug: 'scroll-box',
     name: 'ScrollBox',
     family: 'fullscreen',
@@ -644,6 +652,14 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     exports: ['TextField'],
     registry: 'text-field',
     example: { steps: ['tab', { text: 'ledger' }] },
+  },
+  {
+    slug: 'slider',
+    name: 'Slider',
+    family: 'fullscreen',
+    exports: ['Slider', 'describeSlider'],
+    registry: 'slider',
+    example: { steps: ['tab', 'right'] },
   },
   {
     slug: 'modal',
