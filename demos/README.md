@@ -383,6 +383,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/54-markdown.js`](components/54-markdown.js)                                 | A changelog entry from markdown at two widths, themed, and highlighted    |
 | [`components/55-image.js`](components/55-image.js)                                       | A photograph in half blocks: fitted three ways, and RGBA with a soft edge |
 | [`components/56-panels.js`](components/56-panels.js)                                     | Panels with words in the border, and panes with an edge to drag           |
+| [`components/58-list-view.js`](components/58-list-view.js)                               | A list view over two thousand packages: filtered, ticked, updating live   |
 | [`components/62-slider.js`](components/62-slider.js)                                     | A settings screen of sliders: keys, a press, a drag past the edge         |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
@@ -646,6 +647,17 @@ collapse it, or press `b`. Piped, it draws the tree at two widths -- the narrow 
 shows an annotation going first and a title being cut -- and then moves the edge with
 real keys and with `resize()`, which is what a drag calls, up to a maximum, through a
 collapse and back.
+
+`58-list-view.js` is one `ListView` over two thousand packages sorted by their
+downloads, with a filter field above it, and only the twelve rows on screen built.
+It is `multiple`: Space ticks the current row, Ctrl-A every row, a click the row
+clicked, and Enter opens one. Every second a few packages are downloaded again,
+which replaces their items and re-sorts the list, and the cursor stays on its
+package wherever it lands; the view follows the cursor only when the cursor moves.
+The filter is the app's -- a `Computed` over the field and `rankBy()` -- and `/`
+reaches it from anywhere, as a fallback. Tick a row, filter it out of sight, and
+clear the filter: it is still ticked. Piped, a scripted keyboard drives the same
+tree, with an update standing in for the clock, and prints it after each step.
 
 `62-slider.js` is a settings screen: four rows, each a label the app lays out and a
 `Slider` with a readout. Tab moves between them, Left and Right a step, Page Up and

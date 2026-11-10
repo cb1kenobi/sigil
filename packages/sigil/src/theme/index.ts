@@ -143,6 +143,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-spinner-frame  .sigil-progress-bar  .sigil-scroll-thumb
  *   .sigil-scroll  .sigil-scroll-row  .sigil-scroll-viewport  .sigil-scroll-content
  *   .sigil-scroll-bar  .sigil-scroll-slot  .sigil-scroll-spacer
+ *   .sigil-list  .sigil-list-scroll  .sigil-list-row  .sigil-list-pointer
+ *   .sigil-list-mark  .sigil-list-content  .sigil-list-text  .sigil-list-empty
  *   .sigil-collapsible  .sigil-collapsible-title  .sigil-collapsible-marker
  *   .sigil-collapsible-label  .sigil-collapsible-body
  *   .sigil-tabs  .sigil-tabs-row  .sigil-tabs-labels  .sigil-tabs-tab

@@ -951,6 +951,8 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/keys': [6, 2_860],
   'components/large-text': [324, 165_478],
   'components/list': [472, 241_986],
+  // SIG-280, measured when it was added
+  'components/list-view': [408, 209_306],
   'components/log': [488, 248_992],
   'components/log-stream': [20, 10_089],
   'components/markdown': [516, 264_822],
@@ -974,6 +976,8 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/prompt': [468, 240_102],
   'components/qrcode': [332, 169_062],
   'components/rule': [320, 163_424],
+  // SIG-280: a row is built under an owner of its own, which is the renderer's --
+  // 174,349 B over 28 modules, from 136,485, and still under the ceiling it had
   'components/scroll-box': [268, 136_485],
   'components/select-key': [476, 243_021],
   'components/select-row': [480, 245_393],

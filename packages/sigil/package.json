@@ -146,6 +146,10 @@
       "types": "./dist/components/list.d.mts",
       "default": "./dist/components/list.mjs"
     },
+    "./components/list-view": {
+      "types": "./dist/components/list-view.d.mts",
+      "default": "./dist/components/list-view.mjs"
+    },
     "./components/log": {
       "types": "./dist/components/log.d.mts",
       "default": "./dist/components/log.mjs"

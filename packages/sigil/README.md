@@ -4983,6 +4983,86 @@ inverse by the framework sheet. `.sigil-tabs` (the host), `-row`, `-labels`,
 `describeTabs(input, ...tabs)` describes Left, Right, Home and End scoped to the
 row and returns a function that takes them off again.
 
+#### A list view
+
+```js
+import { describeListView, listControl, ListView } from '@ttylabs/sigil/components/list-view';
+import { State } from '@ttylabs/sigil/signals';
+
+const pods = new State(await fetchPods());
+const list = ListView({
+  items: pods, // a State or a Computed is followed
+  key: (pod) => pod.uid, // what the cursor and the selection hold
+  row: (pod) => `${pod.name}  ${pod.status}`,
+  disabled: (pod) => pod.status === 'Terminating',
+  multiple: true,
+  onActivate: (uid, pod) => openLogs(pod),
+  props: { height: 20 },
+});
+
+setInterval(async () => pods.set(await fetchPods()), 1000);
+describeListView(input, list); // for keyHelp(), once the router exists
+```
+
+```
+❯ ◉ api-7d9f        Running
+  ◯ worker-5c2a     Running
+  ◉ cron-81bb       Completed
+```
+
+A scrolling list of rows with a current row and keys to move it, as one focusable
+element: the workhorse of a file manager, a log viewer, `k9s` or `lazygit`. Only
+the rows on screen are built, so ten thousand rows cost what twenty do. **Up** and
+**Down** move the cursor, **Page Up** and **Page Down** by the view less one row,
+**Home** and **End** to the ends, passing over disabled rows and stopping rather
+than wrapping. **Enter** calls `onActivate(key, item)`, and so does a double-click;
+a click moves the cursor to the row clicked, and the wheel scrolls the view without
+moving it. A `multiple` list draws a mark on every row: **Space** ticks the current
+row, **Ctrl-A** ticks every row (or, with all of them ticked, none), and a click
+ticks the row clicked. A list with no rows shows `empty` -- a string, drawn muted,
+or a function that builds an element -- and claims no key.
+
+Rows are identified by `key`, which defaults to the item itself. `current` is a key
+or a `State` of one, and `selected` a set of keys or a `State` of one, which the
+keys and the mouse write and the app may write too -- the shape `Tabs`' `active`
+has. Because they are keys, they survive the data changing: a new array of items
+keeps the cursor on its key wherever that key now sits, and a key that disappears
+puts the cursor on the row that took its place. The selection is **never pruned**
+by the rows changing, since a row a filter hides or a tree collapses is not a row
+that was deleted; an app that wants a deleted row unselected writes `selected`. A
+row is rebuilt when its item is a different object from the one it was built from,
+so replacing an object is how an update reaches the screen; for items changed in
+place, `listControl(list).refresh()`. The view follows the cursor, and only the
+cursor: an update that does not move the current row does not scroll back to it.
+
+`row(item, key)` returns an element or a string, and is called under an owner of
+its own, so a row may hold effects; they are disposed when the row leaves the view.
+It is not called again when the cursor or the selection moves: those are the
+classes `is-current` and `is-selected` on `.sigil-list-row` around it. Every row is
+`rowHeight` cells tall (1 by default), fixed rather than measured.
+
+Filtering is the app's: make `items` a `Computed` over a `TextField`'s value and
+`rankBy()`, and the list sees only that its items changed. `find: true` turns on
+type-to-find instead -- a letter moves to the next row whose `label` starts with
+what was typed in the last second -- and `vim: true` adds `j`, `k`, `g` and `G`.
+Both are off by default, because a list that takes letters takes the app's own keys
+too -- the runner's `q` among them -- while it has the focus.
+
+The pointer `❯` marks the current row whether or not the list has the focus, so an
+unfocused pane still shows its selection, and `.sigil-focus` goes across the
+current row while it does. `.sigil-list` (the host, with `is-multiple`),
+`-scroll`, `-row` (with `is-current`, `is-selected`, `is-disabled`), `-pointer`,
+`-mark`, `-content`, `-text` and `-empty` are the theme hooks, and `props` goes on
+the host. `describeListView(input, ...lists)` describes the keys each list claims,
+scoped to it.
+
+`listControl(list)` is the handle: `selection`, `scroll` (the scroll box's
+control), `reveal(key?)`, `refresh()` and `activate()`. `createListSelection()` is
+the selection on its own -- a current key, a set of selected keys, and the moves
+over whatever rows it was last handed with `setRows(keys, disabled)` -- for a
+component that draws its own rows, a table or a tree, and wants the same answer
+the list gives.
+
 #### A panel
 
 ```js
@@ -5572,6 +5652,13 @@ before it paints. `scrollControl()` hands back the viewport, which owns the
 offset, and `resync()`, which re-windows a `rows` list against its `count` now:
 the offset and the viewport's size each have a writer the box hears, and the
 count is the one number only you can say moved.
+
+A `rows` list keys its rows on their index unless it is given `key(index)`, and
+then a built row is kept while its key is anywhere in the window -- moved, not
+rebuilt, when the data is re-sorted -- and built again when a key it has not seen
+arrives, so `resync()` after the data changed rebuilds exactly the rows whose keys
+did. Each row is built under an owner of its own, disposed when the row leaves the
+window, so a row may hold effects and components. `ListView` is built this way.
 
 `sigil/components` also exports `decodeKeys()` and `renderBar()`, and the state
 and the element tree behind each component -- `spinnerView()`, `progressView()`
