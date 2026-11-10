@@ -1152,6 +1152,7 @@ export default {
 | `assertCwd`                | `true`  | Fail early if the working directory is gone                 |
 | `errorHandler`             | —       | `false` to rethrow, or a function to render errors yourself |
 | `helpExitCode`             | `0`     | Exit code `main()` sets after printing help                 |
+| `suggestions`              | `true`  | Offer the nearest command or option a typo missed           |
 
 ## Sharing options between commands
 

@@ -243,14 +243,18 @@ function schemaSettingsKeys(app: DiscoveredApp): ReadonlySet<string> | undefined
   }
   const { binding, object: schema } = found;
 
-  // a spread may carry `settings`, a computed key may be `settings`, and a
-  // `__proto__: base` makes `base` the prototype `settings` is read through; none
-  // is readable, and none is an absence
+  // a spread may carry `settings` and a computed key may be `settings`; neither is
+  // readable, and neither is an absence.
+  //
+  // A top-level `__proto__: base` is deliberately **not** here: the generated entry
+  // calls `main({ schema: { ...schema, commands } })`, and a spread copies own
+  // properties only, so a `settings` inherited through that prototype never reaches
+  // a built app -- which is then using the default, as the message says. (From source
+  // it does reach `main()`, so that app differs between the two; see AGENTS.md.)
+  // The `__proto__` inside `settings` is different: `settings` travels by reference
+  // and `read()` walks its prototype, which `namedKeys()` bails on
   if (
-    schema.properties.some(
-      (property) =>
-        property.type === 'SpreadElement' || property.computed || isProtoSetter(property)
-    )
+    schema.properties.some((property) => property.type === 'SpreadElement' || property.computed)
   ) {
     return undefined;
   }

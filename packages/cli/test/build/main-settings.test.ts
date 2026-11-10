@@ -356,10 +356,6 @@ describe('what the built app uses instead', () => {
       "export default { name: 'a', settings: { __proto__: { errorHandler: false } } };\n",
     ],
     [
-      'given a prototype at the top, whose settings are read through',
-      "const base = { settings: { errorHandler: false } };\nexport default { name: 'a', __proto__: base };\n",
-    ],
-    [
       'a duplicate key, where the last wins',
       "export default { name: 'a', settings: { errorHandler: false }, settings: { allowUnknownOptions: false } };\n",
     ],
@@ -387,9 +383,45 @@ describe('what the built app uses instead', () => {
       "export default ({ name: 'a', settings: { errorHandler: false } });\n",
       "export default { name: 'a', settings: { errorHandler: false } } as const;\n",
       "const schema = { name: 'a', settings: { errorHandler: false } } satisfies object;\nexport default schema;\n",
+      // the default export is a reference wrapped in syntax that changes nothing
+      "const schema = { name: 'a', settings: { errorHandler: false } };\nexport default schema as Schema;\n",
+      "const schema = { name: 'a', settings: { errorHandler: false } };\nexport default schema satisfies Schema;\n",
+      "const schema = { name: 'a', settings: { errorHandler: false } };\nexport default (schema);\n",
+      "const schema = { name: 'a', settings: { errorHandler: false } };\nexport default schema!;\n",
     ]) {
       expect(said({ 'dev.ts': dev, 'index.ts': entry })).toContain("the schema's `errorHandler`");
     }
+  });
+
+  it('should keep the detail for a top-level __proto__, which a built app never receives', () => {
+    // the generated entry spreads the schema, and a spread copies own properties
+    // only, so a `settings` inherited through `__proto__: base` is lost in the build
+    // and the built app uses the default -- which is what the message says
+    const message = said({
+      'dev.ts': dev,
+      'index.ts':
+        "const base = { settings: { errorHandler: false } };\nexport default { name: 'a', __proto__: base };\n",
+    });
+
+    expect(message).toContain(
+      'A built app uses the default `allowUnknownOptions` and `errorHandler`.'
+    );
+  });
+
+  it.each([
+    ['a method named __proto__', "export default { name: 'a', settings: { __proto__() {} } };\n"],
+    [
+      'a shorthand __proto__',
+      "const __proto__ = 1;\nexport default { name: 'a', settings: { __proto__ } };\n",
+    ],
+    [
+      'a getter named __proto__',
+      "export default { name: 'a', settings: { get __proto__() { return 1; } } };\n",
+    ],
+  ])('should keep the detail for %s, which is a key and not the prototype setter', (_, entry) => {
+    // a key is named here, so the schema's settings are known; the bail is only for
+    // `__proto__: value`, which sets the prototype
+    expect(said({ 'dev.ts': dev, 'index.ts': entry })).toContain('A built app uses');
   });
 
   it('should keep the general message when the call has keys it cannot enumerate', () => {

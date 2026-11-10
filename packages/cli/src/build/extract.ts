@@ -547,10 +547,15 @@ export function defaultObject(
   // of those apps -- every command module in the toolchain ends this way. A
   // lift that cannot read the code its own conventions produce is a lift that
   // reports "help will list this command by name alone" about itself.
-  if (exported.declaration.type === 'Identifier') {
-    const resolved = bindingObject(parsed, exported.declaration.name, calls);
+  //
+  // Looked at through parentheses and type assertions, as the literal above is:
+  // `export default cmd as Command` and `export default (cmd)` are the same
+  // statement, and checking the raw node declined them
+  const reference = unwrapShallow(exported.declaration as never);
+  if (reference.type === 'Identifier') {
+    const resolved = bindingObject(parsed, reference.name, calls);
     if (resolved) {
-      return { binding: exported.declaration.name, object: resolved };
+      return { binding: reference.name, object: resolved };
     }
   }
 

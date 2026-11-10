@@ -541,11 +541,10 @@ The sharpest question in the design, and the ticket did not name it.
   hook that did would have to read it off the object it passed.
   **Every key is read once, when the settings are merged at the top of `main()`**, so
   a getter runs eagerly and one that throws fails `main()` up front, `--help`
-  included -- where on the pre-PR code a throwing getter on a key nothing asked for
-  was harmless. A throwing `errorHandler` getter also replaces the original error
-  with the getter's own, since the error path reads it again. The handling is
-  sensible (the salvage falls back to whichever half still reads) and nobody
-  realistically writes this; it is recorded so that "behind a getter works" is not
+  included -- where before SIG-333 (#359) a throwing getter on a key nothing asked
+  for was harmless. The failure is the getter's own error, raised before any parse. The
+  handling is sensible (the salvage falls back to whichever half still reads) and
+  nobody realistically writes this; it is recorded so that "behind a getter works" is not
   read as "lazily".
 - **The result is always a new object.** `parse()` used to keep the settings object
   its caller passed, so a hook writing `state.settings.allowUnknownOptions` wrote
