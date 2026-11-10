@@ -340,6 +340,23 @@ the `ui` tag run by plain `node`.
   the mount-time `focus()` was what moved it. It reads `app.terminal.width` now,
   which is there at the first draw. Still not re-asked on a resize.
 
+- **The full-screen budget's workload lives beside the system monitor, in
+  `stress/`, and is not part of the example (SIG-290).** `stress/app.js` is the
+  monitor's screen built from `DataTable` and the four live charts.
+  `stress/machine.js` is a seeded machine with a thousand processes that move on
+  every reading. `stress/monitor.js` feeds the same machine to the monitor's own
+  `App` through `SystemContext`, so the stand-ins and the components they wait for
+  are measured on one input. `stress/measure.js` is the harness and
+  `stress/benchmark.js` the script run by hand. `test/stress.test.js` holds the
+  counts to ceilings, and it runs as the example's own project.
+
+  `stress/` sits beside `src/` so the contract above is untouched: none of it is
+  a root, an entry or a `start`, and `src/` stays the app somebody copies. Why the
+  budget is here rather than in `packages/sigil/scripts/`, what it measured, and
+  why the suite holds counts and no time are under "A full-screen performance
+  budget" in `packages/sigil/src/renderer/AGENTS.md`. That entry is about the
+  renderer, and this directory only houses the workload.
+
 - **Not done:** the focus highlight is a background colour, so at colour level 0
   (a pipe, `NO_COLOR`) nothing on screen says which row has the focus -- what a
   control shows at level 0 is SIG-278's question for every widget, and `hello`
