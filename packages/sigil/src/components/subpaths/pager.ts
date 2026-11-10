@@ -10,5 +10,6 @@ export {
   type PagerSearchMode,
   type PagerSearchResult,
   searchLines,
+  searchPattern,
   softWrap,
 } from '../pager.js';
