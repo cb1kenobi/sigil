@@ -5287,7 +5287,8 @@ is narrower, a column with a `minWidth` gives way toward it first, and then colu
 are **hidden** -- the lowest `priority` first, the rightmost among equals -- rather
 than scrolled sideways, so the columns that say what a row is stay on screen. A
 hidden column's digit does nothing until it is back. `columns` may be a `State`: an
-app hides a column, adds one or changes a width by replacing the array.
+app hides a column, adds one, reorders them, or changes a width, a format or an
+alignment by replacing the array, and the rows in view are redrawn for it.
 
 The heading row is `.sigil-data-table-head`, its cells `.sigil-table-head
 .sigil-heading` with `is-sortable` and `is-sorted`, and each row's cells are

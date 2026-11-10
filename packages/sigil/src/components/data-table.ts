@@ -466,6 +466,11 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
       measuredFor = list;
       widest = list.map(() => 0);
       seen = new WeakSet();
+      // a new column set is a new layout even where it fits to the same columns at
+      // the same widths: swapped columns, a new format or align, a column that stopped
+      // sorting -- so `relayout()` has nothing to call the same, and rebuilds the rows
+      // in view and the digits rather than leaving them drawn with the old columns
+      layout = { shown: [], widths: [] };
     }
     const head = headOf(list);
     const fresh = rows.filter((row) => {
@@ -689,14 +694,14 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
       activate: () => control.activate(),
       list: list_,
       refresh(): void {
+        // forgetting the measurement forgets the layout too, so this always
+        // rebuilds the rows in view, whether or not a width moved
         measuredFor = undefined;
         measure(
           untrack(() => specs.get()),
           untrack(readRows)
         );
-        if (!relayout()) {
-          control.refresh();
-        }
+        relayout();
       },
       reveal: (key) => control.reveal(key as K | undefined),
       scroll: control.scroll,

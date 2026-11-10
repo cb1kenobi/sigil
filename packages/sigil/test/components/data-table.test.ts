@@ -537,6 +537,40 @@ describe('DataTable()', () => {
       expect(picture(host, 48).slice(0, 2)).toEqual(['    PID  NAME', '❯     1  launchd']);
       expect(control(host).shown()).toEqual(['pid', 'name']);
     });
+
+    // a new column set that fits to the same layout -- the same columns shown at the
+    // same widths -- still redraws the rows, which only a hidden or a widened column
+    // used to make it do
+    it('should redraw the rows when the columns swap, at the same widths', () => {
+      const user: DataTableColumn<Proc> = { header: 'USER', key: 'user', width: 8 };
+      const name: DataTableColumn<Proc> = { header: 'NAME', key: 'name', width: 8 };
+      const columns = new State<readonly DataTableColumn<Proc>[]>([user, name]);
+      const host = procs({ columns });
+      expect(picture(host, 40).slice(0, 2)).toEqual(['  USER      NAME', '❯ root      launchd']);
+
+      columns.set([name, user]);
+      flush();
+      expect(picture(host, 40).slice(0, 2)).toEqual(['  NAME      USER', '❯ launchd   root']);
+    });
+
+    it("should redraw the rows when a column's format changes and its width does not", () => {
+      const cpu = (format: (v: unknown) => string): DataTableColumn<Proc> => ({
+        align: 'right',
+        format,
+        header: 'CPU',
+        key: 'cpu',
+        width: 6,
+      });
+      const columns = new State<readonly DataTableColumn<Proc>[]>([
+        cpu((v) => (v as number).toFixed(1)),
+      ]);
+      const host = procs({ columns });
+      expect(picture(host, 20)[1]).toBe('❯    0.1');
+
+      columns.set([cpu((v) => `${Math.round((v as number) * 10)}‰`)]);
+      flush();
+      expect(picture(host, 20)[1]).toBe('❯     1‰');
+    });
   });
 
   describe('live rows', () => {
@@ -752,6 +786,27 @@ describe('describeDataTable()', () => {
 
     off();
     expect(live).toHaveLength(0);
+  });
+
+  it('should drop the digit of a column replaced by one that does not sort, at the same width', () => {
+    const pid: DataTableColumn<Proc> = { align: 'right', header: 'PID', key: 'pid', width: 6 };
+    const columns = new State<readonly DataTableColumn<Proc>[]>([
+      pid,
+      { header: 'USER', key: 'user', width: 8 },
+    ]);
+    const host = procs({ columns });
+    const { live, router } = recorder();
+    picture(host, 40);
+    describeDataTable(router, host);
+    flush();
+    const digits = () => live.filter(([keys]) => /^\d$/.test(keys)).map(([keys]) => keys);
+    expect(digits()).toEqual(['1', '2']);
+
+    columns.set([pid, { header: 'USER', key: 'user', sortable: false, width: 8 }]);
+    flush();
+    picture(host, 40);
+    flush();
+    expect(digits()).toEqual(['1']);
   });
 
   it('should refuse an element that is not a table', () => {

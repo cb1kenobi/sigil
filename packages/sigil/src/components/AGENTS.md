@@ -11324,6 +11324,21 @@ the probes and the sabotage pass are in
   column's `width`, or hides one from a menu, writes a new array and the table
   measures, fits and rebuilds the rows in view. Dragging a heading's edge is not
   done; the pane's drag (SIG-277) is the precedent if somebody asks.
+
+  **Every new column set rebuilds, including one that fits to the same layout.**
+  `relayout()` skips the rebuild when the shown columns and their widths come out
+  the same, which is right for a resize or a live update and was wrong for a new
+  `columns`: two equal-width columns swapped, a declared-width column's `format` or
+  `align` changed, or one made `sortable: false` all fit to the same layout, so the
+  heading redrew through its own effect while the rows in view kept the old
+  columns' cells -- for good, with fixed rows -- and the footer kept a digit that
+  sorts nothing. Found by review; the one test of replacing `columns` also hid a
+  column, which is what moved the layout and hid the gap. `measure()` already
+  starts again for a new column set, and it now forgets the layout there too, so
+  `relayout()` has nothing to call the same. `dataTableControl().refresh()`
+  forgets the measurement and so always rebuilds, and its fallback for "nothing
+  moved" went with the case it was for.
+
 - **Cells are `TableCellView`s where they need to be, by `format`.** The ticket's
   last question, and the answer is the one `table()` and `selectRow()` already
   have: a cell is a string or a `{ element, width }`, measured by its `width` and
