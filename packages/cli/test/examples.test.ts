@@ -166,10 +166,12 @@ function within<T>(promise: Promise<T>, what: string, ms = 2000): Promise<T> {
  * The key that changes the screen, for the examples that have one the harness
  * knows. The contract has no way to say which key does what, so this is a table
  * of the examples whose keys are documented in their own README rather than
- * something inferred: `hello`'s first row has the focus and Enter counts it.
+ * something inferred: `hello`'s first row has the focus and Enter counts it, and
+ * the settings screen's sidebar has the focus and Down shows the next section.
  */
 const KEYED: Record<string, { keys: string[]; shows: string } | undefined> = {
   hello: { keys: [KEYS.enter], shows: '1 press' },
+  settings: { keys: [KEYS.down], shows: 'Pause all' },
 };
 
 const COLUMNS = 60;

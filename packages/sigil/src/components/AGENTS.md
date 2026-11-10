@@ -9408,6 +9408,9 @@ field joins like anything else focusable.
   row for one because a prompt is the whole question; a field is one part of a
   form, and where the error goes, when it is checked and what blocks a submit are
   the form's to say. `onChange` and `onSubmit` are where a caller checks.
+  Where it went, in an app: `examples/settings` keeps it in a form of its own
+  (`examples/AGENTS.md`, "A settings screen and a login form"), and publishing
+  that form is SIG-338.
 - **A focused field claims a paste, and that took a change to the router's
   order.** A router's `onPaste()` handlers ran before anything in the tree saw the
   paste, so an app-wide handler registered at startup took a paste meant for a
@@ -11725,4 +11728,6 @@ sabotage pass -- is in
 - **Not done:** the prompts moved onto these elements; the dropdown select, which
   is SIG-285's; a disabled option as a `State`; an indeterminate checkbox; button
   variants (a default, a destructive one); a form element that owns Enter and
-  validation; and `:disabled` on `TextField`.
+  validation, which `examples/settings` writes for itself and SIG-338 would
+  publish; a `Computed` as `disabled`, which is SIG-334; and `:disabled` on
+  `TextField`.
