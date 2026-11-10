@@ -248,6 +248,9 @@ describe('Dropdown()', () => {
     expect(() => Dropdown({ ...base, input: {} as never })).toThrow(/router/);
     expect(() => Dropdown({ ...base, options: 'a' as never })).toThrow(/array/);
     expect(() => Dropdown({ ...base, options: [{} as never] })).toThrow(/label/);
+    // refused when built, not by the menu when a key opens it (which held the keys)
+    expect(() => Dropdown({ ...base, options: ['', 'a'] })).toThrow(/label/);
+    expect(() => Dropdown({ ...base, options: [{ label: '', value: 'x' }] })).toThrow(/label/);
     expect(() => Dropdown({ ...base, width: 4 })).toThrow(/width/);
     expect(() => Dropdown({ ...base, disabled: 'yes' as never })).toThrow(/disabled/);
     expect(() => Dropdown({ ...base, props: { onKey: () => {} } as never })).toThrow(/onKey/);

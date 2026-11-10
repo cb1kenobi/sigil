@@ -10869,6 +10869,20 @@ exception per widget. This is the one answer, and every widget below follows it.
   word-deleting key it already handled. `KEY_NAMES` grows by thirteen, derived as
   before.
 
+- **A menu is checked before anything holds the input, and a session that fails
+  to open its root gives the input back.** A session takes the keys, the mouse
+  and a layer on the input stack when it opens, and its `root()` checks the items
+  -- so items refused there left a session holding everything with no menu in it,
+  and with no level for Escape to close, every key was swallowed until a click
+  outside. Found by review, through the dropdown, which checked a choice's label
+  was a string and not that it was non-empty, so `Dropdown({ options: ['', 'a'] })`
+  built and then locked the keyboard on Enter. Two fixes, one per half. Every
+  entry point checks its items where the app built it -- `openMenu()`,
+  `attachContextMenu()` and `Menubar()` already did, and `Dropdown()` now refuses
+  an empty label with the message it gives for a missing one. And `root()` closes
+  its own session if it throws while no menu is open in it, so the next caller
+  that forgets the first rule gets an exception rather than a dead keyboard.
+
 - **Above the tooltip, below the debug overlay.** `z-index: 960`: a dropdown in a
   dialog is drawn over the dialog (`900`) and over the field's own tooltip (`950`).
   The quiet axis is not consulted: a menu is something the user asked for, on the

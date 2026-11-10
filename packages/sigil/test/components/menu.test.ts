@@ -4,6 +4,7 @@ import {
   type MenuItem,
   type MenuOptions,
   openMenu,
+  openMenuSession,
   parseMnemonic,
 } from '../../src/components/menu.js';
 import { openModal } from '../../src/components/modal.js';
@@ -586,5 +587,26 @@ describe('attachContextMenu()', () => {
     await s.term.press(...click(3, 1, 2));
     expect(ctx.menu).to.equal(undefined);
     expect(s.input.bindings()).toEqual([]);
+  });
+});
+
+describe('openMenuSession()', () => {
+  it('should give the keys back when its root menu is refused, rather than hold them with no menu', async () => {
+    const s = scene();
+    const closed: unknown[] = [];
+    const session = openMenuSession<string>({
+      host: s.root,
+      input: s.input,
+      onClose: (item) => closed.push(item),
+    });
+    expect(topLayer(s.input)).toBeDefined();
+    expect(() => session.root([{ label: '', value: 'x' }], s.field)).toThrow(/label/);
+    expect(session.open).toBe(false);
+    expect(closed).toEqual([undefined]);
+    expect(topLayer(s.input)).toBeUndefined();
+    expect(s.input.bindings()).toEqual([]);
+    await s.term.press('x');
+    await escape(s.term);
+    expect(s.seen).toEqual(['field:x', 'field:escape']);
   });
 });

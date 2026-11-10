@@ -933,10 +933,20 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
       if (!open) {
         return;
       }
-      checkMenuEntries(items);
-      truncate(-1);
-      const level = push(items, at, o.side ?? 'bottom', o.minWidth ?? 0, -1);
-      highlight(level, o.initial ?? -1);
+      try {
+        checkMenuEntries(items);
+        truncate(-1);
+        const level = push(items, at, o.side ?? 'bottom', o.minWidth ?? 0, -1);
+        highlight(level, o.initial ?? -1);
+      } catch (error) {
+        // the session took the keys and the mouse when it opened, and with no menu
+        // in it there is no level for Escape to close: every key would be swallowed
+        // until a click outside. So a root that failed closes the session it was in.
+        if (levels.length === 0) {
+          finish();
+        }
+        throw error;
+      }
     },
   };
 }

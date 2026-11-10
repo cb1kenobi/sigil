@@ -119,7 +119,9 @@ export function Dropdown<T = unknown>(props: DropdownProps<T>): Element {
       return { disabled: true, entry, label: '', separator: true, value: undefined };
     }
     const choice = typeof entry === 'string' ? { label: entry, value: entry as T } : entry;
-    if (typeof choice?.label !== 'string') {
+    // an empty label is refused here, where the app built the field, rather than by
+    // the menu when a key opens it -- the check every other menu entry point makes
+    if (typeof choice?.label !== 'string' || choice.label === '') {
       throw new TypeError(__`Expected a dropdown option to be a string or a choice with a label`);
     }
     const disabled = choice.disabled !== undefined && choice.disabled !== false;
