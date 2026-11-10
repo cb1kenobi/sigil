@@ -119,7 +119,9 @@ export function Checkbox(props: CheckboxProps): Element {
   createEffect(() => {
     const on = checked.get() === true;
     mark.setText(on ? MARKS.on : MARKS.off);
-    mark.toggleClass('sigil-accent', on);
+    // a disabled box is muted whole: the accent on the mark would beat the role it
+    // inherits from the host, and a ticked box would look like one you can untick
+    mark.toggleClass('sigil-accent', on && !disabled.get());
     host.toggleClass('is-checked', on);
     host.setState('checked', on);
   });

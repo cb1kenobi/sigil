@@ -146,11 +146,14 @@ export function Switch(props: SwitchProps = {}): Element {
   /** The marker says which state is current at colour level 0; the roles agree with it. */
   const draw = (): void => {
     const now = value.get() === true;
+    // a disabled switch is muted whole, so the current state gives up its accent,
+    // which would otherwise beat the role it inherits from the host
+    const off = disabled.get();
     for (const { name, node, state } of states) {
       const here = state === now;
       node.setText(`${here ? PROMPT_SYMBOLS.on : PROMPT_SYMBOLS.off} ${name}`);
       node.toggleClass('is-active', here);
-      node.toggleClass('sigil-accent', here);
+      node.toggleClass('sigil-accent', here && !off);
       node.toggleClass('sigil-muted', !here);
       // with no label, the current state is the part that shows the focus, and
       // it moves when the state does

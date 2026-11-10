@@ -71,11 +71,11 @@
   "views": {
     "narrow": {
       "columns": 40,
-      "output": "  ◯ eu-west\n❯ \u001b[36m◉\u001b[0m \u001b[7mus-east\u001b[0m\n  ◯ \u001b[2map-south\u001b[0m \u001b[2mat capacity\u001b[0m\n  ◯ us-west\n\n\u001b[36m↑\u001b[0m \u001b[2mprevious\u001b[0m \u001b[2m·\u001b[0m \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36mq\u001b[0m \u001b[2mquit\u001b[0m \u001b[2m…\u001b[0m"
+      "output": "  ◯ eu-west\n❯ \u001b[36m◉\u001b[0m \u001b[7mus-east\u001b[0m\n  \u001b[2m◯\u001b[0m \u001b[2map-south\u001b[0m \u001b[2mat capacity\u001b[0m\n  ◯ us-west\n\n\u001b[36m↑\u001b[0m \u001b[2mprevious\u001b[0m \u001b[2m·\u001b[0m \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36mq\u001b[0m \u001b[2mquit\u001b[0m \u001b[2m…\u001b[0m"
     },
     "rendered": {
       "columns": 80,
-      "output": "  ◯ eu-west\n❯ \u001b[36m◉\u001b[0m \u001b[7mus-east\u001b[0m\n  ◯ \u001b[2map-south\u001b[0m \u001b[2mat capacity\u001b[0m\n  ◯ us-west\n\n\u001b[36m↑\u001b[0m \u001b[2mprevious\u001b[0m \u001b[2m·\u001b[0m \u001b[36m↓\u001b[0m \u001b[2mnext\u001b[0m \u001b[2m·\u001b[0m \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36mq\u001b[0m \u001b[2mquit\u001b[0m"
+      "output": "  ◯ eu-west\n❯ \u001b[36m◉\u001b[0m \u001b[7mus-east\u001b[0m\n  \u001b[2m◯\u001b[0m \u001b[2map-south\u001b[0m \u001b[2mat capacity\u001b[0m\n  ◯ us-west\n\n\u001b[36m↑\u001b[0m \u001b[2mprevious\u001b[0m \u001b[2m·\u001b[0m \u001b[36m↓\u001b[0m \u001b[2mnext\u001b[0m \u001b[2m·\u001b[0m \u001b[36mspace\u001b[0m \u001b[2mselect\u001b[0m \u001b[2m·\u001b[0m \u001b[36mq\u001b[0m \u001b[2mquit\u001b[0m"
     }
   }
 }

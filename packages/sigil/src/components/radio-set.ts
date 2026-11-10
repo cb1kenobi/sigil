@@ -135,8 +135,10 @@ export function RadioSet<T = string>(props: RadioSetProps<T>): Element {
       'margin-right': 1,
       visibility: 'hidden',
     });
+    // a disabled option is muted whole, its mark with its label, so that nothing in
+    // it reads as a choice on offer
     const mark = textNode(PROMPT_SYMBOLS.off, {
-      class: 'sigil-radio-mark',
+      class: offered[i] ? 'sigil-radio-mark' : 'sigil-radio-mark sigil-muted',
       'flex-shrink': 0,
       'margin-right': 1,
     });
@@ -175,7 +177,8 @@ export function RadioSet<T = string>(props: RadioSetProps<T>): Element {
   host.append(...rows.map((r) => r.row));
   SETS.set(host, direction);
   // nothing in it can be chosen, so it is no stop for the ring either
-  controlDisabled(host, offered.includes(true) ? disabled : new State(true));
+  const inert = offered.includes(true) ? disabled : new State(true);
+  controlDisabled(host, inert);
 
   /** Which option holds the value, or -1. */
   const selected = (): number => {
@@ -195,10 +198,13 @@ export function RadioSet<T = string>(props: RadioSetProps<T>): Element {
   const draw = (): void => {
     const at = selected();
     const lit = highlight();
+    // the accent would beat the muted role a disabled set or option puts on the
+    // mark, so a selected mark keeps it only while it could be chosen again
+    const off = inert.get();
     for (const [i, { label, mark, pointer, row }] of rows.entries()) {
       const on = i === at;
       mark.setText(on ? PROMPT_SYMBOLS.on : PROMPT_SYMBOLS.off);
-      mark.toggleClass('sigil-accent', on);
+      mark.toggleClass('sigil-accent', on && offered[i] === true && !off);
       row.toggleClass('is-selected', on);
       row.setState('checked', on);
       // the pointer and the role on the option the keys act on, while they do

@@ -171,6 +171,17 @@ describe('a disabled checkbox', () => {
     expect(picture(checkbox)).toEqual(['  [x] Remember me']);
   });
 
+  it('should draw a ticked box without the accent while disabled, and give it back', () => {
+    const disabled = new State(true);
+    const { checkbox } = ticked({ checked: true, disabled });
+    const mark = part(checkbox, 'sigil-checkbox-mark');
+    expect(mark.text).toBe('[x]');
+    expect(mark.classes).not.toContain('sigil-accent');
+    disabled.set(false);
+    flush();
+    expect(mark.classes).toContain('sigil-accent');
+  });
+
   it('should keep the focus it had, and ignore Space and clicks, which go on', async () => {
     const disabled = new State(false);
     const { checkbox, told } = ticked({ disabled });

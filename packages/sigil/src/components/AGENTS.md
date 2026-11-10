@@ -11071,9 +11071,22 @@ sabotage pass -- is in
   selector engine has and nothing had set; a checked checkbox or switch and a
   selected option are `:checked` the same way. `TextField` does not set
   `:disabled` yet, which is left for a ticket that touches it.
+- **A disabled control or option is muted whole, its marker included.** The first
+  version muted a disabled radio option's label and reason and left its `◯` in the
+  default foreground, so the one part that says "a choice" still read as one on
+  offer -- and a theme that greyed `.sigil-radio-label` would have made it worse.
+  The mark carries `.sigil-muted` too now. The second half is the same defect at
+  the control's scale: `controlDisabled()` puts the muted role on the **host**, and
+  `.sigil-accent` on a ticked box's mark, a selected option's mark or a switch's
+  current state is on the part itself, so it beat the colour the part inherited and
+  a disabled control drew its value in the accent. Each control now withholds the
+  accent while it is disabled and gives it back when it is not, and a radio option
+  that is disabled never takes it, even when the app wrote its value. The marker
+  still says the value -- `[x]`, `◉` -- in the muted colour, which is what a
+  disabled field does with its text.
 - **No theme role and no framework-sheet exception.** Every part draws in a role:
-  the value in `.sigil-accent`, the switch's other state and anything disabled in
-  `.sigil-muted`, the focus in `.sigil-focus`. The new classes went into the
+  the value in `.sigil-accent` while the control is enabled, the switch's other
+  state and anything disabled in `.sigil-muted`, the focus in `.sigil-focus`. The new classes went into the
   vocabulary comment, which `theme.test.ts` holds to the sources.
 - **No guard for the keys a control does not use.** Each `onKey` is a `switch`
   or an early return whose default is to hand the key on, so Tab, Escape and the

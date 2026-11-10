@@ -188,6 +188,15 @@ describe('a disabled switch', () => {
     expect(told).toEqual([]);
     expect(f.seen).toEqual(['right', 'space']);
   });
+
+  it('should draw the current state without the accent while disabled, and give it back', () => {
+    const disabled = new State(true);
+    const { control } = switched({ disabled, value: true });
+    expect(part(control, 'is-active').classes).not.toContain('sigil-accent');
+    disabled.set(false);
+    flush();
+    expect(part(control, 'is-active').classes).toContain('sigil-accent');
+  });
 });
 
 describe('describeSwitch()', () => {

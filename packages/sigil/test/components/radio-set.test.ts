@@ -2,7 +2,7 @@ import { describeRadioSet, RadioSet } from '../../src/components/radio-set.js';
 import { type Element, text } from '../../src/element/index.js';
 import { flush, State } from '../../src/signals/index.js';
 import { KEYS } from '../../src/testing/index.js';
-import { clickOn, form, picture, recorder, stopForms } from './form-harness.js';
+import { clickOn, colored, ESC, form, picture, recorder, stopForms } from './form-harness.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -64,6 +64,38 @@ describe('RadioSet', () => {
     expect(trace.classes).toContain('is-disabled');
     expect(trace.states).toContain('disabled');
     expect(trace.children[2]?.classes).toContain('sigil-muted');
+  });
+
+  it('should mute a disabled option whole, its mark with its label', () => {
+    const { set } = levels();
+    const [debug, , trace] = rows(set) as [Element, Element, Element];
+    expect(trace.children[1]?.classes).toContain('sigil-muted');
+    expect(debug.children[1]?.classes).not.toContain('sigil-muted');
+    // drawn: the mark is inside the same muted run as the label, not before it
+    const set2 = RadioSet({
+      options: ['warn', { disabled: 'needs a debug build', label: 'trace' }],
+    });
+    expect(colored(set2, 60).split('\n')[1]).toBe(
+      `  ${ESC}[2m◯ trace needs a debug build${ESC}[0m`
+    );
+  });
+
+  it('should keep the accent off a disabled option the app selected', () => {
+    const { set } = levels({ value: 'trace' });
+    const trace = rows(set)[2] as Element;
+    expect(trace.children[1]?.text).toBe('◉');
+    expect(trace.children[1]?.classes).not.toContain('sigil-accent');
+  });
+
+  it('should take the accent off the selected mark while the set is disabled, and give it back', () => {
+    const disabled = new State(true);
+    const { set } = levels({ disabled, value: 'info' });
+    const mark = (rows(set)[1] as Element).children[1] as Element;
+    expect(set.classes).toContain('sigil-muted');
+    expect(mark.classes).not.toContain('sigil-accent');
+    disabled.set(false);
+    flush();
+    expect(mark.classes).toContain('sigil-accent');
   });
 
   it('should select nothing for a value no option holds', () => {
