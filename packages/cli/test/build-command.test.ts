@@ -1,4 +1,7 @@
+import { displayPath } from '../src/build/index.ts';
 import { run } from '../src/index.js';
+import { copyFixture } from './copy-fixture.ts';
+import { tempDir } from './temp.ts';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
@@ -650,5 +653,84 @@ describe('sigil build', () => {
     expect(built.status).toBe(0);
     expect(built.stdout).toContain('Verwendung:');
     expect(built.stdout).toContain('Die App bauen');
+  }, 60_000);
+});
+
+/**
+ * SIG-350: `sigil build --out src` removed the app's source and then failed,
+ * because the clean guard refused only an `--out` at or above the app root. The
+ * app is a copy in a temp directory, so a regression removes the copy's source
+ * rather than a fixture's.
+ */
+describe('sigil build into its own source', () => {
+  let exitCode: typeof process.exitCode;
+
+  beforeEach(() => {
+    exitCode = process.exitCode;
+  });
+
+  afterEach(() => {
+    process.exitCode = exitCode;
+    vi.restoreAllMocks();
+  });
+
+  /** A copy of the `buildable` fixture, and the files the build reads from it. */
+  function copyApp(): { app: string; sources: string[] } {
+    const app = join(tempDir('sigil-build-into-src-'), 'buildable');
+    copyFixture(join(fixtures, 'buildable'), app);
+    return {
+      app,
+      sources: [
+        join(app, 'src', 'index.ts'),
+        join(app, 'src', 'commands', 'greet.ts'),
+        join(app, 'src', 'commands', 'db', 'migrate.js'),
+      ],
+    };
+  }
+
+  it('sigil build --out src deleted the app source and then failed on the missing entry', async () => {
+    const { app, sources } = copyApp();
+
+    const { err } = await sigil('build', app, '--out', 'src');
+
+    expect(err).toContain(
+      `Refusing to empty ${displayPath(join(app, 'src'))}, which holds ${displayPath(join('src', 'index.ts'))}`
+    );
+    expect(err).not.toContain('Module not found');
+    expect(process.exitCode).toBeTruthy();
+    for (const file of sources) {
+      expect(existsSync(file), file).toBe(true);
+    }
+  }, 60_000);
+
+  it('a build.out of src in sigil.json deleted the app source the same way', async () => {
+    const { app, sources } = copyApp();
+    writeFileSync(join(app, 'sigil.json'), `${JSON.stringify({ build: { out: 'src' } })}\n`);
+
+    const { err } = await sigil('build', app);
+
+    expect(err).toContain(
+      `Refusing to empty ${displayPath(join(app, 'src'))}, which holds ${displayPath(join('src', 'index.ts'))}`
+    );
+    expect(process.exitCode).toBeTruthy();
+    for (const file of sources) {
+      expect(existsSync(file), file).toBe(true);
+    }
+    expect(existsSync(join(app, 'sigil.json'))).toBe(true);
+  }, 60_000);
+
+  it('should refuse the command directory, naming a module the build reads from it', async () => {
+    const { app, sources } = copyApp();
+
+    const { err } = await sigil('build', app, '--out', join('src', 'commands'));
+
+    expect(err).toContain(
+      `Refusing to empty ${displayPath(join(app, 'src', 'commands'))}, which holds`
+    );
+    expect(err).toContain('and the build reads it');
+    expect(process.exitCode).toBeTruthy();
+    for (const file of sources) {
+      expect(existsSync(file), file).toBe(true);
+    }
   }, 60_000);
 });

@@ -54,6 +54,7 @@ import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
   appRuns,
   binName,
+  buildReads,
   clean,
   commandsFound,
   failure,
@@ -142,7 +143,7 @@ const build: AnyCommand = command({
       String(argv.out === DEFAULT_OUT ? (config.out ?? DEFAULT_OUT) : argv.out)
     );
 
-    clean(out, found.app.root, argv.clean !== false);
+    clean(out, found.app.root, argv.clean !== false, buildReads(found, bin));
 
     const result = await bundleApp({
       app: found.app,

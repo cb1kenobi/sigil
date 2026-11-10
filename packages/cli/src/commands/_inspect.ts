@@ -39,17 +39,24 @@ import {
   type ResolvedCommand,
   type TypeCheckResult,
 } from '../build/index.ts';
+import { CONFIG_FILES } from '../config.ts';
 import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components/table';
 import type { TextRun } from '@ttylabs/sigil/element';
 import { SIGIL_KEYS } from '@ttylabs/sigil/i18n-keys';
-import { existsSync, rmSync } from 'node:fs';
-import nodePath, { isAbsolute, relative, resolve } from 'node:path';
+import { existsSync, lstatSync, realpathSync, rmSync, statSync, type BigIntStats } from 'node:fs';
+import nodePath, { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 /** What reading an app turned up. */
 export interface Inspection {
   /** The app, and the entry the conventions chose. */
   readonly app: DiscoveredApp;
+  /**
+   * The directory its commands were walked from, when they were walked rather
+   * than written out. Kept because emptying it is emptying the app's source --
+   * see `assertCleanable()`.
+   */
+  readonly commandDir?: string;
   /** Its commands, however its schema declares them. */
   readonly commands: readonly ResolvedCommand[];
   /** Everything worth saying, in the order it was found. */
@@ -106,7 +113,14 @@ export function inspect(options: InspectOptions): Inspection {
   // calls `main({ schema })` itself -- so say so, where the app has not moved it
   diagnostics.push(...checkMainSettings(app));
 
-  return { app, commands: found.commands, diagnostics, root: found.root, types };
+  return {
+    app,
+    commandDir: found.dir,
+    commands: found.commands,
+    diagnostics,
+    root: found.root,
+    types,
+  };
 }
 
 /**
@@ -166,9 +180,10 @@ function findCommands(
   app: DiscoveredApp,
   named: string | undefined,
   diagnostics: Diagnostic[]
-): { commands: readonly ResolvedCommand[]; root: boolean } {
+): { commands: readonly ResolvedCommand[]; dir?: string; root: boolean } {
   if (named !== undefined) {
-    return { commands: walkCommandDir(resolve(app.root, named), diagnostics), root: false };
+    const dir = resolve(app.root, named);
+    return { commands: walkCommandDir(dir, diagnostics), dir, root: false };
   }
 
   const declared = readAppCommands(app);
@@ -197,13 +212,12 @@ function findCommands(
 
   // a path is the filesystem router, which is a tree to walk; an object is the
   // app having written its commands out, which is already the tree
-  return {
-    commands:
-      declared.commands.kind === 'directory'
-        ? walkCommandDir(declared.commands.dir, diagnostics)
-        : declared.commands.commands,
-    root: false,
-  };
+  if (declared.commands.kind === 'directory') {
+    const { dir } = declared.commands;
+    return { commands: walkCommandDir(dir, diagnostics), dir, root: false };
+  }
+
+  return { commands: declared.commands.commands, root: false };
 }
 
 /**
@@ -439,12 +453,13 @@ export function binName(found: Inspection, named: string | undefined): string {
 }
 
 /**
- * Empties the output directory, refusing the one that would hurt.
+ * Empties the output directory, refusing the ones that would hurt.
  *
  * A build that leaves the last one behind publishes the union of every build
  * ever run there -- a renamed command's chunk stays, a removed one's stays. And
- * an `--out` that is the app root, or sits above it, is the one way a mistyped
- * path turns a build into data loss.
+ * an `--out` that is the app root, or sits above it, or holds anything the
+ * build is about to read, turns a mistyped path into data loss -- see
+ * `assertCleanable()`.
  *
  * What it deliberately does **not** refuse is an `--out` outside the app
  * altogether: a sibling directory is an ordinary place to build into, and
@@ -455,10 +470,11 @@ export function binName(found: Inspection, named: string | undefined): string {
  * @param out - The output directory.
  * @param root - The app's root.
  * @param wanted - Whether to clean at all.
- * @throws If the directory holds the app itself.
+ * @param reads - What the build reads, from `buildReads()`.
+ * @throws If the directory holds the app itself, or anything in `reads`.
  */
-export function clean(out: string, root: string, wanted: boolean): void {
-  assertCleanable(out, root, wanted);
+export function clean(out: string, root: string, wanted: boolean, reads: readonly string[]): void {
+  assertCleanable(out, root, wanted, reads);
 
   if (!wanted || !existsSync(out)) {
     return;
@@ -468,19 +484,38 @@ export function clean(out: string, root: string, wanted: boolean): void {
 }
 
 /**
- * Whether emptying `out` would take the app at `root` with it: `out` is the
- * app root or any directory above it, the filesystem root included.
+ * Whether removing `out` removes `target`: `out` is `target`, or a directory
+ * above it.
  *
  * `isInside()` is the path rule, and this adds only the one thing it leaves
- * out on purpose: the directory itself. SIG-246 is why the rule is asked of
+ * out on purpose: the path itself. SIG-246 is why the rule is asked of
  * `relative()` -- a prefix test let `/` and `C:\` through and reached
  * `rmSync('/', { recursive: true })` -- and the reasoning lives with
- * `isInside()` now rather than in a second copy of it here. The same-directory
+ * `isInside()` now rather than in a second copy of it here. The same-path
  * half is asked of `relative()` too rather than by comparing strings, so that
  * `c:\users\me\app` is the app at `C:\Users\me\app` on Windows.
  *
+ * This is arithmetic on spellings, so it answers for the path as written and
+ * not for what is on disk under it: a symlinked ancestor, or a different case
+ * on a case-insensitive volume, is `heldFile()`'s to see.
+ *
  * The path module is a parameter so both platforms' semantics can be asked on
  * one machine; everything that is not a test takes the host's.
+ *
+ * @param out - The output directory.
+ * @param target - What might be under it.
+ * @param path - The path semantics to ask with.
+ * @returns `true` if `out` is `target` or an ancestor of it.
+ */
+export function holds(out: string, target: string, path: typeof nodePath = nodePath): boolean {
+  return (
+    path.relative(path.resolve(out), path.resolve(target)) === '' || isInside(out, target, path)
+  );
+}
+
+/**
+ * Whether emptying `out` would take the app at `root` with it: `out` is the
+ * app root or any directory above it, the filesystem root included.
  *
  * @param out - The output directory.
  * @param root - The app's root.
@@ -488,7 +523,152 @@ export function clean(out: string, root: string, wanted: boolean): void {
  * @returns `true` if `out` is the app root or an ancestor of it.
  */
 export function holdsApp(out: string, root: string, path: typeof nodePath = nodePath): boolean {
-  return path.relative(path.resolve(out), path.resolve(root)) === '' || isInside(out, root, path);
+  return holds(out, root, path);
+}
+
+/**
+ * Everything the build reads that is the app's own, which is everything
+ * emptying the output directory must not take.
+ *
+ * The entry, every command module the walk found, the command directory
+ * itself, the manifest, `sigil.json` or `sigil.jsonc`, and the `tsconfig.json`
+ * the type check uses -- plus an executable `--bin` named. Files before the
+ * directory, so that a refusal names a file somebody recognises rather than
+ * the directory they typed.
+ *
+ * What it cannot list is a module only the bundle finds -- a helper the entry
+ * imports, a catalog -- because the module graph does not exist until rolldown
+ * builds it, and the clean runs before that so that a stale chunk cannot be
+ * read back. An `--out` naming such a directory still fails the build after
+ * emptying it. The list is what is knowable before the bundle, which covers
+ * every way the ticket that wrote this (SIG-350) reached the data loss.
+ *
+ * @param found - What reading the app turned up.
+ * @param bin - An executable of the app's own, when one was named.
+ * @returns Absolute paths, each of which exists.
+ */
+export function buildReads(found: Inspection, bin?: string): readonly string[] {
+  const { root } = found.app;
+  const files = [
+    found.app.entry,
+    ...modulesOf(found.commands),
+    join(root, 'package.json'),
+    ...CONFIG_FILES.map((name) => join(root, name)),
+    // the one `typeCheck()` uses, which is always the root's -- see
+    // `typecheck.ts` for why it never walks up
+    join(root, 'tsconfig.json'),
+    ...(bin === undefined ? [] : [bin]),
+    ...(found.commandDir === undefined ? [] : [found.commandDir]),
+  ];
+
+  return [...new Set(files.map((file) => resolve(file)))].filter((file) => existsSync(file));
+}
+
+/**
+ * Every module in a tree, depth first.
+ *
+ * @param commands - The tree.
+ * @returns The modules, in tree order.
+ */
+function modulesOf(commands: readonly ResolvedCommand[]): string[] {
+  return commands.flatMap((cmd) => [
+    ...(cmd.module === undefined ? [] : [cmd.module]),
+    ...modulesOf(cmd.commands),
+  ]);
+}
+
+/**
+ * Which of `reads` removing `out` would take with it, asked two ways.
+ *
+ * By spelling, through `holds()`, which is what catches `--out src` and its
+ * relatives: a relative `out`, a trailing separator and `..` segments are all
+ * gone by the time `resolveOut()` and `resolve()` hand it over, and on Windows
+ * `relative()` already compares the way that filesystem does.
+ *
+ * And by **identity**, which is what the spelling cannot see. `rmSync()`
+ * follows every symlink on the way to `out` and none at it, so an `out` under
+ * a symlinked directory removes what the link points at, and on a
+ * case-insensitive volume `--out SRC` removes `src` while `relative()` calls
+ * them strangers -- macOS's default, measured. So `out` is `lstat`ed, which is
+ * exactly what `rmSync()` decides by, and compared by device and inode with
+ * every directory above each file, walked both from the path the build reads
+ * and from the real path behind it. An `out` that is itself a symlink to the
+ * source is therefore **not** refused, and correctly: removing it unlinks the
+ * link and leaves its target alone, measured too. An `out` that does not exist
+ * yet cannot hold a file that does, so it is asked only by spelling.
+ *
+ * An inode of `0` is a file system that does not have them, where identity
+ * says nothing and the spelling is all there is.
+ *
+ * @param out - The output directory.
+ * @param reads - What the build reads.
+ * @returns The first file `out` would take, and whether `out` is that file.
+ */
+export function heldFile(
+  out: string,
+  reads: readonly string[]
+): { file: string; same: boolean } | undefined {
+  for (const file of reads) {
+    if (holds(out, file)) {
+      return { file, same: relative(resolve(out), resolve(file)) === '' };
+    }
+  }
+
+  const target = statOf(out, lstatSync);
+  if (!target || target.ino === 0n) {
+    return undefined;
+  }
+
+  // one walk per directory however many files share it: a directory already
+  // asked about did not match, and neither did anything above it
+  const asked = new Set<string>();
+
+  for (const file of reads) {
+    for (const start of new Set([resolve(file), realOf(file)])) {
+      for (let dir = start; !asked.has(dir); dir = dirname(dir)) {
+        asked.add(dir);
+        const stats = statOf(dir, statSync);
+        if (stats && stats.dev === target.dev && stats.ino === target.ino) {
+          return { file, same: dir === start };
+        }
+        if (dirname(dir) === dir) {
+          break;
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * A path's identity, or nothing when it cannot be asked.
+ *
+ * @param path - The path.
+ * @param read - `lstatSync` for what `rmSync()` removes, `statSync` for what
+ * a path reaches.
+ * @returns Its stats, in `bigint` so a 64-bit inode survives.
+ */
+function statOf(path: string, read: typeof lstatSync | typeof statSync): BigIntStats | undefined {
+  try {
+    return read(path, { bigint: true, throwIfNoEntry: false });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Where a path really is, or the path when that cannot be asked.
+ *
+ * @param path - The path.
+ * @returns Its real path.
+ */
+function realOf(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
 }
 
 /**
@@ -505,21 +685,47 @@ export function holdsApp(out: string, root: string, path: typeof nodePath = node
  * an `--out` naming the app root is a mistake whether or not the directory
  * exists yet, and reporting it only sometimes is worse than either.
  *
+ * The same is true of the second refusal, which is an `--out` holding anything
+ * the build reads: `--out src` passed the first because `src` is below the
+ * app rather than above it, and `rmSync()` took the source before rolldown
+ * failed on the entry it was about to read (SIG-350). The message names the
+ * file, because that is what makes the mistake obvious, and offers no
+ * `--no-clean`: building into the source is not a thing to do either way.
+ *
  * @param out - The output directory.
  * @param root - The app's root.
  * @param wanted - Whether cleaning was asked for at all.
- * @throws If the directory holds the app itself.
+ * @param reads - What the build reads, from `buildReads()`.
+ * @throws If the directory holds the app itself, or anything in `reads`.
  */
-export function assertCleanable(out: string, root: string, wanted: boolean): void {
+export function assertCleanable(
+  out: string,
+  root: string,
+  wanted: boolean,
+  reads: readonly string[]
+): void {
   if (!wanted) {
     return;
   }
 
+  const resolved = resolve(out);
+
   if (holdsApp(out, root)) {
-    const resolved = resolve(out);
     throw new Error(
       `Refusing to empty ${displayPath(resolved)}, which holds the app itself. ` +
         `Name a directory inside it, or pass --no-clean.`
+    );
+  }
+
+  const held = heldFile(out, reads);
+  if (held) {
+    const file = displayPath(relative(root, held.file) || held.file);
+    throw new Error(
+      held.same
+        ? `Refusing to remove ${displayPath(resolved)}, which is ${file}, and the build reads it. ` +
+            `Name a directory that holds none of the app's source.`
+        : `Refusing to empty ${displayPath(resolved)}, which holds ${file}, and the build reads it. ` +
+            `Name a directory that holds none of the app's source.`
     );
   }
 }

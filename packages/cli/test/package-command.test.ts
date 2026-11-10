@@ -1,7 +1,9 @@
 import { binaryName, canBuildSea, hostTarget, label } from '../src/build/compile.ts';
+import { displayPath } from '../src/build/index.ts';
 import { CONFIG_FILE } from '../src/config.ts';
 import { run } from '../src/index.js';
 import { copyFixture } from './copy-fixture.ts';
+import { tempDir } from './temp.ts';
 import { candidates, whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import {
@@ -595,6 +597,45 @@ describe('sigil package', () => {
       expect(err).toContain('holds the app itself');
       expect(process.exitCode).toBeTruthy();
     }, 60_000);
+
+    // SIG-350: the guard refused only an `--out` at or above the app, so
+    // `--out src` passed it and `clean()` removed the source before the bundle
+    // failed on the entry. A copy of the fixture, so a regression removes the
+    // copy's source rather than the fixture's
+    describe.each([
+      ['--out src', (app: string) => sigil('package', app, '--out', 'src', '--runtime', 'bun')],
+      [
+        'a package.out of src in sigil.json',
+        (app: string) => {
+          writeFileSync(
+            join(app, CONFIG_FILE),
+            `${JSON.stringify({ package: { out: 'src', runtime: 'bun' } })}\n`
+          );
+          return sigil('package', app);
+        },
+      ],
+    ])('%s', (_, pack) => {
+      it('deleted the app source and then failed, and is refused before anything is removed', async () => {
+        const app = join(tempDir('sigil-pkg-into-src-'), 'buildable');
+        copyFixture(join(fixtures, 'buildable'), app);
+        const sources = [
+          join(app, 'src', 'index.ts'),
+          join(app, 'src', 'commands', 'greet.ts'),
+          join(app, 'src', 'commands', 'db', 'migrate.js'),
+        ];
+
+        const { err } = await pack(app);
+
+        expect(err).toContain(
+          `Refusing to empty ${displayPath(join(app, 'src'))}, which holds ${displayPath(join('src', 'index.ts'))}`
+        );
+        expect(err).not.toContain('Module not found');
+        expect(process.exitCode).toBeTruthy();
+        for (const file of sources) {
+          expect(existsSync(file), file).toBe(true);
+        }
+      }, 60_000);
+    });
   });
 
   describe('the binary', () => {

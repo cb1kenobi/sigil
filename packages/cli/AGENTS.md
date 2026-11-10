@@ -2275,6 +2275,51 @@ other is refused with numbers.
   that file hands `clean()` the root, because a regression would make that
   removal real. The root only ever goes to the pure guard, and the one
   end-to-end case is a temp directory above a temp app.
+- **...and it refuses an `--out` that holds anything the build reads, because
+  "the one way" was not the only way.** SIG-350. `sigil build --out src` is
+  below the app rather than above it, so it passed, and `clean()` removed `src/`
+  after `inspect()` had read it and before rolldown went back for the entry --
+  so the build then failed with `Module not found` over a source tree it had
+  just deleted. Through `"build": { "out": "src" }` and through `sigil package`
+  equally. `buildReads()` is the list: the entry, every module the tree walk
+  found, the command directory, `package.json`, `sigil.json`/`sigil.jsonc`, the
+  root `tsconfig.json` the type check uses, and a `--bin`; `assertCleanable()`
+  refuses an `out` that is or holds any of them, names the file -- `which holds`
+  the entry for `--out src`, `which is` the file for `--out sigil.json` -- and
+  offers no `--no-clean`, since building into the source is wrong either way. Asked in the
+  same pre-flight as the root case, so `package` still refuses before a runtime
+  is fetched and nothing is removed first.
+
+  It is asked two ways in `heldFile()`, and each catches what the other cannot.
+  By **spelling**, through `holds()` -- which `holdsApp()` now is, rather than a
+  second copy of the `relative()` rule -- so a relative `out`, a trailing
+  separator, `..` segments and Windows' case folding are settled by `resolve()`
+  and `win32.relative()` as before. And by **identity**: `out` is `lstat`ed,
+  which is what `rmSync()` decides by, and compared by device and inode with
+  every directory above each file, walked from the path the build reads and
+  from its real path. That is what sees an `out` under a symlinked directory
+  (`rmSync()` follows every link on the way), a module that is a symlink into
+  the directory named, and `--out SRC` on a volume that folds case, which
+  macOS's default does and `relative()` cannot know. An `out` that **is** a
+  symlink to the source is allowed, and correctly: `rmSync()` does not follow
+  the last link, so it removes the link and nothing behind it -- measured, and
+  pinned by a test that runs the removal. An `out` that is a link the build
+  reads _through_ is refused by spelling, since removing it loses no data but
+  breaks the read. Four sabotages -- no spelling check, no identity walk, no
+  real-path start, `stat` for `lstat` -- each fail a test in
+  `test/clean-source.test.ts`; the commands are pinned from the flag
+  and from the config file in `build-command.test.ts` and
+  `package-command.test.ts`.
+
+  What it cannot list is a module only the bundle finds -- a helper the entry
+  imports, a catalog, `node_modules` -- because the module graph does not exist
+  until rolldown builds it, and the clean has to run before that. An `--out`
+  naming such a directory is still emptied and the build still fails after.
+  Every other recursive delete in `src/` was audited with it and removes only a
+  directory this toolchain made for itself: the bundle's and `package`'s
+  scratch directories under `node_modules/.sigil/`, the SEA config's
+  `mkdtempSync()` directory, and a runtime download's `.partial-<pid>`.
+
 - **Sourcemaps are on by default and `--no-sourcemap` turns them off, because
   "costs nothing" was only true of run time.** They are several times the size
   of the minified code they describe -- 203 KB against 38 KB -- and a package

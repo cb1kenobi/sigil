@@ -41,7 +41,7 @@ describe('the clean guard', () => {
     // used to return and let the removal through
     const app = resolve(tempDir('sigil-clean-guard-'), 'app');
 
-    expect(() => assertCleanable(parse(app).root, app, true)).toThrow('holds the app itself');
+    expect(() => assertCleanable(parse(app).root, app, true, [])).toThrow('holds the app itself');
   });
 
   it('should refuse every ancestor of the app, and the app root itself', () => {
@@ -96,13 +96,13 @@ describe('the clean guard', () => {
     mkdirSync(app);
     writeFileSync(join(app, 'package.json'), '{}');
 
-    expect(() => clean(base, app, true)).toThrow('holds the app itself');
+    expect(() => clean(base, app, true, [])).toThrow('holds the app itself');
     expect(existsSync(join(app, 'package.json'))).toBe(true);
   });
 
   it('should refuse nothing when cleaning was not asked for', () => {
     const app = resolve(tempDir('sigil-clean-guard-'), 'app');
 
-    expect(() => assertCleanable(parse(app).root, app, false)).not.toThrow();
+    expect(() => assertCleanable(parse(app).root, app, false, [])).not.toThrow();
   });
 });

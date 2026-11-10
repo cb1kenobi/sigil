@@ -67,6 +67,7 @@ import {
   appRuns,
   assertCleanable,
   binName,
+  buildReads,
   clean,
   commandsFound,
   failure,
@@ -204,7 +205,8 @@ const pkg: AnyCommand = command({
     assertSignable(identity, targets);
     // before `resolveExec()`, because it is pure path arithmetic and a run
     // doomed by its own `--out` should not fetch a 90 MB runtime first
-    assertCleanable(out, found.app.root, argv.clean !== false);
+    const reads = buildReads(found);
+    assertCleanable(out, found.app.root, argv.clean !== false, reads);
     for (const target of targets) {
       assertCompilable(runtime, target);
     }
@@ -239,7 +241,7 @@ const pkg: AnyCommand = command({
     // before anybody looked. If you want the bundle, `sigil build` writes one.
     const staging = join(found.app.root, WORK_DIR, `${hash(out)}-package`);
 
-    clean(out, found.app.root, argv.clean !== false);
+    clean(out, found.app.root, argv.clean !== false, reads);
 
     // and the staging directory, always: it is this command's own scratch space
     // rather than anything the user asked to keep, so a stale chunk from a
