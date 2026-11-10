@@ -94,11 +94,11 @@
   "views": {
     "narrow": {
       "columns": 40,
-      "output": "parser.ts\nca╭──────────────────────────────────╮\nla│ \u001b[1mDelete it?\u001b[0m                       │\n  │ parser.ts will be gone for good. │\n  │                                  │\n  │                     Yes   \u001b[36m[ No ]\u001b[0m │\n  ╰──────────────────────────────────╯"
+      "output": "parser.ts\nca╭──────────────────────────────────╮\nla│ \u001b[1mDelete it?\u001b[0m                       │\n  │ parser.ts will be gone for good. │\n  │                                  │\n  │                     Yes   [ \u001b[7mNo\u001b[0m ] │\n  ╰──────────────────────────────────╯"
     },
     "rendered": {
       "columns": 80,
-      "output": "parser.ts\ncanvas.ts             ╭──────────────────────────────────╮\nlayout.ts             │ \u001b[1mDelete it?\u001b[0m                       │\n                      │ parser.ts will be gone for good. │\n                      │                                  │\n                      │                     Yes   \u001b[36m[ No ]\u001b[0m │\n                      ╰──────────────────────────────────╯"
+      "output": "parser.ts\ncanvas.ts             ╭──────────────────────────────────╮\nlayout.ts             │ \u001b[1mDelete it?\u001b[0m                       │\n                      │ parser.ts will be gone for good. │\n                      │                                  │\n                      │                     Yes   [ \u001b[7mNo\u001b[0m ] │\n                      ╰──────────────────────────────────╯"
     }
   }
 }

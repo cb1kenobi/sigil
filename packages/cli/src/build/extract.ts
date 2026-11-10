@@ -73,9 +73,10 @@ import {
   plainProperty,
   propertyKey,
   stringList,
+  unwrapShallow,
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
-import type { ObjectExpression } from 'oxc-parser';
+import type { Expression, ObjectExpression } from 'oxc-parser';
 
 /** What a command module says about itself, read statically. */
 export interface CommandFacts {
@@ -194,7 +195,7 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
   const diagnostics: Diagnostic[] = [];
   const at = (offset?: number) => locate(parsed, offset);
 
-  const object = defaultObject(parsed, diagnostics);
+  const object = defaultObject(parsed, diagnostics)?.object;
   if (!object) {
     return { diagnostics, facts: {}, routing: [] };
   }
@@ -459,18 +460,52 @@ function unroutable(
   return diagnostics;
 }
 
+/** The object a module default-exports, and the binding it was reached through. */
+export interface DefaultObject {
+  /**
+   * The module-scope `const` the default export named, when it did not write the
+   * literal in place. Asked for by a caller that has to know whether anything else
+   * could have touched the object, which the literal in place rules out.
+   */
+  readonly binding?: string;
+  /** The literal. */
+  readonly object: ObjectExpression;
+}
+
+/** How far to look through to find the literal. */
+export interface DefaultObjectOptions {
+  /**
+   * Whether a call with exactly one object argument is the object it wraps.
+   *
+   * On by default, for the `desc` lift: `command({ ... })` is documented as the
+   * identity function and exists only so inference reaches a nested literal, so
+   * what it wraps says exactly what the bare literal says. Off for a caller whose
+   * claim a wrapper could falsify -- `withDefaults({ name: 'a' })` returns
+   * whatever it likes, `settings` included -- where only parentheses and
+   * `as`/`satisfies`/non-null are looked through.
+   */
+  readonly calls?: boolean;
+}
+
 /**
  * The object literal a module default-exports, or `undefined` with a
  * diagnostic saying why there is none.
  *
+ * The one definition of that, for the `desc` lift and for the message that says
+ * what a built app does with a schema's `settings`: the `const`-only rule and the
+ * `export { cmd as default }` resolution are decided here and nowhere else.
+ *
  * @param parsed - The module.
  * @param diagnostics - Where to report.
- * @returns The object expression.
+ * @param options - How far to look through.
+ * @returns The object expression, and the binding it was reached through.
  */
-function defaultObject(
+export function defaultObject(
   parsed: ParsedModule,
-  diagnostics: Diagnostic[]
-): ObjectExpression | undefined {
+  diagnostics: Diagnostic[],
+  options: DefaultObjectOptions = {}
+): DefaultObject | undefined {
+  const calls = options.calls ?? true;
   const exported = parsed.program.body.find((node) => node.type === 'ExportDefaultDeclaration');
 
   if (!exported) {
@@ -483,9 +518,9 @@ function defaultObject(
       .find((spec) => spec.exported.type === 'Identifier' && spec.exported.name === 'default');
 
     if (indirect && indirect.local.type === 'Identifier') {
-      const resolved = bindingObject(parsed, indirect.local.name);
+      const resolved = bindingObject(parsed, indirect.local.name, calls);
       if (resolved) {
-        return resolved;
+        return { binding: indirect.local.name, object: resolved };
       }
     }
 
@@ -499,10 +534,10 @@ function defaultObject(
     return undefined;
   }
 
-  const declaration = objectLiteral(exported.declaration as never);
+  const declaration = literalOf(exported.declaration as never, calls);
 
   if (declaration) {
-    return declaration;
+    return { object: declaration };
   }
 
   // `export default cmd`, where `cmd` is a `const` in this module. Worth
@@ -512,10 +547,15 @@ function defaultObject(
   // of those apps -- every command module in the toolchain ends this way. A
   // lift that cannot read the code its own conventions produce is a lift that
   // reports "help will list this command by name alone" about itself.
-  if (exported.declaration.type === 'Identifier') {
-    const resolved = bindingObject(parsed, exported.declaration.name);
+  //
+  // Looked at through parentheses and type assertions, as the literal above is:
+  // `export default cmd as Command` and `export default (cmd)` are the same
+  // statement, and checking the raw node declined them
+  const reference = unwrapShallow(exported.declaration as never);
+  if (reference.type === 'Identifier') {
+    const resolved = bindingObject(parsed, reference.name, calls);
     if (resolved) {
-      return resolved;
+      return { binding: reference.name, object: resolved };
     }
   }
 
@@ -526,6 +566,22 @@ function defaultObject(
     severity: 'warning',
   });
   return undefined;
+}
+
+/**
+ * The object literal an expression is, looking through calls or not.
+ *
+ * @param node - The expression.
+ * @param calls - Whether a one-argument call is the object it wraps.
+ * @returns The literal, or `undefined`.
+ */
+function literalOf(node: Expression, calls: boolean): ObjectExpression | undefined {
+  if (calls) {
+    return objectLiteral(node);
+  }
+
+  const inner = unwrapShallow(node);
+  return inner.type === 'ObjectExpression' ? inner : undefined;
 }
 
 /**
@@ -540,9 +596,14 @@ function defaultObject(
  *
  * @param parsed - The module.
  * @param name - The binding to resolve.
+ * @param calls - Whether a one-argument call is the object it wraps.
  * @returns The object expression, or `undefined` when it is not one.
  */
-function bindingObject(parsed: ParsedModule, name: string): ObjectExpression | undefined {
+function bindingObject(
+  parsed: ParsedModule,
+  name: string,
+  calls: boolean
+): ObjectExpression | undefined {
   for (const node of parsed.program.body) {
     const declaration =
       node.type === 'VariableDeclaration'
@@ -557,7 +618,7 @@ function bindingObject(parsed: ParsedModule, name: string): ObjectExpression | u
 
     for (const declarator of declaration.declarations) {
       if (declarator.id.type === 'Identifier' && declarator.id.name === name && declarator.init) {
-        return objectLiteral(declarator.init as never);
+        return literalOf(declarator.init as never, calls);
       }
     }
   }

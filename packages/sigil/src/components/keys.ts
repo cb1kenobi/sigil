@@ -58,6 +58,28 @@ const SEQUENCES: Record<string, string> = {
   '6~': 'pagedown',
   '7~': 'home',
   '8~': 'end',
+  // the function keys (SIG-285, for a menubar's F10). F1 to F4 are SS3 `P` to `S`
+  // in xterm's own spelling -- and the same finals after a CSI once a modifier
+  // rides on them, `ESC [ 1 ; 2 P` -- and `11~` to `14~` in rxvt's; F5 on are
+  // numbered with the gaps the VT220 left in them
+  P: 'f1',
+  Q: 'f2',
+  R: 'f3',
+  S: 'f4',
+  '11~': 'f1',
+  '12~': 'f2',
+  '13~': 'f3',
+  '14~': 'f4',
+  '15~': 'f5',
+  '17~': 'f6',
+  '18~': 'f7',
+  '19~': 'f8',
+  '20~': 'f9',
+  '21~': 'f10',
+  '23~': 'f11',
+  '24~': 'f12',
+  // the Menu key, which opens a context menu where a desktop has one
+  '29~': 'menu',
 };
 
 /** The control bytes worth naming. Everything else falls through to `ctrl+<letter>`. */
@@ -324,7 +346,11 @@ function readEscape(input: string, start: number, opts: DecodeOptions): Read {
 
     const params = input.slice(start + 2, i);
     const sequence = input.slice(start, i + 1);
-    const name = SEQUENCES[final] ?? SEQUENCES[`${params}${final}`] ?? 'unknown';
+    // the first parameter names the key and the second carries its modifiers, so
+    // Shift-F10 is `ESC [ 21 ; 2 ~` and is looked up as `21~` -- read whole, it
+    // was an unknown sequence, and so was every modified key of the `~` family
+    const name =
+      SEQUENCES[final] ?? SEQUENCES[`${params.split(';')[0] ?? ''}${final}`] ?? 'unknown';
 
     // `ESC [ 1 ; 5 A` is Ctrl-Up and `ESC [ 1 ; 2 A` is Shift-Up: the modifier is
     // the second parameter, one more than a bitmask of 1 shift, 2 alt, 4 ctrl,
