@@ -246,6 +246,10 @@
       "types": "./dist/components/select-row.d.mts",
       "default": "./dist/components/select-row.mjs"
     },
+    "./components/slider": {
+      "types": "./dist/components/slider.d.mts",
+      "default": "./dist/components/slider.mjs"
+    },
     "./components/sort": {
       "types": "./dist/components/sort.d.mts",
       "default": "./dist/components/sort.mjs"

@@ -5293,6 +5293,61 @@ background, and the caret of a focused field carries `.sigil-focus`, the role a
 control puts on the part that shows its focus -- `sigil/themes` below says which
 controls do.
 
+#### A slider
+
+```js
+import { describeSlider, Slider } from '@ttylabs/sigil/components/slider';
+import { box, text } from '@ttylabs/sigil/element';
+import { State } from '@ttylabs/sigil/signals';
+
+const volume = new State(40);
+const slider = Slider({ value: volume, format: (v) => `${v}%`, onChange: (v) => mixer.set(v) });
+const row = box({ 'flex-direction': 'row' }, text('Volume', { width: 8 }), slider);
+describeSlider(input, slider); // for keyHelp(), once the router exists
+```
+
+```
+Volume  ━━━━━━━━○───────────  40%
+```
+
+A number on a track, as an element: focusable, moved by the keys and dragged by
+the pointer. `value` is a number to start from or a `State<number>` that is the
+value itself -- the keys and the pointer write it, and a write the app makes moves
+the thumb. `onChange(value)` is called after the keys or the pointer moved it, and
+never for a write the app made. `min` and `max` default to 0 and 100 and `step` to
+1; the value is always `min` plus a whole number of steps, so the top is the last
+step at or under `max`, and a fractional step lands on `0.3` rather than
+`0.30000000000000004`. A value the app writes outside the range or between two
+steps is drawn at the nearest step and left as written.
+
+Left and Right move a step, Page Up and Page Down a page -- `page`, in the value's
+own units, defaulting to a tenth of the range and never less than a step -- and
+Home and End go to the ends. They are claimed even at an end, so a held key that
+overshoots does not reach whatever is around the slider; Up, Down, Enter, Tab and
+any key with a modifier are left alone, so a form of rows can have them. A left
+press on the track puts the thumb under the pointer and focuses the slider, and
+holding the button drags it: the press captures the pointer, so a drag past either
+end of the track, or off the canvas, clamps at that end and the release still ends
+it. The wheel is left to whatever scrolls. `disabled` (a boolean or a
+`State<boolean>`) takes it out of the focus ring, ignores the keys and the pointer,
+and mutes it.
+
+**The label is the app's, and the readout is the slider's.** A form lines its
+labels up in a column only it knows the width of, which is why a text field has
+none either. `format` draws a readout after the track, and it is as wide as the
+widest thing `format` returns over the range, so the track does not move a column
+as the value goes from `9%` to `100%`; without `format` there is no readout.
+`width` is the track's columns; without one the track takes what the layout gives
+it -- the rest of a column, or twenty columns in a row with no width of its own,
+shrinking to its share where the row is short. Horizontal only.
+
+The focused slider's thumb carries `.sigil-focus` and fills in, `○` to `●` (`o` to
+`O` in ASCII), and the glyph is what shows the focus at colour level 0, where the
+role is dropped. The filled stretch and the thumb are `.sigil-accent` and the rest
+of the track `.sigil-muted`; `.sigil-slider`, `-track`, `-fill`, `-thumb`, `-rest`
+and `-value` are the theme hooks. `describeSlider(input, ...sliders)` describes the
+six keys scoped to each slider, for `keyHelp()`.
+
 #### A toast
 
 ```js

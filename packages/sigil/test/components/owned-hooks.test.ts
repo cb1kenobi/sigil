@@ -2,6 +2,7 @@ import { Collapsible } from '../../src/components/collapsible.js';
 import { openModal } from '../../src/components/modal.js';
 import { createPager } from '../../src/components/pager.js';
 import { ScrollBox } from '../../src/components/scroll-box.js';
+import { Slider } from '../../src/components/slider.js';
 import { tabRowView, Tabs } from '../../src/components/tabs.js';
 import { TextField } from '../../src/components/text-field.js';
 import { showToast } from '../../src/components/toast.js';
@@ -96,6 +97,11 @@ const CASES: Case[] = [
     make: (props) => ({ element: tabRowView({ labels: ['a', 'b'], props: props as never }) }),
     name: 'tabRowView',
     owns: ['onKey', 'onFocusChange', 'onResize'],
+  },
+  {
+    make: (props) => ({ element: Slider({ props: props as never }) }),
+    name: 'Slider',
+    owns: ['onKey', 'onFocusChange'],
   },
   {
     make: (props) => {
