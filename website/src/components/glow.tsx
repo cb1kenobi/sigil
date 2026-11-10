@@ -6,7 +6,7 @@ const DOCS_FADE_HEIGHT = 520;
 type GlowProps = {
   /**
    * `radial` sits behind the focal element of a hero. `top` is a docs page's,
-   * centred on its top edge and 520px tall.
+   * centered on its top edge and 520px tall.
    */
   variant: 'radial' | 'top';
   /**
@@ -17,7 +17,7 @@ type GlowProps = {
   alpha?: number;
   /** The ellipse's radii as `x y`. `radial` has no default; `top` is `40% 70%`. */
   size?: string;
-  /** The ellipse's centre as `x y`. `top` is `50% 0%`. */
+  /** The ellipse's center as `x y`. `top` is `50% 0%`. */
   at?: string;
   /** Position and extent, for a band that does not start at the top of its parent. */
   className?: string;

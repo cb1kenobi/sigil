@@ -478,9 +478,12 @@ describe('the system monitor', () => {
     expect(app.term.output).toContain(`${ESC}[35mtheme: violet`);
 
     // a dialog is appended beside the app's root rather than inside it, so the
-    // theme has to be on the host for the focused button's accent to follow
+    // theme has to be on the host for the dialog's title to follow. The title
+    // rather than the focused button since SIG-199: a button's focus is the
+    // focus role, inverse, which is the same under every palette
     await app.press('x');
-    expect(app.term.output).toMatch(new RegExp(`${ESC}\\[35m\\[ No \\]`));
+    expect(app.term.output).toMatch(new RegExp(`${ESC}\\[1;95mKill process`));
+    expect(app.term.output).toContain(`[ ${ESC}[7mNo${ESC}[27m ]`);
   });
 
   it('should come back to the framework colours after a lap of the themes, leaking nothing', async () => {
@@ -509,6 +512,28 @@ describe('the system monitor', () => {
     expect(lines[0]).toMatch(/^╭─ cpu · 2 cores ─+╮╭─ memory ─+╮$/);
     expect(lines.every((line) => [...line].length <= 64)).toBe(true);
     expect(app.screen()).toContain('proc-1');
+  });
+
+  it('should refit the footer to a resize, with the status keeping its width beside it', async () => {
+    // the footer used to be told the terminal's width less a guess at the status,
+    // read only when the bindings or the focus moved -- so a resize left it fitted
+    // to the old width. It is fitted to its box now, which is the row less the status
+    const app = mount({ columns: 60, processes: [proc(1, 5, 1)] });
+    await app.step();
+    expect(app.term.viewport.at(-1)).toBe(' ↑/↓ select · s sort · / filter · x kill · q quit …');
+
+    app.term.resize(100, 30);
+    await app.settle();
+    expect(app.term.viewport.at(-1)).toBe(
+      ' ↑/↓ select · s sort · / filter · x kill · t theme · q quit'
+    );
+
+    await app.press('t');
+    app.term.resize(40, 30);
+    await app.settle();
+    const footer = app.term.viewport.at(-1) ?? '';
+    expect(footer).toMatch(/^ ↑\/↓ select · q quit … +theme: mono$/);
+    expect([...footer].length).toBeLessThanOrEqual(40);
   });
 
   it('should fit the screen however many cores there are, wrapping them into columns', async () => {

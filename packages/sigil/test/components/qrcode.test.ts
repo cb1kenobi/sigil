@@ -55,7 +55,7 @@ function checkStructure(
   }
 
   // the three finders with their one-module light separators, read as the ring
-  // distance from each centre so that the corners fall out rather than being
+  // distance from each center so that the corners fall out rather than being
   // enumerated
   for (const [ox, oy] of [
     [0, 0],
@@ -87,22 +87,22 @@ function checkStructure(
 
   // the alignment patterns, from the spec's own rule. Version 1 has none at all,
   // which the fill below does not know -- the first version of this check built
-  // centres for it and reported 107 problems in a matrix with nothing wrong
-  const centres: number[] = [];
+  // centers for it and reported 107 problems in a matrix with nothing wrong
+  const centers: number[] = [];
   if (version > 1) {
     const count = Math.floor(version / 7) + 2;
     const step = version === 32 ? 26 : Math.ceil((version * 4 + 4) / (count * 2 - 2)) * 2;
-    centres.push(6);
-    for (let pos = version * 4 + 10; centres.length < count; pos -= step) {
-      centres.splice(1, 0, pos);
+    centers.push(6);
+    for (let pos = version * 4 + 10; centers.length < count; pos -= step) {
+      centers.splice(1, 0, pos);
     }
   }
-  for (const [i, cy] of centres.entries()) {
-    for (const [j, cx] of centres.entries()) {
+  for (const [i, cy] of centers.entries()) {
+    for (const [j, cx] of centers.entries()) {
       const corner =
         (i === 0 && j === 0) ||
-        (i === 0 && j === centres.length - 1) ||
-        (i === centres.length - 1 && j === 0);
+        (i === 0 && j === centers.length - 1) ||
+        (i === centers.length - 1 && j === 0);
       if (corner) {
         continue;
       }

@@ -130,12 +130,12 @@ reports a terminal's font reliably, so a different one is an option; CFF fonts
   machine, and bundles **DejaVu Sans** for them instead, under its own licence,
   [`fonts/DejaVu-LICENSE.txt`](fonts/DejaVu-LICENSE.txt). It is looked in after
   the faces and after any `fallback` you give, whatever `font` is, and a symbol
-  from it is drawn at its own size and centred in its cell, overhanging the
+  from it is drawn at its own size and centered in its cell, overhanging the
   cells beside it a little as a terminal's fallback does. A test in this package
   fails if anything `@ttylabs/sigil`'s components can draw would come out as a
   box.
 - **Fullwidth ASCII** — `Ａ`, `０`, `！`, the decrypt effect's alphabet — is drawn
-  from the ASCII glyph, centred across the two cells, unless a font has the real
+  from the ASCII glyph, centered across the two cells, unless a font has the real
   one.
 - **Wide characters span two cells.** A character no font has is drawn as a box.
   None of the bundled fonts has CJK, so give a `fallback` font for it, which is

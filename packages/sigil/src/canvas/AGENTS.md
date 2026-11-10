@@ -756,7 +756,7 @@ style sweep had to grow.
 - **An iris is scaled by distance rather than ranked by position.** What decides an
   iris is _how far_ a cell is rather than how many cells are nearer: ranking reveals
   a constant number of cells per step, which makes the circle crawl at the start and
-  race at the end. Measured, a centred iris at half the ramp has **307 of 861 cells**
+  race at the end. Measured, a centered iris at half the ramp has **307 of 861 cells**
   -- 35.7%, not a quarter, because the disc at the full radius reaches the corners
   and so extends past the rectangle's own edges -- where a ranked field would have
   exactly half.

@@ -71,7 +71,7 @@ const states = [
   {
     mask: () => irisMask(WIDTH, HEIGHT),
     name: 'iris      (a circle, opening out)',
-    draw: card('FOUR', ['distance from the centre, with', 'a row worth two columns'], 6),
+    draw: card('FOUR', ['distance from the center, with', 'a row worth two columns'], 6),
   },
 ];
 

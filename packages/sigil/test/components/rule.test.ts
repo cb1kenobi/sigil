@@ -67,7 +67,7 @@ describe('rule()', () => {
   });
 
   describe('the label', () => {
-    it('should centre, with the odd cell on the right', () => {
+    it('should center, with the odd cell on the right', () => {
       expect(line({ label: 'Mid' })).to.equal('─────── Mid ────────');
     });
 
@@ -105,7 +105,7 @@ describe('rule()', () => {
       expect(out.endsWith('─')).to.equal(true);
     });
 
-    it('should keep a line cell at each end of a centred label however much is cut', () => {
+    it('should keep a line cell at each end of a centered label however much is cut', () => {
       const out = line({ label: 'x'.repeat(50), width: 12 });
 
       expect(out[0]).to.equal('─');

@@ -237,19 +237,19 @@ describe('a mask', () => {
       // a terminal cell is about twice as tall as it is wide, so a field on raw
       // cell distance draws an ellipse twice as tall as it is round
       const mask = irisMask(9, 9, { aspect: 2 });
-      const centre = 4 * 9 + 4;
-      // two cells right of centre against one cell below it: the same distance
+      const center = 4 * 9 + 4;
+      // two cells right of center against one cell below it: the same distance
       // on screen, so the same value
-      expect(mask.values[centre + 2]).toBe(mask.values[centre + 9]);
+      expect(mask.values[center + 2]).toBe(mask.values[center + 9]);
       // and at an aspect of one they part, which is what says the option is read
       const square = irisMask(9, 9, { aspect: 1 });
-      expect(square.values[centre + 2]).not.toBe(square.values[centre + 9]);
+      expect(square.values[center + 2]).not.toBe(square.values[center + 9]);
     });
 
-    it('should finish exactly when the threshold does, from any centre', () => {
+    it('should finish exactly when the threshold does, from any center', () => {
       // the farthest corner is what the ramp is normalized by, and the maximum
       // of a Euclidean distance over a rectangle is at a corner whether or not
-      // the centre is inside it -- so the two outside centres are the cases
+      // the center is inside it -- so the two outside centers are the cases
       // that say the four-corner read is enough rather than a shortcut
       for (const [x, y] of [
         [0, 0],
@@ -269,7 +269,7 @@ describe('a mask', () => {
       // scaled by the longest distance rather than ranked by position, because
       // what decides an iris is *how far* a cell is rather than how many cells
       // are nearer. A circle's area goes as the square of its radius, so at
-      // half the ramp a centred iris has nothing like half the cells -- where a
+      // half the ramp a centered iris has nothing like half the cells -- where a
       // ranked field would have exactly half, and the circle would crawl at the
       // start and race at the end. Measured: 307 of 861 cells, which is 35.7%
       // -- not a quarter, because the disc at the full radius reaches the
@@ -296,7 +296,7 @@ describe('a mask', () => {
       // `opts.aspect || 2` would default a zero to two, which is the shape this
       // repo records from the other side -- a uid of `0` is a uid. Zero is a
       // legitimate answer here: the row stops counting, so the field is a wipe
-      // out from the centre column and every cell of a column shares a value
+      // out from the center column and every cell of a column shares a value
       const mask = irisMask(5, 3, { aspect: 0 });
       expect(mask.values[0]).toBe(mask.values[1 * 5]);
       expect(mask.values[1 * 5 + 2]).toBe(0);

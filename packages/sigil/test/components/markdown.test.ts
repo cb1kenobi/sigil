@@ -892,7 +892,7 @@ describe('markdown()', () => {
       ]);
     });
 
-    it('should align a column right or centre', () => {
+    it('should align a column right or center', () => {
       expect(
         draw('| left | right | mid |\n| :-- | --: | :-: |\n| a | b | c |').split('\n')[2]
       ).to.equal('a         b   c');

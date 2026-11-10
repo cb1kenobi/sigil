@@ -1,0 +1,78 @@
+{
+  "api": {
+    "interface": "MenuOptions",
+    "options": [
+      {
+        "description": "What it opens beside, or the cell it opens at.",
+        "name": "at",
+        "optional": false,
+        "type": "MenuAnchor"
+      },
+      {
+        "description": "The router the keys come from.",
+        "name": "input",
+        "optional": false,
+        "type": "InputRouter"
+      },
+      {
+        "description": "What it offers.",
+        "name": "items",
+        "optional": false,
+        "type": "readonly MenuEntry<T>[]"
+      },
+      {
+        "description": "Draw the border, the pointer and the arrows with ASCII only. Defaults to what `unicodeSupported()` says, the rule the modal and the tooltip keep.",
+        "default": "what `unicodeSupported()` says",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Which entry is highlighted when it opens, by position. Defaults to the first one on offer. A position that is a separator or disabled highlights nothing.",
+        "default": "the first one on offer",
+        "name": "initial",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Classes put on the menu and on every submenu it opens, beside `sigil-menu`, so a theme can style these menus apart from every other: `.files-menu { background-color: blue }`. A menu is drawn on the root rather than inside whatever opened it, so a rule written under that element cannot reach it. Space-separated for several.",
+        "name": "menuClass",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The narrowest the menu is, border included, in cells. A dropdown passes the width of its field, so the list is never narrower than what it opened from.",
+        "name": "minWidth",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Called with the item that was chosen, after the menu has closed.",
+        "name": "onSelect",
+        "optional": true,
+        "type": "(item: MenuItem<T>) => void"
+      },
+      {
+        "description": "The side of an element anchor it opens on when there is room. Defaults to `bottom`. Flipped to the other side when there is not, by `placeTooltip()`.",
+        "default": "`bottom`",
+        "name": "side",
+        "optional": true,
+        "type": "TooltipSide"
+      }
+    ],
+    "shared": [],
+    "signature": "function openMenu<T = unknown>(host: MenuHost, opts: MenuOptions<T>): MenuHandle<T>"
+  },
+  "registryDescription": "A menu anchored to an element or to the pointer, with submenus, disabled items and separators, and a context menu on right click or Shift-F10",
+  "source": "packages/sigil/src/components/menu.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "report.md\n╭────────────────────╮\n│  \u001b[36mO\u001b[0mpen        \u001b[2menter\u001b[0m │\n│\u001b[7m❯ \u001b[0m\u001b[7;36mR\u001b[0m\u001b[7mename...         \u001b[0m│\n│\u001b[2m────────────────────\u001b[0m│\n│  Copy \u001b[36mp\u001b[0math       ▸ │\n│ \u001b[2m \u001b[0m\u001b[2;36mD\u001b[0m\u001b[2melete  Read-only \u001b[0m│\n╰────────────────────╯"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "report.md\n╭────────────────────╮\n│  \u001b[36mO\u001b[0mpen        \u001b[2menter\u001b[0m │\n│\u001b[7m❯ \u001b[0m\u001b[7;36mR\u001b[0m\u001b[7mename...         \u001b[0m│\n│\u001b[2m────────────────────\u001b[0m│\n│  Copy \u001b[36mp\u001b[0math       ▸ │\n│ \u001b[2m \u001b[0m\u001b[2;36mD\u001b[0m\u001b[2melete  Read-only \u001b[0m│\n╰────────────────────╯"
+    }
+  }
+}

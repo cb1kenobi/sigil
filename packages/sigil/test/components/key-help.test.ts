@@ -9,14 +9,22 @@ import {
 import { box, type Element, renderToString, text } from '../../src/element/index.js';
 import { __, type Catalog, loadCatalog } from '../../src/i18n/index.js';
 import { createInput } from '../../src/input/index.js';
+import { type App, runApp, useApp } from '../../src/renderer/app.js';
 import { State } from '../../src/signals/index.js';
-import { createTestTerminal, tick } from '../../src/testing/index.js';
+import { createTestTerminal, frame, tick } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
+const apps: App[] = [];
+
 /** Back to English with no loader map, which is the state every case starts from. */
 afterEach(async () => {
+  for (const app of apps.splice(0)) {
+    app.exit();
+    await app.exited;
+  }
+  process.exitCode = undefined;
   await loadCatalog(undefined, {});
 });
 
@@ -293,6 +301,43 @@ describe('keyHelp', () => {
     expect(paint(footer, 60)).toHaveLength(1);
   });
 
+  it('should not hold the long form to the width the short form asked for', async () => {
+    // a heading is wider than the one line it heads, so a long form laid out at the
+    // short form's six columns would cut it to `appli…`
+    const { input } = setup();
+    const expanded = new State(false);
+    input.bind('q', () => {}, { description: 'quit', group: 'application' });
+    const footer = keyHelp(input, { expanded });
+    await tick();
+    expect(paint(footer, 40)).toEqual(['q quit']);
+
+    expanded.set(true);
+    await tick();
+    expect(paint(footer, 40)).toEqual(['application', 'q  quit']);
+  });
+
+  it('should answer a resize that changes no line as no change', async () => {
+    const { input } = setup();
+    input.bind('q', () => {}, { description: 'quit' });
+    input.bind('?', () => {}, { description: 'help' });
+    const footer = keyHelp(input);
+    await tick();
+    expect(paint(footer, 40)).toEqual(['q quit · ? help']);
+    const kids = [...footer.children];
+    /** Whether the children are the very elements drawn before, not equal ones. */
+    const same = (): boolean =>
+      footer.children.length === kids.length && footer.children.every((c, i) => c === kids[i]);
+
+    // told the room it already drew for: nothing to rebuild, and nothing a frame
+    // has to lay out again
+    expect(footer.onResize?.(footer)).toBe(false);
+    expect(same()).toBe(true);
+
+    // and the same lines at a different width are the same tree too
+    expect(paint(footer, 30)).toEqual(['q quit · ? help']);
+    expect(same()).toBe(true);
+  });
+
   it('should show nothing for a binding with no description', async () => {
     const { input } = setup();
     input.bind('q', () => {});
@@ -311,5 +356,79 @@ describe('keyHelp', () => {
     await tick();
 
     expect(paint(footer, 60)).toEqual(['Eingabe wählen']);
+  });
+
+  describe('in a running app, sized by its box', () => {
+    /**
+     * Runs a screen whose last row holds the footer, over a test terminal.
+     *
+     * `quitKey: false`, so the only bindings listed are the ones bound here, and
+     * no `width` -- the footer is told nothing, and has to learn its room from the
+     * layout it is put in, the way it is in an app.
+     */
+    function start(
+      footerRow: (footer: Element) => Element,
+      columns: number
+    ): { app: App; term: ReturnType<typeof createTestTerminal> } {
+      const term = createTestTerminal({ columns, rows: 4 });
+      const app = runApp(
+        () => {
+          // always there under `runApp()` over a terminal, and typed as possibly
+          // missing for the app that has none
+          const input = useApp().input!;
+          input.bind('up', () => {}, { description: 'move', priority: 5 });
+          input.bind('down', () => {}, { description: 'move', priority: 5 });
+          input.bind('enter', () => {}, { description: 'open', priority: 4 });
+          input.bind('?', () => {}, { description: 'help', priority: 1 });
+          input.bind('x', () => {}, { description: 'quit', priority: 3 });
+          return box(
+            { 'flex-direction': 'column', 'flex-grow': 1 },
+            box({ 'flex-grow': 1 }, text('body')),
+            footerRow(keyHelp(input))
+          );
+        },
+        { detect: false, quitKey: false, terminal: term.terminal }
+      );
+      apps.push(app);
+      return { app, term };
+    }
+
+    it('should refit to a resize, narrower and back again', async () => {
+      const { app, term } = start((footer) => footer, 40);
+      await frame(app);
+      expect(term.viewport.at(-1)).toBe('↑/↓ move · enter open · ? help · x quit');
+
+      // the footer was fitted when it was built and again only when a binding or
+      // the focus moved, so a narrower terminal clipped the line it already had
+      term.resize(24, 4);
+      await frame(app);
+      expect(term.viewport.at(-1)).toBe('↑/↓ move · enter open …');
+
+      term.resize(40, 4);
+      await frame(app);
+      expect(term.viewport.at(-1)).toBe('↑/↓ move · enter open · ? help · x quit');
+    });
+
+    it('should take what a status beside it leaves, and grow back when there is room', async () => {
+      // a row, which is the default direction: sized to its content, a footer
+      // that had dropped bindings would be sized to what it kept and never be
+      // offered room for the rest again
+      const { app, term } = start(
+        (footer) => box({ 'column-gap': 2 }, footer, text('status', { 'flex-shrink': 0 })),
+        48
+      );
+      await frame(app);
+      expect(term.viewport.at(-1)).toBe('↑/↓ move · enter open · ? help · x quit  status');
+
+      // 31 less the status and the gap is 23, which is `move` and `open` and the
+      // mark, `quit` going before `open` for being the lower priority
+      term.resize(31, 4);
+      await frame(app);
+      expect(term.viewport.at(-1)).toBe('↑/↓ move · enter open …  status');
+
+      term.resize(48, 4);
+      await frame(app);
+      expect(term.viewport.at(-1)).toBe('↑/↓ move · enter open · ? help · x quit  status');
+    });
   });
 });

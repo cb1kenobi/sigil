@@ -387,7 +387,7 @@ function remainder(data: Uint8Array, degree: number): Uint8Array {
  * -------------------------------------------------------------------------- */
 
 /**
- * Where the alignment patterns' centres sit, for a version.
+ * Where the alignment patterns' centers sit, for a version.
  *
  * The spec tabulates these and they are derivable: the first is always column
  * six, the last is always seven in from the far edge, and the rest are spread
@@ -396,9 +396,9 @@ function remainder(data: Uint8Array, degree: number): Uint8Array {
  * wart in the spec rather than in the arithmetic, and is why it is named.
  *
  * @param version - 1 to 40.
- * @returns The centres, ascending. Empty for version 1, which has none.
+ * @returns The centers, ascending. Empty for version 1, which has none.
  */
-function alignmentCentres(version: number): number[] {
+function alignmentCenters(version: number): number[] {
   if (version === 1) {
     return [];
   }
@@ -422,7 +422,7 @@ function alignmentCentres(version: number): number[] {
  * patterns, the format information, the alignment patterns, and -- from version
  * seven -- the version information. Derived rather than tabulated because it is
  * a fact about the geometry above: a table of it is a second statement of
- * `alignmentCentres()` that can disagree with it.
+ * `alignmentCenters()` that can disagree with it.
  *
  * @param version - 1 to 40.
  * @returns The module count.
@@ -731,15 +731,15 @@ function drawFunctionPatterns(grid: Grid, version: number): void {
     }
   }
 
-  // the alignment patterns: a 5x5 target at every pair of centres, except the
+  // the alignment patterns: a 5x5 target at every pair of centers, except the
   // three pairs that would sit on a finder
-  const centres = alignmentCentres(version);
-  for (const [i, cy] of centres.entries()) {
-    for (const [j, cx] of centres.entries()) {
+  const centers = alignmentCenters(version);
+  for (const [i, cy] of centers.entries()) {
+    for (const [j, cx] of centers.entries()) {
       const corner =
         (i === 0 && j === 0) ||
-        (i === 0 && j === centres.length - 1) ||
-        (i === centres.length - 1 && j === 0);
+        (i === 0 && j === centers.length - 1) ||
+        (i === centers.length - 1 && j === 0);
       if (corner) {
         continue;
       }

@@ -219,7 +219,10 @@ describe('openModal()', () => {
     s.input.focus.focus(s.one);
     const handle = modalOn(s, { actions: [{ label: 'A' }, { label: 'B' }], initial: 1 });
     expect(handle.element.contains(s.input.focus.current.get() as Element)).to.equal(true);
-    expect((s.input.focus.current.get() as Element).text).to.include('B');
+    // a button is a box of its brackets and its label since SIG-199, so its words
+    // are read off its parts -- bracketed, because it has the focus
+    const focused = s.input.focus.current.get() as Element;
+    expect(focused.children.map((part) => part.text).join('')).to.equal('[ B ]');
   });
 
   it('should refuse input that is not a router, and bad options', () => {

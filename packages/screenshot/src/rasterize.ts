@@ -307,7 +307,7 @@ function findFace(
  *
  * Every font first, so a `fallback` that has a real fullwidth `Ａ` is drawn with
  * it. Then a fullwidth ASCII form none of them has is drawn from its ASCII
- * glyph, centred across the two cells it spans: the bundled fonts have no
+ * glyph, centered across the two cells it spans: the bundled fonts have no
  * fullwidth designs, a CJK font that does is some 16 MB, and the decrypt
  * effect's default alphabet is made of them.
  *
@@ -364,11 +364,11 @@ class GlyphCache {
     const out: Coverage[] = [];
     const { face } = found;
     const unit = this.#metrics.fontPx / face.font.metrics.unitsPerEm;
-    // the base is centred on its advance across the cells it spans, and the pen
+    // the base is centered on its advance across the cells it spans, and the pen
     // then moves past it, as it would along a line: a combining mark is drawn
     // from there, because a font with no positioning tables puts a mark's ink
     // to the left of its own origin, over the glyph before it. Drawing a mark
-    // centred on its zero advance put it half a cell to the left of its base
+    // centered on its zero advance put it half a cell to the left of its base
     // -- review round 1
     let pen = (this.#metrics.width * span - face.font.advance(found.glyph) * unit) / 2;
     const add = (glyph: number): void => {

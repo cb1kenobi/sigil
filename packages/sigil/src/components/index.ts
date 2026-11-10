@@ -52,8 +52,13 @@ export * from './subpaths/collapsible.js';
 export * from './subpaths/tabs.js';
 export * from './subpaths/modal.js';
 export * from './subpaths/text-field.js';
+export * from './subpaths/text-area.js';
 export * from './subpaths/toast.js';
 export * from './subpaths/tooltip.js';
+export * from './subpaths/overlay.js';
+export * from './subpaths/menu.js';
+export * from './subpaths/menubar.js';
+export * from './subpaths/dropdown.js';
 export * from './subpaths/scroll-box.js';
 export * from './subpaths/list-view.js';
 export * from './subpaths/tree-list-view.js';
@@ -71,6 +76,12 @@ export * from './subpaths/diff.js';
 export * from './subpaths/rule.js';
 export * from './subpaths/markdown-parse.js';
 export * from './subpaths/markdown.js';
+export * from './subpaths/control.js';
+export * from './subpaths/button.js';
+export * from './subpaths/checkbox.js';
+export * from './subpaths/radio-set.js';
+export * from './subpaths/slider.js';
+export * from './subpaths/switch.js';
 export {
   FRAMEWORK_CSS,
   frameworkSheet,

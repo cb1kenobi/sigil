@@ -8,4 +8,5 @@ export {
   type ScrollControl,
   type ScrollRows,
   thumbExtent,
+  wheelStep,
 } from '../scroll-box.js';
