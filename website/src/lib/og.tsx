@@ -109,7 +109,7 @@ function groundSvg(glow: Glow) {
   ].join('');
 }
 
-/** Where the glow is centred, as fractions of the card. It sits behind the mark. */
+/** Where the glow is centered, as fractions of the card. It sits behind the mark. */
 type Glow = [x: number, y: number];
 
 const ground = (glow: Glow) =>

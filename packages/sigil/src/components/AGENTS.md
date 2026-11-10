@@ -3641,9 +3641,9 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   a QR encoder needs is usually written as a 160-entry table of characters per
   version per level; what is here is the ECC codewords per block and the block
   count per version per level, with the raw module count, the alignment-pattern
-  centres and therefore every capacity computed from the symbol's own geometry.
+  centers and therefore every capacity computed from the symbol's own geometry.
   The reason is this file's own rule about a second list: a tabulated module count
-  is a restatement of `alignmentCentres()` that can disagree with it, and the
+  is a restatement of `alignmentCenters()` that can disagree with it, and the
   disagreement would be a symbol whose codewords do not fill it. The derivation is
   checked against the spec's published figures at both ends -- version 1 and
   version 40, all four levels, all three modes, the capacity and one character
@@ -3942,7 +3942,7 @@ correctness no test in this package can state, which is the position
   a mangled row, or metadata transcribed onto the wrong matrix, would make every
   agreement with them worthless. `checkStructure()` is written from the spec's own
   rules -- the three finders with their separators, both timing patterns, the dark
-  module, the alignment centres, both copies of the format information computed as
+  module, the alignment centers, both copies of the format information computed as
   BCH(15,5) over `0x537` XOR `0x5412`, and both copies of the version information
   as BCH(18,6) over `0x1f25` -- and is applied to **two** subjects: every reference
   matrix, and the encoder's own output for all 160 version-and-level combinations.
@@ -3956,11 +3956,11 @@ correctness no test in this package can state, which is the position
   module, so the alignment patterns and both information areas were covered only
   for the eight versions the vectors happen to reach. Three mutations were added
   for it and all three are caught -- an alignment pattern drawn in the corners a
-  finder owns, an alignment pattern with a solid inner ring, and the centres
+  finder owns, an alignment pattern with a solid inner ring, and the centers
   starting one module in from the far edge.
 
   The first version of the check reported **107 problems in a fixture with nothing
-  wrong with it**, because it built alignment centres for version 1, which has
+  wrong with it**, because it built alignment centers for version 1, which has
   none. Worth recording because the failure mode of a checker is to be wrong about
   the thing it is checking, and the only reason it was not believed is that every
   failure was the same version and the same pattern.
@@ -4056,8 +4056,8 @@ correctness no test in this package can state, which is the position
   27-40, since cost grows with the square. And each test still cycles
   `version % 8` across all 40 versions, so every one of the four reaches all
   eight masks five times and the twenty above is still the walk's total. All
-  three `alignmentCentres()` sabotages are still caught after the split, run one
-  at a time: the centres off by one, the count formula, and the version 32 step
+  three `alignmentCenters()` sabotages are still caught after the split, run one
+  at a time: the centers off by one, the count formula, and the version 32 step
   that no other version can reach.
 
   The script is **committed**, as `scripts/verify-qrcode-decode.mjs`, for
@@ -5128,11 +5128,11 @@ border, which is what every dashboard, file manager and log viewer is made of.
   is the only thing on its row, so it is cut rather than dropped. The top row's
   decisions never reach the bottom's: the footer of a panel whose title is cut is
   whole.
-- **A right-aligned title packs against the annotation, and a centred one drops it
+- **A right-aligned title packs against the annotation, and a centered one drops it
   if they would touch.** The annotation owns the right end. Right-aligned means
   "towards the right", so the title stands a rule cell short of it, which is the only
   reading where `titleAlign: 'right'` and an annotation can both be on screen. A
-  centred title stays centred on the whole border, which means the annotation is the
+  centered title stays centered on the whole border, which means the annotation is the
   thing that gives way.
 - **The content is clipped by a box inside the panel, not by the panel.** `overflow:
   hidden` clips to the padding box, which is where the labels sit on the border row
@@ -5598,7 +5598,7 @@ field.
   automatically (pass it as `selected`); leading and trailing days from the
   neighbouring months; mouse; a time of day in `pickDate()` (the date prompt is
   the one that has a clock); a `locale`-ordered title is whatever `Intl` writes
-  (`2024年6月`), which is why the title is centred over the grid rather than built
+  (`2024年6月`), which is why the title is centered over the grid rather than built
   from a month and a year of our own.
 
 ### A key-help footer, read off the bindings
@@ -6943,7 +6943,7 @@ there under "An image over `Pixels`".
 - **`fit` is `contain`, `cover` or `fill`.** The three `object-fit` values that
   mean something without a natural size to fall back on. `contain` is the default
   and may sit half a row down, since `Pixels` has a colour per half; `cover` crops
-  centred, through `resampleImage()`'s fractional source rectangle; `fill`
+  centered, through `resampleImage()`'s fractional source rectangle; `fill`
   stretches.
 - **The resample is done once per box size, the rest once per frame.** A frame
   repaints every cell, and a box filter over a photograph sixty times a second
@@ -7228,11 +7228,11 @@ width, with words in it if wanted. `src/components/rule.ts` is `rule()` and
   not have, and the string form is the facade.
 - **The label keeps line on both sides, and it is dropped rather than drawn over
   the end.** Two cells of line at the end it leans towards and one at the other,
-  and one at each end when centred, with a space either side of the words. Where
+  and one at each end when centered, with a space either side of the words. Where
   the width cannot hold that around a label of one column the rule is a plain
   line, and a label cut to nothing but its ellipsis is dropped as well -- an
   ellipsis alone says nothing, and `note()` goes without a title the same way. A
-  centred label puts the odd cell on the right. The cut is `truncate()`, which may
+  centered label puts the odd cell on the right. The cut is `truncate()`, which may
   come back a column short for a wide character, so the line after the label is
   worked out from what was **measured** rather than from what was asked for.
 - **The line style is `line`, and it is not CSS.** "Line style from the theme" is
@@ -8750,7 +8750,7 @@ nothing and stays in the tree.
   `<` and `>` in ASCII -- so a label does not move a column when an indicator
   appears. The first visible tab is **kept** between draws and moves only when the
   active tab would otherwise be out of view, so Right through a long row slides it
-  a tab at a time rather than re-centring on every key; when the window reaches the
+  a tab at a time rather than re-centering on every key; when the window reaches the
   last tab it pulls back to use the room it has, so a wide terminal after a narrow
   one does not leave a gap. A label wider than the room is cut with an ellipsis
   rather than clipped. Nothing was windowed with an offset and `overflow: hidden`:
@@ -9448,7 +9448,7 @@ the keys and the mouse while it is open, and a toast has neither, ever.
 
 - **The corner: four of them, `bottom-right` by default, one stack per corner per
   root.** The default is where a status remark does not cover what the app is
-  showing at the top, and it is where the eye already goes for one. A centred
+  showing at the top, and it is where the eye already goes for one. A centered
   `top` or `bottom` was not asked for and would be a fifth and sixth stack for the
   same job. Each stack is a `position: fixed` column pinned by the two insets that
   name its corner, made the first time a toast lands there and taken out of the
@@ -9567,7 +9567,7 @@ the keys and the mouse while it is open, and a toast has neither, ever.
   back with its old toasts, no `strip`, and `max` and `timeout` unchecked.
 - **Not done:** pausing the timer while the pointer is over a toast; a key that
   dismisses; a slide-in, which is the thing `reduce` would then have to switch off;
-  centred positions; an action button on a toast, which would need the focus and
+  centered positions; an action button on a toast, which would need the focus and
   is a modal; a queue; and announcing a toast in accessible mode, which draws prompts
   as lines and has no screen to put a corner on.
 

@@ -31,7 +31,7 @@ export function hex(color: string): Rgba {
  * @param size - The image's side in pixels.
  * @param seal - The seal's side in pixels. A multiple of 7, or its cells would
  * not be whole pixels.
- * @param offset - Where the seal's top left corner is. Centred when omitted,
+ * @param offset - Where the seal's top left corner is. Centered when omitted,
  * which needs `size - seal` to be even.
  * @param ground - The background, or `null` for transparent.
  */

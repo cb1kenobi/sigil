@@ -56,7 +56,7 @@ describe('Panel', () => {
       ]);
     });
 
-    it('should place a title left, centred or right', () => {
+    it('should place a title left, centered or right', () => {
       const at = (titleAlign: 'center' | 'left' | 'right') =>
         picture(panel({ title: 'files', titleAlign }), 24)[0];
 
@@ -316,14 +316,14 @@ describe('fitBorder()', () => {
     expect(fitBorder(40, '', '', 'left')).toMatchObject({ end: { text: '' }, start: { text: '' } });
   });
 
-  it('should centre a title on the whole border, not on what the annotation leaves', () => {
+  it('should center a title on the whole border, not on what the annotation leaves', () => {
     const fit = fitBorder(24, 'title', '', 'center');
 
     // seven cells with its spaces, in a run of twenty
     expect(fit.start.offset).toBe(Math.floor((borderRun(24) - 7) / 2));
   });
 
-  it('should drop the annotation of a centred title that would touch it', () => {
+  it('should drop the annotation of a centered title that would touch it', () => {
     expect(fitBorder(44, 'processes · 12 of 340', 'sort: cpu', 'center').end.text).toBe('');
     expect(fitBorder(60, 'files', 'sort: cpu', 'center').end.text).not.toBe('');
   });

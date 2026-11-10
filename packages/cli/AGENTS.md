@@ -2773,7 +2773,7 @@ SIG-78 asked whether "a scrolling log with progress underneath" works on the
 inline canvas, which is the case the canvas ticket was parked over. The
 toolchain turns out **not to be that case**, and the discipline is the one the
 build measurement already set: a live progress display for a 180ms build would
-be theatre, so measure before writing any of it. Every candidate was measured,
+be theater, so measure before writing any of it. Every candidate was measured,
 and all three say no.
 
 - **`sigil build` is too fast.** 286ms for five hundred commands, and the read

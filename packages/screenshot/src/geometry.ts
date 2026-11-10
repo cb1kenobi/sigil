@@ -7,7 +7,7 @@ import { Accumulator } from './font/raster.js';
  * inherits: a font's box-drawing glyphs are designed to an em and a line height
  * that are not the cell's, so a vertical line leaves a gap between rows and a
  * corner misses the line it is meant to meet. Drawn here, every line lands on
- * whole pixels at the centre of the cell and meets its neighbour exactly, and a
+ * whole pixels at the center of the cell and meets its neighbour exactly, and a
  * half block covers exactly half the rows -- which is what `Pixels` relies on,
  * since its `▀` over a `▄` is meant to be a seamless column of pixels.
  *
@@ -190,7 +190,7 @@ export function drawGeometry(codePoint: number, box: CellBox, pen: Pen): boolean
   return false;
 }
 
-/** Where a line of thickness `t` centred on pixel `c` starts. */
+/** Where a line of thickness `t` centered on pixel `c` starts. */
 const lo = (c: number, t: number): number => c - Math.floor(t / 2);
 /** And where it ends, exclusive. */
 const hi = (c: number, t: number): number => lo(c, t) + t;
@@ -242,8 +242,8 @@ function drawLines(arms: readonly [number, number, number, number], box: CellBox
         pen.rect(m0, a, m1, b);
       }
     };
-    // the end of the arm nearest the centre, for a line across of thickness `t`
-    // centred at `c`: the arm overlaps it, so a corner has no notch
+    // the end of the arm nearest the center, for a line across of thickness `t`
+    // centered at `c`: the arm overlaps it, so a corner has no notch
     const near = (c: number, t: number): number => (dir > 0 ? lo(c, t) : hi(c, t));
 
     if (weight !== 3) {
@@ -297,7 +297,7 @@ function drawLines(arms: readonly [number, number, number, number], box: CellBox
   arm(true, -1, up, down, left, right);
 }
 
-/** Two, three or four dashes along the centre line, centred in equal shares. */
+/** Two, three or four dashes along the center line, centered in equal shares. */
 function drawDashes(
   box: CellBox,
   pen: Pen,
@@ -321,7 +321,7 @@ function drawDashes(
 }
 
 /**
- * A rounded corner: a quarter circle joining the centre lines, with straight
+ * A rounded corner: a quarter circle joining the center lines, with straight
  * runs out to the two edges it opens onto.
  *
  * The radius is the largest that fits every one of the four corners in the
@@ -332,12 +332,12 @@ function drawDashes(
 function drawArc(codePoint: number, box: CellBox, pen: Pen): void {
   const t = box.light;
   const half = t / 2;
-  // the centre lines, as real numbers, so the arc meets the straight lines
+  // the center lines, as real numbers, so the arc meets the straight lines
   // drawn by `drawLines()` exactly
   const lx = lo(Math.floor(box.width / 2), t) + half;
   const ly = lo(Math.floor(box.height / 2), t) + half;
   const radius = Math.min(lx, box.width - lx, ly, box.height - ly);
-  // which way the arc's own centre is from the junction: ╭ opens down and right
+  // which way the arc's own center is from the junction: ╭ opens down and right
   const sx = codePoint === 0x25_6d || codePoint === 0x25_70 ? 1 : -1;
   const sy = codePoint === 0x25_6d || codePoint === 0x25_6e ? 1 : -1;
   const ox = lx + sx * radius;
@@ -449,7 +449,7 @@ function drawBlock(codePoint: number, box: CellBox, pen: Pen): void {
 }
 
 /**
- * Braille: a 2x4 grid of dots, as squares centred in equal shares of the cell.
+ * Braille: a 2x4 grid of dots, as squares centered in equal shares of the cell.
  *
  * Squares rather than discs, because a dot is a few pixels across at any size
  * a screenshot is taken at and a disc of three pixels is a square with its

@@ -226,7 +226,7 @@ describe('justify-content', () => {
     expect(picture(tree, 8, 1)).toBe('aaaabbcc');
   });
 
-  it('should centre', () => {
+  it('should center', () => {
     const tree = two();
     tree.style = declare({ 'flex-direction': 'row', 'justify-content': 'center' });
     expect(picture(tree, 8, 1)).toBe('aabbccaa');
@@ -261,7 +261,7 @@ describe('align-items', () => {
     expect(picture(tree, 4, 3)).toBe(['aaaa', 'aaaa', 'bbaa'].join('\n'));
   });
 
-  it('should centre a child', () => {
+  it('should center a child', () => {
     const tree = box(
       { 'flex-direction': 'row', 'align-items': 'center' },
       box({ width: '2', height: '1' })
@@ -563,7 +563,7 @@ describe('align-content', () => {
     expect(result.children[1].box.y).toBe(3);
   });
 
-  it('should centre the lines', () => {
+  it('should center the lines', () => {
     const result = layout(wrapped({ 'align-content': 'center' }), { height: 4, width: 4 });
     expect(result.children[0].box.y).toBe(1);
   });
@@ -784,7 +784,7 @@ describe('auto margins', () => {
     expect(picture(tree, 12, 1)).toBe('bbaaaaaaaacc');
   });
 
-  it('should still centre a single item with auto on both sides', () => {
+  it('should still center a single item with auto on both sides', () => {
     const tree = box(
       { 'flex-direction': 'row' },
       box({ width: '2', height: '1', 'margin-left': 'auto', 'margin-right': 'auto' })

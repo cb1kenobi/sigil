@@ -29,7 +29,7 @@ import { colorLevelOf } from './color-level.js';
  *
  * The three `object-fit` values that mean something without a natural size to
  * fall back on. `contain` shows all of it and leaves the rest of the box
- * showing through; `cover` fills the box and crops what does not fit, centred;
+ * showing through; `cover` fills the box and crops what does not fit, centered;
  * `fill` stretches it to the box, which is a distortion and is sometimes exactly
  * what a caller wants -- a texture, a background, a picture already the right
  * shape that a rounding should not letterbox by a row.
@@ -124,7 +124,7 @@ function fitInto(image: RgbaImage, width: number, height: number, fit: ImageFit)
   }
 
   if (fit === 'cover') {
-    // the largest rectangle of the picture with the box's proportions, centred:
+    // the largest rectangle of the picture with the box's proportions, centered:
     // whichever axis the box is relatively longer on keeps all of the picture
     const scale = Math.max(width / image.width, height / image.height);
     const across = width / scale;
@@ -146,7 +146,7 @@ function fitInto(image: RgbaImage, width: number, height: number, fit: ImageFit)
   const down = Math.min(height, Math.max(1, Math.round(image.height * scale)));
   return {
     image: resampleImage(image, across, down),
-    // centred, and a half-row offset is allowed: `Pixels` has a colour per half,
+    // centered, and a half-row offset is allowed: `Pixels` has a colour per half,
     // so the picture may start in the bottom half of a cell
     x: Math.floor((width - across) / 2),
     y: Math.floor((height - down) / 2),
