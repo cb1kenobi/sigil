@@ -1,0 +1,84 @@
+{
+  "api": {
+    "interface": "SwitchProps",
+    "options": [
+      {
+        "description": "What the `true` state is called. Defaults to `on`, the `toggle()` prompt's word.",
+        "default": "`on`",
+        "name": "active",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Whether it refuses to change.",
+        "default": "`false`",
+        "name": "disabled",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
+        "description": "What the `false` state is called. Defaults to `off`.",
+        "default": "`off`",
+        "name": "inactive",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "What it says, before the two states. One line of plain text. Without one the current state's name carries the focus role.",
+        "name": "label",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Called with the new value after a key or a click changed it. Not called for a write the app made.",
+        "name": "onChange",
+        "optional": true,
+        "type": "(value: boolean) => void"
+      },
+      {
+        "description": "The host box's own props: a class, a margin. Geometry only, never a colour.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementPropsWithout<\"onFocusChange\" | \"onKey\" | \"onMouse\">"
+      },
+      {
+        "description": "Which state it is in: `true` for the active one.",
+        "default": "`false`",
+        "name": "value",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      }
+    ],
+    "shared": [],
+    "signature": "function Switch(props?: SwitchProps): Element"
+  },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "left",
+        "tab",
+        "shiftTab",
+        "space"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
+  "registryDescription": "A switch: two named states, moved with Left, Right, Space or a click, for a form",
+  "source": "packages/sigil/src/components/switch.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "❯ \u001b[7mNotifications\u001b[0m  \u001b[2m◯ off\u001b[0m  \u001b[36m◉ on\u001b[0m"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "❯ \u001b[7mNotifications\u001b[0m  \u001b[2m◯ off\u001b[0m  \u001b[36m◉ on\u001b[0m"
+    }
+  }
+}

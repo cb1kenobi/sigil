@@ -215,6 +215,12 @@ export const FRAMEWORK_CSS = `
  *   .sigil-modal-body  .sigil-modal-actions  .sigil-modal-action
  *   .sigil-text-field  .sigil-text-field-before  .sigil-text-field-caret
  *   .sigil-text-field-after  .sigil-text-field-placeholder
+ *   .sigil-button  .sigil-button-bracket  .sigil-button-label
+ *   .sigil-checkbox  .sigil-checkbox-pointer  .sigil-checkbox-mark
+ *   .sigil-checkbox-label
+ *   .sigil-switch  .sigil-switch-pointer  .sigil-switch-label  .sigil-switch-state
+ *   .sigil-radio-set  .sigil-radio  .sigil-radio-pointer  .sigil-radio-mark
+ *   .sigil-radio-label  .sigil-radio-hint
  *   .sigil-slider  .sigil-slider-track  .sigil-slider-fill  .sigil-slider-thumb
  *   .sigil-slider-rest  .sigil-slider-value
  *   .sigil-toast  .sigil-toast-stack  .sigil-toast-fill  .sigil-toast-title

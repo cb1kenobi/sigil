@@ -1,0 +1,63 @@
+{
+  "api": {
+    "interface": "ButtonProps",
+    "options": [
+      {
+        "description": "What the button says. One line: escape sequences and line breaks are taken out.",
+        "name": "label",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Whether the button refuses to be pressed.",
+        "default": "`false`",
+        "name": "disabled",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
+        "description": "Called when it is pressed: Enter or Space while it has the focus, or a left click.",
+        "name": "onPress",
+        "optional": true,
+        "type": "() => void"
+      },
+      {
+        "description": "The host box's own props: a class, a margin. Geometry only, never a colour.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementPropsWithout<\"onFocusChange\" | \"onKey\" | \"onMouse\">"
+      }
+    ],
+    "shared": [],
+    "signature": "function Button(props: ButtonProps): Element"
+  },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "tab",
+        "shiftTab"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "space",
+        "enter",
+        "ctrlC"
+      ]
+    }
+  ],
+  "registryDescription": "A button: a label that Enter, Space or a click presses, bracketed while it has the focus",
+  "source": "packages/sigil/src/components/button.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "[ \u001b[7mDeploy\u001b[0m ]   Cancel"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "[ \u001b[7mDeploy\u001b[0m ]   Cancel"
+    }
+  }
+}

@@ -5370,8 +5370,9 @@ the focus back to the one below.
 `false`.
 
 The dialog is opaque without a colour: the panel fills itself with blank cells, so
-the app does not show through between the words at colour level 0 either. A
-focused button is bracketed, `[ Yes ]`, and in the accent. `.sigil-modal`,
+the app does not show through between the words at colour level 0 either. Each
+button is a `Button`, so a focused one is bracketed, `[ Yes ]`, with its label in
+`.sigil-focus`. `.sigil-modal`,
 `-backdrop`, `-fill`, `-title`, `-body`, `-actions` and `-action` are the theme
 hooks; a background on `.sigil-modal-fill` colours the whole panel. A dialogue is
 not progress, so `--quiet` does not hide one.
@@ -5446,6 +5447,97 @@ are the form's or the caller's, not the field's. `.sigil-text-field`, `-before`,
 background, and the caret of a focused field carries `.sigil-focus`, the role a
 control puts on the part that shows its focus -- `sigil/themes` below says which
 controls do.
+
+#### Form controls
+
+```js
+import { Button, describeButton } from '@ttylabs/sigil/components/button';
+import { Checkbox, describeCheckbox } from '@ttylabs/sigil/components/checkbox';
+import { describeRadioSet, RadioSet } from '@ttylabs/sigil/components/radio-set';
+import { describeSwitch, Switch } from '@ttylabs/sigil/components/switch';
+import { box } from '@ttylabs/sigil/element';
+import { State } from '@ttylabs/sigil/signals';
+
+const digest = new State(true);
+const level = new State('info');
+
+const form = box(
+  { 'flex-direction': 'column' },
+  Checkbox({ label: 'Email me a weekly digest', checked: digest }),
+  Switch({ label: 'Theme', inactive: 'light', active: 'dark' }),
+  RadioSet({
+    options: ['warn', 'info', 'debug', { label: 'trace', disabled: 'debug builds' }],
+    value: level,
+    direction: 'row',
+  }),
+  Button({ label: 'Save', onPress: save })
+);
+form.onKey = (event) => {
+  if (event.key.name === 'enter') save(); // what no control claimed: the form's Enter
+};
+
+describeCheckbox(input, ...checkboxes); // and the other three, for keyHelp()
+```
+
+```
+❯ [x] Email me a weekly digest
+  Theme  ◉ light  ◯ dark
+  ◯ warn    ◉ info    ◯ debug    ◯ trace debug builds
+  Save
+```
+
+The controls of a settings screen or a login form, as elements: `Button`,
+`Checkbox`, `RadioSet` and `Switch`. Each is focusable, each takes its value the
+way `Collapsible` and `TextField` do -- a value to start from, or a `State` the keys
+and the mouse write and the app may write too -- and each calls `onChange` after a
+change it made and never after a write the app made, since the app already knows.
+
+- **`Button({ label, onPress })`**: **Enter**, **Space** and a left click press it.
+- **`Checkbox({ label, checked })`**: **Space** and a click tick and untick it. The
+  box is `[x]` or `[ ]`. An empty `label` is allowed, for a checkbox something else
+  labels.
+- **`Switch({ label, value, active, inactive })`**: two named states, `on` and `off`
+  by default, the inactive one on the left as `toggle()` draws them. **Left** picks
+  the inactive state and **Right** the active one, **Space** flips it, and a click on
+  a state picks it -- anywhere else on the switch flips it. Tab is _not_ the
+  switch's, though `toggle()` flips on it: in a form, Tab belongs to the ring.
+- **`RadioSet({ options, value, direction })`**: one of several options, as **one**
+  stop in the focus ring. **Up**/**Down** and **Left**/**Right** select the option
+  before or after straight away, stepping over a disabled one; **Home** and **End**
+  the first and last; **Space** the highlighted option, which matters when nothing
+  was selected yet; a click selects the option clicked. `options` are strings or
+  `select()`'s choices -- `label`, `value`, `hint`, and `disabled` with a reason --
+  so one list can feed both. Values are compared the way a `Map` compares keys, and
+  two options with one value are refused. `direction: 'row'` lays them side by side.
+
+**Enter is the form's everywhere but on a button.** A checkbox, a switch and a
+radio set leave it unclaimed, so it reaches whatever holds them -- which is where a
+submit lives -- and a button claims it, because Enter on a focused Cancel means
+Cancel. Tab, Escape and Ctrl-C are never a control's, and an arrow that would
+change nothing -- Right on a switch that is on, Up on the first option -- goes on to
+the pane around it, as the tab row's does.
+
+The focus is drawn twice: `.sigil-focus` on the label (on a radio set, the
+highlighted option's), and as content that survives colour level 0 -- the prompts'
+`❯` in a column every value control keeps blank, and a button's brackets in its
+padding, `[ Save ]` against `  Save  `. Neither moves anything when the focus
+arrives. The value is the marker, `[x]` or `◉`, in `.sigil-accent`; the switch's
+other state is `.sigil-muted`.
+
+`disabled` (a boolean or a `State<boolean>`) takes a control out of the ring,
+mutes it, sets `:disabled`, and makes it ignore keys and clicks, which go on to
+the form; a control disabled while it has the focus keeps it. A checked checkbox
+or switch and a selected option are `:checked` too.
+
+`describeButton()`, `describeCheckbox()`, `describeSwitch()` and
+`describeRadioSet()` describe each control's keys scoped to it, for a `keyHelp()`
+footer -- the switch's arrows by the names of its states, `← light · → dark` --
+and return a function that takes them off. `controlFlag()`, `controlDisabled()`
+and `describeControls()` (from `@ttylabs/sigil/components/control`) are what the
+four share, for a control of your own. The theme hooks are `.sigil-button`
+(`-bracket`, `-label`), `.sigil-checkbox` (`-pointer`, `-mark`, `-label`),
+`.sigil-switch` (`-pointer`, `-label`, `-state`) and `.sigil-radio-set` with
+`.sigil-radio` (`-pointer`, `-mark`, `-label`, `-hint`) per option.
 
 #### A slider
 
@@ -6648,7 +6740,8 @@ declarations restyle a surface wearing a dozen component classes.
 
 **`.sigil-focus` is the eighth role, and no shipped theme restates it.** It is on
 the part of a control that shows its focus — a collapsible's title, the active
-tab of a focused row, a focused text field's caret — and it is `inverse`, the
+tab of a focused row, a focused text field's caret, a button's, a checkbox's or a
+switch's label, a radio set's highlighted option — and it is `inverse`, the
 terminal's own two colours swapped, which is the same under any palette. A theme
 or an app restyles every control's focus with one rule:
 
