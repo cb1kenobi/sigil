@@ -79,3 +79,46 @@ the entry it belongs to.
   dropping the full graph's `graphemes` override turns the tokenize differential
   green while the others stay red -- which is what says that override is what
   makes the downstream comparisons mean anything.
+
+### What turns a text-default character into a two-column emoji
+
+- **A cluster is one two-column emoji when its base is `Emoji_Presentation`, or
+  when something in the cluster asks a text-default base to be one -- and there
+  are three such things, not one.** SIG-359. `isEmoji()` knew only the
+  presentation selector, so `U+270C U+1F3FD`, a fully-qualified RGI emoji with
+  no selector in it, fell to the per-code-point sum: the base is text by default
+  and one column, the tone is two, and `stringWidth()` said three where a
+  terminal draws one glyph and `cellWidth()` clamps to two. Layout, `wrap()` and
+  `truncate()` budgeted a column the canvas never painted. The three, each
+  tested in `isEmoji()`:
+
+  - **VS16 immediately after an `Emoji` base**, which is the rule that was
+    already there.
+  - **A skin tone immediately after an `Emoji_Modifier_Base`.** Not after any
+    `Emoji`, which is the obvious spelling and is wrong: a digit, `#`, `*` and
+    `™` are `Emoji` and none of them takes a tone, so `1 U+1F3FD` is a digit and
+    a swatch beside it, three columns, as it was. Immediately after, for the
+    reason the selector has to be: `U+261D U+0301 U+1F3FD` puts the mark between
+    them, so the tone is not about the base and the cluster stays the sum.
+  - **A joiner followed by an `Extended_Pictographic`, in a cluster whose base
+    is one.** That is the unqualified ZWJ form -- `U+1F3F3 U+200D U+1F308`,
+    `U+2764 U+200D U+1F525` -- which `RGI_Emoji` under the `v` flag does _not_
+    match, so it cannot stand in for this test. The segmenter only keeps a
+    pictograph after a joiner in one cluster when the cluster began with one, so
+    the pair is what says the joiner joined two. A joiner alone is not enough:
+    `U+00A9 U+200D` with nothing after it joins nothing, and stays one column.
+
+  What keeps its width, and is enumerated in
+  `test/width/text-default-emoji.test.ts`: a digit, `#` and `*` alone and before
+  a mark or a joiner (`1`), a lone tone (`2`, it is `Emoji_Presentation`), a lone
+  joiner and a lone selector (`0`), a text-default pictograph with neither a
+  selector nor a tone nor a joined pictograph (`1`), and a tone after something
+  it cannot modify (the sum, which `cellWidth()` clamps like any other
+  over-wide cluster). The same file asserts `stringWidth()` and `cellWidth()`
+  agree on every single cluster there that fits a cell pair. Sabotaged: an
+  `Emoji` base for the tone fails the three swatch cases; a bare joiner for the
+  ZWJ rule fails the two trailing-joiner cases; the old `isEmoji()` fails
+  fifteen and passes every unchanged-width case. The property escapes it adds
+  are older than every Node this package supports, so no runtime gives a different answer
+  for them -- only for which code points a newer Unicode adds to each, which is
+  why the tests use none added recently.

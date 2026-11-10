@@ -40,6 +40,25 @@ const emojiPresentation = /^\p{Emoji_Presentation}$/u;
 const emoji = /^\p{Emoji}$/u;
 
 /**
+ * A character a skin tone can modify. Every one of them is also `Emoji`, and
+ * some are text by default -- `☝`, `✌`, `🕵` -- which a following tone turns
+ * into an emoji the way the presentation selector does. A digit, `#` and `*`
+ * are `Emoji` and are not in here, so a tone after one is a swatch beside it.
+ */
+const emojiModifierBase = /^\p{Emoji_Modifier_Base}$/u;
+
+/** The five skin tones, U+1F3FB to U+1F3FF. */
+const emojiModifier = /^\p{Emoji_Modifier}$/u;
+
+/**
+ * A pictograph, which is what a zero width joiner joins. The segmenter only
+ * keeps a pictograph after a joiner in the same cluster when the cluster began
+ * with one, so finding this pair inside a cluster means the joiner joined two.
+ */
+const pictographic = /^\p{Extended_Pictographic}$/u;
+const joinedPictograph = /‍\p{Extended_Pictographic}/u;
+
+/**
  * The Hangul jamo that draw inside the syllable they belong to: the medial
  * vowels and final consonants, in both the original block and Extended-B. A
  * leading consonant is Wide and carries the syllable's two columns; these add
@@ -183,12 +202,22 @@ export function graphemeWidth(cluster: string): number {
  *
  * Either the base is a character that is an emoji on its own -- and then
  * whatever follows it is a joiner, a skin tone, another emoji joined to it, or a
- * mark, none of which add a column -- or it is a character that becomes one when
- * the presentation selector asks it to.
+ * mark, none of which add a column -- or it is a text-default character that
+ * something in the cluster turns into one. Three things do:
  *
- * The selector has to come immediately after the base to be asking about the
- * base, which is what `U+00A9 U+0301 U+FE0F` is not: a copyright sign with an
- * accent on it, followed by a selector that selects nothing.
+ * - The presentation selector, immediately after a base that can be an emoji.
+ * - A skin tone, immediately after a base a tone can modify: `☝🏽` is a
+ *   fully-qualified emoji with no selector in it.
+ * - A joiner followed by another pictograph, after a pictograph: the rainbow
+ *   flag `U+1F3F3 U+200D U+1F308` and the heart on fire `U+2764 U+200D U+1F525`
+ *   without their selectors are still one glyph to a terminal.
+ *
+ * The selector and the tone have to come immediately after the base to be
+ * about the base, which is what `U+00A9 U+0301 U+FE0F` is not: a copyright sign
+ * with an accent on it, followed by a selector that selects nothing. A tone
+ * after something it cannot modify -- a digit, a letter, `™` -- is a swatch
+ * drawn beside it, so that cluster is still the sum. A joiner that joins
+ * nothing -- `©` and a trailing joiner -- leaves the pictograph as text.
  *
  * @param cluster - The cluster to test.
  * @param first - Its first code point.
@@ -201,7 +230,21 @@ function isEmoji(cluster: string, first: number): boolean {
     return true;
   }
 
-  return emoji.test(base) && cluster.codePointAt(base.length) === VS16;
+  const next = cluster.codePointAt(base.length);
+
+  if (next === VS16 && emoji.test(base)) {
+    return true;
+  }
+
+  if (
+    next !== undefined &&
+    emojiModifier.test(String.fromCodePoint(next)) &&
+    emojiModifierBase.test(base)
+  ) {
+    return true;
+  }
+
+  return pictographic.test(base) && joinedPictograph.test(cluster);
 }
 
 /**
