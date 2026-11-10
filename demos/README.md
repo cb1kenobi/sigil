@@ -385,6 +385,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/56-panels.js`](components/56-panels.js)                                     | Panels with words in the border, and panes with an edge to drag           |
 | [`components/57-form-controls.js`](components/57-form-controls.js)                       | A settings form: checkboxes, a switch, a radio set and two buttons        |
 | [`components/58-list-view.js`](components/58-list-view.js)                               | A list view over two thousand packages: filtered, ticked, updating live   |
+| [`components/59-text-area.js`](components/59-text-area.js)                               | A scratch editor: line numbers, a selection, a copy, and 50,000 lines     |
 | [`components/60-live-charts.js`](components/60-live-charts.js)                           | Live charts fed from a `Series` and sized by the layout: a small monitor  |
 | [`components/61-menus.js`](components/61-menus.js)                                       | A menubar, a dropdown select and a context menu over a file list          |
 | [`components/62-slider.js`](components/62-slider.js)                                     | A settings screen of sliders: keys, a press, a drag past the edge         |
@@ -672,6 +673,17 @@ The filter is the app's -- a `Computed` over the field and `rankBy()` -- and `/`
 reaches it from anywhere, as a fallback. Tick a row, filter it out of sight, and
 clear the filter: it is still ticked. Piped, a scripted keyboard drives the same
 tree, with an update standing in for the clock, and prints it after each step.
+
+`59-text-area.js` is a scratch editor: a `Panel` holding a `TextArea` with line
+numbers, a small JavaScript highlighter the demo writes itself, and Tab typing two
+spaces. Shift with an arrow selects, and so does a drag; Ctrl-Y copies the
+selection to the clipboard with OSC 52 and Ctrl-X cuts it -- the area hands the
+text to `onCopy` and the app writes it, since an element has no terminal. Ctrl-G
+swaps in fifty thousand lines, and PageDown and Ctrl-End through them are as quick
+as through ten, because only the lines on screen are laid out. Esc quits, since
+Escape is never the area's. Piped, a scripted keyboard types, selects, copies, cuts
+and pastes, says in words what was copied -- a selection is reversed cells, which a
+pipe drops -- and times a page of the long buffer against a page of the short one.
 
 `60-live-charts.js` is a small monitor, and nothing in it builds a chart twice. Four
 cores are a `Series` each and a `Sparkline` beside their names; under them a

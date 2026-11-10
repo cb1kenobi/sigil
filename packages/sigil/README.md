@@ -2470,7 +2470,7 @@ some hooks pinned to `undefined`, which is the type of a built-in component's
 `props` where the component sets that hook itself: a component refuses a handler
 for a hook it owns, at run time as well as in the type, rather than replace it
 without a word. `TextField` owns `onKey`, `onPaste`, `onFocusChange` and
-`onResize`; `ScrollBox` `onKey` and `onMouse`; `createPager` `onKey`;
+`onResize`; `TextArea` `onKey`, `onMouse`, `onPaste` and `onFocusChange`; `ScrollBox` `onKey` and `onMouse`; `createPager` `onKey`;
 `tabRowView` `onKey`, `onFocusChange` and `onResize`; `openModal` `onPaste`;
 `showToast` `onMouse`; `attachTooltip` `onLayout`; `Dropdown` `onKey`, `onMouse`
 and `onFocusChange`. Put a handler for those on an
@@ -5448,6 +5448,82 @@ are the form's or the caller's, not the field's. `.sigil-text-field`, `-before`,
 background, and the caret of a focused field carries `.sigil-focus`, the role a
 control puts on the part that shows its focus -- `sigil/themes` below says which
 controls do.
+
+#### A text area
+
+```js
+import { TextArea } from '@ttylabs/sigil/components/text-area';
+import { State } from '@ttylabs/sigil/signals';
+import { copyToClipboard } from '@ttylabs/sigil/terminal';
+
+const message = new State('');
+TextArea({
+  value: message,
+  lineNumbers: true,
+  placeholder: 'Commit message',
+  onCopy: (text) => copyToClipboard(app.terminal, text),
+  props: { 'flex-grow': 1 },
+});
+```
+
+```
+ 1 Fix the parser's handling of --
+ 2
+ 3 A value that starts with a dash is a value.
+```
+
+Several lines of editable text as an element -- the `multiline()` prompt's editor
+without the prompt around it, for a commit message box, a notes pane, or the editor
+a full-screen app is built around. It is focusable, and while it has the focus it
+draws a caret.
+
+**Only the lines on screen are laid out and painted.** The value is held as lines,
+an edit touches the lines it spans, a line is one row -- the area scrolls sideways
+rather than wrapping -- and a frame lays out as many lines as the area is tall, so
+a fifty-thousand-line buffer scrolls the way a ten-line one does. What still costs
+as much as the value is long is joining it into a string, which the area does only
+when something reads it: a `State` handed in, `onChange`, or `highlight`.
+
+`value` is a string to start from or a `State<string>` that is the value itself;
+an app's write replaces what the area holds, with the caret at the end, and line
+endings are normalized to `\n`. `onChange(value)` is called after every edit.
+`placeholder` is shown, muted, while it is empty; `disabled` takes it out of the
+ring and mutes it. `rows` is how many rows it asks for before it scrolls -- ten by
+default, and it grows into them -- and a `flex-grow` or a `height` in `props`
+gives it more; `width` is its columns, and without one it takes what the layout
+gives it.
+
+`lineNumbers` numbers each line, two digits at the least, with the caret's line
+the one not muted; `gutter: '│ '` draws a mark after them. The gutter is never
+copied with the text. `highlight(value)` is `multiline()`'s hook, unchanged: it is
+handed the whole value whenever it changes and returns spans of offsets into it,
+each naming a token, which is a class -- `.sigil-token-<token>` -- and for
+`comment`, `function`, `invalid`, `keyword`, `number`, `string` and `type` a role
+as well, so a theme colours a text area, a prompt, a diff and a markdown code block
+with one sheet. The framework carries no grammar; the app brings one.
+
+The keys are the prompt's: Enter is a newline, Left and Right move by a character
+and with Ctrl or Alt by a word, Up and Down by a line keeping the column they aim
+for, PageUp and PageDown by a screen, Home and End (Ctrl-A, Ctrl-E) to the ends of
+the line and with Ctrl to the ends of the value; Backspace and Delete, Ctrl-W,
+Alt-D, Ctrl-U and Ctrl-K delete, and a bracketed paste keeps its line breaks.
+Shift with any move selects, and so does a drag; a press places the caret, a
+Shift-press extends, and the wheel scrolls without moving the caret. Typing or
+deleting over a selection replaces it. **With `onCopy`, Ctrl-Y copies and Ctrl-X
+cuts**: the area hands the text over and the app puts it on the clipboard, since
+an element has no terminal -- `copyToClipboard(app.terminal, text)` is OSC 52.
+Ctrl-C is never a copy, because it is the abort. A selection is drawn the way the
+screen selection is, reversed, and not at colour level 0, where it still copies.
+
+**Tab is the focus ring's unless `tab` says what it types** -- `tab: '  '` for an
+editor -- and Shift-Tab and Escape are never the area's, so an area that takes Tab
+can still be left and a dialog around one can still be dismissed. There is no
+submit key: an app binds its own, and a binding runs ahead of the focused element.
+`.sigil-text-area`, `-body`, `-text`, `-caret`, `-selection`, `-placeholder`,
+`-gutter` and `-gutter-active` are the theme hooks, and the caret of a focused area
+carries `.sigil-focus`. There is no background: an area is a region, framed by
+whatever holds it, and `.sigil-text-area { background-color: gray }` gives it the
+text field's.
 
 #### Form controls
 

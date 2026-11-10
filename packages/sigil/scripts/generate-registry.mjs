@@ -210,6 +210,10 @@ const ENTRIES = [
     name: 'switch',
   },
   {
+    desc: 'A text area: several editable lines as an element, scrolled both ways, with line numbers, a selection and a highlight seam',
+    name: 'text-area',
+  },
+  {
     desc: 'A toast: a timed message in a corner of the screen that stacks, never takes the focus, and stays out of --quiet',
     name: 'toast',
   },

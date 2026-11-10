@@ -694,6 +694,22 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     example: { steps: ['tab', 'right'] },
   },
   {
+    slug: 'text-area',
+    name: 'TextArea',
+    family: 'fullscreen',
+    exports: ['TextArea'],
+    registry: 'text-area',
+    example: {
+      steps: [
+        'tab',
+        { text: 'Fix the parser' },
+        'enter',
+        'enter',
+        { text: 'A value may start with -' },
+      ],
+    },
+  },
+  {
     slug: 'modal',
     name: 'openModal()',
     family: 'fullscreen',
@@ -799,6 +815,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'menuClasses',
     'mountLevel',
     'mountLive',
+    'offsetIn',
     'opaqueFill',
     'openMenuSession',
     'promptAnswerFits',
@@ -942,6 +959,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'thumbExtent',
     'treeGlyphs',
     'unicodeSupported',
+    'wheelStep',
   ],
   'Glyph sets, frame sets and limits': [
     'ARC',

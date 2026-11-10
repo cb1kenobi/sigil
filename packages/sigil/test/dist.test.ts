@@ -1003,6 +1003,7 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/table': [316, 162_282],
   'components/tabs': [384, 196_349],
   'components/tasks': [400, 203_977],
+  'components/text-area': [512, 260_642],
   'components/text-field': [472, 242_489],
   'components/toast': [380, 195_187],
   'components/toggle': [472, 241_207],

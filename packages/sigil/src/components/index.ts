@@ -52,6 +52,7 @@ export * from './subpaths/collapsible.js';
 export * from './subpaths/tabs.js';
 export * from './subpaths/modal.js';
 export * from './subpaths/text-field.js';
+export * from './subpaths/text-area.js';
 export * from './subpaths/toast.js';
 export * from './subpaths/tooltip.js';
 export * from './subpaths/overlay.js';

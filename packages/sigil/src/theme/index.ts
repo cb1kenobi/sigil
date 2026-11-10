@@ -223,6 +223,9 @@ export const FRAMEWORK_CSS = `
  *   .sigil-radio-label  .sigil-radio-hint
  *   .sigil-slider  .sigil-slider-track  .sigil-slider-fill  .sigil-slider-thumb
  *   .sigil-slider-rest  .sigil-slider-value
+ *   .sigil-text-area  .sigil-text-area-body  .sigil-text-area-text
+ *   .sigil-text-area-caret  .sigil-text-area-selection  .sigil-text-area-placeholder
+ *   .sigil-text-area-gutter  .sigil-text-area-gutter-active
  *   .sigil-toast  .sigil-toast-stack  .sigil-toast-fill  .sigil-toast-title
  *   .sigil-toast-message  .sigil-toast-note  .sigil-toast-info
  *   .sigil-toast-success  .sigil-toast-warning  .sigil-toast-error

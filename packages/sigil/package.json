@@ -310,6 +310,10 @@
       "types": "./dist/components/tasks.d.mts",
       "default": "./dist/components/tasks.mjs"
     },
+    "./components/text-area": {
+      "types": "./dist/components/text-area.d.mts",
+      "default": "./dist/components/text-area.mjs"
+    },
     "./components/text-field": {
       "types": "./dist/components/text-field.d.mts",
       "default": "./dist/components/text-field.mjs"

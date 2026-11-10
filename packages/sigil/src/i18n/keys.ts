@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 388 keys, which is what a catalog has to carry to translate sigil's own
+ * 396 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -116,6 +116,12 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a switch onChange to be a function',
   'Expected a switch state name to be a non-empty string',
   "Expected a switch's two states to have different names",
+  'Expected a text area gutter to be a string with no control character',
+  'Expected a text area highlight to be a function',
+  'Expected a text area placeholder to be a string',
+  'Expected a text area tab to be a non-empty string with no line break',
+  'Expected a text area value to be a string or a State',
+  'Expected a text area width to be a positive whole number',
   'Expected a text field mask to be a non-empty string',
   'Expected a text field placeholder to be a string',
   'Expected a text field value to be a string or a State',
@@ -184,6 +190,8 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected tab labels to be a non-empty array of strings',
   'Expected tabs active to be a number or a State',
   'Expected tabs to be a non-empty array',
+  'Expected text area disabled to be a boolean or a State',
+  'Expected text area rows to be a positive whole number',
   'Expected text field disabled to be a boolean or a State',
   'Expected toast max to be a whole number of at least 1',
   'Expected tooltip text to be a string',
