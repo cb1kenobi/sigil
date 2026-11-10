@@ -910,6 +910,11 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'rankBy',
     'searchLines',
   ],
+  'Syntax highlighting, for the highlight seams': [
+    'CODE_LANGUAGES',
+    'codeLanguage',
+    'highlightCode',
+  ],
   'Reading and encoding what a component draws': [
     'MASK_SLOTS',
     'addMonths',
