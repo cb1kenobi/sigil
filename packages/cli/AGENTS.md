@@ -4054,15 +4054,62 @@ about what a valid app is would be the worse half of the feature.
   silent-drop defect, one layer below where it was fixed.
 
 - **A scaffolded workflow installs the package manager the runner does not
-  have.** npm ships with Node and pnpm is on the GitHub images; `vlt` is
-  neither, and the generated workflow ran `vlt install --frozen-lockfile` on a
-  runner where nothing had installed it -- so a vlt app's release failed at its
-  first step on its first tag. The drift guard beside it read `pnpm` and `npm`
-  only, and `vlt` is the ternary's fallthrough, so misspelling `vlt exec` as
-  `vlt x` would have passed the suite: the one manager whose spellings nobody
-  had verified was the one the test did not read. All three are asserted now,
-  and the spellings are verified against a real vlt 1.1.1 -- `install
-  --frozen-lockfile`, `exec <executable>` and `run <script>` are all real.
+  have.** npm ships with Node, and that is the only one of the three a runner
+  has. `vlt` was found missing first: the generated workflow ran `vlt install
+  --frozen-lockfile` on a runner where nothing had installed it -- so a vlt app's
+  release failed at its first step on its first tag. The drift guard beside it
+  read `pnpm` and `npm` only, and `vlt` is the ternary's fallthrough, so
+  misspelling `vlt exec` as `vlt x` would have passed the suite: the one manager
+  whose spellings nobody had verified was the one the test did not read. All
+  three are asserted now, and the spellings are verified against a real vlt
+  1.1.1 -- `install --frozen-lockfile`, `exec <executable>` and `run <script>`
+  are all real.
+
+  **pnpm was the same defect, behind a sentence nobody had checked.** This entry
+  and the code comment both said "pnpm is on the GitHub images", and it is not
+  (SIG-351). Read off `actions/runner-images` in November 2026: `macos-latest` is
+  the macOS 26 arm64 image, and its Package Management section lists Bundler,
+  Carthage, CocoaPods, Homebrew, NPM, Pip3, Pipx, RubyGems, Vcpkg and Yarn -- no
+  pnpm and no corepack, and the macOS 15 arm64 and x64 images say the same.
+  Corepack is not the way round it either: the workflow's `setup-node` installs
+  Node 26, which carries no corepack (measured on 26.10.0: no `corepack` bin
+  and none under `lib/node_modules`). The scaffold writes no
+  `packageManager` field, so nothing else would have fetched one. pnpm is the
+  default whenever it is installed, so the default app's release failed at
+  "Install dependencies" on its first tag -- and the suite asserted the opposite,
+  `not.toContain('--global')` for pnpm, because it encoded the sentence.
+
+  So pnpm gets vlt's step, `npm install --global pnpm@12`, pinned to a major
+  where vlt is not, because a major is where pnpm changes what a frozen install
+  accepts. Measured over the app `sigil new --pm pnpm` writes, a lockfile from
+  each of pnpm 9.15, 10.34, 11.28 and 12.18 (all `lockfileVersion: '9.0'`) and a
+  frozen install by each: 12.18 takes all four, and 9, 10 and 11 take 12's. 12
+  **refuses** pnpm 8's `6.0` lockfile (`ERR_PNPM_BROKEN_LOCKFILE`), which is the
+  case for not tracking `latest` -- a new major can stop reading what the
+  developer's pnpm wrote, on a tag. The other thing a major changes surfaced in
+  the same matrix: 11 and 12 hold a lockfile to a default minimum release age
+  that 9 and 10 never check, so a lockfile pnpm 9 resolved onto a package
+  published that morning failed 12's frozen install until the age was waived.
+  That is a policy about time rather than about format -- a lockfile 11 or 12
+  resolved has already passed it -- and is left as pnpm's message. `PNPM_MAJOR`
+  in `src/scaffold/index.ts` is the number, and `should install a pnpm this
+  repository uses` in `new.test.ts` fails when it parts from the root manifest's
+  `packageManager`, so moving this repository to a new pnpm major moves the
+  question with it. The install runs with npm 11's install scripts blocked (npm
+  warns), which is fine by pnpm's own design: its `install.js` swaps the
+  placeholder bins for the native binary, and the placeholders reach pnpm
+  through Node when it does not run.
+
+  What was run, and what was not. The steps from "Install pnpm" through
+  "Package" were run locally on a `PATH` with Node 26, npm and Bun and no pnpm
+  or corepack, over a scaffolded app whose `@ttylabs` packages were this
+  worktree's packs (the published 0.0.1 predates `sigil package` and
+  `@ttylabs/sigil/testing`, so the Test and Package steps fail against it for
+  every manager alike): pnpm 12.18.0 installed, the frozen install, the tests
+  and all five binaries passed. The workflow itself has **not** been run on a
+  GitHub runner. The step order is asserted -- an install appended after the
+  first use would satisfy a `toContain` -- and so is one blank line between
+  steps, which the empty step slot used to double for npm and pnpm.
 
 - **The Node version threshold is one constant, and the tests that guard on it
   read it rather than spelling it.** `NODE_BUILD_SEA` is exported and

@@ -1,5 +1,11 @@
 import { assertToolchain, label, outputName, parseTarget } from '../src/build/compile.ts';
-import { nameProblem, scaffold, sorted, type ScaffoldOptions } from '../src/scaffold/index.js';
+import {
+  nameProblem,
+  PNPM_MAJOR,
+  scaffold,
+  sorted,
+  type ScaffoldOptions,
+} from '../src/scaffold/index.js';
 import { runCommand } from '@ttylabs/sigil/testing';
 import { spawnSync } from 'node:child_process';
 import {
@@ -611,15 +617,46 @@ describe('the release workflow', () => {
     }
   );
 
-  it('should install any manager the runner does not already have', () => {
-    // npm ships with Node and pnpm is on the GitHub runner images. `vlt` is
-    // neither, and the workflow ran `vlt install` on a runner where nothing had
-    // installed it -- so the release failed at its first step on the first tag.
-    expect(workflow({ manager: 'vlt' })).toContain('npm install --global vlt');
+  it.each([
+    ['vlt', 'npm install --global vlt'],
+    ['pnpm', `npm install --global pnpm@${PNPM_MAJOR}`],
+  ] as const)('should install %s, which the runner does not have', (manager, step) => {
+    // npm ships with Node and is the only one of the three a runner has. The
+    // macOS images list npm and Yarn under Package Management and neither pnpm
+    // nor corepack, so the workflow ran `vlt install` and `pnpm install` where
+    // nothing had installed them -- the release failed at its first step on
+    // the first tag, and for pnpm that is the default path
+    const file = workflow({ manager });
 
-    // and nothing superfluous for the two that are already there
+    expect(file).toContain(step);
+    // before anything runs it, which a step appended at the end would not be
+    expect(file.indexOf(step)).toBeLessThan(file.indexOf(`run: ${manager} `));
+  });
+
+  it('should install nothing for npm, which ships with Node', () => {
     expect(workflow({ manager: 'npm' })).not.toContain('--global');
-    expect(workflow({ manager: 'pnpm' })).not.toContain('--global');
+  });
+
+  it.each(['npm', 'pnpm', 'vlt'] as const)(
+    'should leave one blank line between steps for %s',
+    (manager) => {
+      // the step slot was spliced in between two blank lines, so a manager
+      // with no step left a double gap where the install would have been
+      expect(workflow({ manager })).not.toMatch(/\n[ ]*\n[ ]*\n/);
+    }
+  );
+
+  it('should install a pnpm this repository uses', () => {
+    // the pin is a major measured against the lockfiles pnpm writes, and the
+    // pnpm that measurement trusts is the one this repository is built with --
+    // so moving the repository to a new major has to move the scaffold's too,
+    // or say why not
+    const root = JSON.parse(readFileSync(join(cli, '../../../../package.json'), 'utf-8')) as {
+      packageManager: string;
+    };
+
+    expect(root.packageManager).toMatch(/^pnpm@/);
+    expect(root.packageManager.split('@')[1]?.split('.')[0]).toBe(String(PNPM_MAJOR));
   });
 
   it('should name the runtime itself, and leave sigil.json out of it', () => {
