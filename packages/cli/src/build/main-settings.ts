@@ -54,12 +54,13 @@
 import { bindingName, importBindings, reachable, unwrap, type ImportBindings } from './bindings.ts';
 import type { Diagnostic } from './diagnostic.ts';
 import { EXTENSIONS, isFile, RUNTIME, type DiscoveredApp } from './discover.ts';
+import { defaultObject } from './extract.ts';
 import { isUndefined, plainProperty, propertyKey, unwrapShallow } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ObjectExpression } from 'oxc-parser';
+import type { ObjectExpression, ObjectProperty, SpreadElement } from 'oxc-parser';
 
 /** Where a `main()` call passes settings. */
 export interface MainSettingsCall {
@@ -135,6 +136,28 @@ export function mainSettingsIn(parsed: ParsedModule): readonly MainSettingsCall[
 }
 
 /**
+ * Whether a property is `__proto__: value` in an object literal, which sets the
+ * prototype and is not a key.
+ *
+ * A shorthand `{ __proto__ }` and a computed `['__proto__']` do create a key, and a
+ * computed one is already refused as unreadable; a method named `__proto__` is a
+ * key too.
+ *
+ * @param property - The property.
+ * @returns Whether it is the prototype setter.
+ */
+function isProtoSetter(property: ObjectProperty | SpreadElement): boolean {
+  return (
+    property.type !== 'SpreadElement' &&
+    property.kind === 'init' &&
+    !property.computed &&
+    !property.shorthand &&
+    !property.method &&
+    propertyKey(property) === '__proto__'
+  );
+}
+
+/**
  * The keys an object literal names with a value, or `undefined` when any of them
  * cannot be read.
  *
@@ -151,6 +174,12 @@ function namedKeys(object: ObjectExpression): string[] | undefined {
 
   for (const property of object.properties) {
     if (property.type === 'SpreadElement') {
+      return undefined;
+    }
+
+    // `{ __proto__: base }` sets the prototype rather than a key, and `read()` goes
+    // through the prototype, so what `base` holds is part of the answer
+    if (isProtoSetter(property)) {
       return undefined;
     }
 
@@ -203,13 +232,27 @@ function schemaSettingsKeys(app: DiscoveredApp): ReadonlySet<string> | undefined
     return undefined;
   }
 
-  const { binding, schema } = defaultSchema(parsed);
-  if (!schema) {
+  // `calls: false`: a schema wrapped in `withDefaults({ name: 'a' })` is whatever the
+  // wrapper returns, `settings` included, so only parentheses and type assertions
+  // are looked through. No identity helper for a schema exists in `@ttylabs/sigil`
+  // (`command()` and `options()` are for a command and an option set), so no call
+  // is allowed
+  const found = defaultObject(parsed, [], { calls: false });
+  if (!found) {
     return undefined;
   }
+  const { binding, object: schema } = found;
 
   // a spread may carry `settings` and a computed key may be `settings`; neither is
-  // readable, and neither is an absence
+  // readable, and neither is an absence.
+  //
+  // A top-level `__proto__: base` is deliberately **not** here: the generated entry
+  // calls `main({ schema: { ...schema, commands } })`, and a spread copies own
+  // properties only, so a `settings` inherited through that prototype never reaches
+  // a built app -- which is then using the default, as the message says. (From source
+  // it does reach `main()`, so that app differs between the two; see AGENTS.md.)
+  // The `__proto__` inside `settings` is different: `settings` travels by reference
+  // and `read()` walks its prototype, which `namedKeys()` bails on
   if (
     schema.properties.some((property) => property.type === 'SpreadElement' || property.computed)
   ) {
@@ -235,76 +278,6 @@ function schemaSettingsKeys(app: DiscoveredApp): ReadonlySet<string> | undefined
   const keys = value?.type === 'ObjectExpression' ? namedKeys(value) : undefined;
 
   return keys && new Set(keys);
-}
-
-/**
- * The schema a module default-exports, when it is an object literal and nothing else.
- *
- * Deliberately **not** `defaultObject()`, which reads through any call with one
- * object argument so that the `desc` lift can see through `command()`. A schema
- * wrapped in `withDefaults({ name: 'a' })` is an object the wrapper returns, which
- * may carry a `settings` the literal does not say -- so only parentheses and
- * `as`/`satisfies`/non-null are looked through here. No identity helper for a
- * schema exists in `@ttylabs/sigil` (`command()` and `options()` are for a command
- * and an option set), so no call is allowed.
- *
- * @param parsed - The module.
- * @returns The literal, and the module-scope `const` it was reached through, if any.
- */
-function defaultSchema(parsed: ParsedModule): { binding?: string; schema?: ObjectExpression } {
-  let named: string | undefined;
-
-  for (const node of parsed.program.body) {
-    if (node.type === 'ExportDefaultDeclaration') {
-      const declaration = unwrapShallow(node.declaration as never);
-
-      if (declaration.type === 'ObjectExpression') {
-        return { schema: declaration };
-      }
-
-      if (declaration.type !== 'Identifier') {
-        return {};
-      }
-
-      named = declaration.name;
-      break;
-    }
-
-    if (node.type === 'ExportNamedDeclaration') {
-      for (const spec of node.specifiers) {
-        if (spec.exported.type === 'Identifier' && spec.exported.name === 'default') {
-          named = spec.local.type === 'Identifier' ? spec.local.name : undefined;
-        }
-      }
-    }
-  }
-
-  if (named === undefined) {
-    return {};
-  }
-
-  // a `const` at module scope only: a `let` can be reassigned before the export
-  for (const node of parsed.program.body) {
-    const declaration =
-      node.type === 'VariableDeclaration'
-        ? node
-        : node.type === 'ExportNamedDeclaration' && node.declaration?.type === 'VariableDeclaration'
-          ? node.declaration
-          : undefined;
-
-    if (declaration?.kind !== 'const') {
-      continue;
-    }
-
-    for (const declarator of declaration.declarations) {
-      if (declarator.id.type === 'Identifier' && declarator.id.name === named && declarator.init) {
-        const init = unwrapShallow(declarator.init as never);
-        return init.type === 'ObjectExpression' ? { binding: named, schema: init } : {};
-      }
-    }
-  }
-
-  return {};
 }
 
 /**

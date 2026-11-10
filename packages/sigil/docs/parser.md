@@ -1128,7 +1128,9 @@ values — see [Undeclared options](#undeclared-options).
 Settings are declared on the schema, as `settings`, or passed to `main()` or
 `parse()`. Both together are merged per key and the call wins; a key the call
 leaves out, or sets to `undefined`, is the schema's. Neither object is modified, and
-`state.settings` is a new object holding the result.
+`state.settings` is a new object holding the result. Only the keys in the table below
+land on it, and each is read once, when the settings are merged, so a getter runs
+eagerly.
 
 A built app only has the schema's: `sigil build` generates the executable and calls
 `main({ schema })` itself, so settings passed in the app's own `main()` call do not
@@ -1150,6 +1152,7 @@ export default {
 | `assertCwd`                | `true`  | Fail early if the working directory is gone                 |
 | `errorHandler`             | —       | `false` to rethrow, or a function to render errors yourself |
 | `helpExitCode`             | `0`     | Exit code `main()` sets after printing help                 |
+| `suggestions`              | `true`  | Offer the nearest command or option a typo missed           |
 
 ## Sharing options between commands
 

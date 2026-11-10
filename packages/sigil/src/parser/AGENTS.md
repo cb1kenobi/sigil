@@ -497,14 +497,14 @@ The sharpest question in the design, and the ticket did not name it.
   for this -- `settings` rides the spread the way a hook does, and a function
   (`errorHandler`) survives it for the same reason -- which `settings-build.test.ts`
   in `@ttylabs/cli` proves by building an app and running both.
-- **Per key, and the call wins.** `{ ...schema.settings, ...call }` -- a flag
-  beats the file, and a key the call does not name is the schema's, which is what
+- **Per key, and the call wins.** For each key of `Settings`, the call's value if it
+  names one, else the schema's -- a flag beats the file, and a key the call does not name is the schema's, which is what
   lets an app say `allowUnknownOptions: false` once and have a test override only
   the setting it means to. A key the call names as `undefined` is **not named**:
   `{ errorHandler: undefined }` is how an optional value looks at a call site, and
   reading it as "clear the schema's" would switch a setting off by accident. This
-  differs from a spread on purpose, which is why `resolveSettings()` loops rather
-  than spreads the call.
+  differs from a spread on purpose, which is why `resolveSettings()` loops over a
+  fixed key list on **both** sides rather than spreading either (below).
 - **It is one function, in one place, because three readers had three chances to
   miss it.** `main()` reads `assertCwd` and `errorHandler` itself and `parse()`
   builds `state.settings` for everything else; the merge is
@@ -539,6 +539,13 @@ The sharpest question in the design, and the ticket did not name it.
   `state.settings`**, which is a change from keeping the caller's object: nothing in
   this repository reads a key that is not in `Settings` (checked), but an app's own
   hook that did would have to read it off the object it passed.
+  **Every key is read once, when the settings are merged at the top of `main()`**, so
+  a getter runs eagerly and one that throws fails `main()` up front, `--help`
+  included -- where before SIG-333 (#359) a throwing getter on a key nothing asked
+  for was harmless. The failure is the getter's own error, raised before any parse. The
+  handling is sensible (the salvage falls back to whichever half still reads) and
+  nobody realistically writes this; it is recorded so that "behind a getter works" is not
+  read as "lazily".
 - **The result is always a new object.** `parse()` used to keep the settings object
   its caller passed, so a hook writing `state.settings.allowUnknownOptions` wrote
   onto the caller's, and the toolchain carried a `beforeParse` hook that copied it

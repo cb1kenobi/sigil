@@ -486,6 +486,8 @@ makes it testable with a fixture directory and no bundler at all.
   instead, because "the default" is a claim that needs the whole schema known: a
   spread or a computed key at the top level, two `settings` keys (JavaScript keeps
   the last; the same inside a `settings` literal, where the last may be `undefined`),
+  a `__proto__: value` inside `settings` (or in the call's literal), which sets the
+  prototype `read()` walks,
   a `settings` that is not a literal, and a default export that is **anything but an
   object literal** -- parentheses and `as`/`satisfies` are looked through, a call is
   not. `objectLiteral()` unwraps any call with one object argument, on purpose, so
@@ -521,7 +523,20 @@ makes it testable with a fixture directory and no bundler at all.
   larger pass than a warning earns. And the message's own claim reads the schema's
   file alone, so a mutation of `schema.settings` from **another module** before
   `main()` runs (a plugin loaded by a top-level `await import()`, or `eval`) is not
-  seen; no realistic path to a false claim was found otherwise.
+  seen. Nor is a schema property **inherited through a prototype** (a top-level
+  `__proto__: base`): the generated entry spreads the schema, and a spread copies own
+  properties only, so such a property -- `settings` included -- reaches `main()` from
+  source and is silently gone from a built app, and nothing warns about it. The message
+  is right about that case (the built app does use the default), which is why the
+  top-level `__proto__` is deliberately **not** a bail. `settings: { __proto__: ... }`
+  is: `settings` travels by reference and `read()` walks its prototype, so the
+  object-literal readers bail on it (and on the call side), as they do on a spread,
+  while a method, a getter or a shorthand named `__proto__` is a key and keeps the
+  detail. **Left as it is:** a call-side key that is not in `Settings` (`{ foo: 1 }`)
+  is named as "the default `foo`". `SETTING_KEYS` lives in `@ttylabs/sigil`'s parser
+  and is not exported, and an export for one message would be a published surface for
+  nothing; such a key does nothing on either side, and untyped code is the only way to
+  write it.
 
 - **`export default cmd` is followed to the `const` it names, because that is
   the shape this repo's own rules force.** `--isolatedDeclarations` refuses to

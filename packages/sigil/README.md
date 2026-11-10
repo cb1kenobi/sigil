@@ -624,8 +624,8 @@ pattern in [Running one command from another](#running-one-command-from-another)
 passes `schema: state.schema`, though, so that nested call picks up the outer schema's
 `settings` through the schema itself, `errorHandler` and `allowUnknownOptions`
 included; pass a different schema to get different settings. `settings: null` is an
-error, as `schema: null` is; leave the key out. `parse({ schema, settings })` follows
-the same rule.
+error, as `schema: null` is; leave the key out. `parse({ schema, settings })` follows the same rule. Only
+the keys in the table below land on `state.settings`.
 
 | Setting                    | Default  | Effect                                                |
 | -------------------------- | -------- | ----------------------------------------------------- |
