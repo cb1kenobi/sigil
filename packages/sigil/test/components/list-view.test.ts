@@ -193,6 +193,22 @@ describe('createListSelection()', () => {
     expect(sel.current.get()).toBe('d');
   });
 
+  it('should keep the cursor at its position instead, with follow off', () => {
+    const selection = createListSelection<string>({ follow: false });
+    selection.setRows(['a', 'b', 'c', 'd']);
+    selection.moveTo(2);
+    expect(selection.current.get()).toBe('c');
+    // re-sorted: the third row is now b, and the cursor is on it
+    selection.setRows(['d', 'c', 'b', 'a']);
+    expect(selection.index()).toBe(2);
+    expect(selection.current.get()).toBe('b');
+    // a disabled row there is stepped over, and a shorter list brings it inside
+    selection.setRows(['x', 'y', 'z', 'w'], (i) => i === 2);
+    expect(selection.current.get()).toBe('w');
+    selection.setRows(['p', 'q']);
+    expect(selection.current.get()).toBe('q');
+  });
+
   it('should keep the cursor on its key when the rows are re-sorted under it', () => {
     const sel = createListSelection<string>({ current: 'c' });
     sel.setRows(['a', 'b', 'c', 'd']);

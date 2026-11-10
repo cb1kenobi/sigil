@@ -944,6 +944,8 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   // added when SIG-310 split the ring and the console patch out of the overlay
   'components/console-capture': [4, 1_573],
   'components/control': [332, 168_553],
+  // SIG-281, measured when it was added
+  'components/data-table': [464, 235_819],
   'components/date': [496, 253_149],
   'components/debug-overlay': [272, 140_286],
   'components/decrypt': [384, 196_337],

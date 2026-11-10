@@ -27,7 +27,6 @@
 import { box, type Element, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
-import { byCodeUnit } from '../util/by-code-unit.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
 import {
@@ -48,6 +47,7 @@ import {
   select,
 } from './prompt.js';
 import {
+  cellOrder,
   type Column,
   type TableCell,
   tableCells,
@@ -56,6 +56,10 @@ import {
   tableValue,
   tableWidths,
 } from './table.js';
+
+// written here first and moved beside the cells it orders, so the data table can
+// sort with it without loading a prompt; still exported from here, where it was
+export { compareCells } from './table.js';
 
 /** What a column may say about being sorted, on top of what `table()` reads. */
 export interface SelectRowColumn extends Column {
@@ -118,80 +122,6 @@ export interface SelectRowOptions<R extends object = TableRow>
    * dropped, leaving `initial` to decide, when it is not.
    */
   value?: R;
-}
-
-/**
- * What a cell is ordered by, or `undefined` where it has nothing to be ordered by.
- *
- * Empty is a missing value, `null`, and the two numbers that are not one: `NaN`
- * and an invalid `Date`. A boolean orders as the number it is.
- *
- * @param value - The cell's value.
- * @returns A number, a bigint or a string, or `undefined`.
- */
-function orderKey(value: unknown): bigint | number | string | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  if (value instanceof Date) {
-    const time = value.getTime();
-    return Number.isNaN(time) ? undefined : time;
-  }
-  if (typeof value === 'number') {
-    return Number.isNaN(value) ? undefined : value;
-  }
-  if (typeof value === 'bigint') {
-    return value;
-  }
-  if (typeof value === 'boolean') {
-    return Number(value);
-  }
-  return String(value);
-}
-
-/**
- * Whether a cell has a value to order by.
- *
- * @param value - The cell's value.
- * @returns `false` for a missing value, `null`, `NaN` and an invalid `Date`.
- */
-function hasValue(value: unknown): boolean {
-  return orderKey(value) !== undefined;
-}
-
-/**
- * Orders two cell values, the way a column sorts when it does not say.
- *
- * Numbers, bigints, dates and booleans order by what they are, so `9` comes
- * before `10`. Anything else orders as the text it is, folded to lower case first
- * so `alpha` sorts before `Zeta`, and by code unit after that -- not by
- * `localeCompare()`, which needs ICU and is the lever a column's own `compare` is
- * for. A number comes before a text where a column holds both, and a value that
- * is empty comes after everything.
- *
- * @param a - One value.
- * @param b - The other.
- * @returns Negative where `a` comes first, positive where `b` does, and `0` where
- *   neither does.
- */
-export function compareCells(a: unknown, b: unknown): number {
-  const x = orderKey(a);
-  const y = orderKey(b);
-
-  if (x === undefined || y === undefined) {
-    return x === y ? 0 : x === undefined ? 1 : -1;
-  }
-
-  const textual = [typeof x === 'string', typeof y === 'string'];
-  if (textual[0] !== textual[1]) {
-    return textual[0] ? 1 : -1;
-  }
-  if (typeof x === 'string' && typeof y === 'string') {
-    return byCodeUnit(x.toLowerCase(), y.toLowerCase()) || byCodeUnit(x, y);
-  }
-  // a number, a bigint, a date's time or a boolean, which `<` orders across
-  // kinds where `byCodeUnit()` takes strings alone
-  return x < y ? -1 : x > y ? 1 : 0;
 }
 
 /** The marks on a sorted heading. */
@@ -315,26 +245,10 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
       order = unsorted;
     } else {
       const column = sortBy;
-      const own = (columns[column] as SelectRowColumn).compare;
-      const compare = own ?? compareCells;
-      const flip = descending ? -1 : 1;
-      // a view is a tree and has no order of its own, so the default puts it with
-      // the empty cells -- where `String()` would have filed every one of them
-      // under `[object Object]`, between the texts. A column's own `compare` is
-      // handed it as the value the row holds, since whoever built the view knows
-      // what it stands for
-      const present = (row: number): boolean =>
-        ((cells[row] as TableCell[])[column] as TableCell).view === undefined
-          ? hasValue((values[row] as unknown[])[column])
-          : own !== undefined;
-      order = [...unsorted].sort((a, b) => {
-        const x = (values[a] as unknown[])[column];
-        const y = (values[b] as unknown[])[column];
-        if (!present(a) || !present(b)) {
-          return present(a) ? -1 : present(b) ? 1 : 0;
-        }
-        return compare(x, y) * flip;
-      });
+      const compare = cellOrder((columns[column] as SelectRowColumn).compare, descending);
+      order = [...unsorted].sort((a, b) =>
+        compare((values[a] as unknown[])[column], (values[b] as unknown[])[column])
+      );
     }
     at = order.indexOf(keep);
   }

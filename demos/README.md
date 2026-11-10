@@ -389,6 +389,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/60-live-charts.js`](components/60-live-charts.js)                           | Live charts fed from a `Series` and sized by the layout: a small monitor        |
 | [`components/61-menus.js`](components/61-menus.js)                                       | A menubar, a dropdown select and a context menu over a file list                |
 | [`components/62-slider.js`](components/62-slider.js)                                     | A settings screen of sliders: keys, a press, a drag past the edge               |
+| [`components/63-data-table.js`](components/63-data-table.js)                             | A process table re-read every second: sorted, ticked, narrowed                  |
 | [`components/64-tree-list-view.js`](components/64-tree-list-view.js)                     | A tree list view: a directory read as it opens, a slow branch and a failing one |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
@@ -725,6 +726,19 @@ as the widest value its range formats to, so nothing moves as the volume goes fr
 `9%` to `100%`; "Brightness" is disabled, so it is muted and out of the Tab ring.
 Piped, a scripted keyboard and a scripted pointer drive the same tree, and the demo
 prints it after each step.
+
+`63-data-table.js` is one `DataTable` over three hundred made-up processes in the
+shape htop draws them, sorted by CPU and re-read every second: every row object is
+replaced, a few processes exit and a few start, and the ticks stay on their pids
+wherever the sort carries them. The cursor keeps its place on screen while the
+processes re-sort under it, as htop's does; `f` makes it follow its process instead,
+and `f` again puts it back. A click on a heading or a digit sorts --
+its first way, the other way, then back as the rows came -- and the arrow takes two
+columns every sortable heading already keeps back. Make the terminal narrower and the
+command column gives way to its minimum, and then RSS, USER and STATE are hidden,
+lowest priority first, while PID, CPU and the command stay; the footer's digits
+follow. Piped, a scripted keyboard drives the same tree, with a tick standing in for
+the clock and a second width for a resize.
 
 `64-tree-list-view.js` is one `TreeListView` over two kinds of branch: a directory
 from `directoryRoot()` -- the root node `directoryTree()` asks over -- read a level at

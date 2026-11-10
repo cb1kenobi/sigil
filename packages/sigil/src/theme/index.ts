@@ -145,6 +145,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-scroll-bar  .sigil-scroll-slot  .sigil-scroll-spacer
  *   .sigil-list  .sigil-list-scroll  .sigil-list-row  .sigil-list-pointer
  *   .sigil-list-mark  .sigil-list-content  .sigil-list-text  .sigil-list-empty
+ *   .sigil-data-table  .sigil-data-table-head  .sigil-data-table-inset
+ *   .sigil-data-table-body
  *   .sigil-collapsible  .sigil-collapsible-title  .sigil-collapsible-marker
  *   .sigil-collapsible-label  .sigil-collapsible-body
  *   .sigil-tabs  .sigil-tabs-row  .sigil-tabs-labels  .sigil-tabs-tab

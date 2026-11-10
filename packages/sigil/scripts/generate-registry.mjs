@@ -174,6 +174,10 @@ const ENTRIES = [
     name: 'tree-list-view',
   },
   {
+    desc: 'A data table: a list view with a sortable heading, columns fitted to the width, and live rows that keep the selection',
+    name: 'data-table',
+  },
+  {
     desc: 'A pager over a scroll box: less keys, line numbers, and / search with highlighted matches',
     name: 'pager',
   },
