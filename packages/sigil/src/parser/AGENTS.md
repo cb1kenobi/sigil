@@ -1622,6 +1622,39 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   written and deleted: the next dispatch refuses that ancestor anyway, with the
   same message.
 
+### A token split at its `=` is handed on whole
+
+- **`initArgv()` splits at the first `=` before the schema is known, so whatever
+  reads a token as something other than an option name reads `orig`.** SIG-339.
+  The split is right for `--name=value` and wrong for everyone else, and three
+  readers had been given the whole token back one at a time -- the terminator, a
+  declared option's value, an undeclared option's value. Two had not. A short
+  option's attached value is the text after its letter, so `-Dfoo=bar` is
+  `define: 'foo=bar'` and `-vDa=b=c` is `'a=b=c'`, where reading only the letters
+  of `-Dfoo` made it `'foo'` and dropped `=bar` silently; `--define foo=bar` always
+  said `'foo=bar'`, so the two spellings now agree. And a positional is the token
+  as typed, so `-Dfoo=bar` landing on `<def>` is `'-Dfoo=bar'` rather than `-Dfoo`
+  plus a stray `bar` in `_`, a variadic takes one value per token, and
+  `Unexpected argument` names what was typed. A group deferred part way carries
+  the rest of its own spelling, so a later pass or a positional slot still has it.
+  `whole()` is the one reader. This is "An attached value is taken exactly as
+  typed" applied to the two places it had not reached, and nothing about which
+  token is a value moved. Coercion writes into a copy, so `state.$` keeps the
+  strings argv held and a `transform`'s returned array is not written into.
+- **A consumed token is marked and dropped once per walk, never spliced out where
+  it was found.** A splice shifts everything after it, so each walk that removed
+  one token per option or per gobbled value was quadratic in argv: 100,000 tokens
+  of `<files...>` took seconds. `compact()` drops what a pass marked, at the end
+  of the pass, and `validateOptions()` collects the typed options into a `Set`
+  once rather than walking `state.$` per declared option. The one visible
+  difference is that an option's `transform`, which runs mid-walk, now finds the
+  tokens consumed so far in that pass, its own value included, still listed in
+  `state.$`. Expanding a short option group
+  still splices, because it inserts entries rather than removing them; that is
+  quadratic only in the number of groups. Pinned by counting `state.$.splice`
+  calls in `consuming tokens was quadratic in argv`, since a timing is a flake on
+  a loaded machine.
+
 ### Sharing options between commands
 
 - **Nothing declares what a command inherits, because nothing has to.** Options

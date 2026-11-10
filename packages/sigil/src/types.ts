@@ -640,9 +640,10 @@ export interface ParsedBase {
   inputs: (string | undefined)[];
   /**
    * The token exactly as it appeared in argv, before `--opt=value` was split
-   * into separate inputs. An option that consumes this token as its value
-   * needs the original spelling back, otherwise the part after the `=` is
-   * silently lost.
+   * into separate inputs. Whatever reads this token as something other than an
+   * option -- an option's value, a positional argument, an extra argument after
+   * `--`, or a short option's attached value in `-Dfoo=bar` -- needs the
+   * original spelling back, otherwise the part after the `=` is silently lost.
    */
   orig?: string;
   type: ParsedType;

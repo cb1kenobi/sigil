@@ -236,6 +236,46 @@ async function initArgv(state: ParseState): Promise<void> {
 }
 
 /**
+ * A token as it was typed, for every place that hands one on rather than reading
+ * it as an option: a value after the terminator, and a positional argument.
+ * `inputs` is the split form -- `--foo=bar` was taken apart into a name and a
+ * value in the very first pass, before anything knew what the token would turn
+ * out to be -- so flattening it turns one token into two.
+ *
+ * @param entry - The parsed entry.
+ * @returns The typed token, or the inputs where nothing recorded one.
+ */
+function whole(entry: ParsedBase): (string | undefined)[] {
+  return entry.orig === undefined ? entry.inputs : [entry.orig];
+}
+
+/**
+ * Drops every entry a walk consumed, in one pass.
+ *
+ * A token taken as a value used to be spliced out where it was found, which is a
+ * shift of everything after it -- so a walk that consumed one token per option
+ * was quadratic in argv: 100,000 tokens of a repeated `--tag x` took seconds.
+ * Marking during the walk and compacting once after it is linear.
+ *
+ * @param $ - The parsed entries, compacted in place.
+ * @param consumed - The entries to drop; emptied.
+ */
+function compact($: ParsedValue[], consumed: Set<ParsedValue>): void {
+  if (!consumed.size) {
+    return;
+  }
+
+  let w = 0;
+  for (const entry of $) {
+    if (!consumed.has(entry)) {
+      $[w++] = entry;
+    }
+  }
+  $.length = w;
+  consumed.clear();
+}
+
+/**
  * Finds an option by name across the entire context chain, innermost context
  * first, so that a subcommand can use the options its parents declared.
  *
@@ -271,6 +311,12 @@ function expandGroup(contexts: InternalCommand[], entry: ParsedBase): ParsedValu
   const explicit = entry.inputs[1];
   const expanded: ParsedValue[] = [];
 
+  // the token as typed, where it still reads as the group: `initArgv()` split
+  // it at the first `=` before anything knew whether a letter takes a value,
+  // so the text after a letter is only ever whole here
+  const { orig } = entry;
+  const typed = orig?.startsWith(`-${chars}`) ? orig : undefined;
+
   for (let i = 0; i < chars.length; i++) {
     const name = `-${chars[i]}`;
     const option = findOption(contexts, name);
@@ -281,12 +327,17 @@ function expandGroup(contexts: InternalCommand[], entry: ParsedBase): ParsedValu
         return;
       }
 
-      // partially resolved, so defer whatever is left
+      // partially resolved, so defer whatever is left -- carrying its own
+      // spelling, so that a later pass, or a positional slot, still has it whole
       const rest: (string | undefined)[] = [`-${chars.slice(i)}`];
       if (explicit !== undefined) {
         rest.push(explicit);
       }
-      expanded.push({ inputs: rest, type: 'Unknown' });
+      expanded.push({
+        inputs: rest,
+        orig: typed === undefined ? undefined : `-${typed.slice(i + 1)}`,
+        type: 'Unknown',
+      });
       return expanded;
     }
 
@@ -295,11 +346,14 @@ function expandGroup(contexts: InternalCommand[], entry: ParsedBase): ParsedValu
       continue;
     }
 
-    // this option takes a value, so the rest of the group is that value
+    // this option takes a value, so the rest of the group is that value -- the
+    // rest of the *token*, `=` and all: `-Dfoo=bar` was split into `-Dfoo` and
+    // `bar` before `-D` was known to take a value, and reading only the letters
+    // made the value `foo` and dropped `=bar` without a word
     const rest = chars.slice(i + 1);
     const inputs: (string | undefined)[] = [name];
     if (rest) {
-      inputs.push(rest);
+      inputs.push(explicit !== undefined && typed !== undefined ? typed.slice(i + 2) : rest);
     } else if (explicit !== undefined) {
       inputs.push(explicit);
     }
@@ -666,6 +720,8 @@ async function parseArgv(state: ParseState): Promise<void> {
   const { $, contexts } = state;
   const defaults = new Map<unknown, string>();
   const separator = topicSeparator(state.schema);
+  // tokens taken as an option's value, dropped once the pass is over: see `compact()`
+  const consumed = new Set<ParsedValue>();
 
   await state.schema.hooks?.beforeParse?.(state);
 
@@ -692,7 +748,7 @@ async function parseArgv(state: ParseState): Promise<void> {
             // `--foo=bar` was taken apart into a name and a value before
             // anything knew a terminator preceded it -- and flattening that
             // turned one extra argument into two
-            .flatMap((a) => (a.orig === undefined ? a.inputs : [a.orig])),
+            .flatMap(whole),
           type: 'Extra',
         };
         break;
@@ -798,6 +854,7 @@ async function parseArgv(state: ParseState): Promise<void> {
       const { type } = option;
       const { isFlag, label } = option[Internal];
       let value: unknown;
+      let took = false;
 
       log(`Found ${label}`);
 
@@ -822,7 +879,9 @@ async function parseArgv(state: ParseState): Promise<void> {
         } else if (next && canBeValue(contexts, next)) {
           value = next.orig ?? next.inputs[0];
           inputs.push(value as string);
-          $.splice(j + 1, 1);
+          // marked rather than spliced out, and stepped over below
+          consumed.add(next);
+          took = true;
         } else {
           // an option that takes a value was given none. Required or not is a
           // question about the *option* -- `<value>` means the option itself
@@ -850,7 +909,13 @@ async function parseArgv(state: ParseState): Promise<void> {
         type: 'Option',
         value,
       };
+
+      if (took) {
+        j++;
+      }
     }
+
+    compact($, consumed);
 
     // this pass turned up no new context, so argv has named every command it
     // is going to: whatever the innermost context calls its default command
@@ -880,6 +945,7 @@ async function parseArgv(state: ParseState): Promise<void> {
 function parseUnknownOptions(state: ParseState): void {
   const { $ } = state;
   const allowed = state.settings?.allowUnknownOptions !== false;
+  const consumed = new Set<ParsedValue>();
 
   for (let j = 0; j < $.length; j++) {
     const arg = $[j];
@@ -902,6 +968,7 @@ function parseUnknownOptions(state: ParseState): void {
 
     const { inputs } = arg;
     let value: unknown = true;
+    let took = false;
 
     if (inputs.length > 1) {
       value = inputs[1];
@@ -911,7 +978,9 @@ function parseUnknownOptions(state: ParseState): void {
       if (next?.type === 'Unknown' && following !== '--' && !optionLikeRE.test(`${following}`)) {
         value = next.orig ?? following;
         inputs.push(value as string);
-        $.splice(j + 1, 1);
+        // marked rather than spliced out, and stepped over below
+        consumed.add(next);
+        took = true;
       }
     }
 
@@ -927,7 +996,13 @@ function parseUnknownOptions(state: ParseState): void {
       type: 'UnknownOption',
       value,
     };
+
+    if (took) {
+      j++;
+    }
   }
+
+  compact($, consumed);
 }
 
 /**
@@ -952,6 +1027,13 @@ export async function processArgs(state: ParseState): Promise<void> {
     if (parsedType === 'Unknown') {
       const arg = internal.args[argIdx++];
 
+      // a positional is the token as it was typed. `inputs` is the split form,
+      // so `-Dfoo=bar` landing here arrived as `-Dfoo` with `bar` as a second
+      // value -- the half the terminator, a declared option and an undeclared
+      // one had each already been given back. A copy, because coercion below
+      // writes into it and `state.$` is what argv said
+      inputs = [...whole(parsed)];
+
       if (!state.settings?.allowUnexpectedArguments && !arg) {
         throw new Error(unexpectedArgument(inputs[0], ctx, state.settings));
       }
@@ -962,14 +1044,20 @@ export async function processArgs(state: ParseState): Promise<void> {
         if (multiple) {
           // gobble every remaining positional value, but with its own
           // index: advancing `i` here would run the outer loop off the
-          // end and silently drop every option that follows
+          // end and silently drop every option that follows. What is
+          // gobbled is dropped from `state.$` in the same pass, rather than
+          // spliced out one at a time, which was quadratic in argv
+          let w = i + 1;
           for (let k = i + 1; k < state.$.length; k++) {
-            const next: ParsedBase = state.$[k];
+            const next = state.$[k];
             if (next.type === 'Unknown') {
-              inputs.push(...next.inputs);
-              state.$.splice(k--, 1);
+              parsed.inputs.push(...next.inputs);
+              inputs.push(...whole(next));
+            } else {
+              state.$[w++] = next;
             }
           }
+          state.$.length = w;
         }
 
         if (typeof arg.transform === 'function') {
@@ -979,11 +1067,10 @@ export async function processArgs(state: ParseState): Promise<void> {
           }
         }
 
-        for (let i = 0, len = inputs.length; i < len; i++) {
-          if (typeof inputs[i] === 'string') {
-            inputs[i] = transformValue(inputs[i] as string, type);
-          }
-        }
+        // into a new array: what a `transform` returned is the caller's
+        inputs = inputs.map((input) =>
+          typeof input === 'string' ? transformValue(input, type) : input
+        );
 
         state.argv[dest] = multiple || !Array.isArray(inputs) ? inputs : inputs[0];
         produced(state, dest, arg);
@@ -1164,11 +1251,19 @@ export function validateOptions(state: ParseState): void {
   const all = state.contexts.flatMap((ctx) => [...ctx[Internal].options.values()]);
   const live = liveDeclarations(state);
 
+  // once, rather than a walk of `state.$` per declared option
+  const typedOptions = new Set<InternalOption>();
+  for (const parsed of state.$) {
+    if (parsed.type === 'Option') {
+      typedOptions.add(parsed.option);
+    }
+  }
+
   for (const opt of all) {
     const { choices, required } = opt;
     const { dest, label } = opt[Internal];
     const value = resolved(state, dest);
-    const typed = state.$.some((parsed) => parsed.type === 'Option' && parsed.option === opt);
+    const typed = typedOptions.has(opt);
 
     if (required && !typed && value === undefined) {
       missingOptions.unshift(label);

@@ -2583,4 +2583,179 @@ describe('regressions', () => {
       expect((await parse({ argv: ['ls'], schema })).cmd?.name).to.equal('show');
     });
   });
+
+  // SIG-339. `initArgv()` splits an option-like token at its first `=` before
+  // the schema is known, and two readers took the split form for the token
+  describe("a short option's attached value was cut at the first =", () => {
+    const options = { '-v, --verbose': {}, '-D, --define <def>': {} };
+
+    it('should keep the whole value after the letter', async () => {
+      const result = await parse({ argv: ['-Dfoo=bar'], schema: { options } });
+      expect(result.argv.define).to.equal('foo=bar');
+    });
+
+    it('should agree with the spelling that puts the value in the next token', async () => {
+      const result = await parse({ argv: ['--define', 'foo=bar'], schema: { options } });
+      expect(result.argv.define).to.equal('foo=bar');
+    });
+
+    it('should keep every = in a value that follows a flag in the group', async () => {
+      const result = await parse({ argv: ['-vDa=b=c'], schema: { options } });
+      expect(result.argv.verbose).to.equal(true);
+      expect(result.argv.define).to.equal('a=b=c');
+    });
+
+    it('should keep the value whole when the letter is only declared by a later command', async () => {
+      // the group is deferred at `-X`, and the deferred rest is read again on the
+      // pass that knows `sub`'s options
+      const result = await parse({
+        argv: ['-vXa=b', 'sub'],
+        schema: {
+          commands: { sub: { options: { '-X <x>': {} }, run: () => {} } },
+          options: { '-v': {} },
+        },
+      });
+      expect(result.argv.v).to.equal(true);
+      expect(result.argv.X).to.equal('a=b');
+    });
+
+    it('should still read a value attached without an =', async () => {
+      const result = await parse({ argv: ['-vDfoo'], schema: { options } });
+      expect(result.argv.define).to.equal('foo');
+    });
+
+    it('should still read a value given after an = right behind the letter', async () => {
+      const result = await parse({ argv: ['-vD=a=b'], schema: { options } });
+      expect(result.argv.define).to.equal('a=b');
+    });
+  });
+
+  describe('a positional that looks like an option arrived split', () => {
+    it('should give an argument the token as typed', async () => {
+      const result = await parse({ argv: ['-Dfoo=bar'], schema: { args: ['<def>'] } });
+      expect(result.argv.def).to.equal('-Dfoo=bar');
+      expect(result._).to.deep.equal(['-Dfoo=bar']);
+    });
+
+    it('should give a variadic argument one value per token', async () => {
+      const result = await parse({
+        argv: ['x', '-Dfoo=bar', '--a.b=c'],
+        schema: { args: ['<def...>'] },
+      });
+      expect(result.argv.def).to.deep.equal(['x', '-Dfoo=bar', '--a.b=c']);
+      expect(result._).to.deep.equal(['x', '-Dfoo=bar', '--a.b=c']);
+    });
+
+    it('should name the token as typed when nothing takes it', async () => {
+      await expect(parse({ argv: ['-Dfoo=bar'], schema: {} })).rejects.toThrow(
+        'Unexpected argument "-Dfoo=bar"'
+      );
+    });
+
+    it('should pass the token through whole when unexpected arguments are allowed', async () => {
+      const result = await parse({
+        argv: ['-Dfoo=bar'],
+        schema: {},
+        settings: { allowUnexpectedArguments: true },
+      });
+      expect(result._).to.deep.equal(['-Dfoo=bar']);
+    });
+
+    it('should keep the rest of a group a declared flag began', async () => {
+      // `-v` resolves and `-XY=z` is what is left, which no option declares
+      const result = await parse({
+        argv: ['-vXY=z'],
+        schema: { args: ['<rest>'], options: { '-v': {} } },
+      });
+      expect(result.argv.v).to.equal(true);
+      expect(result.argv.rest).to.equal('-XY=z');
+    });
+
+    it('should coerce a copy, so state.$ keeps what was typed', async () => {
+      const result = await parse({
+        argv: ['8080', 'x'],
+        schema: { args: [{ name: '<port>', type: 'int' }, '[y]'] },
+      });
+      expect(result.argv.port).to.equal(8080);
+      expect(result._).to.deep.equal([8080, 'x']);
+      expect(result.$[0].inputs).to.deep.equal(['8080']);
+    });
+
+    it("should not coerce inside the array an argument's transform returned", async () => {
+      const returned = ['1', '2'];
+      const result = await parse({
+        argv: ['a', 'b'],
+        schema: { args: [{ name: '<n...>', transform: async () => returned, type: 'int' }] },
+      });
+      expect(result.argv.n).to.deep.equal([1, 2]);
+      expect(returned).to.deep.equal(['1', '2']);
+    });
+  });
+
+  describe('consuming tokens was quadratic in argv', () => {
+    // a splice per consumed token shifts everything after it; what is pinned is
+    // that no walk removes tokens one splice at a time. Counted rather than
+    // timed, because a timing is a flake on a loaded machine
+    async function splices(argv: string[], schema: Schema): Promise<number> {
+      let count = 0;
+      await parse({
+        argv,
+        schema: {
+          ...schema,
+          hooks: {
+            beforeParse: (state) => {
+              const splice = state.$.splice.bind(state.$);
+              state.$.splice = ((...args: Parameters<typeof splice>) => {
+                count++;
+                return splice(...args);
+              }) as typeof splice;
+            },
+          },
+        },
+      });
+      return count;
+    }
+
+    const n = 1000;
+
+    it('should not splice per value a repeated option takes', async () => {
+      const argv = Array.from({ length: n }, (_, i) => ['--tag', `x${i}`]).flat();
+      const schema = { options: { '--tag <t>': { multiple: true } } };
+      expect(await splices(argv, schema)).to.equal(0);
+      const result = await parse({ argv, schema });
+      expect(result.argv.tag).toHaveLength(n);
+      expect(result.$).toHaveLength(n);
+    });
+
+    it('should not splice per value an undeclared option takes', async () => {
+      const argv = Array.from({ length: n }, (_, i) => [`--k${i}`, `v${i}`]).flat();
+      expect(await splices(argv, {})).to.equal(0);
+      const result = await parse({ argv, schema: {} });
+      expect(result.argv[`k${n - 1}`]).to.equal(`v${n - 1}`);
+      expect(result.$).toHaveLength(n);
+    });
+
+    it('should not splice per value a variadic argument gobbles', async () => {
+      const argv = Array.from({ length: n }, (_, i) => `f${i}`);
+      const schema = { args: ['<files...>'], options: { '--force': {} } };
+      expect(await splices([...argv, '--force'], schema)).to.equal(0);
+      const result = await parse({ argv: [...argv, '--force'], schema });
+      expect(result.argv.files).toHaveLength(n);
+      expect(result.argv.force).to.equal(true);
+      expect(result.$).toHaveLength(2);
+    });
+
+    it('should still step over a consumed value to the option after it', async () => {
+      const result = await parse({
+        argv: ['--name', 'a', '--name', 'b', 'pos', '--flag'],
+        schema: {
+          args: ['<p>'],
+          options: { '--flag': {}, '--name <n>': { multiple: true } },
+        },
+      });
+      expect(result.argv.name).to.deep.equal(['a', 'b']);
+      expect(result.argv.p).to.equal('pos');
+      expect(result.argv.flag).to.equal(true);
+    });
+  });
 });
