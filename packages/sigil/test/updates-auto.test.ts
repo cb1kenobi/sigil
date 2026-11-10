@@ -97,6 +97,77 @@ describe('isNewer', () => {
       expect(isNewer(latest!, current!), `${latest} over ${current}`).toBe(false);
     }
   });
+
+  // `VERSION_RE` put the dot inside the identifier class, so `a..b` was a
+  // pre-release of three identifiers, one of them empty, and it outranked `a`.
+  // Semver forbids an empty identifier, and a version this cannot read is
+  // never newer
+  it('should not read a version with an empty prerelease identifier', () => {
+    for (const [latest, current] of [
+      ['1.0.0-a..b', '1.0.0-a'],
+      ['1.0.0-a.', '1.0.0-a'],
+      ['1.0.0-.a', '1.0.0-0'],
+      ['1.0.1-', '1.0.0'],
+      ['1.0.1+a..b', '1.0.0'],
+      ['1.0.1+a.', '1.0.0'],
+      ['1.0.1+.a', '1.0.0'],
+      ['1.0.1+', '1.0.0'],
+      // and on the other side: a current version it cannot read is not one
+      // anything is newer than
+      ['2.0.0', '1.0.0-a..b'],
+    ]) {
+      expect(isNewer(latest!, current!), `${latest} over ${current}`).toBe(false);
+    }
+  });
+
+  // the same pattern is what stops a hostile registry answer or a poisoned
+  // cache from reaching the notice, so narrowing it must not have widened it
+  it('should still refuse a version carrying a control character or a space', () => {
+    for (const latest of [
+      '1.0.1\u001b[31m',
+      '1.0.1-\u001b]8;;https://x\u0007',
+      '1.0.1-a\u009b31m',
+      '1.0.1\u0000',
+      '1.0.1\u007f',
+      '1.0.1 2',
+      '1.0.1-a b',
+      '1.0.1\t2',
+      '1.0.1\n2.0.0',
+      '1.0.1-a\nb',
+      '1.0.1+a\rb',
+      '1.0.1-é',
+    ]) {
+      expect(isNewer(latest, '1.0.0'), JSON.stringify(latest)).toBe(false);
+    }
+  });
+
+  // the fourteen kinds of valid version the review checked, written out so
+  // that narrowing the pattern is seen to change none of them
+  it.each([
+    // numeric identifiers compare as numbers
+    ['1.0.0-beta.11', '1.0.0-beta.2', true],
+    ['1.0.0-beta.2', '1.0.0-beta.11', false],
+    // a numeric identifier ranks below an alphanumeric one
+    ['1.0.0-alpha.beta', '1.0.0-alpha.1', true],
+    ['1.0.0-alpha.1', '1.0.0-alpha.beta', false],
+    // alphanumeric identifiers compare as ASCII, hyphen included
+    ['1.0.0-rc.1', '1.0.0-beta.11', true],
+    ['1.0.0-x-y', '1.0.0-x', true],
+    // the shorter set of identifiers is the smaller
+    ['1.0.0-alpha.1', '1.0.0-alpha', true],
+    // a release outranks its own pre-release
+    ['1.0.0', '1.0.0-rc.1', true],
+    // build metadata is ignored, on either side and beside a pre-release
+    ['1.0.0+build.5', '1.0.0', false],
+    ['1.0.0', '1.0.0+build.5', false],
+    ['1.0.1+build.5', '1.0.0+build.9', true],
+    ['1.0.0-rc.1+exp.sha.5114f85', '1.0.0-rc.1', false],
+    // a `v` prefix is read past
+    ['v1.0.1', 'v1.0.0', true],
+    ['v1.0.0', '1.0.0', false],
+  ])('should still say %s over %s is %s', (latest, current, expected) => {
+    expect(isNewer(latest, current)).toBe(expected);
+  });
 });
 
 describe('what updateCheck may be', () => {

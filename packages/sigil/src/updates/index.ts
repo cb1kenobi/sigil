@@ -11,6 +11,16 @@ import { dirname, join } from 'node:path';
 const { log } = debug('sigil:updates');
 const oneDay = 86400000;
 
+/**
+ * How far ahead of this clock a cache's stamp may be and still be fresh.
+ *
+ * A minute: enough for the ordinary jitter of a clock that NTP nudged back
+ * between the run that wrote the cache and the one reading it, and far too
+ * little for a clock that was simply wrong, which is the case a future stamp
+ * has to be stale for.
+ */
+const CLOCK_TOLERANCE = 60000;
+
 export type { GithubCheckerOptions, NpmCheckerOptions, UpdateChecker } from './checker.js';
 export { githubChecker, isNewer, npmChecker, versionFrom } from './checker.js';
 export type { BakedUpdateConfig } from './host.js';
@@ -166,9 +176,22 @@ export async function check(
   // It refetches on every run where the answer carries no version, which is
   // the right way round: that is not a successful check, and treating it as
   // one is how a check comes to look like it is working.
+  //
+  // And it is stale when it was written in the future. Only "too old" used to
+  // be asked, so a cache stamped while the clock was ahead -- a bad RTC, a VM
+  // resumed from a snapshot, a home directory restored from another machine
+  // -- stayed fresh until real time caught up with `ts + checkInterval`,
+  // which can be a year of no checks with `force` the only way out. A stamp
+  // that is not a finite number is stale for the same reason: the comparison
+  // below means nothing on it, and a string of digits would compare by
+  // concatenation.
+  const now = Date.now();
+  const ts = cache?.ts;
   const fresh =
-    cache?.ts !== undefined &&
-    cache.ts + checkInterval >= Date.now() &&
+    typeof ts === 'number' &&
+    Number.isFinite(ts) &&
+    ts <= now + CLOCK_TOLERANCE &&
+    ts + checkInterval >= now &&
     versionIn(cache, checker) !== undefined;
 
   if (force || !fresh) {
