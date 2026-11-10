@@ -1152,6 +1152,15 @@ These look like bugs and are not. Each is intentional and covered by tests.
   loop that relies on finding something is a loop that can run off the top of
   the filesystem. Reached from the update cache, which a CLI run as root
   creates. See `test/mkdir-owner-sync.test.ts`.
+
+  Its default mode is `0o777` under the umask, and it was `0o7777` from the
+  2023 commit that wrote it, with no reason recorded anywhere (SIG-373). That
+  asked for setuid, setgid and sticky too, and the kernel decided what to keep:
+  macOS dropped all three, while Linux kept the sticky bit. An explicit `mode` is
+  still passed through as given. `test/mkdir-owner-sync-mode.test.ts` reads back
+  what a real `mkdir` made, and the mocked file pins what is asked for, because
+  on macOS the kernel hides the old value from a real one.
+
 - **A command is fixed once it is initialized, and its declaration containers
   are read-only.** `cmd.args`, `cmd.commands`, and `cmd.options` echo the
   declaration; the parser reads the normalized arguments and the registries at
