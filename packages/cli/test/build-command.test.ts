@@ -520,6 +520,85 @@ describe('sigil build', () => {
     expect(help).toMatch(/^\s+bare-pkg\s+A package named by its manifest$/m);
   }, 60_000);
 
+  it('a translated desc was baked as English for a { load } or { path } command, beside a translated string path', async () => {
+    // SIG-352. One module whose `desc` is a `__` tag, reached as `{ load }`,
+    // `{ path }` and a string path. The two object forms baked the English and
+    // the string path the thunk, so the built `--help` listed `loaded  Build
+    // the app` beside `pathed  Die App bauen`
+    const app = join(fixtures, 'discover', 'translated-placeholders');
+    const { err } = await sigil('build', app, '--out', out, '--no-sourcemap');
+
+    expect(err).not.toContain('error');
+    expect(process.exitCode).toBeFalsy();
+
+    const env = { ...process.env, LANG: undefined, LC_ALL: undefined, SIGIL_LOCALE: 'de' };
+    const built = (...argv: string[]) =>
+      spawnSync(process.execPath, [join(out, 'translated-placeholders.mjs'), ...argv], {
+        cwd: tmpdir(),
+        encoding: 'utf-8',
+        env,
+      });
+    const source = (...argv: string[]) =>
+      spawnSync(process.execPath, [join(app, 'dev.ts'), ...argv], {
+        cwd: tmpdir(),
+        encoding: 'utf-8',
+        env,
+      });
+
+    const help = built('--help').stdout;
+    for (const name of ['loaded', 'object', 'pathed']) {
+      // what the built app lists before loading anything is what the app run
+      // from source says once the module has loaded
+      const loaded = source('help', name);
+      expect(loaded.stdout, name).toContain('Die App bauen');
+      expect(help).toMatch(new RegExp(`^\\s+${name}\\s+Die App bauen$`, 'm'));
+    }
+    expect(help).not.toContain('Build the app');
+
+    // a placeholder's own literal is what both list before the module loads,
+    // untranslated, because it is prose rather than a key
+    expect(source('--help').stdout).toMatch(/^\s+literal\s+Its own words$/m);
+    expect(help).toMatch(/^\s+literal\s+Its own words$/m);
+  }, 60_000);
+
+  it('a desc or hidden written before a spread was baked, though the spread replaces it at run time', async () => {
+    // SIG-352. `{ desc: 'early', hidden: false, ...base }` runs as `base` says,
+    // and the build lifted `early` with no warning -- so the built `--help`
+    // listed `early  early` for a command whose description is `from base`
+    const app = join(fixtures, 'discover', 'spread-order');
+    const { err } = await sigil('build', app, '--out', out, '--no-sourcemap');
+
+    expect(err).toContain('"desc" is written before a spread');
+    expect(err).toContain('"hidden" is written before a spread');
+    expect(process.exitCode).toBeFalsy();
+
+    const built = (...argv: string[]) =>
+      spawnSync(process.execPath, [join(out, 'spread-order.mjs'), ...argv], {
+        cwd: tmpdir(),
+        encoding: 'utf-8',
+      });
+    const source = (...argv: string[]) =>
+      spawnSync(process.execPath, [join(app, 'dev.ts'), ...argv], {
+        cwd: tmpdir(),
+        encoding: 'utf-8',
+      });
+
+    // nothing is baked for `early`, so it is listed exactly as it is from
+    // source before its module loads: by name alone
+    const help = built('--help').stdout;
+    expect(help).toMatch(/^\s+early$/m);
+    expect(help).not.toMatch(/^\s+early\s+early$/m);
+    expect(source('--help').stdout).toMatch(/^\s+early$/m);
+    // ...while a key after the spread is still read
+    expect(help).toMatch(/^\s+late\s+late$/m);
+
+    // and once it loads, both say what the module runs with
+    for (const name of ['early', 'late']) {
+      expect(built('help', name).stdout, name).toBe(source('help', name).stdout);
+    }
+    expect(built('help', 'early').stdout).toContain('from base');
+  }, 60_000);
+
   it('should refuse a package the schema points at whose names it cannot read', async () => {
     // SIG-332. From source such a package answers to whatever its module
     // computes, so a build that baked the key, or guessed, would route the built

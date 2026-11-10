@@ -180,6 +180,30 @@ describe("reading where an app's commands are", () => {
       expect(at(db.commands, 'migrate').desc).toBe('migrate the database');
     });
 
+    it('a translated desc was baked as English for a command declared as { load } or { path }', () => {
+      // SIG-352. The object form rebuilt the command from `desc`, `hidden` and
+      // `module` and dropped the lifted `descTranslated`, so the generated tree
+      // printed the key as a plain string where a string path to the same
+      // module printed `() => __\`...\`` -- two spellings of one declaration
+      // disagreeing about whether help is translated
+      const app = discoverApp(join(apps, 'translated-placeholders'));
+      const { commands, diagnostics } = readAppCommands(app);
+      const list = commands?.kind === 'inline' ? commands.commands : [];
+
+      expect(diagnostics).toStrictEqual([]);
+      for (const name of ['loaded', 'object', 'pathed']) {
+        expect(at(list, name)).toMatchObject({
+          desc: 'Build the app',
+          descTranslated: true,
+          name,
+        });
+      }
+
+      // the placeholder's own literal wins, and it is prose rather than a key
+      expect(at(list, 'literal').desc).toBe('Its own words');
+      expect(at(list, 'literal').descTranslated).toBeUndefined();
+    });
+
     it('should nest a subcommand under its parent', () => {
       const app = discoverApp(join(apps, 'inline-app'));
       const { commands } = readAppCommands(app);

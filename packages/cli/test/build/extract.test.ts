@@ -390,6 +390,66 @@ describe('extracting a command module', () => {
       expect(facts.desc).to.equal('mine');
       expect(diagnostics).to.deep.equal([]);
     });
+
+    it('a desc or hidden written before a spread was lifted with no warning, though the spread wins at run time', () => {
+      // SIG-352. Object-literal order is what the module runs with, so in
+      // `{ desc: 'early', hidden: false, ...base }` both values are whatever
+      // `base` carries -- and the build baked `early` and `false`
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `const base = { desc: 'from base', hidden: true };
+         export default { desc: 'early', hidden: false, ...base, run() {} };`
+      );
+
+      // nothing baked for either key, which leaves the command where an
+      // unbundled one is until its module loads
+      expect(facts).to.deep.equal({});
+      expect(diagnostics.map((d) => d.message)).to.deep.equal([
+        '"desc" is written before a spread, which may replace it when the module runs, so it cannot be read at build time; write "desc" after the last spread to have it appear in help',
+        '"hidden" is written before a spread, which may replace it when the module runs, so it cannot be read at build time; write "hidden" after the last spread, or this command will be listed in help until its module loads',
+      ]);
+      expect(diagnostics.map((d) => [d.severity, d.line])).to.deep.equal([
+        ['warning', 2],
+        ['warning', 2],
+      ]);
+    });
+
+    it('should read a key written after the last spread, wherever the others are', () => {
+      // the *last* spread is the one that matters: a key between two spreads
+      // is as unknown as one before both
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `export default { hidden: true, ...a, desc: 'between', ...b, hidden: false };`
+      );
+
+      expect(facts).to.deep.equal({ hidden: false });
+      expect(diagnostics).to.have.lengthOf(1);
+      expect(diagnostics[0]!.message).to.contain('"desc" is written before a spread');
+    });
+
+    it('should say nothing about a key before a spread that is written again after it', () => {
+      // the later spelling wins whatever the spread carried, so the earlier one
+      // is dead code rather than an unknown
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `export default { desc: 'first', ...base, desc: 'second' };`
+      );
+
+      expect(facts.desc).to.equal('second');
+      expect(diagnostics).to.deep.equal([]);
+    });
+
+    it('should not lift a translated desc written before a spread', () => {
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `import { __ } from '@ttylabs/sigil/i18n';
+         export default { desc: __\`early\`, ...base };`
+      );
+
+      expect(facts).to.deep.equal({});
+      expect(diagnostics).to.have.lengthOf(1);
+      expect(diagnostics[0]!.message).to.contain('"desc" is written before a spread');
+    });
   });
 
   describe('TypeScript', () => {

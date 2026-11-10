@@ -39,7 +39,7 @@
  */
 
 import { type Diagnostic, displayPath } from './diagnostic.ts';
-import { factsOf, type RoutedBy } from './extract.ts';
+import { type CommandFacts, factsOf, type RoutedBy } from './extract.ts';
 import {
   isUndefined,
   isWrongType,
@@ -669,6 +669,11 @@ function readCommand(
     )
   );
 
+  // what the *placeholder* declares is what help shows before the module
+  // loads, so it wins over what the module says -- which is the runtime's
+  // merge read from the other side
+  const ownDesc = declaredDesc ? literalString(declaredDesc.value) : undefined;
+
   return {
     ...routing,
     commands: nested
@@ -676,10 +681,12 @@ function readCommand(
         ? readInline(objectLiteral(nested.value)!, from, parsed, diagnostics)
         : []
       : [],
-    // what the *placeholder* declares is what help shows before the module
-    // loads, so it wins over what the module says -- which is the runtime's
-    // merge read from the other side
-    desc: declaredDesc ? (literalString(declaredDesc.value) ?? facts.desc) : facts.desc,
+    desc: ownDesc ?? facts.desc,
+    // a lifted `descTranslated` goes with the lifted `desc` and with nothing
+    // else: the module's key is printed as a thunk over the tag, as the
+    // string-path spelling above already does by spreading the facts, while
+    // the placeholder's literal is prose and is printed as it is
+    ...(ownDesc === undefined && facts.descTranslated ? { descTranslated: true } : {}),
     hidden: declaredHidden ? (literalBoolean(declaredHidden.value) ?? facts.hidden) : facts.hidden,
     kind: 'inline',
     module: facts.module,
@@ -1209,7 +1216,7 @@ function moduleFacts(
   at_: { start: number },
   described: boolean,
   routedBy: RoutedBy | undefined
-): { desc?: string; hidden?: boolean; module?: string } {
+): CommandFacts & { module?: string } {
   if (!module) {
     if (specifier) {
       diagnostics.push({

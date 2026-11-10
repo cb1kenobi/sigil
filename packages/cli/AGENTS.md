@@ -572,11 +572,44 @@ makes it testable with a fixture directory and no bundler at all.
   computed one, because the value really is the running app's and "computed
   rather than a string literal" about a tag whose neighbour lifted fine names
   nothing the author can act on.
+- **...and the flag travels with the `desc` it was lifted beside, whichever
+  spelling reached the module.** SIG-352. `factsOf()` returns `descTranslated`
+  with the key, and a string path (`pathed: './commands/build.ts'`) spread the
+  facts and kept it, while the object form in `readCommand()` --
+  `{ load: () => import(...) }` and `{ path: ... }` -- rebuilt the command from
+  `desc`, `hidden` and `module` and dropped it. So one module listed as
+  `pathed  Die App bauen` beside `loaded  Build the app` in the same built help,
+  two spellings of one declaration disagreeing about whether help is translated.
+  The rule is the one `described()` in `tree.ts` already follows for a
+  `commands.json` entry: the flag is carried when the `desc` used is the
+  module's, and dropped when the placeholder's own literal wins, since that is
+  prose and is printed as it is. `moduleFacts()` returns `CommandFacts` so the
+  compiler sees the field rather than it riding along untyped. Covered by `a
+  translated desc was baked as English ...` in `test/build/discover.test.ts` and
+  `test/build-command.test.ts`, the second over the
+  `discover/translated-placeholders` fixture, built and run from source.
 - **A spread is the case that looks harmless.** `export default { ...base, hidden: true }`
   may well carry a `desc` inside `base` and nothing here can see it, so an absent
   `desc` beside a spread is _reported_ rather than taken as "there is none" --
   which is the difference between a description the build missed and one nobody
   wrote.
+- **...and a key written _before_ a spread is the same unknown, because order is
+  what the module runs with.** SIG-352. In `{ desc: 'early', hidden: false,
+  ...base }` both values are whatever `base` carries, and the build lifted
+  `early` and `false` with no warning -- so built help listed `spread  early`
+  for a command whose loaded `desc` is `from base` and which hides itself. A
+  lifted key written before the **last** spread is now reported, by name
+  (`"desc" is written before a spread, which may replace it when the module
+  runs ...`), and **nothing is baked for it**, which leaves the command where an
+  unbundled one is until its module loads -- the answer an absent `desc` beside a
+  spread already gets, and the reason the absent-key warning does not fire again
+  for a `desc` that was written early: one warning per key, naming what to move.
+  A key written after the last spread is read as before, and a key written on
+  both sides is silent, because the later spelling wins whatever the spread
+  carried. A key between two spreads is before the last one and so unknown.
+  Covered by `a desc or hidden written before a spread ...` in
+  `test/build/extract.test.ts` and `test/build-command.test.ts`, the second over
+  the `discover/spread-order` fixture, built and run from source.
 - **It looks through the wrappers that change nothing and stops at the one that
   might not.** `command()` is documented as the identity function and exists only
   so inference reaches a nested literal; `as` and `satisfies` are type syntax that
