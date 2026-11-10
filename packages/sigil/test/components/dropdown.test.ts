@@ -190,7 +190,7 @@ describe('Dropdown()', () => {
     const s = scene();
     const tall = createRoot((dispose) => {
       disposers.push(dispose);
-      return Dropdown({ input: s.input, options: ['a', 'b'], value: 'a' });
+      return Dropdown({ ascii: false, input: s.input, options: ['a', 'b'], value: 'a' });
     });
     s.root.append(box({ 'flex-direction': 'row', height: 4 }, tall));
     picture(s.root);
