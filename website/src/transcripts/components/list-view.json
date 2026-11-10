@@ -41,6 +41,12 @@
         "type": "boolean"
       },
       {
+        "description": "What the cursor stays with when the items change: its row (`true`, the default) or its position (`false`). `createListSelection()`'s option, which says more; a `State` can be toggled while the list is up.",
+        "name": "follow",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
         "description": "What identifies an item's row, which the cursor and the selection hold. Defaults to the item itself, which is right for strings and for objects that are never replaced; data that is fetched again wants its own id here.",
         "default": "the item itself",
         "name": "key",

@@ -53,6 +53,16 @@ export interface ListSelectionOptions<K> {
    */
   current?: K | State<K | undefined>;
   /**
+   * What the cursor stays with when the rows change under it. `true`, the default,
+   * keeps it on its row's key wherever that row moves -- a re-sort carries the
+   * cursor along. `false` keeps it at its position and makes whichever row is there
+   * now the current one, which is htop's default and what a list re-sorted every
+   * second needs to be readable. A `State` is read at each change, so an app can
+   * bind a key to it, as htop binds `F`. Either way a disabled row is stepped over
+   * and a list that got shorter brings the cursor back inside it.
+   */
+  follow?: boolean | State<boolean>;
+  /**
    * Whether more than one row can be selected. Defaults to `false`, where the
    * current row is the selection and `selected` stays empty.
    */
@@ -175,6 +185,12 @@ export function createListSelection<K>(opts: ListSelectionOptions<K> = {}): List
       throw new TypeError(__`Expected list selected to be an iterable of keys or a State`);
     }
   }
+  const follow = opts.follow ?? true;
+  if (typeof follow !== 'boolean' && !(follow instanceof State)) {
+    throw new TypeError(__`Expected list follow to be a boolean or a State`);
+  }
+  const following = (): boolean =>
+    follow instanceof State ? untrack(() => follow.get()) === true : follow;
   const multiple = opts.multiple === true;
   const current =
     opts.current instanceof State ? opts.current : new State<K | undefined>(opts.current);
@@ -300,6 +316,12 @@ export function createListSelection<K>(opts: ListSelectionOptions<K> = {}): List
       keys = next;
       positions = map;
       off = disabled ?? (() => false);
+      if (was >= 0 && !following()) {
+        // the position, not the row: whichever row is there now, or the nearest one
+        // that can be the cursor where that one is disabled or the list got shorter
+        go(around(was));
+        return;
+      }
       settle();
     },
     settle,
@@ -382,10 +404,17 @@ export interface ListViewProps<T, K = T> {
    */
   find?: boolean;
   /**
+   * What the cursor stays with when the items change: its row (`true`, the
+   * default) or its position (`false`). `createListSelection()`'s option, which says
+   * more; a `State` can be toggled while the list is up.
+   */
+  follow?: boolean | State<boolean>;
+  /**
    * The items, in the order they are shown.
    *
    * An array is fixed. A `State` or a `Computed` is followed: a new array re-keys
-   * the rows, keeps the cursor and the selection on their keys, and rebuilds the
+   * the rows, keeps the cursor (on its key, unless `follow` is off) and the
+   * selection on their keys, and rebuilds the
    * rows on screen whose item is a different object than when they were built.
    * Replace the array to change it, since a `State` hears a new value and not a
    * mutated one; for items changed in place, `listControl(host).refresh()`.
@@ -576,6 +605,7 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
   const marks = (props.ascii ?? !unicodeSupported()) ? MARKS.ascii : MARKS.unicode;
   const selection = createListSelection<K>({
     current: props.current,
+    follow: props.follow,
     multiple: props.multiple,
     selected: props.selected,
   });

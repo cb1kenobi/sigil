@@ -729,8 +729,10 @@ prints it after each step.
 
 `63-data-table.js` is one `DataTable` over three hundred made-up processes in the
 shape htop draws them, sorted by CPU and re-read every second: every row object is
-replaced, a few processes exit and a few start, and the cursor and the ticks stay on
-their pids wherever the sort carries them. A click on a heading or a digit sorts --
+replaced, a few processes exit and a few start, and the ticks stay on their pids
+wherever the sort carries them. The cursor keeps its place on screen while the
+processes re-sort under it, as htop's does; `f` makes it follow its process instead,
+and `f` again puts it back. A click on a heading or a digit sorts --
 its first way, the other way, then back as the rows came -- and the arrow takes two
 columns every sortable heading already keeps back. Make the terminal narrower and the
 command column gives way to its minimum, and then RSS, USER and STATE are hidden,

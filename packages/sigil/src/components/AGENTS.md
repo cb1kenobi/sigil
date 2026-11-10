@@ -11263,6 +11263,21 @@ the probes and the sabotage pass are in
   overridden for the table, since a list sorted by something live has the same
   question and one answer is better than two. A table sorted by something stable
   holds a wheel scroll indefinitely, which is tested.
+- **The cursor keeps its place by default, and `follow` makes it ride with its
+  row.** The first version followed the row's key always, which reads well for a
+  list and was unusable for the table it was built for: sorted by a live column,
+  the current row moves every tick, so the highlight and the view jumped every
+  second and nothing could be read. htop has the same two behaviours and defaults
+  to the one that holds still, with `F` to follow a process. So `follow` is an
+  option of the selection (`createListSelection()`, and `ListView` and `DataTable`
+  through it), a boolean or a `State` read at each change so an app can bind a key;
+  `false` keeps the cursor's index and makes whichever row is there current,
+  stepping over a disabled one and clamping to a list that got shorter. The table
+  defaults to `false` and the list keeps `true`, SIG-280's settled answer: a list is
+  rarely re-sorted under its reader, a table sorted by CPU always is. One rule for
+  both kinds of re-sort, a live tick or a sort key pressed by hand -- with `follow`
+  off the cursor stays put for either -- so the tests that pin following say
+  `follow: true`. The ticks are keys in both modes; only the cursor changes.
 - **Sorting is a click on a heading and a digit, three states, `selectRow()`'s.**
   The column model is `selectRow()`'s -- `DataTableColumn extends SelectRowColumn`,
   so one declaration prints a table, asks about one and shows one live -- and so are

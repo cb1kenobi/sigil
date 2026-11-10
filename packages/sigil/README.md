@@ -5103,7 +5103,8 @@ or a `State` of one, and `selected` a set of keys or a `State` of one, which the
 keys and the mouse write and the app may write too -- the shape `Tabs`' `active`
 has. Because they are keys, they survive the data changing: a new array of items
 keeps the cursor on its key wherever that key now sits, and a key that disappears
-puts the cursor on the row that took its place. The selection is **never pruned**
+puts the cursor on the row that took its place -- or, with `follow: false`, keeps the
+cursor at its position, on whichever row is there now. The selection is **never pruned**
 by the rows changing, since a row a filter hides or a tree collapses is not a row
 that was deleted; an app that wants a deleted row unselected writes `selected`. A
 row is rebuilt when its item is a different object from the one it was built from,
@@ -5254,13 +5255,15 @@ rows _are_ a list's, built through `row`. `rows` replaces `items`, as `table()` 
 `selectRow()` call their data.
 
 **Rows that change every second keep the selection.** Rows are identified by
-`key`, so a new array of rows keeps the cursor and the ticks on their keys wherever
-the sort puts them, a row whose process exited hands the cursor to the row that took
-its place, and only the rows whose object was replaced are rebuilt. The view follows
-the cursor and nothing else: an update that leaves the current row in view does not
-scroll, so a table sorted by something stable holds still while its numbers change,
-and one sorted by CPU carries the cursor's row about and keeps it on screen. Without
-a `key` a row is its own object, so data fetched again every second wants one.
+`key`, so a new array of rows keeps the ticks on their keys wherever the sort puts
+them, and only the rows whose object was replaced are rebuilt. The **cursor keeps
+its place** on screen by default and takes whichever row is there now -- htop's
+default, because a table sorted by CPU re-sorts every tick and a highlight that rode
+with its row would jump every second. `follow: true` keeps it on its row's key
+instead, wherever the sort carries it, with the view following; `follow` may be a
+`State`, so an app can bind a key to it, as htop binds `F`. Following, a row whose
+process exited hands the cursor to the row that took its place. Without a `key` a
+row is its own object, so data fetched again every second wants one.
 
 **Sorting** is a click on a heading or a digit -- `1` sorts by the first column, `2`
 by the second -- and the arrow `▲` or `▼` (`^`/`v` in ASCII) goes on the heading. The

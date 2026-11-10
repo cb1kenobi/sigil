@@ -140,6 +140,15 @@ export interface DataTableProps<T, K = T> {
   disabled?: (row: T) => boolean;
   /** What to show under the heading when there are no rows. Defaults to "Nothing to show". */
   empty?: string | (() => Element);
+  /**
+   * Whether the cursor follows its row when the rows re-sort or update. Defaults to
+   * `false`: the cursor stays where it is on screen and takes whichever row is
+   * there now, which is htop's default -- a table sorted by a live column re-sorts
+   * every tick, and a highlight that moved with its row would jump each second.
+   * `true` keeps it on the row's key wherever that row goes, `ListView`'s default.
+   * A `State` can be toggled while the table is up, as htop's `F` does.
+   */
+  follow?: boolean | State<boolean>;
   /** The columns between one column and the next. Defaults to 2, as for `table()`. */
   gap?: number;
   /** Whether to draw the heading. Defaults to `true` when any column has one. */
@@ -630,6 +639,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
     current: props.current,
     disabled: props.disabled,
     empty: props.empty,
+    follow: props.follow ?? false,
     items: sorted,
     key: props.key,
     multiple,

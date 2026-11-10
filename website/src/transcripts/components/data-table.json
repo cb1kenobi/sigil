@@ -40,6 +40,13 @@
         "type": "string | (() => Element)"
       },
       {
+        "description": "Whether the cursor follows its row when the rows re-sort or update. Defaults to `false`: the cursor stays where it is on screen and takes whichever row is there now, which is htop's default -- a table sorted by a live column re-sorts every tick, and a highlight that moved with its row would jump each second. `true` keeps it on the row's key wherever that row goes, `ListView`'s default. A `State` can be toggled while the table is up, as htop's `F` does.",
+        "default": "`false`: the cursor stays where it is on screen and takes whichever row is there now",
+        "name": "follow",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
         "description": "The columns between one column and the next. Defaults to 2, as for `table()`.",
         "default": "2",
         "name": "gap",

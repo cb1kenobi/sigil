@@ -1,7 +1,7 @@
 /**
  * A data table: three hundred processes, sorted, re-read every second.
  *
- *   node demos/components/63-data-table.js       <- Tab, arrows, PgUp/PgDn, 1-7, a click on a heading, Space, q
+ *   node demos/components/63-data-table.js       <- Tab, arrows, PgUp/PgDn, 1-7, a click on a heading, Space, f, q
  *   node demos/components/63-data-table.js | cat
  *
  * One `DataTable` over a made-up process list in the shape htop draws it: a pid, a
@@ -12,10 +12,13 @@
  *
  * Three things to watch:
  *
- * - **The cursor stays on its process.** The table is keyed on the pid, so the
- *   cursor follows its process wherever the sort carries it, and a ticked row stays
- *   ticked. Sorted by pid instead -- press 1 -- nothing moves but the numbers, and
- *   the view holds still under them.
+ * - **The cursor stays where it is, and `f` makes it follow its process.** By
+ *   default the highlight keeps its place on screen and the processes re-sort under
+ *   it, which is htop's default and the only readable one for a table that re-sorts
+ *   every second. Press `f` and it follows the process instead, wherever the sort
+ *   carries it -- htop's `F` -- and `f` again puts it back. The table is keyed on the
+ *   pid either way, so a ticked row stays ticked as it moves. Sorted by pid -- press
+ *   1 -- nothing moves but the numbers, and the two modes look the same.
  * - **A click on a heading sorts, and so does a digit.** The first press sorts the
  *   column its first way (CPU, memory and size start from the top), the second the
  *   other way, the third puts the rows back as they came. The arrow is drawn in two
@@ -112,6 +115,8 @@ const size = (bytes) =>
 function scene() {
   const { rows, tick } = machine();
   const status = text('', { class: 'sigil-muted', height: 1 });
+  // whether the cursor rides with its process or keeps its place: `f` toggles it
+  const follow = new State(false);
 
   const table = DataTable({
     columns: [
@@ -154,6 +159,7 @@ function scene() {
       },
       { grow: 1, header: 'COMMAND', key: 'command', minWidth: 10, priority: 1 },
     ],
+    follow,
     key: (p) => p.pid,
     multiple: true,
     onActivate: (pid, p) => status.setText(`opened ${pid}: ${p.command}`),
@@ -168,13 +174,15 @@ function scene() {
     const ticked = control.selection.selected.get().size;
     tally.setText(
       `${rows.get().length} processes · ${ticked} ticked · ` +
-        (by ? `sorted by ${by.column}${by.descending ? ', from the top' : ''}` : 'unsorted')
+        (by ? `sorted by ${by.column}${by.descending ? ', from the top' : ''}` : 'unsorted') +
+        (follow.get() ? ' · following' : '')
     );
   });
 
   const root = box({ 'flex-direction': 'column' }, table, tally, status);
   return {
     control,
+    follow,
     root,
     table,
     tick: () =>
@@ -201,6 +209,10 @@ if (live) {
     input.stop();
   };
   input.fallback('q', quit, { description: 'quit', priority: 9 });
+  input.fallback('f', () => ui.follow.set(!ui.follow.get()), {
+    description: 'follow',
+    priority: 7,
+  });
   input.bind((event) => {
     if (isAbort(event.key)) {
       event.stop();
@@ -214,6 +226,10 @@ if (live) {
   const term = createTestTerminal({ columns: 80 });
   const ui = scene();
   const input = createInput({ root: ui.root, terminal: term.terminal });
+  input.fallback('f', () => ui.follow.set(!ui.follow.get()), {
+    description: 'follow',
+    priority: 7,
+  });
   describeDataTable(input, ui.table);
   const footer = keyHelp(input, { width: 80 });
   const cascade = themedCascade();
@@ -242,7 +258,12 @@ if (live) {
   ui.tick();
   ui.tick();
   ui.tick();
-  await show('three seconds: every reading replaced and re-sorted, the cursor on its pid');
+  await show('three seconds: re-sorted under the cursor, which keeps its place on the third row');
+
+  await term.press('f');
+  ui.tick();
+  ui.tick();
+  await show('f, two seconds: following now -- the cursor rides with its process');
 
   await term.press('1');
   await show('1: sorted by pid, and the cursor still on its process');

@@ -417,7 +417,7 @@ describe('DataTable()', () => {
         pid: i,
         user: '',
       }));
-      const host = procs({ rows }, 6);
+      const host = procs({ follow: true, rows }, 6);
       control(host).selection.current.set(3);
       flush();
       picture(host);
@@ -602,7 +602,7 @@ describe('DataTable()', () => {
 
     it('should keep the selection on its process and the view where it was while every row changes, htop-style', () => {
       const { rows, tick } = machine(200, 3);
-      const host = procs({ multiple: true, rows }, 11);
+      const host = procs({ follow: true, multiple: true, rows }, 11);
       const { scroll, selection } = control(host);
       picture(host);
       selection.moveTo(60);
@@ -661,7 +661,7 @@ describe('DataTable()', () => {
 
     it('should follow the selected process through a re-sort by a live column, and keep it on screen', () => {
       const { rows, tick } = machine(200, 11);
-      const host = procs({ rows, sort: { column: 'cpu', descending: true } }, 11);
+      const host = procs({ follow: true, rows, sort: { column: 'cpu', descending: true } }, 11);
       const { selection } = control(host);
       picture(host);
       selection.moveTo(5);
@@ -678,6 +678,57 @@ describe('DataTable()', () => {
       }
       // and it really did move: a re-sort by CPU carried it about the table
       expect(places.size).toBeGreaterThan(5);
+    });
+
+    it('should keep the cursor at its place on screen by default while a live column re-sorts', () => {
+      const { rows, tick } = machine(200, 11);
+      const host = procs({ rows, sort: { column: 'cpu', descending: true } }, 11);
+      const { scroll, selection } = control(host);
+      picture(host);
+      selection.moveTo(5);
+      flush();
+      const top = scroll.viewport.scroll?.y;
+      const pids = new Set<number>();
+
+      for (let second = 0; second < 30; second++) {
+        tick(new Set());
+        const lines = picture(host);
+        // the highlight stays on the sixth row and the view does not move...
+        expect(selection.index()).toBe(5);
+        expect(scroll.viewport.scroll?.y).toBe(top);
+        expect(lines.findIndex((line) => line.startsWith('❯'))).toBe(6);
+        pids.add(selection.current.get() as number);
+      }
+      // ...while the process on that row changes under it, which is the point
+      expect(pids.size).toBeGreaterThan(5);
+    });
+
+    it('should follow or stay as a State says, toggled while the table is up', () => {
+      const { rows, tick } = machine(200, 11);
+      const follow = new State(false);
+      const host = procs({ follow, rows, sort: { column: 'cpu', descending: true } }, 11);
+      const { selection } = control(host);
+      picture(host);
+      selection.moveTo(5);
+      flush();
+      tick(new Set());
+      picture(host);
+      expect(selection.index()).toBe(5);
+
+      follow.set(true);
+      const pid = selection.current.get() as number;
+      const places = new Set<number>();
+      for (let second = 0; second < 30; second++) {
+        tick(new Set([pid]));
+        picture(host);
+        expect(selection.current.get()).toBe(pid);
+        places.add(selection.index());
+      }
+      expect(places.size).toBeGreaterThan(5);
+    });
+
+    it('should refuse a follow that is not a boolean or a State', () => {
+      expect(() => procs({ follow: 'yes' as never })).toThrow(/follow/);
     });
 
     it('should leave the cursor on the row that took the place of a process that exited', () => {
@@ -819,7 +870,7 @@ describe('describeDataTable()', () => {
 describe('a table under a real router', () => {
   it('should be reached by Tab, move on the arrows, sort on a digit, and list its keys', async () => {
     const term = createTestTerminal({ columns: 48, rows: 10 });
-    const host = procs({}, 6);
+    const host = procs({ follow: true }, 6);
     const root = box({ 'flex-direction': 'column' }, host);
     renderToString(root, { width: 48 });
     resolveStyles(root);
