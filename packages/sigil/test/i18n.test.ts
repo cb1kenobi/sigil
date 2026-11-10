@@ -367,6 +367,16 @@ describe('resolving a locale', () => {
     ['zh_Hans_CN', 'zh-Hans-CN'],
     ['de_DE@euro', 'de-DE'],
     ['de_DE.UTF-8@euro', 'de-DE'],
+    // the two modifiers that name a script are read as one, because no POSIX
+    // locale can spell a script any other way; every other modifier is dropped
+    ['sr_RS@latin', 'sr-Latn-RS'],
+    ['sr_RS.UTF-8@latin', 'sr-Latn-RS'],
+    ['sr_RS@LATIN', 'sr-Latn-RS'],
+    ['sr@latin', 'sr-Latn'],
+    ['uz_UZ@cyrillic', 'uz-Cyrl-UZ'],
+    ['zh_Hans_CN@latin', 'zh-Hans-CN'],
+    ['de_DE@constructor', 'de-DE'],
+    ['C@latin', undefined],
     ['ja', 'ja'],
     ['C', undefined],
     ['C.UTF-8', undefined],
@@ -478,6 +488,310 @@ describe('the fallback chain', () => {
     );
 
     expect(__`Options`).toBe('Opções (BR)');
+  });
+});
+
+/** A loader map whose every catalog translates `Options` as its own key. */
+const tagged = (tags: string[]): Locales =>
+  Object.fromEntries(tags.map((tag) => [tag, async () => ({ Options: tag })]));
+
+/**
+ * Swaps `Intl.Locale` for a counting stand-in for the length of one callback,
+ * so a case can say how often the likely-subtags data was asked for -- and,
+ * with `fail`, what happens when constructing one throws.
+ */
+async function withLocaleSpy(
+  fail: boolean,
+  fn: (count: () => number) => Promise<void>
+): Promise<void> {
+  const original = Intl.Locale;
+  let calls = 0;
+
+  (Intl as { Locale: unknown }).Locale = function (tag: string) {
+    calls++;
+
+    if (fail) {
+      throw new RangeError(`stub refused ${tag}`);
+    }
+
+    return new original(tag);
+  };
+
+  try {
+    await fn(() => calls);
+  } finally {
+    (Intl as { Locale: unknown }).Locale = original;
+  }
+}
+
+describe('zh-TW is served the Simplified catalog', () => {
+  // the precedence: the literal chain down to the bare language, then the chain
+  // of the likely-subtags form, then the bare language -- so what was asked for
+  // still wins exactly, and a script-specific catalog beats the bare language
+  // for a tag that never spelled its script, which no POSIX locale can
+  it.each([
+    // the defect: `zh-TW` truncates straight to `zh`
+    ['zh-TW', ['zh-Hant', 'zh'], 'zh-Hant'],
+    ['zh_TW.UTF-8', ['zh-Hant', 'zh'], 'zh-Hant'],
+    ['zh-HK', ['zh-Hant', 'zh'], 'zh-Hant'],
+    ['zh-Hant-TW', ['zh-Hant', 'zh'], 'zh-Hant'],
+    // an exact match on what was asked for still wins
+    ['zh-TW', ['zh', 'zh-Hant', 'zh-TW'], 'zh-TW'],
+    ['zh-TW', ['zh-Hant', 'zh-Hant-TW'], 'zh-Hant-TW'],
+    // the bare language is still the floor
+    ['zh-TW', ['zh'], 'zh'],
+    ['en-GB', ['en'], 'en'],
+    // with no bare language, each region reaches its own script
+    ['zh-CN', ['zh-Hans', 'zh-Hant'], 'zh-Hans'],
+    ['zh-TW', ['zh-Hans', 'zh-Hant'], 'zh-Hant'],
+    ['zh-CN', ['zh-Hans', 'zh'], 'zh-Hans'],
+    // the likely form never changes the language or crosses a region
+    ['pt-BR', ['pt', 'pt-PT'], 'pt'],
+    // a POSIX script modifier reaches the script catalog, and its absence the
+    // script the region implies, which for Serbia is not Latin
+    ['sr_RS@latin', ['sr-Latn', 'sr'], 'sr-Latn'],
+    ['sr_RS.UTF-8@latin', ['sr', 'sr-Latn'], 'sr-Latn'],
+    ['sr_RS', ['sr-Latn', 'sr'], 'sr'],
+    // keyed in any spelling, as every other key is
+    ['zh-TW', ['zh_hant', 'zh'], 'zh-Hant'],
+  ])('should serve %j from %j with %j', async (asked, tags, want) => {
+    await loadCatalog(tagged(tags), { LANG: asked });
+
+    expect(locale()).toBe(want);
+    expect(__`Options`).toBe(tags.find((tag) => normalizeLocale(tag) === want));
+  });
+
+  it('should serve the Simplified catalog to Taiwan never', async () => {
+    // `zh-Hans` is not on either chain of `zh-TW`, so with nothing else
+    // registered the answer is English rather than the wrong script
+    await loadCatalog(tagged(['zh-Hans']), { LANG: 'zh_TW.UTF-8' });
+
+    expect(__`Options`).toBe('Options');
+    expect(locale()).toBe('zh-TW');
+  });
+
+  it('should reach the script catalog through setLocale() as through the environment', async () => {
+    await loadCatalog(tagged(['zh-Hant', 'zh']), {});
+    await setLocale('zh-TW');
+
+    expect(locale()).toBe('zh-Hant');
+    expect(__`Options`).toBe('zh-Hant');
+  });
+
+  it('should not ask for likely subtags where no catalog spells a script', async () => {
+    // `maximize()` reads CLDR's likely-subtags data, which is about 1.3 ms
+    // cold; it can only add a key that spells a script, so an app that ships
+    // none never pays it
+    await withLocaleSpy(false, async (count) => {
+      await loadCatalog(tagged(['de']), { LANG: 'de_AT.UTF-8' });
+      await loadCatalog(tagged(['pt', 'pt-PT', 'pt-BR']), { LANG: 'pt_BR' });
+      await loadCatalog(tagged(['pt', 'pt-PT']), { LANG: 'pt_BR' });
+      await loadCatalog(undefined, { LANG: 'zh_TW.UTF-8' });
+
+      expect(count()).toBe(0);
+    });
+
+    expect(locale()).toBeUndefined();
+  });
+
+  it('should not ask for likely subtags when the literal chain already matched', async () => {
+    await withLocaleSpy(false, async (count) => {
+      await loadCatalog(tagged(['zh-Hant', 'zh-TW']), { LANG: 'zh_TW' });
+
+      expect(locale()).toBe('zh-TW');
+      expect(count()).toBe(0);
+    });
+  });
+
+  it('should fall back to the literal chain when Intl.Locale throws', async () => {
+    // a tag `Intl` cannot maximize is no answer rather than an exception
+    await withLocaleSpy(true, async (count) => {
+      await loadCatalog(tagged(['zh-Hant', 'zh']), { LANG: 'zh_TW.UTF-8' });
+
+      expect(count()).toBe(1);
+      expect(locale()).toBe('zh');
+      expect(__`Options`).toBe('zh');
+    });
+  });
+});
+
+/** A promise and the two halves that settle it, for a loader a case finishes by hand. */
+function deferred<T>(): {
+  promise: Promise<T>;
+  reject: (err: unknown) => void;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (err: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, reject, resolve };
+}
+
+describe('overlapping setLocale() calls let the slower loader win', () => {
+  it('should end with the later call in effect when the earlier loader is slower', async () => {
+    // the reported shape, with real timers: `fr` resolves after `de` does
+    const after =
+      (ms: number, catalog: Catalog): (() => Promise<Catalog>) =>
+      () =>
+        new Promise((resolve) => setTimeout(() => resolve(catalog), ms));
+
+    await loadCatalog({ de: after(5, { Options: 'de' }), fr: after(50, { Options: 'fr' }) }, {});
+
+    const a = setLocale('fr');
+    const b = setLocale('de');
+    await Promise.all([a, b]);
+
+    expect(locale()).toBe('de');
+    expect(__`Options`).toBe('de');
+  });
+
+  it('should resolve a superseded call with nothing put into effect', async () => {
+    // the earlier call resolves rather than rejecting, and what is in effect
+    // when it does is what was in effect before either call -- never a locale
+    // whose catalog is not the one rendering
+    const fr = deferred<Catalog>();
+    const de = deferred<Catalog>();
+
+    await loadCatalog({ de: () => de.promise, fr: () => fr.promise }, {});
+
+    const a = setLocale('fr');
+    const b = setLocale('de');
+
+    fr.resolve({ Options: 'fr' });
+    await expect(a).resolves.toBeUndefined();
+
+    expect(locale()).toBeUndefined();
+    expect(__`Options`).toBe('Options');
+
+    de.resolve({ Options: 'de' });
+    await b;
+
+    expect(locale()).toBe('de');
+    expect(__`Options`).toBe('de');
+  });
+
+  it('should keep the catalog in effect while a later one loads', async () => {
+    const fr = deferred<Catalog>();
+
+    await loadCatalog({ de: async () => ({ Options: 'de' }), fr: () => fr.promise }, {}, 'de');
+
+    const a = setLocale('fr');
+
+    expect(locale()).toBe('de');
+    expect(__`Options`).toBe('de');
+
+    fr.resolve({ Options: 'fr' });
+    await a;
+
+    expect(locale()).toBe('fr');
+    expect(__`Options`).toBe('fr');
+  });
+
+  it('should leave English in effect when the later loader throws and the earlier one succeeds', async () => {
+    // the later call is the one asked for, so its failure is the answer -- the
+    // rule a throwing loader already follows -- and the earlier catalog, which
+    // nobody wants any more, is not a fallback for it
+    for (const order of ['earlier first', 'later first']) {
+      const fr = deferred<Catalog>();
+      const de = deferred<Catalog>();
+
+      await loadCatalog({ de: () => de.promise, fr: () => fr.promise }, {});
+
+      const a = setLocale('fr');
+      const b = setLocale('de');
+
+      if (order === 'earlier first') {
+        fr.resolve({ Options: 'fr' });
+        de.reject(new Error('no such file'));
+      } else {
+        de.reject(new Error('no such file'));
+        fr.resolve({ Options: 'fr' });
+      }
+
+      await expect(Promise.all([a, b]), order).resolves.toEqual([undefined, undefined]);
+
+      expect(__`Options`, order).toBe('Options');
+      expect(locale(), order).toBe('de');
+    }
+  });
+
+  it('should resolve a superseded call whose loader throws', async () => {
+    const fr = deferred<Catalog>();
+
+    await loadCatalog({ de: async () => ({ Options: 'de' }), fr: () => fr.promise }, {});
+
+    const a = setLocale('fr');
+    await setLocale('de');
+
+    fr.reject(new Error('no such file'));
+    await expect(a).resolves.toBeUndefined();
+
+    expect(locale()).toBe('de');
+    expect(__`Options`).toBe('de');
+  });
+
+  it('should not let an older setLocale() overwrite what loadCatalog() resolved', async () => {
+    // `main()` calls `loadCatalog()`, so it takes a generation like any other
+    // request and a `setLocale()` still loading from before cannot land on top
+    const fr = deferred<Catalog>();
+    const locales: Locales = { de: async () => ({ Options: 'de' }), fr: () => fr.promise };
+
+    await loadCatalog(locales, {});
+
+    const a = setLocale('fr');
+    await loadCatalog(locales, { LANG: 'de_DE' });
+
+    fr.resolve({ Options: 'fr' });
+    await a;
+
+    expect(locale()).toBe('de');
+    expect(__`Options`).toBe('de');
+  });
+
+  it('should not let an older setLocale() overwrite an app that went back to English', async () => {
+    const fr = deferred<Catalog>();
+
+    await loadCatalog({ fr: () => fr.promise }, {});
+
+    const a = setLocale('fr');
+    await setLocale(undefined);
+
+    fr.resolve({ Options: 'fr' });
+    await a;
+
+    expect(locale()).toBeUndefined();
+    expect(__`Options`).toBe('Options');
+  });
+
+  it('should select plurals for the locale in effect, not the one that loaded last', async () => {
+    // a selector built between the later commit and the earlier settle would be
+    // for the wrong locale if the earlier one were allowed to land
+    const pl = deferred<Catalog>();
+
+    await loadCatalog(
+      {
+        de: async () => ({ '{0} file': { one: '{0} Datei', other: '{0} Dateien' } }),
+        pl: () => pl.promise,
+      },
+      {}
+    );
+
+    const a = setLocale('pl');
+    await setLocale('de');
+
+    expect(__n(3, '{0} file', '{0} files')).toBe('3 Dateien');
+
+    pl.resolve({
+      '{0} file': { few: '{0} pliki', many: '{0} plików', one: '{0} plik', other: '{0} pliku' },
+    });
+    await a;
+
+    expect(__n(3, '{0} file', '{0} files')).toBe('3 Dateien');
+    expect(locale()).toBe('de');
   });
 });
 
