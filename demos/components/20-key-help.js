@@ -1,7 +1,7 @@
 /**
  * A key-help footer that cannot drift from the keys.
  *
- *   node demos/components/20-key-help.js      <- Tab moves, ? expands, q quits
+ *   node demos/components/20-key-help.js      <- Tab moves, up/down pick a row, ? expands, q quits
  *   node demos/components/20-key-help.js | cat
  *
  * `↑/↓ move · enter open · q quit` is not written anywhere in this file. Each
@@ -34,19 +34,36 @@ import { themedCascade } from '@ttylabs/sigil/theme';
 const live = process.stdin.isTTY && process.stdout.isTTY;
 
 const sheet = parseStylesheet(`
-  .app { flex-direction: column; width: 46; border: round; border-color: gray; padding: 1 }
+  .app { flex-direction: column; max-width: 46; border: round; border-color: gray; padding: 1 }
   .pane { padding-left: 1 }
   .pane:focus { background-color: blue; color: white }
+  .list { flex-direction: column }
+  .row { padding-left: 1 }
+  .marker { visibility: hidden; padding-right: 1 }
+  .current .marker { visibility: visible }
+  .row.current { color: cyan }
+  .list:focus .row.current,
+  .list:focus .row.current .marker,
+  .list:focus .row.current .name { background-color: blue; color: white }
   .status { color: gray }
 `);
+
+const names = ['parser', 'canvas', 'layout'];
 
 /** The panes, and the status line the keys write to. */
 function scene() {
   const status = text('Tab to move between panes', { class: 'status' });
-  const files = box({ class: 'pane', focusable: true }, text('files'));
+  const rows = names.map((name, i) =>
+    box(
+      { class: i === 0 ? 'row current' : 'row' },
+      text('›', { class: 'marker' }),
+      text(name, { class: 'name' })
+    )
+  );
+  const files = box({ class: 'list', focusable: true }, ...rows);
   const editor = box({ class: 'pane', focusable: true }, text('editor'));
   const container = box({ class: 'app' }, files, editor, status);
-  return { container, editor, files, status };
+  return { container, editor, files, rows, status };
 }
 
 /**
@@ -64,11 +81,11 @@ function wire(input, ui, expanded, quit) {
 
   // an element's own keys: handled in `onKey`, declared with `describe()`
   let row = 0;
-  const names = ['parser', 'canvas', 'layout'];
   ui.files.onKey = (event) => {
     const { name } = event.key;
     if (name === 'up' || name === 'down') {
       row = (row + (name === 'down' ? 1 : names.length - 1)) % names.length;
+      ui.rows.forEach((el, i) => el.toggleClass('current', i === row));
       ui.status.setText(`on ${names[row]}`);
       event.stop();
     } else if (name === 'enter') {
@@ -111,12 +128,12 @@ if (live) {
   let width = 46;
 
   wire(input, ui, expanded, () => {});
-  // no width here either: each render lays it out at the width it is given, and
-  // the footer refits to that before it is painted
-  const footer = keyHelp(input, { expanded });
-  const cascade = themedCascade();
+  // no width here either: each render lays the app out at the width it is given,
+  // and the footer refits to its box inside the border before it is painted
+  ui.container.append(keyHelp(input, { expanded }));
+  const cascade = themedCascade({ theme: sheet });
   const show = (label) => {
-    const lines = renderToString(footer, { cascade, colorLevel: 0, width });
+    const lines = renderToString(ui.container, { cascade, colorLevel: 0, width });
     console.log(`${label}\n${lines.replace(/^/gm, '  ')}\n`);
   };
 
@@ -129,6 +146,10 @@ if (live) {
   await term.press(KEYS.tab);
   await settle();
   show('Tab -> files: its keys join, in dispatch order');
+
+  await term.press(KEYS.down);
+  await settle();
+  show('down: the files keys act, and the footer is unchanged');
 
   await term.press(KEYS.tab);
   await settle();
