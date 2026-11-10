@@ -58,7 +58,7 @@ function scene() {
   const rows = [
     row('Volume', { format: (v) => `${v}%`, value: 9 }),
     row('Balance', {
-      format: (v) => (v < 0 ? `L ${-v}` : v > 0 ? `R ${v}` : 'centre'),
+      format: (v) => (v < 0 ? `L ${-v}` : v > 0 ? `R ${v}` : 'center'),
       max: 10,
       min: -10,
       value: 0,

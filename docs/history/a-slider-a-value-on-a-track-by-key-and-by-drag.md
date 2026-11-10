@@ -20,7 +20,7 @@ drew.
 
 - **The tracks of four sliders did not line up.** The demo's first draft gave
   each row the same label column and let the slider take the rest, and the four
-  readouts -- `100%`, `centre`, `2.00x`, `100%` -- are different widths, so the four
+  readouts -- `100%`, `center`, `2.00x`, `100%` -- are different widths, so the four
   tracks were too. Nothing in the component was wrong: a readout reserves what its
   own range needs and no more. What it settled was what `width` means: the
   **track**'s columns, so an app can line tracks up, with the host's `props` for
