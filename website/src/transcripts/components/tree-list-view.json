@@ -1,0 +1,140 @@
+{
+  "api": {
+    "interface": "TreeListViewProps",
+    "options": [
+      {
+        "description": "The tree: a list, drawn from the left margin, or one root node whose children hang from it -- as `selectTree()` reads them. A `State` or a `Computed` of either is followed.",
+        "name": "items",
+        "optional": false,
+        "type": "TreeListItems<T> | { get(): TreeListItems<T>; }"
+      },
+      {
+        "description": "Draw with ASCII only. Defaults to what `unicodeSupported()` says.",
+        "default": "what `unicodeSupported()` says",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The current node, as its value, or the state that holds it -- the shape `ListView`'s `current` has. Left out, the cursor starts on the first row.",
+        "name": "current",
+        "optional": true,
+        "type": "T | State<T | undefined>"
+      },
+      {
+        "description": "Whether a node is disabled: drawn muted, passed over by the cursor, not activated and never ticked. A disabled branch's twisty still opens and closes it, because disabled says the node cannot be picked, not that what is under it cannot be seen.",
+        "name": "disabled",
+        "optional": true,
+        "type": "(node: TreeChoice<T>) => boolean"
+      },
+      {
+        "description": "What to show when there are no nodes. Defaults to `ListView`'s \"Nothing to show\".",
+        "default": "`ListView`'s \"Nothing to show\"",
+        "name": "empty",
+        "optional": true,
+        "type": "string | (() => Element)"
+      },
+      {
+        "description": "The open branches, as a set of values, or the state that holds them.",
+        "name": "expanded",
+        "optional": true,
+        "type": "Iterable<T> | State<ReadonlySet<T>>"
+      },
+      {
+        "description": "Type-to-find over the nodes' text, as `ListView`'s. Off by default.",
+        "name": "find",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The lines between nodes, `plain` or `rounded`. Defaults to `plain`.",
+        "default": "`plain`",
+        "name": "guide",
+        "optional": true,
+        "type": "TreeGuide"
+      },
+      {
+        "description": "Whether more than one node can be ticked, as `ListView`'s. Defaults to `false`.",
+        "default": "`false`",
+        "name": "multiple",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Called with the current node's value and the node on Enter or a double-click.",
+        "name": "onActivate",
+        "optional": true,
+        "type": "(value: T, node: TreeChoice<T>) => void"
+      },
+      {
+        "description": "The host box's own props: a height, a border, a class.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementPropsWithout<\"onFocusChange\" | \"onKey\">"
+      },
+      {
+        "description": "Draws a node's text: an element, or a string drawn as one line. The guide and the twisty are drawn in front of it either way. Called when the row comes into view and again when the node, its depth, or whether it is open changes.",
+        "name": "row",
+        "optional": true,
+        "type": "(node: TreeChoice<T>, info: TreeRowInfo) => Element | string"
+      },
+      {
+        "description": "Whether to draw a scrollbar. Defaults to `true`.",
+        "default": "`true`",
+        "name": "scrollbar",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The ticked nodes, for a `multiple` tree, as `ListView`'s `selected`.",
+        "name": "selected",
+        "optional": true,
+        "type": "Iterable<T> | State<ReadonlySet<T>>"
+      },
+      {
+        "description": "`ListView`'s `j`/`k`/`g`/`G`, and `h` and `l` for Left and Right. Off by default.",
+        "name": "vim",
+        "optional": true,
+        "type": "boolean"
+      }
+    ],
+    "shared": [],
+    "signature": "function TreeListView<T = string>(props: TreeListViewProps<T>): Element"
+  },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "up",
+        "down",
+        "left",
+        "right",
+        "home",
+        "end",
+        "pageUp",
+        "pageDown",
+        "tab",
+        "shiftTab",
+        "space"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
+  "registryDescription": "A tree list view: a focusable tree that opens and closes, selects by value, and reads children lazily",
+  "source": "packages/sigil/src/components/tree-list-view.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "  \u001b[2m▾ \u001b[0mmy-app/                            \u001b[36m█\u001b[0m\n  \u001b[2m├── ▾ \u001b[0msrc/                           \u001b[36m█\u001b[0m\n  \u001b[2m│   ├──   \u001b[0mindex.ts                   \u001b[36m█\u001b[0m\n\u001b[7;36m❯\u001b[0m \u001b[2;7m│   └── ▾ \u001b[0m\u001b[7mcommands/\u001b[0m                  \u001b[36m█\u001b[0m\n  \u001b[2m│       ├──   \u001b[0mbuild.ts               \u001b[36m█\u001b[0m\n  \u001b[2m│       └──   \u001b[0mdeploy.ts              \u001b[36m█\u001b[0m\n  \u001b[2m├── ▸ \u001b[0mtest/                          \u001b[36m█\u001b[0m\n  \u001b[2m├──   \u001b[0mpackage.json                   \u001b[36m█\u001b[0m\n  \u001b[2m└──   \u001b[0mREADME.md                      \u001b[36m█\u001b[0m"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "  \u001b[2m▾ \u001b[0mmy-app/                                                                    \u001b[36m█\u001b[0m\n  \u001b[2m├── ▾ \u001b[0msrc/                                                                   \u001b[36m█\u001b[0m\n  \u001b[2m│   ├──   \u001b[0mindex.ts                                                           \u001b[36m█\u001b[0m\n\u001b[7;36m❯\u001b[0m \u001b[2;7m│   └── ▾ \u001b[0m\u001b[7mcommands/\u001b[0m                                                          \u001b[36m█\u001b[0m\n  \u001b[2m│       ├──   \u001b[0mbuild.ts                                                       \u001b[36m█\u001b[0m\n  \u001b[2m│       └──   \u001b[0mdeploy.ts                                                      \u001b[36m█\u001b[0m\n  \u001b[2m├── ▸ \u001b[0mtest/                                                                  \u001b[36m█\u001b[0m\n  \u001b[2m├──   \u001b[0mpackage.json                                                           \u001b[36m█\u001b[0m\n  \u001b[2m└──   \u001b[0mREADME.md                                                              \u001b[36m█\u001b[0m"
+    }
+  }
+}

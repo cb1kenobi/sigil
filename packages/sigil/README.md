@@ -593,9 +593,39 @@ that nothing but a load can supply.
 
 ## Settings
 
+Settings can live on the schema, or be passed to `main()`:
+
 ```js
+export default {
+  name: 'mycli',
+  settings: { allowUnknownOptions: false, helpExitCode: 2 },
+};
+
 await main({ schema, settings: { allowExtraArguments: true } });
 ```
+
+**If the app is built, they have to be on the schema.** `sigil build` generates the
+executable and calls `main({ schema })` itself, so it carries the schema across and
+never sees the settings your own `main()` call passed -- `allowUnknownOptions: false`
+refuses a typo from source and accepts it built, and a custom `errorHandler` goes
+missing. `sigil build` and `sigil check` warn about a `main()` call in the root `dev.*`
+runner (the file `sigil new` writes, which a build never bundles) whose argument is an
+object literal with a `settings` key, naming the file and line and, where it can tell, what a
+built app uses instead. A `main()` call inside the schema module is not warned about: that module is
+bundled, so a command composing another app keeps the settings it passes. A call
+elsewhere, or one whose argument is a variable or a spread (`main(opts)`,
+`main({ ...opts })`), is not seen.
+
+When both are given the two are merged key by key, and the `main()` call wins: a
+flag beats the file. A key the call leaves out, or sets to `undefined`, is the
+schema's. Neither object is written to, and a nested `main()` inherits nothing from
+the one running it -- it has its own schema's settings and its own call's. The
+pattern in [Running one command from another](#running-one-command-from-another)
+passes `schema: state.schema`, though, so that nested call picks up the outer schema's
+`settings` through the schema itself, `errorHandler` and `allowUnknownOptions`
+included; pass a different schema to get different settings. `settings: null` is an
+error, as `schema: null` is; leave the key out. `parse({ schema, settings })` follows the same rule. Only
+the keys in the table below land on `state.settings`.
 
 | Setting                    | Default  | Effect                                                |
 | -------------------------- | -------- | ----------------------------------------------------- |
@@ -2440,9 +2470,10 @@ some hooks pinned to `undefined`, which is the type of a built-in component's
 `props` where the component sets that hook itself: a component refuses a handler
 for a hook it owns, at run time as well as in the type, rather than replace it
 without a word. `TextField` owns `onKey`, `onPaste`, `onFocusChange` and
-`onResize`; `ScrollBox` `onKey` and `onMouse`; `createPager` `onKey`;
+`onResize`; `TextArea` `onKey`, `onMouse`, `onPaste` and `onFocusChange`; `ScrollBox` `onKey` and `onMouse`; `createPager` `onKey`;
 `tabRowView` `onKey`, `onFocusChange` and `onResize`; `openModal` `onPaste`;
-`showToast` `onMouse`; `attachTooltip` `onLayout`. Put a handler for those on an
+`showToast` `onMouse`; `attachTooltip` `onLayout`; `Dropdown` `onKey`, `onMouse`
+and `onFocusChange`. Put a handler for those on an
 element around the component. A wrapper that forwards `props` types them as
 `ElementPropsWithout<...>` with the same hooks: a value typed plain `ElementProps`
 no longer fits, because it may carry a handler the component would replace.
@@ -4674,7 +4705,8 @@ next Right calls it again.
 
 **`directoryTree()`** is that prompt over the file system, as Textual's
 `DirectoryTree` is: the root is the top node, open, and each directory under it is
-read the first time it opens. It takes `filePicker()`'s `directory`, `extensions`,
+read the first time it opens. That root node is `directoryRoot()`, published so a
+`TreeListView` can browse the same tree. It takes `filePicker()`'s `directory`, `extensions`,
 `hidden` and `root`, decided by the same function, and answers with an absolute
 path. Enter opens a directory and answers a file; with `directory`, files are not
 listed and Enter answers the directory, the root included.
@@ -4699,10 +4731,11 @@ Memory ██████████░░░░░░░░░░ 512 MiB / 1 
 
 Four functions that take numbers and return a string, drawn as an element tree
 the way `note()` is, so the colour is a theme role and the caller does the
-writing. None has a live form -- a chart of a series that is changing is a chart
-the app builds again -- and, like `table()`, none of them is silenced by
-`--quiet`. `sparklineView()`, `barChartView()`, `lineChartView()` and
-`gaugeView()` are the trees behind them, for an app that wants one inside its own.
+writing. Like `table()`, none of them is silenced by `--quiet`.
+`sparklineView()`, `barChartView()`, `lineChartView()` and `gaugeView()` are the
+trees behind them at a size the caller names. A chart that changes, inside a
+full-screen app, is `Sparkline`, `LineChart`, `BarChart` or `Gauge` -- below -- and
+not a view built again every tick.
 
 - **`sparkline(values, { width, min, max })`** is one line of eight block heights,
   for a trend beside a command's name. A value that is not a finite number is a
@@ -4716,13 +4749,18 @@ the app builds again -- and, like `table()`, none of them is silenced by
   them. Bars grow from zero, or from the lowest value where some are negative; a
   value above the bottom is always at least an eighth of a cell, so a small number
   is not drawn as none.
-- **`lineChart(values, { width, height, min, max, axis, format, xLabels })`** is
-  one series in braille, two dots across and four down a cell, from the same
-  `Dots` grid the canvas draws with. The axis names the top and the bottom of the
-  scale and nothing between, and `xLabels: ['10:00', '10:10']` sets the first and
-  last points under it. A value that is not a finite number **breaks** the line
-  rather than being bridged. A braille cell carries one foreground, so there is
-  one series, in one role.
+- **`lineChart(values, { width, height, min, max, axis, format, xLabels, legend, step })`**
+  is braille, two dots across and four down a cell, from the same `Dots` grid the
+  canvas draws with. `values` is a list of numbers, or several series as
+  `[{ data, label, role }]`: they share the plot, each in its own role, a cell
+  two lines cross is drawn with both lines' dots in the colour of the one listed
+  **later**, and a series with a `label` is written in a legend under the axis.
+  The axis names the top and the bottom of the scale, and a value every four rows
+  or so between them on a plot tall enough to have room; `xLabels: ['10:00',
+  '10:10']` sets the first and last points under it. Every sample is spread
+  across the width unless `step` says how many dot columns apart they are, with
+  the latest at the right edge. A value that is not a finite number **breaks** the
+  line rather than being bridged.
 - **`gauge(value, { label, detail, width, style, thresholds, min, max })`** is a
   reading against its range. `value` is a ratio unless `max` says otherwise, so
   `gauge(0.63)` and `gauge(63, { max: 100 })` are the same line. `style: 'line'`
@@ -4735,7 +4773,75 @@ Every chart takes `role` (`accent` by default, `none` for the terminal's own
 foreground) and `ascii`. Unless `ascii` is given it follows `unicodeSupported()`,
 and the ASCII forms are `_.:-=+*#` for a sparkline, `#` bars, a `*` line and `#`
 and `-` in a gauge. `.sigil-chart-sparkline`, `-bar`, `-line` and `-gauge` are the
-theme hooks, each with `-row` and `-part` classes inside.
+theme hooks, each with `-row` and `-part` classes inside; a line chart's series are
+`.sigil-chart-series-1` and up, and its legend `.sigil-chart-legend`. A bar takes
+a `role` of its own in `{ label, value, role }`, over the chart's.
+
+##### Live charts
+
+```js
+import { Gauge, LineChart, Series, Sparkline } from '@ttylabs/sigil/components/chart';
+import { State } from '@ttylabs/sigil/signals';
+
+const rx = new Series(120);
+const tx = new Series(120);
+const memory = new State(0.4);
+setInterval(() => {
+  rx.push(sample.rx);
+  tx.push(sample.tx);
+  memory.set(sample.used / sample.total);
+}, 1000);
+
+Sparkline({ data: rx, min: 0, props: { flex: 1 } });
+LineChart({
+  props: { 'flex-grow': 1 },
+  series: [
+    { data: rx, label: 'rx', role: 'success' },
+    { data: tx, label: 'tx', role: 'warn' },
+  ],
+});
+Gauge({ label: 'mem', thresholds: { warn: 0.75, error: 0.9 }, value: memory });
+```
+
+The same four charts as elements, for a full-screen app. Each reads its data from
+a signal -- a `State`, a `Computed`, a `Series`, or a function that reads them --
+and redraws when it changes, and each is drawn at the size **the layout** gave it,
+learned through `onResize` the way `TextField` learns its width. They are the
+drawings the printed charts are made of, so at the same size the two are the same
+picture.
+
+- **A chart is the size of its box.** Where the layout leaves the size to it, it
+  asks for one -- `width` and `height`, or a default -- and where the layout
+  decides, that is what it draws at: stretched across a column, given what a row
+  leaves with `flex: 1`, as tall as a panel with `'flex-grow': 1`. Squeezed and then
+  given room again, it grows back, because what it asks for is not what it last
+  drew. `props` takes the rest of a box's props; `onResize` is the chart's own.
+- **`Series(capacity)` is a ring buffer that is also a signal.** `push()` adds
+  samples and drops the oldest past the capacity without building a new array,
+  `get()` is the samples oldest first, built once per change and frozen, and
+  `at(-1)` is the latest. A chart handed one redraws when it is pushed to. A
+  `State` holding an array works too, at the cost of a new array a tick.
+- **`Sparkline({ data, min, max, role, width, height })`** is a column a sample,
+  the latest at the right, and the left left blank until there is history to fill
+  it. Taller than a row, it stacks the eighths into an area, so three rows is
+  twenty-four heights. Where the layout leaves its width to it, it asks for a
+  column a sample of the series' capacity.
+- **`LineChart({ data | series, step, min, max, axis, format, xLabels, legend })`**
+  scrolls: the latest sample is at the right edge and each one before it a dot
+  column further left, two to a cell, so a 40-column plot holds the last 80.
+  `step: 3` spaces them three dots apart, and `step: 'fit'` spreads a whole
+  series across the width as `lineChart()` does. The rows the axis, the x labels
+  and the legend leave are the plot's.
+- **`BarChart({ data, direction, ... })`** gives horizontal bars the width the
+  labels and the values leave; vertical bars share the width out between them
+  and take the rows the values and the labels leave.
+- **`Gauge({ value, label, detail, thresholds, ... })`** gives the bar the width
+  its label and its figure leave, and pads the percentage to four columns so the
+  bar does not move a cell as the reading gains a digit. `label` and `detail`
+  may be functions or signals too.
+
+The scale follows what is shown unless `min` and `max` are given, which is how two
+charts are made to mean the same height.
 
 #### An image
 
@@ -5032,6 +5138,80 @@ the selection on its own -- a current key, a set of selected keys, and the moves
 over whatever rows it was last handed with `setRows(keys, disabled)` -- for a
 component that draws its own rows, a table or a tree, and wants the same answer
 the list gives.
+
+#### A tree list view
+
+```js
+import { directoryRoot } from '@ttylabs/sigil/components/tree';
+import { describeTreeListView, TreeListView } from '@ttylabs/sigil/components/tree-list-view';
+
+const files = TreeListView({
+  items: [
+    directoryRoot({ root: '.' }), // a directory, read a level at a time
+    { text: 'cluster', items: async () => (await namespaces()).map((ns) => ns.name) },
+  ],
+  onActivate: (value, node) => open(value),
+  props: { height: 20 },
+});
+describeTreeListView(input, files); // for keyHelp(), once the router exists
+```
+
+```
+❯ ├── ▾ sigil/
+  │   ├── ▸ src/
+  │   ├──   README.md
+  │   └──   package.json
+  └── ▾ cluster
+      └──   Loading…
+```
+
+A tree you browse in a full-screen app -- the file sidebar of an editor, a JSON
+viewer, a Kubernetes resource tree -- as one focusable element. On screen a tree is a
+list of the rows that are open, so it **is** a `ListView` of them: Up, Down, Page Up,
+Page Down, Home and End move the cursor, a click moves it, the wheel scrolls, Enter
+and a double-click call `onActivate(value, node)`, `multiple` ticks rows, and only
+the rows on screen are built. What the tree adds: **Right** opens a closed branch
+and on an open one steps onto its first child; **Left** closes an open branch and
+on anything else steps to the parent; **Space** opens and closes a branch in a
+single tree (in a `multiple` one it ticks, as the list's); and a click on a branch's
+twisty opens or closes it without moving the cursor. `vim: true` adds `h` and `l`
+beside the list's `j`, `k`, `g` and `G`.
+
+The nodes are `selectTree()`'s -- a string, or `{ text, value, items, expanded }` --
+so one value is asked for by `selectTree()` and browsed here, and
+`directoryRoot()` is the root node `directoryTree()` asks over. A node's `value`
+(its `text` without one) is what the cursor, the selection and the open set hold,
+so two nodes with one value throw. `expanded` is a set of values or a `State` of
+one, the shape `current` and `selected` have: the keys write it and an app that
+writes it opens and closes branches. Closing a branch leaves the branches under it
+in the set, so they come back with it, and a node's own `expanded: true` opens it
+the first time the node is seen. **When a branch closes over the cursor, the cursor
+goes to that branch**, however it was closed; a node that was deleted leaves the
+cursor on the row that took its place, as in a list.
+
+A branch whose `items` is a function is read the first time it opens, and what it
+returned is kept, so closing and opening again is instant; `treeListControl(tree)
+.reload(value)` forgets it. A function that returns a list is taken at once; one
+that returns a promise draws `Loading…` under the branch until it lands. A read
+that rejects -- or returns something that is not a list of nodes -- puts `Could not
+load: <message>` there instead, keeps the branch open so the message has somewhere
+to be, and is not kept: **Right** reads it again, and so does closing and opening
+it. A branch closed while its read is in flight lets the read finish, and opens
+again on what it found. The loading and error lines are rows the cursor passes
+over.
+
+`row(node, info)` draws a node's text -- an element or a string -- with the guide
+and the twisty drawn in front of it either way; `info` says its `depth`, whether it
+is a `branch` and `expanded`, and where its read stands (`status`). The guides are
+`treeGlyphs()`'s, `guide: 'rounded'` among them, and `ascii` draws `|--` and `+`.
+`.sigil-tree-list-view` is on the host beside `.sigil-list`, each node is a
+`.sigil-tree-node` (with `is-branch` and `is-open`) of `-guide`, `-toggle` and
+`-label`, and the lines under a branch are `.sigil-tree-loading` and
+`.sigil-tree-error`. `treeListControl(tree)` is the handle: `current`, `expanded`,
+`expand(value?)`, `collapse(value?)`, `toggle(value?)`, `reload(value)`,
+`status(value)`, and `list` -- the list underneath, which `listControl()` answers for
+too. `describeTreeListView(input, ...trees)` describes the list's keys and the
+tree's, scoped to each.
 
 #### A data table
 
@@ -5354,8 +5534,9 @@ the focus back to the one below.
 `false`.
 
 The dialog is opaque without a colour: the panel fills itself with blank cells, so
-the app does not show through between the words at colour level 0 either. A
-focused button is bracketed, `[ Yes ]`, and in the accent. `.sigil-modal`,
+the app does not show through between the words at colour level 0 either. Each
+button is a `Button`, so a focused one is bracketed, `[ Yes ]`, with its label in
+`.sigil-focus`. `.sigil-modal`,
 `-backdrop`, `-fill`, `-title`, `-body`, `-actions` and `-action` are the theme
 hooks; a background on `.sigil-modal-fill` colours the whole panel. A dialogue is
 not progress, so `--quiet` does not hide one.
@@ -5430,6 +5611,228 @@ are the form's or the caller's, not the field's. `.sigil-text-field`, `-before`,
 background, and the caret of a focused field carries `.sigil-focus`, the role a
 control puts on the part that shows its focus -- `sigil/themes` below says which
 controls do.
+
+#### A text area
+
+```js
+import { TextArea } from '@ttylabs/sigil/components/text-area';
+import { State } from '@ttylabs/sigil/signals';
+import { copyToClipboard } from '@ttylabs/sigil/terminal';
+
+const message = new State('');
+TextArea({
+  value: message,
+  lineNumbers: true,
+  placeholder: 'Commit message',
+  onCopy: (text) => copyToClipboard(app.terminal, text),
+  props: { 'flex-grow': 1 },
+});
+```
+
+```
+ 1 Fix the parser's handling of --
+ 2
+ 3 A value that starts with a dash is a value.
+```
+
+Several lines of editable text as an element -- the `multiline()` prompt's editor
+without the prompt around it, for a commit message box, a notes pane, or the editor
+a full-screen app is built around. It is focusable, and while it has the focus it
+draws a caret.
+
+**Only the lines on screen are laid out and painted.** The value is held as lines,
+an edit touches the lines it spans, a line is one row -- the area scrolls sideways
+rather than wrapping -- and a frame lays out as many lines as the area is tall, so
+a fifty-thousand-line buffer scrolls the way a ten-line one does. What still costs
+as much as the value is long is joining it into a string, which the area does only
+when something reads it: a `State` handed in, `onChange`, or `highlight`.
+
+`value` is a string to start from or a `State<string>` that is the value itself;
+an app's write replaces what the area holds, with the caret at the end, and line
+endings are normalized to `\n`. `onChange(value)` is called after every edit.
+`placeholder` is shown, muted, while it is empty; `disabled` takes it out of the
+ring and mutes it. `rows` is how many rows it asks for before it scrolls -- ten by
+default, and it grows into them -- and a `flex-grow` or a `height` in `props`
+gives it more; `width` is its columns, and without one it takes what the layout
+gives it.
+
+`lineNumbers` numbers each line, two digits at the least, with the caret's line
+the one not muted; `gutter: '│ '` draws a mark after them. The gutter is never
+copied with the text. `highlight(value)` is `multiline()`'s hook, unchanged: it is
+handed the whole value whenever it changes and returns spans of offsets into it,
+each naming a token, which is a class -- `.sigil-token-<token>` -- and for
+`comment`, `function`, `invalid`, `keyword`, `number`, `string` and `type` a role
+as well, so a theme colours a text area, a prompt, a diff and a markdown code block
+with one sheet. The framework carries no grammar; the app brings one.
+
+The keys are the prompt's: Enter is a newline, Left and Right move by a character
+and with Ctrl or Alt by a word, Up and Down by a line keeping the column they aim
+for, PageUp and PageDown by a screen, Home and End (Ctrl-A, Ctrl-E) to the ends of
+the line and with Ctrl to the ends of the value; Backspace and Delete, Ctrl-W,
+Alt-D, Ctrl-U and Ctrl-K delete, and a bracketed paste keeps its line breaks.
+Shift with any move selects, and so does a drag; a press places the caret, a
+Shift-press extends, and the wheel scrolls without moving the caret. Typing or
+deleting over a selection replaces it. **With `onCopy`, Ctrl-Y copies and Ctrl-X
+cuts**: the area hands the text over and the app puts it on the clipboard, since
+an element has no terminal -- `copyToClipboard(app.terminal, text)` is OSC 52.
+Ctrl-C is never a copy, because it is the abort. A selection is drawn the way the
+screen selection is, reversed, and not at colour level 0, where it still copies.
+
+**Tab is the focus ring's unless `tab` says what it types** -- `tab: '  '` for an
+editor -- and Shift-Tab and Escape are never the area's, so an area that takes Tab
+can still be left and a dialog around one can still be dismissed. There is no
+submit key: an app binds its own, and a binding runs ahead of the focused element.
+`.sigil-text-area`, `-body`, `-text`, `-caret`, `-selection`, `-placeholder`,
+`-gutter` and `-gutter-active` are the theme hooks, and the caret of a focused area
+carries `.sigil-focus`. There is no background: an area is a region, framed by
+whatever holds it, and `.sigil-text-area { background-color: gray }` gives it the
+text field's.
+
+#### Form controls
+
+```js
+import { Button, describeButton } from '@ttylabs/sigil/components/button';
+import { Checkbox, describeCheckbox } from '@ttylabs/sigil/components/checkbox';
+import { describeRadioSet, RadioSet } from '@ttylabs/sigil/components/radio-set';
+import { describeSwitch, Switch } from '@ttylabs/sigil/components/switch';
+import { box } from '@ttylabs/sigil/element';
+import { State } from '@ttylabs/sigil/signals';
+
+const digest = new State(true);
+const level = new State('info');
+
+const form = box(
+  { 'flex-direction': 'column' },
+  Checkbox({ label: 'Email me a weekly digest', checked: digest }),
+  Switch({ label: 'Theme', inactive: 'light', active: 'dark' }),
+  RadioSet({
+    options: ['warn', 'info', 'debug', { label: 'trace', disabled: 'debug builds' }],
+    value: level,
+    direction: 'row',
+  }),
+  Button({ label: 'Save', onPress: save })
+);
+form.onKey = (event) => {
+  if (event.key.name === 'enter') save(); // what no control claimed: the form's Enter
+};
+
+describeCheckbox(input, ...checkboxes); // and the other three, for keyHelp()
+```
+
+```
+❯ [x] Email me a weekly digest
+  Theme  ◉ light  ◯ dark
+  ◯ warn    ◉ info    ◯ debug    ◯ trace debug builds
+  Save
+```
+
+The controls of a settings screen or a login form, as elements: `Button`,
+`Checkbox`, `RadioSet` and `Switch`. Each is focusable, each takes its value the
+way `Collapsible` and `TextField` do -- a value to start from, or a `State` the keys
+and the mouse write and the app may write too -- and each calls `onChange` after a
+change it made and never after a write the app made, since the app already knows.
+
+- **`Button({ label, onPress })`**: **Enter**, **Space** and a left click press it.
+- **`Checkbox({ label, checked })`**: **Space** and a click tick and untick it. The
+  box is `[x]` or `[ ]`. An empty `label` is allowed, for a checkbox something else
+  labels.
+- **`Switch({ label, value, active, inactive })`**: two named states, `on` and `off`
+  by default, the inactive one on the left as `toggle()` draws them. **Left** picks
+  the inactive state and **Right** the active one, **Space** flips it, and a click on
+  a state picks it -- anywhere else on the switch flips it. Tab is _not_ the
+  switch's, though `toggle()` flips on it: in a form, Tab belongs to the ring.
+- **`RadioSet({ options, value, direction })`**: one of several options, as **one**
+  stop in the focus ring. **Up**/**Down** and **Left**/**Right** select the option
+  before or after straight away, stepping over a disabled one; **Home** and **End**
+  the first and last; **Space** the highlighted option, which matters when nothing
+  was selected yet; a click selects the option clicked. `options` are strings or
+  `select()`'s choices -- `label`, `value`, `hint`, and `disabled` with a reason --
+  so one list can feed both. Values are compared the way a `Map` compares keys, and
+  two options with one value are refused. `direction: 'row'` lays them side by side.
+
+**Enter is the form's everywhere but on a button.** A checkbox, a switch and a
+radio set leave it unclaimed, so it reaches whatever holds them -- which is where a
+submit lives -- and a button claims it, because Enter on a focused Cancel means
+Cancel. Tab, Escape and Ctrl-C are never a control's, and an arrow that would
+change nothing -- Right on a switch that is on, Up on the first option -- goes on to
+the pane around it, as the tab row's does.
+
+The focus is drawn twice: `.sigil-focus` on the label (on a radio set, the
+highlighted option's), and as content that survives colour level 0 -- the prompts'
+`❯` in a column every value control keeps blank, and a button's brackets in its
+padding, `[ Save ]` against `  Save  `. Neither moves anything when the focus
+arrives. The value is the marker, `[x]` or `◉`, in `.sigil-accent`; the switch's
+other state is `.sigil-muted`.
+
+`disabled` (a boolean or a `State<boolean>`) takes a control out of the ring,
+mutes it, sets `:disabled`, and makes it ignore keys and clicks, which go on to
+the form; a control disabled while it has the focus keeps it. A checked checkbox
+or switch and a selected option are `:checked` too.
+
+`describeButton()`, `describeCheckbox()`, `describeSwitch()` and
+`describeRadioSet()` describe each control's keys scoped to it, for a `keyHelp()`
+footer -- the switch's arrows by the names of its states, `← light · → dark` --
+and return a function that takes them off. `controlFlag()`, `controlDisabled()`
+and `describeControls()` (from `@ttylabs/sigil/components/control`) are what the
+four share, for a control of your own. The theme hooks are `.sigil-button`
+(`-bracket`, `-label`), `.sigil-checkbox` (`-pointer`, `-mark`, `-label`),
+`.sigil-switch` (`-pointer`, `-label`, `-state`) and `.sigil-radio-set` with
+`.sigil-radio` (`-pointer`, `-mark`, `-label`, `-hint`) per option.
+
+#### A slider
+
+```js
+import { describeSlider, Slider } from '@ttylabs/sigil/components/slider';
+import { box, text } from '@ttylabs/sigil/element';
+import { State } from '@ttylabs/sigil/signals';
+
+const volume = new State(40);
+const slider = Slider({ value: volume, format: (v) => `${v}%`, onChange: (v) => mixer.set(v) });
+const row = box({ 'flex-direction': 'row' }, text('Volume', { width: 8 }), slider);
+describeSlider(input, slider); // for keyHelp(), once the router exists
+```
+
+```
+Volume  ━━━━━━━━○───────────  40%
+```
+
+A number on a track, as an element: focusable, moved by the keys and dragged by
+the pointer. `value` is a number to start from or a `State<number>` that is the
+value itself -- the keys and the pointer write it, and a write the app makes moves
+the thumb. `onChange(value)` is called after the keys or the pointer moved it, and
+never for a write the app made. `min` and `max` default to 0 and 100 and `step` to
+1; the value is always `min` plus a whole number of steps, so the top is the last
+step at or under `max`, and a fractional step lands on `0.3` rather than
+`0.30000000000000004`. A value the app writes outside the range or between two
+steps is drawn at the nearest step and left as written.
+
+Left and Right move a step, Page Up and Page Down a page -- `page`, in the value's
+own units, defaulting to a tenth of the range and never less than a step -- and
+Home and End go to the ends. They are claimed even at an end, so a held key that
+overshoots does not reach whatever is around the slider; Up, Down, Enter, Tab and
+any key with a modifier are left alone, so a form of rows can have them. A left
+press on the track puts the thumb under the pointer and focuses the slider, and
+holding the button drags it: the press captures the pointer, so a drag past either
+end of the track, or off the canvas, clamps at that end and the release still ends
+it. The wheel is left to whatever scrolls. `disabled` (a boolean or a
+`State<boolean>`) takes it out of the focus ring, ignores the keys and the pointer,
+and mutes it.
+
+**The label is the app's, and the readout is the slider's.** A form lines its
+labels up in a column only it knows the width of, which is why a text field has
+none either. `format` draws a readout after the track, and it is as wide as the
+widest thing `format` returns over the range, so the track does not move a column
+as the value goes from `9%` to `100%`; without `format` there is no readout.
+`width` is the track's columns; without one the track takes what the layout gives
+it -- the rest of a column, or twenty columns in a row with no width of its own,
+shrinking to its share where the row is short. Horizontal only.
+
+The focused slider's thumb carries `.sigil-focus` and fills in, `○` to `●` (`o` to
+`O` in ASCII), and the glyph is what shows the focus at colour level 0, where the
+role is dropped. The filled stretch and the thumb are `.sigil-accent` and the rest
+of the track `.sigil-muted`; `.sigil-slider`, `-track`, `-fill`, `-thumb`, `-rest`
+and `-value` are the theme hooks. `describeSlider(input, ...sliders)` describes the
+six keys scoped to each slider, for `keyHelp()`.
 
 #### A toast
 
@@ -5527,6 +5930,125 @@ alone. A tooltip is chrome rather than content, so **`--quiet` hides it**;
 itself, timer and all, when the component it was attached inside unmounts.
 `.sigil-tooltip`, `-fill` and `-text` are the theme hooks.
 
+#### Menus: a dropdown select, a context menu and a menubar
+
+```js
+import { Dropdown } from '@ttylabs/sigil/components/dropdown';
+import { attachContextMenu, openMenu } from '@ttylabs/sigil/components/menu';
+import { Menubar } from '@ttylabs/sigil/components/menubar';
+
+const bar = Menubar({
+  input,
+  menus: [
+    {
+      label: '&File',
+      items: [
+        { label: '&Open', hint: 'ctrl+o', value: open },
+        { separator: '' },
+        { label: '&Quit', value: quit },
+      ],
+    },
+    { label: '&Edit', items: [{ label: '&Undo', disabled: 'Nothing to undo', value: undo }] },
+  ],
+  onSelect: (item) => item.value(),
+});
+
+const level = new State('warn');
+const field = Dropdown({ input, options: ['debug', 'info', 'warn', 'error'], value: level });
+
+attachContextMenu(fileList, {
+  input,
+  items: (row) => [
+    { label: '&Rename', value: 'rename' },
+    { label: '&Delete', value: 'delete' },
+  ],
+  onSelect: (item, row) => act(item.value, row),
+});
+```
+
+```
+[File] Edit
+╭──────────────────╮
+│❯ Open     ctrl+o │
+│──────────────────│
+│  Quit            │
+╰──────────────────╯
+```
+
+A **menu** is a list of items in a box over the screen, anchored to an element --
+below it, flipped above where there is no room, by `placeTooltip()`'s arithmetic --
+or to a cell, which is a context menu at the pointer. An item has a `label`, a
+`value`, an optional `hint` drawn at the right (the key that does the same -- a
+label only: the menu binds no key for it, so bind it yourself, as
+`input.bind('ctrl+o', open)`, and keep it off `ctrl+c`, which is the abort), an
+`items` list that makes it a **submenu**, and `disabled`, which keeps it in the
+list, muted, and steps the highlight over it; a string there is the reason, shown
+where the hint would be. A **separator** is the prompts' own, `{ separator: '' }`
+or `separator()`, drawn as a line across. An `&` in a label marks its
+**mnemonic**: `Save &As` is chosen with `a`, and without one the first letter is.
+
+While a menu is open **it has the keys and the mouse, and the focus stays where it
+was**. Up and Down move the highlight, Home and End go to the ends, Right or Enter
+opens a submenu beside its row and Left or Escape closes it, Enter or Space
+chooses, a letter chooses the item it is the mnemonic of, and Tab closes the menu
+and moves on. The pointer highlights what it is over and opens a submenu it rests
+on, a click chooses, and a click outside closes the menu and reaches nothing under
+it. Ctrl-C is never taken. A menu opened inside a modal holds the keys over it, so
+Escape closes the menu and the next one the dialog.
+
+- `openMenu(host, { at, input, items, side, minWidth, initial, onSelect })` opens
+  one and hands back `result`, which settles with the item chosen or `undefined`
+  for a dismissal -- Escape, a click outside, Tab, `close()`, a resize, or the
+  renderer going.
+- `attachContextMenu(element, { input, items, onSelect })` opens one on a **right
+  click** inside the element, at the pointer, and on **Shift-F10** or the
+  **Menu** key with the focus inside it, under the focused element. `items` may be
+  a function of what was clicked or focused. The element's own hooks are left
+  alone, and Shift-F10 is listed in the key help.
+- `Menubar({ input, menus, onSelect })` is a row of titles. **F10** opens the
+  first and **Alt** with a title's mnemonic opens that one, from anywhere --
+  as fallbacks, so a focused text field that reads Alt-F keeps it. While one is
+  open, Left and Right move between the titles. A press on a title opens it, a
+  press again closes it, the pointer moving onto another title opens that one, and
+  a press dragged onto an item and released chooses it. The titles are not in the
+  focus ring. `menubarControl(bar)` opens and closes it from code, and `keys:
+  false` leaves F10 and Alt to the app.
+- `Dropdown({ input, options, value, onChange, placeholder, disabled, width })` is a
+  focusable field showing one choice. Enter, Space, Up, Down or Alt-Down open the
+  list under it with the value highlighted; a letter picks the next choice
+  starting with it without opening anything; a press opens it. `options` are
+  `select()`'s, strings and `Choice`s and separators, and `value` may be a
+  `State` the field writes and follows. It is as wide as its widest choice unless
+  given a `width`, and the list is never narrower than the field.
+
+The highlighted item, the open title and a focused dropdown carry `.sigil-focus`,
+and a pointer, brackets or both show the same at colour level 0. Every glyph has an
+ASCII fallback, by `unicodeSupported()` or `ascii: true`. A menu draws above a
+modal and a tooltip and below the debug overlay, opaque without a colour. The
+theme hooks are `.sigil-menu`, `-list`, `-item`, `-pointer`, `-label`,
+`-mnemonic`, `-hint`, `-arrow`, `-separator` and `-fill`; `.sigil-menubar`,
+`-title`, `-face`, `-label` and `-bracket`; and `.sigil-dropdown`, `-face`,
+`-label`, `-arrow` and `-bracket`. The decoder now names the function keys
+`f1` to `f12` and the Menu key `menu`, so `bind('f5', ...)` works too.
+
+A menu is drawn on the root rather than inside what opened it, so a rule written
+under a menubar or a field -- `.mybar .sigil-menu` -- never reaches its menus. To
+style one set apart from another, give the component a class for itself through
+`props` and one for its menus through **`menuClass`**, which every entry point
+takes and puts on each menu it opens, submenus included:
+
+```js
+const bar = Menubar({ input, menus, menuClass: 'tinted', props: { class: 'tinted-bar' } });
+const css = `
+  .tinted-bar { background-color: blue; color: white }
+  .tinted { background-color: blue; color: white; border-color: cyan }
+  .tinted .sigil-menu-fill { background-color: blue }
+`;
+```
+
+`.sigil-menu-fill` is what paints the empty cells inside the border, so a
+background meant to fill the menu goes there as well as on the box.
+
 #### A key-help footer
 
 ```js
@@ -5553,11 +6075,16 @@ cannot read, so `input.describe(keys, { description, scope })` declares it, and 
 is listed while the scope element or anything inside it holds the focus. That is
 the one half that can drift from its handler.
 
-Wider than the terminal, the short form drops whole bindings, lowest `priority`
-first and the later of two equals, and ends in `…`; it never wraps and never cuts
-a binding in half. Pass `width: () => n` if the terminal resizes. `expanded` is a
-boolean or a `State<boolean>`: set it true and the footer lists every binding
-under its `group`, one to a line. Binding `?` to that signal is the app's job.
+Wider than its box, the short form drops whole bindings, lowest `priority` first
+and the later of two equals, and ends in `…`; it never wraps and never cuts a
+binding in half. The box is whatever the layout gives it, learned through
+`onResize`, so a terminal resize refits it: it asks for the width of every
+binding, is never wider than its container, and in a row beside a status it takes
+what the status leaves -- give the status `flex-shrink: 0` if it should keep its
+width. `width: n` or `width: () => n` fits it to a number of the app's own
+instead, and then the layout is not asked. `expanded` is a boolean or a
+`State<boolean>`: set it true and the footer lists every binding under its
+`group`, one to a line. Binding `?` to that signal is the app's job.
 
 Key names that are words (`enter`, `esc`, `tab`, ...) and the `ctrl-`/`alt-`/
 `shift-` prefixes go through the catalog; arrows are glyphs. Descriptions are
@@ -5696,6 +6223,18 @@ there for a component you write yourself too:
 - `pathFoldCase(text, flavour)`, from `@ttylabs/sigil/components/path`, is a
   file name as the file system compares it, lower case on Windows and as it is
   everywhere else.
+- `rootOf(element)`, `opaqueFill(className)`, `holdInput(input, layer)` and
+  `topLayer(input)`, from `@ttylabs/sigil/components/overlay`, are what a box
+  over the screen needs: the root a `fixed` box resolves against, the blank fill
+  that hides what is under it at every colour level, and the per-router list of
+  overlays holding the keys, of which only the top one answers. The modal, the
+  toast, the tooltip and the menus all use them, and an overlay of your own that
+  holds the input through `holdInput()` is one a modal stands aside for.
+- `openMenuSession()`, `parseMnemonic()`, `labelParts()`, `checkMenuEntries()` and
+  `menuClasses()`, from `@ttylabs/sigil/components/menu`, are the session the
+  menubar and the dropdown open their menus in, the `&` read out of a label, a
+  label drawn with its mnemonic set apart, the check that a list of items is one a
+  menu can draw, all the way down, and the check that a `menuClass` option is one.
 
 ### `sigil/canvas`
 
@@ -6572,7 +7111,8 @@ declarations restyle a surface wearing a dozen component classes.
 
 **`.sigil-focus` is the eighth role, and no shipped theme restates it.** It is on
 the part of a control that shows its focus — a collapsible's title, the active
-tab of a focused row, a focused text field's caret — and it is `inverse`, the
+tab of a focused row, a focused text field's caret, a button's, a checkbox's or a
+switch's label, a radio set's highlighted option — and it is `inverse`, the
 terminal's own two colours swapped, which is the same under any palette. A theme
 or an app restyles every control's focus with one rule:
 

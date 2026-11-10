@@ -22,7 +22,7 @@
  *
  * - **`sigil build`** is 286ms for five hundred commands, and the read passes
  *   plus the type check are 140ms on this package. A progress display over a
- *   sub-second build is theatre.
+ *   sub-second build is theater.
  * - **The type check** is the one step that spawns a compiler, and TypeScript
  *   7's native port answers in 97ms here and 364ms on a fresh scaffold, most of
  *   that being process startup. Still not animation territory.

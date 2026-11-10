@@ -1,0 +1,69 @@
+{
+  "api": {
+    "interface": "CheckboxProps",
+    "options": [
+      {
+        "description": "What it says, beside the box. One line of plain text, which wraps under itself where it is too long. Empty is allowed, for a checkbox labelled by something around it, and then the box carries the focus role.",
+        "name": "label",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "description": "Whether it is ticked.",
+        "default": "unticked",
+        "name": "checked",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
+        "description": "Whether it refuses to change.",
+        "default": "`false`",
+        "name": "disabled",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
+        "description": "Called with the new value after Space or a click changed it. Not called for a write the app made.",
+        "name": "onChange",
+        "optional": true,
+        "type": "(checked: boolean) => void"
+      },
+      {
+        "description": "The host box's own props: a class, a margin. Geometry only, never a colour.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementPropsWithout<\"onFocusChange\" | \"onKey\" | \"onMouse\">"
+      }
+    ],
+    "shared": [],
+    "signature": "function Checkbox(props: CheckboxProps): Element"
+  },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "tab",
+        "shiftTab",
+        "space"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
+  "registryDescription": "A checkbox: [x] or [ ] beside a label, ticked with Space or a click, for a form",
+  "source": "packages/sigil/src/components/checkbox.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "❯ \u001b[36m[x]\u001b[0m \u001b[7mRun the tests first\u001b[0m\n  \u001b[36m[x]\u001b[0m Tag the release"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "❯ \u001b[36m[x]\u001b[0m \u001b[7mRun the tests first\u001b[0m\n  \u001b[36m[x]\u001b[0m Tag the release"
+    }
+  }
+}

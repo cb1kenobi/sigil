@@ -435,7 +435,7 @@ export const PROPERTIES: { readonly [K in PropertyName]: Definition<K> } = {
   paddingBottom: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-bottom') },
   paddingLeft: { inherits: false, initial: 0, parse: (v) => parseCount(v, 'padding-left') },
   // margins take a length rather than a count, because `auto` is how a box is
-  // centred and how it is pushed to one end -- the one place a negative or
+  // centered and how it is pushed to one end -- the one place a negative or
   // automatic value earns itself
   marginTop: { inherits: false, initial: cells(0), parse: parseLength },
   marginRight: { inherits: false, initial: cells(0), parse: parseLength },

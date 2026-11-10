@@ -114,7 +114,7 @@ describe('note()', () => {
       );
     });
 
-    it('should centre in the top border', () => {
+    it('should center in the top border', () => {
       const top = lines('a message that is long enough', { title: 'Mid', titleAlign: 'center' })[0];
 
       expect(top).to.equal('╭───────────── Mid ─────────────╮');

@@ -258,13 +258,13 @@ export interface IrisOptions {
 /**
  * An iris: a circle opening out from a point.
  *
- * Distance from the centre, scaled so the farthest corner lands on `MASK_MAX` --
+ * Distance from the center, scaled so the farthest corner lands on `MASK_MAX` --
  * which is what makes the reveal finish exactly when the threshold does, for a
- * centre anywhere in the rectangle rather than only the middle.
+ * center anywhere in the rectangle rather than only the middle.
  *
  * @param width - Columns.
  * @param height - Rows.
- * @param opts - The centre and the cell aspect.
+ * @param opts - The center and the cell aspect.
  * @returns The mask, at `threshold: -1`.
  */
 export function irisMask(width: number, height: number, opts: IrisOptions = {}): Mask {

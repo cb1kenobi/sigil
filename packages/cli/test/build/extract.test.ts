@@ -281,6 +281,20 @@ describe('extracting a command module', () => {
       expect(diagnostics).to.have.lengthOf(0);
     });
 
+    it.each(['cmd as Command', 'cmd satisfies Command', '(cmd)', 'cmd!'])(
+      'should follow `export default %s`, which is the same statement with syntax on it',
+      (written) => {
+        // the reference was checked raw, so a type assertion on it declined a
+        // command the bare form read
+        const { diagnostics, facts } = extractCommand(
+          'a.ts',
+          `const cmd = { desc: 'x' };\nexport default ${written};`
+        );
+        expect(facts).to.deep.equal({ desc: 'x' });
+        expect(diagnostics).to.have.lengthOf(0);
+      }
+    );
+
     it('should follow `export { cmd as default }` the same way', () => {
       const { diagnostics, facts } = extractCommand(
         'a.js',

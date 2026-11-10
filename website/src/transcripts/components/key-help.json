@@ -9,14 +9,13 @@
         "type": "boolean | State<boolean>"
       },
       {
-        "description": "The terminal whose width is the default.",
+        "description": "The terminal whose width the short form is fitted to before the layout has said how wide its box is. A frame tells the footer after its layout and before it paints, so this is a guess no frame draws.",
         "name": "terminal",
         "optional": true,
         "type": "{ readonly width: number; }"
       },
       {
-        "description": "How many columns the short form may use.",
-        "default": "the terminal's width",
+        "description": "How many columns the short form may use, where the app would rather say than let the layout decide.",
         "name": "width",
         "optional": true,
         "type": "number | (() => number)"

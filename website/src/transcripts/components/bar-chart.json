@@ -111,7 +111,7 @@
     ],
     "signature": "function barChart(data: BarData, opts?: BarChartOptions): string"
   },
-  "registryDescription": "Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge",
+  "registryDescription": "Charts: a sparkline, bars, a braille line chart and a gauge, printed or live -- fed from signals and sized by the layout -- and the Series ring buffer that feeds them",
   "source": "packages/sigil/src/components/chart.ts",
   "views": {
     "narrow": {

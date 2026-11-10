@@ -63,7 +63,7 @@ function positive(value: number | undefined, fallback: number, name: string, max
  * Whole pixels throughout, because a cell that is 8.4 pixels wide puts every
  * other column boundary through the middle of a pixel and box drawing can no
  * longer meet itself. The width is the advance of `0` rounded, the height the
- * line height rounded, and the glyphs are centred in what that leaves: a few
+ * line height rounded, and the glyphs are centered in what that leaves: a few
  * tenths of a pixel either way, which is the same trade every terminal makes.
  * Both, and the padding, are rounded at 1x and then scaled.
  *

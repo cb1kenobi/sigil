@@ -178,6 +178,9 @@ describe('what importing the package costs', () => {
     'TextField',
     'showToast',
     'attachTooltip',
+    'openMenuSession',
+    'menubarControl',
+    'Dropdown',
     'markdownView',
     'qrcodeView',
     'commandPalette',
@@ -195,6 +198,7 @@ describe('what importing the package costs', () => {
     'selectRow',
     'treeView',
     'imageView',
+    'describeSlider',
   ];
 
   /** The bundles in a graph that define any of them. */
@@ -926,21 +930,28 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/badge': [316, 162_783],
   // as of SIG-277, which added these three after the rest were measured
   'components/border-label': [260, 133_586],
+  // as of SIG-199, which added the four form controls and `control`, what they
+  // share -- button, checkbox, control, radio-set and switch
+  'components/button': [388, 197_258],
   'components/calendar': [484, 248_571],
   'components/catalog': [6, 2_800],
   'components/chart': [396, 201_844],
+  'components/checkbox': [488, 248_863],
   'components/clock': [384, 196_045],
   'components/collapsible': [380, 193_603],
   // added when SIG-309 gave every component one colour-level rule
   'components/color-level': [16, 7_639],
   // added when SIG-310 split the ring and the console patch out of the overlay
   'components/console-capture': [4, 1_573],
+  'components/control': [332, 168_553],
   // SIG-281, measured when it was added
   'components/data-table': [464, 235_819],
   'components/date': [496, 253_149],
   'components/debug-overlay': [272, 140_286],
   'components/decrypt': [384, 196_337],
   'components/diff': [488, 249_598],
+  // as of SIG-285, which added the menus and the overlay plumbing they share
+  'components/dropdown': [424, 216_762],
   'components/editing': [12, 5_876],
   'components/editor': [480, 245_196],
   'components/file-picker': [492, 252_742],
@@ -959,12 +970,15 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/markdown': [516, 264_822],
   'components/markdown-parse': [32, 15_970],
   'components/masked-text': [476, 243_856],
+  'components/menu': [416, 213_145],
+  'components/menubar': [424, 216_148],
   'components/modal': [388, 198_373],
   'components/mount': [372, 190_145],
   'components/multi-progress': [384, 196_030],
   'components/note': [316, 162_044],
   'components/number': [480, 246_689],
   'components/outline': [384, 195_717],
+  'components/overlay': [260, 132_920],
   // added when SIG-305 gave seven components one way to refuse a hook they own
   'components/owned-hooks': [9, 4_273],
   'components/pager': [428, 219_265],
@@ -976,22 +990,30 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/progress': [380, 193_936],
   'components/prompt': [468, 240_102],
   'components/qrcode': [332, 169_062],
+  'components/radio-set': [492, 250_508],
   'components/rule': [320, 163_424],
   // SIG-280: a row is built under an owner of its own, which is the renderer's --
   // 174,349 B over 28 modules, from 136,485, and still under the ceiling it had
   'components/scroll-box': [268, 136_485],
   'components/select-key': [476, 243_021],
   'components/select-row': [480, 245_393],
+  // as of SIG-286, which added it
+  'components/slider': [392, 200_048],
   'components/sort': [476, 242_891],
   'components/spinner': [380, 194_847],
+  'components/switch': [488, 249_814],
   'components/table': [316, 162_282],
   'components/tabs': [384, 196_349],
   'components/tasks': [400, 203_977],
+  'components/text-area': [512, 260_642],
   'components/text-field': [472, 242_489],
   'components/toast': [380, 195_187],
   'components/toggle': [472, 241_207],
   'components/tooltip': [380, 195_074],
   'components/tree': [512, 262_589],
+  // SIG-282, measured when it was added: the tree's module and the list view's,
+  // which it is built on
+  'components/tree-list-view': [568, 289_948],
   'components/typewriter': [376, 192_912],
   element: [256, 131_505],
   'error-handler': [16, 8_422],

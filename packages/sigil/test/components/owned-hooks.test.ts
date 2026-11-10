@@ -1,13 +1,22 @@
+import { Button } from '../../src/components/button.js';
+import { Checkbox } from '../../src/components/checkbox.js';
 import { Collapsible } from '../../src/components/collapsible.js';
 import { DataTable } from '../../src/components/data-table.js';
+import { Dropdown } from '../../src/components/dropdown.js';
 import { ListView } from '../../src/components/list-view.js';
+import { Menubar } from '../../src/components/menubar.js';
 import { openModal } from '../../src/components/modal.js';
 import { createPager } from '../../src/components/pager.js';
+import { RadioSet } from '../../src/components/radio-set.js';
 import { ScrollBox } from '../../src/components/scroll-box.js';
+import { Slider } from '../../src/components/slider.js';
+import { Switch } from '../../src/components/switch.js';
 import { tabRowView, Tabs } from '../../src/components/tabs.js';
+import { TextArea } from '../../src/components/text-area.js';
 import { TextField } from '../../src/components/text-field.js';
 import { showToast } from '../../src/components/toast.js';
 import { attachTooltip } from '../../src/components/tooltip.js';
+import { TreeListView } from '../../src/components/tree-list-view.js';
 import {
   box,
   type Element,
@@ -83,6 +92,11 @@ const CASES: Case[] = [
     owns: ['onKey', 'onPaste', 'onFocusChange', 'onResize'],
   },
   {
+    make: (props) => ({ element: TextArea({ props: props as never }) }),
+    name: 'TextArea',
+    owns: ['onKey', 'onMouse', 'onPaste', 'onFocusChange'],
+  },
+  {
     make: (props) => ({
       element: ScrollBox({ children: () => box(), props: props as never }),
     }),
@@ -92,6 +106,11 @@ const CASES: Case[] = [
   {
     make: (props) => ({ element: ListView({ items: ['a', 'b'], props: props as never }) }),
     name: 'ListView',
+    owns: ['onKey', 'onFocusChange'],
+  },
+  {
+    make: (props) => ({ element: TreeListView({ items: ['a', 'b'], props: props as never }) }),
+    name: 'TreeListView',
     owns: ['onKey', 'onFocusChange'],
   },
   {
@@ -110,6 +129,11 @@ const CASES: Case[] = [
     make: (props) => ({ element: tabRowView({ labels: ['a', 'b'], props: props as never }) }),
     name: 'tabRowView',
     owns: ['onKey', 'onFocusChange', 'onResize'],
+  },
+  {
+    make: (props) => ({ element: Slider({ props: props as never }) }),
+    name: 'Slider',
+    owns: ['onKey', 'onFocusChange'],
   },
   {
     make: (props) => {
@@ -157,6 +181,36 @@ const CASES: Case[] = [
     },
     name: 'attachTooltip',
     owns: ['onLayout'],
+  },
+  {
+    make: (props) => {
+      const s = scene();
+      stops.push(() => s.input.stop());
+      return { element: Dropdown({ input: s.input, options: ['a'], props: props as never }) };
+    },
+    name: 'Dropdown',
+    owns: ['onFocusChange', 'onKey', 'onMouse'],
+  },
+  {
+    make: (props) => ({ element: Button({ label: 'OK', props: props as never }) }),
+    name: 'Button',
+    owns: ['onKey', 'onMouse', 'onFocusChange'],
+  },
+  {
+    make: (props) => ({ element: Checkbox({ label: 'On', props: props as never }) }),
+    name: 'Checkbox',
+    owns: ['onKey', 'onMouse', 'onFocusChange'],
+  },
+  {
+    make: (props) => ({ element: Switch({ props: props as never }) }),
+    name: 'Switch',
+    owns: ['onKey', 'onMouse', 'onFocusChange'],
+  },
+  {
+    // the options take the clicks, so the host's own `onMouse` is the caller's
+    make: (props) => ({ element: RadioSet({ options: ['a', 'b'], props: props as never }) }),
+    name: 'RadioSet',
+    owns: ['onKey', 'onFocusChange'],
   },
 ];
 
@@ -225,6 +279,14 @@ describe('a component that owns no hook on its host', () => {
       () => Tabs({ props: everything as never, tabs: [{ children: () => box(), label: 'a' }] }),
     ],
     [
+      'Menubar',
+      () => {
+        const s = scene();
+        stops.push(() => s.input.stop());
+        return Menubar({ input: s.input, menus: [], props: everything as never });
+      },
+    ],
+    [
       'Show',
       () =>
         Show({
@@ -266,11 +328,22 @@ describe("the type of a component's props", () => {
       showToast(box(), { message: '', props: { onMouse: mine }, terminal: {} as never });
       // @ts-expect-error -- attachTooltip sets onLayout itself
       attachTooltip(box(), { input: {} as never, props: { onLayout: () => false }, text: '' });
+      // @ts-expect-error -- Dropdown sets onKey itself
+      Dropdown({ input: {} as never, options: [], props: { onKey: mine } });
+      // @ts-expect-error -- Button sets onMouse itself
+      Button({ label: 'x', props: { onMouse: mine } });
+      // @ts-expect-error -- Checkbox sets onKey itself
+      Checkbox({ label: 'x', props: { onKey: mine } });
+      // @ts-expect-error -- Switch sets onFocusChange itself
+      Switch({ props: { onFocusChange: mine } });
+      // @ts-expect-error -- RadioSet sets onKey itself
+      RadioSet({ options: ['a'], props: { onKey: mine } });
 
       // the rest of the seven, and everything else, is accepted
       TextField({ props: { onMouse: mine, padding: 1 } });
       ScrollBox({ children: () => box(), props: { onPaste: mine } });
       Collapsible({ props: { onKey: mine }, title: 'x' });
+      RadioSet({ options: ['a'], props: { onMouse: mine } });
       // and a hook passed along as undefined is not a handler
       TextField({ props: { onKey: undefined } });
     };

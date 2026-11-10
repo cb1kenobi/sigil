@@ -3,13 +3,14 @@ import { main, type ParseState, type Settings } from '@ttylabs/sigil';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * The hook that makes the toolchain refuse unknown options, and what it leaves alone.
+ * The setting that makes the toolchain refuse unknown options, and what it leaves alone.
  *
- * `parse()` keeps the settings object it was handed, so a hook that wrote the flag
- * onto `state.settings` wrote it onto the caller's object. Reproduced: a `main()`
- * given a settings object left it with `allowUnknownOptions: false`, and a second
- * `main()` that reused the object and had an unrelated schema then refused an
- * undeclared option it was entitled to.
+ * It rides the schema (`Schema.settings`) rather than a `beforeParse` hook, which
+ * is what it was until SIG-333: the generated executable calls `main({ schema })`
+ * and nothing else, so only what the schema carries reaches a built app. The hook
+ * existed to make that true and copied `state.settings` so as not to write onto
+ * the caller's object; `main()` merges into a new object now, and these tests are
+ * the part of that which the toolchain depends on.
  */
 
 afterEach(() => {
@@ -22,7 +23,13 @@ async function version(settings: Settings): Promise<ParseState> {
   return (await main({ argv: ['--version'], schema: schema(), settings })) as ParseState;
 }
 
-describe("the toolchain's unknown-option hook", () => {
+describe("the toolchain's unknown-option setting", () => {
+  it('should be on the schema, where a build carries it', () => {
+    expect(schema().settings).toEqual({ allowUnknownOptions: false });
+    // the hook this replaced, and not hooks in general: an unrelated one is fine
+    expect(schema().hooks?.beforeParse).toBeUndefined();
+  });
+
   it('should set the flag on the parse it ran in', async () => {
     const state = await version({ errorHandler: false });
 
@@ -49,5 +56,11 @@ describe("the toolchain's unknown-option hook", () => {
     })) as ParseState;
 
     expect(later.argv.foo).toBe(true);
+  });
+
+  it('should still be overridable by the caller', async () => {
+    const state = await version({ allowUnknownOptions: true, errorHandler: false });
+
+    expect(state.settings.allowUnknownOptions).toBe(true);
   });
 });

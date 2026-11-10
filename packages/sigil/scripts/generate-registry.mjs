@@ -170,6 +170,10 @@ const ENTRIES = [
     name: 'list-view',
   },
   {
+    desc: 'A tree list view: a focusable tree that opens and closes, selects by value, and reads children lazily',
+    name: 'tree-list-view',
+  },
+  {
     desc: 'A data table: a list view with a sortable heading, columns fitted to the width, and live rows that keep the selection',
     name: 'data-table',
   },
@@ -194,12 +198,48 @@ const ENTRIES = [
     name: 'text-field',
   },
   {
+    desc: 'A button: a label that Enter, Space or a click presses, bracketed while it has the focus',
+    name: 'button',
+  },
+  {
+    desc: 'A checkbox: [x] or [ ] beside a label, ticked with Space or a click, for a form',
+    name: 'checkbox',
+  },
+  {
+    desc: 'A radio set: one of several options as one focus stop, the arrows selecting inside it',
+    name: 'radio-set',
+  },
+  {
+    desc: 'A slider: a value on a track, moved a step or a page by the keys and dragged by the pointer, with an optional readout',
+    name: 'slider',
+  },
+  {
+    desc: 'A switch: two named states, moved with Left, Right, Space or a click, for a form',
+    name: 'switch',
+  },
+  {
+    desc: 'A text area: several editable lines as an element, scrolled both ways, with line numbers, a selection and a highlight seam',
+    name: 'text-area',
+  },
+  {
     desc: 'A toast: a timed message in a corner of the screen that stacks, never takes the focus, and stays out of --quiet',
     name: 'toast',
   },
   {
     desc: 'A tooltip: text anchored to an element, shown on hover or focus, flipped to stay on screen',
     name: 'tooltip',
+  },
+  {
+    desc: 'A menu anchored to an element or to the pointer, with submenus, disabled items and separators, and a context menu on right click or Shift-F10',
+    name: 'menu',
+  },
+  {
+    desc: 'A menubar: titles across the top that open menus, from F10, an Alt-letter or the pointer',
+    name: 'menubar',
+  },
+  {
+    desc: 'A dropdown select: a field showing one choice that opens a list of the others',
+    name: 'dropdown',
   },
   {
     desc: 'Markdown drawn as styled text: headings, emphasis, code, lists, quotes, tables and OSC 8 links, wrapped to the terminal',
@@ -254,7 +294,7 @@ const ENTRIES = [
     name: 'tree',
   },
   {
-    desc: 'Charts: a sparkline, horizontal and vertical bars, a braille line chart and a gauge',
+    desc: 'Charts: a sparkline, bars, a braille line chart and a gauge, printed or live -- fed from signals and sized by the layout -- and the Series ring buffer that feeds them',
     name: 'chart',
   },
   {

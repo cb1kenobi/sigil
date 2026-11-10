@@ -217,7 +217,7 @@ function inPage(touch: number, ring: { color: string; width: number }) {
    * Touch targets. A control -- a button, a tab, a field, and the links that are
    * drawn as controls: the header's, the menu's, the segmented control's -- is
    * held to 44px. Any other link that is not inside a sentence is held to WCAG
-   * 2.5.8: 24px, or a 24px circle on its centre that touches no other target.
+   * 2.5.8: 24px, or a 24px circle on its center that touches no other target.
    */
   const small: string[] = [];
   if (touch) {

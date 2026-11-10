@@ -151,7 +151,7 @@ const NONE: PlacedLabel = Object.freeze({ offset: 0, text: '' });
  * Where there is not room, the right-hand label -- the annotation -- is dropped
  * first, then the main label is cut with an ellipsis, and at the extreme the
  * border is plain. The annotation sits at the right end. A right-aligned main
- * label packs against it rather than under it, and a centred one stays centred
+ * label packs against it rather than under it, and a centered one stays centered
  * and costs the annotation its place if the two would touch. One rule cell at
  * least separates them.
  *
@@ -186,20 +186,20 @@ export function fitBorder(
   const noteWidth = stringWidth(note);
 
   // together only if both are whole and a rule cell is left between them, and a
-  // centred main label must also clear the annotation from where it centres
-  const centred = Math.floor((run - mainWidth) / 2);
+  // centered main label must also clear the annotation from where it centers
+  const centered = Math.floor((run - mainWidth) / 2);
   const together =
     note !== '' &&
     mainWidth + 1 + noteWidth <= run &&
-    (align !== 'center' || centred + mainWidth + 1 <= run - noteWidth);
+    (align !== 'center' || centered + mainWidth + 1 <= run - noteWidth);
 
   if (!together) {
-    const offset = align === 'left' ? 0 : align === 'right' ? run - mainWidth : centred;
+    const offset = align === 'left' ? 0 : align === 'right' ? run - mainWidth : centered;
     return { end: NONE, start: { offset: Math.max(0, offset), text: main } };
   }
 
   const endOffset = run - noteWidth;
-  const offset = align === 'left' ? 0 : align === 'right' ? endOffset - 1 - mainWidth : centred;
+  const offset = align === 'left' ? 0 : align === 'right' ? endOffset - 1 - mainWidth : centered;
 
   return {
     end: { offset: endOffset, text: note },
