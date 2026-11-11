@@ -243,7 +243,10 @@ jobs:
       # The backstop: whatever the filter let through, the checkout must be the
       # commit, plus ignored files under those output directories, and nothing
       # else -- no tracked file changed, nothing new and unignored, and nothing
-      # ignored anywhere else.
+      # ignored anywhere else. The lists are NUL-separated (`-z`) because git
+      # otherwise quotes a name holding a non-ASCII character or a `"`, and a
+      # quoted `"packages/sigil/dist/\303\251"` no longer starts with
+      # `packages/`, so a legitimate output file would read as a stray.
       - name: Check the checkout holds nothing but build output
         run: |
           fail=0
@@ -251,12 +254,12 @@ jobs:
             echo "::error::unpacking changed tracked files"
             fail=1
           fi
-          untracked=$(git ls-files --others --exclude-standard)
+          untracked=$(git ls-files -z --others --exclude-standard | tr '\0' '\n')
           if [ -n "$untracked" ]; then
             echo "::error::unpacking added files outside the build output: $untracked"
             fail=1
           fi
-          stray=$(git ls-files --others --ignored --exclude-standard | grep -v -E '^packages/[^/]+/(dist|registry)/' || true)
+          stray=$(git ls-files -z --others --ignored --exclude-standard | grep -zvE '^packages/[^/]+/(dist|registry)/' | tr '\0' '\n' || true)
           if [ -n "$stray" ]; then
             echo "::error::ignored files outside the build output: $stray"
             fail=1

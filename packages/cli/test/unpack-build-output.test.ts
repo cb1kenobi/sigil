@@ -1,5 +1,13 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -63,6 +71,16 @@ function archive(members: Member[], trailer = Buffer.alloc(1024)): Buffer {
   parts.push(trailer);
   return Buffer.concat(parts);
 }
+
+const caseInsensitive = (() => {
+  const probe = mkdtempSync(join(tmpdir(), 'sigil-unpack-case-'));
+  try {
+    writeFileSync(join(probe, 'Case'), '');
+    return existsSync(join(probe, 'case'));
+  } finally {
+    rmSync(probe, { force: true, recursive: true });
+  }
+})();
 
 let root: string;
 let checkout: string;
@@ -201,6 +219,48 @@ describe('unpacking the build output', () => {
       'is inside "packages/sigil/dist/index.mjs", which is a file'
     );
   });
+
+  it('should refuse a directory and a file of the same name', () => {
+    expectRefused(
+      archive([
+        ...dist,
+        { name: 'packages/sigil/dist/x/', type: '5' },
+        { name: 'packages/sigil/dist/x', data: 'x' },
+      ]),
+      '"packages/sigil/dist/x" is both a file and a directory'
+    );
+  });
+
+  it('should refuse a package directory that is a link to another', () => {
+    // a link would make a write under it land wherever it points; a junction
+    // on Windows, which needs no privilege and reads as a link to lstat
+    symlinkSync(join(checkout, 'packages/sigil'), join(checkout, 'packages/linked'), 'junction');
+
+    expectRefused(
+      archive([{ name: 'packages/linked/dist/x', data: 'x' }]),
+      '"packages/linked/dist/x" is under packages/linked, which is not a package in the checkout'
+    );
+  });
+
+  // two names a case-insensitive file system reads as one pass every check and
+  // fail on the second write, which is the one failure left after validation
+  // that a test can provoke -- so it runs where the temp directory is one
+  it.skipIf(!caseInsensitive)(
+    'should say when a write fails after part of the archive is on disk',
+    () => {
+      const { status, stdout } = unpack(
+        archive([
+          ...dist,
+          { name: 'packages/sigil/dist/A.mjs', data: 'a' },
+          { name: 'packages/sigil/dist/a.mjs', data: 'b' },
+        ])
+      );
+
+      expect(status).toBe(1);
+      expect(stdout).toMatch(/EEXIST.*; unpacking failed partway, after 2 files\n$/);
+      expect(stdout).not.toContain('nothing was unpacked');
+    }
+  );
 
   it('should refuse a header that is not POSIX ustar or has a bad checksum', () => {
     expectRefused(archive([{ ...dist[0], magic: 'ustar  \u0000' }, dist[1]]), 'is not POSIX ustar');

@@ -2,7 +2,17 @@ import { readSigilConfig } from '../src/config.js';
 import { run, schema, version } from '../src/index.js';
 import { readRoutes } from '@ttylabs/sigil/routes';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -451,7 +461,11 @@ describe('@ttylabs/cli', () => {
       return blocks;
     }
 
-    /** Each job's lines, by name. */
+    /**
+     * Each job's lines, by name, without comment lines -- a comment saying
+     * `archive: false` is not the setting, and a comment is where this file's
+     * own explanations of every one of these lines live.
+     */
     function jobs(lines: string[]): Map<string, string[]> {
       const byName = new Map<string, string[]>();
       const start = lines.indexOf('jobs:');
@@ -460,10 +474,30 @@ describe('@ttylabs/cli', () => {
         const name = /^ {2}([\w-]+):\s*$/.exec(line);
         if (name) byName.set(name[1], (current = []));
         else if (/^\S/.test(line)) current = undefined;
-        else current?.push(line);
+        else if (!/^\s*#/.test(line)) current?.push(line);
       }
       return byName;
     }
+
+    /** A job's steps, in order, each with its name and its lines. */
+    function steps(job: string[]): { name: string; lines: string[] }[] {
+      const found: { name: string; lines: string[] }[] = [];
+      for (const line of job) {
+        if (/^ {6}- /.test(line)) found.push({ name: '', lines: [] });
+        const step = found.at(-1);
+        if (!step) continue;
+        step.lines.push(line);
+        const name = /^ {6}(?:- | {2})name:\s*(.*)$/.exec(line);
+        if (name && step.name === '') step.name = name[1];
+      }
+      return found;
+    }
+
+    const publishJobs = jobs(workflows.find(({ file }) => file === 'publish.yml')?.lines ?? []);
+    const buildJob = publishJobs.get('build') ?? [];
+    const publishJob = publishJobs.get('publish') ?? [];
+    const publishSteps = steps(publishJob);
+    const step = (name: string) => publishSteps.find((s) => s.name === name)?.lines ?? [];
 
     it('should find both workflows', () => {
       expect(workflows.map(({ file }) => file).sort()).toEqual(['publish.yml', 'test.yml']);
@@ -504,6 +538,12 @@ describe('@ttylabs/cli', () => {
       );
 
       expect(reads).toStrictEqual(['publish.yml publish']);
+      // and within it, only the two steps that use the token
+      expect(
+        publishSteps
+          .filter((s) => s.lines.some((line) => line.includes('secrets.')))
+          .map((s) => s.name)
+      ).toStrictEqual(['Check the token can publish', 'Publish to npm']);
       // and no secret is read outside a job, where every job would get it
       for (const { file, lines } of workflows) {
         const outside = lines.slice(0, lines.indexOf('jobs:'));
@@ -514,28 +554,183 @@ describe('@ttylabs/cli', () => {
       }
     });
 
-    it('should unpack the build output only through the member filter', () => {
-      const publish = workflows.find(({ file }) => file === 'publish.yml');
-      const job = jobs(publish?.lines ?? []);
-      const build = (job.get('build') ?? []).join('\n');
-      const steps = job.get('publish') ?? [];
-      const text = steps.join('\n');
+    it('should give id-token to the publish job alone, after the build job', () => {
+      const grants = workflows.flatMap(({ file, lines }) => [
+        ...lines
+          .slice(0, lines.indexOf('jobs:'))
+          .filter((line) => !/^\s*#/.test(line) && line.includes('id-token'))
+          .map(() => `${file} (every job)`),
+        ...[...jobs(lines)].flatMap(([job, body]) =>
+          body.some((line) => line.includes('id-token')) ? [`${file} ${job}`] : []
+        ),
+      ]);
 
-      // uploaded and downloaded as one file, so nothing unzips it
-      expect(build).toContain('archive: false');
-      expect(text).toContain('skip-decompress: true');
+      expect(grants).toStrictEqual(['publish.yml publish']);
+      expect(publishJob).toContain('    needs: build');
+      // neither job needs git credentials, and the build job's archive must not
+      // be able to carry them
+      const checkouts = [...publishJobs.values()]
+        .flatMap(steps)
+        .filter((s) => s.lines.some((line) => line.includes('uses: actions/checkout@')));
+      expect(checkouts).toHaveLength(2);
+      for (const checkout of checkouts) {
+        expect(checkout.lines).toContain('          persist-credentials: false');
+      }
+    });
+
+    it('should run no package code in the job that holds the token', () => {
+      // every package's `prepublishOnly` is `pnpm run build`, and under pnpm
+      // 12 `--ignore-scripts` is the one thing that stops `pnpm -r publish`
+      // running it with the token in the environment
+      const publish = runBlocks(step('Publish to npm')).join('\n');
+      expect(publish).toContain('pnpm -r publish');
+      expect(publish).toContain('--ignore-scripts');
+      expect(publish).toContain('--provenance');
+
+      // and nothing else in the job installs or runs anything of a package's
+      const blocks = runBlocks(publishJob);
+      expect(blocks.length).toBeGreaterThan(3);
+      // a tool in command position: at the start of a line, after a separator,
+      // in a `$(...)`, or after `if`, `then`, `do` or `!`
+      const command = /(?:^|[\n;&|(]|\b(?:if|then|do)\b|!)\s*(pnpm|npm|npx|node)\b([^\n|;&)]*)/g;
+      const invocations = blocks.flatMap((block) =>
+        [...block.matchAll(command)].map(([, tool, rest]) => `${tool}${rest}`.trim())
+      );
+      expect(
+        invocations.filter(
+          (call) =>
+            !/^pnpm -r publish$/.test(call) &&
+            !/^npm (?:whoami|access list packages)\b/.test(call) &&
+            !/^node (?:-p|-e)\b/.test(call) &&
+            !/^node scripts\/unpack-build-output\.mjs "\$RUNNER_TEMP\/build-output"$/.test(call)
+        )
+      ).toStrictEqual([]);
+      expect(publishJob.filter((line) => /run_install|run-install/.test(line))).toStrictEqual([]);
+
+      // what it publishes is a clean build, not what a cached one left behind
+      expect(buildJob).toContain('        run: pnpm build --force');
+    });
+
+    it('should unpack the build output only through the member filter', () => {
+      const text = publishJob.join('\n');
+      const names = publishSteps.map((s) => s.name);
+
+      // uploaded and downloaded as one file, so nothing unzips it, into a
+      // directory outside the checkout
+      expect(buildJob).toContain('          archive: false');
+      expect(step('Download the build output')).toContain('          skip-decompress: true');
+      expect(step('Download the build output')).toContain(
+        '          path: ${{ runner.temp }}/build-output'
+      );
       // unpacked by the script that refuses anything but dist and registry
-      expect(text).toContain('node scripts/unpack-build-output.mjs "$RUNNER_TEMP/build-output"');
-      expect(text).toContain('git diff --exit-code');
-      expect(text).toContain('git ls-files --others --exclude-standard');
+      expect(runBlocks(step('Unpack the build output')).map((block) => block.trim())).toStrictEqual(
+        ['node scripts/unpack-build-output.mjs "$RUNNER_TEMP/build-output"']
+      );
+      // and checked afterwards: nothing tracked changed, nothing new outside
+      const backstop = runBlocks(step('Check the checkout holds nothing but build output')).join(
+        '\n'
+      );
+      expect(backstop).toContain('if ! git diff --exit-code');
+      expect(backstop).toContain('git ls-files -z --others --exclude-standard');
+      expect(backstop).toContain(
+        "git ls-files -z --others --ignored --exclude-standard | grep -zvE '^packages/[^/]+/(dist|registry)/'"
+      );
       // and by nothing else that could extract it
       expect(
-        runBlocks(steps).filter((block) => /\b(?:tar|unzip|bsdtar|7z)\b/.test(block))
+        runBlocks(publishJob).filter((block) => /\b(?:tar|unzip|bsdtar|7z)\b/.test(block))
       ).toStrictEqual([]);
-      // the token check runs before anything from `build` is on disk, since
-      // `npm whoami` reads a project `.npmrc`
-      expect(text.indexOf('npm whoami')).toBeGreaterThan(-1);
+      // in this order: the token check before anything from `build` is on
+      // disk, since `npm whoami` reads a project `.npmrc`, and the publish
+      // after every check of what arrived
+      const order = [
+        'Check the token can publish',
+        'Download the build output',
+        'Unpack the build output',
+        'Check the checkout holds nothing but build output',
+        'Check every published file is present',
+        'Publish to npm',
+      ].map((name) => names.indexOf(name));
+      expect(order).toStrictEqual([...order].sort((a, b) => a - b));
+      expect(order).not.toContain(-1);
       expect(text.indexOf('npm whoami')).toBeLessThan(text.indexOf('download-artifact'));
+    });
+
+    describe.skipIf(process.platform === 'win32')('the checkout backstop, run', () => {
+      // the block scalar's lines, without the `|` that introduced it
+      const [indicator, ...body] = runBlocks(
+        step('Check the checkout holds nothing but build output')
+      )[0].split('\n');
+      const script = body.join('\n');
+
+      it('should find the script it runs', () => {
+        expect(indicator.trim()).toBe('|');
+        expect(script).toContain('git ls-files');
+      });
+      let repo: string;
+
+      function git(...args: string[]) {
+        const result = spawnSync('git', ['-c', 'commit.gpgsign=false', ...args], {
+          cwd: repo,
+          encoding: 'utf-8',
+          env: Object.fromEntries(
+            Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
+          ),
+        });
+        expect(result.status, result.stderr).toBe(0);
+      }
+
+      function backstop() {
+        return spawnSync('bash', ['-e', '-c', script], { cwd: repo, encoding: 'utf-8' });
+      }
+
+      beforeEach(() => {
+        repo = mkdtempSync(join(tmpdir(), 'sigil-backstop-'));
+        mkdirSync(join(repo, 'packages/sigil'), { recursive: true });
+        writeFileSync(join(repo, '.gitignore'), 'dist/\nregistry/\nnode_modules/\n');
+        writeFileSync(join(repo, '.npmrc'), 'save-exact=true\n');
+        writeFileSync(join(repo, 'packages/sigil/package.json'), '{}');
+        git('init', '-q');
+        git('add', '.');
+        git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'init');
+        mkdirSync(join(repo, 'packages/sigil/dist'));
+        writeFileSync(join(repo, 'packages/sigil/dist/index.mjs'), '');
+      });
+
+      afterEach(() => {
+        rmSync(repo, { force: true, recursive: true });
+      });
+
+      it('should pass build output whose names git would quote', () => {
+        // a non-ASCII name and a `"` are both C-quoted by git without `-z`,
+        // and a quoted name does not start with `packages/`
+        writeFileSync(join(repo, 'packages/sigil/dist/é.mjs'), '');
+        writeFileSync(join(repo, 'packages/sigil/dist/a"b.mjs'), '');
+        mkdirSync(join(repo, 'packages/sigil/registry'));
+        writeFileSync(join(repo, 'packages/sigil/registry/x.json'), '');
+
+        const result = backstop();
+        expect(result.stdout).toBe('');
+        expect(result.status).toBe(0);
+      });
+
+      it('should fail on a tracked file changed, a new file, or an ignored one elsewhere', () => {
+        writeFileSync(join(repo, '.npmrc'), 'registry=http://registry.npmjs.org/\n');
+        expect(backstop().stdout).toContain('::error::unpacking changed tracked files');
+        writeFileSync(join(repo, '.npmrc'), 'save-exact=true\n');
+        expect(backstop().status).toBe(0);
+
+        writeFileSync(join(repo, 'pnpm-workspace.yaml'), '');
+        expect(backstop().stdout).toContain('outside the build output: pnpm-workspace.yaml');
+        rmSync(join(repo, 'pnpm-workspace.yaml'));
+
+        mkdirSync(join(repo, 'node_modules'));
+        writeFileSync(join(repo, 'node_modules/x.js'), '');
+        const result = backstop();
+        expect(result.stdout).toContain(
+          '::error::ignored files outside the build output: node_modules/x.js'
+        );
+        expect(result.status).toBe(1);
+      });
     });
   });
 

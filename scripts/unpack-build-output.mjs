@@ -193,19 +193,30 @@ export function writeMembers(members, root) {
     if (exists) throw new Error(`${output} already exists in the checkout`);
   }
 
+  // Everything above refuses before a byte is written. What can still fail
+  // here is the file system itself -- a full disk, a name too long for it, or
+  // two names a case-insensitive one reads as the same -- and then part of
+  // the archive is already on disk, which the message has to say.
   let files = 0;
-  for (const { kind, name, data } of members) {
-    const path = join(root, name);
-    if (kind === 'directory') {
-      mkdirSync(path, { recursive: true });
-    } else {
-      mkdirSync(join(path, '..'), { recursive: true });
-      writeFileSync(path, data, { flag: 'wx', mode: 0o644 });
-      files++;
+  try {
+    for (const { kind, name, data } of members) {
+      const path = join(root, name);
+      if (kind === 'directory') {
+        mkdirSync(path, { recursive: true });
+      } else {
+        mkdirSync(join(path, '..'), { recursive: true });
+        writeFileSync(path, data, { flag: 'wx', mode: 0o644 });
+        files++;
+      }
     }
+  } catch (err) {
+    throw new PartwayError(`${err.message}; unpacking failed partway, after ${files} files`);
   }
   return { files, outputs: [...outputs].sort() };
 }
+
+/** A failure after some members were written, so "nothing was unpacked" is false. */
+export class PartwayError extends Error {}
 
 export function unpack(dir, root) {
   const entries = readdirSync(dir);
@@ -237,7 +248,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       console.log(`unpacked ${result.files} files into ${result.outputs.join(', ')}`);
     }
   } catch (err) {
-    console.log(`::error::${err.message}; nothing was unpacked`);
+    const tail = err instanceof PartwayError ? '' : '; nothing was unpacked';
+    console.log(`::error::${err.message}${tail}`);
     process.exitCode = 1;
   }
 }
