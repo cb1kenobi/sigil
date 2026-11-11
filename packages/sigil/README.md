@@ -7497,7 +7497,9 @@ character the pattern grammar reads as syntax gets a backslash, so
 for `RegExp.escape()`, which the Node floor this package supports does not have,
 and it is what `sigil build` and the pager's literal search both escape with. The
 result is pattern source for `new RegExp()`, so a `/` is left alone -- it only
-delimits the literal syntax.
+delimits the literal syntax. It is safe only outside a character class:
+``new RegExp(`[${escapeRegExp('a-z')}]`)`` is still a range, and under the `v`
+flag a `--` or `&&` inside a class is an operator.
 
 ### `sigil/which`
 
