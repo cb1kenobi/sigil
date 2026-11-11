@@ -110,6 +110,19 @@ the entry it belongs to.
   for a two-megabyte write to a child that is not reading. So stdin joins its two
   siblings in the loop rather than being the one pipe left holding the event loop
   open on a path whose whole point is to hold nothing.
+- **What a fresh stamp is has one definition, `isFreshStamp()`, and it is
+  published because two packages keep a stamped cache (SIG-420).** A finite
+  number, no more than `CLOCK_TOLERANCE` (a minute) ahead of the clock and no
+  more than `maxAge` behind it. `check()` reads its cache through it, and so does
+  `sigil package` for its runtime listings in `packages/cli/src/build/runtimes.ts`,
+  which had the same "only too old" defect SIG-376 found here. It lives in
+  `stamp.ts` and is exported from this subpath rather than from a new one: the
+  toolchain already imports `@ttylabs/sigil/updates`, and a cache that says when
+  it was written is what this subpath is about, so a subpath for one function had
+  nothing to argue with. Two copies of the rule is how one of them comes to
+  accept a stamp the other refuses. Tested in `test/updates-stamp.test.ts`,
+  directly with a fixed `now` and once through `check()` against a local
+  listener that counts connections.
 
 ### What the update check can and cannot survive
 

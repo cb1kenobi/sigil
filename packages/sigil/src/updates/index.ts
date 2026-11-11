@@ -3,6 +3,7 @@ import { mkdirOwnerSync } from '../util/mkdir-owner-sync.js';
 import { npmChecker, versionFrom, type UpdateChecker } from './checker.js';
 import { bakedConfig, compiledHost } from './host.js';
 import { cacheFileName } from './registry.js';
+import { isFreshStamp } from './stamp.js';
 import { workerSource } from './worker-source.js';
 import { cacheResponse, fetchJSON, WORKER_ARGV, WORKER_ENTRY, type UpdateCache } from './worker.js';
 import { readFileSync } from 'node:fs';
@@ -14,6 +15,7 @@ const oneDay = 86400000;
 export type { GithubCheckerOptions, NpmCheckerOptions, UpdateChecker } from './checker.js';
 export { githubChecker, isNewer, npmChecker, versionFrom } from './checker.js';
 export type { BakedUpdateConfig } from './host.js';
+export { isFreshStamp } from './stamp.js';
 
 export interface CheckOptions {
   cacheDir?: string;
@@ -166,10 +168,11 @@ export async function check(
   // It refetches on every run where the answer carries no version, which is
   // the right way round: that is not a successful check, and treating it as
   // one is how a check comes to look like it is working.
-  const fresh =
-    cache?.ts !== undefined &&
-    cache.ts + checkInterval >= Date.now() &&
-    versionIn(cache, checker) !== undefined;
+  //
+  // And it is stale when its stamp is in the future or is not a number, which
+  // is `isFreshStamp()`'s rule and is shared with `sigil package`'s runtime
+  // listings rather than written out a second time.
+  const fresh = isFreshStamp(cache?.ts, checkInterval) && versionIn(cache, checker) !== undefined;
 
   if (force || !fresh) {
     // the directory is made here on both paths: a spawned worker cannot

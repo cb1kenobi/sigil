@@ -47,6 +47,7 @@
 import { NODE_BUILD_SEA, RUNTIMES, type Runtime, type Target } from './compile.ts';
 import { isInside } from './discover.ts';
 import { cache } from '@ttylabs/sigil/paths';
+import { isFreshStamp } from '@ttylabs/sigil/updates';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import {
@@ -427,8 +428,9 @@ export async function latest(runtime: Runtime): Promise<Release[]> {
     // nothing, because last week's version list is still mostly right and the
     // picker's job is to offer something. Falling all the way back to what is
     // local is the last resort, and an explicit `runtime@version` resolves
-    // whatever happens.
-    return cached(runtime, Infinity) ?? [];
+    // whatever happens. That includes a listing stamped in the future: its
+    // clock was wrong, not its versions
+    return cached(runtime) ?? [];
   }
 }
 
@@ -455,18 +457,21 @@ function listingFile(runtime: Runtime): string | undefined {
 }
 
 /**
- * A listing from the cache, if it is young enough.
+ * A listing from the cache, if it is fresh enough.
  *
  * `within` is a parameter rather than the constant so that the failure path can
- * ask for one at any age: a stale listing is worth more than no listing when
- * the network is gone, and that is the same file read with a different
- * question.
+ * leave it out and ask for one whatever its stamp says: a stale listing is
+ * worth more than no listing when the network is gone, and that is the same
+ * file read with a different question. Fresh is `isFreshStamp()`'s rule, which
+ * is the update check's: a stamp more than a minute ahead of this clock, or one
+ * that is not a finite number, is stale (SIG-420).
  *
  * @param runtime - Which runtime.
- * @param within - The oldest acceptable age in milliseconds.
+ * @param within - The oldest acceptable age in milliseconds, or `undefined`
+ *   for any listing at all.
  * @returns The releases, or `undefined`.
  */
-function cached(runtime: Runtime, within: number): Release[] | undefined {
+function cached(runtime: Runtime, within?: number): Release[] | undefined {
   const at = listingFile(runtime);
 
   if (!at) {
@@ -476,10 +481,19 @@ function cached(runtime: Runtime, within: number): Release[] | undefined {
   try {
     const held = JSON.parse(readFileSync(at, 'utf-8')) as {
       releases?: (Release | null)[];
-      ts?: number;
+      ts?: unknown;
     };
 
-    if (!held.ts || !Array.isArray(held.releases) || held.ts + within < Date.now()) {
+    // a stamp that is not a finite number is a file this did not write, which
+    // is the same answer as an unreadable one, on either path
+    if (!Number.isFinite(held.ts) || !Array.isArray(held.releases)) {
+      return undefined;
+    }
+
+    // only "too old" used to be asked, so a listing stamped while the clock was
+    // ahead stayed fresh until real time caught up with it, and a `ts` that is
+    // a string of digits was concatenated rather than added to
+    if (within !== undefined && !isFreshStamp(held.ts, within)) {
       return undefined;
     }
 

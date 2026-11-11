@@ -3515,6 +3515,36 @@ about what a valid app is would be the worse half of the feature.
   All four parts are sabotage-checked -- the read, the age limit, the stale
   fallback and the write.
 
+- **A listing stamped in the future is stale, and so is one whose `ts` is not a
+  number (SIG-420).** Only "too old" was asked, `held.ts + within < Date.now()`,
+  so a listing written while the clock was ahead -- clock skew, a clock set back,
+  a cache directory restored from another machine -- was fresh until real time
+  caught up with it, and `sigil package` went on offering that listing for as
+  long as the clock had been wrong. Measured against the old expression: a stamp
+  a year ahead, `1e999` (Infinity), `"nope"`, `{}` and a string of digits
+  holding the current time were all **fresh** -- the last because
+  `"1762…" + 86400000` concatenates and then compares as a number twenty-odd
+  digits long, and the garbage strings because `NaN < now` is `false`.
+
+  Fresh is now `isFreshStamp()` from `@ttylabs/sigil/updates`: a finite number,
+  no more than a minute ahead and no more than a day behind. It is the update
+  check's rule (SIG-376) and one definition rather than two, which is the root
+  rule about helpers across packages; the subpath was already a dependency of
+  this package, through `update-check.ts`, so no new one was argued for. The
+  minute is for a clock NTP nudged back between two runs, which is jitter
+  rather than a wrong clock and should not cost a request per run.
+
+  The **failure path** does not ask the stamp anything but its type. `cached()`
+  with no `within` takes a listing however old or however far ahead it is,
+  because a future stamp says the clock was wrong and not the versions, and
+  offline the stale listing still beats nothing. A `ts` that is not a finite
+  number is refused on both paths, as a file this did not write, which is the
+  same answer as an unreadable one. Tested in `test/runtimes-cache.test.ts`
+  without a network: a year ahead, 65 s ahead, 30 s ahead, a digit string and
+  eight non-numbers, plus both fallback cases. Sabotage-checked four ways --
+  the old expression back, the helper's future clause dropped, its type guard
+  dropped, and the fallback given an age limit -- and each fails a test.
+
 - **One picker for the runtime and its version, because it is one choice.**
   `--runtime` takes `bun`, `node`, or either with an `@version`, and there is no
   second `--runtime-version` beside it: two flags for one row is two ways to say
