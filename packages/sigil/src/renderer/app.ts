@@ -558,13 +558,27 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
    * screen, and never replayed a second time (`diverted`).
    */
   let reporting = 0;
+  // a custom handler that throws is reported the way the default one would have
+  // reported, rather than let out: `render()` raises what `onError` throws from
+  // the call that was reporting, and for a frame that failed on the frame timer
+  // that call is the timer, so the throw was an uncaught exception that ended the
+  // process before `finish()`'s microtask could stop the router or settle
+  // `exited` (SIG-348). The runner has somewhere to put it, so it does
   const report = custom
     ? (error: unknown): void => {
+        let threw = false;
+        let thrown: unknown;
         reporting++;
         try {
           custom(error);
+        } catch (caught) {
+          threw = true;
+          thrown = caught;
         } finally {
           reporting--;
+        }
+        if (threw) {
+          reportError(thrown);
         }
       }
     : reportError;

@@ -506,7 +506,8 @@ the entry it belongs to.
   Its throw then came back through `runFrame()`'s catch to a `fail()` that had
   already failed and returned, so `frame()` returned normally and nothing was
   said. The mount catch and `dispose()` had the same shape. Now `teardown()`
-  collects what the app's code threw instead of reporting it. The failure path's
+  collects what the app's code threw instead of reporting it, and what
+  `backend.done()` throws on a `dispose()` along with it. The failure path's
   `release()` runs the teardown, `backend.stop()` and `restore()` each whatever
   the others threw, the way `runApp()`'s `finish()` runs its steps. Every error
   then goes to `onError`, the teardown's first and the failure last, each one
@@ -517,12 +518,25 @@ the entry it belongs to.
   rethrows anything it catches once `failed` is set, since only `fail()`
   reporting can produce that. The mount catch still hands the caller the body's
   error, and wraps it in an `AggregateError` with `onError`'s throws only when
-  there are some. It does nothing more when a flush inside the body has already
+  there are some. That aggregate carries the body's message in its own and the
+  body's error as its `cause`, because a writer that renders one line per error
+  shows only an aggregate's message. It does nothing more when a flush inside the body has already
   been through `fail()`, so the terminal is restored once. `dispose()` reports
   after `backend.done()` and raises from `dispose()`, so the order "screen back,
   then say why" is now true of all three, and a handler's throw on `dispose()`
-  is reported after the region is finished rather than before. Unlike
-  `finish()`, a throw from `onError` does not cut the remaining reports short.
+  is reported after the region is finished rather than before. A throw from
+  `onError` does not cut the remaining reports short.
+
+  `runApp()` never lets a custom `onError`'s throw reach `render()`. Its wrapper
+  catches what the handler threw and reports it through the default writer. A
+  frame that failed on the frame timer would otherwise raise from the timer: an
+  uncaught exception that ends the process before `finish()`'s microtask runs.
+  The screen was back, but the router was never stopped and `exited` never
+  settled, which breaks "every route out ends the app the same way". The first
+  version of this change did exactly that and review caught it. The same catch
+  covers `finish()`'s own reports and a rejected `detect()`, so a throwing
+  `onError` under the runner is reported and the code stays what it was.
+
 - **A frame that failed stops being a frame.** An effect that throws is
   _reported_ by the scope's error handler rather than thrown through it, so the
   flush returns normally and the rest of the frame ran over a renderer that had

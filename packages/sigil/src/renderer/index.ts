@@ -370,8 +370,9 @@ export interface Renderer {
    * for an erase to be relative to, so a `stop()` on the other side of this
    * quietly does nothing.
    *
-   * What a dispose handler or a cleanup threw goes to `onError` after the screen
-   * is back, and what `onError` throws in turn is raised from here.
+   * What a dispose handler, a cleanup or `backend.done()` itself threw goes to
+   * `onError` after the screen is back, and what `onError` throws in turn is
+   * raised from here.
    */
   dispose(): void;
   /**
@@ -769,7 +770,11 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
    * rather than reported, because `onError` is the caller's and so is what it
    * throws: reporting from in here put it ahead of the screen coming back, and an
    * `onError` that threw left the rest of the teardown undone along with the
-   * screen. The unmount and `backend.done()` each run whatever the other threw.
+   * screen. Everything in the unmount that runs code from outside this file --
+   * the dispose handlers, the terminal's and the cascade's unsubscribes, the
+   * owner cleanups -- is caught one call at a time, so the unmount itself does
+   * not throw. `backend.done()` runs after it, and what that throws is collected
+   * with the rest.
    *
    * @returns What was thrown, in the order it was thrown.
    */
@@ -779,11 +784,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     }
     disposed = true;
     const thrown: unknown[] = [];
-    try {
-      unmount(thrown);
-    } catch (error) {
-      thrown.push(error);
-    }
+    unmount(thrown);
     // and the screen goes back, which is what `dispose()` has always claimed to
     // do and did not. An inline backend holds its rows until it is told
     // otherwise: the anchor stays, and with it the arithmetic that says where
@@ -841,8 +842,16 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // than made to look load bearing
     frameHandlers.clear();
     excluded.clear();
-    offResize?.();
-    offCascade?.();
+    // the two unsubscribes belong to a terminal and a cascade the caller may
+    // have passed, so one that throws is collected like a cleanup rather than
+    // leaving the owner tree below undisposed
+    for (const off of [offResize, offCascade]) {
+      try {
+        off?.();
+      } catch (error) {
+        thrown.push(error);
+      }
+    }
     scope.setScheduler(previousScheduler);
     scope.setErrorHandler(previousHandler);
     if (owner) {
@@ -1385,9 +1394,13 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // than replacing it: the body's is the one the caller is owed
     const raised = report(release());
     if (raised.length > 0) {
+      // the body's message is in the aggregate's own, because a writer that
+      // renders an error as its message says nothing else about an aggregate
+      const said = error instanceof Error ? error.message : String(error);
       throw new AggregateError(
         [error, ...raised],
-        'The component threw, and so did onError while reporting what its teardown threw'
+        `${said} (and onError threw while reporting what the teardown threw)`,
+        { cause: error }
       );
     }
     throw error;

@@ -1592,6 +1592,10 @@ describe('an onError that throws during a teardown', () => {
       'during mount',
       'cleanup broke',
     ]);
+    // and says the body's message itself, since a writer that renders one line
+    // per error shows only an aggregate's own
+    expect((raised as AggregateError).message).toContain('during mount');
+    expect((raised as AggregateError).cause).toBe((raised as AggregateError).errors[0]);
   });
 
   it('should restore the terminal when stopping the backend threw, and report that too', () => {
@@ -1705,6 +1709,58 @@ describe('an onError that throws during a teardown', () => {
     // and a second dispose() has nothing left to give back or say
     expect(() => view.dispose()).not.toThrow();
     expect(count.done).toBe(1);
+  });
+
+  it('should report a cleanup and a backend.done() that both threw on dispose()', () => {
+    const { count, h, order } = counted();
+    (h.backend as unknown as { done: () => void }).done = () => {
+      count.done++;
+      order.push('done');
+      throw new Error('done broke');
+    };
+    const view = render(
+      () => {
+        onCleanup(() => {
+          throw new Error('cleanup broke');
+        });
+        return text('x');
+      },
+      {
+        backend: h.backend,
+        effects,
+        onError: (e) => void order.push(`reported ${(e as Error).message}`),
+        terminal: h.terminal,
+      }
+    );
+
+    expect(() => view.dispose()).not.toThrow();
+    expect(count.done).toBe(1);
+    expect(order).toEqual(['done', 'reported cleanup broke', 'reported done broke']);
+  });
+
+  it('should still run the cleanups when the terminal unsubscribe throws', () => {
+    // a terminal can be the caller's, and its `onResize()` unsubscribe is called
+    // in the middle of the unmount, ahead of the owner tree
+    const { count, h, order } = counted();
+    (h.terminal as unknown as { onResize: () => () => void }).onResize = () => () => {
+      throw new Error('unsubscribe broke');
+    };
+    const view = render(
+      () => {
+        onCleanup(() => order.push('cleanup'));
+        return text('x');
+      },
+      {
+        backend: h.backend,
+        effects,
+        onError: (e) => void order.push(`reported ${(e as Error).message}`),
+        terminal: h.terminal,
+      }
+    );
+
+    view.dispose();
+    expect(count.done).toBe(1);
+    expect(order).toEqual(['cleanup', 'done', 'reported unsubscribe broke']);
   });
 });
 
