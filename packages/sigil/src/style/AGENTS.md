@@ -756,6 +756,27 @@ toolchain's one reader.
   shorthand could not have said which part was wrong. That means each longhand
   has to carry its _own_ name; the padding parsers all said "padding", which is
   the message the shorthand would have given anyway.
+- **The shorthand hook is the one import-time effect in the package, and
+  `"sideEffects": false` is declared over it (SIG-357).** The field lets an app's
+  bundler drop a shipped file whose exports go unused. Every module in
+  `packages/sigil/src` was walked for top-level statements that are not
+  declarations, and for top-level initializers that call something: the only one
+  that writes into another module is `registerShorthandLookup(shorthandLonghands)`
+  at the end of `shorthand.ts`, which fills the hook `parseTransitionProperty()`
+  in `properties.ts` asks (the rest build or freeze their own values, and a
+  module-scope `debug()`, `createTerminal()` or `createLog()` is a value nobody
+  needs if its module is dropped). It is safe because both modules ship in one
+  `dist/` file, so a bundler cannot keep the reader and drop the registration,
+  and `what "sideEffects": false relies on` in `test/dist.test.ts` fails if the
+  chunking ever splits them. If it does, the answer is a `sideEffects` array
+  naming the registrar's file, not dropping the field. Measured with rolldown, a
+  bundle importing only `createSpinner` from `@ttylabs/sigil/components` went
+  from **157,099 B to 149,855 B** minified, and every demo bundled both ways
+  (honouring the field, and with every module forced effectful) behaved
+  identically -- **21,282,171 B against 21,851,237 B** over the 111 files under
+  `demos/`. The field also reaches tsdown's own build of this package, which
+  read it and dropped some bare `import "./x.mjs"` lines it had kept only in case
+  those chunks had effects.
 - **Every lookup table here is null-prototype, and every lookup uses
   `Object.hasOwn`.** The same entry Conventions already carries for the parser's
   registries, rediscovered: on a plain object `constructor` and `toString` read

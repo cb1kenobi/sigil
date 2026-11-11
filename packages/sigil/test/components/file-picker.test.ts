@@ -1,7 +1,7 @@
 import { entryPath, filePicker, parentOf } from '../../src/components/file-picker.js';
 import { candidatesOf, entryCache } from '../../src/components/path.js';
 import { PROMPT_SYMBOLS, PromptError } from '../../src/components/prompt.js';
-import { type ScreenHarness, screenSetup, tick } from './helpers.js';
+import { countEntrySorts, type ScreenHarness, screenSetup, settleOutput, tick } from './helpers.js';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, posix, sep, win32 } from 'node:path';
@@ -601,6 +601,78 @@ describe('filePicker()', () => {
     await expect(
       filePicker({ ansi: ui.ansi, message: 'Pick?', terminal: ui.terminal })
     ).rejects.toBeInstanceOf(PromptError);
+  });
+
+  // a key asked for the listing, and so did each of the two draws after it, and
+  // each ask was a filter and a sort over the whole directory: 258ms an arrow key
+  // at 200,000 entries
+  describe('filtering and sorting once per directory state (SIG-364)', () => {
+    let sorts: ReturnType<typeof countEntrySorts>;
+
+    beforeEach(() => {
+      sorts = countEntrySorts();
+    });
+
+    afterEach(() => {
+      sorts.restore();
+    });
+
+    it('should not filter and sort the whole directory three times per keypress', async () => {
+      const { ui } = open();
+      await until(() => expect(listed(ui)).toEqual(ROOT_ROWS));
+
+      await type(ui.stdin, DOWN, DOWN, UP, END, HOME, DOWN);
+      await settleOutput(ui);
+
+      expect(highlighted(ui)).toBe(`empty${sep}`);
+      expect(sorts.count()).toBe(1);
+    });
+
+    it('should do it once in directory mode too, with the . row in front', async () => {
+      const { ui } = open({ directory: true });
+      await until(() =>
+        expect(listed(ui)).toEqual([`.${sep}`, `alpha${sep}`, `empty${sep}`, `src${sep}`])
+      );
+
+      await type(ui.stdin, DOWN, DOWN, UP, END);
+      await settleOutput(ui);
+
+      expect(highlighted(ui)).toBe(`src${sep}`);
+      expect(sorts.count()).toBe(1);
+    });
+
+    it('should list a directory afresh when the picker goes into one and back out', async () => {
+      const { ui } = open();
+      await until(() => expect(listed(ui)).toEqual(ROOT_ROWS));
+
+      await type(ui.stdin, RIGHT);
+      await until(() => expect(listed(ui)).toEqual([`deep${sep}`, 'inner.txt']));
+      await type(ui.stdin, DOWN, UP);
+      await settleOutput(ui);
+      expect(sorts.count()).toBe(2);
+
+      await type(ui.stdin, LEFT);
+      await until(() => expect(listed(ui)).toEqual(ROOT_ROWS));
+      await settleOutput(ui);
+      expect(highlighted(ui)).toBe(`alpha${sep}`);
+      expect(sorts.count()).toBe(3);
+    });
+
+    it('should list a directory afresh when dotfiles are shown or hidden', async () => {
+      const { ui } = open();
+      await until(() => expect(listed(ui)).toEqual(ROOT_ROWS));
+
+      await type(ui.stdin, '.');
+      await until(() => expect(listed(ui)).toContain('.env'));
+      await settleOutput(ui);
+      expect(listed(ui)).toContain(`.hidden${sep}`);
+      expect(sorts.count()).toBe(2);
+
+      await type(ui.stdin, '.');
+      await until(() => expect(listed(ui)).toEqual(ROOT_ROWS));
+      await settleOutput(ui);
+      expect(sorts.count()).toBe(3);
+    });
   });
 });
 

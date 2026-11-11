@@ -7,7 +7,8 @@ import { describe, expect, it } from 'vitest';
 /**
  * What is committed, read as bytes.
  *
- * The other half of the rule `dist.test.ts` keeps. That one says what ships
+ * The other half of the rule `should ship no raw control character` in
+ * `packages/cli/test/cli.test.ts` keeps. That one says what ships
  * carries no raw control character, because the minifier puts back what the
  * source was careful to avoid; this one says the *source* carries none either,
  * which is the half that had never been checked and was being broken by the very

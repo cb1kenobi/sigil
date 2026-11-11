@@ -169,9 +169,14 @@ export async function check(
   // the right way round: that is not a successful check, and treating it as
   // one is how a check comes to look like it is working.
   //
-  // And it is stale when its stamp is in the future or is not a number, which
-  // is `isFreshStamp()`'s rule and is shared with `sigil package`'s runtime
-  // listings rather than written out a second time.
+  // And it is stale when it was written in the future. Only "too old" used to
+  // be asked, so a cache stamped while the clock was ahead -- a bad RTC, a VM
+  // resumed from a snapshot, a home directory restored from another machine
+  // -- stayed fresh until real time caught up with `ts + checkInterval`,
+  // which can be a year of no checks with `force` the only way out. A stamp
+  // that is not a number is stale too. Both are `isFreshStamp()`'s rule, which
+  // is shared with `sigil package`'s runtime listings rather than written out
+  // a second time (SIG-420).
   const fresh = isFreshStamp(cache?.ts, checkInterval) && versionIn(cache, checker) !== undefined;
 
   if (force || !fresh) {

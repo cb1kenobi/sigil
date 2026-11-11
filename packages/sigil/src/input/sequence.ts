@@ -212,9 +212,11 @@ function parseKey(token: string): KeyPattern {
 
   if (pattern.ctrl && [...pattern.name].length === 1) {
     // and it cannot tell Ctrl-X from Ctrl-Shift-X either -- the byte is the same
-    // one and `readOne()` names it from `code + 0x60`, which is always lower
-    // case. So the two spellings are one key press and normalizing is what they
-    // mean rather than a rewrite of what was asked for
+    // one and `readOne()` names a letter from `code + 0x60`, which is always
+    // lower case. So the two spellings are one key press and normalizing is what
+    // they mean rather than a rewrite of what was asked for. `ctrl+\`, `ctrl+]`,
+    // `ctrl+^` and `ctrl+_` pass through unchanged, since lower-casing leaves
+    // them alone and they are what the decoder names 0x1c to 0x1f
     pattern.name = pattern.name.toLowerCase();
   }
 

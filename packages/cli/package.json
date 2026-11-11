@@ -39,7 +39,6 @@
   },
   "dependencies": {
     "@ttylabs/sigil": "workspace:*",
-    "magic-string": "1.4.5",
     "oxc-parser": "0.157.0",
     "rolldown": "1.3.0"
   },
@@ -47,6 +46,7 @@
     "@types/mdast": "4.0.4",
     "@types/node": "26.6.6",
     "@vitest/coverage-v8": "5.1.0",
+    "magic-string": "1.4.5",
     "mdast-util-to-string": "4.0.0",
     "remark-gfm": "4.0.1",
     "remark-parse": "11.0.0",

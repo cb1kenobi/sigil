@@ -339,7 +339,8 @@ describe('a key spec', () => {
     // written out, because asserting only that each entry parses would pass for
     // a name that has no business being in there: `parseKeys()` reads whatever
     // the set contains, so the set is what has to be checked. The content is the
-    // values of `SEQUENCES` and `CONTROLS` with the one-character ones dropped,
+    // values of `SEQUENCES`, `LINUX_CONSOLE` and `CONTROLS` with the
+    // one-character ones dropped,
     // plus the `escape` `readEscape()` produces inline
     expect([...KEY_NAMES].sort()).to.deep.equal([
       'backspace',
@@ -2190,6 +2191,126 @@ describe('stopping the router', () => {
     h.feed('gg');
     input.feed('gg');
     expect(seen).to.deep.equal([]);
+  });
+});
+
+describe('keys the decoder misnamed (SIG-361)', () => {
+  // 0x1c to 0x1f came out as `|`, `}`, `~` and DEL, so these four parsed to
+  // names nothing could send: a binding on each, fired by its own byte
+  it.each([
+    ['ctrl+\\', '\x1c'],
+    ['ctrl+]', '\x1d'],
+    ['ctrl+^', '\x1e'],
+    ['ctrl+_', '\x1f'],
+  ])('should fire a binding on %s from the byte a terminal sends for it', (spec, byte) => {
+    const h = harness();
+    const input = createInput({ paste: false, terminal: h.terminal });
+    const seen: string[] = [];
+
+    input.bind(spec, (keys) => seen.push(formatKeys(keys)));
+    h.feed(byte);
+
+    expect(formatKey(parseKeys(spec)[0] as Key)).to.equal(spec);
+    expect(formatKey(decodeKeys(byte)[0] as Key)).to.equal(spec);
+    expect(seen).to.deep.equal([spec]);
+    input.stop();
+  });
+
+  /** Every key the router dispatches, spelled the one way. */
+  function recorder(input: InputRouter): string[] {
+    const seen: string[] = [];
+    input.bind((event) => {
+      seen.push(formatKey(event.key));
+    });
+    return seen;
+  }
+
+  // held as the start of a CSI or an SS3 while more could follow, and flushed as
+  // `unknown` when nothing did -- so Alt-[ and Alt-Shift-O could not be pressed,
+  // while `ESC ]` and `ESC P` came out as their Alt keys
+  it.each([
+    ['\x1b[', 'alt+['],
+    ['\x1bO', 'alt+O'],
+  ])('should flush a held %j as %s when nothing follows it', (bytes, name) => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      const input = createInput({ paste: false, terminal: h.terminal });
+      const seen = recorder(input);
+
+      h.feed(bytes);
+      expect(seen, 'dispatched before the timeout').to.deep.equal([]);
+
+      vi.advanceTimersByTime(ESCAPE_TIMEOUT);
+      expect(seen).to.deep.equal([name]);
+      input.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should still read ESC [ and A split across two reads as Up', () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      const input = createInput({ paste: false, terminal: h.terminal });
+      const seen = recorder(input);
+
+      h.feed('\x1b[');
+      vi.advanceTimersByTime(ESCAPE_TIMEOUT - 1);
+      h.feed('A');
+      vi.advanceTimersByTime(ESCAPE_TIMEOUT);
+      expect(seen).to.deep.equal(['up']);
+      input.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // the Linux console's F1, split after the second `[`, is held like any other
+  // split sequence rather than letting the `A` arrive as a typed letter
+  it('should read a Linux console F1 split before its letter as F1', () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      const input = createInput({ paste: false, terminal: h.terminal });
+      const seen = recorder(input);
+
+      h.feed('\x1b[');
+      h.feed('[');
+      expect(seen, 'dispatched while the letter was still to come').to.deep.equal([]);
+      h.feed('A');
+      vi.advanceTimersByTime(ESCAPE_TIMEOUT);
+      expect(seen).to.deep.equal(['f1']);
+      input.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // a held control string is the other thing `expire()` flushes, and `final`
+  // must not touch it: `ESC ]` held while a query is open is still a reply, and
+  // still the Alt-] it always was once the query has gone
+  it('should leave a held control string to the query it is waiting on', async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      const input = createInput({ paste: false, terminal: h.terminal });
+      const seen = recorder(input);
+
+      const replies = input.query({ timeout: 200, write: '\x1b]11;?\x07' });
+      h.feed('\x1b]');
+      vi.advanceTimersByTime(ESCAPE_TIMEOUT * 2);
+      expect(seen, 'flushed on the key timeout').to.deep.equal([]);
+
+      h.feed('11;rgb:1111/2222/3333\x07');
+      expect(seen, 'the reply was typed').to.deep.equal([]);
+      vi.advanceTimersByTime(200);
+      expect((await replies)[0]?.params).to.deep.equal([11]);
+      input.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

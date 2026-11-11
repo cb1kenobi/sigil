@@ -64,6 +64,29 @@ the entry it belongs to.
   a successful check, and caching it is how a check comes to look like it is
   working.
 
+- **A cache stamped in the future is stale, with a minute of tolerance (SIG-376).**
+  Only "too old" was asked, `ts + checkInterval >= now`, so a cache written
+  while the clock was ahead -- a bad RTC, a VM resumed from a snapshot, a home
+  directory restored from another machine -- was fresh until real time caught up
+  with it. Measured: stamped 400 days ahead, `check({ wait: true })` answered
+  from it in 1 ms with no fetch, and would have for 401 days, with `force` the
+  only way out. Fresh is now `ts <= now + 60s` **and**
+  `ts + checkInterval >= now`. The minute is for a clock NTP nudged back between
+  the run that wrote the cache and the one reading it, which is jitter rather than a wrong clock and
+  should not cost a fetch per run; it is not more because a stamp further ahead
+  than that is the case this exists for. A `ts` that is not a number is stale
+  too, and asked by type rather than left to the comparison: a string of
+  digits holding the current time passes `ts <= now` numerically and then
+  `ts + checkInterval` concatenates into something twenty digits long, so only
+  a type check catches it. A number that is not finite needs no guard of its
+  own: Infinity fails `ts <= now`, -Infinity fails the age check and NaN fails
+  both, which is why there is no `Number.isFinite()` beside the `typeof`. The worker writes `ts` and never reads it, and
+  `notifyInterval` is still a `TODO` with no stamp of its own, so the rule has
+  one definition, `isFreshStamp()` in `stamp.ts`, and two readers: `check()`,
+  and `sigil package`'s runtime-listing cache (`cached()` in
+  `packages/cli/src/build/runtimes.ts`, SIG-420, the entry below). Tested in
+  `test/updates.test.ts` against a local listener that counts connections.
+
 - **The worker times out its own request, because nothing else will.** `https.get()`
   has no timeout, and on the default `wait: false` path the parent's timer is
   unreffed precisely so the check costs the run nothing -- so a registry that
@@ -331,6 +354,20 @@ and the pty runs are in
   not semver and is never called newer: a check that cannot tell says nothing,
   and the alternative is a notice on every run for a scheme nobody declared a
   comparison for. An app whose versions are not semver writes its own `message`.
+
+- **A pre-release or build identifier is never empty (SIG-376).** `VERSION_RE`
+  had the dot inside the identifier class, so `1.0.0-a..b` was a pre-release
+  of `a`, `''` and `b`, and newer than `1.0.0-a` -- and `1.0.0-a.`, `1.0.0-.a`
+  and `1.0.1+a..b` were all read too. Semver forbids an empty identifier, so
+  each part is now dot-separated non-empty identifiers, with the dot outside
+  the class, which keeps every repetition unambiguous and the match linear.
+  This pattern is also the gate that keeps a hostile registry answer or a
+  poisoned cache off the terminal, so the change
+  could only narrow it: the tests pin that an escape sequence, a C1 `CSI`, a
+  NUL, a `DEL`, a space, a tab, a newline or a carriage return inside a
+  version is still unreadable, and write out the fourteen kinds of valid
+  version that still compare as they did. Those cases were run against the old
+  pattern as well, and passed there, which is what "as before" means.
 
 - **The version is trimmed where it is read out of the answer, not where it is
   compared.** `isNewer()` trims both sides, so a registry answering `"\r1.0.1"`
