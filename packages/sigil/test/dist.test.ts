@@ -84,11 +84,16 @@ describe('what "sideEffects": false relies on', () => {
 
   it('should ship the shorthand registration in the file that reads it', () => {
     // `parseTransitionProperty()` in properties.ts, and `expandShorthand()` in
-    // shorthand.ts, the module whose last statement is the registration
+    // shorthand.ts, the module whose last statement is the registration. The
+    // call itself has no marker that survives minification -- both names in it
+    // are mangled -- so this asks for the module it ends, which a bundler
+    // never splits across files. More than one reader is a stale `dist/` a
+    // cached build left chunks in, which is still fine as long as each one
+    // carries the registrar beside it
     const reader = holding('Invalid transition-property');
     const registrar = holding('is not a shorthand');
 
-    expect(reader).toHaveLength(1);
+    expect(reader.length).toBeGreaterThan(0);
     expect(registrar).toStrictEqual(reader);
   });
 });

@@ -858,8 +858,8 @@ makes it testable with a fixture directory and no bundler at all.
   compiler rather than a runtime -- nothing it emits imports it. rolldown rather
   than rollup because tsdown already builds this repo with it, so there is one
   bundler and not two, and because it embeds the same oxc the extraction pass
-  reads. `the toolchain's dependencies` in `packages/cli/test/cli.test.ts` writes
-  them out rather than counting them, so taking a new one is an edit somebody
+  reads. `should declare every dependency it has taken, and no more` in
+  `packages/cli/test/cli.test.ts` writes them out rather than counting them, so taking a new one is an edit somebody
   makes on purpose.
 - **The toolchain runs from its own source, and that is a different thing from
   building itself.** `node packages/cli/src/sigil.ts build ...` works with no
@@ -1465,8 +1465,8 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   have been zero new dependencies -- and it is marked `@experimental`, which is
   not a thing to put on the critical path of every app's build when the
   alternative is the 10 kB library rollup and vite both use for exactly this, and
-  which rolldown already brings into the lockfile. `the toolchain's dependencies`
-  in `packages/cli/test/cli.test.ts` writes the list out so that taking one is an
+  which rolldown already brings into the lockfile. `should declare every
+  dependency it has taken, and no more` in `packages/cli/test/cli.test.ts` writes the list out so that taking one is an
   edit somebody makes on purpose; this is that edit.
 - **...and it is a `devDependency`, because the bundle inlines it (SIG-357).**
   It sat in `dependencies` from the day it was taken, while `sigil.json`'s
@@ -1474,8 +1474,9 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   three that really are imports at run time, two of them for the native-binding
   reason above. So `sigil build` inlines `magic-string` into the toolchain's own
   bundle (no file under `dist/` imports the bare specifier, grepped), and every
-  install of `@ttylabs/cli` downloaded a package nothing loads. `the toolchain's
-  dependencies` is three names now, and two tests hold the move from both sides:
+  install of `@ttylabs/cli` downloaded a package nothing loads. The list in
+  `should declare every dependency it has taken, and no more` is three names
+  now, and two tests hold the move from both sides:
   `should not make an install download what the bundle already inlined` asserts
   the manifest and that `external` does not name it, and `should inline
   magic-string, which is why it is only a devDependency` reads the built chunks
@@ -2577,7 +2578,8 @@ other is refused with numbers.
 
 - **The terminal is a spawned child that answers `isTTY`, not a pty.** Node has
   no pty and this repo has no pty dependency; taking one to read a boolean back is
-  the kind of decision `the toolchain's dependencies` exists to make deliberate.
+  the kind of decision `should declare every dependency it has taken, and no
+  more` exists to make deliberate.
   What `report.ts` reads about a destination is `stream.isTTY` and
   `stream.columns` and nothing else -- `ReportStream` is those two fields -- so
   the child is the real binary with real pipes, preloaded with a module that

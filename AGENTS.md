@@ -1434,7 +1434,10 @@ why rather than what: it is the record of what each round found.
   its manifest names` in `packages/cli/test/cli.test.ts` asks `pnpm pack
   --dry-run --json` for each published package and fails if `LICENSE` is not in
   the list -- which is what catches a move to `npm publish`, or a pnpm that stops
-  doing it. If a package ever needs a different licence, it commits its own.
+  doing it. The same test also asserts every manifest says `"license": "MIT"`,
+  so a package that ever needs a different licence commits its own `LICENSE`
+  _and_ changes that assertion, which is the edit that makes the choice
+  deliberate.
 - **What ships is checked for raw control characters in every package, by one
   test.** The rule is under "Deliberate decisions" above. `@ttylabs/sigil` and
   `@ttylabs/cli` escape them as they build; `config-xml`, `config-yaml` and

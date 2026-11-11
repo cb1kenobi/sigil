@@ -504,11 +504,22 @@ describe('@ttylabs/cli', () => {
       if (result.status !== 0) {
         throw new Error(`pnpm pack failed in ${dir}: ${result.stderr || result.stdout}`);
       }
-      // anything pnpm prints ahead of the JSON is not the answer
-      const json = result.stdout.slice(result.stdout.indexOf('{'));
-      return (JSON.parse(json) as { files: { path: string }[] }).files.map((file) =>
-        file.path.replaceAll('\\', '/')
-      );
+      // anything printed ahead of the JSON is not the answer. pnpm prints one
+      // object and npm an array of them, so either opening bracket starts it
+      const start = result.stdout.search(/[[{]/);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(result.stdout.slice(start));
+      } catch {
+        throw new Error(`pnpm pack in ${dir} printed no JSON: ${result.stdout || result.stderr}`);
+      }
+      const pack = (Array.isArray(parsed) ? parsed[0] : parsed) as
+        | { files?: { path: string }[] }
+        | undefined;
+      if (!Array.isArray(pack?.files)) {
+        throw new Error(`pnpm pack in ${dir} listed no files: ${result.stdout}`);
+      }
+      return pack.files.map((file) => file.path.replaceAll('\\', '/'));
     }
 
     it('should find every package it means to check', () => {
@@ -1107,7 +1118,12 @@ describe('@ttylabs/cli', () => {
         .filter((name) => name.endsWith('.mjs'))
         .map((name) => readFileSync(resolve(dist, name), 'utf-8'));
 
-      expect(chunks.some((chunk) => /["']magic-string["']/.test(chunk))).toBe(false);
+      // backticks as well as quotes: rolldown's minifier writes a dynamic
+      // import's specifier as a template literal -- ``import(`rolldown`)`` is in
+      // this very build -- so a lazy import of it would be invisible to a quote
+      // pattern. The inlined warning's `rich-harris/magic-string` URL has a `/`
+      // in front of the name, so it is not mistaken for one
+      expect(chunks.some((chunk) => /[`"']magic-string[`"']/.test(chunk))).toBe(false);
       // its own warning text, which survives minification where a name does not
       expect(chunks.some((chunk) => chunk.includes('rich-harris/magic-string'))).toBe(true);
     });
