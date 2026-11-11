@@ -73,6 +73,7 @@ at the next file, so the shell comes back at once.
 | `src/sampler.js`   | Reads the system once a tick and turns two readings into rates                |
 | `src/data.js`      | Pure parsers and helpers, tested against fixtures                             |
 | `test/`            | The parsers, the sampler over a fake machine, the app over a fake terminal    |
+| `stress/`          | The full-screen performance budget's workload, below; not part of the app     |
 
 `App` takes no props. It reaches the router and `exit()` through `useApp()`,
 and the machine through `SystemContext`, so `test/app.test.js` runs it with
@@ -115,6 +116,27 @@ filter would quit. A fallback comes after the focused element, so a field keeps
 the letters it is typed, and it runs with nothing focused, which is how the
 monitor starts. `q` is `runApp()`'s own `quitKey`, a fallback too. Escape, which
 belongs to the filter rather than the app, is the `onKey` prop on `App`'s root.
+
+## The stress workload
+
+`stress/` is not part of the monitor. It is what the framework's full-screen
+performance budget is measured on. `stress/app.js` is this screen built from
+`DataTable` and the four live charts, at 200 by 60, fed by `stress/machine.js`: a
+seeded machine with a thousand processes and sixteen cores, where every figure
+moves on every reading. `stress/monitor.js` feeds the same machine to this
+monitor's own `App` through `SystemContext`, so the stand-ins can be measured
+against the components they are waiting for.
+
+```
+pnpm build
+node examples/system-monitor/stress/benchmark.js
+```
+
+The script prints each workload's frame time, bytes, allocation and tree, frame
+after frame and then paced at 30 and at 60 frames a second. `test/stress.test.js`
+holds the counts to ceilings in the suite. The figures, and why the suite holds
+counts and no time, are under "A full-screen performance budget" in
+`packages/sigil/src/renderer/AGENTS.md`.
 
 ## Not yet
 

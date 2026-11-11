@@ -133,13 +133,21 @@ export function stringWidth(str: string): number {
  *
  * Plain ASCII is split by code unit without a segmenter, because that is what
  * the segmenter would say about it -- see `asciiOnly` -- and building the
- * first one in a process is what loads ICU. Anything else is segmented, and the
- * segmenter is built the first time something is.
+ * first one in a process is what loads ICU. So is a string of one code unit,
+ * whatever it is: there is nothing for a break rule to join it to, so it is one
+ * cluster by construction rather than by anything known about the character.
+ * That is every cell of a border, which a frame paints one call at a time.
+ * Anything else is segmented, and the segmenter is built the first time
+ * something is.
  *
  * @param str - The string to split.
  * @returns The clusters, in order.
  */
 export function graphemes(str: string): string[] {
+  if (str.length === 1) {
+    // one code unit is one cluster, and a border is painted a cell at a time
+    return [str];
+  }
   return asciiOnly.test(str) ? str.split('') : segment(str);
 }
 

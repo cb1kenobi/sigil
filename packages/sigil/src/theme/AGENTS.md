@@ -290,3 +290,37 @@ the entry it belongs to.
   `Cascade` only reads it, so parsing per spinner would be the same work per
   component per process; the cascade differs per call because the sheets do, and
   it holds a bucket index over them.
+
+- **A syntax token's role is the theme's table, `TOKEN_ROLE` (SIG-289).** It was
+  in `components/prompt.ts`, where the first highlight seam happened to be, and
+  it moved here because what it says is a theme's business: which role a
+  `keyword` or a `string` is drawn in. A highlighter names tokens and knows no
+  colour, a component puts `sigil-token-<token>` and the token's role on the cells,
+  and a theme colours the roles -- so a theme that has never heard of code colours
+  it, which is what the ticket asked for. `prompt.ts` re-exports it, so the old
+  import and the new one are one `Map`.
+
+  It grew from seven names to eighteen when `highlightCode()` arrived, and **every
+  one of the eleven is a role rather than a declaration**, so `FRAMEWORK_CSS`
+  gained a vocabulary comment and no rule, and `should declare on a role, bar twelve
+  exceptions that say why` is untouched. Each new name takes the role of the thing
+  it is most like rather than a role of its own: `constant` and `hunk` are info, as
+  a number and the diff view's hunk header are; `regexp` and `inserted` success, as
+  a string and an added line are; `deleted` the error role, as a removed line is;
+  `property`, `link` and `code` the accent, as markdown draws a link and code;
+  `heading` and `meta` the heading role, as the diff view draws a file header; and
+  `variable` warning. The cost is the role rule's usual one, said once more: a
+  theme that recolours `.sigil-accent` recolours JSON keys and Markdown links with
+  every keyword and every focus mark, and `.sigil-token-property` is the narrower
+  hook for a theme that wants them apart.
+
+  **Markdown's `emphasis` and `strong` have no role**, and that is the reasoning
+  the twelfth exception, `.sigil-markdown-strong`, already records rather than a
+  gap. The only bold role is `.sigil-heading`, and strong text drawn in it is what
+  that exception was written to avoid: a theme that coloured headings would colour
+  every strong word. An exception for a source highlighter's tokens would be the
+  sixteenth, for a look nothing asked for, so they are hooks.
+  `should give a role to every token it emits but the two Markdown leaves to a
+  sheet` in `test/components/highlight.test.ts` holds the table to what the
+  highlighter emits, and `should name only roles the framework sheet declares` holds
+  it to the roles that exist.

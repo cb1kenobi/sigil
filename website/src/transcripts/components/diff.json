@@ -20,7 +20,7 @@
         "description": "Says which stretches of a text are which tokens, for syntax highlighting -- the same hook, with the same spans, as `multiline()`'s.",
         "name": "highlight",
         "optional": true,
-        "type": "(text: string) => readonly HighlightSpan[]"
+        "type": "Highlighter"
       },
       {
         "description": "Whether the changed stretch of a line that was edited is set apart from the rest of it. Defaults to true.",
@@ -28,6 +28,13 @@
         "name": "intraline",
         "optional": true,
         "type": "boolean"
+      },
+      {
+        "description": "The language the texts are in, handed to `highlight` as its second argument. Defaults to the extension of each file's name, where the input names one: `ts` for `src/diff.ts`.",
+        "default": "the extension of each file's name",
+        "name": "lang",
+        "optional": true,
+        "type": "string"
       },
       {
         "description": "Which arrangement to draw. Defaults to `unified`.",
