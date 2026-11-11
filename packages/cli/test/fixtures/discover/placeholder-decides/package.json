@@ -1,0 +1,7 @@
+{
+  "name": "placeholder-decides",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}
