@@ -822,9 +822,16 @@ export class Computed<T> implements Producer, Consumer {
 
     let next: T | undefined;
     let thrown: Thrown | undefined;
+    // whether the body returned, which is not the same as `thrown` being unset:
+    // the catch below first runs when the stack has just run out, cold, and the
+    // allocation in it can overflow too -- which left `thrown` unset, so the
+    // `finally` marked a run CLEAN that had committed nothing, and the link
+    // read back `undefined` from then on
+    let returned = false;
 
     try {
       next = this.#fn();
+      returned = true;
     } catch (err) {
       thrown = { error: err };
     } finally {
@@ -839,7 +846,7 @@ export class Computed<T> implements Producer, Consumer {
       // signal it had already read, or to what a computed it read reads, is.
       // A derivation that threw stays DIRTY until `#caught()` has said whether
       // the throw is one to cache, for the reason given there
-      if (thrown === undefined || this.#writes) {
+      if (returned || this.#writes) {
         this.state = this.stale ? CHECK : CLEAN;
         this.stale = false;
       }

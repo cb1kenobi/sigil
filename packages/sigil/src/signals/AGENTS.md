@@ -277,7 +277,12 @@ the entry it belongs to.
   what the computed reads, and cached it was permanent -- the link that hit the
   limit stayed clean holding the error and no edge to the source whose read
   never finished. So a derivation that catches one is left `DIRTY` with nothing
-  committed or swept, and the reader gets `Computed chain too deep`, with the
+  committed or swept -- and whether a run may be marked clean is decided by the
+  body having _returned_, not by a throw having been recorded, because the
+  `catch` first runs cold with the stack just exhausted and can overflow itself:
+  that marked a link `CLEAN` over a value never committed, which read back as
+  `undefined`, on Windows and on Node 22 and nowhere else. The reader gets
+  `Computed chain too deep`, with the
   engine's error as its `cause`; reading the chain from the bottom up, or once
   it has been evaluated, works at any depth. An effect body caches it like any
   other throw, for the reason a failed sweep exempts it: a flush treats anything
