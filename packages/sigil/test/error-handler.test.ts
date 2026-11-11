@@ -135,8 +135,9 @@ describe('errorHandler', () => {
   });
 
   // SIG-342: an error message echoes argv, so one argument holding a long run of
-  // newlines reached an unanchored `/[\r\n]+$/` that is quadratic in it -- 2,989ms
-  // at 80,000. 200,000 is tens of seconds that way and a millisecond now
+  // newlines reached an unanchored `/[\r\n]+$/` that is quadratic in it -- measured
+  // for SIG-342 at 8,306ms for 80,000. 200,000 is tens of seconds that way and a
+  // millisecond now
   it('should not stall on an argument made of newlines', () => {
     const out = sink();
     const run = '\n'.repeat(200_000);

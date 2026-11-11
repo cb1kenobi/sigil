@@ -7,8 +7,9 @@
  * positions and fails each attempt only at the first character that is not one
  * -- k² steps for a run that is not at the end at all. Error messages echo argv,
  * so one argument holding a long run of newlines stalled the error path:
- * measured, `errorHandler()` took 180 ms at 20,000 newlines and 2,989 ms at
- * 80,000. This reads each trailing character once and slices once.
+ * measured for SIG-342 against the built package, on a loaded machine,
+ * `errorHandler()` took 425 ms at 20,000 newlines, 2,786 ms at 40,000 and
+ * 8,306 ms at 80,000. This reads each trailing character once and slices once.
  *
  * One function rather than one per caller, because the rule is the same at
  * every site that writes exactly one trailing newline: `errorHandler()`,
