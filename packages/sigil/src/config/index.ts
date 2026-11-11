@@ -116,7 +116,8 @@
  * statements. Which is the figure rather than "nothing", a claim this said for
  * a commit -- review round 2 caught it against the measurement in AGENTS.md,
  * and two comments disagreeing about one number leave a later reader with no
- * way to tell which was measured. *
+ * way to tell which was measured.
+ *
  * `physicalPath()` joined them later, and not for a store: `sigil build` asks
  * where a write to a path lands -- through every symlink on the way, with a
  * `..` read the way the kernel reads it, for a path that need not exist yet --

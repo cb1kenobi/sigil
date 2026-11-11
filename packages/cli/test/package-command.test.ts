@@ -465,6 +465,44 @@ describe('sigil package', () => {
     );
   });
 
+  // the shaker leaves out the directory a bundle is written to, and `package`
+  // writes its bundle to a staging directory -- so `--out dist` after a
+  // `sigil build` into `dist` read that build's bundle as class evidence and
+  // kept 52 rules where 25 are named. `width: 75%` is `w-3/4`, one of the rules
+  // that bundle's text admits and the app's own source does not
+  describe.each([
+    ['bun', hasBun, ['--runtime', 'bun']],
+    ['node', hasBuildSea, ['--runtime', 'node', '--target', label(hostTarget())]],
+  ] as const)('a package after a build into its out, with %s', (_, available, runtime) => {
+    it.skipIf(!available)(
+      'should not read the build it is about to replace as evidence for a class',
+      async () => {
+        const app = join(tempDir('sigil-pkg-into-src-'), 'styled');
+        copyFixture(join(fixtures, 'styled'), app);
+        mkdirSync(join(app, 'node_modules', '@ttylabs'), { recursive: true });
+        symlinkSync(
+          resolve(fixtures, '..', '..', '..', 'sigil'),
+          join(app, 'node_modules', '@ttylabs', 'sigil'),
+          'junction'
+        );
+
+        await sigil('build', app);
+        expect(process.exitCode).toBeFalsy();
+        const { err } = await sigil('package', app, '--out', 'dist', ...runtime);
+
+        expect(err).not.toMatch(/^Error:/m);
+        const binary = readFileSync(
+          join(app, 'dist', binaryName('styled', hostTarget())),
+          'latin1'
+        );
+        // a boolean rather than `not.toContain()`, which prints its subject on
+        // failure -- and the subject is an 89 MB binary
+        expect(binary.includes('width: 75%')).toBe(false);
+      },
+      120_000
+    );
+  });
+
   describe('what it refuses before building anything', () => {
     it('should write nothing when a target cannot be built', async () => {
       // the rule `--bin` beside a routed directory already follows: a failure

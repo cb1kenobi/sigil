@@ -1,4 +1,4 @@
-import { displayPath } from '../src/build/index.ts';
+import { displayPath, landsAt } from '../src/build/index.ts';
 import {
   assertCleanable,
   buildReads,
@@ -312,6 +312,30 @@ describe('an --out that holds the source', () => {
       `which holds ${displayPath(join('src', 'index.js'))}`
     );
     expect(existsSync(entry)).toBe(true);
+  });
+
+  it('should name a module the graph holds, and say it is the module where --out is one', () => {
+    // a module `inspect()` never read -- here a vendored one -- is refused once
+    // the graph is known. The modules arrive as physical paths, which is what
+    // `bundleApp()` hands over
+    const { app, base, reads } = makeApp();
+    const lib = join(app, 'vendor', 'lib.mjs');
+    mkdirSync(dirname(lib));
+    writeFileSync(lib, '');
+    const guard = { clean: true, reads, root: app };
+
+    expect(() => clean(join(app, 'vendor'), guard, [landsAt(lib)])).toThrow(
+      `Refusing to empty ${displayPath(join(app, 'vendor'))}, which holds ${displayPath(join('vendor', 'lib.mjs'))}, a module the app is built from`
+    );
+    expect(() => clean(lib, guard, [landsAt(lib)])).toThrow(
+      `Refusing to remove ${displayPath(lib)}, which is ${displayPath(join('vendor', 'lib.mjs'))}, a module the app is built from`
+    );
+    expect(existsSync(lib)).toBe(true);
+    // and a directory holding none of them is emptied as before
+    const out = join(base, 'out');
+    mkdirSync(out);
+    clean(out, guard, [landsAt(lib)]);
+    expect(existsSync(out)).toBe(false);
   });
 
   it('should list the catalogs the entry declares among what the build reads', () => {

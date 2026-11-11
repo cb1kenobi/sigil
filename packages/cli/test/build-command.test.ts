@@ -5,6 +5,7 @@ import { tempDir } from './temp.ts';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -877,6 +878,81 @@ describe('sigil build into its own source', () => {
     expect(process.exitCode).toBeTruthy();
     expect(readFileSync(join(app, 'tool.mjs'), 'utf-8')).toBe(helper);
     expect(existsSync(join(app, 'chunks'))).toBe(false);
+  }, 60_000);
+
+  describe('a previous bundle, which the shaker must not read as evidence', () => {
+    // since the clean waits for the module graph, a previous bundle is still on
+    // disk when the shaker walks the app, and its exclusion compared spellings:
+    // a second build with `--out` spelled through `/tmp` kept 52 of 383 rules
+    // and then 58, where it keeps 25. A junction stands in for `/tmp` here,
+    // because it spells the same directory another way on every platform
+    function styledApp(): { app: string; base: string } {
+      const base = tempDir('sigil-build-into-src-');
+      const app = join(base, 'styled');
+      copyFixture(join(fixtures, 'styled'), app);
+      mkdirSync(join(app, 'node_modules', '@ttylabs'), { recursive: true });
+      symlinkSync(
+        resolve(fixtures, '..', '..', '..', 'sigil'),
+        join(app, 'node_modules', '@ttylabs', 'sigil'),
+        'junction'
+      );
+      return { app, base };
+    }
+
+    const KEPT = /(\d+) of 383 utility rules/;
+
+    it.each([
+      [
+        '--out spelled through a link to the app',
+        (app: string, base: string) => {
+          symlinkSync(app, join(base, 'alias'), 'junction');
+          return join(base, 'alias', 'dist');
+        },
+      ],
+      [
+        '--out a link to the previous output',
+        (app: string) => {
+          symlinkSync(join(app, 'dist'), join(app, 'outlink'), 'junction');
+          return join(app, 'outlink');
+        },
+      ],
+    ])(
+      'should keep what the first build kept, with %s',
+      async (_, spell) => {
+        const { app, base } = styledApp();
+
+        const first = await sigil('build', app);
+        const kept = KEPT.exec(first.err)?.[1];
+        expect(kept, first.err).toBeDefined();
+
+        const second = await sigil('build', app, '--out', spell(app, base));
+
+        expect(KEPT.exec(second.err)?.[1], second.err).toBe(kept);
+        expect(process.exitCode).toBeFalsy();
+      },
+      60_000
+    );
+  });
+
+  it('should unlink an --out that is a link to a module directory, and leave the module alone', async () => {
+    // `outlink` points at `lib/`, which holds `lib/tool.mjs`, a module the
+    // entry imports. Removing `outlink` unlinks it and takes nothing behind it,
+    // so the module check, which is about what a removal would take, is not
+    // asked of a link -- asking it would refuse a build that loses nothing
+    const tool = "export const t = 'tool';\n";
+    const app = smallApp('lapp', {
+      'lib/tool.mjs': tool,
+      'src/index.mjs': `import { t } from '../lib/tool.mjs';\nexport default { name: 'x', run() { console.log(t); } };\n`,
+    });
+    symlinkSync(join(app, 'lib'), join(app, 'outlink'), 'junction');
+
+    const { err } = await sigil('build', app, '--out', 'outlink');
+
+    expect(err).not.toContain('Refusing');
+    expect(process.exitCode).toBeFalsy();
+    expect(lstatSync(join(app, 'outlink')).isSymbolicLink()).toBe(false);
+    expect(existsSync(join(app, 'outlink', 'lapp.mjs'))).toBe(true);
+    expect(readFileSync(join(app, 'lib', 'tool.mjs'), 'utf-8')).toBe(tool);
   }, 60_000);
 
   it('--out vendor emptied a vendored module only the bundle reads, then failed on it', async () => {

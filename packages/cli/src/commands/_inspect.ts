@@ -542,8 +542,11 @@ export function clean(out: string, guard: OutputGuard, modules: readonly string[
     const removed = landsAt(target);
     const module = modules.find((m) => m === removed || isInside(removed, m));
     if (module !== undefined) {
+      const named = displayPath(relative(landsAt(guard.root), module) || module);
       throw new Error(
-        `Refusing to empty ${displayPath(target)}, which holds ${displayPath(relative(landsAt(guard.root), module) || module)}, a module the app is built from. ` +
+        (module === removed
+          ? `Refusing to remove ${displayPath(target)}, which is ${named}, a module the app is built from. `
+          : `Refusing to empty ${displayPath(target)}, which holds ${named}, a module the app is built from. `) +
           `Name a directory that holds none of the app's source.`
       );
     }

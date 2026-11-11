@@ -1821,17 +1821,27 @@ other is refused with numbers.
   is correct output rather than a miss: the shaken sheet is a _subset_, so the
   two disagree only about rules the evidence says nothing can match.
 
-  What the walk must not read is a **previous build's output**, which holds the
-  whole sheet as a string and is therefore evidence for every rule there is. The
-  output directory is excluded, and that exclusion is the whole of the guard:
-  since SIG-350 `clean()` empties it only once the bundle's graph has been read,
-  which is after this walk, so a stale bundle is still on disk while it runs. A
-  _second_, stale output directory elsewhere in the app is the case that gets
-  through, and its failure is the safe one: everything is kept and the summary
-  says `383 of 383` rather than saying nothing. That is what the count in the
-  summary is for, and it is why the summary says nothing at all when no module
-  called `utilitySheet()` -- `383 of 383` about an app with no utility sheet in
-  its bundle would describe a sheet that is not there.
+  What the walk must not read is a **previous build's output**, whose text is
+  evidence for rules the app never names -- the whole sheet when it was built
+  `--no-shake`, and a few dozen more besides when it was shaken. The output
+  directory is excluded, and that exclusion is the whole of the guard: since
+  SIG-350 `clean()` empties it only once the bundle's graph has been read, which
+  is after this walk, so a previous bundle is still on disk while it runs. So the
+  exclusion is compared by **physical path**, through `landsAt()`, because the
+  build's `out` and the walk's `join()` are two spellings of one directory --
+  `/tmp` for `/private/tmp`, a symlinked `--out`, `DIST` on a volume that folds
+  case -- and a spelling that missed kept 52 of 383 rules, then 58, where the app
+  names 25 (found by review once the clean had moved; `clean()` emptying it
+  first had hidden it). `sigil package` writes its bundle to a staging directory
+  and its binaries to `--out`, so it passes `--out` as well
+  (`BundleOptions.exclude`), or a `sigil build` into that directory is evidence
+  too. A _second_, stale output directory elsewhere in the app is the case that
+  gets through, and its failure is the safe one: more is kept than the app
+  names, never less, and the count in the summary is higher than it should be
+  rather than silent. That is what the count is for, and it is why the summary
+  says nothing at all when no module called `utilitySheet()` -- `383 of 383`
+  about an app with no utility sheet in its bundle would describe a sheet that
+  is not there.
 
 - **The count describes the sheet the build produced, which is narrower than
   "what is in the bundle".** Two things part them and neither is detectable from
@@ -2381,7 +2391,8 @@ other is refused with numbers.
   `vendor/lib.mjs` imported by the entry was emptied and then failed on
   `Module not found`. So `clean(out, guard, modules)` takes the physical path of
   every module in the graph and refuses an `out` whose physical path is or holds
-  one, naming it. `sigil build` calls it from `bundleApp()`'s `beforeWrite`,
+  one, naming it -- `which holds` for a directory and `which is` for
+  `--out vendor/lib.mjs`, as `assertCleanable()` words the same two. `sigil build` calls it from `bundleApp()`'s `beforeWrite`,
   which runs in `generateBundle` -- after rolldown has read every module and
   before it writes anything -- and `sigil package` calls it with
   `BundleResult.modules` after the bundle and before `compileAll()`. Emptying
@@ -2392,12 +2403,21 @@ other is refused with numbers.
   for `build` and for `package` -- and what moved is only when. The style
   shaker's walk excludes `out` for the same reason it always did, and that
   exclusion is now the whole of its guard against a previous bundle, since the
-  walk runs before the removal. One consequence is a change of answer rather
-  than of safety: a build that fails **before** the graph exists -- a module
-  rolldown cannot resolve, a parse error -- now leaves the previous output where
-  it was, where it used to have emptied it. An `out` that is itself a symlink is
+  walk runs before the removal -- which is what exposed that it compared
+  spellings, and that `package` never passed its `--out` at all; see "What the
+  walk must not read" under the shaking entries. One consequence is a change of
+  answer rather than of safety: a failure rolldown raises while it reads the
+  graph -- a missing relative module, a parse error -- now leaves the previous
+  output where it was, where it used to have emptied it. The two gates that
+  refuse a build **after** the write are unchanged: an unresolved bare import,
+  which rolldown only warns about and externalizes, and raw JSX from
+  `jsx: "preserve"` both fail after `out` has been emptied and written, and
+  `undo()` takes back only what was written, so they still leave `out`
+  empty. An `out` that is itself a symlink is
   unlinked rather than emptied, which is what `rmSync()` does with one, so
-  nothing behind it is asked about.
+  nothing behind it is asked about -- `--out outlink`, a link to `lib/` holding
+  a module the entry imports, builds and leaves `lib/tool.mjs` alone, and asking
+  the module check of the link would refuse a build that loses nothing.
 
   **It is asked whether or not cleaning is.** `--out src --no-clean` removed
   nothing and wrote the bundle over the source instead: an entry at

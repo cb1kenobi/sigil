@@ -263,6 +263,9 @@ const pkg: AnyCommand = command({
         app: found.app,
         binName: name,
         defaultLocale: sigilConfig.locale,
+        // the binaries' directory, which the bundle is not written to: a
+        // previous `sigil build` there is a bundle the shaker must not read
+        exclude: [out],
         external,
         form: runtime === 'node' ? 'cjs' : 'esm',
         out: staging,

@@ -97,6 +97,14 @@ export interface BundleOptions {
    * exist until now. See `clean()` in `commands/_inspect.ts`.
    */
   readonly beforeWrite?: (modules: readonly string[]) => void;
+  /**
+   * Directories the style shaker's evidence walk leaves out besides `out`,
+   * which it always does. For a caller whose bundle is not its output --
+   * `sigil package` writes its bundle to a staging directory and its binaries
+   * to `--out`, and a previous `sigil build` into that directory holds the
+   * whole utility sheet as a string, which is evidence for every rule.
+   */
+  readonly exclude?: readonly string[];
   /** What the built executable is called, without an extension. */
   readonly binName: string;
   /**
@@ -304,6 +312,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     bin,
     binName,
     defaultLocale,
+    exclude = [],
     external = [],
     form = 'esm',
     out,
@@ -357,7 +366,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
   // and the sheet regenerates 383 rules, neither of which an app that has not
   // opted into utilities should pay for
   const shaker: Shaker | undefined = shake
-    ? createShaker(app.root, { exclude: [out], safelist })
+    ? createShaker(app.root, { exclude: [out, ...exclude], safelist })
     : undefined;
 
   const bundle = await rolldown({
@@ -573,7 +582,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
           try {
             beforeWrite?.(modules);
           } catch (e: unknown) {
-            refused = (e as Error).message;
+            refused = e instanceof Error ? e.message : String(e);
           }
           if (refused !== undefined) {
             this.error(refused);
