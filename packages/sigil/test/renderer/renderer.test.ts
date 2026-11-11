@@ -1,6 +1,6 @@
 import { createCanvas } from '../../src/canvas/index.js';
 import { ScrollBox } from '../../src/components/scroll-box.js';
-import { box, type Element, scrollRange, text } from '../../src/element/index.js';
+import { box, Element, scrollRange, text } from '../../src/element/index.js';
 import { parseCapabilityResponse } from '../../src/input/capabilities.js';
 import { createInput } from '../../src/input/index.js';
 import {
@@ -1298,14 +1298,56 @@ describe('For, placing a reorder', () => {
     expect(l.moves).toHaveBeenCalledTimes(1);
   });
 
+  it('should never put a row in front of the first child, mounting or replacing a long list', () => {
+    // walking from the end and putting each row in front of the one after it
+    // put every row of a first mount at index 0 of the children, and a splice
+    // there shifts every child behind it: a 200,000-row mount went from 388ms to
+    // 4,781ms. The rows after the last one that stays are appended instead, so a
+    // mount and a wholesale replacement only ever add at the end
+    const insertBefore = Element.prototype.insertBefore;
+    let atFront = 0;
+    const spy = vi.spyOn(Element.prototype, 'insertBefore').mockImplementation(function (
+      this: Element,
+      child,
+      before
+    ) {
+      if (before !== undefined && before === this.children[0]) {
+        atFront++;
+      }
+      return insertBefore.call(this, child, before);
+    });
+    try {
+      const l = list(numbers(3000));
+      expect(l.order()).toEqual(numbers(3000).map(String));
+      expect(atFront).toBe(0);
+
+      const next = numbers(3000).map((n) => n + 10_000);
+      l.set(next);
+      expect(l.order()).toEqual(next.map(String));
+      expect(l.moves).toHaveBeenCalledTimes(3000);
+      expect(atFront).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('should reconcile a long list of one repeated primitive against itself without building or moving', () => {
     // read through a cursor rather than by `shift()`, which is O(k) for a key
     // held k times and made this quadratic. What is asserted is the outcome a
-    // cursor has to keep: every copy kept, none built, none moved, none disposed
+    // cursor has to keep -- every copy kept, none built, none moved, none
+    // disposed -- and, since that outcome is the same either way and only the
+    // time differs, that the reconcile takes no copy off the front of an array:
+    // nothing on its path shifts one, so a count of zero is the cursor
     const l = list<string>(Array.from({ length: 5000 }, () => 'x'));
     const before = [...l.host.children];
 
-    l.set(Array.from({ length: 5000 }, () => 'x'));
+    const shift = vi.spyOn(Array.prototype, 'shift');
+    try {
+      l.set(Array.from({ length: 5000 }, () => 'x'));
+      expect(shift).not.toHaveBeenCalled();
+    } finally {
+      shift.mockRestore();
+    }
 
     expect(l.host.children.every((row, at) => row === before[at])).toBe(true);
     expect(l.built).toHaveLength(5000);

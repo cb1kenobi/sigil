@@ -383,9 +383,18 @@ the entry it belongs to.
   each a removal and an insertion that both search the host's children: quadratic
   for a one-row move. `place()` reads where each kept row sits in the host now,
   takes a longest increasing run of those positions with `longestIncreasing()` in
-  `src/util/`, leaves the rows on it alone and moves the rest from the end
-  backwards, each in front of the row that follows it. That is the fewest moves
-  there are, and it is what Solid and Inferno do. Positions come off the host
+  `src/util/`, leaves the rows on it alone, appends the rows after the last one
+  that stays in order, and moves the rest backwards from there, each in front of
+  the row that follows it. That is the fewest moves there are, and it is what
+  Inferno and Vue 3 do (Solid's reconcile does not use one). The tail is
+  appended rather than walked because a review round measured the walk: on a
+  first mount nothing stays, so every row went in front of the one after it --
+  index 0 of the children, a splice that shifts everything behind it -- and a
+  200,000-row mount went from 388ms to 4,781ms, 100,000 from 216ms to 1,244ms.
+  With the append it measured 351ms against 379ms for the old placement, and
+  `should never put a row in front of the first child` pins it by asking every
+  `insertBefore` whether it was handed the first child: 2,999 times of 3,000 on
+  the walk, and never now. Positions come off the host
   rather than off the rows' previous indices, so what is placed against is what is
   on screen. The queue per key is unchanged and so is which copy a key hands out --
   the first one held -- but it is read through an index rather than `shift()`,
@@ -409,8 +418,10 @@ the entry it belongs to.
   computed the quadratic way). Run against the old placement, three of them fail
   -- 99 moves where 1 and 2 belong. The cursor's test pins what a cursor has to
   keep -- every copy kept, none built, moved or disposed, and a shrink letting go
-  of the copies past the end -- and passes against `shift()` too, since what
-  `shift()` cost was time rather than an answer.
+  of the copies past the end -- and, since `shift()` gave the same answers and
+  cost only time, also spies on `Array.prototype.shift` across the reconcile and
+  asserts it is never called: nothing else on that path shifts an array, and
+  putting `shift()` back fails it with 9,886 calls.
 
 - **Nothing dirty means no frame, and no frame means no timer.** The scheduler is
   asked for a frame by a signal write or by a tree mutation, sets one timer, and

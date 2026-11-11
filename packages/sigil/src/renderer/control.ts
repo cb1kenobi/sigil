@@ -285,9 +285,11 @@ export function For<T>(props: ForProps<T>): Element {
  * end puts every other row out of place: n-1 moves, each O(n), for what is one
  * move. So the question is asked by order instead. The rows already in `host`
  * that lie on a longest increasing run of their current positions are in order
- * relative to one another and stay; every other row, the new ones among them, is
- * moved in front of the row that follows it, walking from the end so that the
- * row it goes in front of is already where it belongs.
+ * relative to one another and stay. The rows after the last one that stays are
+ * appended in order, and every other row before it, the new ones among them, is
+ * moved in front of the row that follows it, walking backwards so that the row it
+ * goes in front of is already where it belongs. Appending the tail is what keeps
+ * a first mount linear: nothing stays, so it is all tail.
  *
  * Positions are read off `host` rather than off the rows' previous indices, so
  * what is on screen is what is placed against, whatever put it there.
@@ -317,8 +319,20 @@ function place(host: Element, rows: readonly { element: Element }[]): void {
     stays[present[k]] = 1;
   }
 
-  let before: Element | undefined;
-  for (let at = rows.length - 1; at >= 0; at--) {
+  // the rows after the last one that stays go on the end, in order. Putting them
+  // in front of one another from the end puts each at index 0 of a host they are
+  // not in yet, and a splice there shifts every child behind it -- which made a
+  // first mount, where nothing stays, quadratic
+  let last = rows.length - 1;
+  while (last >= 0 && !stays[last]) {
+    last--;
+  }
+  for (let at = last + 1; at < rows.length; at++) {
+    host.append(rows[at].element);
+  }
+
+  let before: Element | undefined = rows[last + 1]?.element;
+  for (let at = last; at >= 0; at--) {
     const { element } = rows[at];
     if (!stays[at]) {
       host.insertBefore(element, before);

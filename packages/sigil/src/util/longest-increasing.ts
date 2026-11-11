@@ -4,8 +4,8 @@
  * What a keyed list asks when it reorders: given where each kept row sits now,
  * in the order the rows are wanted, the rows on a longest increasing run are
  * already in order relative to one another and need not move -- every other row
- * is moved around them, which is the fewest moves there are. Solid and Inferno
- * place their lists the same way.
+ * is moved around them, which is the fewest moves there are. Inferno and Vue 3
+ * place their keyed lists the same way.
  *
  * Patience sorting with a binary search, so `O(n log n)`: `tails[k]` is the
  * position of the smallest value that ends an increasing run of length `k + 1`,
