@@ -149,7 +149,7 @@ describe('finding the keys', () => {
 describe('comparing the catalogs', () => {
   const check = (catalog: Record<string, string>, keys: string[], framework: string[] = []) =>
     checkCatalogs({
-      catalogs: [{ catalog, locale: 'de' }],
+      catalogs: [{ catalog, file: 'de.json', locale: 'de' }],
       file: '/app/src/index.ts',
       framework,
       keys,
@@ -211,7 +211,7 @@ describe('comparing the catalogs', () => {
 
   it('should warn rather than fail, because the app works in English', () => {
     const diagnostics = checkCatalogs({
-      catalogs: [{ catalog: {}, locale: 'de' }],
+      catalogs: [{ catalog: {}, file: 'de.json', locale: 'de' }],
       file: '/app/src/index.ts',
       framework: ['Options:'],
       keys: ['own'],
@@ -224,8 +224,8 @@ describe('comparing the catalogs', () => {
   it('should report each locale separately', () => {
     const messages = checkCatalogs({
       catalogs: [
-        { catalog: {}, locale: 'de' },
-        { catalog: { own: 'propre' }, locale: 'fr' },
+        { catalog: {}, file: 'de.json', locale: 'de' },
+        { catalog: { own: 'propre' }, file: 'fr.json', locale: 'fr' },
       ],
       file: '/app/src/index.ts',
       framework: [],

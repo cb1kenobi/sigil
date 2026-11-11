@@ -719,6 +719,36 @@ describe('sigil build into its own source', () => {
     expect(existsSync(join(app, 'sigil.json'))).toBe(true);
   }, 60_000);
 
+  it('sigil build --out src --no-clean wrote the bundle over the source and reported success', async () => {
+    // nothing removed, but `<out>/<bin>.mjs` is the entry when the entry is
+    // `src/<bin>.mjs` -- so it is refused whether or not it is emptied
+    const { app, sources } = copyApp();
+
+    const { err } = await sigil('build', app, '--out', 'src', '--no-clean');
+
+    expect(err).toContain(
+      `Refusing to build into ${displayPath(join(app, 'src'))}, which holds ${displayPath(join('src', 'index.ts'))}`
+    );
+    expect(process.exitCode).toBeTruthy();
+    expect(existsSync(join(app, 'src', 'buildable.mjs'))).toBe(false);
+    for (const file of sources) {
+      expect(existsSync(file), file).toBe(true);
+    }
+  }, 60_000);
+
+  it('sigil build --out locales deleted the catalogs the entry declares', async () => {
+    const app = join(tempDir('sigil-build-into-src-'), 'i18n');
+    copyFixture(join(fixtures, 'i18n'), app);
+
+    const { err } = await sigil('build', app, '--out', 'locales');
+
+    expect(err).toContain(
+      `Refusing to empty ${displayPath(join(app, 'locales'))}, which holds ${displayPath(join('locales', 'de.json'))}`
+    );
+    expect(process.exitCode).toBeTruthy();
+    expect(existsSync(join(app, 'locales', 'de.json'))).toBe(true);
+  }, 60_000);
+
   it('should refuse the command directory, naming a module the build reads from it', async () => {
     const { app, sources } = copyApp();
 

@@ -1458,8 +1458,9 @@ describe('writing a reference', () => {
       { kind: 'stale', path: expect.stringContaining('gone.md') },
     ]);
     // reported and left: the destination is a directory a docs site owns as
-    // well, and `sigil build`'s own refusal -- the app root and above -- does
-    // not reach a destination typed one directory wrong
+    // well, and `sigil build`'s own refusal -- the app root and above, and a
+    // directory holding what the build reads -- does not reach a docs
+    // destination typed one directory wrong
     expect(readFileSync(join(dir, 'gone.md'), 'utf-8')).toBe('old\n');
   });
 

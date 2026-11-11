@@ -55,6 +55,7 @@ import {
   appRuns,
   binName,
   buildReads,
+  bundleWrites,
   clean,
   commandsFound,
   failure,
@@ -143,12 +144,19 @@ const build: AnyCommand = command({
       String(argv.out === DEFAULT_OUT ? (config.out ?? DEFAULT_OUT) : argv.out)
     );
 
-    clean(out, found.app.root, argv.clean !== false, buildReads(found, bin));
+    const name = binName(found, (argv.name as string | undefined) ?? config.name);
+
+    clean(out, {
+      clean: argv.clean !== false,
+      reads: buildReads(found, bin),
+      root: found.app.root,
+      writes: bundleWrites(name),
+    });
 
     const result = await bundleApp({
       app: found.app,
       bin,
-      binName: binName(found, (argv.name as string | undefined) ?? config.name),
+      binName: name,
       defaultLocale: sigilConfig.locale,
       external: (argv.external as string[] | undefined) ?? config.external ?? [],
       out,

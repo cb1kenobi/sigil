@@ -603,9 +603,19 @@ describe('sigil package', () => {
     // failed on the entry. A copy of the fixture, so a regression removes the
     // copy's source rather than the fixture's
     describe.each([
-      ['--out src', (app: string) => sigil('package', app, '--out', 'src', '--runtime', 'bun')],
+      [
+        '--out src',
+        'empty',
+        (app: string) => sigil('package', app, '--out', 'src', '--runtime', 'bun'),
+      ],
+      [
+        '--out src --no-clean, which would have written the binary into the source',
+        'build into',
+        (app: string) => sigil('package', app, '--out', 'src', '--no-clean', '--runtime', 'bun'),
+      ],
       [
         'a package.out of src in sigil.json',
+        'empty',
         (app: string) => {
           writeFileSync(
             join(app, CONFIG_FILE),
@@ -614,7 +624,7 @@ describe('sigil package', () => {
           return sigil('package', app);
         },
       ],
-    ])('%s', (_, pack) => {
+    ])('%s', (_, verb, pack) => {
       it('deleted the app source and then failed, and is refused before anything is removed', async () => {
         const app = join(tempDir('sigil-pkg-into-src-'), 'buildable');
         copyFixture(join(fixtures, 'buildable'), app);
@@ -627,7 +637,7 @@ describe('sigil package', () => {
         const { err } = await pack(app);
 
         expect(err).toContain(
-          `Refusing to empty ${displayPath(join(app, 'src'))}, which holds ${displayPath(join('src', 'index.ts'))}`
+          `Refusing to ${verb} ${displayPath(join(app, 'src'))}, which holds ${displayPath(join('src', 'index.ts'))}`
         );
         expect(err).not.toContain('Module not found');
         expect(process.exitCode).toBeTruthy();

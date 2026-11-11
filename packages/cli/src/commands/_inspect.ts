@@ -34,8 +34,10 @@ import {
   resolveCommandTree,
   typeCheck,
   walkTree,
+  type AppCatalogs,
   type Diagnostic,
   type DiscoveredApp,
+  type FoundCatalog,
   type ResolvedCommand,
   type TypeCheckResult,
 } from '../build/index.ts';
@@ -51,6 +53,12 @@ import nodePath, { dirname, isAbsolute, join, relative, resolve } from 'node:pat
 export interface Inspection {
   /** The app, and the entry the conventions chose. */
   readonly app: DiscoveredApp;
+  /**
+   * The catalogs its entry declares and this could read. Kept for the reason
+   * `commandDir` is: the bundle reads them again, so emptying the directory
+   * they are in is emptying the app's source.
+   */
+  readonly catalogs: readonly FoundCatalog[];
   /**
    * The directory its commands were walked from, when they were walked rather
    * than written out. Kept because emptying it is emptying the app's source --
@@ -107,7 +115,8 @@ export function inspect(options: InspectOptions): Inspection {
 
   const found = findCommands(app, options.commands, diagnostics);
 
-  diagnostics.push(...checkTranslations(app, diagnostics));
+  const catalogs = readAppCatalogs(app);
+  diagnostics.push(...checkTranslations(app, catalogs, diagnostics));
 
   // a `settings` passed to the app's own `main()` is lost in the built app, which
   // calls `main({ schema })` itself -- so say so, where the app has not moved it
@@ -115,6 +124,7 @@ export function inspect(options: InspectOptions): Inspection {
 
   return {
     app,
+    catalogs: catalogs.catalogs,
     commandDir: found.dir,
     commands: found.commands,
     diagnostics,
@@ -139,13 +149,16 @@ export function inspect(options: InspectOptions): Inspection {
  * see.
  *
  * @param app - The app.
+ * @param read - Its catalogs, as `readAppCatalogs()` found them.
  * @param found - The diagnostics so far, so a catalog that could not be read is
  * not then reported as empty.
  * @returns One diagnostic per missing key and per orphan key.
  */
-function checkTranslations(app: DiscoveredApp, found: Diagnostic[]): readonly Diagnostic[] {
-  const read = readAppCatalogs(app);
-
+function checkTranslations(
+  app: DiscoveredApp,
+  read: AppCatalogs,
+  found: Diagnostic[]
+): readonly Diagnostic[] {
   if (!read.declared) {
     return [];
   }
@@ -452,6 +465,24 @@ export function binName(found: Inspection, named: string | undefined): string {
   return name ? (name.split('/').pop() ?? name) : 'cli';
 }
 
+/** What `clean()` and `assertCleanable()` need to know about a build. */
+export interface OutputGuard {
+  /** Whether cleaning was asked for at all, which `--no-clean` turns off. */
+  readonly clean: boolean;
+  /** What the build reads, from `buildReads()`. */
+  readonly reads: readonly string[];
+  /** The app's root. */
+  readonly root: string;
+  /**
+   * What the command writes into the output directory, relative to it -- from
+   * `bundleWrites()` for a build, and the binaries' names for a package. Asked
+   * only of an output directory that holds the app under `--no-clean`, which
+   * is the one place a write can land on a file the build reads without the
+   * directory itself being refused.
+   */
+  readonly writes?: readonly string[];
+}
+
 /**
  * Empties the output directory, refusing the ones that would hurt.
  *
@@ -467,20 +498,39 @@ export function binName(found: Inspection, named: string | undefined): string {
  * with `..` reads as "outside" and was treated as "above", which are different
  * things and only the second is dangerous.
  *
+ * The directory is resolved once, and that one path is what is checked, tested
+ * for and removed. `rmSync(resolve(out))` removes the lexically normalized
+ * path, and a raw `out` of `link/../alias/src` reaches a different directory
+ * through the kernel than through `resolve()` -- so asking about the raw string
+ * checked one directory and removed another.
+ *
  * @param out - The output directory.
- * @param root - The app's root.
- * @param wanted - Whether to clean at all.
- * @param reads - What the build reads, from `buildReads()`.
- * @throws If the directory holds the app itself, or anything in `reads`.
+ * @param guard - The app, what the build reads, and whether to clean.
+ * @throws If the directory holds the app itself, or anything the build reads.
  */
-export function clean(out: string, root: string, wanted: boolean, reads: readonly string[]): void {
-  assertCleanable(out, root, wanted, reads);
+export function clean(out: string, guard: OutputGuard): void {
+  const target = resolve(out);
 
-  if (!wanted || !existsSync(out)) {
+  assertCleanable(target, guard);
+
+  if (!guard.clean || !existsSync(target)) {
     return;
   }
 
-  rmSync(resolve(out), { force: true, recursive: true });
+  rmSync(target, { force: true, recursive: true });
+}
+
+/**
+ * What a build writes into its output directory, relative to it: the entry
+ * named after the executable, its sourcemap, and the chunk directory -- the
+ * names `bundleApp()` gives rolldown. Both module extensions, because the
+ * bundle `package` embeds for Node is CommonJS.
+ *
+ * @param name - What the built executable is called, from `binName()`.
+ * @returns The names.
+ */
+export function bundleWrites(name: string): readonly string[] {
+  return [...['mjs', 'cjs'].flatMap((ext) => [`${name}.${ext}`, `${name}.${ext}.map`]), 'chunks'];
 }
 
 /**
@@ -507,7 +557,7 @@ export function clean(out: string, root: string, wanted: boolean, reads: readonl
  * @param path - The path semantics to ask with.
  * @returns `true` if `out` is `target` or an ancestor of it.
  */
-export function holds(out: string, target: string, path: typeof nodePath = nodePath): boolean {
+function holds(out: string, target: string, path: typeof nodePath = nodePath): boolean {
   return (
     path.relative(path.resolve(out), path.resolve(target)) === '' || isInside(out, target, path)
   );
@@ -530,18 +580,20 @@ export function holdsApp(out: string, root: string, path: typeof nodePath = node
  * Everything the build reads that is the app's own, which is everything
  * emptying the output directory must not take.
  *
- * The entry, every command module the walk found, the command directory
+ * The entry, every command module the walk found, every catalog the entry's
+ * `locales` names that `readAppCatalogs()` could read, the command directory
  * itself, the manifest, `sigil.json` or `sigil.jsonc`, and the `tsconfig.json`
  * the type check uses -- plus an executable `--bin` named. Files before the
  * directory, so that a refusal names a file somebody recognises rather than
  * the directory they typed.
  *
  * What it cannot list is a module only the bundle finds -- a helper the entry
- * imports, a catalog -- because the module graph does not exist until rolldown
+ * imports, a catalog behind a loader that is not a literal `import()`,
+ * `node_modules` -- because the module graph does not exist until rolldown
  * builds it, and the clean runs before that so that a stale chunk cannot be
  * read back. An `--out` naming such a directory still fails the build after
- * emptying it. The list is what is knowable before the bundle, which covers
- * every way the ticket that wrote this (SIG-350) reached the data loss.
+ * emptying it. The list is everything `inspect()` has already read, which is
+ * what is knowable before the bundle.
  *
  * @param found - What reading the app turned up.
  * @param bin - An executable of the app's own, when one was named.
@@ -552,6 +604,7 @@ export function buildReads(found: Inspection, bin?: string): readonly string[] {
   const files = [
     found.app.entry,
     ...modulesOf(found.commands),
+    ...found.catalogs.map((catalog) => catalog.file),
     join(root, 'package.json'),
     ...CONFIG_FILES.map((name) => join(root, name)),
     // the one `typeCheck()` uses, which is always the root's -- see
@@ -608,13 +661,17 @@ export function heldFile(
   out: string,
   reads: readonly string[]
 ): { file: string; same: boolean } | undefined {
+  // resolved once, so the spelling and the identity are asked of the same path
+  // `clean()` removes
+  const path = resolve(out);
+
   for (const file of reads) {
-    if (holds(out, file)) {
-      return { file, same: relative(resolve(out), resolve(file)) === '' };
+    if (holds(path, file)) {
+      return { file, same: relative(path, resolve(file)) === '' };
     }
   }
 
-  const target = statOf(out, lstatSync);
+  const target = statOf(path, lstatSync);
   if (!target || target.ino === 0n) {
     return undefined;
   }
@@ -672,60 +729,90 @@ function realOf(path: string): string {
 }
 
 /**
- * Refuses an output directory that must not be emptied, without emptying any.
+ * Refuses an output directory that must not be emptied or built into, without
+ * emptying any.
  *
  * Split out of `clean()` so it can be asked in a pre-flight, which is where it
- * belongs: it is pure path arithmetic and needs no disk, and leaving it until
- * the removal meant a run doomed by its own `--out` did all the expensive work
- * first. Measured on CI, where `sigil package --out <the app root>` **fetched a
- * 90 MB runtime** before refusing.
+ * belongs: it reads nothing but the paths it is given and the stats of what
+ * they name, and leaving it until the removal meant a run doomed by its own
+ * `--out` did all the expensive work first. Measured on CI, where
+ * `sigil package --out <the app root>` **fetched a 90 MB runtime** before
+ * refusing.
  *
  * The `existsSync` that guards the removal deliberately does not guard this. A
  * directory that is not there cannot be destroyed, so `clean()` skips it -- but
  * an `--out` naming the app root is a mistake whether or not the directory
  * exists yet, and reporting it only sometimes is worse than either.
  *
- * The same is true of the second refusal, which is an `--out` holding anything
- * the build reads: `--out src` passed the first because `src` is below the
- * app rather than above it, and `rmSync()` took the source before rolldown
- * failed on the entry it was about to read (SIG-350). The message names the
- * file, because that is what makes the mistake obvious, and offers no
- * `--no-clean`: building into the source is not a thing to do either way.
+ * The second refusal is an `--out` holding anything the build reads:
+ * `--out src` passed the first because `src` is below the app rather than
+ * above it, and `rmSync()` took the source before rolldown failed on the entry
+ * it was about to read (SIG-350). It is asked **whether or not cleaning was**,
+ * because `--no-clean` into the source is the same mistake arriving later: the
+ * bundle is written over it instead, and `--out src --no-clean` replaced an
+ * entry called `src/<bin>.mjs` with the minified bundle and reported success.
+ * A directory of source is never an output directory, so the message offers no
+ * `--no-clean`.
+ *
+ * The one place `--no-clean` still means something is the app root and above,
+ * which is the escape hatch the first refusal names: `--out . --no-clean` puts
+ * the executable beside the manifest, and refusing it because the root holds
+ * `package.json` would take the hatch away. There, what is refused is a write
+ * that lands on something the build reads -- `guard.writes`, joined to `out`.
  *
  * @param out - The output directory.
- * @param root - The app's root.
- * @param wanted - Whether cleaning was asked for at all.
- * @param reads - What the build reads, from `buildReads()`.
- * @throws If the directory holds the app itself, or anything in `reads`.
+ * @param guard - The app, what the build reads and writes, and whether to clean.
+ * @throws If the directory holds the app itself and is to be emptied, if it
+ * holds anything the build reads, or if a write would land on one.
  */
-export function assertCleanable(
-  out: string,
-  root: string,
-  wanted: boolean,
-  reads: readonly string[]
-): void {
-  if (!wanted) {
+export function assertCleanable(out: string, guard: OutputGuard): void {
+  const target = resolve(out);
+  const { clean: wanted, reads, root } = guard;
+
+  if (holdsApp(target, root)) {
+    if (wanted) {
+      throw new Error(
+        `Refusing to empty ${displayPath(target)}, which holds the app itself. ` +
+          `Name a directory inside it, or pass --no-clean.`
+      );
+    }
+
+    // not emptied, so only what is written can hurt
+    for (const name of guard.writes ?? []) {
+      const write = join(target, name);
+      const held = heldFile(write, reads);
+      if (held) {
+        throw new Error(refusal(write, held, root, false));
+      }
+    }
     return;
   }
 
-  const resolved = resolve(out);
-
-  if (holdsApp(out, root)) {
-    throw new Error(
-      `Refusing to empty ${displayPath(resolved)}, which holds the app itself. ` +
-        `Name a directory inside it, or pass --no-clean.`
-    );
-  }
-
-  const held = heldFile(out, reads);
+  const held = heldFile(target, reads);
   if (held) {
-    const file = displayPath(relative(root, held.file) || held.file);
-    throw new Error(
-      held.same
-        ? `Refusing to remove ${displayPath(resolved)}, which is ${file}, and the build reads it. ` +
-            `Name a directory that holds none of the app's source.`
-        : `Refusing to empty ${displayPath(resolved)}, which holds ${file}, and the build reads it. ` +
-            `Name a directory that holds none of the app's source.`
-    );
+    throw new Error(refusal(target, held, root, wanted));
   }
+}
+
+/**
+ * What a refusal of a path holding something the build reads says.
+ *
+ * @param path - The path that would have been removed or written.
+ * @param held - What it holds, from `heldFile()`.
+ * @param root - The app's root, which the file is named relative to.
+ * @param removing - Whether the path was to be removed rather than written.
+ * @returns The message.
+ */
+function refusal(
+  path: string,
+  held: { file: string; same: boolean },
+  root: string,
+  removing: boolean
+): string {
+  const file = displayPath(relative(root, held.file) || held.file);
+  const what = held.same
+    ? `${removing ? 'remove' : 'write over'} ${displayPath(path)}, which is ${file}`
+    : `${removing ? 'empty' : 'build into'} ${displayPath(path)}, which holds ${file}`;
+
+  return `Refusing to ${what}, and the build reads it. Name a directory that holds none of the app's source.`;
 }

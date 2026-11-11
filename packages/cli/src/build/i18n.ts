@@ -238,6 +238,12 @@ export function findKeys(
 export interface FoundCatalog {
   /** What the loader answered. */
   readonly catalog: Catalog;
+  /**
+   * The file it was read from. Carried because the build reads it again when
+   * it bundles, so emptying the directory it is in is emptying the app's
+   * source -- see `buildReads()` in `commands/_inspect.ts`.
+   */
+  readonly file: string;
   /** The locale it is keyed under in the loader map. */
   readonly locale: string;
 }
@@ -426,7 +432,7 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
         throw new Error('not an object');
       }
 
-      catalogs.push({ catalog: value as Catalog, locale });
+      catalogs.push({ catalog: value as Catalog, file: path, locale });
     } catch (e) {
       diagnostics.push({
         column,

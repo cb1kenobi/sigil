@@ -12,7 +12,9 @@ import { describe, expect, it } from 'vitest';
  * guard saying yes to `/`. A regression would make that removal real, so the
  * one end-to-end test is over a temp directory that is an ancestor of a temp
  * app, and the root is only ever put to `assertCleanable()` and `holdsApp()`,
- * which are pure path arithmetic.
+ * which remove nothing. Every call here names no file the build reads, so
+ * `assertCleanable()` asks only the root rule; the rule about what the build
+ * reads is `clean-source.test.ts`'s.
  *
  * Both platforms are asked on every machine, through `posix` and `win32`, and no
  * path below spells a separator: each is built by the path module it is asked
@@ -41,7 +43,9 @@ describe('the clean guard', () => {
     // used to return and let the removal through
     const app = resolve(tempDir('sigil-clean-guard-'), 'app');
 
-    expect(() => assertCleanable(parse(app).root, app, true, [])).toThrow('holds the app itself');
+    expect(() => assertCleanable(parse(app).root, { clean: true, reads: [], root: app })).toThrow(
+      'holds the app itself'
+    );
   });
 
   it('should refuse every ancestor of the app, and the app root itself', () => {
@@ -96,13 +100,17 @@ describe('the clean guard', () => {
     mkdirSync(app);
     writeFileSync(join(app, 'package.json'), '{}');
 
-    expect(() => clean(base, app, true, [])).toThrow('holds the app itself');
+    expect(() => clean(base, { clean: true, reads: [], root: app })).toThrow(
+      'holds the app itself'
+    );
     expect(existsSync(join(app, 'package.json'))).toBe(true);
   });
 
   it('should refuse nothing when cleaning was not asked for', () => {
     const app = resolve(tempDir('sigil-clean-guard-'), 'app');
 
-    expect(() => assertCleanable(parse(app).root, app, false, [])).not.toThrow();
+    expect(() =>
+      assertCleanable(parse(app).root, { clean: false, reads: [], root: app })
+    ).not.toThrow();
   });
 });

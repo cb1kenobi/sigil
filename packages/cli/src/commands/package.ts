@@ -203,10 +203,18 @@ const pkg: AnyCommand = command({
 
     assertSelfContained(external);
     assertSignable(identity, targets);
-    // before `resolveExec()`, because it is pure path arithmetic and a run
-    // doomed by its own `--out` should not fetch a 90 MB runtime first
-    const reads = buildReads(found);
-    assertCleanable(out, found.app.root, argv.clean !== false, reads);
+    // before `resolveExec()`, because it needs nothing but the paths and a few
+    // stats, and a run doomed by its own `--out` should not fetch a 90 MB
+    // runtime first. What lands in `out` is the binaries and nothing else: the
+    // bundle goes to the staging directory below
+    const name = binName(found, (argv.name as string | undefined) ?? build.name);
+    const guard = {
+      clean: argv.clean !== false,
+      reads: buildReads(found),
+      root: found.app.root,
+      writes: targets.map((target) => outputName(name, target, targets)),
+    };
+    assertCleanable(out, guard);
     for (const target of targets) {
       assertCompilable(runtime, target);
     }
@@ -217,8 +225,6 @@ const pkg: AnyCommand = command({
     // was going to be refused is the one order that wastes the user's time, and
     // before `clean()`, so a failed download leaves the output directory alone
     const exec = await resolveExec(spec, targets[0] as Target);
-
-    const name = binName(found, (argv.name as string | undefined) ?? build.name);
 
     // the bundle is an intermediate, so it does not land beside the binaries.
     // Under `node_modules/.sigil/`, which is where `writeEntry()` already puts
@@ -241,7 +247,7 @@ const pkg: AnyCommand = command({
     // before anybody looked. If you want the bundle, `sigil build` writes one.
     const staging = join(found.app.root, WORK_DIR, `${hash(out)}-package`);
 
-    clean(out, found.app.root, argv.clean !== false, reads);
+    clean(out, guard);
 
     // and the staging directory, always: it is this command's own scratch space
     // rather than anything the user asked to keep, so a stale chunk from a

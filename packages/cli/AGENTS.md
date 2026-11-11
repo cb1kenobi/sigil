@@ -2281,14 +2281,28 @@ other is refused with numbers.
   after `inspect()` had read it and before rolldown went back for the entry --
   so the build then failed with `Module not found` over a source tree it had
   just deleted. Through `"build": { "out": "src" }` and through `sigil package`
-  equally. `buildReads()` is the list: the entry, every module the tree walk
-  found, the command directory, `package.json`, `sigil.json`/`sigil.jsonc`, the
-  root `tsconfig.json` the type check uses, and a `--bin`; `assertCleanable()`
-  refuses an `out` that is or holds any of them, names the file -- `which holds`
-  the entry for `--out src`, `which is` the file for `--out sigil.json` -- and
-  offers no `--no-clean`, since building into the source is wrong either way. Asked in the
-  same pre-flight as the root case, so `package` still refuses before a runtime
-  is fetched and nothing is removed first.
+  equally. `buildReads()` is the list, and it is everything `inspect()` has
+  already read: the entry, every module the tree walk found, every catalog the
+  entry's `locales` names by a literal `import()` (`FoundCatalog.file`, kept on
+  `Inspection.catalogs` -- `--out locales` emptied them the same way), the
+  command directory, `package.json`, `sigil.json`/`sigil.jsonc`, the root
+  `tsconfig.json` the type check uses, and a `--bin`. `assertCleanable()`
+  refuses an `out` that is or holds any of them and names the file -- `which
+  holds` the entry for `--out src`, `which is` the file for `--out sigil.json`.
+  Asked in the same pre-flight as the root case, so `package` still refuses
+  before a runtime is fetched and nothing is removed first.
+
+  **It is asked whether or not cleaning is.** `--out src --no-clean` removed
+  nothing and wrote the bundle over the source instead: an entry at
+  `src/<bin>.mjs` was replaced by the minified bundle, and the build reported
+  success. A directory of source is never an output directory, so the message
+  offers no `--no-clean`. The one place `--no-clean` still means something is
+  the app root and above, because that is the escape hatch the root refusal
+  names, and every such directory holds `package.json` -- refusing it outright
+  would take the hatch away. There, what is refused is a **write** that lands on
+  something the build reads: `OutputGuard.writes`, which is `bundleWrites()` for
+  a build (`<bin>.mjs`, `<bin>.cjs`, their maps, `chunks/`) and the binaries'
+  `outputName()`s for a package.
 
   It is asked two ways in `heldFile()`, and each catches what the other cannot.
   By **spelling**, through `holds()` -- which `holdsApp()` now is, rather than a
@@ -2305,20 +2319,33 @@ other is refused with numbers.
   the last link, so it removes the link and nothing behind it -- measured, and
   pinned by a test that runs the removal. An `out` that is a link the build
   reads _through_ is refused by spelling, since removing it loses no data but
-  breaks the read. Four sabotages -- no spelling check, no identity walk, no
-  real-path start, `stat` for `lstat` -- each fail a test in
-  `test/clean-source.test.ts`; the commands are pinned from the flag
-  and from the config file in `build-command.test.ts` and
-  `package-command.test.ts`.
+  breaks the read.
+
+  **`out` is resolved once, and that path is what is checked, tested and
+  removed.** The first version asked `lstat` and `existsSync` about the raw
+  string and removed `resolve(out)`, and those are different directories when a
+  symlink is followed by `..`: `link/../alias/src` is the directory beside the
+  link's target to the kernel and `alias/src` to `resolve()`, so the check passed
+  and the removal took the source (found by review). A consequence worth
+  knowing: a symlink to the source spelled with a trailing separator was refused
+  before, because `lstat` of `link/` follows the link, and is allowed now, which
+  is right for the same reason the bare spelling is -- `resolve()` drops the
+  separator and the removal unlinks the link.
+
+  Sabotages each fail a test in `test/clean-source.test.ts`: no spelling check,
+  no identity walk, no real-path start, and `stat` for `lstat`. The commands are
+  pinned from the flag, from the config file, and under `--no-clean`, in
+  `build-command.test.ts` and `package-command.test.ts`.
 
   What it cannot list is a module only the bundle finds -- a helper the entry
-  imports, a catalog, `node_modules` -- because the module graph does not exist
-  until rolldown builds it, and the clean has to run before that. An `--out`
-  naming such a directory is still emptied and the build still fails after.
-  Every other recursive delete in `src/` was audited with it and removes only a
-  directory this toolchain made for itself: the bundle's and `package`'s
-  scratch directories under `node_modules/.sigil/`, the SEA config's
-  `mkdtempSync()` directory, and a runtime download's `.partial-<pid>`.
+  imports, a catalog behind a loader that is not a literal `import()`,
+  `node_modules` -- because the module graph does not exist until rolldown
+  builds it, and the clean has to run before that. An `--out` naming such a
+  directory is still emptied and the build still fails after. Every other
+  recursive delete in `src/` was audited with it and removes only a directory
+  this toolchain made for itself: the bundle's and `package`'s scratch
+  directories under `node_modules/.sigil/`, the SEA config's `mkdtempSync()`
+  directory, and a runtime download's `.partial-<pid>`.
 
 - **Sourcemaps are on by default and `--no-sourcemap` turns them off, because
   "costs nothing" was only true of run time.** They are several times the size
@@ -3440,8 +3467,8 @@ about what a valid app is would be the worse half of the feature.
   Windows job had reached a download. One `executable()` so the write and the
   lookup cannot disagree.
 
-- **`--out` is refused before a runtime is fetched, not after.** The check is
-  pure path arithmetic and sat inside `clean()`, which runs after
+- **`--out` is refused before a runtime is fetched, not after.** The check
+  needs only paths and a few stats of them, and sat inside `clean()`, which runs after
   `resolveExec()` -- so on CI `sigil package --out <the app root>` **downloaded a
   90 MB runtime** and then refused. `assertCleanable()` is the pre-flight half,
   and it deliberately does not take `clean()`'s `existsSync` guard with it: a
@@ -4672,7 +4699,8 @@ hand-written page sits beside the generated ones -- so a stale page is
 **reported** and left, and a `--check` fails over it. Reporting costs the author
 one `rm`; deleting costs them a file they wrote, and the guard that would make
 deleting safe does not exist: `sigil build`'s own refusal is of the app root and
-above, and a destination typed one directory wrong is below it.
+above and of a directory holding what the build reads, and a docs destination
+typed one directory wrong is neither.
 
 Which forced a message per kind rather than one sentence with the kind
 interpolated: `sigil reference` writes a missing or an out-of-date file and does
@@ -4795,8 +4823,9 @@ measurements are in
 
 - **`sigil package` refuses a binary whose check could never report
   anything, and it is deliberately not a pre-flight.** `assertCleanable()` is
-  refused before a runtime is fetched because it is pure path arithmetic -- it
-  can be asked at any time, so it is asked first. This cannot: whether the
+  refused before a runtime is fetched because it needs only paths `inspect()`
+  already has and a few stats of them -- it can be asked at any time, so it is
+  asked first. This cannot: whether the
   check is in the app is a question about the **module graph**, and there is
   no graph until the bundle is built. So it is asked at the first moment there
   is an answer, which is still before `compileAll()` -- the download is a

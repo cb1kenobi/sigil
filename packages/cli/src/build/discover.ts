@@ -323,12 +323,12 @@ export function isFile(path: string): boolean {
  * outside the directory it was meant for.
  *
  * **Strictly** inside: the directory is not inside itself, because every caller
- * is asking about a file or a subdirectory below it. `holdsApp()` is the one
- * caller that wants the directory itself counted too, and it says so beside
- * this rather than with a path rule of its own.
+ * is asking about a file or a subdirectory below it. `holds()` in
+ * `commands/_inspect.ts` is the one caller that wants the path itself counted
+ * too, and it says so beside this rather than with a path rule of its own.
  *
  * Asked of `relative()` rather than of a string prefix, for the reasons SIG-246
- * found in the copy of this that `holdsApp()` used to carry. A prefix needs a
+ * found in the copy of this that the clean guard used to carry. A prefix needs a
  * separator appended, so that `dist-old` is not read as inside `dist`, and the
  * root is the one directory `resolve()` already ends in one -- every caller had
  * to remember that, and the clean guard did not. A prefix is also

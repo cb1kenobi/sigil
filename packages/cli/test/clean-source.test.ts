@@ -2,6 +2,7 @@ import { displayPath } from '../src/build/index.ts';
 import {
   assertCleanable,
   buildReads,
+  bundleWrites,
   clean,
   heldFile,
   inspect,
@@ -63,7 +64,7 @@ describe('an --out that holds the source', () => {
     const { app, entry, module, reads } = makeApp();
     const out = resolveOut(app, 'src');
 
-    expect(() => clean(out, app, true, reads)).toThrow(
+    expect(() => clean(out, { clean: true, reads, root: app })).toThrow(
       `Refusing to empty ${displayPath(out)}, which holds ${displayPath(join('src', 'index.js'))}`
     );
     expect(existsSync(entry)).toBe(true);
@@ -74,7 +75,7 @@ describe('an --out that holds the source', () => {
     const { app, module, reads } = makeApp();
     const out = resolveOut(app, join('src', 'commands'));
 
-    expect(() => clean(out, app, true, reads)).toThrow(
+    expect(() => clean(out, { clean: true, reads, root: app })).toThrow(
       `which holds ${displayPath(join('src', 'commands', 'hello.js'))}`
     );
     expect(existsSync(module)).toBe(true);
@@ -85,7 +86,7 @@ describe('an --out that holds the source', () => {
 
     for (const name of [join('src', 'index.js'), 'package.json', 'sigil.json']) {
       const out = resolveOut(app, name);
-      expect(() => clean(out, app, true, reads), name).toThrow(
+      expect(() => clean(out, { clean: true, reads, root: app }), name).toThrow(
         `Refusing to remove ${displayPath(out)}, which is ${displayPath(name)}`
       );
     }
@@ -105,9 +106,10 @@ describe('an --out that holds the source', () => {
       `${join('src', 'commands', '..')}${sep}`,
       join('..', 'app', 'src'),
     ]) {
-      expect(() => assertCleanable(resolveOut(app, spelling), app, true, reads), spelling).toThrow(
-        'and the build reads it'
-      );
+      expect(
+        () => assertCleanable(resolveOut(app, spelling), { clean: true, reads, root: app }),
+        spelling
+      ).toThrow('and the build reads it');
     }
     expect(existsSync(entry)).toBe(true);
   });
@@ -116,9 +118,10 @@ describe('an --out that holds the source', () => {
     const { app, reads } = makeApp();
 
     for (const spelling of ['.', '..', `.${sep}`]) {
-      expect(() => assertCleanable(resolveOut(app, spelling), app, true, reads), spelling).toThrow(
-        'which holds the app itself'
-      );
+      expect(
+        () => assertCleanable(resolveOut(app, spelling), { clean: true, reads, root: app }),
+        spelling
+      ).toThrow('which holds the app itself');
     }
   });
 
@@ -132,7 +135,7 @@ describe('an --out that holds the source', () => {
     symlinkSync(app, alias, 'junction');
     const out = join(alias, 'src');
 
-    expect(() => clean(out, app, true, reads)).toThrow(
+    expect(() => clean(out, { clean: true, reads, root: app })).toThrow(
       `which holds ${displayPath(join('src', 'index.js'))}`
     );
     expect(existsSync(entry)).toBe(true);
@@ -149,7 +152,7 @@ describe('an --out that holds the source', () => {
     symlinkSync(shared, linked, 'junction');
     const module = join(linked, 'hello.js');
 
-    expect(() => clean(shared, app, true, [entry, module])).toThrow(
+    expect(() => clean(shared, { clean: true, reads: [entry, module], root: app })).toThrow(
       `which holds ${displayPath(join('src', 'linked', 'hello.js'))}`
     );
     expect(existsSync(join(shared, 'hello.js'))).toBe(true);
@@ -169,7 +172,7 @@ describe('an --out that holds the source', () => {
       const module = join(app, 'src', 'commands', 'linked.js');
       symlinkSync(join(shared, 'real.js'), module);
 
-      expect(() => clean(shared, app, true, [entry, module])).toThrow(
+      expect(() => clean(shared, { clean: true, reads: [entry, module], root: app })).toThrow(
         `which holds ${displayPath(join('src', 'commands', 'linked.js'))}`
       );
       expect(existsSync(join(shared, 'real.js'))).toBe(true);
@@ -187,9 +190,9 @@ describe('an --out that holds the source', () => {
     const linked = join(app, 'src', 'linked');
     symlinkSync(shared, linked, 'junction');
 
-    expect(() => clean(linked, app, true, [entry, join(linked, 'hello.js')])).toThrow(
-      `which holds ${displayPath(join('src', 'linked', 'hello.js'))}`
-    );
+    expect(() =>
+      clean(linked, { clean: true, reads: [entry, join(linked, 'hello.js')], root: app })
+    ).toThrow(`which holds ${displayPath(join('src', 'linked', 'hello.js'))}`);
     expect(existsSync(join(linked, 'hello.js'))).toBe(true);
   });
 
@@ -201,7 +204,7 @@ describe('an --out that holds the source', () => {
     symlinkSync(join(app, 'src'), out, 'junction');
 
     expect(heldFile(out, reads)).toBeUndefined();
-    clean(out, app, true, reads);
+    clean(out, { clean: true, reads, root: app });
 
     expect(existsSync(out)).toBe(false);
     expect(existsSync(entry)).toBe(true);
@@ -217,11 +220,11 @@ describe('an --out that holds the source', () => {
     const out = resolveOut(app, 'SRC');
 
     if (foldsCase(app)) {
-      expect(() => clean(out, app, true, reads)).toThrow(
+      expect(() => clean(out, { clean: true, reads, root: app })).toThrow(
         `which holds ${displayPath(join('src', 'index.js'))}`
       );
     } else {
-      expect(() => assertCleanable(out, app, true, reads)).not.toThrow();
+      expect(() => assertCleanable(out, { clean: true, reads, root: app })).not.toThrow();
     }
     expect(existsSync(entry)).toBe(true);
   });
@@ -234,14 +237,98 @@ describe('an --out that holds the source', () => {
       resolveOut(app, join('src', 'commands', 'dist')),
       join(base, 'elsewhere'),
     ]) {
-      expect(() => assertCleanable(out, app, true, reads), out).not.toThrow();
+      expect(() => assertCleanable(out, { clean: true, reads, root: app }), out).not.toThrow();
     }
   });
 
-  it('should refuse nothing when cleaning was not asked for', () => {
+  it('--out src --no-clean wrote the bundle over the source, and is refused the same way', () => {
+    // nothing is removed, but the entry is written over by one of the same
+    // name, so a source directory is refused whether or not it is emptied
+    const { app, entry, reads } = makeApp();
+    const out = resolveOut(app, 'src');
+
+    expect(() =>
+      clean(out, { clean: false, reads, root: app, writes: bundleWrites('index') })
+    ).toThrow(
+      `Refusing to build into ${displayPath(out)}, which holds ${displayPath(join('src', 'index.js'))}`
+    );
+    expect(existsSync(entry)).toBe(true);
+  });
+
+  it('should still let --no-clean build into the app root, which is the escape hatch', () => {
     const { app, reads } = makeApp();
 
-    expect(() => assertCleanable(resolveOut(app, 'src'), app, false, reads)).not.toThrow();
+    for (const out of [app, resolveOut(app, '.')]) {
+      expect(
+        () => assertCleanable(out, { clean: false, reads, root: app, writes: bundleWrites('cli') }),
+        out
+      ).not.toThrow();
+    }
+  });
+
+  it('should refuse a --no-clean build into the app root that would write over what it reads', () => {
+    // an entry at the root named the way the executable is, and a command
+    // directory called `chunks`: the two things a build writes beside it
+    const { app, reads } = makeApp();
+    const bin = join(app, 'cli.mjs');
+    const chunk = join(app, 'chunks', 'hello.js');
+    mkdirSync(dirname(chunk));
+    writeFileSync(bin, '');
+    writeFileSync(chunk, '');
+
+    expect(() =>
+      assertCleanable(app, {
+        clean: false,
+        reads: [...reads, bin],
+        root: app,
+        writes: bundleWrites('cli'),
+      })
+    ).toThrow(`Refusing to write over ${displayPath(bin)}, which is cli.mjs`);
+    expect(() =>
+      assertCleanable(app, {
+        clean: false,
+        reads: [...reads, chunk],
+        root: app,
+        writes: bundleWrites('cli'),
+      })
+    ).toThrow(
+      `Refusing to build into ${displayPath(join(app, 'chunks'))}, which holds ${displayPath(join('chunks', 'hello.js'))}`
+    );
+  });
+
+  it('should ask about the directory it removes when the spelling climbs out of a symlink', () => {
+    // `link/../alias/src` is `base/y/alias/src` to the kernel, which follows
+    // `link` before it reads `..`, and `base/alias/src` -- the app's source --
+    // to `resolve()`, which `rmSync()` is handed. The guard used to ask about
+    // the first and the removal took the second. Junctions, for Windows
+    const { app, base, entry, reads } = makeApp();
+    symlinkSync(app, join(base, 'alias'), 'junction');
+    mkdirSync(join(base, 'y', 'z'), { recursive: true });
+    mkdirSync(join(base, 'y', 'alias', 'src'), { recursive: true });
+    symlinkSync(join(base, 'y', 'z'), join(base, 'link'), 'junction');
+    const out = `${join(base, 'link')}${sep}${join('..', 'alias', 'src')}`;
+
+    expect(() => clean(out, { clean: true, reads, root: app })).toThrow(
+      `which holds ${displayPath(join('src', 'index.js'))}`
+    );
+    expect(existsSync(entry)).toBe(true);
+  });
+
+  it('should list the catalogs the entry declares among what the build reads', () => {
+    // `readAppCatalogs()` has already followed each literal `import()` to its
+    // file by the time the output directory is cleaned, and the bundle reads
+    // it again -- so `--out locales` emptied them and the build failed
+    const app = join(tempDir('sigil-clean-source-'), 'i18n');
+    copyFixture(join(fixtures, 'i18n'), app);
+    const catalog = join(app, 'locales', 'de.json');
+
+    const reads = buildReads(inspect({ cwd: app }));
+
+    expect(reads).toContain(catalog);
+    expect(() => clean(resolveOut(app, 'locales'), { clean: true, reads, root: app })).toThrow(
+      `which holds ${displayPath(join('locales', 'de.json'))}`
+    );
+    expect(existsSync(catalog)).toBe(true);
   });
 
   it('should list what the build reads: the entry, every module, the manifest and the command directory', () => {
