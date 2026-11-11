@@ -112,6 +112,24 @@ describe('an all-ASCII screen', () => {
     expect(built).toBe(0);
   });
 
+  it('should build no segmenter to split one code unit, which is how a border is painted', async () => {
+    const { graphemes } = await import('../../src/width/index.js');
+    const { box, renderToString, text } = await import('../../src/element/index.js');
+
+    // one code unit has nothing to join, whatever it is: a box-drawing line, a
+    // block, a braille cell, a combining mark on its own, half a surrogate pair
+    for (const one of ['─', '╭', '█', '⣿', ACUTE, ZWJ, LONE_SURROGATE, 'é']) {
+      expect(graphemes(one)).toEqual([one]);
+    }
+
+    // a border is painted a cell at a time, so a frame of panels split each cell
+    // of every edge with a segmenter (SIG-290)
+    const panel = box({ 'border-style': 'round', height: 4, width: 30 }, text('cpu 42%'));
+    expect(renderToString(panel, { colorLevel: 3, width: 30 })).toContain('╭');
+
+    expect(built).toBe(0);
+  });
+
   it('should build one segmenter the first time text that is not plain ASCII is measured', async () => {
     // the control: without it, a counter that never counted would pass both of
     // the tests above
@@ -172,6 +190,12 @@ describe('the plain ASCII shortcut', () => {
   const named = [
     '',
     ' ',
+    '─',
+    '⣿',
+    ACUTE,
+    ZWJ,
+    LONE_SURROGATE,
+    '\r',
     'Compile the project',
     '  indented, with  two spaces',
     'a-very-long-word-with-no-break-in-it-anywhere',
