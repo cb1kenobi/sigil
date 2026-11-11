@@ -1486,6 +1486,88 @@ already stands for.
 
 > Moved: _What the fourth review round found, and five of the six were the last two commits' own prose_, _What the fifth round found: the insertion arithmetic nobody had read_, _What the first round of PR review found, and the CI it was reading_, _What the second round of PR review found: the dangling half of the symlink fix_, _What the third round of PR review found: lexical `..` against the kernel's_, _What the fourth round of PR review found: the kept entry's own comment_ — see [docs/history/writing-a-config-file-back-without-destroying-it.md](../../../../docs/history/writing-a-config-file-back-without-destroying-it.md).
 
+#### A line is counted once per file, not once per thing on it
+
+`lineAt()` walks from the start of the text, which is the right cost for the one
+message that needs a line and was the wrong one for the scanner, which asked it
+for **every comment** (SIG-371). N comments were N walks of the file:
+
+| comment lines | bytes  | load before | load after |
+| ------------- | ------ | ----------- | ---------- |
+| 5,000         | 60 KB  | 1,502 ms    | 30 ms      |
+| 10,000        | 120 KB | 5,755 ms    | 13 ms      |
+| 20,000        | 240 KB | 23,221 ms   | 16 ms      |
+| 40,000        | 480 KB | 92,259 ms   | 23 ms      |
+
+The "before" column is the ticket's, measured through `createConfig()` over a
+`json()` layer; "after" is the same script over the built `dist/`, with the first
+row paying for the warm-up. `sigil.json`, `commands.json` and every JSONC store
+read through this scanner, so it was a denial of service wherever an app reads a
+config it did not write. A 400 KB file of `/*` repeated took 118 seconds to say
+`Unterminated comment` and takes 15 ms: that is the **same** loop rather than a
+second one, because `/*/*/*` is a run of six-byte block comments each closed by
+the next opener's star, and each one asked `lineAt()` before the last opener
+failed to close.
+
+- **`lineCounter()` is `lineAt()` resumed, and `lineAt()` is `lineCounter()`
+  asked once.** One rule rather than two, so the scanner and a message cannot
+  come to disagree about what a line is -- every `LINE_END`, a CRLF once. The
+  counter keeps the loop's own cursor rather than the offset last asked, because
+  a CRLF steps the cursor one past the `\n`, and an offset behind the last one
+  restarts the walk rather than answering wrong. The scanner's questions only ever
+  go forward, the refusals included, so all four ask it.
+
+- **The writer had the same shape three more ways, and on a minified file each was
+  the whole document.** A single-line file puts every entry on line 1, so a walk
+  back to a line's start is a walk to offset 0: `detectStep()` asked
+  `ownLineIndent()` of every entry on every save, `diffObject()` asked every
+  object's indentation whether or not it gained a key, and each container that
+  did gain one asked again. Measured over the built `dist/`, one `set()` and
+  `save()`, on a machine with a load average near 80 -- so read the after column
+  as a magnitude, which is the point of it:
+
+  | one-line document                 | before    | after  |
+  | --------------------------------- | --------- | ------ |
+  | 5,000 scalar keys, add one        | 4,553 ms  | 21 ms  |
+  | 10,000 scalar keys, add one       | 25,291 ms | 31 ms  |
+  | 3,000 one-key objects, add one    | 4,453 ms  | 39 ms  |
+  | 10,000 objects, add a key to each | 17,535 ms | 71 ms  |
+  | 40,000 one-key objects, add one   | --        | 191 ms |
+
+  So `ownLineIndent()` walks back over whitespace and stops at the first thing
+  that is not -- the same answer, since `\s` is what `trim()` takes, and the walk
+  is the indentation rather than the line. Every other line start the writer
+  needs comes from `lineStarts()`, an index of the text built once per edit and
+  read by binary search, which agrees with `lineStartAt()` at every offset in the
+  text: both answer just past any `LINE_END` character. It does not agree about a
+  **negative** offset, which `lineStartAt()` hands back and the index answers 0
+  for -- no caller passes one, and a guard that cannot fire is the one this
+  directory deletes. `detectStep()` walks its queue by index rather than by
+  `shift()`, which moves every element behind the one it takes.
+
+- **Pinned by counting rather than by timing.** `test/config/lines.test.ts`
+  counts how often `LINE_END.test` runs at a size and at twice it, which is 2 for
+  a linear walk and 4 for a quadratic one, and asserts under 3 -- for the comment
+  file, the `/*` file, a minified save and a key added to every object. Counted by
+  hand rather than through `vi.spyOn()`, because a spy keeps every call's
+  arguments and the quadratic version exhausted the heap before the assertion
+  could fail. Every sabotage was run: the comment line back on `lineAt()` fails
+  the first two at 3.99, the old `ownLineIndent()` fails the writer's two at 4.1,
+  the writer's indentation off the index fails both at 4.09, and a counter that
+  forgets the CRLF step fails the any-order test. Exactness is a seeded corpus of
+  300 documents mixing all three line endings, comments flush against strings,
+  strings holding U+2028 and comment markers, and block comments running over
+  lines, with every comment's line compared against `lineAt()` and against an
+  oracle that splits on a regex and shares no code with either.
+
+- **Swept, and nothing else in config reads a line per item.** The YAML store
+  takes lines from `yaml`'s own `LineCounter`, which is a binary search, and only
+  for a refusal; its `align()` is a longest common subsequence, already capped by
+  `LCS_CELLS`. The XML store counts a line once per residual kind, which is a
+  fixed table, and its `contentOf()` skips past each region it blanks. The
+  stylesheet parser's `countLines()` is message-only, which is the rule
+  `lineAt()`'s own doc comment cites.
+
 #### What the write half costs
 
 - **The config module's graph was 32,625 B over seven modules**, against 20,649 B
