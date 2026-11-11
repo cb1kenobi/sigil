@@ -159,10 +159,14 @@ the entry it belongs to.
     and that is two columns as well. A joiner alone is not enough: `U+00A9 U+200D`
     with nothing after it joins nothing, and stays one column.
 
-  The joiner in that regular expression is written `\u{200D}`, with braces.
-  oxfmt decodes the four-digit `\u` form of it in a regular expression literal
-  into the raw, invisible character, and leaves the braced form alone. The first
-  version of this change shipped a raw joiner there.
+  The joiner in that regular expression is written as the escape `\u{200D}`,
+  because the escape reads unambiguously and the raw character is invisible: a
+  raw one makes the pattern read as "any pictograph", and an editor that drops
+  it silently makes every cluster of more than one code point that holds a
+  pictograph two columns, `U+2764 U+FE0E` among them. The first version of this
+  change shipped a raw joiner there, put in by an editing tool that decoded the
+  escape on the way in. The formatter was checked and is not the cause: it
+  keeps a regex escape byte for byte.
 
   What keeps its width is enumerated in `test/width/text-default-emoji.test.ts`:
   - A digit, `#` and `*` alone, and before a mark or a joiner: one column.

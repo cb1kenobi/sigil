@@ -58,9 +58,8 @@ const emojiModifier = /^\p{Emoji_Modifier}$/u;
  * first of them is usually the cluster's first code point, but not always: a
  * prepended character (GB9b), such as `U+0600`, can come ahead of it.
  *
- * The joiner is written `\u{200D}` with braces because the formatter decodes a
- * four-digit `\u` escape in a regular expression literal into the raw,
- * invisible character, and leaves the braced form alone.
+ * The joiner is an escape, `\u{200D}`, because the raw character is invisible:
+ * the pattern would read as any pictograph at all.
  */
 const joinedPictograph = /\u{200D}\p{Extended_Pictographic}/u;
 
