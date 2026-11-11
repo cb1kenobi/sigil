@@ -73,6 +73,7 @@ import {
 import { type Cascade, parseStylesheet, type Stylesheet } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { parseTheme, themedCascade } from '../theme/index.js';
+import { trimTrailingNewlines } from '../util/trim-trailing-newlines.js';
 import { render, type Renderer, type RenderOptions } from './index.js';
 import { type Context, createContext, provideContext, useContext } from './owner.js';
 
@@ -638,7 +639,7 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
    * With no renderer coming at all, which is a refusal, it goes straight out.
    */
   function reportError(error: unknown): void {
-    const line = `${renderError(error).replace(/[\r\n]+$/, '')}\n`;
+    const line = `${trimTrailingNewlines(renderError(error))}\n`;
     if (view) {
       hold(line, 'stderr');
     } else if (rendering) {

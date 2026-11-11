@@ -18,20 +18,12 @@ import { describe, expect, it } from 'vitest';
  *
  * Reads `dist/`, so it needs a build first, which is what `pnpm test` does and
  * what `@ttylabs/cli`'s tests already require.
+ *
+ * The check that no shipped file carries a raw control character is not here:
+ * it is `should ship no raw control character` in
+ * `packages/cli/test/cli.test.ts`, which reads every package's `dist/` with one
+ * definition of the rule. What stays is the half only this package has.
  */
-
-/** Tab, newline and carriage return: the file's own formatting, not a sequence. */
-const FORMATTING = new Set([0x09, 0x0a, 0x0d]);
-
-/** Whether a code point is one a terminal would act on rather than print. */
-function isControl(code: number): boolean {
-  if (FORMATTING.has(code)) {
-    return false;
-  }
-  // C0 and DEL, then C1 -- where U+009B is a CSI all by itself, and is one of
-  // the two escapes `codes.ts` builds
-  return code < 0x20 || (code >= 0x7f && code <= 0x9f);
-}
 
 describe('the shipped bundles', () => {
   const files = shippedModules();
@@ -41,33 +33,11 @@ describe('the shipped bundles', () => {
     expect(files.length, `no bundles in ${dist}; run \`pnpm build\``).toBeGreaterThan(0);
   });
 
-  it.each(files)('should carry no raw control characters: %s', (name) => {
-    // a raw `ESC` in a shipped file is a sequence waiting for something to
-    // print it, and Node prints the offending source line on an uncaught
-    // error -- so a crash anywhere inside the bundle wrote `ESC ] 8 ; ;` to
-    // the user's terminal and left every line after it inside a hyperlink
-    // nothing closed. The build escapes them; this is what says it still does
-    const text = readFileSync(join(dist, name), 'utf8');
-    const found = new Map<number, number>();
-
-    for (const char of text) {
-      const code = char.codePointAt(0) ?? 0;
-      if (isControl(code)) {
-        found.set(code, (found.get(code) ?? 0) + 1);
-      }
-    }
-
-    const report = [...found]
-      .map(([code, count]) => `U+${code.toString(16).toUpperCase().padStart(4, '0')} x${count}`)
-      .join(', ');
-
-    expect(found.size, `${name} ships raw control characters: ${report}`).toBe(0);
-  });
-
   it('should still spell the escapes it needs', () => {
     // the other half of it: escaping them must not have taken them away. The
     // styler cannot work without an `ESC`, and a build that dropped one would
-    // pass the check above by being wrong
+    // pass the control-character check in `packages/cli/test/cli.test.ts` by
+    // being wrong
     const ansi = readFileSync(join(dist, 'ansi.mjs'), 'utf8');
     const imported = shippedModules()
       .map((name) => readFileSync(join(dist, name), 'utf8'))
@@ -75,6 +45,56 @@ describe('the shipped bundles', () => {
 
     expect(ansi.length).toBeGreaterThan(0);
     expect(imported).toMatch(/\\x1B/i);
+  });
+});
+
+/**
+ * `"sideEffects": false`, and the one module-scope effect it has to survive.
+ *
+ * The field tells an app's bundler that a shipped file whose exports go unused
+ * can be dropped whole. Exactly one module in `src/` does anything at import
+ * beyond building its own values: `style/shorthand.ts` ends with
+ * `registerShorthandLookup(shorthandLonghands)`, which fills a hook in
+ * `style/properties.ts` so that `transition-property: padding` can expand a
+ * shorthand -- `properties.ts` cannot import `shorthand.ts`, which imports it.
+ * Dropping that file would leave the hook answering `undefined` and the parse
+ * would throw `no such property` on a name that is one.
+ *
+ * It is safe because the two modules ship in one file, so nothing can keep the
+ * reader and drop the registration: a bundler drops a file, never half of one,
+ * and a call that writes a binding something kept reads is never shaken out of
+ * a file that stays. That is a fact about how tsdown chunked the build rather
+ * than about the source, so it is asserted here rather than assumed.
+ */
+describe('what "sideEffects": false relies on', () => {
+  const manifest = JSON.parse(
+    readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json'), 'utf8')
+  ) as { sideEffects?: unknown };
+
+  /** The shipped file holding a string only the given module writes. */
+  function holding(marker: string): string[] {
+    return shippedModules().filter((name) =>
+      readFileSync(join(dist, name), 'utf8').includes(marker)
+    );
+  }
+
+  it('should declare the package free of import-time effects', () => {
+    expect(manifest.sideEffects).toBe(false);
+  });
+
+  it('should ship the shorthand registration in the file that reads it', () => {
+    // `parseTransitionProperty()` in properties.ts, and `expandShorthand()` in
+    // shorthand.ts, the module whose last statement is the registration. The
+    // call itself has no marker that survives minification -- both names in it
+    // are mangled -- so this asks for the module it ends, which a bundler
+    // never splits across files. More than one reader is a stale `dist/` a
+    // cached build left chunks in, which is still fine as long as each one
+    // carries the registrar beside it
+    const reader = holding('Invalid transition-property');
+    const registrar = holding('is not a shorthand');
+
+    expect(reader.length).toBeGreaterThan(0);
+    expect(registrar).toStrictEqual(reader);
   });
 });
 

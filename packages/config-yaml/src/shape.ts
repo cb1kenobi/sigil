@@ -76,6 +76,16 @@ export interface Shaped {
 }
 
 /**
+ * The run of newlines a text ends with, empty where there is none.
+ *
+ * The lookbehind starts a match only where a run starts. Unanchored, `\n*$`
+ * tries an interior run of k newlines from each of its k positions and fails
+ * each at the character after it, which is k² steps over a run that is not at
+ * the end at all -- a file with a long block of blank lines in its middle.
+ */
+const TRAILING_NEWLINES = /(?<!\n)\n*$/;
+
+/**
  * Splits a document's bytes into the body a parser reads and the shape to put
  * back.
  *
@@ -123,7 +133,7 @@ export function shapeOf(source: string): Shaped {
   // compact mappings`. `readSync()` throws naming the file and the line, and no
   // shape or loss is ever computed for such a document
 
-  return { body, shape: { bom, crlf, trailing: /\n*$/.exec(body)?.[0] ?? '' } };
+  return { body, shape: { bom, crlf, trailing: TRAILING_NEWLINES.exec(body)?.[0] ?? '' } };
 }
 
 /**
@@ -257,7 +267,7 @@ function keepsNewlines(doc: Document): boolean {
  * @returns The bytes to write.
  */
 export function reshape(rendered: string, shape: Shape, doc: Document): string {
-  const own = /\n*$/.exec(rendered)?.[0] ?? '';
+  const own = TRAILING_NEWLINES.exec(rendered)?.[0] ?? '';
   let out =
     own.length > 1 && keepsNewlines(doc)
       ? rendered
