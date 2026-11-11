@@ -870,9 +870,49 @@ describe('sigil build into its own source', () => {
     expect(err).toContain(
       `Refusing to write ${displayPath(join(app, 'tool.mjs'))}, which is tool.mjs, a module the app is built from`
     );
+    // the sentence and nothing else: rolldown wraps an error raised in a hook
+    // as `[plugin sigil:own-source] RolldownError` with six frames of its own
+    expect(err).not.toContain('RolldownError');
+    expect(err).not.toMatch(/\n\s+at /);
     expect(process.exitCode).toBeTruthy();
     expect(readFileSync(join(app, 'tool.mjs'), 'utf-8')).toBe(helper);
     expect(existsSync(join(app, 'chunks'))).toBe(false);
+  }, 60_000);
+
+  it('--out vendor emptied a vendored module only the bundle reads, then failed on it', async () => {
+    // nothing before the bundle names `vendor/lib.mjs` -- the entry imports it
+    // -- so the clean waits for the graph, and refuses with the module named
+    const lib = "export const t = 'vendored';\n";
+    const app = smallApp('vapp', {
+      'src/index.mjs': `import { t } from '../vendor/lib.mjs';\nexport default { name: 'x', run() { console.log(t); } };\n`,
+      'vendor/lib.mjs': lib,
+    });
+
+    const { err } = await sigil('build', app, '--out', 'vendor');
+
+    expect(err).toContain(
+      `Refusing to empty ${displayPath(join(app, 'vendor'))}, which holds ${displayPath(join('vendor', 'lib.mjs'))}, a module the app is built from`
+    );
+    expect(err).not.toContain('Module not found');
+    expect(err).not.toMatch(/\n\s+at /);
+    expect(process.exitCode).toBeTruthy();
+    expect(readFileSync(join(app, 'vendor', 'lib.mjs'), 'utf-8')).toBe(lib);
+  }, 60_000);
+
+  it('should still empty an output directory that holds no module, once the graph says so', async () => {
+    // the clean moved to after the graph is read, and it still has to happen:
+    // a build that leaves the last one behind publishes the union of both
+    const app = smallApp('sapp', {
+      'dist/stale.txt': 'stale\n',
+      'src/index.mjs': RUN,
+    });
+
+    const { err } = await sigil('build', app);
+
+    expect(err).not.toContain('Refusing');
+    expect(process.exitCode).toBeFalsy();
+    expect(existsSync(join(app, 'dist', 'stale.txt'))).toBe(false);
+    expect(existsSync(join(app, 'dist', 'sapp.mjs'))).toBe(true);
   }, 60_000);
 
   it('--out outlink --no-clean, outlink a link to src, wrote the bundle over the source', async () => {

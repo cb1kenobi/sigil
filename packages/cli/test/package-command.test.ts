@@ -14,6 +14,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -405,11 +406,60 @@ describe('sigil package', () => {
         // moved: `sigil package` defaulted to `dist/` beside `sigil build`, and
         // `clean()` empties whichever directory it is given -- so each command
         // deleted the other's output, measured in both orders
+        //
+        // A stale file is put there first, because the clean now waits for the
+        // bundle's graph (SIG-350) and this is the test that says it still runs
+        writeFileSync(join(out, 'stale.txt'), 'stale\n');
+
         await sigil('package', join(fixtures, 'buildable'), '--out', out, '--runtime', 'bun');
 
         expect(readdirSync(out)).toEqual([BINARY]);
         expect(existsSync(join(out, 'buildable.mjs'))).toBe(false);
         expect(existsSync(join(out, 'chunks'))).toBe(false);
+      },
+      120_000
+    );
+  });
+
+  // SIG-350: a module only the bundle reads -- here `vendor/lib.mjs`, imported
+  // by the entry -- is in nothing the clean guard can name before the bundle,
+  // so `--out vendor` emptied it. The clean now waits for the graph. Whichever
+  // runtime this host can compile with without fetching one, for the reason
+  // the tests above skip rather than branch
+  describe.each([
+    ['bun', hasBun, ['--runtime', 'bun']],
+    ['node', hasBuildSea, ['--runtime', 'node', '--target', label(hostTarget())]],
+  ] as const)('a module only the bundle reads, packaged with %s', (_, available, runtime) => {
+    it.skipIf(!available)(
+      '--out vendor emptied it and then failed, and is refused with the module named',
+      async () => {
+        const app = join(tempDir('sigil-pkg-into-src-'), 'vapp');
+        const lib = "export const t = 'vendored';\n";
+        mkdirSync(join(app, 'node_modules', '@ttylabs'), { recursive: true });
+        symlinkSync(
+          resolve(fixtures, '..', '..', '..', 'sigil'),
+          join(app, 'node_modules', '@ttylabs', 'sigil'),
+          'junction'
+        );
+        mkdirSync(join(app, 'src'));
+        mkdirSync(join(app, 'vendor'));
+        writeFileSync(
+          join(app, 'package.json'),
+          JSON.stringify({ dependencies: { '@ttylabs/sigil': '*' }, name: 'vapp', type: 'module' })
+        );
+        writeFileSync(
+          join(app, 'src', 'index.mjs'),
+          "import { t } from '../vendor/lib.mjs';\nexport default { name: 'x', run() { console.log(t); } };\n"
+        );
+        writeFileSync(join(app, 'vendor', 'lib.mjs'), lib);
+
+        const { err } = await sigil('package', app, '--out', 'vendor', ...runtime);
+
+        expect(err).toContain(
+          `Refusing to empty ${displayPath(join(app, 'vendor'))}, which holds ${displayPath(join('vendor', 'lib.mjs'))}, a module the app is built from`
+        );
+        expect(process.exitCode).toBeTruthy();
+        expect(readFileSync(join(app, 'vendor', 'lib.mjs'), 'utf-8')).toBe(lib);
       },
       120_000
     );

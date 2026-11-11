@@ -58,8 +58,9 @@ import {
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
+import { physicalPath } from '@ttylabs/sigil/config';
 import { readPackage } from '@ttylabs/sigil/routes';
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import nodePath, { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Expression, ObjectExpression, ObjectProperty } from 'oxc-parser';
 
@@ -361,35 +362,32 @@ export function isInside(dir: string, target: string, path: typeof nodePath = no
 }
 
 /**
- * Where a write to `path` lands: the real path of its deepest ancestor that
- * exists, with the rest joined back on.
+ * Where the kernel would put a write to `path`, as `physicalPath()` in
+ * `@ttylabs/sigil/config` answers it -- every symlink on the way followed, a
+ * `..` after one read the way the kernel reads it, for a path that need not
+ * exist -- or the path as spelled where the file system cannot answer.
  *
- * A write follows every symlink on the way, the last one included, so this is
- * the question to ask about a file the build is about to write -- and the path
- * need not exist yet, which is why it climbs rather than giving up on the
- * first `ENOENT`. The native `realpath` because it also answers in the case
- * the file system stores: on a volume that folds case, `APP` comes back as
- * `app`, which no amount of `resolve()` can learn.
+ * `physicalPath()` throws for anything but a missing file, which is right for a
+ * writer about to write and wrong for a guard asking a question: a path under a
+ * file, a link loop or a directory it cannot read fails the write or the
+ * removal itself a moment later, with the file system's own error, and a guard
+ * that threw first would only replace that error with one about asking. A
+ * dangling link at the end of the path is not followed, and need not be: what
+ * the guards ask is whether a path lands on a file the build reads, every one of
+ * which exists, so a link that points at nothing cannot point at one.
  *
  * `isInside()` is lexical on purpose (see `undo()`), and this is the one place
  * the build asks the file system instead: the clean guard and the bundle's own
  * write guard, both of which are about what is on disk at the end of a path.
  *
  * @param path - The path, which need not exist.
- * @returns Its real path, as far as the file system can answer.
+ * @returns Its physical path, or `resolve(path)` where that cannot be learned.
  */
-export function realPath(path: string): string {
-  const tail: string[] = [];
-
-  for (let dir = resolve(path); ; dir = dirname(dir)) {
-    try {
-      return join(realpathSync.native(dir), ...tail.reverse());
-    } catch {
-      if (dirname(dir) === dir) {
-        return resolve(path);
-      }
-      tail.push(basename(dir));
-    }
+export function landsAt(path: string): string {
+  try {
+    return physicalPath(path);
+  } catch {
+    return resolve(path);
   }
 }
 

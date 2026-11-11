@@ -64,7 +64,7 @@ describe('an --out that holds the source', () => {
     const { app, entry, module, reads } = makeApp();
     const out = resolveOut(app, 'src');
 
-    expect(() => clean(out, { clean: true, reads, root: app })).toThrow(
+    expect(() => clean(out, { clean: true, reads, root: app }, [])).toThrow(
       `Refusing to empty ${displayPath(out)}, which holds ${displayPath(join('src', 'index.js'))}`
     );
     expect(existsSync(entry)).toBe(true);
@@ -75,7 +75,7 @@ describe('an --out that holds the source', () => {
     const { app, module, reads } = makeApp();
     const out = resolveOut(app, join('src', 'commands'));
 
-    expect(() => clean(out, { clean: true, reads, root: app })).toThrow(
+    expect(() => clean(out, { clean: true, reads, root: app }, [])).toThrow(
       `which holds ${displayPath(join('src', 'commands', 'hello.js'))}`
     );
     expect(existsSync(module)).toBe(true);
@@ -86,7 +86,7 @@ describe('an --out that holds the source', () => {
 
     for (const name of [join('src', 'index.js'), 'package.json', 'sigil.json']) {
       const out = resolveOut(app, name);
-      expect(() => clean(out, { clean: true, reads, root: app }), name).toThrow(
+      expect(() => clean(out, { clean: true, reads, root: app }, []), name).toThrow(
         `Refusing to remove ${displayPath(out)}, which is ${displayPath(name)}`
       );
     }
@@ -135,7 +135,7 @@ describe('an --out that holds the source', () => {
     symlinkSync(app, alias, 'junction');
     const out = join(alias, 'src');
 
-    expect(() => clean(out, { clean: true, reads, root: app })).toThrow(
+    expect(() => clean(out, { clean: true, reads, root: app }, [])).toThrow(
       `which holds ${displayPath(join('src', 'index.js'))}`
     );
     expect(existsSync(entry)).toBe(true);
@@ -152,7 +152,7 @@ describe('an --out that holds the source', () => {
     symlinkSync(shared, linked, 'junction');
     const module = join(linked, 'hello.js');
 
-    expect(() => clean(shared, { clean: true, reads: [entry, module], root: app })).toThrow(
+    expect(() => clean(shared, { clean: true, reads: [entry, module], root: app }, [])).toThrow(
       `which holds ${displayPath(join('src', 'linked', 'hello.js'))}`
     );
     expect(existsSync(join(shared, 'hello.js'))).toBe(true);
@@ -172,7 +172,7 @@ describe('an --out that holds the source', () => {
       const module = join(app, 'src', 'commands', 'linked.js');
       symlinkSync(join(shared, 'real.js'), module);
 
-      expect(() => clean(shared, { clean: true, reads: [entry, module], root: app })).toThrow(
+      expect(() => clean(shared, { clean: true, reads: [entry, module], root: app }, [])).toThrow(
         `which holds ${displayPath(join('src', 'commands', 'linked.js'))}`
       );
       expect(existsSync(join(shared, 'real.js'))).toBe(true);
@@ -191,7 +191,7 @@ describe('an --out that holds the source', () => {
     symlinkSync(shared, linked, 'junction');
 
     expect(() =>
-      clean(linked, { clean: true, reads: [entry, join(linked, 'hello.js')], root: app })
+      clean(linked, { clean: true, reads: [entry, join(linked, 'hello.js')], root: app }, [])
     ).toThrow(`which holds ${displayPath(join('src', 'linked', 'hello.js'))}`);
     expect(existsSync(join(linked, 'hello.js'))).toBe(true);
   });
@@ -204,7 +204,7 @@ describe('an --out that holds the source', () => {
     symlinkSync(join(app, 'src'), out, 'junction');
 
     expect(heldFile(out, reads)).toBeUndefined();
-    clean(out, { clean: true, reads, root: app });
+    clean(out, { clean: true, reads, root: app }, []);
 
     expect(existsSync(out)).toBe(false);
     expect(existsSync(entry)).toBe(true);
@@ -220,7 +220,7 @@ describe('an --out that holds the source', () => {
     const out = resolveOut(app, 'SRC');
 
     if (foldsCase(app)) {
-      expect(() => clean(out, { clean: true, reads, root: app })).toThrow(
+      expect(() => clean(out, { clean: true, reads, root: app }, [])).toThrow(
         `which holds ${displayPath(join('src', 'index.js'))}`
       );
     } else {
@@ -248,7 +248,7 @@ describe('an --out that holds the source', () => {
     const out = resolveOut(app, 'src');
 
     expect(() =>
-      clean(out, { clean: false, reads, root: app, writes: bundleWrites('index') })
+      clean(out, { clean: false, reads, root: app, writes: bundleWrites('index') }, [])
     ).toThrow(
       `Refusing to build into ${displayPath(out)}, which holds ${displayPath(join('src', 'index.js'))}`
     );
@@ -308,7 +308,7 @@ describe('an --out that holds the source', () => {
     symlinkSync(join(base, 'y', 'z'), join(base, 'link'), 'junction');
     const out = `${join(base, 'link')}${sep}${join('..', 'alias', 'src')}`;
 
-    expect(() => clean(out, { clean: true, reads, root: app })).toThrow(
+    expect(() => clean(out, { clean: true, reads, root: app }, [])).toThrow(
       `which holds ${displayPath(join('src', 'index.js'))}`
     );
     expect(existsSync(entry)).toBe(true);
@@ -325,7 +325,7 @@ describe('an --out that holds the source', () => {
     const reads = buildReads(inspect({ cwd: app }));
 
     expect(reads).toContain(catalog);
-    expect(() => clean(resolveOut(app, 'locales'), { clean: true, reads, root: app })).toThrow(
+    expect(() => clean(resolveOut(app, 'locales'), { clean: true, reads, root: app }, [])).toThrow(
       `which holds ${displayPath(join('locales', 'de.json'))}`
     );
     expect(existsSync(catalog)).toBe(true);
@@ -342,7 +342,9 @@ describe('an --out that holds the source', () => {
       '\uFEFF{ "Hello, {0}!": "Hallo, {0}!" }\n',
     ],
     ['a JSON catalog that does not parse', 'de.json', '{ "Hello, {0}!": \n'],
-    ['a JSON catalog that is not an object', 'de.json', '[]\n'],
+    // a number rather than an array: the old check took `[]` as an object,
+    // so an array row passed against the code it was written to catch
+    ['a JSON catalog that is not an object', 'de.json', '42\n'],
   ])('should list %s among what the build reads', (_, name, contents) => {
     const app = join(tempDir('sigil-clean-source-'), 'i18n');
     copyFixture(join(fixtures, 'i18n'), app);
@@ -363,7 +365,7 @@ describe('an --out that holds the source', () => {
     const reads = buildReads(inspect({ cwd: app }));
 
     expect(reads).toContain(catalog);
-    expect(() => clean(resolveOut(app, 'locales'), { clean: true, reads, root: app })).toThrow(
+    expect(() => clean(resolveOut(app, 'locales'), { clean: true, reads, root: app }, [])).toThrow(
       `which holds ${displayPath(join('locales', name))}`
     );
     expect(existsSync(catalog)).toBe(true);
@@ -377,7 +379,7 @@ describe('an --out that holds the source', () => {
     symlinkSync(join(app, 'src'), out, 'junction');
 
     expect(() =>
-      clean(out, { clean: false, reads, root: app, writes: bundleWrites('index') })
+      clean(out, { clean: false, reads, root: app, writes: bundleWrites('index') }, [])
     ).toThrow(
       `Refusing to build into ${displayPath(out)}, which holds ${displayPath(join('src', 'index.js'))}`
     );

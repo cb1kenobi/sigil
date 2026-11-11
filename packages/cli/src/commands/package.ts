@@ -247,19 +247,11 @@ const pkg: AnyCommand = command({
     // before anybody looked. If you want the bundle, `sigil build` writes one.
     const staging = join(found.app.root, WORK_DIR, `${hash(out)}-package`);
 
-    clean(out, guard);
-
     // and the staging directory, always: it is this command's own scratch space
     // rather than anything the user asked to keep, so a stale chunk from a
     // previous run has no business surviving into the next binary. `--no-clean`
     // is about the *output*, which is now a different directory entirely.
     rmSync(staging, { force: true, recursive: true });
-
-    // nothing else creates the output directory any more. It used to appear
-    // because the bundle was written into it; now the bundle is elsewhere and
-    // the first thing to touch it is a compiler writing an `--outfile`, which
-    // does not make parents.
-    mkdirSync(out, { recursive: true });
 
     // Node embeds one CommonJS script and cannot `import()` at all, so its
     // bundle is a different shape rather than the same one compiled
@@ -305,6 +297,17 @@ const pkg: AnyCommand = command({
         (result.usesUpdateCheck && schemaCheck !== 'names' && 'import') ||
           (schemaCheck === 'asks' && 'schema')
       );
+
+      // emptied only now, once the graph says whether `out` holds a module
+      // only the bundle reads -- after every refusal that can come before the
+      // compile, and before the compile writes the first binary. See `clean()`
+      clean(out, guard, result.modules);
+
+      // nothing else creates the output directory any more. It used to appear
+      // because the bundle was written into it; now the bundle is elsewhere and
+      // the first thing to touch it is a compiler writing an `--outfile`, which
+      // does not make parents.
+      mkdirSync(out, { recursive: true });
 
       const compiled = compileAll(runtime, {
         entry: result.bin,

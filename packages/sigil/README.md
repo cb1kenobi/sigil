@@ -7436,6 +7436,14 @@ swallows, `isMissing` is `ENOENT` and nothing else, `overlay` is the whole of
 of those is a recorded review finding, and it costs 102 bytes, because `json()`
 already uses four of the six and what is added is the export statements.
 
+`physicalPath(path)` is the path the kernel would resolve `path` to -- every
+symlink on the way followed, a `..` after a symlinked directory read the way
+the kernel reads it rather than collapsed lexically -- for a path that need not
+exist yet: the deepest ancestor that does is resolved and the rest is joined
+back on. It is what `writeAtomic` asks about its own target, and what
+`sigil build` asks before it empties or writes an output directory. A
+resolution that fails for any reason but something not being there throws.
+
 And the kit's **text half**, which is those six put together the way every file
 store needs them: `readText(source)` and `readTextSync(source)` are what a file
 holds, or `undefined` where it is not there; `claim(theirs, value, paths,

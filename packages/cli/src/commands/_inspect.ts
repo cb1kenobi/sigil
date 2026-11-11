@@ -29,7 +29,7 @@ import {
   displayPath,
   isFatal,
   isInside,
-  realPath,
+  landsAt,
   readAppCatalogs,
   readAppCommands,
   resolveCommandTree,
@@ -505,17 +505,48 @@ export interface OutputGuard {
  * through the kernel than through `resolve()` -- so asking about the raw string
  * checked one directory and removed another.
  *
+ * **It runs once the module graph exists, and refuses a directory holding any
+ * module in it.** `assertCleanable()` can only name what `inspect()` read, and
+ * the rest of what the build reads -- a helper the entry imports, a vendored
+ * module, a catalog behind a loader it cannot read -- is known only to the
+ * bundle. So the removal waits for it: `sigil build` calls this from
+ * `bundleApp()`'s `beforeWrite`, after rolldown has read every module and
+ * before it has written anything, and `sigil package` calls it after the
+ * bundle and before the binaries are compiled. `--out vendor`, with
+ * `vendor/lib.mjs` imported by the entry, used to be emptied and then fail with
+ * `Module not found`; it is refused with the module named. Emptying first had
+ * been for the stale chunk a previous build left, which could be read back --
+ * and a stale chunk the bundle reads is a module inside `out`, which is now
+ * refused rather than removed.
+ *
+ * An `out` that is itself a symlink is unlinked rather than emptied, which is
+ * what `rmSync()` does with one, so nothing behind it is lost and nothing is
+ * asked about it.
+ *
  * @param out - The output directory.
  * @param guard - The app, what the build reads, and whether to clean.
- * @throws If the directory holds the app itself, or anything the build reads.
+ * @param modules - The physical path of every module in the graph.
+ * @throws If the directory holds the app itself, anything the build reads, or
+ * any module in the graph.
  */
-export function clean(out: string, guard: OutputGuard): void {
+export function clean(out: string, guard: OutputGuard, modules: readonly string[]): void {
   const target = resolve(out);
 
   assertCleanable(target, guard);
 
   if (!guard.clean || !existsSync(target)) {
     return;
+  }
+
+  if (!lstatSync(target).isSymbolicLink()) {
+    const removed = landsAt(target);
+    const module = modules.find((m) => m === removed || isInside(removed, m));
+    if (module !== undefined) {
+      throw new Error(
+        `Refusing to empty ${displayPath(target)}, which holds ${displayPath(relative(landsAt(guard.root), module) || module)}, a module the app is built from. ` +
+          `Name a directory that holds none of the app's source.`
+      );
+    }
   }
 
   rmSync(target, { force: true, recursive: true });
@@ -581,9 +612,10 @@ export function holdsApp(out: string, root: string, path: typeof nodePath = node
  * Everything the build reads that is the app's own, which is everything
  * emptying the output directory must not take.
  *
- * The entry, every command module the walk found, every catalog the entry's
- * `locales` names that `readAppCatalogs()` could read, the command directory
- * itself, the manifest, `sigil.json` or `sigil.jsonc`, and the `tsconfig.json`
+ * The entry, every command module the walk found, every existing file a
+ * catalog loader on the entry names by a literal `import()` -- parsed as a
+ * catalog or not, since the bundle imports it either way -- the command
+ * directory itself, the manifest, `sigil.json` or `sigil.jsonc`, and the `tsconfig.json`
  * the type check uses -- plus an executable `--bin` named. Files before the
  * directory, so that a refusal names a file somebody recognises rather than
  * the directory they typed.
@@ -685,7 +717,7 @@ export function heldFile(
   const asked = new Set<string>();
 
   for (const file of reads) {
-    for (const start of new Set([resolve(file), realPath(file)])) {
+    for (const start of new Set([resolve(file), landsAt(file)])) {
       for (let dir = start; !asked.has(dir); dir = dirname(dir)) {
         asked.add(dir);
         const stats = statOf(dir, statSync);
@@ -763,9 +795,9 @@ export function assertCleanable(out: string, guard: OutputGuard): void {
   // that only writes is asked about where its writes land as well as about the
   // path it was given: `--out outlink --no-clean`, with `outlink` a link to
   // `src`, wrote the bundle over the source while `lstat` saw only the link
-  const landing = wanted ? target : realPath(target);
+  const landing = wanted ? target : landsAt(target);
 
-  if (holdsApp(target, root) || (!wanted && holdsApp(landing, realPath(root)))) {
+  if (holdsApp(target, root) || (!wanted && holdsApp(landing, landsAt(root)))) {
     if (wanted) {
       throw new Error(
         `Refusing to empty ${displayPath(target)}, which holds the app itself. ` +
@@ -777,7 +809,7 @@ export function assertCleanable(out: string, guard: OutputGuard): void {
     // link, which a `<bin>.mjs` that is a symlink to the entry would be
     for (const name of guard.writes ?? []) {
       const write = join(target, name);
-      const held = heldFile(write, reads) ?? heldFile(realPath(write), reads);
+      const held = heldFile(write, reads) ?? heldFile(landsAt(write), reads);
       if (held) {
         throw new Error(refusal(write, held, root, false));
       }

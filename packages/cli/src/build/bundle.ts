@@ -33,7 +33,7 @@
 
 import { compileTemplates } from './compile-templates.ts';
 import { displayPath } from './diagnostic.ts';
-import { isInside, realPath, RUNTIME, type DiscoveredApp } from './discover.ts';
+import { isInside, landsAt, RUNTIME, type DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
 import { MODULE_RE, parses, parseTree } from './parse-module.ts';
 import { createShaker, STYLE_MODULE, shakeStyles, type ShakenSheet, type Shaker } from './shake.ts';
@@ -87,6 +87,16 @@ interface GeneratedEntry {
 export interface BundleOptions {
   /** The app. */
   readonly app: DiscoveredApp;
+  /**
+   * Called with the physical path of every module in the graph once the bundle
+   * is built and before anything is written to `out`. Throwing refuses the
+   * build with that message and nothing is written.
+   *
+   * It is where `sigil build` empties its output directory: the graph is what
+   * says whether `out` holds a module only the bundle reads, and it does not
+   * exist until now. See `clean()` in `commands/_inspect.ts`.
+   */
+  readonly beforeWrite?: (modules: readonly string[]) => void;
   /** What the built executable is called, without an extension. */
   readonly binName: string;
   /**
@@ -209,6 +219,12 @@ export interface BundleResult {
   /** What was left as an import rather than inlined, in the order given. */
   readonly external: readonly string[];
   /**
+   * The physical path of every module in the graph, for a caller that writes
+   * somewhere other than `out` -- `sigil package`, whose binaries go where its
+   * bundle does not, and which empties that directory only once this is known.
+   */
+  readonly modules: readonly string[];
+  /**
    * Every package whose code went into the bundle, largest first.
    *
    * The zero-dependency promise is about what *sigil* adds, and this is the
@@ -284,6 +300,7 @@ export interface BundleResult {
 export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
   const {
     app,
+    beforeWrite,
     bin,
     binName,
     defaultLocale,
@@ -321,6 +338,12 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
   // heavy modules: rolldown is a native binary, and `sigil check` has no use
   // for it
   const { rolldown } = await import('rolldown');
+
+  // what `generateBundle` refused, kept to be thrown as itself: rolldown wraps
+  // an error raised in a hook as `[plugin ...] RolldownError` with its own
+  // stack, and what reaches the user is the message, never a stack
+  let refused: string | undefined;
+  let modules: readonly string[] = [];
 
   const generated = bin ? undefined : entryLocation(app, out);
   const input = bin ?? generated!.file;
@@ -536,29 +559,41 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
          * the way and a module id is whatever the resolver made of it.
          */
         generateBundle(outputOptions, outputBundle) {
+          const real = new Set<string>();
+          for (const id of this.getModuleIds()) {
+            // a virtual module is not a file, and an id the file system cannot
+            // resolve is compared as it is spelled rather than failing a build
+            // over a question about where it would land
+            if (isAbsolute(id)) {
+              real.add(landsAt(id));
+            }
+          }
+          modules = [...real];
+
+          try {
+            beforeWrite?.(modules);
+          } catch (e: unknown) {
+            refused = (e as Error).message;
+          }
+          if (refused !== undefined) {
+            this.error(refused);
+          }
+
           const dir = outputOptions.dir;
           if (!dir) {
             return;
           }
 
-          const modules = new Set<string>();
-          for (const id of this.getModuleIds()) {
-            if (isAbsolute(id)) {
-              modules.add(realPath(id));
-            }
-          }
-
           // named relative to the root's real path, since that is what a module
           // id is under, and `/var` against `/private/var` reads as a climb
-          const root = realPath(app.root);
+          const root = landsAt(app.root);
 
           for (const fileName of Object.keys(outputBundle)) {
             const path = resolve(dir, fileName);
-            const real = realPath(path);
-            if (modules.has(real)) {
-              this.error(
-                `Refusing to write ${displayPath(path)}, which is ${displayPath(relative(root, real) || real)}, a module the app is built from. Name a directory that holds none of the app's source.`
-              );
+            const landing = landsAt(path);
+            if (real.has(landing)) {
+              refused = `Refusing to write ${displayPath(path)}, which is ${displayPath(relative(root, landing) || landing)}, a module the app is built from. Name a directory that holds none of the app's source.`;
+              this.error(refused);
             }
           }
         },
@@ -649,18 +684,24 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       writeEntry(generated, app, tree, defaultLocale, cjs);
     }
 
-    const written = await bundle.write({
-      chunkFileNames: 'chunks/[name]-[hash].mjs',
-      ...(cjs && { codeSplitting: false }),
-      dir: out,
-      entryFileNames: entryFile,
-      format: cjs ? 'cjs' : 'esm',
-      minify: true,
-      // the first thing anybody debugging a built app wants, and nothing to
-      // whoever never opens one -- but several times the size of the code it
-      // describes, and a package publishing its `dist` publishes it too
-      sourcemap,
-    });
+    const written = await bundle
+      .write({
+        chunkFileNames: 'chunks/[name]-[hash].mjs',
+        ...(cjs && { codeSplitting: false }),
+        dir: out,
+        entryFileNames: entryFile,
+        format: cjs ? 'cjs' : 'esm',
+        minify: true,
+        // the first thing anybody debugging a built app wants, and nothing to
+        // whoever never opens one -- but several times the size of the code it
+        // describes, and a package publishing its `dist` publishes it too
+        sourcemap,
+      })
+      .catch((e: unknown) => {
+        // a refusal is thrown as itself, so the user reads the sentence and
+        // not rolldown's wrapping of it with six frames of its own stack
+        throw refused === undefined ? e : new Error(refused);
+      });
 
     // asked after the write, which reads backwards and is the only place the
     // answer exists. `rolldown()` builds nothing: rolldown's own documentation
@@ -723,6 +764,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       inlined: inlinedPackages(app.root, input, written.output),
       styles: styleReport(shaker),
       templates,
+      modules,
       usesUpdateCheck,
     };
   } finally {

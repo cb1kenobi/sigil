@@ -100,7 +100,7 @@ describe('the clean guard', () => {
     mkdirSync(app);
     writeFileSync(join(app, 'package.json'), '{}');
 
-    expect(() => clean(base, { clean: true, reads: [], root: app })).toThrow(
+    expect(() => clean(base, { clean: true, reads: [], root: app }, [])).toThrow(
       'holds the app itself'
     );
     expect(existsSync(join(app, 'package.json'))).toBe(true);

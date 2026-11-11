@@ -229,8 +229,9 @@ export interface ScanOptions {
  *
  * What it must not read is a *previous build's output*, which holds the whole
  * utility sheet as a string and would therefore be evidence for every rule
- * there is. The output directory is excluded for that reason, and a build
- * cleans it first in any case. A **second**, stale output directory somewhere
+ * there is. The output directory is excluded for that reason, and the
+ * exclusion is the whole of the guard: a build empties it only once the bundle
+ * has read its graph, which is after this walk. A **second**, stale output directory somewhere
  * else in the app is the case that gets through, and the failure is the safe
  * one: everything is kept, and the summary says `383 of 383` rather than
  * saying nothing. That is what the count is in the summary for.
