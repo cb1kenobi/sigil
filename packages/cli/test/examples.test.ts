@@ -167,9 +167,12 @@ function within<T>(promise: Promise<T>, what: string, ms = 2000): Promise<T> {
  * knows. The contract has no way to say which key does what, so this is a table
  * of the examples whose keys are documented in their own README rather than
  * something inferred: `hello`'s first row has the focus and Enter counts it, and
- * the settings screen's sidebar has the focus and Down shows the next section.
+ * `2` takes the git client's focus to its branches, whose keys the footer then
+ * lists -- whether or not the directory it was started in is a repository --
+ * and the settings screen's sidebar has the focus and Down shows the next section.
  */
 const KEYED: Record<string, { keys: string[]; shows: string } | undefined> = {
+  'git-client': { keys: ['2'], shows: 'checkout' },
   hello: { keys: [KEYS.enter], shows: '1 press' },
   settings: { keys: [KEYS.down], shows: 'Pause all' },
 };

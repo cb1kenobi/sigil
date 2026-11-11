@@ -454,3 +454,165 @@ was tested, and the sabotage pass, are in
   this example's subject; a confirm before `q` quits with unsaved changes; the
   theme radio applying a theme; a level-0 cue for a focused text field, which
   SIG-278 records as the caret's cost; and a `ui`-tag twin.
+
+### The git client (SIG-292)
+
+`examples/git-client`: lazygit's shape -- files, branches and the log down the
+left, a diff on the right -- staging files and hunks, switching branches, and a
+commit message in a text area. What it settled:
+
+- **The git client is both syntaxes on a real app, and the model is the module
+  neither root is (SIG-292).** `hello` showed the twins on three rows; the system
+  monitor stayed `ui`-only and its README left "a JSX version" for later. The git
+  client is the first whole app written twice, and what made that cheap is where
+  the line between the twins falls: `root.tsx` and `root.ui.ts` build the tree --
+  the panels, the three `ListView`s and their rows, the pane, the footer -- and
+  everything else is `createModel()` in `src/model.ts`, which both call from
+  their body: the states, every git call, the keys, the dialogs and the toasts.
+  The roots hand back the parts a key or the focus reaches through
+  `m.attach({ diff, lists, panels })`. The diff pane is a component in a shared
+  module (`src/diff-pane.ts`) that both name, `<DiffPane />` and
+  `<${DiffPane} />`, because it is built from elements and effects and a template
+  would say nothing about it. So the twins are each about 140 lines and the
+  model is the rest, and `should draw the same screen in every syntax` compares
+  two first screens that hold three panels, three lists and a diff.
+
+- **It runs real git, through a context, against repositories its tests make.**
+  `GitContext` is the system monitor's `SystemContext` shape: `App` takes no
+  props, so the directory git runs in and the environment it gets come through a
+  context that a test provides and the entries default to the working directory
+  (or the `[dir]` argument). Nothing is faked: `test/app.test.ts` makes a
+  repository under the temp directory for every test, drives the client over a
+  test terminal, and asserts on `git` itself -- `diff --cached`, `log`,
+  `branch --show-current`, the files on disk -- not on the screen alone. Git there
+  is told nothing about the machine: `GIT_CONFIG_NOSYSTEM`, a `GIT_CONFIG_GLOBAL`
+  file of the test's own that sets `init.defaultBranch`, `core.autocrlf=false` and
+  `commit.gpgsign=false`, an identity in `GIT_AUTHOR_*` and `GIT_COMMITTER_*`, a
+  `GIT_CEILING_DIRECTORIES` at the test's temp directory, and every other `GIT_*`
+  variable dropped. That is one list for four machines: a CI runner with no
+  identity, a laptop that signs every commit, a Windows runner whose system
+  config turns `autocrlf` on, and a `GIT_DIR` or `GIT_INDEX_FILE` a hook left in
+  the environment, which would point git at the repository the tests are run
+  from. `settle()` waits for the client's own git calls to finish -- the context
+  is wrapped to count them -- rather than for a time, since a Windows runner
+  spawns git several times slower than a Mac.
+
+- **Its temp directories are removed by the test file, not by a sixth
+  `temp.ts`.** "The suite removes every directory it makes" in
+  `packages/sigil/src/testing/AGENTS.md` keeps one identical copy of `tempDir()`
+  per package, wired through each package's `setupFiles`. An example has no
+  `vitest.config.ts` and adding one, a `test/setup.ts` and a copy of the helper
+  for one file would be three files to say what an `afterAll` says. So
+  `app.test.ts` records each directory it makes and removes them in an `afterAll`
+  with `maxRetries: 5` and no catch -- the same removal, failing the file the same
+  way -- which is the shape that entry leaves alone ("the sites that already
+  removed what they made"). A second test file that makes directories is the
+  point at which the helper earns its copy.
+
+- **The contract tests run it in the repository it is developed in, and it only
+  reads there.** `examples.test.ts` mounts every root in-process and spawns every
+  entry from `src/` and `dist/`, with no provider, so the client runs against
+  whatever checkout the suite is in: it presses Tab, `2`, `q` and Ctrl-C, none of
+  which writes. Every git the client runs has `GIT_OPTIONAL_LOCKS=0`, so even the
+  status read does not refresh the index and take `index.lock` from a `git commit`
+  the developer is running beside the suite -- the setting editors that poll git
+  use for that reason, and `test/git.test.ts` holds it, since nothing a test can
+  see from a repository changes without it. What the contract tests see is
+  whatever the checkout holds, which is why the `KEYED` entry for it waits for
+  `checkout`, a word the footer shows once `2` has focused the branches whether
+  or not the directory is a repository at all.
+
+- **One git at a time.** Every call goes through one promise chain: two Spaces
+  pressed quickly are two `git add`s, and two gits writing one index is one of
+  them failing on `index.lock`. An action reads the repository again after it,
+  through the same chain, so the refresh sees what the action wrote. A diff asked
+  for while one is already waiting is the same request -- holding `j` down asks
+  for one diff, of wherever the cursor is when it runs, not one per row -- and
+  quitting aborts the git in flight, so the shell does not get the terminal back
+  under a `git log` still writing.
+
+- **Destructive means it loses work git cannot give back, and that is behind
+  `confirmModal()` with `initial: 'no'`.** Discarding a file's unstaged changes
+  (`git checkout -- <path>`), deleting an untracked file (`git clean -f`), and
+  deleting a branch (`git branch -d`, which git itself refuses for one that is
+  not merged). Enter and Escape are both No, so a reflexive key loses nothing; the
+  tests answer No both ways and then Tab to Yes. Staging, unstaging, committing
+  and switching are not destructive and do not ask: each is undone by another
+  key, and a switch that would overwrite changes is refused by git, which the
+  client shows rather than forcing. Discard leaves staged changes alone and says
+  so when there is nothing unstaged, because throwing away what somebody staged
+  deliberately is the one discard nobody means.
+
+- **A hunk is staged as a patch of its own, read by the example's own reader.**
+  Space writes the file's header and the one hunk back, every line as git wrote
+  it, to `git apply --cached` (and `--reverse` under `Staged`), which is
+  `git add -p`. `parsePatch()` keeps neither the raw lines nor
+  `\ No newline at end of file`, so a hunk at the end of a file with no final
+  newline would be a different hunk -- `should stage a file with no final newline
+  a hunk at a time` is the case -- and `splitPatch()` in `src/parse.ts` is a
+  second reader for it. That is a duplicate of a decision and is recorded as one:
+  SIG-370 is the ticket for a reader that does both. A patch over 4,000 lines is
+  cut, and the hunk the cut went through is dropped rather than offered to Space,
+  since its header still counts lines it no longer has.
+
+- **The diff pane rebuilds `diffView()` at the width the layout gives it.**
+  `diffView()` draws for a width it is told and has no view that scrolls, so the
+  pane is a `ScrollBox` whose `onResize` builds every row again when the width
+  changes -- before the frame paints, and answered as a change -- and whose
+  hunks are found by the `sigil-diff-hunk` class on their header rows, each row
+  behind a one-cell mark that is `▌` (`>` in ASCII) for the hunk under the
+  cursor. Reading the class couples the example to `diffView()`'s output, which
+  is the reason SIG-367 exists. The model counts the hunks one way and the pane
+  draws them another, so the pane throws if the two disagree rather than putting
+  the mark on the wrong rows.
+
+- **The footer follows the focus by describing each pane's keys with its panel
+  as the scope.** A list's own moves come from `describeListView()`; the pane's
+  actions are `input.describe(key, { scope: panel })`, since they are the panel's
+  `onKey` and a function cannot be read for its keys; and the app's own keys --
+  `c`, `r`, `1` to `4` -- are fallbacks, so a letter typed into a dialog's field is
+  a letter. The four pane keys share one description, which the footer folds into
+  `1/2/3/4 pane`. While a dialog is open the footer still lists the app's keys,
+  which the dialog swallows: SIG-374.
+
+- **The lit pane is a class an effect puts on, because there is no
+  `:focus-within`.** An effect over `input.focus.current` asks each panel whether
+  it `contains()` the focused element and toggles `is-active`, and the sheet gives
+  that a green border -- the one colour in the sheet the roles do not give, since a
+  role class on the panel would colour its contents too. The title also gains a
+  `▸` (`>` in ASCII), which is what is left of it at colour level 0. SIG-372 is the
+  selector this stands in for.
+
+- **A dialog's body is built under a branch of the component's owner.** The
+  commit dialog's `TextArea` is over the app's draft and the new-branch dialog's
+  `TextField` is a field, and both are built in a key handler, which has no owner
+  -- so their effects would outlive the dialog and go on following the draft.
+  `owned()` builds them under `runWithOwner(owner, createBranch)` and disposes the
+  branch when `result` settles, which is the settings example's answer to the same
+  hole; SIG-335 is the ticket for `openModal()` doing it, and SIG-337 for opening
+  on the field rather than on a button, which the client does by focusing it
+  straight after `openModal()`. Enter is a newline in the commit message, so the
+  commit is Ctrl-S, an `onKey` on a box around the area, which the dialog's key
+  walk reaches because the area leaves the chord alone. Escape keeps the draft.
+
+- **Every format git prints for it is the machine one.** `status
+  --porcelain=v1 -z`, `for-each-ref` with `%00` between fields, and `log -z` with
+  a unit separator, so a path with a space or a subject with a `|` reads as
+  itself, and Windows reads as macOS does: git prints `/` on every platform, and
+  the one path the client builds itself, for reading an untracked file, is joined
+  with `/` rather than through `node:path`, so it is one spelling of the path git
+  printed. The settings that change what git prints -- `color.ui`,
+  `core.quotepath`, `diff.noprefix`, `diff.mnemonicPrefix`, `diff.relative` --
+  are passed with `-c` on every call, so a user's config cannot hand the parser a
+  patch `git apply` will not take back.
+
+- **Sabotage: seventeen, one survived and has a test now.** A patch reader that
+  drops `\ No newline`, a hunk written back without its file header, unstaging
+  without `--reverse`, a discard confirm that starts on Yes, a discard and a
+  branch delete with no confirm at all, deleting the branch checked out, a branch
+  cursor that does not start on it, a hunk cursor that never moves, Ctrl-S
+  unbound, an empty message committed, an untracked file not drawn, Escape doing
+  nothing in the diff, the panes' keys described with no scope, an action not
+  followed by a refresh, and a rename's source read as a path of its own: each
+  fails the example's tests. A commit that kept its draft survived, because
+  nothing opened the dialog a second time; the commit test now does.
