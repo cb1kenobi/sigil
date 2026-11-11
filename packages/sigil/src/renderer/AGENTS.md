@@ -1267,3 +1267,156 @@ it.
 - **Not done:** an `App` handle to a router the caller built, since the host is
   what makes the router exist at build time. Capturing `console.log()` while the
   app owns the screen was on this list until SIG-310 -- see the entry above.
+
+### A full-screen performance budget (SIG-290)
+
+Nothing measured a full-screen app that changes on every frame, which is what btop
+is: `benchmark-paint-cull.mjs` and `benchmark-virtual-list.mjs` each measure one
+layer, and `FrameStats` describes a frame without saying whether it was a good
+one. The workload is `examples/system-monitor/stress/`, the ceilings are
+`examples/system-monitor/test/stress.test.js`, and the runs, the profiles and the
+Ink and OpenTUI comparison are in
+[docs/history/a-full-screen-performance-budget.md](../../../../docs/history/a-full-screen-performance-budget.md).
+Run it with `pnpm build && node examples/system-monitor/stress/benchmark.js`.
+
+- **The workload is the monitor's screen built from the shipped components, fed by
+  a machine that does not exist.** 200 by 60. A `DataTable` of 1,000 processes
+  sorted by CPU, where every row is a new object on every reading and two
+  processes exit and two start, so the table re-sorts and re-keys on every frame.
+  The four live charts each take a sample a frame: a `Sparkline` fourteen rows
+  tall, a two-series `LineChart`, a vertical `BarChart` of sixteen cores, and a
+  `Gauge`. The machine is seeded, so a run is the same run every time.
+
+  It lives beside the system monitor rather than in `packages/sigil/scripts/`, for
+  three reasons. It imports `@ttylabs/sigil` by name, so it measures `dist/`, the
+  way the other benchmarks do on purpose, and the suite runs the same module with
+  no second copy. Its machine is shaped as the sampler's `Snapshot`, so the same
+  readings feed the monitor's own `App` through `SystemContext`, the seam the
+  monitor's tests already replace. That puts the stand-ins and the components they
+  wait for side by side on one input. And it reuses the monitor's `formatBytes()`
+  rather than writing a second one.
+
+- **"At 30 and at 60" is the renderer's own clock, and the frame's cost is measured
+  without it.** `measurePaced()` runs the app with `frameMs` at the rate and feeds a
+  reading at the same rate, which answers whether the loop keeps up.
+  `measureFrames()` steps and paints frame after frame with nothing in between,
+  which gives the frame's own time, bytes and allocation. That number does not
+  move with the rate: a frame at 60 does the same work as one at 30, and only the
+  room around it differs. The output goes to a terminal that adds up the bytes and
+  drops them. A test terminal would parse every byte into its screen model inside
+  the frame that wrote it, and the parse would be timed as the frame's.
+
+- **The figures, as of this change.** Taken on node 26.10.0 on an Apple M5 Pro
+  (18 cores, macOS), with a load average of 18 to 25 from five other agents'
+  builds and suites running beside it. So these are a busy machine's figures,
+  each was taken at least three times, and the spread is given.
+
+  | stress, after the fix below | figure                                                          |
+  | --------------------------- | --------------------------------------------------------------- |
+  | frame, p50                  | 9.56 to 10.31 ms over seven runs                                |
+  | frame, p99                  | 13.62 to 16.27 ms                                               |
+  | bytes a frame               | 3.9 KiB at p50 and 4.3 KiB at most; 16.3 KiB for the mount      |
+  | allocated a frame           | 21.4 to 21.5 MiB; the GC is 10 to 11% of the frames' time       |
+  | tree                        | about 1,060 elements, about 900 changed and restyled each frame |
+  | style table                 | 7 styles after the mount, 7 after 331 readings, no sweep        |
+  | paced at 30                 | 28.3 to 28.6 frames a second, event loop 29 to 31% busy         |
+  | paced at 60                 | 55.0 to 57.4 frames a second, event loop 60 to 68% busy         |
+
+  Before the fix, interleaved with it, the frame was 11.49 to 12.01 ms at p50 and
+  16.63 to 17.93 ms at p99. So 30 frames a second has room to spare. At 60 the
+  p50 holds with about 6 ms to spare, and the p99 is within a few milliseconds of
+  the 16.7 ms budget. Paced p99 at 60 ran from 11.92 to 14.62 ms in three runs and
+  was 23.67 ms in the fourth. That is the rate a CI machine slower than this one
+  would not hold. Both rates painted within a frame or two a second of the
+  readings that arrived. The shortfall from 30 and 60 is `setInterval` drifting
+  under load, since fewer readings arrived than the rate asked for, and not frames
+  dropped for being slow.
+
+  The monitor as written, stand-ins and all, on the same machine: 3.44 to 3.97 ms
+  at p50, 6.0 KiB a frame, 7.0 to 7.1 MiB allocated, and 251 elements with 92
+  changed. It is a third of the stress frame because its stand-ins rewrite text in
+  place where the components build elements. Its p99 was 5.0 to 5.8 ms in three
+  runs and 20.6 ms in a fourth, which shows the load more than the code.
+
+- **The suite holds counts, about twice over, and no time.** Six ceilings at
+  about twice what was measured, the `dist.test.ts` rule:
+
+  - the bytes of the mount, which paints all 12,000 cells;
+  - the bytes of each frame, where a frame that repainted the screen is about
+    17 KiB;
+  - the cells painted each frame;
+  - the elements, where a table that stopped windowing is about 11,600;
+  - the style table's size, with no sweep;
+  - the table's `format` calls each frame.
+
+  The last is the one that says a 1,000-row table costs what its window costs. It
+  was 123 a frame, three formatted columns for 41 rows, and formatting every new
+  row instead is about 3,100.
+
+  Each is a count, and each is the same count everywhere. The machine is seeded,
+  the glyphs are fixed with `ascii: false`, so a Windows runner that draws ASCII
+  measures the same screen, and the colour level is fixed at 3. The counts were
+  identical on node 24.18.0 and 26.10.0, and a test asserts that two runs write
+  the same bytes, because a count that moved between runs would make its ceiling
+  a guess.
+
+  The number of elements restyled has no ceiling. About 88% of the tree is
+  restyled every frame already, so twice that would allow a full re-match.
+
+  **There is no time ceiling.** The suite runs its projects in parallel, CI runs on
+  nine machines slower than this one, and the layout fuzzer already times out only
+  under that load. A wall-clock ceiling loose enough to hold there would let a
+  five-fold regression through, so it would not be a budget. The counts catch a
+  change in kind, and the benchmark is for a change in degree.
+
+  **Allocation is not in the suite either.** It is measured with V8's
+  `total_allocated_bytes`, which node 26.10.0 reports and 24.18.0 does not, so the
+  benchmark prints `n/a` there. Where it is reported, the figure is V8's and moves
+  with the engine.
+
+  The sabotage pass was six breaks, all caught. A canvas that always repaints
+  everything failed the frame bytes. A table that formats every new row failed
+  the format count. A window that holds every row failed the element count. A
+  segment background that varies by length failed the style table and nothing
+  else. A segment colour from a module counter failed the bytes and the
+  repeatability test. An unseeded machine failed the repeatability test alone.
+
+- **Ink and OpenTUI, in a throwaway project and in no manifest.** The same seeded
+  machine and the same sort, at 200 by 60. Each draws the rows that fit, since
+  neither has a windowed table, and the charts are sigil's own string charts set
+  in a text node. The cpu chart there is the one-row `sparkline()`, against the
+  stress workload's fourteen rows. Run interleaved with the stress workload, three
+  times each:
+
+  | renderer, version                       | frame p50         | bytes a frame | allocated |
+  | --------------------------------------- | ----------------- | ------------- | --------- |
+  | sigil, stress workload                  | 9.75 to 10.31 ms  | 3.9 KiB       | 21.5 MiB  |
+  | sigil, the monitor's stand-ins          | 3.44 to 3.65 ms   | 6.0 KiB       | 7.0 MiB   |
+  | Ink 8.0.0, React 19.3.1                 | 12.53 to 12.95 ms | 15.6 KiB      | 41.4 MiB  |
+  | Ink 8.0.0, `incrementalRendering`       | 15.15 to 16.02 ms | 11.0 KiB      | 46.7 MiB  |
+  | OpenTUI `@opentui/core` 0.8.3, node FFI | 5.30 to 5.43 ms   | 16.0 KiB      | 9.0 MiB   |
+
+  So sigil's components are about 20% faster than Ink's frame, write a quarter of
+  its bytes and allocate half as much. They take about twice OpenTUI's time. OpenTUI's
+  rows are a pool rewritten in place, the shape of the monitor's stand-ins, and
+  the stand-ins, on their own screen, measured faster still. What separates the components
+  from the stand-ins is building elements, not painting them, and SIG-378 and
+  SIG-379 are filed against exactly that. sigil writes the fewest bytes of the
+  four, which is the cost this file's frame pacing was written to keep down.
+
+- **What the measurement found.** One fix was small and clearly correct, so it
+  was made. The rest are tickets.
+  - **Every border cell was split by `Intl.Segmenter`.** `paintBorder()` paints
+    an edge one cell at a time, and `graphemes()` sent each box-drawing character
+    to the segmenter. A string of one code unit is one cluster now, without
+    asking. That took 1.5 to 2 ms off the p50, about 16%, with the bytes
+    unchanged. See "One code unit is one cluster" in `src/width`.
+  - **A live `DataTable` rebuilds every row on screen on every update** (SIG-378),
+    because a replaced item rebuilds its row. The table alone was 6.8 ms of the
+    frame.
+  - **A live chart builds a new element for every segment of every row on every
+    sample** (SIG-379). The charts alone were 6.2 ms.
+  - **A frame allocated 21.5 MiB**, most of it in restyling and laying out what
+    the two above built (SIG-381).
+  - **Porting the monitor onto the components waits for SIG-378 and SIG-379**
+    (SIG-383). Today the port would make it about three times slower per frame.
