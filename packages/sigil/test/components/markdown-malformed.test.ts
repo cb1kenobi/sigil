@@ -96,9 +96,13 @@ describe('parseMarkdown() on malformed input', () => {
     });
 
     it('should read a line with a line separator after its spaces in linear time', () => {
-      for (const lead of ['- ', '#', '[^a]: ']) {
+      for (const lead of ['- ', '[^a]: ']) {
         expect(growth((n) => `${lead}${' '.repeat(n)}a${LINE_SEPARATOR}`, 2 * K)).toBeLessThan(24);
       }
+      // the heading was cubic, and a synchronous parse cannot be timed out: at
+      // 16 KB the old cost was hours, so a regression would hang the suite rather
+      // than fail it. At 4 KB it is fifteen seconds a run, which still fails
+      expect(growth((n) => `#${' '.repeat(n)}a${LINE_SEPARATOR}`, 512)).toBeLessThan(24);
       expect(growth((n) => `${'`'.repeat(n)}${LINE_SEPARATOR}`, 4 * K)).toBeLessThan(24);
     });
 
@@ -222,9 +226,18 @@ describe('parseMarkdown() on malformed input', () => {
       expect(depthOf(parseMarkdown(`${'1. '.repeat(2000)}x`))).to.equal(100);
     });
 
-    it('should return a document for footnote definitions nested two thousand deep', () => {
-      const blocks = parseMarkdown(`${'[^a]: '.repeat(2000)}x\n\n[^a]`);
-      expect(blocks.at(-1)?.type).to.equal('footnotes');
+    it('should return a document for footnote definitions nested ten thousand deep', () => {
+      // the parser this replaced ran out of stack between two and five thousand
+      const blocks = parseMarkdown(`${'[^a]: '.repeat(10000)}x\n\n[^a]`);
+      const notes = blocks.at(-1);
+      expect(notes?.type === 'footnotes' && notes.notes.length).to.equal(1);
+      // the innermost note opened is the one kept, since the first definition of
+      // a label wins and it is the first to finish; what it holds is the line past
+      // the limit, a paragraph whose every `[^a]` refers to the note itself
+      const [inside] = notes?.type === 'footnotes' ? notes.notes[0].children : [];
+      expect(inside?.type === 'paragraph' && markdownText(inside.children)).to.equal(
+        `${'[1]: '.repeat(9900)}x`
+      );
     });
 
     it('should still nest a dozen deep exactly as written', () => {
@@ -232,18 +245,39 @@ describe('parseMarkdown() on malformed input', () => {
       expect(depthOf(parseMarkdown(`${'- '.repeat(12)}a`))).to.equal(12);
     });
 
-    it('should draw the deepest document the parser reads', () => {
-      // a little past the limit, so that every one is as deep as a document goes
-      // and the paragraph left at the bottom is short enough to draw quickly
-      for (const source of [
-        `${'- '.repeat(110)}a`,
-        `${'>'.repeat(110)}a`,
-        `${'- > '.repeat(55)}x`,
-        `${'1. '.repeat(110)}x`,
+    it('should draw the deepest document the parser reads, down to its innermost words', () => {
+      // a little past the limit, so that every one is as deep as a document goes.
+      // Each level takes two or three columns, so a hundred of them leave no room
+      // for words at sixty: drawn at four hundred, the innermost paragraph -- the
+      // markers past the limit, as written -- has to come out at the end of the line
+      for (const [source, rest] of [
+        [`${'- '.repeat(110)}a`, `${'- '.repeat(10)}a`],
+        [`${'>'.repeat(110)}a`, `${'>'.repeat(10)}a`],
+        [`${'- > '.repeat(55)}x`, `${'- > '.repeat(5)}x`],
+        [`${'1. '.repeat(110)}x`, `${'1. '.repeat(10)}x`],
       ]) {
         expect(depthOf(parseMarkdown(source))).to.equal(100);
-        expect(markdown(source, plain)).to.be.a('string');
+        const drawn = markdown(source, { ...plain, width: 400 }).split('\n');
+        expect(drawn).to.have.length(1);
+        expect(drawn[0].trimEnd().endsWith(rest)).to.equal(true);
       }
+    });
+
+    it('should read a footnote definition at the limit as text, not as a link definition', () => {
+      // `[^n]: url` is also a link definition of the label `^n`, so where the
+      // footnote was not opened it took the line away and made every `[^n]` a link
+      const blocks = parseMarkdown(`${'> '.repeat(100)}[^n]: https://example.com\n\nsee [^n]`);
+      const [rest] = innermost(blocks);
+      expect(rest?.type === 'paragraph' && markdownText(rest.children)).to.equal(
+        '[^n]: https://example.com'
+      );
+      expect(blocks[1]).to.deep.equal({
+        children: [{ text: 'see [^n]', type: 'text' }],
+        type: 'paragraph',
+      });
+      // one level less, it is the footnote it always was
+      const shallow = parseMarkdown(`${'> '.repeat(99)}[^n]: https://example.com\n\nsee [^n]`);
+      expect(shallow.at(-1)?.type).to.equal('footnotes');
     });
 
     it('should read and draw emphasis ten thousand deep, which nothing bounds', () => {

@@ -10443,10 +10443,12 @@ of one side's. Two earlier versions failed in the full suite while passing on th
 own. One compared 4 times the size against a limit of 10. The other took the best
 of three for one size and then the other, and measured `_*` 27 times slower at 8
 times the size, where on its own it is 3.5.
-Sixteen of the file's 24 tests fail against `origin/main`'s parser. The other
-eight pin behaviour that must not change. The line-separator test was measured
-on its own, at four times the size: at eight times, `#`, sixteen thousand
-spaces and a separator is cubic, and would take hours on the old parser.
+Every test named for a defect fails against `origin/main`'s parser. The rest pin
+behaviour that must not change. The heading-with-a-separator case is measured
+from 512 bytes to 4 KB rather than from 2 KB to 16 KB. The old parser was cubic
+there, and a synchronous parse cannot be timed out: at 16 KB a regression would
+hang CI for hours instead of failing. At 4 KB the old parser takes about 16 seconds a run
+against 145 ms at 512 bytes, so the test still fails on it.
 
 - **Containers nest 100 deep, and past that a line that would open one is
   paragraph text.** `blocks()` and `readList()` carry the depth; at
@@ -10456,6 +10458,20 @@ spaces and a separator is cubic, and would take hours on the old parser.
   **420** nested lists and **660** nested quotes, so 100 leaves room for the
   stack an app already has under the call, and is what cmark and markdown-it use.
   A document a dozen deep is read exactly as before.
+
+  Three consequences, each pinned. A footnote definition at the limit is read as
+  paragraph text before the link-definition check, because `[^n]: url` is also a
+  link definition of the label `^n`. Read as a link definition, the line vanished
+  and every `[^n]` became a link to the note's words. Second, the paragraph is
+  still cut by `interrupts()`. That still breaks on `>` and on list markers, so a
+  run of `> a` lines at the limit is one paragraph per line rather than one
+  paragraph. Third, the renderer can draw such a document but cannot show much of
+  it. Each level costs two or three columns of room, so at a width of 60 no text
+  appears past about 29 levels of list. The cost of drawing also grows with the
+  square of the depth. The test draws at a width of 400 and requires the innermost
+  words to come out at the end of the line. That is what the renderer guarantees,
+  where a returned string proves nothing.
+
 - **Inline runs are walked with an explicit stack.** Emphasis nests as deep as
   its delimiters go, and nothing bounds that without changing what CommonMark
   matches -- `*` twenty thousand times round a word is ten thousand nested strongs.
@@ -10471,7 +10487,7 @@ spaces and a separator is cubic, and would take hours on the old parser.
   never closes kept the destination scan running to the end of the text, once per
   `](`. CommonMark lets an implementation limit the nesting and requires three.
   Depth rather than length is bounded, so a long `data:` image is still read
-  whole, which is what SIG-197 refused a limit for. Past 33 the link is its text.
+  whole, which is what SIG-197 refused a limit for. Past 32 the link is its text.
   This is the one change a differential check over 130,319 documents found: the 8
   of them with 33 to 40 levels of parentheses. The cap still lets each `](` scan
   up to 32 levels of the text, so the per-character test matters: the scan used a
@@ -10540,7 +10556,7 @@ shapes:
 | `'_*'.repeat(n)`                         | 40 / 80 KB  | 415 / 1,723 ms    | 26 / 38 ms   |
 | `'*a*_b_'.repeat(n)`                     | 40 / 80 KB  | 121 / 401 ms      | 8.5 / 15 ms  |
 | `'a*'.repeat(n)`                         | 40 / 80 KB  | 70 / 293 ms       | 7.9 / 14 ms  |
-| `'- '.repeat(1600) + 'a'`, and `>`, `* ` | 3 to 4 KB   | `RangeError`      | under 3 ms   |
+| `'- '.repeat(1600) + 'a'`, and `>`, `* ` | 2.5 to 4 KB | `RangeError`      | under 3 ms   |
 
 And the ones found by reading the parser:
 

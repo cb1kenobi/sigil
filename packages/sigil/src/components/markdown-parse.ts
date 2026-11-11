@@ -626,8 +626,8 @@ function blocks(
     // a footnote's definition: its first line, the lines indented four under it,
     // and the lazy lines that carry its paragraph on -- a list item's shape with
     // a column of four, which is GitHub's
-    const note = nests ? whole(FOOTNOTE, line) : null;
-    if (note) {
+    const note = whole(FOOTNOTE, line);
+    if (note && nests) {
       const body: string[] = [note[2]];
       i++;
       while (i < lines.length) {
@@ -660,8 +660,11 @@ function blocks(
       continue;
     }
 
-    // a definition is read where a paragraph would start, and takes the line
-    const definition = DEFINITION.exec(line);
+    // a definition is read where a paragraph would start, and takes the line --
+    // but not a footnote's line at the nesting limit, which is a link definition
+    // of the label `^n` to the eye of the pattern: read as one, it vanished and
+    // turned every `[^n]` into a link to the note's words
+    const definition = note ? null : DEFINITION.exec(line);
     if (definition) {
       const label = normalizeLabel(definition[1]);
       // the first definition of a label wins, which is CommonMark's rule and the
