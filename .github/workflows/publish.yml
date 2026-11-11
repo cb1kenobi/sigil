@@ -17,20 +17,41 @@ on:
 # It is two jobs, and the line between them is the npm token. `build` installs
 # the workspace and runs `pnpm check`, `pnpm test` and `pnpm build`, which is
 # every devDependency's code -- tsdown, rolldown, vitest, oxlint, turbo and what
-# they pull in -- so it holds neither the token nor `id-token: write`, and a
-# compromised devDependency there has nothing to publish with. `publish` holds
-# both and runs no package code at all: no `pnpm install`, and `--ignore-scripts`
-# on the publish, because every package's `prepublishOnly` is `pnpm run build`
-# and would otherwise rebuild everything with the token in the environment.
+# they pull in -- so it holds neither the token nor `id-token: write`. `publish`
+# holds both and runs no package code at all: no `pnpm install`, and
+# `--ignore-scripts` on the publish, because every package's `prepublishOnly` is
+# `pnpm run build` and would otherwise rebuild everything with the token in the
+# environment.
 #
 # What `publish` ships is what `build` built and tested, handed over as a
 # workflow artifact rather than rebuilt: the build's outputs -- every
 # `packages/*/dist` and `packages/sigil/registry`, which are turbo's `outputs`
-# for `build` -- in one tar, so that modes and paths come back exactly as they
-# were written. Everything else `pnpm -r publish` packs (manifests, READMEs,
-# LICENSE files, the screenshot package's fonts) is tracked, and `publish` checks
-# out the same commit. `pnpm pack` rewrites `workspace:*` from the workspace's
-# own manifests, so none of it needs a `node_modules`.
+# for `build` -- in one ustar archive. Everything else `pnpm -r publish` packs
+# (manifests, READMEs, LICENSE files, the screenshot package's fonts) is
+# tracked, and `publish` checks out the same commit. `pnpm pack` rewrites
+# `workspace:*` from the workspace's own manifests, so none of it needs a
+# `node_modules`.
+#
+# That archive is the one thing `build` hands `publish`, and `build` controls
+# all of it: a compromised devDependency runs there with passwordless sudo, so
+# it can write any archive it likes, member names and types included, and
+# upload it under this artifact's name. Extracted blindly over the checkout it
+# could replace the tracked `.npmrc`, a manifest or `pnpm-workspace.yaml`, and
+# send the token wherever it chose. So `publish` never unzips or untars it with
+# a tool: the artifact is one file uploaded unzipped and downloaded with
+# `skip-decompress` into `$RUNNER_TEMP`, and `scripts/unpack-build-output.mjs`
+# -- read from the checkout, not from the artifact -- parses it itself and
+# writes only regular files and directories under `packages/<pkg>/dist` and
+# `packages/<pkg>/registry`, refusing the whole archive if any member is
+# anything else. A check after it fails the job if the checkout has changed in
+# any other way. `publish` runs on a fresh runner, so the node and git it uses
+# are not ones `build` could have touched.
+#
+# What the split protects is the token, and with it every package and version
+# this release does not publish. What it cannot protect is this release's own
+# `dist/` and `registry/` bytes: `build` produced them, so a compromised
+# devDependency still decides what they contain. That is inherent in
+# publishing what was built and tested.
 
 permissions:
   contents: read
@@ -66,10 +87,12 @@ jobs:
       # exist. That is the hazard a single-package repo does not have, where
       # the version you can see in the release is the version that ships.
       #
-      # Both packages move together: the toolchain depends on the runtime at
-      # the same version, and lockstep is what a two-package repo can afford.
-      # Versioning them independently means tagging `@ttylabs/sigil@0.1.0`
-      # instead, and this check is where that decision would be written.
+      # All five published packages move together: the toolchain, the config
+      # stores and the screenshot package depend on the runtime at the same
+      # version, and lockstep is what one repository releasing them together
+      # can afford. Versioning them independently means tagging
+      # `@ttylabs/sigil@0.1.0` instead, and this check is where that decision
+      # would be written.
       #
       # The tag arrives through `env` rather than as `${{ }}` in the script: an
       # expression is pasted into the script text before bash reads it, so a
@@ -111,17 +134,27 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # `--force`, because `pnpm test` has already built every package and
+      # this would otherwise be a turbo cache hit, which restores outputs over
+      # the directories without emptying them -- so anything the suite left in
+      # a `dist/` would ship. Forced, each package's build runs and starts by
+      # removing its own outputs, which is the clean build `prepublishOnly`
+      # used to guarantee.
       - name: Build
-        run: pnpm build
+        run: pnpm build --force
 
+      # POSIX ustar, because that is the one format the unpacking script in
+      # `publish` reads: regular files and directories, and nothing else.
       - name: Pack the build output
-        run: tar -cf build-output.tar packages/*/dist packages/*/registry
+        run: tar --format=ustar -cf "$RUNNER_TEMP/build-output.tar" packages/*/dist packages/*/registry
 
+      # `archive: false` uploads the file as it is rather than inside a zip,
+      # so that `publish` can download it without unzipping anything.
       - name: Upload the build output
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: build-output
-          path: build-output.tar
+          path: ${{ runner.temp }}/build-output.tar
+          archive: false
           if-no-files-found: error
 
   publish:
@@ -188,13 +221,47 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
+      # Everything from here on handles what `build` produced, which is why the
+      # token check above comes first: `npm whoami` reads a project `.npmrc`.
+      #
+      # Downloaded outside the checkout, and not decompressed: the artifact is
+      # an uploaded file rather than a zip, and `skip-decompress` keeps it that
+      # way even if what arrives under this name is a zip after all.
       - name: Download the build output
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: build-output
+          name: build-output.tar
+          path: ${{ runner.temp }}/build-output
+          skip-decompress: true
 
+      # The member filter: only regular files and directories under
+      # `packages/<pkg>/dist` and `packages/<pkg>/registry`, or nothing at all.
+      # See the script for exactly what it refuses.
       - name: Unpack the build output
-        run: tar -xf build-output.tar && rm build-output.tar
+        run: node scripts/unpack-build-output.mjs "$RUNNER_TEMP/build-output"
+
+      # The backstop: whatever the filter let through, the checkout must be the
+      # commit, plus ignored files under those output directories, and nothing
+      # else -- no tracked file changed, nothing new and unignored, and nothing
+      # ignored anywhere else.
+      - name: Check the checkout holds nothing but build output
+        run: |
+          fail=0
+          if ! git diff --exit-code --stat; then
+            echo "::error::unpacking changed tracked files"
+            fail=1
+          fi
+          untracked=$(git ls-files --others --exclude-standard)
+          if [ -n "$untracked" ]; then
+            echo "::error::unpacking added files outside the build output: $untracked"
+            fail=1
+          fi
+          stray=$(git ls-files --others --ignored --exclude-standard | grep -v -E '^packages/[^/]+/(dist|registry)/' || true)
+          if [ -n "$stray" ]; then
+            echo "::error::ignored files outside the build output: $stray"
+            fail=1
+          fi
+          exit $fail
 
       # `prepublishOnly` used to rebuild each package on the way out, so a
       # missing `dist/` could not ship. With `--ignore-scripts` nothing does, so

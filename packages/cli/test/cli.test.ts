@@ -417,6 +417,128 @@ describe('@ttylabs/cli', () => {
     });
   });
 
+  /**
+   * The workflows are the other half of what gets installed: an action is code
+   * that runs with the job's token, and the publish job's token can publish.
+   * So the same rule as the manifests, plus the three ways a workflow hands an
+   * attacker the token. Read line by line rather than through a YAML parser,
+   * which this package does not have; the shapes asserted on are the ones the
+   * two workflows actually use, and each assertion first checks it found
+   * something to assert on.
+   */
+  describe('the workflows', () => {
+    const dir = resolve(root, '../../.github/workflows');
+    const workflows = readdirSync(dir)
+      .filter((file) => /\.ya?ml$/.test(file))
+      .map((file) => ({ file, lines: readFileSync(join(dir, file), 'utf-8').split(/\r?\n/) }));
+
+    const indent = (line: string) => line.length - line.trimStart().length;
+
+    /** Every `run:` value, including the lines of a block scalar under it. */
+    function runBlocks(lines: string[]): string[] {
+      const blocks: string[] = [];
+      lines.forEach((line, i) => {
+        const match = /^(\s*)(- )?run:(.*)$/.exec(line);
+        if (!match) return;
+        const key = match[1].length + (match[2] ? 2 : 0);
+        const block = [match[3]];
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j].trim() !== '' && indent(lines[j]) <= key) break;
+          block.push(lines[j]);
+        }
+        blocks.push(block.join('\n'));
+      });
+      return blocks;
+    }
+
+    /** Each job's lines, by name. */
+    function jobs(lines: string[]): Map<string, string[]> {
+      const byName = new Map<string, string[]>();
+      const start = lines.indexOf('jobs:');
+      let current: string[] | undefined;
+      for (const line of lines.slice(start + 1)) {
+        const name = /^ {2}([\w-]+):\s*$/.exec(line);
+        if (name) byName.set(name[1], (current = []));
+        else if (/^\S/.test(line)) current = undefined;
+        else current?.push(line);
+      }
+      return byName;
+    }
+
+    it('should find both workflows', () => {
+      expect(workflows.map(({ file }) => file).sort()).toEqual(['publish.yml', 'test.yml']);
+    });
+
+    it('should pin every action to a commit SHA and name its release', () => {
+      const uses = workflows.flatMap(({ file, lines }) =>
+        lines
+          .map((line) => /^\s*(?:- )?uses:\s*(.*)$/.exec(line)?.[1])
+          .filter((value) => value !== undefined)
+          .map((value) => `${file}: ${value}`)
+      );
+
+      expect(uses.length).toBeGreaterThan(5);
+      expect(
+        uses.filter((use) => !/: [\w.-]+\/[\w./-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$/.test(use))
+      ).toStrictEqual([]);
+    });
+
+    it('should put no expression inside a run block', () => {
+      // an expression is pasted into the script text before the shell parses
+      // it, so a value holding a quote becomes shell; pass it through `env`
+      for (const { file, lines } of workflows) {
+        const blocks = runBlocks(lines);
+        expect(blocks.length, file).toBeGreaterThan(0);
+        expect(
+          blocks.filter((block) => block.includes('${{')),
+          file
+        ).toStrictEqual([]);
+      }
+    });
+
+    it('should read secrets in the publish job of the publish workflow and nowhere else', () => {
+      const reads = workflows.flatMap(({ file, lines }) =>
+        [...jobs(lines)].flatMap(([job, body]) =>
+          body.some((line) => line.includes('secrets.')) ? [`${file} ${job}`] : []
+        )
+      );
+
+      expect(reads).toStrictEqual(['publish.yml publish']);
+      // and no secret is read outside a job, where every job would get it
+      for (const { file, lines } of workflows) {
+        const outside = lines.slice(0, lines.indexOf('jobs:'));
+        expect(
+          outside.filter((line) => line.includes('secrets.')),
+          file
+        ).toStrictEqual([]);
+      }
+    });
+
+    it('should unpack the build output only through the member filter', () => {
+      const publish = workflows.find(({ file }) => file === 'publish.yml');
+      const job = jobs(publish?.lines ?? []);
+      const build = (job.get('build') ?? []).join('\n');
+      const steps = job.get('publish') ?? [];
+      const text = steps.join('\n');
+
+      // uploaded and downloaded as one file, so nothing unzips it
+      expect(build).toContain('archive: false');
+      expect(text).toContain('skip-decompress: true');
+      // unpacked by the script that refuses anything but dist and registry
+      expect(text).toContain('node scripts/unpack-build-output.mjs "$RUNNER_TEMP/build-output"');
+      expect(text).toContain('git diff --exit-code');
+      expect(text).toContain('git ls-files --others --exclude-standard');
+      // and by nothing else that could extract it
+      expect(
+        runBlocks(steps).filter((block) => /\b(?:tar|unzip|bsdtar|7z)\b/.test(block))
+      ).toStrictEqual([]);
+      // the token check runs before anything from `build` is on disk, since
+      // `npm whoami` reads a project `.npmrc`
+      expect(text.indexOf('npm whoami')).toBeGreaterThan(-1);
+      expect(text.indexOf('npm whoami')).toBeLessThan(text.indexOf('download-artifact'));
+    });
+  });
+
   describe('the fixtures', () => {
     const fixtures = resolve(root, 'test/fixtures');
 
