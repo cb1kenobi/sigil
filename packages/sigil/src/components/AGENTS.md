@@ -1862,6 +1862,41 @@ decided once, for all of them. The runs and the sabotage passes are in
   highlight and is recomputed from it, so there is no scroll state to keep in
   agreement: the only thing that has to be true is that the active row is on
   screen.
+- **And only the window's rows exist (SIG-369).** `select()` and `multiselect()`
+  built five elements for every choice and kept the ones off screen in the tree
+  as `display: none`, and `paintChoices()` wrote props on every one of them on
+  every key -- so a key cost the length of the list, where `sort()` and
+  `selectRow()`, which build their window and nothing else, stayed flat. Now
+  `choiceRows()` starts an empty list and `paintChoices()` takes out the rows that
+  left the window and builds the ones that entered it, in place, keeping the rest.
+  A 60x12 terminal, mean of five Downs, against the built package:
+
+  | prompt                      | 1,000 choices | 4,000    | 16,000   |
+  | --------------------------- | ------------- | -------- | -------- |
+  | `select()` per Down, before | 30.9 ms       | 113.6 ms | 458.6 ms |
+  | `select()` per Down, after  | 0.9 ms        | 0.8 ms   | 0.8 ms   |
+  | `multiselect()` before      | 28.9 ms       | 125.2 ms | 494.4 ms |
+  | `multiselect()` after       | 0.8 ms        | 0.9 ms   | 0.7 ms   |
+  | `select()` build, before    | 21 ms         | 99 ms    | 399 ms   |
+  | `select()` build, after     | 1 ms          | 1 ms     | 2 ms     |
+
+  A Down that scrolls costs the same as one that does not, on both sides.
+  Nothing could be lost by it, which was checked rather than argued: every byte
+  both prompts wrote, over sixteen scripted key sequences (headings, disabled
+  rows, hints that wrap, descriptions, `loop`, Home and End, an initial `value`
+  far down the list, ticks, `a`, `i`, `min` and `max` refusals, a resize, the
+  answered line) at six terminal sizes and colour levels 0 and 3, is identical
+  before and after. The list's width was never measured from its widest choice
+  -- a `display: none` row has a zero box -- so a wide label off screen moved
+  nothing then and moves nothing now. Every drawn row still gets `display: flex`
+  written, as it did when an off-screen one got `none`, so that what a row
+  resolves to is what it was. The one thing a theme could see is
+  `:nth-child()` on `.sigil-choice`, which now counts from the top of the
+  window rather than the top of the list; nothing in the framework sheet uses it,
+  and it is what `sort()`'s rows have always done. Pinned as counts of element
+  writes at fifty choices and at five thousand in `choice-window.test.ts`,
+  never as time; the old code fails them by a factor of a hundred.
+
 - **A choice list reserves the cursor's column on every row, and a blank cannot
   do it.** The inactive rows drew a `' '` where the active one drew `❯`, which
   looks like the same one column and is not: `white-space: normal` collapses a run

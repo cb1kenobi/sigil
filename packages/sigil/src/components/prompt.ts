@@ -2881,76 +2881,97 @@ interface ChoiceRow {
 }
 
 /**
- * Builds the rows a choice list is drawn as.
+ * A choice list: the box on screen, and the rows of it that have been built.
+ *
+ * Only the rows in the window exist (SIG-369). Every choice used to be a row in
+ * the tree, `display: none` outside the window, and every key wrote props on all
+ * of them -- so a key cost the length of the list rather than the height of the
+ * screen. A row that is not drawn is not built, which is what `sort()` and
+ * `selectRow()` already do with theirs.
+ */
+interface ChoiceList<T> {
+  /** The rows on screen, by their index in `items`. */
+  built: Map<number, ChoiceRow>;
+  items: readonly Item<T>[];
+  /** The box the rows are in. */
+  list: Element;
+  /** Whether each row carries a tick box, for a multiselect. */
+  ticked: boolean;
+}
+
+/**
+ * Starts a choice list, with no row built until `paintChoices()` puts one on
+ * screen.
  *
  * @param items - The choices and the separators between them.
  * @param ticked - Whether each row carries a tick box, for a multiselect.
- * @returns The rows and the box holding them.
+ * @returns The list.
  */
-function choiceRows<T>(
-  items: readonly Item<T>[],
-  ticked: boolean
-): { list: Element; rows: ChoiceRow[] } {
-  const rows = items.map((item): ChoiceRow => {
-    // the cursor on every row, hidden where it is not the active one: a text of
-    // nothing but spaces measures zero, since `white-space: normal` collapses a
-    // run of them, so a blank standing in for the cursor indented an inactive
-    // row one column less than an active one. Hidden content still takes its
-    // space, and reserving it with the same glyph is what keeps the column the
-    // cursor's own width rather than a guess at it.
-    const pointer = textNode(SYMBOL.cursor, { 'margin-right': 1, visibility: 'hidden' });
-    const mark = textNode(SYMBOL.off, { class: 'sigil-choice-mark', 'margin-right': 1 });
+function choiceRows<T>(items: readonly Item<T>[], ticked: boolean): ChoiceList<T> {
+  return { built: new Map(), items, list: box({ 'flex-direction': 'column' }), ticked };
+}
 
-    if (item.kind === 'separator') {
-      // a heading starts in the cursor's column, over the labels it introduces,
-      // where a row of labels is indented past the cursor and the box
-      pointer.setProps({ display: 'none' });
-      mark.setProps({ display: 'none' });
-      const label = textNode(item.label, { class: 'sigil-choice-separator sigil-muted' });
-      const hint = textNode('', { display: 'none' });
-      return {
-        disabled: true,
-        hint,
-        kind: 'separator',
-        label,
-        mark,
-        pointer,
-        row: box({ class: 'sigil-choice sigil-choice-heading' }, pointer, mark, label, hint),
-      };
-    }
+/**
+ * Builds the row one item is drawn as.
+ *
+ * @param item - The choice, or the separator.
+ * @param ticked - Whether the row carries a tick box, for a multiselect.
+ * @returns The row.
+ */
+function choiceRow<T>(item: Item<T>, ticked: boolean): ChoiceRow {
+  // the cursor on every row, hidden where it is not the active one: a text of
+  // nothing but spaces measures zero, since `white-space: normal` collapses a
+  // run of them, so a blank standing in for the cursor indented an inactive
+  // row one column less than an active one. Hidden content still takes its
+  // space, and reserving it with the same glyph is what keeps the column the
+  // cursor's own width rather than a guess at it.
+  const pointer = textNode(SYMBOL.cursor, { 'margin-right': 1, visibility: 'hidden' });
+  const mark = textNode(SYMBOL.off, { class: 'sigil-choice-mark', 'margin-right': 1 });
 
-    const { choice } = item;
-    const reason =
-      typeof choice.disabled === 'string' && choice.disabled
-        ? choice.disabled
-        : choice.disabled
-          ? __`disabled`
-          : choice.hint;
-    const label = textNode(choice.label, item.offered ? {} : { class: 'sigil-muted' });
-    const hint = textNode(reason ?? '', {
-      class: 'sigil-choice-hint sigil-muted',
-      display: reason ? 'flex' : 'none',
-      'margin-left': 1,
-    });
-
-    if (!ticked) {
-      mark.setProps({ display: 'none' });
-    }
-
+  if (item.kind === 'separator') {
+    // a heading starts in the cursor's column, over the labels it introduces,
+    // where a row of labels is indented past the cursor and the box
+    pointer.setProps({ display: 'none' });
+    mark.setProps({ display: 'none' });
+    const label = textNode(item.label, { class: 'sigil-choice-separator sigil-muted' });
+    const hint = textNode('', { display: 'none' });
     return {
-      disabled: !item.offered,
+      disabled: true,
       hint,
-      kind: 'choice',
+      kind: 'separator',
       label,
       mark,
       pointer,
-      row: box({ class: 'sigil-choice' }, pointer, mark, label, hint),
+      row: box({ class: 'sigil-choice sigil-choice-heading' }, pointer, mark, label, hint),
     };
+  }
+
+  const { choice } = item;
+  const reason =
+    typeof choice.disabled === 'string' && choice.disabled
+      ? choice.disabled
+      : choice.disabled
+        ? __`disabled`
+        : choice.hint;
+  const label = textNode(choice.label, item.offered ? {} : { class: 'sigil-muted' });
+  const hint = textNode(reason ?? '', {
+    class: 'sigil-choice-hint sigil-muted',
+    display: reason ? 'flex' : 'none',
+    'margin-left': 1,
   });
 
+  if (!ticked) {
+    mark.setProps({ display: 'none' });
+  }
+
   return {
-    list: box({ 'flex-direction': 'column' }, ...rows.map((row) => row.row)),
-    rows,
+    disabled: !item.offered,
+    hint,
+    kind: 'choice',
+    label,
+    mark,
+    pointer,
+    row: box({ class: 'sigil-choice' }, pointer, mark, label, hint),
   };
 }
 
@@ -3021,37 +3042,62 @@ function windowStart(count: number, active: number, room: number, from: number):
 /**
  * Draws which row is highlighted, which are ticked, and which are on screen.
  *
- * @param rows - The rows.
+ * The rows that left the window are taken out and the ones that entered it are
+ * built in their place, so the tree holds the window and nothing else and a key
+ * costs the window's height whatever the length of the list. A row that stays on
+ * screen is kept rather than rebuilt. `display: flex` is still written on every
+ * row drawn, as it was when a row off screen was `none`, so that what a row
+ * resolves to is what it was.
+ *
+ * @param choices - The list.
  * @param active - Which is highlighted.
  * @param start - The first row on screen.
  * @param room - How many rows the list may take.
  * @param ticked - Which are ticked, for a multiselect.
  */
-function paintChoices(
-  rows: ChoiceRow[],
+function paintChoices<T>(
+  choices: ChoiceList<T>,
   active: number,
   start: number,
   room: number,
   ticked?: ReadonlySet<number>
 ): void {
-  const visible = Math.max(1, Math.min(room, rows.length));
+  const { built, items, list } = choices;
+  const visible = Math.max(1, Math.min(room, items.length));
+  const end = Math.min(items.length, start + visible);
 
-  for (const [i, row] of rows.entries()) {
-    const here = i === active;
-    const shown = i >= start && i < start + visible ? 'flex' : 'none';
+  for (const [i, row] of built) {
+    if (i < start || i >= end) {
+      list.removeChild(row.row);
+      built.delete(i);
+    }
+  }
+
+  // walked from the bottom, so that a row the window gained goes in front of
+  // the row below it: the rows kept are one run, already in order
+  let below: Element | undefined;
+  for (let i = end - 1; i >= start; i--) {
+    let row = built.get(i);
+    if (!row) {
+      row = choiceRow(items[i] as Item<T>, choices.ticked);
+      built.set(i, row);
+      list.insertBefore(row.row, below);
+    }
+    below = row.row;
 
     if (row.kind === 'separator') {
-      row.row.setProps({ display: shown });
+      row.row.setProps({ display: 'flex' });
       continue;
     }
 
+    const here = i === active;
     row.pointer.setProps({
       class: here ? 'sigil-choice-pointer' : '',
       visibility: here ? 'visible' : 'hidden',
     });
     row.row.setProps({
       class: here ? 'sigil-choice is-active sigil-accent' : 'sigil-choice',
-      display: shown,
+      display: 'flex',
     });
     if (ticked) {
       const on = ticked.has(i);
@@ -3128,7 +3174,8 @@ export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
     const head = headWidths(opts.message, Math.max(1, terminal.width));
     const answer = answerSlot(head.rest);
     const { line, mark } = promptHead(opts.message, head.message, answer.beside);
-    const { list, rows } = choiceRows(items, false);
+    const choices = choiceRows(items, false);
+    const { list } = choices;
     const described = describing(items);
     const view = box(
       { class: 'sigil-prompt', 'flex-direction': 'column' },
@@ -3144,7 +3191,7 @@ export function select<T = string>(opts: SelectOptions<T>): Promise<T> {
 
     function draw(): void {
       start = windowStart(items.length, active, room(), start);
-      paintChoices(rows, active, start, room());
+      paintChoices(choices, active, start, room());
       described.show(active);
     }
 
@@ -3278,7 +3325,8 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
     const head = headWidths(opts.message, Math.max(1, terminal.width));
     const answer = answerSlot(head.rest);
     const { line, mark } = promptHead(opts.message, head.message, answer.beside);
-    const { list, rows } = choiceRows(items, true);
+    const choices = choiceRows(items, true);
+    const { list } = choices;
     const described = describing(items);
     const problem = note('sigil-prompt-error sigil-error');
 
@@ -3332,7 +3380,7 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
     function draw(): void {
       start = windowStart(items.length, active, room(), start);
       setNote(problem, error);
-      paintChoices(rows, active, start, room(), ticked);
+      paintChoices(choices, active, start, room(), ticked);
       described.show(active);
     }
 
