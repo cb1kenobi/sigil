@@ -140,8 +140,9 @@ export interface BundleOptions {
   /** Where the bundle goes. */
   readonly out: string;
   /**
-   * Every other directory a build or a package of this app writes, which the
-   * class-evidence walk leaves out alongside `out`.
+   * Other directories holding a previous bundle of this app -- the configured
+   * build output, in practice -- which the class-evidence walk leaves out
+   * alongside `out`.
    *
    * `out` alone was the exclusion, and it is the wrong one for every caller but
    * a `sigil build` into its configured directory: `sigil package` bundles into
@@ -655,6 +656,17 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       sourcemap,
     });
 
+    // a template that could not be compiled, asked first because it is about
+    // the app's own source and the gates below are about what the bundle came
+    // to -- and after the write for the reason the unresolved-import gate gives
+    // below: the transform has not run until then. Sorted, since rolldown
+    // transforms modules in whatever order it likes and a report that reorders
+    // itself between two runs of one app cannot be diffed
+    if (uncompiled.length) {
+      undo(out, written.output);
+      throw new DiagnosticError(uncompiled.toSorted(byLocation));
+    }
+
     // asked after the write, which reads backwards and is the only place the
     // answer exists. `rolldown()` builds nothing: rolldown's own documentation
     // says the module graph is not built until a method on the bundle is called,
@@ -671,15 +683,6 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     // second call, which would double `templates` and compile every template
     // twice. So one write, and what it wrote is unwound: exactly the files
     // rolldown reported, which is where the `.map`s are too.
-    // first, because it is about the app's own source and the gates below are
-    // about what the bundle came to. Sorted, since rolldown transforms modules
-    // in whatever order it likes and a report that reorders itself between two
-    // runs of one app cannot be diffed
-    if (uncompiled.length) {
-      undo(out, written.output);
-      throw new DiagnosticError(uncompiled.toSorted(byLocation));
-    }
-
     if (unresolved.length) {
       undo(out, written.output);
       throw new Error(

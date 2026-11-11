@@ -126,7 +126,10 @@ export function diagnosticLocation(diagnostic: Diagnostic): string {
  * @param other - Another.
  * @returns Negative, zero or positive, as `sort()` wants.
  */
-export function byLocation(one: Diagnostic, other: Diagnostic): number {
+export function byLocation(
+  one: Pick<Diagnostic, 'column' | 'file' | 'line'>,
+  other: Pick<Diagnostic, 'column' | 'file' | 'line'>
+): number {
   return (
     byCodeUnit(one.file, other.file) ||
     (one.line ?? 0) - (other.line ?? 0) ||

@@ -65,7 +65,7 @@
 
 import { analyze } from '../template/analyze.ts';
 import { compile, renderImports } from '../template/emit.ts';
-import type { Diagnostic } from './diagnostic.ts';
+import { byLocation, type Diagnostic } from './diagnostic.ts';
 import { parseModule } from './parse-module.ts';
 import { TAG_MODULE, templatesIn, type FoundTemplate, type TemplatesOptions } from './templates.ts';
 import { Expr, parse, type IRNode } from '@ttylabs/sigil/template';
@@ -99,12 +99,14 @@ export interface TemplateFailure {
  * Every failing template in the module rather than the first, because a build
  * that reports one, is fixed, and then reports the next is a loop the author
  * pays for once per template. `file`, `line` and `column` are the first
- * failure's, which is what a caller asking about one location wants.
+ * failure's, which is what a caller asking about one location wants: the
+ * earliest template that failed to parse, or, when every template parsed and
+ * the module's `compile()` threw, the template `blame()` says it was about.
  */
 export class TemplateCompileError extends Error {
   /** One-based column of the first failure. */
   readonly column: number;
-  /** Every template that failed, in source order. Never empty. */
+  /** Every template that failed, the one `line` names first. Never empty. */
   readonly failures: readonly TemplateFailure[];
   /** The module. */
   readonly file: string;
@@ -246,9 +248,7 @@ export function compileTemplates(
       }
     });
 
-    const [first, ...rest] = failures.toSorted(
-      (one, other) => one.line - other.line || one.column - other.column
-    );
+    const [first, ...rest] = failures.toSorted(byLocation);
     throw new TemplateCompileError([first!, ...rest]);
   }
 
@@ -364,24 +364,31 @@ function blame(
   // pass because the answers rank: a template throwing the *same* message is the
   // one `compile()` was complaining about, while a template merely throwing
   // something is a worse answer that still beats naming a template with nothing
-  // wrong with it
+  // wrong with it. Every template is asked rather than stopping at the match,
+  // because each that fails alone is reported too: it fails in the module as
+  // well, since nothing `compile()` does across templates rescues one
   let exact: FoundTemplate | undefined;
   let failing: FoundTemplate | undefined;
+  const alone: TemplateFailure[] = [];
 
   for (const [at, template] of found.entries()) {
     try {
       compile([nodes[at]!], { prefix });
-      continue;
     } catch (e: unknown) {
+      alone.push(failureAt(file, template, e as Error));
       failing ??= template;
-      if ((e as Error).message === error.message) {
+      if (!exact && (e as Error).message === error.message) {
         exact = template;
-        break;
       }
     }
   }
 
   const culprit = exact ?? failing ?? found[0]!;
 
-  return new TemplateCompileError([failureAt(file, culprit, error)]);
+  // the culprit first, with the message the module's `compile()` gave, which is
+  // what `line` has always named; the rest with their own, in source order
+  return new TemplateCompileError([
+    failureAt(file, culprit, error),
+    ...alone.filter(({ line, column }) => line !== culprit.line || column !== culprit.column),
+  ]);
 }

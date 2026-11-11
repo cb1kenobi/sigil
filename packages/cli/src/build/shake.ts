@@ -190,7 +190,7 @@ const SKIPPED = new Set(['node_modules']);
 
 /** What to scan, and what to keep regardless. */
 export interface ScanOptions {
-  /** Directories to leave out: every one a build or a package writes. */
+  /** Directories to leave out: the one being written and the build's own. */
   readonly exclude?: readonly string[];
   /** Class names kept whatever the source says. */
   readonly safelist?: readonly string[];
@@ -229,12 +229,14 @@ export interface ScanOptions {
  *
  * What it must not read is a *previous build's output*, which holds the
  * utility sheet as a string and would therefore be evidence for every rule it
- * kept. So the caller excludes every directory the app is configured to write
- * -- `bundleApp()` passes its own `out` and the `outputs` both commands hand it
- * -- and not only the one being written, which is what let `sigil package`,
- * bundling under `node_modules`, read the `dist/` a `sigil build` had left
- * (SIG-354). A stale directory nobody configured still gets through, and its
- * failure is the safe one: rules are kept, and the summary's count says so.
+ * kept. So the caller excludes the configured build directory as well as the
+ * one being written -- `bundleApp()` passes its own `out` and the `outputs` both
+ * commands hand it -- which is what let `sigil package`, bundling under
+ * `node_modules`, read the `dist/` a `sigil build` had left (SIG-354). Nothing
+ * else: a directory excluded here is evidence lost if it holds source, so one
+ * that holds no bundle is not worth the risk. A stale bundle nobody configured
+ * still gets through, and its failure is the safe one: rules are kept, and the
+ * summary's count says so.
  *
  * @param root - The app root.
  * @param options - What to leave out, and what to keep regardless.

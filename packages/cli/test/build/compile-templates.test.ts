@@ -360,6 +360,31 @@ export const two = () => ui\`<text><box /></text>\`;
       expect(templateDiagnostics(thrown as TemplateCompileError)).toHaveLength(3);
       expect(templateDiagnostics(thrown as TemplateCompileError)[0]?.severity).toBe('error');
     });
+
+    it('should name every template when all of them parse and only compile() refuses', () => {
+      // the other path to the same promise: every template parses, the module's
+      // `compile()` throws once, and `blame()` used to answer with the one
+      // template it was about -- so three broken templates were one error
+      const source = `import { ui } from '@ttylabs/sigil/template';
+export const a = () => ui\`<raw measure="nope" paint="nope" />\`;
+export const fine = () => ui\`<text>ok</text>\`;
+export const b = () => ui\`<raw measure="nope" paint="nope" />\`;
+export const c = () => ui\`<text><box /></text>\`;
+`;
+
+      let thrown: unknown;
+      try {
+        compileTemplates('/app/compiled.ts', source);
+      } catch (e: unknown) {
+        thrown = e;
+      }
+
+      expect(thrown).toBeInstanceOf(TemplateCompileError);
+      const { failures, line } = thrown as TemplateCompileError;
+      // the one the module's compile() was about still comes first, as `line`
+      expect(failures[0]?.line).toBe(line);
+      expect(failures.map((failure) => failure.line).toSorted()).toStrictEqual([2, 4, 5]);
+    });
   });
 
   describe('which modules are asked at all', () => {

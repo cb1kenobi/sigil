@@ -510,45 +510,28 @@ export function commandsFound(found: Inspection): string {
 export const DEFAULT_BUILD_OUT = 'dist';
 
 /**
- * Where the binaries go when neither a flag nor `sigil.json` says.
- *
- * **Not** `dist`, which is where a build goes, and the two sharing it was a
- * defect rather than a tidy default: `clean()` empties the directory, so
- * `sigil build` followed by `sigil package` destroyed the build output and
- * `sigil package` followed by `sigil build` destroyed an 89 MB binary --
- * measured, in both orders. `pnpm build && pnpm package` lost something
- * whichever way round it ran.
- *
- * `dist` is also what `files` in a manifest usually publishes, so a binary
- * sitting there is one `npm publish` away from being shipped.
- *
- * `release` rather than `out`, because it says what the contents are -- the
- * artifacts you attach to a release -- and cannot be read as a source or build
- * directory. It also avoids `--out out`.
- */
-export const DEFAULT_PACKAGE_OUT = 'release';
-
-/**
- * Every directory `sigil.json` sends a build or a package to, defaults
- * included, resolved.
+ * The directory `sigil.json` sends a build to, the default included, resolved.
  *
  * What the class-evidence walk leaves out besides the directory being written,
- * because each of these holds a previous run's bundle -- the utility sheet as a
- * string -- and reading one as source keeps every rule it kept. Both commands
- * pass both: `package` bundles into a staging directory under `node_modules`
- * and so never excluded `dist/`, and `build --out dist2` excluded `dist2` and
- * not the `dist/` an earlier `build` left. A flag's directory is the one being
- * written, which the caller adds; this is what the configuration says.
+ * because it holds a previous build's bundle -- the utility sheet as a string --
+ * and reading that as source keeps every rule it kept. Both commands pass it:
+ * `package` bundles into a staging directory under `node_modules` and so never
+ * excluded `dist/`, and `build --out dist2` excluded `dist2` and not the `dist/`
+ * an earlier `build` left.
+ *
+ * The build's directory and nobody else's. `package.out` holds binaries, which
+ * no module pattern matches and no walk reads as evidence, while a `release/`
+ * an app keeps source in -- it is an ordinary name, and nothing cleans it for an
+ * app that never packages -- would lose that source's evidence, which is the
+ * direction this analysis does not trade in. The binaries' `--out` is the same
+ * case, and `compile.ts` stages its own work in a temp directory.
  *
  * @param root - The app's root.
  * @param config - Its `sigil.json`.
- * @returns The build's and the package's output directories.
+ * @returns The build's output directory.
  */
-export function outputDirs(root: string, config: SigilConfig): string[] {
-  return [
-    resolveOut(root, config.build?.out ?? DEFAULT_BUILD_OUT),
-    resolveOut(root, config.package?.out ?? DEFAULT_PACKAGE_OUT),
-  ];
+export function buildOutDir(root: string, config: SigilConfig): string {
+  return resolveOut(root, config.build?.out ?? DEFAULT_BUILD_OUT);
 }
 
 /**

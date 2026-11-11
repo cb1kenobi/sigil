@@ -54,13 +54,13 @@ import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
   appRuns,
   binName,
+  buildOutDir,
   bundleFailure,
   clean,
   commandsFound,
   DEFAULT_BUILD_OUT,
   failure,
   inspect,
-  outputDirs,
   reportDiagnostics,
   resolveOut,
   utilityRules,
@@ -152,9 +152,9 @@ const build: AnyCommand = command({
       defaultLocale: sigilConfig.locale,
       external: (argv.external as string[] | undefined) ?? config.external ?? [],
       out,
-      // what `sigil.json` says this app builds and packages into, which the
-      // style shake must not read as source whatever `--out` is this time
-      outputs: outputDirs(found.app.root, sigilConfig),
+      // what `sigil.json` says this app builds into, which the style shake
+      // must not read as source whatever `--out` is this time
+      outputs: [buildOutDir(found.app.root, sigilConfig)],
       safelist: config.safelist,
       shake: argv.shake !== false && config.shake !== false,
       sourcemap: argv.sourcemap !== false && config.sourcemap !== false,

@@ -4,6 +4,7 @@ import { linkedFixture } from './copy-fixture.ts';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -718,6 +719,24 @@ describe('a previous dist/ read as class evidence', () => {
     expect(Number(before)).toBeLessThan(383);
     expect(after).toBe(before);
   }, 120_000);
+
+  it('should still read source in release/, which a build never writes', async () => {
+    // the first version of the fix left out `package.out` as well, and that
+    // directory holds binaries no module pattern matches -- so excluding it
+    // protected nothing, and an app that keeps code under `release/` and never
+    // packages lost that code's evidence: these two rules were dropped
+    const app = linkedFixture(join(fixtures, 'styled'), 'sigil-build-release-src-');
+    mkdirSync(join(app, 'release'));
+    writeFileSync(
+      join(app, 'release', 'extra.ts'),
+      "export const extra = 'justify-around underline';\n"
+    );
+
+    const { err } = await sigil('build', app, '--out', join(app, 'dist2'));
+
+    expect(err).not.toContain('Error');
+    expect(bundledCode(join(app, 'dist2'))).toContain('justify-around');
+  }, 60_000);
 });
 
 /**
