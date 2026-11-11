@@ -1128,9 +1128,14 @@ function lexYaml(code: string): HighlightSpan[] {
       continue;
     }
 
+    // a block scalar ends at the first line indented no deeper than the node
+    // that holds it: the key, whose column is past any `- ` markers -- so in
+    // `- run: |` the item's next key, `env:`, ends it -- or, for a bare `- |`
+    // with no key, the line itself
+    const keyAt = i;
     i = yamlKey(code, i, stop, out);
     if (yamlValue(code, i, stop, out)) {
-      block = indent;
+      block = i > keyAt ? keyAt - start : indent;
     }
     start = end + 1;
   }

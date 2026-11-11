@@ -422,6 +422,27 @@ describe('highlightCode()', () => {
       expect(tokenOf(yaml, 'yaml', 'echo two')).toBe('string');
       expect(tokenOf(yaml, 'yaml', 'after')).toBe('property');
     });
+
+    it("should end a list item's block scalar at the item's next key", () => {
+      // a GitHub Actions step: the block belongs to `run`, whose column is past the
+      // `- `, so `env` is the item's next key rather than more of the script
+      const steps = ['steps:', '  - run: |', '      npm test', '    env:', '      CI: true'].join(
+        '\n'
+      );
+      expect(pairs(steps, 'yaml')).toEqual([
+        ['steps', 'property'],
+        ['run', 'property'],
+        ['npm test', 'string'],
+        ['env', 'property'],
+        ['CI', 'property'],
+        ['true', 'constant'],
+      ]);
+      // and a block opened by a bare `- |` still runs to the item's own indent
+      expect(pairs(['- |', '  one', '  two', '- three'].join('\n'), 'yaml')).toEqual([
+        ['one', 'string'],
+        ['two', 'string'],
+      ]);
+    });
   });
 
   describe('Markdown', () => {
