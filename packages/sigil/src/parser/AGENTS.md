@@ -1637,23 +1637,36 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   plus a stray `bar` in `_`, a variadic takes one value per token, and
   `Unexpected argument` names what was typed. A group deferred part way carries
   the rest of its own spelling, so a later pass or a positional slot still has it.
-  `whole()` is the one reader. This is "An attached value is taken exactly as
-  typed" applied to the two places it had not reached, and nothing about which
+  `whole()` is how every walk hands a token on, a value included;
+  `expandGroup()` reads `orig` itself, because what it needs is the text after
+  one letter rather than the token. This is "An attached value is taken exactly
+  as typed" applied to the two places it had not reached, and nothing about which
   token is a value moved. Coercion writes into a copy, so `state.$` keeps the
   strings argv held and a `transform`'s returned array is not written into.
-- **A consumed token is marked and dropped once per walk, never spliced out where
-  it was found.** A splice shifts everything after it, so each walk that removed
-  one token per option or per gobbled value was quadratic in argv: 100,000 tokens
-  of `<files...>` took seconds. `compact()` drops what a pass marked, at the end
-  of the pass, and `validateOptions()` collects the typed options into a `Set`
-  once rather than walking `state.$` per declared option. The one visible
-  difference is that an option's `transform`, which runs mid-walk, now finds the
-  tokens consumed so far in that pass, its own value included, still listed in
-  `state.$`. Expanding a short option group
-  still splices, because it inserts entries rather than removing them; that is
-  quadratic only in the number of groups. Pinned by counting `state.$.splice`
-  calls in `consuming tokens was quadratic in argv`, since a timing is a flake on
-  a loaded machine.
+  Quotes straight after an option's name are still stripped by the first split
+  (`-D"foo"` is `foo`), and quotes after more of a group are part of the value
+  (`-Dfoo"bar"` is `foo"bar"`). That asymmetry is recorded in `docs/parser.md`
+  and was left alone here.
+- **A walk builds a new list and never splices `state.$`.** A splice shifts
+  everything after it, and a walk spliced once per consumed value, once per
+  gobbled positional and once per short option group, so it was quadratic in
+  argv: 100,000 tokens of `<files...>` took 2.1 to 2.4 s on `main`, and 100,000
+  of `-ab` about 2 s. `parseArgv()` reads each pass's entries as the pass found
+  them and writes what resolves to a new list. A consumed value is taken and
+  never written, which is also what stops a value that spells a command name
+  from matching the command. A group's entries wait in a queue ahead of the rest
+  of argv. `refill()` puts the list back in place, in a `finally`, so a walk that
+  throws leaves what it resolved, the entry it was reading, and what it had not
+  reached, with no consumed value left behind as a stray entry.
+  `parseUnknownOptions()` does the same, and the variadic gobble in
+  `processArgs()` compacts in the loop that collects. `validateOptions()` builds
+  a `Set` of the typed options once rather than walking `state.$` per declared
+  option. The visible difference is mid-walk: an option's `transform`, the one
+  piece of app code that runs during a pass and is handed the state, sees
+  `state.$` as it stood when the pass began. Before, it saw the entries before
+  its own resolved and the rest not. Pinned by counting `state.$.splice` calls
+  in `consuming tokens was quadratic in argv`, which asserts none, because a
+  timing would be a flake on a loaded machine.
 
 ### Sharing options between commands
 

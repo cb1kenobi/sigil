@@ -1003,9 +1003,12 @@ character is a flag or the start of a value depends on how it was declared:
 | `-Dfoo=bar` | `-D` takes a value           | `-D foo=bar`     |
 
 Everything after the letter that takes a value is that value, exactly as typed,
-`=` included. A group that cannot be resolved in the current context is left
-alone and retried once more contexts are known, and one that never resolves
-reaches a positional argument as the token that was typed.
+`=` included. Quotes are the one exception, and only when they come straight
+after the option's name: `-D"foo"` and `--name"val"` lose them, while
+`-Dfoo"bar"` is `foo"bar"`. A group that cannot be resolved in the current
+context is left alone and retried once more contexts are known. Whatever part of
+it never resolves reaches a positional argument exactly as typed: with only `-v`
+declared, `-vXY=z` sets `-v` and leaves the positional `-XY=z`.
 
 ### Option properties
 

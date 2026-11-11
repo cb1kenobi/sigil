@@ -5,7 +5,14 @@ import { initCommand } from '../../src/parser/command/init-command.js';
 import { loadCommand } from '../../src/parser/command/load-command.js';
 import { parse } from '../../src/parser/parse.js';
 import { commandSurface } from '../../src/reference/surface.js';
-import { Argument, Internal, type InternalCommand, type Schema } from '../../src/types.js';
+import {
+  Argument,
+  ErrorState,
+  Internal,
+  type InternalCommand,
+  type ParseState,
+  type Schema,
+} from '../../src/types.js';
 import { camelCase } from '../../src/util/camel-case.js';
 import { daysInMonth } from '../../src/util/transform.js';
 import { existsSync } from 'node:fs';
@@ -2756,6 +2763,61 @@ describe('regressions', () => {
       expect(result.argv.name).to.deep.equal(['a', 'b']);
       expect(result.argv.p).to.equal('pos');
       expect(result.argv.flag).to.equal(true);
+    });
+
+    it('should not splice per short option group', async () => {
+      const argv = Array.from({ length: n }, () => '-ab');
+      const schema = {
+        options: { '-a': { type: 'count' as const }, '-b': { type: 'count' as const } },
+      };
+      expect(await splices(argv, schema)).to.equal(0);
+      const result = await parse({ argv, schema });
+      expect(result.argv.a).to.equal(n);
+      expect(result.argv.b).to.equal(n);
+      expect(result.$).toHaveLength(2 * n);
+    });
+
+    it('should not match a consumed value that spells a command as the command', async () => {
+      // a value taken by an option is never read as a token of its own, so
+      // `sub` here is the value of `--name` and not the command `sub`
+      const result = await parse({
+        argv: ['--name', 'sub'],
+        schema: { commands: { sub: { run: () => {} } }, options: { '--name [n]': {} } },
+      });
+      expect(result.cmd).toBeUndefined();
+      expect(result.argv.name).to.equal('sub');
+    });
+
+    it('should not match a consumed value that spells a subcommand as the subcommand', async () => {
+      const result = await parse({
+        argv: ['sub', '--x', 'deep'],
+        schema: {
+          commands: {
+            sub: {
+              commands: { deep: { run: () => {} } },
+              options: { '--x [v]': {} },
+              run: () => {},
+            },
+          },
+        },
+      });
+      expect(result.cmd?.name).to.equal('sub');
+      expect(result.argv.x).to.equal('deep');
+    });
+
+    it('should leave no consumed value behind when a walk throws', async () => {
+      // `--port eight` throws while argv is read; what the error carries is
+      // what the walk resolved, the entry it was reading, and nothing else
+      const err = await parse({
+        argv: ['--name', 'a', '--port', 'eight'],
+        schema: { options: { '--name [n]': {}, '--port [p]': { type: 'int' } } },
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(Error);
+      const state = (err as { [ErrorState]?: ParseState })[ErrorState];
+      expect(state?.$.map((parsed) => [parsed.type, ...parsed.inputs])).to.deep.equal([
+        ['Option', '--name', 'a'],
+        ['Unknown', '--port', 'eight'],
+      ]);
     });
   });
 });
