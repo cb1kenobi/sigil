@@ -204,6 +204,70 @@ describe("reading where an app's commands are", () => {
       expect(at(list, 'literal').descTranslated).toBeUndefined();
     });
 
+    it("a placeholder's tagged, thunked or computed desc and computed hidden were replaced by the module's", () => {
+      // SIG-352. The runtime registers the placeholder as written, so whatever
+      // `desc` or `hidden` it declares is what an unloaded command shows, and
+      // the build baked the module's answer wherever the placeholder's was not
+      // a plain literal
+      const app = discoverApp(join(apps, 'placeholder-decides'));
+      const { commands, diagnostics } = readAppCommands(app);
+      const list = commands?.kind === 'inline' ? commands.commands : [];
+
+      // a tag evaluated at import is the English from source, so it is prose
+      expect(at(list, 'tagged').desc).toBe('Placeholder words');
+      expect(at(list, 'tagged').descTranslated).toBeUndefined();
+      // a thunk is evaluated after the catalog, so it stays a key
+      expect(at(list, 'thunk')).toMatchObject({ desc: 'Placeholder words', descTranslated: true });
+      // unreadable: nothing baked, and said so
+      expect(at(list, 'computed').desc).toBeUndefined();
+      expect(at(list, 'computed').descTranslated).toBeUndefined();
+      expect(at(list, 'shown').hidden).toBeUndefined();
+
+      expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
+        [
+          'warning',
+          'the "computed" command\'s "desc" is computed rather than a string literal, so it cannot be read at build time; the built app will list it by name alone',
+        ],
+        [
+          'warning',
+          'the "shown" command\'s "hidden" is computed rather than a boolean literal, so it cannot be read at build time; the built app will list it in help',
+        ],
+      ]);
+    });
+
+    it("should refuse a placeholder's desc or hidden of the wrong type, in the runtime's words", () => {
+      const dir = mkdtempSync(join(tmpdir(), 'sigil-placeholder-types-'));
+      try {
+        writeFileSync(
+          join(dir, 'package.json'),
+          JSON.stringify({ dependencies: { '@ttylabs/sigil': '*' }, name: 'types' })
+        );
+        mkdirSync(join(dir, 'src', 'commands'), { recursive: true });
+        writeFileSync(join(dir, 'src', 'commands', 'a.js'), 'export default { run() {} };\n');
+        writeFileSync(
+          join(dir, 'src', 'index.js'),
+          `export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    num: { desc: 42, path: './commands/a.js' },
+    str: { hidden: 'yes', path: './commands/a.js' },
+  },
+};\n`
+        );
+
+        const { diagnostics } = readAppCommands(discoverApp(dir));
+
+        expect(
+          diagnostics.filter((d) => d.severity === 'error').map((d) => d.message)
+        ).toStrictEqual([
+          'Expected desc for the "num" command to be a string or a function',
+          'Expected hidden to be a boolean in "str" command',
+        ]);
+      } finally {
+        rmSync(dir, { force: true, recursive: true });
+      }
+    });
+
     it('should nest a subcommand under its parent', () => {
       const app = discoverApp(join(apps, 'inline-app'));
       const { commands } = readAppCommands(app);

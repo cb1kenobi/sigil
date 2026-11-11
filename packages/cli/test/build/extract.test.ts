@@ -405,8 +405,8 @@ describe('extracting a command module', () => {
       // unbundled one is until its module loads
       expect(facts).to.deep.equal({});
       expect(diagnostics.map((d) => d.message)).to.deep.equal([
-        '"desc" is written before a spread, which may replace it when the module runs, so it cannot be read at build time; write "desc" after the last spread to have it appear in help',
-        '"hidden" is written before a spread, which may replace it when the module runs, so it cannot be read at build time; write "hidden" after the last spread, or this command will be listed in help until its module loads',
+        '"desc" is written before a spread or a computed key, which may replace it when the module runs, so it cannot be read at build time; write "desc" after the last of them to have it appear in help',
+        '"hidden" is written before a spread or a computed key, which may replace it when the module runs, so it cannot be read at build time; write "hidden" after the last of them, or this command will be listed in help until its module loads',
       ]);
       expect(diagnostics.map((d) => [d.severity, d.line])).to.deep.equal([
         ['warning', 2],
@@ -449,6 +449,85 @@ describe('extracting a command module', () => {
       expect(facts).to.deep.equal({});
       expect(diagnostics).to.have.lengthOf(1);
       expect(diagnostics[0]!.message).to.contain('"desc" is written before a spread');
+    });
+
+    it('should warn once about a key written twice before a spread', () => {
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `export default { desc: 'a', desc: 'b', ...base };`
+      );
+
+      expect(facts).to.deep.equal({});
+      expect(diagnostics.map((d) => d.message)).to.have.lengthOf(1);
+      expect(diagnostics[0]!.message).to.contain('"desc" is written before a spread');
+    });
+
+    it.each([
+      ['an identifier', `const k = 'desc'; export default { desc: 'early', [k]: 'late' };`],
+      ['a string', `export default { desc: 'early', ['desc']: 'late' };`],
+      ['a key after a spread', `export default { ...base, desc: 'early', [k]: 'late' };`],
+    ])(
+      'a desc written before a computed key holding %s was lifted, though the computed key may replace it',
+      (_, source) => {
+        // SIG-352. `[k]` may be `desc` as easily as anything else, which is the
+        // spread's own case -- and the reason `keyedPackage()` refuses either
+        const { diagnostics, facts } = extractCommand('a.js', source);
+
+        expect(facts).to.deep.equal({});
+        expect(diagnostics).to.have.lengthOf(1);
+        expect(diagnostics[0]!.message).to.contain(
+          '"desc" is written before a spread or a computed key'
+        );
+      }
+    );
+  });
+
+  describe('a key written twice', () => {
+    it.each([
+      ['a computed value', `export default { desc: 'a', desc: f() };`, '"desc" is computed'],
+      [
+        'an accessor',
+        `export default { desc: 'a', get desc() { return 'g'; } };`,
+        '"desc" is an accessor',
+      ],
+      [
+        'a computed hidden',
+        `export default { hidden: true, hidden: flag };`,
+        '"hidden" is computed',
+      ],
+    ])(
+      'an earlier literal was baked beside a later %s, which is what runs',
+      (_, source, warning) => {
+        // SIG-352. The last spelling of a key is the one an object literal
+        // keeps, so the earlier literal is not the module's value and the
+        // warning's "by name alone" was false while it was baked
+        const { diagnostics, facts } = extractCommand('a.js', source);
+
+        expect(facts).to.deep.equal({});
+        expect(diagnostics).to.have.lengthOf(1);
+        expect(diagnostics[0]!.message).to.contain(warning);
+      }
+    );
+
+    it('a later plain desc kept the earlier translated flag, baking prose as a catalog key', () => {
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `import { __ } from '@ttylabs/sigil/i18n';
+         export default { desc: __\`key\`, desc: 'plain' };`
+      );
+
+      expect(facts).to.deep.equal({ desc: 'plain' });
+      expect(diagnostics).to.deep.equal([]);
+    });
+
+    it('should read a later undefined as not declared, as the runtime does', () => {
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `export default { desc: 'a', desc: undefined };`
+      );
+
+      expect(facts).to.deep.equal({});
+      expect(diagnostics).to.deep.equal([]);
     });
   });
 

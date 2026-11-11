@@ -204,12 +204,13 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
   let spread: number | undefined;
 
   // object-literal order is what the module runs with: a spread replaces
-  // whatever came before it, so a lifted key written before the *last* spread
-  // is a value the spread may overwrite. That key is unknown rather than read,
-  // unless the same key is written again after the spread, which wins at run
-  // time whatever the spread carried
+  // whatever came before it, and so does a computed key, which may be `desc`
+  // or `hidden` as easily as anything else -- the reason `keyedPackage()`
+  // refuses either. A lifted key written before the *last* of them is a value
+  // that may be overwritten, so it is unknown rather than read, unless the same
+  // key is written again after it, which wins at run time whatever came before
   const lastSpread = object.properties.findLastIndex(
-    (property) => property.type === 'SpreadElement'
+    (property) => property.type === 'SpreadElement' || property.computed
   );
   const afterSpread = new Set(
     object.properties
@@ -236,13 +237,23 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
           ...at(property.start),
           message:
             key === 'desc'
-              ? '"desc" is written before a spread, which may replace it when the module runs, so it cannot be read at build time; write "desc" after the last spread to have it appear in help'
-              : '"hidden" is written before a spread, which may replace it when the module runs, so it cannot be read at build time; write "hidden" after the last spread, or this command will be listed in help until its module loads',
+              ? '"desc" is written before a spread or a computed key, which may replace it when the module runs, so it cannot be read at build time; write "desc" after the last of them to have it appear in help'
+              : '"hidden" is written before a spread or a computed key, which may replace it when the module runs, so it cannot be read at build time; write "hidden" after the last of them, or this command will be listed in help until its module loads',
           severity: 'warning',
         });
       }
       beforeSpread.add(key);
       continue;
+    }
+
+    // a key written twice is the last spelling at run time, so whatever an
+    // earlier one lifted is gone however this one turns out -- an unreadable
+    // later value leaves nothing rather than the earlier literal
+    if (key === 'desc') {
+      delete facts.desc;
+      delete facts.descTranslated;
+    } else {
+      delete facts.hidden;
     }
 
     // a getter or a setter is a function, whatever it would have returned, and
@@ -257,6 +268,12 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
     }
 
     const value = property.value;
+
+    // what the runtime reads as not declared, so it is nothing to lift and
+    // nothing to warn about
+    if (isUndefined(value)) {
+      continue;
+    }
 
     if (key === 'desc') {
       const text = literalString(value);

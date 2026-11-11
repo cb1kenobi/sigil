@@ -561,6 +561,41 @@ describe('sigil build', () => {
     expect(help).toMatch(/^\s+literal\s+Its own words$/m);
   }, 60_000);
 
+  it("a placeholder's own desc or hidden lost to the module's when it was not a plain literal", async () => {
+    // SIG-352. What a placeholder declares is what an unloaded command shows
+    // from source, readable or not; the build baked the module's `desc` over a
+    // tagged, thunked or computed one, and the module's `hidden` over a
+    // computed one
+    const app = join(fixtures, 'discover', 'placeholder-decides');
+    const { err } = await sigil('build', app, '--out', out, '--no-sourcemap');
+
+    expect(err).toContain('the "computed" command\'s "desc" is computed');
+    expect(err).toContain('the "shown" command\'s "hidden" is computed');
+    expect(process.exitCode).toBeFalsy();
+
+    const env = { ...process.env, LANG: undefined, LC_ALL: undefined, SIGIL_LOCALE: 'de' };
+    const run = (file: string) =>
+      spawnSync(process.execPath, [file, '--help'], { cwd: tmpdir(), encoding: 'utf-8', env })
+        .stdout;
+    const built = run(join(out, 'placeholder-decides.mjs'));
+    const source = run(join(app, 'dev.ts'));
+
+    // the same rows, from the same declarations, before anything loads
+    for (const row of [
+      /^\s+tagged\s+Placeholder words$/m,
+      /^\s+thunk\s+Platzhalterworte$/m,
+      /^\s+shown$/m,
+    ]) {
+      expect(source).toMatch(row);
+      expect(built).toMatch(row);
+    }
+    expect(built).not.toContain('Die App bauen');
+
+    // the one the build cannot read is listed by name alone, as it warned
+    expect(source).toMatch(/^\s+computed\s+computed words$/m);
+    expect(built).toMatch(/^\s+computed$/m);
+  }, 60_000);
+
   it('a desc or hidden written before a spread was baked, though the spread replaces it at run time', async () => {
     // SIG-352. `{ desc: 'early', hidden: false, ...base }` runs as `base` says,
     // and the build lifted `early` with no warning -- so the built `--help`
@@ -568,8 +603,8 @@ describe('sigil build', () => {
     const app = join(fixtures, 'discover', 'spread-order');
     const { err } = await sigil('build', app, '--out', out, '--no-sourcemap');
 
-    expect(err).toContain('"desc" is written before a spread');
-    expect(err).toContain('"hidden" is written before a spread');
+    expect(err).toContain('"desc" is written before a spread or a computed key');
+    expect(err).toContain('"hidden" is written before a spread or a computed key');
     expect(process.exitCode).toBeFalsy();
 
     const built = (...argv: string[]) =>
