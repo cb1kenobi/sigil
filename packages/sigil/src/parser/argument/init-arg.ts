@@ -1,6 +1,7 @@
 import { Argument, InternalState, Internal, InternalArgument } from '../../types.js';
 import { camelCase } from '../../util/camel-case.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
+import { envNames } from '../../util/env-names.js';
 import { lockDerived } from '../../util/lock-derived.js';
 import { resolveDesc } from '../../util/resolve-desc.js';
 import { DATA_TYPES } from '../../util/transform.js';
@@ -53,22 +54,7 @@ export function initArg(it: string | Argument | InternalArgument): InternalArgum
     throw new Error(`Invalid argument name: ${JSON.stringify(arg.name)}`);
   }
 
-  const envs = new Set<string>();
-  if (arg.env !== undefined) {
-    const env = typeof arg.env === 'string' ? [arg.env] : arg.env;
-
-    if (!Array.isArray(env)) {
-      throw new TypeError(
-        'Expected argument environment variable to be a string or array of strings'
-      );
-    }
-
-    for (const e of env) {
-      if (e && typeof e === 'string') {
-        envs.add(e);
-      }
-    }
-  }
+  const envs = envNames(arg.env, 'argument');
 
   if (arg.type !== undefined && !DATA_TYPES.has(arg.type)) {
     throw new Error(`Argument "${arg.name}" has unsupported data type "${arg.type}"`);
