@@ -305,6 +305,35 @@ export function softWrap(line: string, width: number): Array<[number, number]> {
 }
 
 /**
+ * The regular expression a query is read as, which is the whole of the pager's
+ * reading of one: literal unless `mode` is `'regex'`, and smart case -- a query
+ * with no capital letter matches either case, and an escape such as `\S` in a
+ * regular expression is not a capital somebody typed. {@link searchLines} says why
+ * each of those is the rule.
+ *
+ * Published for a view that searches or filters lines the pager does not hold --
+ * a log that is still growing, a list of them -- so that it reads a query exactly
+ * as the pager does rather than by a second rule that could drift from this one.
+ * The flags are `gu`, and `i` where the query has no capital: `String.search()`
+ * and `matchAll()` are the readers that ignore the global flag's `lastIndex`,
+ * which `test()` does not. An empty query matches everywhere, at no width; the
+ * pager treats one as no search at all, which is the caller's to decide.
+ *
+ * @param query - What was typed.
+ * @param mode - `'literal'` or `'regex'`. Defaults to `'literal'`.
+ * @returns The pattern.
+ * @throws {SyntaxError} For a `'regex'` query that does not compile, with the
+ *   engine's own complaint as the message.
+ */
+export function searchPattern(query: string, mode: PagerSearchMode = 'literal'): RegExp {
+  const regex = mode === 'regex';
+  const asked = regex ? query.replaceAll(/\\./gu, '') : query;
+  const flags = `gu${asked === asked.toLowerCase() ? 'i' : ''}`;
+  const source = regex ? query : escapeRegExp(query);
+  return new RegExp(source, flags);
+}
+
+/**
  * Searches every line, and never throws.
  *
  * **Smart case**: a query with no capital letter in it matches either case, and
@@ -338,14 +367,9 @@ export function searchLines(
     return { matches: [], truncated: false };
   }
 
-  const regex = mode === 'regex';
-  const asked = regex ? query.replaceAll(/\\./gu, '') : query;
-  const flags = `gu${asked === asked.toLowerCase() ? 'i' : ''}`;
-  const source = regex ? query : escapeRegExp(query);
-
   let pattern: RegExp;
   try {
-    pattern = new RegExp(source, flags);
+    pattern = searchPattern(query, mode);
   } catch (error) {
     return { error: (error as Error).message, matches: [], truncated: false };
   }

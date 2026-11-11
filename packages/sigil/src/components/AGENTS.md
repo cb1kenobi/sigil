@@ -3625,7 +3625,9 @@ again. The new tests are `test/components/multiline-extras.test.ts`.
 
 What is deliberately out: a bundled grammar (the hard constraint); an async
 `highlight`, which would need a frame to show while it is pending and nothing has
-asked for one; a count without a limit; and a limit in any unit but clusters.
+asked for one; a count without a limit; and a limit in any unit but clusters. SIG-289 shipped a highlighter in core
+anyway -- a lexer, not a grammar, which is what the constraint allows -- and
+`highlight` now also takes a `lang`; see "Syntax highlighting" below.
 
 #### A QR code: the encoder, and the two forms a module can be square in
 
@@ -7875,7 +7877,9 @@ does.
 - **A literal query is escaped by `escapeRegExp()`, which does not escape `/`,
   and that changes nothing (SIG-358).** The pager had its own class with a `/` in
   it, beside three copies without one in `sigil build`. The pattern is
-  built with `new RegExp(source, 'gu')`, where `/` is no delimiter and needs no
+  built in `searchPattern()` with `new RegExp()` and `gu` (plus `i` for smart
+  case), so `searchLines()` and every other reader of a query get the one
+  escape. There `/` is no delimiter and needs no
   escape, and `\/` and `/` are both legal under `u` -- so the two compile to the
   same matcher. `should take %j as itself` runs every syntax character, `/` and
   `-` through the search one at a time, before and after. The import is
@@ -7999,6 +8003,18 @@ does.
   claim-only-where-it-scrolls rule, `q` without `onQuit`, a key the field does not
   want, the page size, the trailing newline, tabs by column, a straddling wide
   character, and the piped write.
+- **`searchPattern()` is the reading of a query, published on its own
+  (SIG-295).** The log browser's log is a `ListView` rather than a pager (the
+  pager reads its document once, and SIG-387 has the rest). It still had to read
+  `/` and `&` the way the pager does, literal and smart case. That rule was four
+  lines inside `searchLines()`, and copying them is the drift the one-definition
+  rule exists for. So they are `searchPattern(query, mode)`, which
+  `searchLines()` now calls and the example imports. It throws where
+  `searchLines()` reports: a function that hands back a `RegExp` has nowhere
+  else to put the complaint. The flags are `gu`, plus `i` where the query has no
+  capital. `String.search()` and `matchAll()` are the readers that ignore the
+  global flag's `lastIndex`, so the doc names them. The pager's own suite
+  passes unchanged, and `searchPattern()` has two tests of its own.
 - **Not done:** carrying the input's colour through; incremental search; `-F`
   (quit when it fits on one screen); a follow mode that tails a growing input --
   the content is read once, which is now the whole of the reason: the count that
@@ -9028,7 +9044,8 @@ exported beside them as pure functions.
   same.** `diff()` of two equal texts is `''`, like `table([])`, with no
   "no differences" line: that sentence is the caller's to choose and translate.
 
-What is deliberately not done: a grammar or a highlighter; a hunk-level fold
+What is deliberately not done: a grammar or a highlighter (SIG-289 has since
+added `highlightCode()`, and the language each side is handed); a hunk-level fold
 ("12 unchanged lines"); word wrapping of code; collapsing identical files in a
 multi-file patch; a patch writer; a character-level pass; and a stateful view that
 scrolls (a `diffView()` tree sits in a `ScrollBox` or the pager like any other).
@@ -9417,6 +9434,9 @@ field joins like anything else focusable.
   row for one because a prompt is the whole question; a field is one part of a
   form, and where the error goes, when it is checked and what blocks a submit are
   the form's to say. `onChange` and `onSubmit` are where a caller checks.
+  Where it went, in an app: `examples/settings` keeps it in a form of its own
+  (`examples/AGENTS.md`, "A settings screen and a login form"), and publishing
+  that form is SIG-338.
 - **A focused field claims a paste, and that took a change to the router's
   order.** A router's `onPaste()` handlers ran before anything in the tree saw the
   paste, so an app-wide handler registered at startup took a paste meant for a
@@ -11595,6 +11615,115 @@ was reached, the measurements and the sabotage pass are in
   for an app to move the caret or read the selection; and `multiline()` onto the
   element.
 
+### Syntax highlighting: a lexer per language, and one seam for four components (SIG-289)
+
+`src/components/highlight.ts`, published as `@ttylabs/sigil/components/highlight`:
+`highlightCode(code, lang)`, `codeLanguage()` and `CODE_LANGUAGES`. The seam's type
+is `Highlighter`, in `prompt.ts` beside `HighlightSpan`, and the token-to-role table
+is `TOKEN_ROLE`, which moved to `src/theme` -- its entry there says why. The
+measurements, the review findings and the sabotage pass are in
+[docs/history/syntax-highlighting-a-lexer-per-language.md](../../../../docs/history/syntax-highlighting-a-lexer-per-language.md).
+
+- **A lexer in core, and tree-sitter is a package of its own if it is ever
+  anything.** The ticket asked "tree-sitter, or a small lexer? Both?", and the
+  constraint answers half of it: `web-tree-sitter` is a WASM runtime plus a grammar
+  per language, which is a dependency, so it can only be what `config-xml` is -- a
+  package an app installs to get it, at no cost to an app that does not. The other
+  half is that nothing in core has to wait for it. A tree-sitter highlighter is a
+  function of the `Highlighter` shape, exactly as an app's own already is, so the
+  package needs no change here to exist, and it is a follow-up (SIG-380) rather
+  than a reason to hold this. What the lexer gives up is what a grammar knows --
+  scope, what an expression means, a regular expression told from a division by
+  parsing rather than by guessing -- and what it buys is 14 kB, nothing imported at
+  run time, and a synchronous answer. That last one is not a convenience: every seam
+  is synchronous and "Textarea extras" refused an async `highlight`, because it
+  needs a frame to draw while the answer is pending, and tree-sitter's WASM load is
+  asynchronous.
+- **Six languages, the ticket's: JavaScript and TypeScript, JSON, shell, YAML,
+  Markdown and a diff.** They are what a CLI shows -- its own config, its scripts,
+  its README, its changes -- and each is one forward pass. `codeLanguage()` maps
+  every name a language goes by (a fence word, an extension, `typescript`) to one of
+  seven, case aside, and answers `undefined` for anything else, so
+  `highlightCode()` marks nothing in a language it does not read rather than
+  guessing. Markdown's "a block the hook marked nothing in is drawn as it was" is
+  what makes that the right answer: a `python` block next to a `ts` one stays the
+  accent instead of turning plain.
+- **One seam, `(code, lang?) => spans`, and every component hands it what it knows
+  of the language.** The four seams already shared `HighlightSpan`, `tokensOf()`
+  and the roles; what differed was the arity, because markdown's took a `lang` and
+  the other three did not -- so the one highlighter that reads several languages
+  could be handed to markdown and to nothing else without a wrapper. `Highlighter`
+  is the one type now, and `lang` comes from wherever the component learns it:
+  markdown's fence word, as before; `diff()`'s `lang` option, or else the extension
+  of each side's file name, with a `/dev/null` side taking the other side's -- so
+  each file of a `git diff` is read in its own language; and a `lang` option on
+  `TextArea()` and `multiline()`. An extension is handed over as written rather than
+  mapped to a language here, for the reason the fence word is: the highlighter is
+  what knows which names it reads.
+
+  **Backward compatible both ways, and checked rather than assumed.** A hook an app
+  already wrote as `(value) => spans` assigns to `Highlighter`, since fewer
+  parameters always do, and markdown's `(code, lang: string | undefined)` assigns
+  too, since TypeScript treats an optional and a required parameter as
+  interchangeable in an assignment. Every existing seam test passed unedited, which
+  is the check that nothing an app had moved. What an existing hook does see that it
+  did not is a second argument: `undefined` from a prompt or an area with no `lang`,
+  and a diff's extension where the input names a file. A hook that takes one
+  parameter cannot tell.
+
+- **No component highlights by default.** Every seam is still off until an app hands
+  it a highlighter. Turning it on would change how every markdown code block draws --
+  the accent becomes tokens and plain text -- and would put the lexers on every
+  subpath with a seam, which is four components' worth of apps paying for a feature
+  most of them do not use. Opting in is one property.
+- **The module imports a type and no value**, so the subpath is the facade and the
+  lexers, 14,145 B when it landed, and nothing it feeds: a pager or a log viewer
+  that wants spans does not load a prompt. `should keep the highlight subpath to the
+  lexers, with nothing they feed behind them` in `test/dist.test.ts` holds it there,
+  because `TOKEN_ROLE` imported as a value from `prompt.ts` -- the obvious slip --
+  would put the whole component stack behind it.
+- **Linear by construction, and timed against what a lexer is classically quadratic
+  on.** Every scan either consumes what it read or remembers that it failed: a
+  regular expression that does not close on its line is not looked for again on
+  that line; a search for a closing delimiter is a `finder()` that remembers where
+  it found the next one, or that there is none, for searches that only move
+  forward; a line's backtick runs are read once and a code span's closer found by a
+  cursor per run length; and Markdown's searches are made once per document rather
+  than per line. That last one was a review finding before any test ran: per line,
+  a `[` with no `]` after it scanned to the end of the document from every line
+  that had one. `linear time` in `test/components/highlight.test.ts` gives thirty
+  pathological inputs of a million characters a two-second deadline -- a quadratic
+  scan of that is seconds at the least and a linear one tens of milliseconds, so
+  an absolute deadline tells them apart on a loaded machine where a ratio of two
+  timings would not.
+- **Spans come out in order and never overlap, and two of one token that touch are
+  one.** The order is what the text area's filing assumes ("a highlighter emits its
+  spans in order, so that is almost always a step or two"), and the merge is why an
+  invalid run in JSON is one span rather than one per character.
+- **Measured, as of this change, on node 26.10 on arm64 macOS.** 1.93 MB of this
+  repository's TypeScript, 52,603 lines, in about 28 ms; this file, 844 kB of
+  Markdown, in about 16 ms. So over the text area's 50,000 lines a keystroke costs
+  what the regex highlighter its entry measured costs, about 20 ms, and an
+  incremental highlight -- the lines that changed and the state at the start of
+  them -- is still the way under that. It is a follow-up (SIG-382): the lexers carry
+  their state in locals today, and lifting it into something a line can resume from
+  changes every one of them.
+- **What each language does not read**, written on its lexer rather than repeated
+  here: JSX tags, the command inside a backquoted shell substitution, a YAML scalar
+  quoted over several lines, an indented Markdown code block. Each is drawn as
+  plainer than it is.
+- **Sabotage: seventeen, all caught**, every one type-checking. Thirteen are
+  readings -- the regular-expression memo, a template hole's depth, a member after
+  a spread, a fence's language, a substitution inside a string, a `case` pattern, a
+  JSON key's colon, a block scalar, a patch header's pair, a token's role, a diff
+  side's file name, and the `lang` a text area and a prompt hand over -- and each
+  fails a named test. Four are linearity guards, and two of those **survived the
+  first pass**: the shell's `${` search and Markdown's per-document searches went
+  back to `indexOf()` per call and finished inside the deadline, because a
+  quadratic made of `indexOf()` runs at memory speed and 200,000 characters was not
+  enough. The inputs are a million characters now and all four fail by seconds,
+  while the guarded lexers take at most 44 ms.
+
 ### Form controls: a button, a checkbox, a radio set and a switch (SIG-199)
 
 `src/components/button.ts`, `checkbox.ts`, `radio-set.ts`, `switch.ts`, and
@@ -11734,4 +11863,6 @@ sabotage pass -- is in
 - **Not done:** the prompts moved onto these elements; the dropdown select, which
   is SIG-285's; a disabled option as a `State`; an indeterminate checkbox; button
   variants (a default, a destructive one); a form element that owns Enter and
-  validation; and `:disabled` on `TextField`.
+  validation, which `examples/settings` writes for itself and SIG-338 would
+  publish; a `Computed` as `disabled`, which is SIG-334; and `:disabled` on
+  `TextField`.

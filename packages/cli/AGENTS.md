@@ -2571,6 +2571,8 @@ other is refused with numbers.
 - **The terminal is a spawned child that answers `isTTY`, not a pty.** Node has
   no pty and this repo has no pty dependency; taking one to read a boolean back is
   the kind of decision `the toolchain's dependencies` exists to make deliberate.
+  SIG-288 measured the candidates and recorded which one a pty package would take,
+  in [docs/history/a-pty-package-outside-the-zero-dependency-core.md](../../docs/history/a-pty-package-outside-the-zero-dependency-core.md).
   What `report.ts` reads about a destination is `stream.isTTY` and
   `stream.columns` and nothing else -- `ReportStream` is those two fields -- so
   the child is the real binary with real pipes, preloaded with a module that

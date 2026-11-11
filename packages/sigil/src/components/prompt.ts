@@ -23,6 +23,7 @@ import {
 import { isAbort } from '../input/index.js';
 import { State, untrack } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
+import { TOKEN_ROLE } from '../theme/index.js';
 import { graphemes, stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
 import {
@@ -43,6 +44,8 @@ import { keyHelp, type KeyHelpSource, keyLabel } from './key-help.js';
 import { type Mounted, type MountOptions, mountLive } from './mount.js';
 
 export { ESCAPE_TIMEOUT } from '../input/index.js';
+// the theme says what role a token draws in; re-exported here, where the seam is
+export { TOKEN_ROLE } from '../theme/index.js';
 
 /**
  * Thrown when a prompt cannot be answered, rather than returning a value that
@@ -1341,6 +1344,23 @@ export interface HighlightSpan {
   token: string;
 }
 
+/**
+ * Says which stretches of some code are which tokens -- the one shape every
+ * highlight seam takes: `multiline()`, `TextArea()`, `diff()` and `markdown()`.
+ *
+ * `lang` is what the component knows of the language, and it says where that came
+ * from: a code block's fence, a file name's extension in a diff, or the `lang` the
+ * app gave. It is `undefined` where nothing said, and a highlighter that only reads
+ * one language ignores it. `highlightCode()`, from
+ * `@ttylabs/sigil/components/highlight`, is one, for a handful of languages; an
+ * app's own is anything else of this shape.
+ *
+ * @param code - The code: a whole value, side or block, line endings made `\n`.
+ * @param lang - Its language, where the component knows one.
+ * @returns The spans, as offsets into `code`.
+ */
+export type Highlighter = (code: string, lang?: string) => readonly HighlightSpan[];
+
 export interface MultilineOptions extends PromptOptions, AccessibleOptions {
   /**
    * The most characters the answer may hold, counted as what the caret steps
@@ -1357,15 +1377,19 @@ export interface MultilineOptions extends PromptOptions, AccessibleOptions {
   gutter?: string;
   /**
    * Says which stretches of the value are which tokens, for syntax highlighting.
-   * Called with the whole value whenever it changes and never when only the caret
-   * moved. Spans are clipped to the value; where two cover one character the
-   * later one wins.
+   * Called with the whole value and `lang` whenever the value changes, and never
+   * when only the caret moved. Spans are clipped to the value; where two cover one
+   * character the later one wins.
    *
-   * There is no grammar in here and there will not be one: a runtime with no
-   * dependencies cannot carry a grammar set, so this is the seam an app fills
-   * with whatever highlighter it already has.
+   * `highlightCode()` from `@ttylabs/sigil/components/highlight` is a highlighter
+   * for a handful of languages; any function of this shape is one too.
    */
-  highlight?: (value: string) => readonly HighlightSpan[];
+  highlight?: Highlighter;
+  /**
+   * The language the value is in, handed to `highlight` as its second argument --
+   * `'ts'`, `'json'`, `'sh'`. Nothing reads it but the highlighter.
+   */
+  lang?: string;
   /**
    * Numbers each line of the value down the left of the field. A line soft
    * wrapped over several rows is numbered on its first, and the caret's line is
@@ -1966,31 +1990,6 @@ export function fieldLayers(read: () => FieldFrame): { caret: Element; field: El
 }
 
 /**
- * The role a token draws in, for the handful of names every highlighter has.
- *
- * **A role rather than a declaration**, which is the rule the framework sheet
- * keeps everywhere: a declaration two built-ins share lives on a role, and the
- * component class beside it is the narrower hook. So a keyword is the accent
- * because a theme that recoloured the accent meant it, and `.sigil-token-keyword`
- * is there for a sheet that wants keywords alone. Seven, because those are the
- * seven every highlighter emits under one spelling or another and each has a role
- * that reads right for it -- de-emphasis for a comment, the error role for what
- * the highlighter could not parse. Anything else is a hook with no default.
- *
- * A `Map`, for the reason a registry's lookup table is null-prototype: a token
- * is a name an app chose, and `constructor` reads back truthy off a plain object.
- */
-export const TOKEN_ROLE: ReadonlyMap<string, string> = new Map([
-  ['comment', 'sigil-muted'],
-  ['function', 'sigil-heading'],
-  ['invalid', 'sigil-error'],
-  ['keyword', 'sigil-accent'],
-  ['number', 'sigil-info'],
-  ['string', 'sigil-success'],
-  ['type', 'sigil-warn'],
-]);
-
-/**
  * What a token may be called, which is what a class may be called.
  *
  * Refused rather than cleaned up, because a name is spliced into a class list:
@@ -2582,7 +2581,7 @@ export function multiline(opts: MultilineOptions): Promise<string> {
       tokens = undefined;
       if (opts.highlight && shown === undefined) {
         if (highlighted?.value !== value) {
-          highlighted = { tokens: tokensOf(value, opts.highlight(value)), value };
+          highlighted = { tokens: tokensOf(value, opts.highlight(value, opts.lang)), value };
           for (const token of new Set(highlighted.tokens)) {
             if (token !== undefined && !layers.has(token)) {
               const layer = tokenLayer(frame, field, token);
