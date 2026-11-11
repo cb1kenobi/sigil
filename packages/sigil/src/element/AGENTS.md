@@ -63,6 +63,25 @@ the entry it belongs to.
   frame is settling lands in the next set rather than in the one being walked,
   which is the difference between a change arriving a frame late and a change
   being dropped.
+- **A mutation validates everything before it changes anything (SIG-346).**
+  `insertBefore()` took the child out of its old parent before it asked whether
+  `before` was a child of the target, so a refused call had already detached
+  the child, recorded it as removed and taken it out of its tree -- and
+  `insertBefore(a, a)` refused itself, because once `a` was out it was no longer
+  a child for `before` to be found among. Every check now comes first: a child
+  that would contain its parent, a parent that cannot have children, a `before`
+  that is not this element's child. A call that throws leaves the tree exactly as
+  it was, marks included, and a `before` that is `null` or not an element at all
+  gets the same message rather than a raw `TypeError`. `insertBefore(a, a)`
+  returns at once: the child is already where it was asked to go, so the call
+  ends where the DOM's does, without recording the removal and re-insertion the
+  DOM would. The index of `before` is still read _after_ the detach, because
+  taking the child out of the same parent shifts everything behind it, and an
+  index of `-1` there still throws -- unreachable while `#parent` and `#children`
+  agree, and kept so a broken invariant is loud rather than a child spliced into
+  the wrong place. `append()` with several children is one `insertBefore()` per
+  child, so a throw part-way leaves the earlier ones appended; that is per-call
+  atomicity, not a batch. See `test/element/element.test.ts`.
 - **A text is wrapped once, and paint reads the lines rather than making them
   again.** The cache used to hold the height a text came to and throw away the
   lines it came to -- which is the one thing paint needs, so paint wrapped the
