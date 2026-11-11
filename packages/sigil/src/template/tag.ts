@@ -265,19 +265,22 @@ class Parser {
   /**
    * Advances the running line and column over part of one static string.
    *
+   * Reads exactly `from` to `to` and nothing past it. `indexOf('\n', from)`
+   * cannot be bounded and runs on to the next newline, so on a template written
+   * on one line every call scanned to the end of it and the parse was
+   * quadratic again; `lastIndexOf('\n', to - 1)` has the same fault backwards.
+   *
    * @param string - The static string.
    * @param from - Where the last measurement stopped.
    * @param to - Where this one stops.
    */
   #see(string: string, from: number, to: number): void {
     let last = -1;
-    for (
-      let at = string.indexOf('\n', from);
-      at !== -1 && at < to;
-      at = string.indexOf('\n', at + 1)
-    ) {
-      this.#line += 1;
-      last = at;
+    for (let at = from; at < to; at += 1) {
+      if (string.charCodeAt(at) === 10) {
+        this.#line += 1;
+        last = at;
+      }
     }
     this.#column = last === -1 ? this.#column + (to - from) : to - last;
   }

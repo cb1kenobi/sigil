@@ -187,38 +187,72 @@ describe('the ui tag reports the positions it reported before SIG-349', () => {
   });
 });
 
-describe('the ui tag parses in time linear in the template', () => {
-  /**
-   * How many times the parser reads one of the template's static strings to
-   * parse k text elements, one hole each.
-   *
-   * Counted rather than timed, because a ratio of two timings is a flake on a
-   * loaded machine. The old `loc()` re-read every string before the cursor on
-   * each call, so this count grew with k²; reading forward from where it last
-   * stopped makes it grow with k.
-   */
-  function reads(k: number): number {
-    const strings = ['<box>', ...Array.from({ length: k }, () => '</text><text>'), '</box>'];
-    strings[1] = '<text>';
-    strings[strings.length - 1] = '</text></box>';
-    let count = 0;
-    const counted = new Proxy(strings, {
-      get(target, key, receiver) {
-        if (typeof key === 'string' && /^\d+$/.test(key)) {
-          count += 1;
+/**
+ * How many characters the parser examines to read a template.
+ *
+ * Counted rather than timed, because a ratio of two timings is a flake on a
+ * loaded machine. Each static string is handed over as a `Proxy` around a
+ * `String`, and every operation on it is charged by what it costs: an index
+ * or a `.length` is one, `charCodeAt()` is one, `indexOf()` is the distance it
+ * scanned, and anything else -- a `slice()`, a `split()`, being concatenated --
+ * is the whole string. So the count sees the work done _inside_ one string as
+ * well as how many strings are read, and a method the parser starts using that
+ * this does not know about is charged as a full scan rather than as nothing.
+ */
+function work(strings: readonly string[]): number {
+  let count = 0;
+  const wrapped = strings.map((string) => {
+    // a proxy needs an object, so the primitive is wrapped
+    return new Proxy(new String(string), {
+      get(target, key) {
+        const value: unknown = Reflect.get(target, key);
+        if (typeof value !== 'function') {
+          if (typeof key === 'string') {
+            count += 1;
+          }
+          return value;
         }
-        return Reflect.get(target, key, receiver) as unknown;
+        return (...args: unknown[]) => {
+          const result: unknown = (string as unknown as Record<string, Function>)[key as string]!(
+            ...args
+          );
+          if (key === 'charCodeAt' || key === 'charAt' || key === 'at') {
+            count += 1;
+          } else if (key === 'indexOf') {
+            const from = typeof args[1] === 'number' ? args[1] : 0;
+            count += (result === -1 ? string.length : (result as number) + 1) - from;
+          } else {
+            count += string.length;
+          }
+          return result;
+        };
       },
     });
-    const values = Array.from({ length: strings.length - 1 }, (_, at) => new Expr(`v${at}`));
-    parse(counted, values);
-    return count;
-  }
+  }) as unknown as string[];
+  parse(
+    wrapped,
+    strings.slice(1).map((_, at) => new Expr(`v${at}`))
+  );
+  return count;
+}
 
+describe('the ui tag parses in time linear in the template', () => {
   it('should not re-read the template for every node it reports a position for', () => {
-    const small = reads(500);
-    const large = reads(1000);
-    // linear is 2x; the quadratic version was close to 4x
-    expect(large / small).toBeLessThan(2.5);
+    // k text elements, one hole each: the first `loc()` concatenated every
+    // string before the cursor on each call, so this grew with k²
+    const holes = (k: number) => [
+      '<box><text>',
+      ...Array.from({ length: k - 1 }, () => '</text><text>'),
+      '</text></box>',
+    ];
+    // linear is 2x; recounting from the start was close to 4x
+    expect(work(holes(1000)) / work(holes(500))).toBeLessThan(2.5);
+  });
+
+  it('should not scan to the end of a line for every node on it', () => {
+    // k text elements on one line: a newline search not bounded by the cursor
+    // ran to the end of the line from every node, so this grew with k²
+    const line = (k: number) => [`<box>${'<text>item</text>'.repeat(k)}</box>`];
+    expect(work(line(1000)) / work(line(500))).toBeLessThan(2.5);
   });
 });

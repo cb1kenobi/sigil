@@ -134,19 +134,31 @@ the entry it belongs to.
   2.1 ms at 200, 17.9 ms at 800 and 56.7 ms at 1,600 (the ticket's figures; on a
   loaded machine the same build measured 252 ms at 1,600 and 365 ms at 3,200).
   It now keeps a running line and column and advances them from where the last
-  call stopped, which is sound because the cursor only moves forward: 0.17 ms at
-  200, 0.50 ms at 800, 0.99 ms at 1,600 and 2.5 ms at 3,200, measured the same
-  way. What it reports is unchanged, and the rules that look like accidents are
-  kept on purpose: only `\n` ends a line, so a `\r` from CRLF source is a column;
-  a column is UTF-16 code units, so an astral character is two and a wide one is
-  one; and an interpolated value counts for nothing. `sigil build` parses with
-  this same `parse()`, so its printed positions moved with it and there was no
-  second helper to change. `test/template/tag-loc.test.ts` pins the messages and
-  the per-node positions recorded from the quadratic version, and asserts the
-  growth as a **count** of reads of the static strings rather than as a timing
-  -- the old `loc()` grows that count 3.85x when k doubles, the new one under
-  2.5x. Caching the parsed IR per `TemplateStringsArray` is a separate, open
-  decision and is not done here, because it changes what the IR holds.
+  call stopped, which is sound because the cursor only moves forward. The scan
+  reads exactly the characters between the two calls and no further: the first
+  version looked for the next newline with `indexOf('\n', from)`, which cannot
+  be bounded and runs on to the next newline or the end of the string, so a
+  template written on one line was still quadratic (review round 1; 56.4 ms for
+  12,800 nodes on one line against 3.2 ms bounded). `lastIndexOf('\n', to - 1)`
+  is the same fault backwards. With the bounded loop, one node per line takes
+  0.14 ms at 200, 0.79 ms at 1,600 and 7.98 ms at 12,800, and all on one line
+  0.09, 0.59 and 5.98 ms. What it reports is unchanged, and the rules that look
+  like accidents are kept on purpose: only `\n` ends a line, so a `\r` from CRLF
+  source is a column; a column is UTF-16 code units, so an astral character is
+  two and a wide one is one; and an interpolated value counts for nothing. A
+  differential against the quadratic version over 200,000 random fragment
+  templates and 100,000 generated trees (238,520 node positions, 9,344 errors)
+  found no difference. `sigil build` parses with this same `parse()`, so its
+  printed positions are the tag's and there was no second helper to change.
+  `test/template/tag-loc.test.ts` pins the messages and the per-node positions
+  recorded from the quadratic version, and asserts the growth as a **count**
+  rather than a timing: each static string is handed over as a `Proxy` around a
+  `String` that charges every operation by the characters it examines, so the
+  count sees work done inside one string as well as how many strings are read.
+  Doubling k multiplies it by under 2.5; the original `loc()` multiplied it by
+  3.99 over many holes and over one line, and the unbounded `indexOf` by 3.97
+  over one line. Caching the parsed IR per `TemplateStringsArray` is a separate,
+  open decision and is not done here, because it changes what the IR holds.
 - **The host prop types are derived from the property table, not listed beside
   it.** `Style` carries every longhand and its resolved type; the shorthands and
   aliases are literal unions on their own tables. `Kebab<>` and `Camel<>` are
