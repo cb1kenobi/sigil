@@ -572,11 +572,81 @@ makes it testable with a fixture directory and no bundler at all.
   computed one, because the value really is the running app's and "computed
   rather than a string literal" about a tag whose neighbour lifted fine names
   nothing the author can act on.
+- **...and the flag travels with the `desc` it was lifted beside, whichever
+  spelling reached the module.** SIG-352. `factsOf()` returns `descTranslated`
+  with the key, and a string path (`pathed: './commands/build.ts'`) spread the
+  facts and kept it, while the object form in `readCommand()` --
+  `{ load: () => import(...) }` and `{ path: ... }` -- rebuilt the command from
+  `desc`, `hidden` and `module` and dropped it. So one module listed as
+  `pathed  Die App bauen` beside `loaded  Build the app` in the same built help,
+  two spellings of one declaration disagreeing about whether help is translated.
+  The rule is the one `described()` in `tree.ts` already follows for a
+  `commands.json` entry: the flag is carried when the `desc` used is the
+  module's, and goes with the placeholder's own reading whenever the placeholder
+  declares one. `moduleFacts()` returns `CommandFacts` so the compiler sees the
+  field rather than it riding along untyped. Covered by `a translated desc was
+  baked as English ...` in `test/build/discover.test.ts` and
+  `test/build-command.test.ts`, the second over the
+  `discover/translated-placeholders` fixture, built and run from source.
+- **A placeholder that declares a `desc` or a `hidden` decides it, readable or
+  not.** SIG-352, from review. The runtime registers the placeholder as written
+  and merges the module in only where the placeholder left a key `undefined`, so
+  whatever the placeholder declares is what an unloaded command shows -- and the
+  build took only a plain literal, falling back to the module's answer for
+  anything else. So `{ desc: words, load }` listed the module's description built
+  where it listed `computed words` from source, and a `hidden: flag` that was
+  `false` was replaced by a module's `hidden: true`. `placeholderFacts()` in
+  `discover.ts` reads the declaration (the last spelling of the key, `undefined`
+  being not declared): a string literal is baked; a `__` tag is baked as
+  **prose**, without `descTranslated`, because the schema module is evaluated
+  before `main()` loads a catalog and from source that tag answers in English
+  (`DescThunk` in `@ttylabs/sigil`'s types); a thunk over a tag or a string,
+  `` () => __`...` ``, is evaluated after the catalog and is baked as the key with
+  the flag, so it is printed as the same thunk. A value it cannot read bakes
+  nothing and warns, naming the command, and a literal of a type the runtime
+  refuses fails the build in the runtime's own words -- `Expected desc for the
+  "x" command to be a string or a function`, `Expected hidden to be a boolean in
+  "x" command` -- the rule a placeholder's `alias` and `default` already follow.
+  Any declared `desc` silences the module's pre-load diagnostics, readable or
+  not, since the placeholder has answered the question they are about. Covered by
+  `a placeholder's ... were replaced by the module's` in
+  `test/build/discover.test.ts` and its built-against-source twin in
+  `test/build-command.test.ts`, over `discover/placeholder-decides`.
 - **A spread is the case that looks harmless.** `export default { ...base, hidden: true }`
   may well carry a `desc` inside `base` and nothing here can see it, so an absent
   `desc` beside a spread is _reported_ rather than taken as "there is none" --
   which is the difference between a description the build missed and one nobody
   wrote.
+- **...and a key written _before_ a spread is the same unknown, because order is
+  what the module runs with.** SIG-352. In `{ desc: 'early', hidden: false,
+  ...base }` both values are whatever `base` carries, and the build lifted
+  `early` and `false` with no warning -- so built help listed `spread  early`
+  for a command whose loaded `desc` is `from base` and which hides itself. A
+  lifted key written before the **last** spread is now reported, by name
+  (`"desc" is written before a spread, which may replace it when the module
+  runs ...`), and **nothing is baked for it**, which leaves the command where an
+  unbundled one is until its module loads -- the answer an absent `desc` beside a
+  spread already gets, and the reason the absent-key warning does not fire again
+  for a `desc` that was written early: one warning per key, naming what to move.
+  A key written after the last spread is read as before, and a key written on
+  both sides is silent, because the later spelling wins whatever the spread
+  carried. A key between two spreads is before the last one and so unknown.
+  A **computed key** counts as a spread here, because `[k]` may be `desc` as
+  easily as anything else -- the reason `keyedPackage()` refuses either -- so
+  the warning says `written before a spread or a computed key` and the last of
+  either is the line. Covered by `a desc or hidden written before a spread ...`
+  and `a desc written before a computed key ...` in `test/build/extract.test.ts`
+  and by `test/build-command.test.ts` over the `discover/spread-order` fixture,
+  built and run from source.
+- **...and a key written twice is its last spelling, whatever that turns out to
+  be.** SIG-352, from review. Each `desc` or `hidden` clears what an earlier one
+  lifted before it is read, so `{ desc: 'a', desc: f() }` bakes nothing and its
+  warning that help lists the command by name alone is true, where it used to
+  bake `a`; the same for a later accessor and a later computed `hidden`. And
+  ``{ desc: __`key`, desc: 'plain' }`` is prose, where the earlier tag's
+  `descTranslated` used to survive and print `plain` as a catalog key. A later
+  `undefined` is not declared, as the runtime reads it, so it leaves nothing and
+  says nothing.
 - **It looks through the wrappers that change nothing and stops at the one that
   might not.** `command()` is documented as the identity function and exists only
   so inference reaches a nested literal; `as` and `satisfies` are type syntax that
@@ -2562,6 +2632,8 @@ other is refused with numbers.
 - **The terminal is a spawned child that answers `isTTY`, not a pty.** Node has
   no pty and this repo has no pty dependency; taking one to read a boolean back is
   the kind of decision `the toolchain's dependencies` exists to make deliberate.
+  SIG-288 measured the candidates and recorded which one a pty package would take,
+  in [docs/history/a-pty-package-outside-the-zero-dependency-core.md](../../docs/history/a-pty-package-outside-the-zero-dependency-core.md).
   What `report.ts` reads about a destination is `stream.isTTY` and
   `stream.columns` and nothing else -- `ReportStream` is those two fields -- so
   the child is the real binary with real pipes, preloaded with a module that

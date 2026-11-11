@@ -147,4 +147,19 @@ describe('mkdirOwnerSync', () => {
     ]);
     expect(fs.dirs.get(dest)).to.deep.equal({ gid: 0, uid: 0 });
   });
+
+  // the default was `0o7777`, which asks for setuid, setgid and sticky as well as
+  // `rwxrwxrwx`, and whether a new directory kept any of them was left to the
+  // kernel: macOS drops all three, Linux keeps the sticky bit. This pins what is
+  // asked for, which a real `mkdir` on macOS cannot -- it hides the old value;
+  // `mkdir-owner-sync-mode.test.ts` reads what the kernel then made
+  it('should ask for no setuid, setgid or sticky bit by default', () => {
+    mkdirOwnerSync(dest);
+    expect(fs.mkdirSync).toHaveBeenCalledWith(dest, { mode: 0o777, recursive: true });
+  });
+
+  it('should pass an explicit mode through as given', () => {
+    mkdirOwnerSync(dest, { mode: 0o1700 });
+    expect(fs.mkdirSync).toHaveBeenCalledWith(dest, { mode: 0o1700, recursive: true });
+  });
 });
