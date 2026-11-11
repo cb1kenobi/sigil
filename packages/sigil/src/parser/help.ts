@@ -12,6 +12,7 @@ import { splitTopic, topicSeparator } from '../util/topic.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
 import { resolveTopic } from './command/topic.js';
+import { addFreeFlag } from './option/free-flag.js';
 import { unknownCommand } from './suggest.js';
 import { typedOn } from './typed-on.js';
 
@@ -50,24 +51,14 @@ export async function registerHelp(root: InternalCommand, schema: Schema): Promi
   const internal = root[Internal];
   const handles: HelpHandles = {};
 
-  // `find()` answers about spellings and `has()` about the key the registry
-  // stores an option under, which is its name. Both have to be free: an option
-  // spelled `-x` and named `help` takes the key `help` without answering to
-  // `--help`, and adding one there would replace it -- leaving `-x` pointing at
-  // the option that replaced it.
-  if (!internal.options.find('--help') && !internal.options.has('help')) {
-    // the short form only when it is free: `-h` is a common spelling for
-    // something else, and taking it from an app that wants it would be worse
-    // than not having it
-    const format = internal.options.find('-h') ? '--help' : '-h, --help';
-    await internal.options.add({ desc: __`Show help for a command`, format });
-    handles.option = internal.options.find('--help');
-
-    if (handles.option) {
-      // a flag always has a value, and this one is not the app's: an app that
-      // never declared `--help` should not find `help: false` in its argv
-      handles.option[Internal].parserOwned = true;
-    }
+  // nothing over a spelling or a name the app already holds; see `addFreeFlag()`
+  const option = await addFreeFlag(internal.options, {
+    desc: () => __`Show help for a command`,
+    name: 'help',
+    short: 'h',
+  });
+  if (option) {
+    handles.option = option;
   }
 
   if (!internal.commands.find('help')) {

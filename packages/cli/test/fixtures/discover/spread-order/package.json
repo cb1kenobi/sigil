@@ -1,0 +1,7 @@
+{
+  "name": "spread-order",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}
