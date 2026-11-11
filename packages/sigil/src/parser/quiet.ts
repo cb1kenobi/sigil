@@ -49,6 +49,7 @@
 
 import { __ } from '../i18n/index.js';
 import { Internal, type InternalCommand, type InternalOption, type ParseState } from '../types.js';
+import { addFreeFlag } from './option/free-flag.js';
 import { typedOn } from './typed-on.js';
 
 /**
@@ -79,34 +80,25 @@ export async function registerQuiet(
     return {};
   }
 
-  const internal = root[Internal];
   const handles: QuietHandles = {};
 
-  // `find()` answers about spellings and `has()` about the key the registry
-  // stores an option under, which is its name -- both have to be free, for the
-  // reason the help wiring records: an option spelled `-x` and named `quiet`
-  // takes the key without answering to `--quiet`, and adding one there would
-  // replace it, leaving `-x` pointing at whatever replaced it.
+  // nothing over a spelling or a name the app already holds; see
+  // `addFreeFlag()`. The asymmetry is the surprising half: a merely-*named*
+  // `quiet` costs the app the flag **entirely**, where a taken `-q` costs it
+  // only the short form. Replacing a registry key is a worse thing to do to an
+  // app than declining to add a spelling.
   //
-  // The asymmetry is the surprising half and is why it is written down: a
-  // merely-*named* `quiet` costs the app the flag **entirely**, where a taken
-  // `-q` costs it only the short form. Replacing a registry key is a worse
-  // thing to do to an app than declining to add a spelling
-  if (internal.options.find('--quiet') || internal.options.has('quiet')) {
-    return handles;
-  }
-
-  const format = internal.options.find('-q') ? '--quiet' : '-q, --quiet';
-  await internal.options.add({ desc: __`Suppress progress, not results`, format });
-  handles.option = internal.options.find('--quiet');
-
-  if (handles.option) {
-    // a flag always has a value, and this one is not the app's: an app that
-    // never declared `--quiet` should not find `quiet: false` on one of its own
-    // destinations. What a command that wants to know asks instead is
-    // `resolveOutput()`, which is the resolved answer rather than one of its
-    // four sources -- a mount told `quiet: false` would make `argv.quiet` a lie
-    handles.option[Internal].parserOwned = true;
+  // Parser-owned, so it never reaches `argv`: what a command that wants to know
+  // asks instead is `resolveOutput()`, which is the resolved answer rather than
+  // one of its four sources -- a mount told `quiet: false` would make
+  // `argv.quiet` a lie
+  const option = await addFreeFlag(root[Internal].options, {
+    desc: () => __`Suppress progress, not results`,
+    name: 'quiet',
+    short: 'q',
+  });
+  if (option) {
+    handles.option = option;
   }
 
   return handles;

@@ -37,7 +37,7 @@ import {
   markdownText,
 } from './markdown-parse.js';
 import { unicodeSupported } from './note.js';
-import { type HighlightSpan, TOKEN_ROLE, tokensOf } from './prompt.js';
+import { type Highlighter, TOKEN_ROLE, tokensOf } from './prompt.js';
 import { ruleView } from './rule.js';
 import { type Column, tableRowView, tableWidths } from './table.js';
 
@@ -52,8 +52,9 @@ export interface MarkdownOptions extends StyledOptions {
   env?: Record<string, string | undefined>;
   /**
    * Says which stretches of a code block are which tokens, for syntax
-   * highlighting -- the hook `diff()` and `multiline()` take, with the block's
-   * language beside the code.
+   * highlighting -- the hook `diff()`, `multiline()` and `TextArea()` take, with
+   * the block's language beside the code. `highlightCode()` from
+   * `@ttylabs/sigil/components/highlight` is one, for the languages it names.
    *
    * Called once per fenced or indented code block, with the whole block and the
    * first word of its info string (`ts` for a fence opened with three backticks
@@ -64,7 +65,7 @@ export interface MarkdownOptions extends StyledOptions {
    * it does not know -- is drawn as it would be without it. Inline code spans are
    * never handed to it: they have no language to say what they are in.
    */
-  highlight?: (code: string, lang: string | undefined) => readonly HighlightSpan[];
+  highlight?: Highlighter;
   /**
    * Whether a link is an OSC 8 hyperlink, with its URL out of sight, or its words
    * with the URL after them. Defaults to `supportsHyperlinks()` for `stream`, and
