@@ -339,7 +339,8 @@ describe('a key spec', () => {
     // written out, because asserting only that each entry parses would pass for
     // a name that has no business being in there: `parseKeys()` reads whatever
     // the set contains, so the set is what has to be checked. The content is the
-    // values of `SEQUENCES` and `CONTROLS` with the one-character ones dropped,
+    // values of `SEQUENCES`, `LINUX_CONSOLE` and `CONTROLS` with the
+    // one-character ones dropped,
     // plus the `escape` `readEscape()` produces inline
     expect([...KEY_NAMES].sort()).to.deep.equal([
       'backspace',

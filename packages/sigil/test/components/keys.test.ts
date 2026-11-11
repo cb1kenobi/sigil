@@ -301,8 +301,6 @@ describe('pendingLength()', () => {
     expect(pendingLength('a[A[1')).to.equal(3);
   });
 
-  // the modifier is the ESC in front of the sequence, so all three bytes are
-  // what the `A` after them completes
   // the Linux console's F1 split before its letter is held like any other split
   // sequence, or the letter arrives on its own in the next read and is typed
   it('should hold ESC [ [ until the letter that makes it a Linux console F-key', () => {
@@ -312,6 +310,8 @@ describe('pendingLength()', () => {
     expect(pendingLength('\x1b[[Z')).to.equal(0);
   });
 
+  // the modifier is the ESC in front of the sequence, so all three bytes are
+  // what the `A` after them completes
   it('should hold an alt held over a sequence that has not finished', () => {
     expect(pendingLength('[')).to.equal(3);
   });

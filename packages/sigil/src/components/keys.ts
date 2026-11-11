@@ -114,10 +114,10 @@ const CONTROLS: Record<string, string> = {
 /**
  * Every name this decoder gives a key that is not a character.
  *
- * Derived from the two tables above rather than written out, which is the rule
+ * Derived from the three tables above rather than written out, which is the rule
  * `COLOR_PROPERTIES` and `INHERITED` already follow: a hand-written list beside
  * the tables is a second list to keep in agreement, and a name added to one of
- * them without the other is a key no spec can name. The read is what a binding
+ * them without the list is a key no spec can name. The read is what a binding
  * grammar needs -- `up` is a name and `u` is a character, and only this knows
  * which strings are which.
  *
@@ -368,14 +368,16 @@ function readEscape(input: string, start: number, opts: DecodeOptions): Read {
     // a final byte to the reader below, which ended the sequence there and left
     // the letter to be typed. `ESC [ [` followed by anything else is still read
     // the way it always was, and with nothing after it yet it is held, so a read
-    // that split before the letter cannot type it either
+    // that split before the letter cannot type it either. Held under `final`
+    // too, which reads the same -- an unknown `ESC [ [` -- since `final` is
+    // asked only of `decodeKeys()`, which reads the key and not whether it held
     if (next === '[' && input[start + 2] === '[') {
       const letter = input[start + 3];
-      if (letter === undefined && !opts.final) {
+      if (letter === undefined) {
         const sequence = input.slice(start);
         return { key: key({ name: 'unknown', sequence }), length: sequence.length, pending: true };
       }
-      const fn = letter === undefined ? undefined : LINUX_CONSOLE[letter];
+      const fn = LINUX_CONSOLE[letter];
       if (fn !== undefined) {
         return {
           key: key({ name: fn, sequence: input.slice(start, start + 4) }),
