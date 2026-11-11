@@ -460,15 +460,16 @@ function listingFile(runtime: Runtime): string | undefined {
  * A listing from the cache, if it is fresh enough.
  *
  * `within` is a parameter rather than the constant so that the failure path can
- * leave it out and ask for one whatever its stamp says: a stale listing is
- * worth more than no listing when the network is gone, and that is the same
- * file read with a different question. Fresh is `isFreshStamp()`'s rule, which
- * is the update check's: a stamp more than a minute ahead of this clock, or one
- * that is not a finite number, is stale (SIG-420).
+ * leave it out and ask for one however old or far ahead its stamp is: a stale
+ * listing is worth more than no listing when the network is gone, and that is
+ * the same file read with a different question. Fresh is `isFreshStamp()`'s
+ * rule, which is the update check's: a stamp more than a minute ahead of this
+ * clock, or one that is not a finite number, is stale (SIG-420).
  *
  * @param runtime - Which runtime.
  * @param within - The oldest acceptable age in milliseconds, or `undefined`
- *   for any listing at all.
+ *   for a listing of any age. A `ts` that is not a finite number is refused
+ *   either way, as a file this did not write.
  * @returns The releases, or `undefined`.
  */
 function cached(runtime: Runtime, within?: number): Release[] | undefined {

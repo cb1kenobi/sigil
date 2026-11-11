@@ -3539,9 +3539,15 @@ about what a valid app is would be the worse half of the feature.
   because a future stamp says the clock was wrong and not the versions, and
   offline the stale listing still beats nothing. A `ts` that is not a finite
   number is refused on both paths, as a file this did not write, which is the
-  same answer as an unreadable one. Tested in `test/runtimes-cache.test.ts`
-  without a network: a year ahead, 65 s ahead, 30 s ahead, a digit string and
-  eight non-numbers, plus both fallback cases. Sabotage-checked four ways --
+  same answer as an unreadable one. That moves the offline answer both ways,
+  and both are fine: it now offers a listing stamped `ts: 0` or a negative
+  number, which `!held.ts` used to refuse at `0`, and refuses one stamped
+  `"nope"` or `{}`, which it used to offer. The releases in it still go through
+  `isVersion()` either way, so what reaches the picker is no less checked.
+
+  Tested in `test/runtimes-cache.test.ts` without a network: a year ahead,
+  65 s ahead, 30 s ahead, a digit string and eight stamps that are not finite
+  numbers, plus both fallback cases. Sabotage-checked four ways --
   the old expression back, the helper's future clause dropped, its type guard
   dropped, and the fallback given an age limit -- and each fails a test.
 

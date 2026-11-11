@@ -20,6 +20,11 @@ export const CLOCK_TOLERANCE = 60_000;
  * arithmetic: a string of digits holding the current time is concatenated
  * rather than added to, and compares as a number twenty-odd digits long.
  *
+ * A number that is not finite needs no guard of its own, for any finite `now`:
+ * Infinity fails the first comparison, -Infinity the second and NaN both. That
+ * is why there is no `Number.isFinite()` beside the `typeof`, which is there for
+ * the type rather than for the value -- the same reading SIG-376 settled on.
+ *
  * One definition for every stamped cache sigil keeps -- the update check's and
  * `sigil package`'s runtime listings -- so the two cannot come to disagree
  * about what a stamp in the future means.
@@ -31,10 +36,5 @@ export const CLOCK_TOLERANCE = 60_000;
  * @returns `true` when the cache may be answered from without asking again.
  */
 export function isFreshStamp(ts: unknown, maxAge: number, now: number = Date.now()): boolean {
-  return (
-    typeof ts === 'number' &&
-    Number.isFinite(ts) &&
-    ts <= now + CLOCK_TOLERANCE &&
-    ts + maxAge >= now
-  );
+  return typeof ts === 'number' && ts <= now + CLOCK_TOLERANCE && ts + maxAge >= now;
 }
