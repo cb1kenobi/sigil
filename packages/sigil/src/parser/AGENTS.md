@@ -1683,6 +1683,46 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   through `i18n`, so it is 39,911 B over eleven modules; `dist.test.ts` pins the
   count.
 
+### An option map is read by one function, and an array is not one
+
+- **`optionDeclarations()` in `option/option-map.ts` is the one reading of
+  `{ '--flag': … }`.** SIG-341. A command's `options` and a help section's had
+  each written it out, and the copies had drifted: the section's took a string
+  description and refused a thunk, although `HelpSection.options` is the same
+  `OptionDeclarations` type, so a section threw `Expected help section "Extra"
+  option to be an object` over a declaration a schema accepts. The caller passes
+  what the map belongs to (`''`, or `help section "Title" `) so each keeps its
+  own error text byte for byte. It is a generator so that each entry is checked
+  as the caller reaches it, which keeps which error wins in a map with two bad
+  entries what it was.
+- **An array of options is refused.** `Object.entries()` yields an array's
+  indices, so `options: ['--foo <x>']` declared an option named `0` described as
+  `--foo <x>`, and the parse went on with `argv` holding `{ 0: false }`. No
+  array form of `options` was ever documented, tested or used by a demo or
+  example (checked before refusing it), and `args` and `commands` already refuse
+  a container of the wrong shape. It is the same `Expected options to be an
+  object` a number gets. Pinned in `test/parser/regressions.test.ts` under `an
+  array of options declared an option named 0`, on a schema, a command and a
+  help section.
+- **The three free flags share `addFreeFlag()`, and nothing about them changed.**
+  `--help`, `--version` and `--quiet` were the same eighteen lines with a
+  different name, letter and description. They did not differ in how they ask:
+  all three asked `find()` **and** `has()` for the long form and `find()` alone
+  for the short one, which is the recorded asymmetry under "And the asymmetry a
+  merely-_named_ `format` has is `registerQuiet()`'s own" above -- so the helper
+  asks the same, for all three. Its `desc` is a function, so `__` renders only
+  for a flag that is added, which is when it rendered before. `registerFormats()`
+  has the same shape and is left alone: it adds two options that depend on each
+  other and refuses a command that left room for neither.
+- **`env` is read by `envNames()` in `src/util/env-names.ts`**, for an option and
+  an argument alike, taking the one word of the error that differed. A config
+  setting's `env` is the same shape read under a different contract, and is
+  deliberately not folded in: `readSchema()` in `src/config/schema.ts` **refuses**
+  an empty or non-string entry where an option or an argument skips it, and the
+  list it reads is an array rather than a set. Merging them would change one of
+  the two, so the config one is `settingEnvNames()`, private to that module,
+  and only the parser's two readers share a definition.
+
 ### Sharing options between commands
 
 - **Nothing declares what a command inherits, because nothing has to.** Options

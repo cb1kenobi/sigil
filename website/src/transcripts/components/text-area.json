@@ -19,7 +19,13 @@
         "description": "Says which stretches of the value are which tokens, for syntax highlighting.",
         "name": "highlight",
         "optional": true,
-        "type": "(value: string) => readonly HighlightSpan[]"
+        "type": "Highlighter"
+      },
+      {
+        "description": "The language the value is in, handed to `highlight` as its second argument -- `'ts'`, `'json'`, `'md'`. Nothing reads it but the highlighter.",
+        "name": "lang",
+        "optional": true,
+        "type": "string"
       },
       {
         "description": "Numbers each line down the left. Two digits at the least, so the area does not move a column right at the tenth line; the caret's line is the one not muted.",

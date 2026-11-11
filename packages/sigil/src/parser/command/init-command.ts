@@ -12,6 +12,7 @@ import { lockDerived } from '../../util/lock-derived.js';
 import { resolveDesc } from '../../util/resolve-desc.js';
 import { initArgs } from '../argument/init-args.js';
 import { registerFormats } from '../format.js';
+import { optionDeclarations } from '../option/option-map.js';
 import { OptionRegistry } from '../option/option-registry.js';
 import { CommandRegistry } from './command-registry.js';
 import {
@@ -252,25 +253,8 @@ export async function initCommand(
 
   // options
   if (decl.options !== undefined) {
-    if (!decl.options || typeof decl.options !== 'object') {
-      throw new TypeError('Expected options to be an object');
-    }
-
-    for (const [format, params] of Object.entries(decl.options)) {
-      if (params === undefined || params === null) {
-        await options.add({ format });
-      } else if (typeof params === 'string' || typeof params === 'function') {
-        // a string or a thunk is the shorthand for the description, and the two
-        // are the same statement written two ways -- `initOption()` resolves
-        // either, so this does not have to know which it was handed
-        await options.add({ desc: params, format });
-      } else if (typeof params === 'object') {
-        // the format key fills in for a missing `format`, but folding it in
-        // must not write to the caller's option object
-        await options.add({ ...params, format: params.format ?? format });
-      } else {
-        throw new TypeError('Expected option to be an object');
-      }
+    for (const opt of optionDeclarations(decl.options)) {
+      await options.add(opt);
     }
   }
 
